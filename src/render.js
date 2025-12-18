@@ -276,25 +276,35 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
       const py = flt[ptr++];
       const pv = flt[ptr++];
       const type = flt[ptr++];
+      const colorId = flt[ptr++];
       
       // Draw pellet
       // Can't use Pellet object.
       // Inline drawing
-      let color = '#fff';
-      let glow = '#fff';
+      let color = null;
+      let glow = null;
+      if (colorId > 0) {
+        color = hashColor(colorId * 17 + 3);
+        glow = color;
+      }
       
       // Map Type to Color
       // 0=Ambient, 1=CorpseBig, 2=CorpseSmall, 3=Boost
       if (type === 0) {
-           // Ambient gradient? getPelletColor(pv)
-           color = getPelletColor(pv);
-           glow = getPelletGlow(pv);
+           if (!color) {
+             color = getPelletColor({ v: pv, kind: 'ambient' });
+             glow = getPelletGlow({ kind: 'ambient' });
+           }
       } else if (type === 1 || type === 2) {
-           color = '#ff9999'; // Corpse 
-           glow = '#ff0000';
+           if (!color) {
+             color = THEME.pelletCorpse;
+             glow = THEME.glowCorpse;
+           }
       } else {
-           color = '#00ff00'; // Boost
-           glow = '#00ff00';
+           if (!color) {
+             color = THEME.pelletBoost;
+             glow = THEME.glowBoost;
+           }
       }
       
       const r = 2 + Math.sqrt(pv) * 2; // Approx radius logic

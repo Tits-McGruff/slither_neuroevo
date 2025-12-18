@@ -8,6 +8,10 @@ import { setByPath } from './utils.js';
 
 let world = null;
 let loopToken = 0;
+let viewW = 0;
+let viewH = 0;
+let vizEnabled = false;
+let vizTick = 0;
 
 self.onmessage = function(e) {
   const msg = e.data;
@@ -19,6 +23,8 @@ self.onmessage = function(e) {
         msg.updates.forEach(u => setByPath(CFG, u.path, u.value));
       }
       world = new World(msg.settings || {});
+      if (msg.viewW) viewW = msg.viewW;
+      if (msg.viewH) viewH = msg.viewH;
       // We need to "load" the imported brains if persistence was used?
       // Handled via separate 'import' message or 'init' payload.
       if (msg.population) {
@@ -45,6 +51,15 @@ self.onmessage = function(e) {
       } else if (msg.action === 'simSpeed') {
         if (world) world.applyLiveSimSpeed(msg.value);
       }
+      break;
+
+    case 'resize':
+      viewW = msg.viewW;
+      viewH = msg.viewH;
+      break;
+
+    case 'viz':
+      vizEnabled = !!msg.enabled;
       break;
       
     case 'resurrect':
@@ -96,7 +111,7 @@ function loop(token) {
       accumulator += dt;
       // Fixed time step update
       while (accumulator >= FIXED_DT) {
-         world.update(FIXED_DT);
+         world.update(FIXED_DT, viewW, viewH);
          accumulator -= FIXED_DT;
       }
       
@@ -132,6 +147,13 @@ function loop(token) {
             minFitness: minFit
           }
       };
+
+      if (vizEnabled && world.focusSnake && world.focusSnake.brain) {
+        vizTick = (vizTick + 1) % 6;
+        if (vizTick === 0) {
+          stats.viz = buildVizData(world.focusSnake.brain);
+        }
+      }
       
       // We transfer the buffer to avoid copy
       self.postMessage({ type: 'frame', buffer: buffer.buffer, stats }, [buffer.buffer]);
@@ -144,4 +166,26 @@ function loop(token) {
   // Ideally sync to screen, but worker is decoupled.
   // Let's target 60fps.
   setTimeout(() => loop(token), 16);
+}
+
+function buildVizData(brain) {
+  if (!brain) return null;
+  if (brain.kind === 'mlp') {
+    return {
+      kind: 'mlp',
+      mlp: {
+        layerSizes: brain.mlp.layerSizes.slice(),
+        _bufs: brain.mlp._bufs.map(buf => buf.slice())
+      }
+    };
+  }
+  return {
+    kind: brain.kind,
+    mlp: {
+      layerSizes: brain.mlp.layerSizes.slice(),
+      _bufs: brain.mlp._bufs.map(buf => buf.slice())
+    },
+    gru: brain.gru ? { hiddenSize: brain.gru.hiddenSize, h: brain.gru.h.slice() } : null,
+    head: brain.head ? { outSize: brain.head.outSize } : null
+  };
 }

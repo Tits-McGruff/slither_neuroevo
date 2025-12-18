@@ -17,6 +17,7 @@ import { FitnessChart } from './FitnessChart.js';
 import { AdvancedCharts } from './chartUtils.js';
 
 // Canvas and HUD
+let worker = null;
 const canvas = document.getElementById('c');
 // HUD removed, using tab info panels instead
 // Expose the rendering context globally so render helpers can draw.
@@ -34,6 +35,9 @@ function resize() {
   canvas.width = Math.floor(cssW * dpr);
   canvas.height = Math.floor(cssH * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (worker) {
+    worker.postMessage({ type: 'resize', viewW: cssW, viewH: cssH });
+  }
 }
 window.addEventListener('resize', resize);
 resize();
@@ -80,6 +84,9 @@ tabBtns.forEach(btn => {
     btn.classList.add('active');
     document.getElementById(btn.dataset.tab).classList.add('active');
     activeTab = btn.dataset.tab;
+    if (worker) {
+      worker.postMessage({ type: 'viz', enabled: activeTab === 'tab-viz' });
+    }
   });
 });
 
@@ -149,7 +156,7 @@ elN5.value = '32';
 refreshCoreUIState();
 
 // Worker Setup
-const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 
 let currentFrameBuffer = null;
 let currentStats = { gen: 1, alive: 0, fps: 60 };
@@ -159,6 +166,8 @@ let selectedSnake = null; // Currently selected snake for God Mode
 let isDragging = false;
 let dragStartX = 0;
 let dragStartY = 0;
+
+let currentVizData = null;
 
 let proxyWorld = {
   generation: 1,
@@ -183,11 +192,12 @@ window.currentWorld = proxyWorld; // For HoF
 function initWorker(resetCfg = true) {
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdates(settingsContainer);
-  worker.postMessage({ type: 'init', settings, updates, resetCfg });
+  worker.postMessage({ type: 'init', settings, updates, resetCfg, viewW: cssW, viewH: cssH });
 }
 
 // Init Worker
 initWorker(true);
+worker.postMessage({ type: 'resize', viewW: cssW, viewH: cssH });
 
 // Message Handler
 worker.onmessage = (e) => {
@@ -208,6 +218,9 @@ worker.onmessage = (e) => {
       } else {
         fitnessHistory.push(msg.stats.fitnessData);
       }
+    }
+    if (msg.stats.viz) {
+      currentVizData = msg.stats.viz;
     }
   }
 };
@@ -448,24 +461,18 @@ const FIXED_DT = 1 / 60;
 function frame(t) {
   // console.log("Frame loop running"); // Spammy
   if (currentFrameBuffer) {
-      // Need Camera Header in Buffer!
-      // Workaround: We don't have camera in buffer yet.
-      // Assume 0,0 and Zoom 1.0 for overview?
-      // Or 0.4 zoom.
-      // We must fix Serializer.
-      const zoom = proxyWorld.viewMode === 'overview' ? 0.4 : 1.0; 
-      renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH, zoom, 0, 0);
+      renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH);
   }
   
   // Render active tab content
   if (activeTab === 'tab-viz') {
     ctxViz.clearRect(0, 0, vizCanvas.width, vizCanvas.height);
-    // Visualizer needs Brain object.
-    // Worker only sends positions.
-    // Visualizer is BROKEN with Worker unless we send weights.
-    // For now, render "Connection Lost" text?
-    ctxViz.fillStyle = '#fff';
-    ctxViz.fillText("Visualizer not available in Fast Mode", 20, 20);
+    if (currentVizData) {
+      brainViz.render(ctxViz, currentVizData);
+    } else {
+      ctxViz.fillStyle = '#fff';
+      ctxViz.fillText("Visualizer not available in Fast Mode", 20, 20);
+    }
   } else if (activeTab === 'tab-fitness') {
     // Fitness Chart needs history.
     // worker stats has gen.

@@ -23,7 +23,7 @@ export class WorldSerializer {
         snakeFloats += s.points.length * 2; // px, py
       }
     }
-    const pelletFloats = 1 + world.pellets.length * 4; // count + x, y, val, type
+    const pelletFloats = 1 + world.pellets.length * 5; // count + x, y, val, type, colorId
     
     // Total Bytes = (Headers + Snakes + Pellets) * 4
     // Headers: Gen(1), TotalSnakes(1), AliveCount(1), CamX(1), CamY(1), CamZoom(1) = 6 floats
@@ -74,6 +74,7 @@ export class WorldSerializer {
       else if (p.kind === 'corpse_small') t = 2;
       else if (p.kind === 'boost') t = 3;
       buffer[ptr++] = t;
+      buffer[ptr++] = p.colorId || 0;
     }
     
     return buffer;

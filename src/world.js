@@ -324,7 +324,6 @@ removePellet(p) {
   _resolveCollisionsGrid() {
     const cellSize = Math.max(1, CFG.collision.cellSize);
     const hitScale = CFG.collision.hitScale;
-    const skipSelfCollisionSegments = CFG.collision.skipSelfCollisionSegments ?? 4; // Default to 4 segments
     for (const s of this.snakes) {
       if (!s.alive) continue;
 
@@ -338,10 +337,7 @@ removePellet(p) {
       const checkNeighbor = (otherS, idx) => {
           if (collision) return; // Already found a collision for this snake
 
-          if (otherS === s) {
-            // Self-collision: skip immediate head segments
-            if (idx < skipSelfCollisionSegments) return;
-          }
+          if (otherS === s) return;
           if (!otherS || !otherS.alive) return; // Guard against empty grid entries
 
           const p = otherS.points;
@@ -575,5 +571,5 @@ class PelletGrid {
 function randomPellet() {
   const a = Math.random() * TAU;
   const r = Math.sqrt(Math.random()) * CFG.worldRadius;
-  return new Pellet(Math.cos(a) * r, Math.sin(a) * r, CFG.foodValue, null, "ambient");
+  return new Pellet(Math.cos(a) * r, Math.sin(a) * r, CFG.foodValue, null, "ambient", 0);
 }

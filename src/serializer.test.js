@@ -91,9 +91,11 @@ describe('serializer.js', () => {
     expect(buf[ptr++]).toBe(2);
     expect(buf[ptr++]).toBe(1.5);
     expect(buf[ptr++]).toBe(0);
+    expect(buf[ptr++]).toBe(0);
     expect(buf[ptr++]).toBe(-3);
     expect(buf[ptr++]).toBe(4);
     expect(buf[ptr++]).toBe(2);
     expect(buf[ptr++]).toBe(3);
+    expect(buf[ptr++]).toBe(0);
   });
 });

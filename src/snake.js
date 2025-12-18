@@ -12,12 +12,13 @@ import { buildSensors } from './sensors.js';
  * @class
  */
 export class Pellet {
-  constructor(x, y, v, color = null, kind = "ambient") {
+  constructor(x, y, v, color = null, kind = "ambient", colorId = 0) {
     this.x = x;
     this.y = y;
     this.v = v;
     this.color = color;
     this.kind = kind;
+    this.colorId = colorId;
   }
 }
 
@@ -160,13 +161,13 @@ export class Snake {
     if (bigCount <= 1) {
       const p = this.points[0];
       const v = bigVBase * (0.85 + Math.random() * 0.30);
-      world.addPellet(new Pellet(p.x + rand(jitter, -jitter), p.y + rand(jitter, -jitter), v, corpseColor, "corpse_big"));
+      world.addPellet(new Pellet(p.x + rand(jitter, -jitter), p.y + rand(jitter, -jitter), v, corpseColor, "corpse_big", this.id));
     } else {
       for (let k = 0; k < bigCount; k++) {
         const idx = Math.floor((k * (len - 1)) / (bigCount - 1));
         const p = this.points[idx];
         const v = bigVBase * (0.85 + Math.random() * 0.30);
-        world.addPellet(new Pellet(p.x + rand(jitter, -jitter), p.y + rand(jitter, -jitter), v, corpseColor, "corpse_big"));
+        world.addPellet(new Pellet(p.x + rand(jitter, -jitter), p.y + rand(jitter, -jitter), v, corpseColor, "corpse_big", this.id));
       }
     }
 
@@ -182,7 +183,8 @@ export class Snake {
             p.y + rand(clusterJitter, -clusterJitter),
             v,
             corpseColor,
-            "corpse_small"
+            "corpse_small",
+            this.id
           )
         );
       }
@@ -246,7 +248,8 @@ export class Snake {
           tail.y + uy * 8 + rand(jitter, -jitter),
           dropV,
           boostColor,
-          "boost"
+          "boost",
+          this.id
         )
       );
     }
