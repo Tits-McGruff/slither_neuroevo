@@ -1,0 +1,4 @@
+/.vite
+/.vscode
+/dist
+/node_modules

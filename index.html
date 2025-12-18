@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Neuroevolution Slither Sim</title>
+  <!-- External stylesheet containing all styles for the simulation UI -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Main drawing surface for the simulation -->
+  <canvas id="c"></canvas>
+  <!-- Control panel for adjusting simulation settings -->
+  <div class="panel" id="panel">
+    <div class="title">Sim controls</div>
+    
+    <!-- Tab Headers -->
+    <div class="tab-header">
+      <button class="tab-btn active" data-tab="tab-settings">Settings</button>
+      <button class="tab-btn" data-tab="tab-viz">Visualizer</button>
+      <button class="tab-btn" data-tab="tab-stats">Stats</button>
+    </div>
+
+    <!-- Tab: Settings -->
+    <div id="tab-settings" class="tab-content active">
+      <div class="row">
+        <label for="snakes">NPC snakes: <span id="snakesVal"></span></label>
+        <input id="snakes" type="range" min="5" max="300" step="1" value="55" />
+        <div class="meta">Changing this requires a reset.</div>
+      </div>
+
+      <div class="row">
+        <label for="simSpeed">Simulation speed: <span id="simSpeedVal"></span>x</label>
+        <input id="simSpeed" type="range" min="0.10" max="12.0" step="0.05" value="1.0" />
+        <div class="meta">This applies immediately.</div>
+      </div>
+
+      <div class="row">
+        <label for="layers">AI hidden layers: <span id="layersVal"></span></label>
+        <input id="layers" type="range" min="1" max="5" step="1" value="2" />
+        <div class="meta">Changing this requires a reset.</div>
+      </div>
+
+      <div class="row">
+        <label for="n1">Neurons layer 1: <span id="n1Val"></span></label>
+        <input id="n1" type="range" min="4" max="256" step="1" value="64" />
+      </div>
+
+      <div class="row">
+        <label for="n2">Neurons layer 2: <span id="n2Val"></span></label>
+        <input id="n2" type="range" min="4" max="256" step="1" value="64" />
+      </div>
+
+      <div class="row">
+        <label for="n3">Neurons layer 3: <span id="n3Val"></span></label>
+        <input id="n3" type="range" min="4" max="256" step="1" value="64" />
+      </div>
+
+      <div class="row">
+        <label for="n4">Neurons layer 4: <span id="n4Val"></span></label>
+        <input id="n4" type="range" min="4" max="256" step="1" value="48" />
+      </div>
+
+      <div class="row">
+        <label for="n5">Neurons layer 5: <span id="n5Val"></span></label>
+        <input id="n5" type="range" min="4" max="256" step="1" value="32" />
+      </div>
+
+      <details open>
+        <summary>All other settings</summary>
+        <div class="group" id="settingsContainer">
+          <div class="control-group">
+            <label>Persistence</label>
+            <div class="row" style="gap: 8px;">
+               <button id="btnExport" class="btn">Export</button>
+               <button id="btnImport" class="btn">Import</button>
+               <input type="file" id="fileInput" style="display: none;" accept=".json">
+            </div>
+          </div>
+        </div>
+        <div class="note">
+          Collision is fixed using head to body segment distance plus substepping, so bodies no longer visually overlap without a death. Thickness now increases slowly with length. Boost consumes points, shrinks the snake, and drops pellets behind it as it burns mass.
+        </div>
+      </details>
+
+      <div class="btnrow">
+        <button id="apply">Apply and reset</button>
+        <button id="defaults">Defaults</button>
+      </div>
+
+      <div class="btnrow">
+        <button id="toggle">Toggle view (V)</button>
+      </div>
+
+      <div class="note">
+        Overview fits the entire arena; follow keeps the focused head exactly centered. Points are both a scoreboard and an energy pool, since boosting spends them and turns body mass into pellets.
+      </div>
+    </div>
+    
+    <!-- Tab: Visualizer -->
+    <div id="tab-viz" class="tab-content">
+      <div class="row">
+        <h3>Brain Visualizer</h3>
+        <p class="meta">Visualizing the neural network of the focused snake.</p>
+      </div>
+      <canvas id="vizCanvas" width="360" height="400"></canvas>
+      <div id="vizInfo" class="info-block"></div>
+    </div>
+
+    <!-- Tab: Stats -->
+    <div id="tab-stats" class="tab-content">
+      <div class="row">
+        <h3>Fitness History</h3>
+        <p class="meta">Population fitness over generations.</p>
+      </div>
+      <canvas id="statsCanvas" width="360" height="300"></canvas>
+      <div id="statsInfo" class="info-block"></div>
+      
+      <div class="row" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
+        <h3>Hall of Fame</h3>
+        <p class="meta">Best snakes from each generation</p>
+      </div>
+      <div id="hofTable" class="hof-list"></div>
+      
+      <div class="row" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
+        <h3>God Mode Log</h3>
+        <p class="meta">Recent interactions (last 10)</p>
+      </div>
+      <div id="godModeLog" class="god-mode-log" style="font-family: monospace; font-size: 11px; color: #aaa; max-height: 150px; overflow-y: auto;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load main module -->
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
