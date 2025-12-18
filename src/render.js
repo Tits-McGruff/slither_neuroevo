@@ -173,8 +173,30 @@ export function drawSnakeStruct(ctx, s, zoom) {
       }
   }
   ctx.stroke();
-  
-  ctx.shadowBlur = 0; // Reset
+
+  // Head and eyes
+  const hx = pts.length >= 2 ? pts[0] : s.x;
+  const hy = pts.length >= 2 ? pts[1] : s.y;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(hx, hy, s.radius * 1.05, 0, TAU);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  const eyeOffset = s.radius * 0.45;
+  const eyeForward = s.radius * 0.35;
+  const sin = Math.sin(s.ang);
+  const cos = Math.cos(s.ang);
+  const px = -sin;
+  const py = cos;
+  const ex = hx + cos * eyeForward;
+  const ey = hy + sin * eyeForward;
+  const eyeR = Math.max(1.2, s.radius * 0.18);
+  ctx.fillStyle = THEME.snakeSelfEye;
+  ctx.beginPath();
+  ctx.arc(ex + px * eyeOffset, ey + py * eyeOffset, eyeR, 0, TAU);
+  ctx.arc(ex - px * eyeOffset, ey - py * eyeOffset, eyeR, 0, TAU);
+  ctx.fill();
 }
 
 /**
@@ -182,6 +204,12 @@ export function drawSnakeStruct(ctx, s, zoom) {
  * @param {Float32Array} flt 
  */
 export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOverride, camYOverride) {
+  const dpr = ctx.getTransform().a || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, viewW, viewH);
+  ctx.save();
+  ctx.translate(viewW / 2, viewH / 2);
+  // Header: Gen, TotalCount, AliveCount, CamX, CamY, Zoom
   let ptr = 0;
   // Header: Gen, TotalCount, AliveCount, CamX, CamY, Zoom
   const gen = flt[ptr++];
@@ -191,9 +219,12 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
   const camY = flt[ptr++];
   const camZoom = flt[ptr++];
   
-  const zoom = zoomOverride || camZoom;
-  const cX = camXOverride || camX;
-  const cY = camYOverride || camY;
+  const zoom = zoomOverride || camZoom || 1;
+  const cX = camXOverride ?? camX ?? 0;
+  const cY = camYOverride ?? camY ?? 0;
+
+  ctx.scale(zoom, zoom);
+  ctx.translate(-cX, -cY);
 
   ptr = 6; // Skip header (3 original + 3 new)
   
@@ -301,6 +332,7 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
       
       drawSnakeStruct(ctx, s, zoom);
   }
+  ctx.restore();
 }
 
 /**

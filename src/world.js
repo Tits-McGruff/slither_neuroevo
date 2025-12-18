@@ -289,6 +289,10 @@ removePellet(p) {
    * @param {number} viewH
    */
   _updateCamera(viewW, viewH) {
+    if (!Number.isFinite(viewW) || !Number.isFinite(viewH) || viewW <= 0 || viewH <= 0) {
+      viewW = CFG.worldRadius * 2;
+      viewH = CFG.worldRadius * 2;
+    }
     if (this.viewMode === "overview") {
       this.cameraX = 0;
       this.cameraY = 0;

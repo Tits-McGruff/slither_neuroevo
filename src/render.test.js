@@ -18,6 +18,7 @@ function makeCtx() {
     stroke: () => calls.push(['stroke']),
     fillRect: () => calls.push(['fillRect']),
     clearRect: () => calls.push(['clearRect']),
+    getTransform: () => ({ a: 1 }),
     createPattern: () => ({}),
     setTransform: () => calls.push(['setTransform']),
     set shadowBlur(value) {
