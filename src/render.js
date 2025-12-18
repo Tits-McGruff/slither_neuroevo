@@ -8,6 +8,60 @@ import { THEME, getPelletColor, getPelletGlow } from './theme.js';
 import { CFG } from './config.js';
 
 
+function hash2(x, y) {
+  let h = (x * 374761393 + y * 668265263) | 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 1274126177);
+  return h >>> 0;
+}
+
+function nextRand(h) {
+  h ^= h << 13;
+  h ^= h >>> 17;
+  h ^= h << 5;
+  return h >>> 0;
+}
+
+export function drawStarfield(ctx, world, viewW, viewH) {
+  const cell = 240;
+  const halfWWorld = viewW / (2 * world.zoom);
+  const halfHWorld = viewH / (2 * world.zoom);
+  const left = world.cameraX - halfWWorld;
+  const right = world.cameraX + halfWWorld;
+  const top = world.cameraY - halfHWorld;
+  const bottom = world.cameraY + halfHWorld;
+
+  const minCx = Math.floor(left / cell);
+  const maxCx = Math.floor(right / cell);
+  const minCy = Math.floor(top / cell);
+  const maxCy = Math.floor(bottom / cell);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  for (let cy = minCy; cy <= maxCy; cy++) {
+    for (let cx = minCx; cx <= maxCx; cx++) {
+      let h = hash2(cx, cy);
+      if ((h & 1023) > 120) continue;
+      h = nextRand(h);
+      const ox = (h & 0xffff) / 0xffff;
+      h = nextRand(h);
+      const oy = (h & 0xffff) / 0xffff;
+      h = nextRand(h);
+      const size = 0.6 + ((h & 255) / 255) * 1.8;
+      h = nextRand(h);
+      const alpha = 0.35 + ((h & 255) / 255) * 0.45;
+
+      const px = (cx + ox) * cell;
+      const py = (cy + oy) * cell;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(px, py, size, 0, TAU);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 /**
  * Draws a grid centred on the origin using a cached pattern.
  */
@@ -143,7 +197,8 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
 
   ptr = 6; // Skip header (3 original + 3 new)
   
-  // Render grid (using efficient offscreen pattern)
+  // Render starfield and grid (using efficient offscreen pattern)
+  drawStarfield(ctx, { zoom, cameraX: cX, cameraY: cY }, viewW, viewH);
   drawGrid(ctx, { zoom, cameraX: cX, cameraY: cY }, viewW, viewH);
   
   // Render Pellets FIRST (so snakes are on top)
@@ -177,8 +232,8 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
       // Skip this snake
       // ID, Rad, Skin, X, Y, Ang, Boost, PtCount
       // 8 floats.
-      const ptCount = flt[ptr + 8]; 
-      ptr += 9 + ptCount * 2;
+      const ptCount = flt[ptr + 7];
+      ptr += 8 + ptCount * 2;
   };
   
   // Now ptr is at Pellets Count
@@ -264,6 +319,7 @@ export function renderWorld(ctx, world, viewW, viewH, dpr) {
   ctx.scale(world.zoom, world.zoom);
   ctx.translate(-world.cameraX, -world.cameraY);
 
+  drawStarfield(ctx, world, viewW, viewH);
   drawGrid(ctx, world, viewW, viewH);
   
   // Draw particles (before snakes/pellets or after? After usually looks better for additive, or before for transparency)

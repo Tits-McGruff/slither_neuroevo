@@ -110,10 +110,13 @@ export class FlatSpatialHash {
 
     const cellIndex = cy * this.cols + cx;
     let i = this.head[cellIndex];
+    const max = this.count;
+    let steps = 0;
 
-    while (i !== -1) {
+    while (i !== -1 && i >= 0 && i < max && steps < max) {
       callback(this.objects[i], this.indices[i]);
       i = this.next[i];
+      steps++;
     }
   }
 
@@ -131,10 +134,13 @@ export class FlatSpatialHash {
 
     const cellIndex = cy * this.cols + cx;
     let i = this.head[cellIndex];
+    const max = this.count;
+    let steps = 0;
 
-    while (i !== -1) {
+    while (i !== -1 && i >= 0 && i < max && steps < max) {
       callback(this.objects[i], this.indices[i]);
       i = this.next[i];
+      steps++;
     }
   }
 }

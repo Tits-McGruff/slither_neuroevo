@@ -23,7 +23,7 @@ export class WorldSerializer {
         snakeFloats += s.points.length * 2; // px, py
       }
     }
-    const pelletFloats = world.pellets.length * 4; // x, y, val, type
+    const pelletFloats = 1 + world.pellets.length * 4; // count + x, y, val, type
     
     // Total Bytes = (Headers + Snakes + Pellets) * 4
     // Headers: Gen(1), TotalSnakes(1), AliveCount(1), CamX(1), CamY(1), CamZoom(1) = 6 floats

@@ -4,6 +4,15 @@
 const HOF_STORAGE_KEY = 'slither_neuroevo_hof';
 const MAX_HOF_ENTRIES = 50;
 
+function getStorage() {
+  if (typeof globalThis === 'undefined') return null;
+  try {
+    return globalThis.localStorage || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 export class HallOfFame {
   constructor() {
     this.entries = [];
@@ -14,8 +23,10 @@ export class HallOfFame {
    * Loads entries from local storage.
    */
   load() {
+    const storage = getStorage();
+    if (!storage) return;
     try {
-      const raw = localStorage.getItem(HOF_STORAGE_KEY);
+      const raw = storage.getItem(HOF_STORAGE_KEY);
       if (raw) {
         this.entries = JSON.parse(raw);
       }
@@ -29,8 +40,10 @@ export class HallOfFame {
    * Saves entries to local storage.
    */
   save() {
+    const storage = getStorage();
+    if (!storage) return;
     try {
-      localStorage.setItem(HOF_STORAGE_KEY, JSON.stringify(this.entries));
+      storage.setItem(HOF_STORAGE_KEY, JSON.stringify(this.entries));
     } catch (e) {
       console.error("Failed to save HoF", e);
     }

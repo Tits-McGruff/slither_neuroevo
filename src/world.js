@@ -13,11 +13,19 @@ import { hof } from './hallOfFame.js';
 import { FlatSpatialHash } from './spatialHash.js';
 
 export class World {
-  constructor(settings) {
+  constructor(settings = {}) {
     // Store a shallow copy of the UI settings to decouple from external
     // mutations.  The settings include snakeCount, simSpeed and hidden layer
     // sizes.
-    this.settings = { ...settings };
+    const observerSettings = { ...CFG.observer, ...(settings.observer ?? {}) };
+    const collisionSettings = { ...CFG.collision, ...(settings.collision ?? {}) };
+    this.settings = {
+      ...settings,
+      simSpeed: settings.simSpeed ?? 1,
+      worldRadius: settings.worldRadius ?? CFG.worldRadius,
+      observer: observerSettings,
+      collision: collisionSettings
+    };
     // Construct the neural architecture based on current settings.
     this.arch = buildArch(this.settings);
     this.archKey = this.arch.key || archKey(this.arch);
@@ -39,7 +47,7 @@ export class World {
     this.zoom = 1.0;
     this.focusSnake = null;
     this._focusCooldown = 0;
-    this.viewMode = settings.observer.defaultViewMode || "overview";
+    this.viewMode = this.settings.observer.defaultViewMode || "overview";
     this.zoom = 1.0; 
     
     // Init physics
@@ -323,7 +331,7 @@ removePellet(p) {
             // Self-collision: skip immediate head segments
             if (idx < skipSelfCollisionSegments) return;
           }
-          if (!otherS.alive) return; // Don't collide with dead snakes
+          if (!otherS || !otherS.alive) return; // Guard against empty grid entries
 
           const p = otherS.points;
           if (idx >= p.length || idx <= 0) return; // Ensure valid segment indices

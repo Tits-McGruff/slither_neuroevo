@@ -417,8 +417,6 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
 
 // Fixed simulation step to decouple physics from rendering
 const FIXED_DT = 1 / 60;
-// Fixed simulation step to decouple physics from rendering
-const FIXED_DT = 1 / 60;
 function frame(t) {
   // console.log("Frame loop running"); // Spammy
   if (currentFrameBuffer) {
@@ -460,7 +458,6 @@ function frame(t) {
   const statsEl = document.getElementById('statsInfo');
   if (statsEl && activeTab === 'tab-stats') {
     statsEl.innerHTML = statsInfoHtml;
-    updateHoFTable(proxyWorld);
     
     // Render Advanced Charts
     if (statsCanvas) {
@@ -481,6 +478,10 @@ function frame(t) {
       }).join('');
       godModeLogEl.innerHTML = logHtml || '<div class="log-entry">No God Mode interactions yet</div>';
     }
+  }
+  
+  if (activeTab === 'tab-hof') {
+    updateHoFTable(proxyWorld);
   }
 
   requestAnimationFrame(frame);

@@ -19,6 +19,7 @@
       <button class="tab-btn active" data-tab="tab-settings">Settings</button>
       <button class="tab-btn" data-tab="tab-viz">Visualizer</button>
       <button class="tab-btn" data-tab="tab-stats">Stats</button>
+      <button class="tab-btn" data-tab="tab-hof">Hall of Fame</button>
     </div>
 
     <!-- Tab: Settings -->
@@ -117,16 +118,22 @@
       <div id="statsInfo" class="info-block"></div>
       
       <div class="row" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
-        <h3>Hall of Fame</h3>
-        <p class="meta">Best snakes from each generation</p>
-      </div>
-      <div id="hofTable" class="hof-list"></div>
-      
-      <div class="row" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
         <h3>God Mode Log</h3>
         <p class="meta">Recent interactions (last 10)</p>
       </div>
       <div id="godModeLog" class="god-mode-log" style="font-family: monospace; font-size: 11px; color: #aaa; max-height: 150px; overflow-y: auto;"></div>
+      </div>
+    </div>
+
+    <!-- Tab: Hall of Fame -->
+    <div id="tab-hof" class="tab-content">
+      <div class="row">
+        <h3>Hall of Fame</h3>
+        <p class="meta">Best snakes from each generation</p>
+      </div>
+      <div id="hofTable" class="hof-list"></div>
+      <div class="note" style="margin-top: 10px; font-size: 11px;">
+        Click Spawn to resurrect a champion in the simulation.
       </div>
     </div>
   </div>
