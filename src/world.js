@@ -50,7 +50,7 @@ export class World {
     this._collGrid = new FlatSpatialHash(w, w, this.settings.collision.cellSize, 200000);
     this._initPopulation();
     this._spawnAll();
-    this._collGrid.build(this.snakes);
+    this._collGrid.build(this.snakes, CFG.collision.skipSegments);
     this._initPellets();
     this._chooseInitialFocus();
   }
@@ -438,7 +438,7 @@ removePellet(p) {
     this.particles = new ParticleSystem(); // Reset particles
     this._initPellets();
     this._spawnAll();
-    this._collGrid.build(this.snakes);
+    this._collGrid.build(this.snakes, CFG.collision.skipSegments);
     this._chooseInitialFocus();
   }
 

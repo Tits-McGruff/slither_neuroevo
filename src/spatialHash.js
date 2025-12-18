@@ -18,6 +18,7 @@ export class FlatSpatialHash {
 
     // Grid: Stores the index of the first item in the linked list for each cell
     this.head = new Int32Array(this.cols * this.rows);
+    this.head.fill(-1);
     
     // Linked List of Items
     this.next = new Int32Array(capacity);
@@ -53,6 +54,27 @@ export class FlatSpatialHash {
     // Let's safe-clear objects for correctness.
     // actually, clearing simple array is fast.
     // this.objects.fill(null); // Optional but safe
+  }
+
+  /**
+   * Populates the grid with segments from all alive snakes.
+   * @param {Array<{alive: boolean, points: Array<{x: number, y: number}>}>} snakes
+   * @param {number} skipSegments
+   */
+  build(snakes, skipSegments = 0) {
+    this.reset();
+    const skip = Math.max(0, Math.floor(skipSegments));
+    for (const s of snakes) {
+      if (!s.alive) continue;
+      const pts = s.points;
+      for (let i = Math.max(1, skip); i < pts.length; i++) {
+        const p0 = pts[i - 1];
+        const p1 = pts[i];
+        const mx = (p0.x + p1.x) * 0.5;
+        const my = (p0.y + p1.y) * 0.5;
+        this.add(mx, my, s, i);
+      }
+    }
   }
   
   add(x, y, snake, segIdx) {
