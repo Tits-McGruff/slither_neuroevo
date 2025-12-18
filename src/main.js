@@ -6,7 +6,7 @@
 // this script executes.
 
 import { CFG, resetCFGToDefaults } from './config.js';
-import { setupSettingsUI } from './settings.js';
+import { setupSettingsUI, updateCFGFromUI } from './settings.js';
 import { setByPath, clamp, TAU } from './utils.js';
 import { renderWorldStruct } from './render.js';
 // import { World } from './world.js'; // Logic moved to worker
@@ -100,6 +100,16 @@ function readSettingsFromCoreUI() {
   };
 }
 
+function collectSettingsUpdates(root) {
+  if (!root || !root.querySelectorAll) return [];
+  const sliders = root.querySelectorAll('input[type="range"][data-path]');
+  const updates = [];
+  sliders.forEach(sl => {
+    updates.push({ path: sl.dataset.path, value: Number(sl.value) });
+  });
+  return updates;
+}
+
 /**
  * Synchronises the displayed numbers next to the core UI sliders and
  * disables or enables the neuron sliders based on the number of hidden
@@ -170,8 +180,14 @@ let proxyWorld = {
 };
 window.currentWorld = proxyWorld; // For HoF
 
+function initWorker(resetCfg = true) {
+  const settings = readSettingsFromCoreUI();
+  const updates = collectSettingsUpdates(settingsContainer);
+  worker.postMessage({ type: 'init', settings, updates, resetCfg });
+}
+
 // Init Worker
-worker.postMessage({ type: 'init' });
+initWorker(true);
 
 // Message Handler
 worker.onmessage = (e) => {
@@ -212,7 +228,7 @@ function liveUpdateFromSlider(sliderEl) {
 // Live update simulation speed when the slider moves
 elSimSpeed.addEventListener('input', () => {
   refreshCoreUIState();
-  world.applyLiveSimSpeed(parseFloat(elSimSpeed.value));
+  worker.postMessage({ type: 'action', action: 'simSpeed', value: parseFloat(elSimSpeed.value) });
 });
 // Update other core UI labels live
 elSnakes.addEventListener('input', refreshCoreUIState);
@@ -226,18 +242,23 @@ elN5.addEventListener('input', refreshCoreUIState);
 // Apply new configuration and reset world
 btnApply.addEventListener('click', () => {
   refreshCoreUIState();
-  worker.postMessage({ type: 'init' }); // Restart worker world
+  updateCFGFromUI(settingsContainer);
+  initWorker(true); // Restart worker world with updated settings
 });
 // Restore defaults
 btnDefaults.addEventListener('click', () => {
+  resetCFGToDefaults();
   setupSettingsUI(settingsContainer, liveUpdateFromSlider); // Re-apply defaults to dynamic UI
   elSnakes.value = '55';
   elSimSpeed.value = '1.00';
   elLayers.value = '2';
-  elNeurons.value = '16';
+  elN1.value = '64';
+  elN2.value = '64';
+  elN3.value = '64';
+  elN4.value = '48';
   elN5.value = '32';
   refreshCoreUIState();
-  worker.postMessage({ type: 'init' });
+  initWorker(true);
 });
 // Toggle view mode
 btnToggle.addEventListener('click', () => proxyWorld.toggleViewMode());
@@ -386,34 +407,41 @@ canvas.addEventListener('mouseup', (e) => {
 });
 
 // Persistence UI Wiring
-document.getElementById('btnExport').addEventListener('click', () => {
+const btnExport = document.getElementById('btnExport');
+if (btnExport) {
+  btnExport.addEventListener('click', () => {
     // We cannot export easily because population is in worker.
     // We need to ask worker.
     alert("Export pending worker sync... (Not implemented yet)");
     // worker.postMessage({ type: 'export' });
-});
+  });
+}
 
-document.getElementById('btnImport').addEventListener('click', () => {
-  document.getElementById('fileInput').click();
-});
+const btnImport = document.getElementById('btnImport');
+const fileInput = document.getElementById('fileInput');
+if (btnImport && fileInput) {
+  btnImport.addEventListener('click', () => {
+    fileInput.click();
+  });
 
-document.getElementById('fileInput').addEventListener('change', async (e) => {
-  if (!e.target.files.length) return;
-  try {
-    const data = await importFromFile(e.target.files[0]);
-    if (data.genomes) {
-      // Send to worker
-      // worker.postMessage({ type: 'import', data });
-      alert("Import synced to worker (Not implemented logic yet, reloading page works best for now)");
-      localStorage.setItem('slither_neuroevo_pop', JSON.stringify({ generation: data.generation, genomes: data.genomes }));
-      if (data.hof) localStorage.setItem('slither_neuroevo_hof', JSON.stringify(data.hof));
-      location.reload();
+  fileInput.addEventListener('change', async (e) => {
+    if (!e.target.files.length) return;
+    try {
+      const data = await importFromFile(e.target.files[0]);
+      if (data.genomes) {
+        // Send to worker
+        // worker.postMessage({ type: 'import', data });
+        alert("Import synced to worker (Not implemented logic yet, reloading page works best for now)");
+        localStorage.setItem('slither_neuroevo_pop', JSON.stringify({ generation: data.generation, genomes: data.genomes }));
+        if (data.hof) localStorage.setItem('slither_neuroevo_hof', JSON.stringify(data.hof));
+        location.reload();
+      }
+    } catch (err) {
+      console.error("Import failed", err);
+      alert("Failed to import file: " + err.message);
     }
-  } catch (err) {
-    console.error("Import failed", err);
-    alert("Failed to import file: " + err.message);
-  }
-});
+  });
+}
 
 // Fixed simulation step to decouple physics from rendering
 const FIXED_DT = 1 / 60;

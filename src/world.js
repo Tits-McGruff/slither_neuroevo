@@ -21,6 +21,13 @@ export class World {
     const collisionSettings = { ...CFG.collision, ...(settings.collision ?? {}) };
     this.settings = {
       ...settings,
+      snakeCount: settings.snakeCount ?? 55,
+      hiddenLayers: settings.hiddenLayers ?? 2,
+      neurons1: settings.neurons1 ?? 64,
+      neurons2: settings.neurons2 ?? 64,
+      neurons3: settings.neurons3 ?? 64,
+      neurons4: settings.neurons4 ?? 48,
+      neurons5: settings.neurons5 ?? 32,
       simSpeed: settings.simSpeed ?? 1,
       worldRadius: settings.worldRadius ?? CFG.worldRadius,
       observer: observerSettings,

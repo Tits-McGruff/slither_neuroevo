@@ -7,25 +7,27 @@ import { WorldSerializer } from './serializer.js';
 import { setByPath } from './utils.js';
 
 let world = null;
+let loopToken = 0;
 
 self.onmessage = function(e) {
   const msg = e.data;
   switch (msg.type) {
     case 'init':
-      resetCFGToDefaults();
+      if (msg.resetCfg !== false) resetCFGToDefaults();
       // Apply initial settings if any
-      if (msg.settings) {
-        // Apply settings recursively?
-        // Simplification: We assume main thread sends individual setting updates
-        // or we just trust defaults + updates.
+      if (msg.updates) {
+        msg.updates.forEach(u => setByPath(CFG, u.path, u.value));
       }
-      world = new World(CFG);
+      world = new World(msg.settings || {});
       // We need to "load" the imported brains if persistence was used?
       // Handled via separate 'import' message or 'init' payload.
       if (msg.population) {
         // TODO: Resurrect/Link population
       }
-      loop();
+      lastTime = performance.now();
+      accumulator = 0;
+      loopToken += 1;
+      loop(loopToken);
       break;
 
     case 'updateSettings':
@@ -39,7 +41,9 @@ self.onmessage = function(e) {
       // User inputs (toggle view, click, etc - though clicks are UI side?)
       // We need to handle "God Mode" clicks here if we implement them.
       if (msg.action === 'toggleView') {
-         if (world) world.toggleViewMode();
+        if (world) world.toggleViewMode();
+      } else if (msg.action === 'simSpeed') {
+        if (world) world.applyLiveSimSpeed(msg.value);
       }
       break;
       
@@ -79,7 +83,8 @@ let lastTime = performance.now();
 const FIXED_DT = 1 / 60;
 let accumulator = 0;
 
-function loop() {
+function loop(token) {
+  if (token !== loopToken) return;
   const now = performance.now();
   let dt = (now - lastTime) / 1000;
   lastTime = now;
@@ -138,5 +143,5 @@ function loop() {
   // Actually, we want to run as fast as possible or sync to screen?
   // Ideally sync to screen, but worker is decoupled.
   // Let's target 60fps.
-  setTimeout(loop, 16);
+  setTimeout(() => loop(token), 16);
 }
