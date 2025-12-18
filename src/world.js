@@ -46,6 +46,8 @@ export class World {
     this.population = [];
     this.bestFitnessEver = 0;
     this.fitnessHistory = []; // Track fitness over generations
+    this.bestPointsThisGen = 0;
+    this.bestPointsSnakeId = 0;
     // Simulation speed multiplier.  Affects how dt is scaled per frame.
     this.simSpeed = this.settings.simSpeed;
     // Camera state for panning and zooming.
@@ -186,7 +188,8 @@ removePellet(p) {
         bestId = sn.id;
       }
     }
-    this.bestPointsThisGen = Math.max(this.bestPointsThisGen, bestPts > -Infinity ? bestPts : 0);
+    const prevBest = Number.isFinite(this.bestPointsThisGen) ? this.bestPointsThisGen : 0;
+    this.bestPointsThisGen = Math.max(prevBest, bestPts > -Infinity ? bestPts : 0);
     if (bestId) this.bestPointsSnakeId = bestId;
     const aliveCount = this.snakes.reduce((acc, sn) => acc + (sn.alive ? 1 : 0), 0);
     const early = aliveCount <= CFG.observer.earlyEndAliveThreshold && this.generationTime >= CFG.observer.earlyEndMinSeconds;
