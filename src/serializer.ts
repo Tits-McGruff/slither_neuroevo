@@ -13,7 +13,7 @@ interface SerializableSnake {
   x: number;
   y: number;
   dir: number;
-  boost: boolean;
+  boost: number;
   alive: boolean;
   points: SerializablePoint[];
 }

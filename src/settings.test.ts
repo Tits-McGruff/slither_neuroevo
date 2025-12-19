@@ -5,11 +5,22 @@ import {
   hookSliderEvents,
   updateCFGFromUI
 } from './settings.ts';
-import { CFG } from './config.js';
-import { fmtNumber } from './utils.js';
+import { CFG } from './config.ts';
+import { fmtNumber } from './utils.ts';
 
 class FakeElement {
-  constructor(tag) {
+  tagName: string;
+  children: FakeElement[];
+  dataset: Record<string, string>;
+  className: string;
+  id: string;
+  textContent: string;
+  innerHTML: string;
+  value: string;
+  type: string;
+  style: Record<string, string>;
+
+  constructor(tag: string) {
     this.tagName = tag;
     this.children = [];
     this.dataset = {};
@@ -21,34 +32,35 @@ class FakeElement {
     this.type = '';
     this.style = {};
   }
-  appendChild(child) {
+  appendChild(child: FakeElement) {
     this.children.push(child);
     return child;
   }
-  querySelectorAll() {
+  querySelectorAll(): FakeElement[] {
     return [];
   }
-  addEventListener() {}
+  addEventListener(): void {}
 }
 
-describe('settings.js', () => {
-  let originalDocument;
+describe('settings.ts', () => {
+  let originalDocument: unknown;
+  const globalAny = globalThis as any;
 
   beforeEach(() => {
-    originalDocument = globalThis.document;
-    globalThis.document = {
-      createElement: (tag) => new FakeElement(tag),
+    originalDocument = globalAny.document;
+    globalAny.document = {
+      createElement: (tag: string) => new FakeElement(tag),
       getElementById: () => null
-    };
+    } as any;
   });
 
   afterEach(() => {
-    globalThis.document = originalDocument;
+    globalAny.document = originalDocument;
   });
 
   it('buildSettingsUI populates the container', () => {
     const container = new FakeElement('div');
-    buildSettingsUI(container);
+    buildSettingsUI(container as unknown as HTMLElement);
     expect(container.children.length).toBeGreaterThan(0);
   });
 
@@ -61,10 +73,10 @@ describe('settings.js', () => {
       value: '0'
     };
     const output = { textContent: '' };
-    globalThis.document.getElementById = () => output;
+    globalAny.document.getElementById = () => output;
 
     const root = { querySelectorAll: () => [slider] };
-    applyValuesToSlidersFromCFG(root);
+    applyValuesToSlidersFromCFG(root as unknown as HTMLElement);
 
     expect(slider.value).toBe(String(CFG.boost.minPointsToBoost));
     expect(output.textContent).toBe(fmtNumber(CFG.boost.minPointsToBoost, 1));
@@ -79,25 +91,25 @@ describe('settings.js', () => {
     };
     const root = { querySelectorAll: () => [slider] };
 
-    updateCFGFromUI(root);
+    updateCFGFromUI(root as unknown as HTMLElement);
 
     expect(CFG.collision.cellSize).toBe(123);
   });
 
   it('hookSliderEvents triggers live updates for live sliders', () => {
     const handler = vi.fn();
-    let stored;
+    let stored: (() => void) | undefined;
     const slider = {
       dataset: { path: 'collision.cellSize', decimals: '0', requiresReset: '0' },
       value: '80',
-      addEventListener: (evt, cb) => {
+      addEventListener: (evt: string, cb: () => void) => {
         if (evt === 'input') stored = cb;
       }
     };
     const root = { querySelectorAll: () => [slider] };
 
-    hookSliderEvents(root, handler);
-    stored();
+    hookSliderEvents(root as unknown as HTMLElement, handler);
+    stored?.();
 
     expect(handler).toHaveBeenCalledWith(slider);
   });

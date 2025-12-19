@@ -1,16 +1,29 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { World } from './world.ts';
 import { Pellet } from './snake.ts';
-import { CFG, resetCFGToDefaults } from './config.js';
+import { CFG, resetCFGToDefaults } from './config.ts';
 
-describe('world.js', () => {
-    let settings;
+describe('world.ts', () => {
+    let settings: {
+      snakeCount: number;
+      hiddenLayers: number;
+      neurons1: number;
+      neurons2: number;
+      neurons3: number;
+      neurons4: number;
+      neurons5: number;
+      simSpeed: number;
+    };
 
     beforeEach(() => {
         settings = {
             snakeCount: 2,
             hiddenLayers: 1,
             neurons1: 4,
+            neurons2: 4,
+            neurons3: 4,
+            neurons4: 4,
+            neurons5: 4,
             simSpeed: 1
         };
     });

@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { FlatSpatialHash } from './spatialHash.js';
+import { FlatSpatialHash } from './spatialHash.ts';
 
-describe('spatialHash.js', () => {
+describe('spatialHash.ts', () => {
   it('adds and queries entries in the same cell', () => {
     const grid = new FlatSpatialHash(100, 100, 10, 4);
     grid.reset();
     const snake = { id: 1 };
     grid.add(0, 0, snake, 2);
 
-    const hits = [];
+    const hits: Array<[unknown, number]> = [];
     grid.query(0, 0, (obj, idx) => hits.push([obj, idx]));
 
     expect(hits).toEqual([[snake, 2]]);
@@ -20,7 +20,7 @@ describe('spatialHash.js', () => {
     const snake = { id: 2 };
     grid.add(15, 15, snake, 1); // cell (1,1)
 
-    const hits = [];
+    const hits: Array<[unknown, number]> = [];
     grid.queryCell(1, 1, (obj, idx) => hits.push([obj, idx]));
 
     expect(hits).toEqual([[snake, 1]]);
@@ -47,7 +47,7 @@ describe('spatialHash.js', () => {
     grid.add(0, 0, snake, 3);
 
     grid.reset();
-    const hits = [];
+    const hits: Array<[unknown, number]> = [];
     grid.query(0, 0, (obj, idx) => hits.push([obj, idx]));
 
     expect(hits).toEqual([]);
@@ -61,7 +61,7 @@ describe('spatialHash.js', () => {
     grid.add(0, 0, snakeA, 1);
     grid.add(0, 0, snakeB, 2);
 
-    const hits = [];
+    const hits: Array<[unknown, number]> = [];
     grid.query(0, 0, (obj, idx) => hits.push([obj, idx]));
 
     expect(grid.count).toBe(1);
@@ -88,7 +88,7 @@ describe('spatialHash.js', () => {
 
     grid.build([alive, dead], 0);
 
-    const hits = [];
+    const hits: Array<[unknown, number]> = [];
     grid.query(5, 0, (obj, idx) => hits.push([obj, idx]));
     expect(hits).toEqual([[alive, 1]]);
   });

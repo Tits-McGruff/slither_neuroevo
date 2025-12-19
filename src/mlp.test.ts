@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { MLP, GRU, Genome, mutate, crossover, buildArch } from './mlp.ts';
-import { CFG } from './config.js';
+import { CFG } from './config.ts';
 
-describe('mlp.js', () => {
+describe('mlp.ts', () => {
   it('MLP should initialize and perform forward pass', () => {
     const layerSizes = [2, 3, 1];
     const mlp = new MLP(layerSizes);
@@ -29,8 +29,12 @@ describe('mlp.js', () => {
 
   it('Genome should initialize randomly', () => {
     const settings = {
-        hiddenLayers: 1,
-        neurons1: 4
+      hiddenLayers: 1,
+      neurons1: 4,
+      neurons2: 4,
+      neurons3: 4,
+      neurons4: 4,
+      neurons5: 4
     };
     const arch = buildArch(settings);
     const genome = Genome.random(arch);
@@ -40,8 +44,12 @@ describe('mlp.js', () => {
 
   it('mutate should modify weights', () => {
     const settings = {
-        hiddenLayers: 1,
-        neurons1: 4
+      hiddenLayers: 1,
+      neurons1: 4,
+      neurons2: 4,
+      neurons3: 4,
+      neurons4: 4,
+      neurons5: 4
     };
     const arch = buildArch(settings);
     const genome = Genome.random(arch);
@@ -58,8 +66,12 @@ describe('mlp.js', () => {
 
   it('Genome should serialize and deserialize correctly', () => {
     const settings = {
-        hiddenLayers: 1,
-        neurons1: 4
+      hiddenLayers: 1,
+      neurons1: 4,
+      neurons2: 4,
+      neurons3: 4,
+      neurons4: 4,
+      neurons5: 4
     };
     const arch = buildArch(settings);
     const genome = Genome.random(arch);

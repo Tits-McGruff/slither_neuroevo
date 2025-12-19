@@ -3,8 +3,8 @@
 // neuroevolution.  We reuse the same architecture and mutation logic as
 // the original monolithic implementation.
 
-import { CFG } from './config.js';
-import { clamp, gaussian } from './utils.js';
+import { CFG } from './config.ts';
+import { clamp, gaussian } from './utils.ts';
 
 export type ArchKind = 'mlp' | 'mlp_gru';
 

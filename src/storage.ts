@@ -16,7 +16,7 @@ export interface PopulationFilePayload extends PopulationStoragePayload {
   hof?: HallOfFameEntry[];
 }
 
-type GenomeLike = { toJSON(): GenomeJSON };
+type GenomeLike = Genome;
 
 /**
  * Generic Storage wrapper for localStorage.

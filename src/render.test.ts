@@ -2,10 +2,12 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { renderWorldStruct } from './render.ts';
 import { WorldSerializer } from './serializer.ts';
 import { World } from './world.ts';
-import { CFG, resetCFGToDefaults } from './config.js';
+import { CFG, resetCFGToDefaults } from './config.ts';
+
+type CallRecord = [string, ...unknown[]];
 
 function makeCtx() {
-  const calls = [];
+  const calls: CallRecord[] = [];
   return {
     calls,
     save: () => calls.push(['save']),
@@ -23,44 +25,47 @@ function makeCtx() {
     getTransform: () => ({ a: 1 }),
     createPattern: () => ({}),
     setTransform: () => calls.push(['setTransform']),
-    set shadowBlur(value) {
+    set shadowBlur(value: number) {
       calls.push(['shadowBlur', value]);
     },
-    set shadowColor(value) {
+    set shadowColor(value: string) {
       calls.push(['shadowColor', value]);
     },
-    set strokeStyle(value) {
+    set strokeStyle(value: string) {
       calls.push(['strokeStyle', value]);
     },
-    set fillStyle(value) {
+    set fillStyle(value: string) {
       calls.push(['fillStyle', value]);
     },
-    set lineWidth(value) {
+    set lineWidth(value: number) {
       calls.push(['lineWidth', value]);
     }
   };
 }
 
 class StubOffscreenCanvas {
-  constructor(width, height) {
+  width: number;
+  height: number;
+
+  constructor(width: number, height: number) {
     this.width = width;
     this.height = height;
   }
-  getContext() {
+  getContext(): CanvasRenderingContext2D {
     return {
       beginPath() {},
       moveTo() {},
       lineTo() {},
       stroke() {},
-      set strokeStyle(_) {},
-      set lineWidth(_) {}
-    };
+      set strokeStyle(_: string) {},
+      set lineWidth(_: number) {}
+    } as unknown as CanvasRenderingContext2D;
   }
 }
 
-describe('render.js', () => {
+describe('render.ts', () => {
   beforeAll(() => {
-    globalThis.OffscreenCanvas = StubOffscreenCanvas;
+    (globalThis as any).OffscreenCanvas = StubOffscreenCanvas;
   });
 
   it('renders a serialized buffer without throwing', () => {
@@ -85,10 +90,11 @@ describe('render.js', () => {
       pellets: [{ x: 10, y: 0, v: 1, kind: 'ambient' }]
     };
 
-    const buffer = WorldSerializer.serialize(world);
+    const buffer = WorldSerializer.serialize(world as any);
     const ctx = makeCtx();
+    const renderCtx = ctx as unknown as CanvasRenderingContext2D;
 
-    renderWorldStruct(ctx, buffer, 800, 600, 1, 0, 0);
+    renderWorldStruct(renderCtx, buffer, 800, 600, 1, 0, 0);
 
     const arcCalls = ctx.calls.filter(call => call[0] === 'arc').length;
     const lineCalls = ctx.calls.filter(call => call[0] === 'lineTo').length;
@@ -105,10 +111,11 @@ describe('render.js', () => {
     try {
       const world = new World({ snakeCount: 6, hiddenLayers: 1, neurons1: 12, neurons2: 8 });
       world.update(1 / 30, 800, 600);
-      const buffer = WorldSerializer.serialize(world);
+      const buffer = WorldSerializer.serialize(world as any);
       const ctx = makeCtx();
+      const renderCtx = ctx as unknown as CanvasRenderingContext2D;
 
-      renderWorldStruct(ctx, buffer, 800, 600, 1, 0, 0);
+      renderWorldStruct(renderCtx, buffer, 800, 600, 1, 0, 0);
 
       const lineCalls = ctx.calls.filter(call => call[0] === 'lineTo').length;
       expect(buffer[2]).toBeGreaterThan(0); // aliveCount

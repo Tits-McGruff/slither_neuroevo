@@ -4,13 +4,13 @@
 // evolution of genomes between generations.  Also includes helper
 // functions for genetic selection and pellet spawning.
 
-import { CFG } from './config.js';
+import { CFG } from './config.ts';
 import { buildArch, archKey, Genome, crossover, mutate, enrichArchInfo } from './mlp.ts';
-import { ParticleSystem } from './particles.js';
+import { ParticleSystem } from './particles.ts';
 import { Snake, Pellet, SegmentGrid as LegacyGrid, pointSegmentDist2 } from './snake.ts';
-import { randInt, clamp, lerp, TAU } from './utils.js';
-import { hof } from './hallOfFame.js';
-import { FlatSpatialHash } from './spatialHash.js';
+import { randInt, clamp, lerp, TAU } from './utils.ts';
+import { hof } from './hallOfFame.ts';
+import { FlatSpatialHash } from './spatialHash.ts';
 import type { ArchDefinition, ArchInfo } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData, PopulationExport } from './protocol/messages.ts';
 

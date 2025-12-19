@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ParticleSystem } from './particles.js';
+import { ParticleSystem } from './particles.ts';
 
-describe('particles.js', () => {
+describe('particles.ts', () => {
   it('spawns particles and expires them after updates', () => {
     const system = new ParticleSystem(2);
     system.spawn(0, 0, 0, 0, 1, 1, 0.05, 2, '#fff', 1);

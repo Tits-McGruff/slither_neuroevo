@@ -1,15 +1,23 @@
-// FitnessChart.js
+// FitnessChart.ts
 // Renders a fitness history chart.
 
 export class FitnessChart {
-  constructor(x, y, w, h) {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+
+  constructor(x: number, y: number, w: number, h: number) {
     this.x = x;
     this.y = y;
     this.w = w;
     this.h = h;
   }
 
-  render(ctx, history) {
+  render(
+    ctx: CanvasRenderingContext2D,
+    history: Array<{ gen: number; best: number; avg: number }>
+  ): void {
     if (!history || history.length < 2) return;
     
     const maxGen = history[history.length - 1].gen;

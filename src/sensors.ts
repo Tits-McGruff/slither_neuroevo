@@ -1,12 +1,47 @@
-// sensors.js
+// sensors.ts
 // Functions for constructing the input vector fed into each snake’s neural
 // network.  These functions gather information about the environment
 // (food, threats, obstacles) and encode it into a fixed length array.
 
-import { CFG } from './config.js';
-import { clamp, angNorm, TAU } from './utils.js';
+import { CFG } from './config.ts';
+import { clamp, angNorm, TAU } from './utils.ts';
 
-function _closestPointOnSegment(px, py, ax, ay, bx, by) {
+interface PelletLike {
+  x: number;
+  y: number;
+  v: number;
+}
+
+interface SnakePoint {
+  x: number;
+  y: number;
+}
+
+interface SnakeLike {
+  x: number;
+  y: number;
+  dir: number;
+  pointsScore: number;
+  points: SnakePoint[];
+  radius: number;
+  alive: boolean;
+  length: () => number;
+  sizeNorm: () => number;
+}
+
+interface SegmentRef {
+  s: SnakeLike;
+  i: number;
+}
+
+interface WorldLike {
+  pellets: PelletLike[];
+  bestPointsThisGen: number;
+  pelletGrid?: { map?: Map<string, PelletLike[]>; cellSize?: number };
+  _collGrid?: { map?: Map<string, unknown>; cellSize?: number; query?: (cx: number, cy: number) => SegmentRef[] | null };
+}
+
+function _closestPointOnSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
   const abx = bx - ax;
   const aby = by - ay;
   const apx = px - ax;
@@ -27,7 +62,7 @@ function _closestPointOnSegment(px, py, ax, ay, bx, by) {
  * Computes forward distance along a ray from (x,y) to the arena wall.
  * Assumes the point is inside or on the wall.
  */
-function _distToWallAlongRay(x, y, theta, R) {
+function _distToWallAlongRay(x: number, y: number, theta: number, R: number): number {
   const ux = Math.cos(theta);
   const uy = Math.sin(theta);
   const b = x * ux + y * uy;
@@ -43,9 +78,15 @@ function _distToWallAlongRay(x, y, theta, R) {
  * around (x,y). The callback receives {s, i} where i is the segment end index
  * in s.points (segment is i-1 -> i).
  */
-function _forEachNearbySegment(world, x, y, r, fn) {
+function _forEachNearbySegment(
+  world: WorldLike,
+  x: number,
+  y: number,
+  r: number,
+  fn: (ref: SegmentRef) => void
+): void {
   const grid = world._collGrid;
-  if (!grid || !grid.map) return;
+  if (!grid || !grid.map || !grid.query) return;
   const cs = Math.max(1, grid.cellSize || CFG.collision.cellSize);
   // Segment midpoints are hashed; pad by ~1.5 cells to reduce misses.
   const pad = cs * 1.5;
@@ -76,7 +117,13 @@ function _forEachNearbySegment(world, x, y, r, fn) {
  * This version supports early exit and bounds the amount of work via
  * CFG.sense.maxPelletChecks.
  */
-function _forEachNearbyPellet(world, x, y, r, fn) {
+function _forEachNearbyPellet(
+  world: WorldLike,
+  x: number,
+  y: number,
+  r: number,
+  fn: (p: PelletLike) => boolean | void
+): void {
   const grid = world.pelletGrid;
   if (!grid || !grid.map) {
     // Fallback: iterate the raw array with a cap.
@@ -122,7 +169,7 @@ function _forEachNearbyPellet(world, x, y, r, fn) {
  * Converts snake length into a sensing radius that scales like the follow
  * camera zoom: larger snakes get a larger "view bubble".
  */
-function _bubbleRadiusForSnake(snake) {
+function _bubbleRadiusForSnake(snake: SnakeLike): number {
   const len = snake.length();
   const maxLen = Math.max(1, CFG.snakeMaxLen);
   const zoom = clamp(1.15 - (len / maxLen) * 0.55, 0.45, 1.12);
@@ -133,7 +180,7 @@ function _bubbleRadiusForSnake(snake) {
   return clamp(r, minR, maxR);
 }
 
-function _angleToBin(relAngle, bins) {
+function _angleToBin(relAngle: number, bins: number): number {
   // relAngle is in [-pi, pi]. Map so 0 is forward.
   let a = relAngle;
   if (a < 0) a += TAU;
@@ -148,12 +195,19 @@ function _angleToBin(relAngle, bins) {
 let _scratchFood = new Float32Array(0);
 let _scratchHaz = new Float32Array(0);
 
-function _ensureScratch(bins) {
+function _ensureScratch(bins: number): void {
   if (_scratchFood.length !== bins) _scratchFood = new Float32Array(bins);
   if (_scratchHaz.length !== bins) _scratchHaz = new Float32Array(bins);
 }
 
-function _fillFoodBubbleBins(world, snake, bins, r, ins, insOffset) {
+function _fillFoodBubbleBins(
+  world: WorldLike,
+  snake: SnakeLike,
+  bins: number,
+  r: number,
+  ins: Float32Array,
+  insOffset: number
+): void {
   // Accumulate weighted food value by direction bin.
   _ensureScratch(bins);
   for (let i = 0; i < bins; i++) _scratchFood[i] = 0;
@@ -190,7 +244,14 @@ function _fillFoodBubbleBins(world, snake, bins, r, ins, insOffset) {
  * Computes a 360° hazard clearance histogram around the head.
  * Returns values in [-1,1] where +1 means clear and -1 means blocked.
  */
-function _fillHazardBubbleBins(world, snake, bins, r, ins, insOffset) {
+function _fillHazardBubbleBins(
+  world: WorldLike,
+  snake: SnakeLike,
+  bins: number,
+  r: number,
+  ins: Float32Array,
+  insOffset: number
+): void {
   _ensureScratch(bins);
   for (let i = 0; i < bins; i++) _scratchHaz[i] = r;
   const sx = snake.x;
@@ -224,7 +285,13 @@ function _fillHazardBubbleBins(world, snake, bins, r, ins, insOffset) {
  * Computes a 360° wall distance histogram around the head.
  * Returns values in [-1,1] where +1 means wall is beyond the bubble radius.
  */
-function _fillWallBubbleBins(snake, bins, r, ins, insOffset) {
+function _fillWallBubbleBins(
+  snake: SnakeLike,
+  bins: number,
+  r: number,
+  ins: Float32Array,
+  insOffset: number
+): void {
   const sx = snake.x;
   const sy = snake.y;
   const R = CFG.worldRadius;
@@ -243,7 +310,11 @@ function _fillWallBubbleBins(snake, bins, r, ins, insOffset) {
  * @param {Snake} snake
  * @param {Float32Array|null} out
  */
-export function buildSensors(world, snake, out = null) {
+export function buildSensors(
+  world: WorldLike,
+  snake: SnakeLike,
+  out: Float32Array | null = null
+): Float32Array {
   const bins = Math.max(8, Math.floor(CFG.sense?.bubbleBins ?? 12));
   const expected = 5 + 3 * bins;
   const ins = out && out.length === expected ? out : new Float32Array(expected);

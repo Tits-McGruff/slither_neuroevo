@@ -3,9 +3,9 @@
 // functions rely on the global 2D rendering context `ctx` which is
 // passed in to the render function.
 
-import { TAU, clamp, hashColor } from './utils.js';
-import { THEME, getPelletColor, getPelletGlow } from './theme.js';
-import { CFG } from './config.js';
+import { TAU, clamp, hashColor } from './utils.ts';
+import { THEME, getPelletColor, getPelletGlow } from './theme.ts';
+import { CFG } from './config.ts';
 
 interface CameraState {
   zoom: number;
@@ -63,6 +63,7 @@ interface RenderPellet {
   v: number;
   kind?: string;
   colorId?: number;
+  [key: string]: unknown;
 }
 
 interface RenderSnake {

@@ -1,11 +1,11 @@
-// config.js
+// config.ts
 // Default configuration values and mutable configuration state for the simulation.
 
-import { deepClone } from './utils.js';
+import { deepClone } from './utils.ts';
 
 // Default configuration values.  These mirror the values from the original
 // monolithic implementation and expose every adjustable parameter via
-// sliders.  See settings.js for the slider specifications.
+// sliders.  See settings.ts for the slider specifications.
 export const CFG_DEFAULT = {
   worldRadius: 2400,
   pelletCountTarget: 2400,

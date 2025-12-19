@@ -66,12 +66,12 @@ export interface FitnessHistoryEntry {
 
 export interface VizMLPData {
   layerSizes: number[];
-  _bufs: number[][];
+  _bufs: ArrayLike<number>[];
 }
 
 export interface VizGRUData {
   hiddenSize: number;
-  h: number[];
+  h: ArrayLike<number>;
 }
 
 export interface VizHeadData {

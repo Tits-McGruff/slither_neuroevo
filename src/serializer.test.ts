@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { WorldSerializer } from './serializer.ts';
 import { FRAME_HEADER_FLOATS, FRAME_HEADER_OFFSETS } from './protocol/frame.ts';
 
-describe('serializer.js', () => {
+describe('serializer.ts', () => {
   it('serializes header, snakes, and pellets into a flat buffer', () => {
     const world = {
       generation: 3,

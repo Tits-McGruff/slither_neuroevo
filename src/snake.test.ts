@@ -1,17 +1,21 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Snake, Pellet, SegmentGrid, pointSegmentDist2 } from './snake.ts';
 import { Genome, buildArch } from './mlp.ts';
-import { CFG } from './config.js';
+import { CFG } from './config.ts';
 
-describe('snake.js', () => {
-    let arch;
-    let genome;
+describe('snake.ts', () => {
+    let arch: ReturnType<typeof buildArch>;
+    let genome: Genome;
 
     beforeEach(() => {
         const settings = {
-            hiddenLayers: 1,
-            neurons1: 4,
-            snakeCount: 1
+          hiddenLayers: 1,
+          neurons1: 4,
+          neurons2: 4,
+          neurons3: 4,
+          neurons4: 4,
+          neurons5: 4,
+          snakeCount: 1
         };
         arch = buildArch(settings);
         genome = Genome.random(arch);
@@ -63,8 +67,8 @@ describe('snake.js', () => {
         const results = grid.query(cx, cy);
         
         expect(results).not.toBeNull();
-        expect(results.length).toBe(1);
-        expect(results[0].s).toBe(snake);
-        expect(results[0].i).toBe(1);
+        expect(results!.length).toBe(1);
+        expect(results![0].s).toBe(snake);
+        expect(results![0].i).toBe(1);
     });
 });

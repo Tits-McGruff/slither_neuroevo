@@ -87,8 +87,8 @@ Convert the rest of the codebase for completeness.
 
 Checklist:
 
-- [ ] Convert `src/utils.js`, `src/sensors.js`, `src/spatialHash.js`, `src/particles.js`, `src/theme.js`, `src/BrainViz.js`, `src/FitnessChart.js`, `src/chartUtils.js`, `src/hallOfFame.js`, and all tests.
-- [ ] Update import paths and ensure build/test consistency.
+- [x] Convert `src/utils.js`, `src/sensors.js`, `src/spatialHash.js`, `src/particles.js`, `src/theme.js`, `src/BrainViz.js`, `src/FitnessChart.js`, `src/chartUtils.js`, `src/hallOfFame.js`, and all tests.
+- [x] Update import paths and ensure build/test consistency.
 
 Acceptance: project builds/tests with only `.ts` sources.
 
@@ -98,9 +98,9 @@ Update docs to reflect the TS conversion.
 
 Checklist:
 
-- [ ] Update `.github/copilot-instructions.md` with TS policy, new `src/protocol/` folder, and new file extensions.
-- [ ] Update `README.md` only for user-facing paths if needed (avoid dev-only details).
-- [ ] Remove or update references to `.js` filenames where they changed.
+- [x] Update `.github/copilot-instructions.md` with TS policy, new `src/protocol/` folder, and new file extensions.
+- [x] Update `README.md` only for user-facing paths if needed (avoid dev-only details).
+- [x] Remove or update references to `.js` filenames where they changed.
 
 Acceptance: docs match code layout and no stale references remain.
 

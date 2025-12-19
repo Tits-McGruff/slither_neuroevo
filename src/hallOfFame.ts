@@ -1,10 +1,12 @@
-// hallOfFame.js
+// hallOfFame.ts
 // Manages the "Hall of Fame" - a registry of the best snakes from previous generations.
+
+import type { HallOfFameEntry } from './protocol/messages.ts';
 
 const HOF_STORAGE_KEY = 'slither_neuroevo_hof';
 const MAX_HOF_ENTRIES = 50;
 
-function getStorage() {
+function getStorage(): Storage | null {
   if (typeof globalThis === 'undefined') return null;
   try {
     return globalThis.localStorage || null;
@@ -14,6 +16,8 @@ function getStorage() {
 }
 
 export class HallOfFame {
+  entries: HallOfFameEntry[];
+
   constructor() {
     this.entries = [];
     this.load();
@@ -22,13 +26,13 @@ export class HallOfFame {
   /**
    * Loads entries from local storage.
    */
-  load() {
+  load(): void {
     const storage = getStorage();
     if (!storage) return;
     try {
       const raw = storage.getItem(HOF_STORAGE_KEY);
       if (raw) {
-        this.entries = JSON.parse(raw);
+        this.entries = JSON.parse(raw) as HallOfFameEntry[];
       }
     } catch (e) {
       console.error("Failed to load HoF", e);
@@ -39,7 +43,7 @@ export class HallOfFame {
   /**
    * Saves entries to local storage.
    */
-  save() {
+  save(): void {
     const storage = getStorage();
     if (!storage) return;
     try {
@@ -56,7 +60,7 @@ export class HallOfFame {
    * Let's implemented: Keep top N best ever.
    * @param {Object} snakeData { gen, seed, fitness, points, length, genomeJSON }
    */
-  add(snakeData) {
+  add(snakeData: HallOfFameEntry): void {
     if (!snakeData || typeof snakeData.fitness !== 'number') return;
 
     this.entries.push(snakeData);
@@ -75,7 +79,7 @@ export class HallOfFame {
   /**
    * Returns copy of entries.
    */
-  getAll() {
+  getAll(): HallOfFameEntry[] {
     return [...this.entries];
   }
 
@@ -83,7 +87,7 @@ export class HallOfFame {
    * Replaces entries with a new set and persists them.
    * @param {Array} entries
    */
-  replace(entries) {
+  replace(entries: HallOfFameEntry[]): void {
     if (!Array.isArray(entries)) return;
     this.entries = entries.filter(e => e && typeof e.fitness === 'number');
     this.entries.sort((a, b) => b.fitness - a.fitness);
@@ -94,7 +98,7 @@ export class HallOfFame {
   /**
    * Clears all history.
    */
-  reset() {
+  reset(): void {
     this.entries = [];
     this.save();
   }

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-function makeCtx() {
+const globalAny = globalThis as any;
+
+function makeCtx(): CanvasRenderingContext2D {
   return {
     setTransform() {},
     clearRect() {},
@@ -11,10 +13,10 @@ function makeCtx() {
     fill() {},
     stroke() {},
     fillText() {}
-  };
+  } as unknown as CanvasRenderingContext2D;
 }
 
-function makeElement(id, overrides = {}) {
+function makeElement(id: string, overrides: Record<string, unknown> = {}): any {
   return {
     id,
     value: '',
@@ -36,11 +38,11 @@ function makeElement(id, overrides = {}) {
 }
 
 describe('main.ts', () => {
-  let originalDocument;
-  let originalWindow;
-  let originalWorker;
-  let originalRaf;
-  let elements;
+  let originalDocument: unknown;
+  let originalWindow: unknown;
+  let originalWorker: unknown;
+  let originalRaf: unknown;
+  let elements: Map<string, any>;
 
   beforeEach(() => {
     vi.resetModules();
@@ -98,51 +100,54 @@ describe('main.ts', () => {
       elements.get('tab-stats')
     ];
 
-    originalDocument = globalThis.document;
-    globalThis.document = {
-      getElementById: (id) => elements.get(id) || makeElement(id),
-      querySelectorAll: (selector) => {
+    originalDocument = globalAny.document;
+    globalAny.document = {
+      getElementById: (id: string) => elements.get(id) || makeElement(id),
+      querySelectorAll: (selector: string) => {
         if (selector === '.tab-btn') return tabBtns;
         if (selector === '.tab-content') return tabContents;
         return [];
       },
       querySelector: () => tabBtns[1],
       createElement: () => makeElement('created')
-    };
+    } as any;
 
-    originalWindow = globalThis.window;
-    globalThis.window = globalThis;
-    globalThis.window.devicePixelRatio = 1;
-    globalThis.window.addEventListener = () => {};
+    originalWindow = globalAny.window;
+    globalAny.window = globalAny;
+    globalAny.window.devicePixelRatio = 1;
+    globalAny.window.addEventListener = () => {};
 
-    originalRaf = globalThis.requestAnimationFrame;
-    globalThis.requestAnimationFrame = () => 0;
+    originalRaf = globalAny.requestAnimationFrame;
+    globalAny.requestAnimationFrame = () => 0;
 
-    originalWorker = globalThis.Worker;
-    globalThis.Worker = class StubWorker {
+    originalWorker = globalAny.Worker;
+    globalAny.Worker = class StubWorker {
+      messages: any[];
+      onmessage: ((event: MessageEvent) => void) | null;
+
       constructor() {
         this.messages = [];
         this.onmessage = null;
-        globalThis.__workerInstance = this;
+        globalAny.__workerInstance = this;
       }
-      postMessage(msg) {
+      postMessage(msg: any) {
         this.messages.push(msg);
       }
-    };
+    } as any;
   });
 
   afterEach(() => {
-    globalThis.document = originalDocument;
-    globalThis.window = originalWindow;
-    globalThis.Worker = originalWorker;
-    globalThis.requestAnimationFrame = originalRaf;
-    delete globalThis.__workerInstance;
+    globalAny.document = originalDocument;
+    globalAny.window = originalWindow;
+    globalAny.Worker = originalWorker;
+    globalAny.requestAnimationFrame = originalRaf;
+    delete globalAny.__workerInstance;
   });
 
   it('initializes the worker and posts init', async () => {
     await import('./main.ts');
 
-    const worker = globalThis.__workerInstance;
+    const worker = globalAny.__workerInstance;
     expect(worker).toBeDefined();
     expect(worker.messages.length).toBeGreaterThan(0);
     expect(worker.messages[0].type).toBe('init');
@@ -150,7 +155,7 @@ describe('main.ts', () => {
 
   it('maps fitness history payloads into the shared history buffer', async () => {
     await import('./main.ts');
-    const worker = globalThis.__workerInstance;
+    const worker = globalAny.__workerInstance;
     const buffer = new Float32Array([1, 0, 0, 0, 0, 1]).buffer;
     worker.onmessage({
       data: {
@@ -165,9 +170,9 @@ describe('main.ts', () => {
       }
     });
 
-    expect(globalThis.currentWorld).toBeDefined();
-    expect(globalThis.currentWorld.fitnessHistory.length).toBe(1);
-    expect(globalThis.currentWorld.fitnessHistory[0]).toEqual({
+    expect(globalAny.currentWorld).toBeDefined();
+    expect(globalAny.currentWorld.fitnessHistory.length).toBe(1);
+    expect(globalAny.currentWorld.fitnessHistory[0]).toEqual({
       gen: 1,
       avgFitness: 2.5,
       maxFitness: 4,

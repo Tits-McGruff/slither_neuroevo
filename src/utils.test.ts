@@ -9,9 +9,9 @@ import {
   setByPath, 
   fmtNumber,
   hsvToRgb
-} from './utils.js';
+} from './utils.ts';
 
-describe('utils.js', () => {
+describe('utils.ts', () => {
   it('deepClone should create a deep copy', () => {
     const obj = { a: 1, b: { c: 2 } };
     const cloned = deepClone(obj);

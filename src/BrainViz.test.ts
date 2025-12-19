@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { BrainViz } from './BrainViz.js';
+import { BrainViz } from './BrainViz.ts';
+import type { VizData } from './protocol/messages.ts';
+
+type CallRecord = [string, unknown?];
 
 function makeCtx() {
-  const calls = [];
+  const calls: CallRecord[] = [];
   return {
     calls,
     save: () => calls.push(['save']),
@@ -15,23 +18,24 @@ function makeCtx() {
     arc: () => calls.push(['arc']),
     fill: () => calls.push(['fill']),
     fillRect: () => calls.push(['fillRect']),
-    set fillStyle(value) {
+    set fillStyle(value: string) {
       calls.push(['fillStyle', value]);
     },
-    set strokeStyle(value) {
+    set strokeStyle(value: string) {
       calls.push(['strokeStyle', value]);
     },
-    set lineWidth(value) {
+    set lineWidth(value: number) {
       calls.push(['lineWidth', value]);
     }
   };
 }
 
-describe('BrainViz.js', () => {
+describe('BrainViz.ts', () => {
   it('renders expected number of neurons for MLP', () => {
     const ctx = makeCtx();
+    const vizCtx = ctx as unknown as CanvasRenderingContext2D;
     const viz = new BrainViz(0, 0, 200, 100);
-    const brain = {
+    const brain: VizData = {
       kind: 'mlp',
       mlp: {
         layerSizes: [2, 3, 1],
@@ -39,7 +43,7 @@ describe('BrainViz.js', () => {
       }
     };
 
-    viz.render(ctx, brain);
+    viz.render(vizCtx, brain);
 
     const arcCount = ctx.calls.filter(call => call[0] === 'arc').length;
     expect(arcCount).toBe(6);

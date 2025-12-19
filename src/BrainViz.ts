@@ -1,17 +1,23 @@
-// BrainViz.js
+// BrainViz.ts
 // Visualizes the neural network structure and activity.
 
-import { clamp } from './utils.js';
+import { clamp } from './utils.ts';
+import type { VizData } from './protocol/messages.ts';
 
 export class BrainViz {
-  constructor(x, y, w, h) {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+
+  constructor(x: number, y: number, w: number, h: number) {
     this.x = x;
     this.y = y;
     this.w = w;
     this.h = h;
   }
 
-  render(ctx, brain) {
+  render(ctx: CanvasRenderingContext2D, brain: VizData | null): void {
     if (!brain) return;
     
     // Determine layers to draw
@@ -52,20 +58,21 @@ export class BrainViz {
         }
       }
       // 2. GRU
-      if (brain.gru) {
+      const rec = brain as Exclude<VizData, { kind: 'mlp' }>;
+      if (rec.gru) {
         layers.push({
-          count: brain.gru.hiddenSize,
-          activations: brain.gru.h,
+          count: rec.gru.hiddenSize,
+          activations: rec.gru.h,
           isRecurrent: true
         });
       }
       // 3. Head
-      if (brain.head) {
+      if (rec.head) {
          // Head is just linear layer from GRU to Out.
          // Head doesn't store state usually? DenseHead.forward returns result.
          // But BrainController stores final output.
          layers.push({
-           count: brain.head.outSize,
+           count: rec.head.outSize,
            activations: null // We don't have internal buffer for head easily, but distinct from output
          });
       }

@@ -4,8 +4,8 @@
 // rather, it populates a provided container element with controls defined
 // by SETTING_SPECS and synchronises their values with the global CFG.
 
-import { CFG } from './config.js';
-import { getByPath, setByPath, fmtNumber } from './utils.js';
+import { CFG } from './config.ts';
+import { getByPath, setByPath, fmtNumber } from './utils.ts';
 
 interface SettingSpec {
   group: string;

@@ -1,5 +1,16 @@
-// chartUtils.js
+// chartUtils.ts
 // Advanced chart rendering utilities for visualizing evolution statistics
+
+interface FitnessHistoryEntry {
+  gen: number;
+  avgFitness?: number;
+  maxFitness?: number;
+  minFitness?: number;
+  speciesCount?: number;
+  topSpeciesSize?: number;
+  avgWeight?: number;
+  weightVariance?: number;
+}
 
 export class AdvancedCharts {
   /**
@@ -9,7 +20,12 @@ export class AdvancedCharts {
    * @param {number} w 
    * @param {number} h 
    */
-  static renderAverageFitness(ctx, history, w, h) {
+  static renderAverageFitness(
+    ctx: CanvasRenderingContext2D,
+    history: FitnessHistoryEntry[],
+    w: number,
+    h: number
+  ): void {
     if (!history || history.length === 0) return;
     
     ctx.clearRect(0, 0, w, h);
@@ -66,7 +82,7 @@ export class AdvancedCharts {
       ctx.beginPath();
       history.forEach((h, i) => {
         const x = padding + i * xStep;
-        const y = padding + graphH - ((h.maxFitness - minFit) / range) * graphH;
+        const y = padding + graphH - (((h.maxFitness ?? 0) - minFit) / range) * graphH;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });
@@ -78,7 +94,7 @@ export class AdvancedCharts {
       ctx.beginPath();
       history.forEach((h, i) => {
         const x = padding + i * xStep;
-        const y = padding + graphH - ((h.avgFitness - minFit) / range) * graphH;
+        const y = padding + graphH - (((h.avgFitness ?? 0) - minFit) / range) * graphH;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });
@@ -119,7 +135,12 @@ export class AdvancedCharts {
    * @param {number} w 
    * @param {number} h 
    */
-  static renderSpeciesDiversity(ctx, history, w, h) {
+  static renderSpeciesDiversity(
+    ctx: CanvasRenderingContext2D,
+    history: FitnessHistoryEntry[],
+    w: number,
+    h: number
+  ): void {
     if (!history || history.length === 0) return;
     
     ctx.clearRect(0, 0, w, h);
@@ -207,7 +228,12 @@ export class AdvancedCharts {
    * @param {number} w 
    * @param {number} h 
    */
-  static renderNetworkComplexity(ctx, history, w, h) {
+  static renderNetworkComplexity(
+    ctx: CanvasRenderingContext2D,
+    history: FitnessHistoryEntry[],
+    w: number,
+    h: number
+  ): void {
     if (!history || history.length === 0) return;
     
     ctx.clearRect(0, 0, w, h);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { THEME, getPelletColor, getPelletGlow } from './theme.js';
+import { THEME, getPelletColor, getPelletGlow } from './theme.ts';
 
-describe('theme.js', () => {
+describe('theme.ts', () => {
   it('returns explicit pellet colors when provided', () => {
     const pellet = { color: '#123456', kind: 'ambient' };
     expect(getPelletColor(pellet)).toBe('#123456');

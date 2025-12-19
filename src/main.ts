@@ -5,16 +5,16 @@
 // functions and classes defined in other modules must be loaded before
 // this script executes.
 
-import { CFG, resetCFGToDefaults } from './config.js';
+import { CFG, resetCFGToDefaults } from './config.ts';
 import { setupSettingsUI, updateCFGFromUI } from './settings.ts';
-import { setByPath, clamp, TAU } from './utils.js';
+import { setByPath, clamp, TAU } from './utils.ts';
 import { renderWorldStruct } from './render.ts';
 // import { World } from './world.ts'; // Logic moved to worker
 import { savePopulation, loadPopulation, exportToFile, importFromFile } from './storage.ts';
-import { hof } from './hallOfFame.js';
-import { BrainViz } from './BrainViz.js';
-import { FitnessChart } from './FitnessChart.js';
-import { AdvancedCharts } from './chartUtils.js';
+import { hof } from './hallOfFame.ts';
+import { BrainViz } from './BrainViz.ts';
+import { FitnessChart } from './FitnessChart.ts';
+import { AdvancedCharts } from './chartUtils.ts';
 import type { FrameStats, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
 import type { SettingsUpdate } from './protocol/settings.ts';
 

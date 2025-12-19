@@ -1,8 +1,8 @@
-// theme.js
+// theme.ts
 // Centralized color palette and theme management for the simulation.
 // Using HSLA helper for consistent, vibrant visualization.
 
-import { deepClone } from './utils.js';
+import { deepClone } from './utils.ts';
 
 export const THEME = {
   // Background/Grid
@@ -32,7 +32,7 @@ export const THEME = {
 /**
  * Returns a CSS color string for a given pellet type.
  */
-export function getPelletColor(p) {
+export function getPelletColor(p: { color?: string | null; kind?: string; [key: string]: unknown }): string {
   if (p.color) return p.color;
   switch (p.kind) {
     case 'boost': return THEME.pelletBoost;
@@ -45,7 +45,7 @@ export function getPelletColor(p) {
 /**
  * Returns the glow color (shadowColor) for a given pellet type.
  */
-export function getPelletGlow(p) {
+export function getPelletGlow(p: { kind?: string; [key: string]: unknown }): string {
   switch (p.kind) {
     case 'boost': return THEME.glowBoost;
     case 'corpse_big':

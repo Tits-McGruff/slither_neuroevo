@@ -1,26 +1,27 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CFG, resetCFGToDefaults } from './config.js';
+import { CFG, resetCFGToDefaults } from './config.ts';
 
 describe('worker.ts', () => {
-  let originalSelf;
+  const globalAny = globalThis as any;
+  let originalSelf: any;
 
   beforeEach(() => {
-    originalSelf = globalThis.self;
-    globalThis.self = {
+    originalSelf = globalAny.self;
+    globalAny.self = {
       onmessage: null,
       postMessage: () => {}
-    };
+    } as any;
   });
 
   afterEach(() => {
-    globalThis.self = originalSelf;
+    globalAny.self = originalSelf;
     resetCFGToDefaults();
   });
 
   it('applies updateSettings messages to CFG', async () => {
     await import('./worker.ts');
 
-    globalThis.self.onmessage({
+    (globalAny.self.onmessage as any)({
       data: {
         type: 'updateSettings',
         updates: [{ path: 'collision.cellSize', value: 123 }]

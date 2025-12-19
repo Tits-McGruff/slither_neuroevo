@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { CFG, CFG_DEFAULT, resetCFGToDefaults } from './config.js';
+import { CFG, CFG_DEFAULT, resetCFGToDefaults } from './config.ts';
 
-describe('config.js', () => {
+describe('config.ts', () => {
   it('resetCFGToDefaults restores default values', () => {
     const original = CFG.snakeBaseSpeed;
     CFG.snakeBaseSpeed = original + 10;

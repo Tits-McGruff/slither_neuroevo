@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { FitnessChart } from './FitnessChart.js';
+import { FitnessChart } from './FitnessChart.ts';
+
+type CallRecord = [string, ...unknown[]];
 
 function makeCtx() {
-  const calls = [];
+  const calls: CallRecord[] = [];
   return {
     calls,
     save: () => calls.push(['save']),
@@ -13,32 +15,33 @@ function makeCtx() {
     moveTo: () => calls.push(['moveTo']),
     lineTo: () => calls.push(['lineTo']),
     stroke: () => calls.push(['stroke']),
-    fillText: (...args) => calls.push(['fillText', ...args]),
-    set fillStyle(value) {
+    fillText: (...args: unknown[]) => calls.push(['fillText', ...args]),
+    set fillStyle(value: string) {
       calls.push(['fillStyle', value]);
     },
-    set strokeStyle(value) {
+    set strokeStyle(value: string) {
       calls.push(['strokeStyle', value]);
     },
-    set lineWidth(value) {
+    set lineWidth(value: number) {
       calls.push(['lineWidth', value]);
     },
-    set font(value) {
+    set font(value: string) {
       calls.push(['font', value]);
     }
   };
 }
 
-describe('FitnessChart.js', () => {
+describe('FitnessChart.ts', () => {
   it('renders lines and labels for history', () => {
     const ctx = makeCtx();
+    const chartCtx = ctx as unknown as CanvasRenderingContext2D;
     const chart = new FitnessChart(0, 0, 200, 100);
     const history = [
       { gen: 1, best: 4, avg: 2 },
       { gen: 2, best: 6, avg: 3 }
     ];
 
-    chart.render(ctx, history);
+    chart.render(chartCtx, history);
 
     const hasMaxLabel = ctx.calls.some(
       call => call[0] === 'fillText' && String(call[1]).startsWith('Max:')

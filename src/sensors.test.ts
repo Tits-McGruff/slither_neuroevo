@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { buildSensors } from './sensors.js';
-import { CFG } from './config.js';
+import { buildSensors } from './sensors.ts';
+import { CFG } from './config.ts';
 
-describe('sensors.js', () => {
+describe('sensors.ts', () => {
   const originalBins = CFG.sense.bubbleBins;
   const originalMinBoost = CFG.boost.minPointsToBoost;
 
@@ -16,21 +16,26 @@ describe('sensors.js', () => {
     CFG.boost.minPointsToBoost = originalMinBoost;
   });
 
-  function makeSnake(overrides = {}) {
+  function makeSnake(overrides: Record<string, unknown> = {}) {
     return {
       x: 0,
       y: 0,
       dir: 0,
       pointsScore: 0,
+      points: [],
+      radius: CFG.snakeRadius,
+      alive: true,
       length: () => CFG.snakeStartLen,
       sizeNorm: () => 0,
       ...overrides
     };
   }
 
-  function makeWorld({ pellets = [], bestPointsThisGen = 1 } = {}) {
+  function makeWorld(
+    { pellets = [], bestPointsThisGen = 1 }: { pellets?: Array<{ x: number; y: number; v: number }>; bestPointsThisGen?: number } = {}
+  ) {
     const cellSize = 120;
-    const map = new Map();
+    const map = new Map<string, Array<{ x: number; y: number; v: number }>>();
     for (const pellet of pellets) {
       const cx = Math.floor(pellet.x / cellSize);
       const cy = Math.floor(pellet.y / cellSize);
@@ -41,6 +46,7 @@ describe('sensors.js', () => {
     }
 
     return {
+      pellets,
       bestPointsThisGen,
       pelletGrid: { cellSize, map },
       _collGrid: {}

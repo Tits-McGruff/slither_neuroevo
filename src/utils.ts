@@ -1,4 +1,4 @@
-// utils.js
+// utils.ts
 // General utility functions and constants used throughout the simulation.
 
 // Turn two‑pi constant for common trigonometric calculations.
@@ -9,8 +9,8 @@ export const TAU = Math.PI * 2;
  * @param {Object} obj
  * @returns {Object}
  */
-export function deepClone(obj) {
-  return JSON.parse(JSON.stringify(obj));
+export function deepClone<T>(obj: T): T {
+  return JSON.parse(JSON.stringify(obj)) as T;
 }
 
 /**
@@ -20,7 +20,7 @@ export function deepClone(obj) {
  * @param {number} b
  * @returns {number}
  */
-export function clamp(x, a, b) {
+export function clamp(x: number, a: number, b: number): number {
   return Math.max(a, Math.min(b, x));
 }
 
@@ -31,7 +31,7 @@ export function clamp(x, a, b) {
  * @param {number} t
  * @returns {number}
  */
-export function lerp(a, b, t) {
+export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
@@ -41,7 +41,7 @@ export function lerp(a, b, t) {
  * @param {number} [b=0]
  * @returns {number}
  */
-export function rand(a = 1, b = 0) {
+export function rand(a = 1, b = 0): number {
   return b + Math.random() * (a - b);
 }
 
@@ -50,7 +50,7 @@ export function rand(a = 1, b = 0) {
  * @param {number} n
  * @returns {number}
  */
-export function randInt(n) {
+export function randInt(n: number): number {
   return (Math.random() * n) | 0;
 }
 
@@ -60,7 +60,7 @@ export function randInt(n) {
  * @param {number} y
  * @returns {number}
  */
-export function hypot(x, y) {
+export function hypot(x: number, y: number): number {
   return Math.hypot(x, y);
 }
 
@@ -69,7 +69,7 @@ export function hypot(x, y) {
  * @param {number} a
  * @returns {number}
  */
-export function angNorm(a) {
+export function angNorm(a: number): number {
   while (a > Math.PI) a -= TAU;
   while (a < -Math.PI) a += TAU;
   return a;
@@ -80,7 +80,7 @@ export function angNorm(a) {
  * @param {Object} obj
  * @param {string} path
  */
-export function getByPath(obj, path) {
+export function getByPath(obj: any, path: string): any {
   const parts = path.split(".");
   let cur = obj;
   for (const p of parts) cur = cur[p];
@@ -93,7 +93,7 @@ export function getByPath(obj, path) {
  * @param {string} path
  * @param {any} value
  */
-export function setByPath(obj, path, value) {
+export function setByPath(obj: any, path: string, value: any): void {
   const parts = path.split(".");
   let cur = obj;
   for (let i = 0; i < parts.length - 1; i++) cur = cur[parts[i]];
@@ -106,7 +106,7 @@ export function setByPath(obj, path, value) {
  * @param {number} decimals
  * @returns {string}
  */
-export function fmtNumber(x, decimals) {
+export function fmtNumber(x: number, decimals: number): string {
   if (decimals === 0) return String(Math.round(x));
   return Number(x).toFixed(decimals);
 }
@@ -118,13 +118,15 @@ export function fmtNumber(x, decimals) {
  * @param {number} v
  * @returns {Array<number>}
  */
-export function hsvToRgb(h, s, v) {
+export function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
   const i = Math.floor(h * 6);
   const f = h * 6 - i;
   const p = v * (1 - s);
   const q = v * (1 - f * s);
   const t = v * (1 - (1 - f) * s);
-  let r, g, b;
+  let r = 0;
+  let g = 0;
+  let b = 0;
   switch (i % 6) {
     case 0:
       r = v;
@@ -165,7 +167,7 @@ export function hsvToRgb(h, s, v) {
  * @param {number} i
  * @returns {string}
  */
-export function hashColor(i) {
+export function hashColor(i: number): string {
   const h = (i * 0.61803398875) % 1;
   const rgb = hsvToRgb(h, 0.65, 0.95);
   return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
@@ -176,7 +178,7 @@ export function hashColor(i) {
  * Uses the Box–Muller transform.
  * @returns {number}
  */
-export function gaussian() {
+export function gaussian(): number {
   let u = 0,
     v = 0;
   while (u === 0) u = Math.random();

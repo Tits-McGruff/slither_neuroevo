@@ -3,9 +3,9 @@
 // encapsulate the state and behaviour of the snakes and provide
 // geometry helpers for collision detection.
 
-import { CFG } from './config.js';
-import { clamp, hashColor, rand, lerp, angNorm, hypot, TAU } from './utils.js';
-import { buildSensors } from './sensors.js';
+import { CFG } from './config.ts';
+import { clamp, hashColor, rand, lerp, angNorm, hypot, TAU } from './utils.ts';
+import { buildSensors } from './sensors.ts';
 import type { ArchDefinition, BrainController, Genome } from './mlp.ts';
 
 /**
@@ -41,8 +41,16 @@ interface Point {
   y: number;
 }
 
+interface PelletLike {
+  x: number;
+  y: number;
+  v: number;
+}
+
 interface PelletGridLike {
-  forEachInRadius: (x: number, y: number, r: number, fn: (p: Pellet) => void) => void;
+  map?: Map<string, PelletLike[]>;
+  cellSize?: number;
+  forEachInRadius?: (x: number, y: number, r: number, fn: (p: Pellet) => void) => void;
 }
 
 interface ParticleSystemLike {
@@ -56,6 +64,7 @@ interface WorldLike {
   particles: ParticleSystemLike;
   addPellet: (p: Pellet) => void;
   removePellet: (p: Pellet) => void;
+  bestPointsThisGen: number;
 }
 
 /**
@@ -390,7 +399,7 @@ const eatR = this.radius + 6;
 const eatR2 = eatR * eatR;
 // Fast local pellet collection using the pellet grid.
 const candidates: Pellet[] = [];
-if (world.pelletGrid) {
+if (world.pelletGrid?.forEachInRadius) {
   world.pelletGrid.forEachInRadius(this.x, this.y, eatR, p => candidates.push(p));
 } else {
   for (let i = 0; i < world.pellets.length; i++) candidates.push(world.pellets[i]);
