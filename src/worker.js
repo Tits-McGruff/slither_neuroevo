@@ -136,7 +136,7 @@ function loop(token) {
       const avgFit = aliveSnakes.length > 0 ? sumFit / aliveSnakes.length : 0;
       if (minFit === Infinity) minFit = 0;
       
-      // Send stats
+      // Send stats. Keep payload small per frame; full history is sent only on growth.
       const stats = {
           gen: world.generation,
           alive: aliveSnakes.length,
@@ -149,6 +149,7 @@ function loop(token) {
           }
       };
 
+      // Ship full fitness history only when it grows; UI keeps a rolling buffer.
       if (world.fitnessHistory.length !== lastHistoryLen) {
         stats.fitnessHistory = world.fitnessHistory.slice();
         lastHistoryLen = world.fitnessHistory.length;

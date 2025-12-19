@@ -98,4 +98,26 @@ describe('serializer.js', () => {
     expect(buf[ptr++]).toBe(3);
     expect(buf[ptr++]).toBe(0);
   });
+
+  it('serializes pellet colorId when provided', () => {
+    const world = {
+      generation: 1,
+      cameraX: 0,
+      cameraY: 0,
+      zoom: 1,
+      snakes: [],
+      pellets: [
+        { x: 5, y: 6, v: 2, kind: 'corpse_big', colorId: 42 }
+      ]
+    };
+
+    const buf = WorldSerializer.serialize(world);
+    let ptr = 6;
+    expect(buf[ptr++]).toBe(1); // pellet count
+    expect(buf[ptr++]).toBe(5);
+    expect(buf[ptr++]).toBe(6);
+    expect(buf[ptr++]).toBe(2);
+    expect(buf[ptr++]).toBe(1);
+    expect(buf[ptr++]).toBe(42);
+  });
 });

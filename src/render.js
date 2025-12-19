@@ -262,6 +262,9 @@ export function drawSnakeStruct(ctx, s, zoom) {
  * @param {Float32Array} flt 
  */
 export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOverride, camYOverride) {
+  // Buffer layout contract: [gen, totalSnakes, aliveCount, camX, camY, zoom] then
+  // for each alive snake: [id, radius, skinFlag, x, y, ang, boost, ptCount, ...pts],
+  // then pellets: [pelletCount, x, y, value, type, colorId] * pelletCount.
   const dt = getRenderDt();
   renderTick += 1;
   const dpr = ctx.getTransform().a || 1;
@@ -326,7 +329,7 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
       const y = flt[ptr++];
       const ang = flt[ptr++];
       const boost = flt[ptr++];
-      const ptCount = flt[ptr++] | 0;
+      const ptCount = flt[ptr++] | 0; // Stored as float, but must be treated as an int for pointer math.
 
       const prev = snakeRenderCache.get(id);
       let speed = 0;

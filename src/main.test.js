@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 function makeCtx() {
   return {
@@ -42,6 +42,7 @@ describe('main.js', () => {
   let elements;
 
   beforeEach(() => {
+    vi.resetModules();
     elements = new Map();
     const ids = [
       'c',
@@ -142,5 +143,32 @@ describe('main.js', () => {
     expect(worker).toBeDefined();
     expect(worker.messages.length).toBeGreaterThan(0);
     expect(worker.messages[0].type).toBe('init');
+  });
+
+  it('maps fitness history payloads into the shared history buffer', async () => {
+    await import('./main.js');
+    const worker = globalThis.__workerInstance;
+    const buffer = new Float32Array([1, 0, 0, 0, 0, 1]).buffer;
+    worker.onmessage({
+      data: {
+        type: 'frame',
+        buffer,
+        stats: {
+          gen: 1,
+          alive: 0,
+          fps: 60,
+          fitnessHistory: [{ gen: 1, best: 4, avg: 2.5, min: 1 }]
+        }
+      }
+    });
+
+    expect(globalThis.currentWorld).toBeDefined();
+    expect(globalThis.currentWorld.fitnessHistory.length).toBe(1);
+    expect(globalThis.currentWorld.fitnessHistory[0]).toEqual({
+      gen: 1,
+      avgFitness: 2.5,
+      maxFitness: 4,
+      minFitness: 1
+    });
   });
 });

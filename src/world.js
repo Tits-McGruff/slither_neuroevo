@@ -45,6 +45,7 @@ export class World {
     this.generationTime = 0;
     this.population = [];
     this.bestFitnessEver = 0;
+    // Must start finite or sensor percentiles will produce NaNs on the first tick.
     this.fitnessHistory = []; // Track fitness over generations
     this.bestPointsThisGen = 0;
     this.bestPointsSnakeId = 0;
@@ -188,6 +189,7 @@ removePellet(p) {
         bestId = sn.id;
       }
     }
+    // Keep bestPointsThisGen finite; sensors use it for log normalization on every tick.
     const prevBest = Number.isFinite(this.bestPointsThisGen) ? this.bestPointsThisGen : 0;
     this.bestPointsThisGen = Math.max(prevBest, bestPts > -Infinity ? bestPts : 0);
     if (bestId) this.bestPointsSnakeId = bestId;

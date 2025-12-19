@@ -210,6 +210,7 @@ worker.onmessage = (e) => {
     proxyWorld.generation = currentStats.gen;
     
     // Track fitness history for charts
+    // Full history arrives occasionally; keep UI buffer synced and capped.
     if (msg.stats.fitnessHistory) {
       fitnessHistory.length = 0;
       msg.stats.fitnessHistory.forEach(entry => {
@@ -479,6 +480,7 @@ const FIXED_DT = 1 / 60;
 function frame(t) {
   // console.log("Frame loop running"); // Spammy
   if (currentFrameBuffer) {
+      // Camera/zoom come from the worker buffer; avoid local overrides here.
       renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH);
   }
   

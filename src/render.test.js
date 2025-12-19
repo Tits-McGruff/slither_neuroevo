@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { renderWorldStruct } from './render.js';
 import { WorldSerializer } from './serializer.js';
+import { World } from './world.js';
+import { CFG, resetCFGToDefaults } from './config.js';
 
 function makeCtx() {
   const calls = [];
@@ -92,5 +94,29 @@ describe('render.js', () => {
     const lineCalls = ctx.calls.filter(call => call[0] === 'lineTo').length;
     expect(arcCalls).toBeGreaterThan(0);
     expect(lineCalls).toBeGreaterThan(0);
+  });
+
+  it('renders the first-generation world frame with snakes present', () => {
+    resetCFGToDefaults();
+    const originalTarget = CFG.pelletCountTarget;
+    const originalSpawn = CFG.pelletSpawnPerSecond;
+    CFG.pelletCountTarget = 200;
+    CFG.pelletSpawnPerSecond = 40;
+    try {
+      const world = new World({ snakeCount: 6, hiddenLayers: 1, neurons1: 12, neurons2: 8 });
+      world.update(1 / 30, 800, 600);
+      const buffer = WorldSerializer.serialize(world);
+      const ctx = makeCtx();
+
+      renderWorldStruct(ctx, buffer, 800, 600, 1, 0, 0);
+
+      const lineCalls = ctx.calls.filter(call => call[0] === 'lineTo').length;
+      expect(buffer[2]).toBeGreaterThan(0); // aliveCount
+      expect(lineCalls).toBeGreaterThan(0);
+    } finally {
+      CFG.pelletCountTarget = originalTarget;
+      CFG.pelletSpawnPerSecond = originalSpawn;
+      resetCFGToDefaults();
+    }
   });
 });
