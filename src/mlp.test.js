@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MLP, GRU, Genome, mutate, crossover, buildArch } from './mlp.js';
+import { MLP, GRU, Genome, mutate, crossover, buildArch } from './mlp.ts';
 import { CFG } from './config.js';
 
 describe('mlp.js', () => {

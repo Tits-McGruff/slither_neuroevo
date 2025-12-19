@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Snake, Pellet, SegmentGrid, pointSegmentDist2 } from './snake.js';
-import { Genome, buildArch } from './mlp.js';
+import { Snake, Pellet, SegmentGrid, pointSegmentDist2 } from './snake.ts';
+import { Genome, buildArch } from './mlp.ts';
 import { CFG } from './config.js';
 
 describe('snake.js', () => {

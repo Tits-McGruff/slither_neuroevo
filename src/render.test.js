@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { renderWorldStruct } from './render.ts';
 import { WorldSerializer } from './serializer.ts';
-import { World } from './world.js';
+import { World } from './world.ts';
 import { CFG, resetCFGToDefaults } from './config.js';
 
 function makeCtx() {

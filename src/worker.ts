@@ -1,7 +1,7 @@
 // worker.ts
 // Runs the rigid-body physics and neural network simulation in a separate thread.
 
-import { World } from './world.js';
+import { World } from './world.ts';
 import { CFG, resetCFGToDefaults } from './config.js';
 import { WorldSerializer } from './serializer.ts';
 import { setByPath } from './utils.js';

@@ -73,11 +73,11 @@ Convert the core simulation while preserving logic and memory behavior.
 
 Checklist:
 
-- [ ] Convert `src/world.js` → `src/world.ts`.
-- [ ] Convert `src/snake.js` → `src/snake.ts`.
-- [ ] Convert `src/mlp.js` → `src/mlp.ts`.
-- [ ] Ensure typed arrays stay as `Float32Array` and avoid new allocations.
-- [ ] Keep performance-sensitive helpers inline where they already are.
+- [x] Convert `src/world.js` → `src/world.ts`.
+- [x] Convert `src/snake.js` → `src/snake.ts`.
+- [x] Convert `src/mlp.js` → `src/mlp.ts`.
+- [x] Ensure typed arrays stay as `Float32Array` and avoid new allocations.
+- [x] Keep performance-sensitive helpers inline where they already are.
 
 Acceptance: full simulation parity; no new GC churn.
 

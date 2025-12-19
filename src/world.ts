@@ -1,19 +1,85 @@
-// world.js
+// world.ts
 // Defines the World class which encapsulates the simulation state and
 // manages updating snakes, spawning pellets, collision resolution and
 // evolution of genomes between generations.  Also includes helper
 // functions for genetic selection and pellet spawning.
 
 import { CFG } from './config.js';
-import { buildArch, archKey, Genome, crossover, mutate, enrichArchInfo } from './mlp.js';
+import { buildArch, archKey, Genome, crossover, mutate, enrichArchInfo } from './mlp.ts';
 import { ParticleSystem } from './particles.js';
-import { Snake, Pellet, SegmentGrid as LegacyGrid, pointSegmentDist2 } from './snake.js';
+import { Snake, Pellet, SegmentGrid as LegacyGrid, pointSegmentDist2 } from './snake.ts';
 import { randInt, clamp, lerp, TAU } from './utils.js';
 import { hof } from './hallOfFame.js';
 import { FlatSpatialHash } from './spatialHash.js';
+import type { ArchDefinition, ArchInfo } from './mlp.ts';
+import type { GenomeJSON, HallOfFameEntry, PopulationImportData, PopulationExport } from './protocol/messages.ts';
+
+interface WorldSettingsInput {
+  snakeCount?: number;
+  simSpeed?: number;
+  hiddenLayers?: number;
+  neurons1?: number;
+  neurons2?: number;
+  neurons3?: number;
+  neurons4?: number;
+  neurons5?: number;
+  worldRadius?: number;
+  observer?: Partial<typeof CFG.observer>;
+  collision?: Partial<typeof CFG.collision>;
+}
+
+interface WorldSettings {
+  snakeCount: number;
+  simSpeed: number;
+  hiddenLayers: number;
+  neurons1: number;
+  neurons2: number;
+  neurons3: number;
+  neurons4: number;
+  neurons5: number;
+  worldRadius: number;
+  observer: typeof CFG.observer;
+  collision: typeof CFG.collision;
+}
+
+interface FitnessHistoryEntry {
+  gen: number;
+  best: number;
+  avg: number;
+  min: number;
+  speciesCount: number;
+  topSpeciesSize: number;
+  avgWeight: number;
+  weightVariance: number;
+}
 
 export class World {
-  constructor(settings = {}) {
+  settings: WorldSettings;
+  arch: ArchDefinition;
+  archKey: string;
+  pellets: Pellet[];
+  pelletGrid: PelletGrid;
+  _pelletSpawnAcc: number;
+  snakes: Snake[];
+  particles: any;
+  generation: number;
+  generationTime: number;
+  population: Genome[];
+  bestFitnessEver: number;
+  fitnessHistory: FitnessHistoryEntry[];
+  bestPointsThisGen: number;
+  bestPointsSnakeId: number;
+  _lastHoFEntry: HallOfFameEntry | null;
+  simSpeed: number;
+  cameraX: number;
+  cameraY: number;
+  zoom: number;
+  focusSnake: Snake | null;
+  _focusCooldown: number;
+  viewMode: string;
+  _collGrid: any;
+
+  constructor(settings: WorldSettingsInput = {}) {
     // Store a shallow copy of the UI settings to decouple from external
     // mutations.  The settings include snakeCount, simSpeed and hidden layer
     // sizes.
@@ -78,7 +144,7 @@ export class World {
    * value back into the settings object.
    * @param {number} x
    */
-  applyLiveSimSpeed(x) {
+  applyLiveSimSpeed(x: number): void {
     this.simSpeed = clamp(x, 0.01, 500.0);
     this.settings.simSpeed = this.simSpeed;
   }
@@ -86,7 +152,7 @@ export class World {
    * Toggles between overview and follow camera modes.  Ensures that a
    * valid focus snake is selected when switching to follow mode.
    */
-  toggleViewMode() {
+  toggleViewMode(): void {
     this.viewMode = this.viewMode === "overview" ? "follow" : "overview";
     if (!this.focusSnake || !this.focusSnake.alive) this.focusSnake = this._pickAnyAlive();
     if (this.viewMode === "overview") {
@@ -101,7 +167,7 @@ export class World {
   /**
    * Chooses an alive snake at random.  Returns null if none.
    */
-  _pickAnyAlive() {
+  _pickAnyAlive(): Snake | null {
     const alive = this.snakes.filter(s => s.alive);
     return alive.length ? alive[randInt(alive.length)] : null;
   }
@@ -109,7 +175,7 @@ export class World {
    * Initialises the population with random genomes according to the
    * current architecture.
    */
-  _initPopulation() {
+  _initPopulation(): void {
     this.population.length = 0;
     for (let i = 0; i < this.settings.snakeCount; i++) {
       this.population.push(Genome.random(this.arch));
@@ -120,7 +186,7 @@ export class World {
    * Serializes the current population for export.
    * @returns {{generation:number, archKey:string, genomes:Array<Object>}}
    */
-  exportPopulation() {
+  exportPopulation(): PopulationExport {
     return {
       generation: this.generation,
       archKey: this.archKey,
@@ -134,7 +200,7 @@ export class World {
    * @param {{generation?:number, genomes?:Array<Object>}} data
    * @returns {{ok:boolean, reason?:string, used?:number, total?:number}}
    */
-  importPopulation(data) {
+  importPopulation(data: PopulationImportData): { ok: boolean; reason?: string; used?: number; total?: number } {
     if (!data || !Array.isArray(data.genomes)) {
       return { ok: false, reason: 'missing genomes' };
     }
@@ -163,7 +229,9 @@ export class World {
       else nextPop.push(Genome.random(this.arch));
     }
     this.population = nextPop;
-    this.generation = Number.isFinite(data.generation) ? Math.max(1, Math.floor(data.generation)) : 1;
+    this.generation = Number.isFinite(data.generation)
+      ? Math.max(1, Math.floor(data.generation!))
+      : 1;
     this.generationTime = 0;
     this.bestPointsThisGen = 0;
     this.bestPointsSnakeId = 0;
@@ -179,7 +247,7 @@ export class World {
   /**
    * Spawns snakes from the current population genomes.
    */
-  _spawnAll() {
+  _spawnAll(): void {
     this.snakes.length = 0;
     for (let i = 0; i < this.population.length; i++) {
       this.snakes.push(new Snake(i + 1, this.population[i].clone(), this.arch));
@@ -188,7 +256,7 @@ export class World {
   /**
    * Fills the world with pellets up to the configured target count.
    */
-_initPellets() {
+_initPellets(): void {
   this.pellets.length = 0;
   this.pelletGrid.resetForCFG();
   this._pelletSpawnAcc = 0;
@@ -199,7 +267,7 @@ _initPellets() {
  * Adds a pellet to the world and to the pellet spatial hash.
  * @param {Pellet} p
  */
-addPellet(p) {
+addPellet(p: Pellet): void {
   p._idx = this.pellets.length;
   this.pellets.push(p);
   this.pelletGrid.add(p);
@@ -209,12 +277,12 @@ addPellet(p) {
  * Removes a pellet from the world and from the pellet spatial hash.
  * @param {Pellet} p
  */
-removePellet(p) {
+removePellet(p: Pellet): void {
   if (!p) return;
   this.pelletGrid.remove(p);
   const idx = p._idx;
   if (idx == null || idx < 0 || idx >= this.pellets.length) return;
-  const last = this.pellets.pop();
+  const last = this.pellets.pop()!;
   if (last !== p) {
     this.pellets[idx] = last;
     last._idx = idx;
@@ -229,7 +297,7 @@ removePellet(p) {
    * @param {number} viewW Canvas width in CSS pixels
    * @param {number} viewH Canvas height in CSS pixels
    */
-  update(dt, viewW, viewH) {
+  update(dt: number, viewW: number, viewH: number): void {
     const rawScaled = dt * this.simSpeed;
     const scaled = clamp(rawScaled, 0, Math.max(0.004, CFG.dtClamp));
     const maxStep = clamp(CFG.collision.substepMaxDt, 0.004, 0.08);
@@ -264,7 +332,7 @@ removePellet(p) {
    * and resolve collisions.
    * @param {number} dt
    */
-  _stepPhysics(dt) {
+  _stepPhysics(dt: number): void {
     const deficit = Math.max(0, CFG.pelletCountTarget - this.pellets.length);
     this._pelletSpawnAcc += CFG.pelletSpawnPerSecond * dt;
     const spawnN = Math.min(deficit, Math.floor(this._pelletSpawnAcc));
@@ -294,7 +362,7 @@ removePellet(p) {
    * Selects an initial focus snake when a generation starts or when
    * switching view modes.
    */
-  _chooseInitialFocus() {
+  _chooseInitialFocus(): void {
     const alive = this.snakes.filter(s => s.alive);
     this.focusSnake = alive.length ? alive[randInt(alive.length)] : null;
     if (this.viewMode === "follow" && this.focusSnake) {
@@ -311,7 +379,7 @@ removePellet(p) {
    * Computes a heuristic leader score to determine which snake should be
    * followed.  Combines points, length, kills and age.
    */
-  _leaderScore(s) {
+  _leaderScore(s: Snake): number {
     return s.pointsScore * 3.0 + s.length() * 1.5 + s.killScore * 35.0 + s.age * 0.15;
   }
   /**
@@ -319,7 +387,7 @@ removePellet(p) {
    * hysteresis to avoid rapid switching.
    * @param {number} dt
    */
-  _updateFocus(dt) {
+  _updateFocus(dt: number): void {
     this._focusCooldown -= dt;
     if (!this.focusSnake || !this.focusSnake.alive) {
       this.focusSnake = null;
@@ -355,7 +423,7 @@ removePellet(p) {
    * @param {number} viewW
    * @param {number} viewH
    */
-  _updateCamera(viewW, viewH) {
+  _updateCamera(viewW: number, viewH: number): void {
     if (!Number.isFinite(viewW) || !Number.isFinite(viewH) || viewW <= 0 || viewH <= 0) {
       viewW = CFG.worldRadius * 2;
       viewH = CFG.worldRadius * 2;
@@ -388,7 +456,7 @@ removePellet(p) {
    * killing snakes that intersect another snake’s body.  Awards kill
    * points to the aggressor.
    */
-  _resolveCollisionsGrid() {
+  _resolveCollisionsGrid(): void {
     const cellSize = Math.max(1, CFG.collision.cellSize);
     const hitScale = CFG.collision.hitScale;
     for (const s of this.snakes) {
@@ -399,9 +467,9 @@ removePellet(p) {
       const hy = s.y;
 
       let collision = false;
-      let killedBy = null;
+      let killedBy: Snake | null = null;
 
-      const checkNeighbor = (otherS, idx) => {
+      const checkNeighbor = (otherS: Snake, idx: number) => {
           if (collision) return; // Already found a collision for this snake
 
           if (otherS === s) return;
@@ -438,8 +506,9 @@ removePellet(p) {
       if (collision) {
         s.die(this);
         if (killedBy && killedBy !== s) { // Award points only if killed by another snake
-          killedBy.killScore += 1;
-          killedBy.pointsScore += CFG.reward.pointsPerKill;
+          const killer = killedBy as Snake;
+          killer.killScore += 1;
+          killer.pointsScore += CFG.reward.pointsPerKill;
         }
       }
     }
@@ -449,7 +518,7 @@ removePellet(p) {
    * and breeds new genomes via tournament selection, crossover and
    * mutation.  Resets state for the new generation.
    */
-  _endGeneration() {
+  _endGeneration(): void {
     let maxPts = 0;
     for (const s of this.snakes) maxPts = Math.max(maxPts, s.pointsScore);
     if (maxPts <= 0) maxPts = 1;
@@ -490,11 +559,12 @@ removePellet(p) {
     // The population is sorted by fitness, so population[0] is the best genome.
     // However, the snakes array might not match population order unless we track IDs.
     // Easier: find the snake with the best fitness.
-    let bestS = null;
+    let bestS: Snake | null = null;
     let maxFit = -1;
     for (const s of this.snakes) {
-      if (s.fitness > maxFit) {
-        maxFit = s.fitness;
+      const fit = s.fitness ?? -Infinity;
+      if (fit > maxFit) {
+        maxFit = fit;
         bestS = s;
       }
     }
@@ -505,7 +575,7 @@ removePellet(p) {
       const hofEntry = {
         gen: this.generation,
         seed: bestS.id, // Using ID as a proxy for 'seed' or unique identifier
-        fitness: bestS.fitness || 0, // Ensure fitness is set
+        fitness: bestS.fitness ?? 0, // Ensure fitness is set
         points: bestS.pointsScore,
         length: bestS.length(),
         genome: bestG.toJSON() // Persist the genome data
@@ -542,7 +612,7 @@ removePellet(p) {
    * Spawns a snake from a saved genome immediately into the world.
    * @param {Object} genomeJSON 
    */
-  resurrect(genomeJSON) {
+  resurrect(genomeJSON: GenomeJSON): void {
     const genome = Genome.fromJSON(genomeJSON);
     // Create a new snake with a high ID to avoid collision
     const id = 10000 + randInt(90000); 
@@ -565,13 +635,13 @@ removePellet(p) {
  * @param {Array<Genome>} pop
  * @param {number} k
  */
-function tournamentPick(pop, k) {
-  let best = null;
+function tournamentPick(pop: Genome[], k: number): Genome {
+  let best: Genome | null = null;
   for (let i = 0; i < k; i++) {
     const g = pop[randInt(pop.length)];
     if (!best || g.fitness > best.fitness) best = g;
   }
-  return best;
+  return best!;
 }
 
 /**
@@ -583,21 +653,24 @@ function tournamentPick(pop, k) {
  * Spatial hash for pellets to support fast local queries for sensing and eating.
  */
 class PelletGrid {
+  cellSize: number;
+  map: Map<string, Pellet[]>;
+
   constructor() {
     this.cellSize = Math.max(10, CFG.pelletGrid?.cellSize ?? 120);
     this.map = new Map();
   }
-  resetForCFG() {
+  resetForCFG(): void {
     this.cellSize = Math.max(10, CFG.pelletGrid?.cellSize ?? 120);
     this.map.clear();
   }
-  _key(cx, cy) {
+  _key(cx: number, cy: number): string {
     return cx + "," + cy;
   }
-  _coords(x, y) {
+  _coords(x: number, y: number): { cx: number; cy: number } {
     return { cx: Math.floor(x / this.cellSize), cy: Math.floor(y / this.cellSize) };
   }
-  add(p) {
+  add(p: Pellet): void {
     const { cx, cy } = this._coords(p.x, p.y);
     const k = this._key(cx, cy);
     let arr = this.map.get(k);
@@ -612,11 +685,11 @@ class PelletGrid {
     p._cellIndex = arr.length;
     arr.push(p);
   }
-  remove(p) {
+  remove(p: Pellet): void {
     const arr = p._cellArr;
     if (!arr) return;
-    const idx = p._cellIndex;
-    const last = arr.pop();
+    const idx = p._cellIndex!;
+    const last = arr.pop()!;
     if (last !== p) {
       arr[idx] = last;
       last._cellIndex = idx;
@@ -633,7 +706,7 @@ class PelletGrid {
    * Iterates pellets in cells intersecting a radius around (x,y).
    * The callback receives the pellet object.
    */
-  forEachInRadius(x, y, r, fn) {
+  forEachInRadius(x: number, y: number, r: number, fn: (p: Pellet) => void): void {
     const cs = this.cellSize;
     const minCx = Math.floor((x - r) / cs);
     const maxCx = Math.floor((x + r) / cs);
@@ -651,7 +724,7 @@ class PelletGrid {
 
 const SPECIES_DISTANCE_THRESHOLD = 0.35;
 
-function genomeDistanceRms(a, b) {
+function genomeDistanceRms(a: Genome, b: Genome): number {
   const wa = a.weights;
   const wb = b.weights;
   if (!wa || !wb || wa.length !== wb.length) return Infinity;
@@ -663,11 +736,11 @@ function genomeDistanceRms(a, b) {
   return Math.sqrt(sumSq / wa.length);
 }
 
-function computeSpeciesStats(population) {
+function computeSpeciesStats(population: Genome[]): { speciesCount: number; topSpeciesSize: number } {
   if (!population || population.length === 0) {
     return { speciesCount: 0, topSpeciesSize: 0 };
   }
-  const species = [];
+  const species: Array<{ rep: Genome; size: number }> = [];
   for (const genome of population) {
     let assigned = false;
     for (const bucket of species) {
@@ -686,7 +759,7 @@ function computeSpeciesStats(population) {
   return { speciesCount: species.length, topSpeciesSize: topSize };
 }
 
-function computeNetworkStats(population) {
+function computeNetworkStats(population: Genome[]): { avgWeight: number; weightVariance: number } {
   if (!population || population.length === 0) {
     return { avgWeight: 0, weightVariance: 0 };
   }
@@ -709,7 +782,7 @@ function computeNetworkStats(population) {
   return { avgWeight, weightVariance };
 }
 
-function randomPellet() {
+function randomPellet(): Pellet {
   const a = Math.random() * TAU;
   const r = Math.sqrt(Math.random()) * CFG.worldRadius;
   return new Pellet(Math.cos(a) * r, Math.sin(a) * r, CFG.foodValue, null, "ambient", 0);

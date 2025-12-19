@@ -2,7 +2,7 @@
 // Handles persistence of the simulation state (population, generation) to
 // localStorage and file export/import.
 
-import { Genome } from './mlp.js';
+import { Genome } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry } from './protocol/messages.ts';
 
 const STORAGE_KEY = 'slither_neuroevo_pop';

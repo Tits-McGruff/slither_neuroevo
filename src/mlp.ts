@@ -1,4 +1,4 @@
-// mlp.js
+// mlp.ts
 // Definition of a multi‑layer perceptron and genetic operators for
 // neuroevolution.  We reuse the same architecture and mutation logic as
 // the original monolithic implementation.
@@ -6,13 +6,43 @@
 import { CFG } from './config.js';
 import { clamp, gaussian } from './utils.js';
 
+export type ArchKind = 'mlp' | 'mlp_gru';
+
+export interface ArchDefinition {
+  kind?: ArchKind;
+  mlpSizes?: number[];
+  mlp?: number[];
+  gruHidden?: number;
+  outSize?: number;
+  key?: string;
+  _info?: ArchInfo;
+}
+
+export interface ArchInfo {
+  kind: ArchKind;
+  mlpSizes: number[];
+  gruHidden: number;
+  outSize: number;
+  mlpCount: number;
+  gruCount: number;
+  headCount: number;
+  totalCount: number;
+  featureSize: number;
+  offs: { mlp: number; gru: number; head: number };
+}
+
 /**
  * Builds a neural network architecture array from UI settings.
  * Uses the global CFG to determine input/output sizes.
- * @param {Object} settings
- * @returns {Array<number>}
  */
-export function buildArch(settings) {
+export function buildArch(settings: {
+  hiddenLayers: number;
+  neurons1: number;
+  neurons2: number;
+  neurons3: number;
+  neurons4: number;
+  neurons5: number;
+}): ArchDefinition {
   const layers = settings.hiddenLayers;
   const hidden = [];
   if (layers >= 1) hidden.push(settings.neurons1);
@@ -47,10 +77,8 @@ export function buildArch(settings) {
 
 /**
  * Produces a stable key for a given neural network architecture.
- * @param {Array<number>} arch
- * @returns {string}
  */
-export function archKey(arch) {
+export function archKey(arch: ArchDefinition | number[]): string {
   if (Array.isArray(arch)) return arch.join("x");
   const kind = arch.kind || "mlp";
   const mlp = (arch.mlpSizes || arch.mlp || []).join("x");
@@ -66,7 +94,13 @@ export function archKey(arch) {
  * Simple fully connected neural network with tanh activations.
  */
 export class MLP {
-  constructor(layerSizes, weights = null) {
+  layerSizes: number[];
+  key: string;
+  paramCount: number;
+  w: Float32Array;
+  _bufs: Float32Array[];
+
+  constructor(layerSizes: number[], weights: Float32Array | null = null) {
     // Copy sizes to avoid accidental mutation by caller.
     this.layerSizes = layerSizes.slice();
     // Unique key for caching neural architectures.
@@ -97,7 +131,7 @@ export class MLP {
    * @param {Float32Array} input
    * @returns {Float32Array}
    */
-  forward(input) {
+  forward(input: Float32Array): Float32Array {
     let wi = 0;
     let cur = input;
     for (let l = 0; l < this.layerSizes.length - 1; l++) {
@@ -116,7 +150,7 @@ export class MLP {
   }
 }
 
-function mlpParamCount(layerSizes) {
+function mlpParamCount(layerSizes: number[]): number {
   let n = 0;
   for (let l = 0; l < layerSizes.length - 1; l++) {
     const ins = layerSizes[l];
@@ -126,20 +160,20 @@ function mlpParamCount(layerSizes) {
   return n;
 }
 
-function gruParamCount(inSize, hiddenSize) {
+function gruParamCount(inSize: number, hiddenSize: number): number {
   // z, r, h~ gates each have: W (H x I), U (H x H), b (H)
   return 3 * hiddenSize * (inSize + hiddenSize + 1);
 }
 
-function headParamCount(hiddenSize, outSize) {
+function headParamCount(hiddenSize: number, outSize: number): number {
   return outSize * hiddenSize + outSize;
 }
 
-export function enrichArchInfo(arch) {
+export function enrichArchInfo(arch: ArchDefinition): ArchInfo {
   if (arch && arch._info) return arch._info;
   const kind = arch.kind || "mlp";
   const mlpSizes = arch.mlpSizes || arch.mlp || [];
-  const info = {
+  const info: ArchInfo = {
     kind,
     mlpSizes,
     gruHidden: 0,
@@ -174,7 +208,7 @@ export function enrichArchInfo(arch) {
   return info;
 }
 
-export function sigmoid(x) {
+export function sigmoid(x: number): number {
   // Stable enough for our weight ranges.
   return 1 / (1 + Math.exp(-x));
 }
@@ -183,7 +217,20 @@ export function sigmoid(x) {
  * Minimal GRU cell. Keeps internal hidden state and exposes step(x).
  */
 export class GRU {
-  constructor(inSize, hiddenSize, weights = null, initUpdateBias = -0.7) {
+  inSize: number;
+  hiddenSize: number;
+  paramCount: number;
+  w: Float32Array;
+  h: Float32Array;
+  _z: Float32Array;
+  _r: Float32Array;
+
+  constructor(
+    inSize: number,
+    hiddenSize: number,
+    weights: Float32Array | null = null,
+    initUpdateBias = -0.7
+  ) {
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
     this.paramCount = gruParamCount(inSize, hiddenSize);
@@ -209,11 +256,11 @@ export class GRU {
     this._r = new Float32Array(hiddenSize);
   }
 
-  reset() {
+  reset(): void {
     this.h.fill(0);
   }
 
-  step(x) {
+  step(x: Float32Array): Float32Array {
     const I = this.inSize;
     const H = this.hiddenSize;
     const Wsz = H * I;
@@ -273,7 +320,13 @@ export class GRU {
 }
 
 export class DenseHead {
-  constructor(inSize, outSize, weights = null) {
+  inSize: number;
+  outSize: number;
+  paramCount: number;
+  w: Float32Array;
+  _out: Float32Array;
+
+  constructor(inSize: number, outSize: number, weights: Float32Array | null = null) {
     this.inSize = inSize;
     this.outSize = outSize;
     this.paramCount = headParamCount(inSize, outSize);
@@ -283,7 +336,7 @@ export class DenseHead {
     }
     this._out = new Float32Array(outSize);
   }
-  forward(x) {
+  forward(x: Float32Array): Float32Array {
     let idx = 0;
     for (let o = 0; o < this.outSize; o++) {
       let sum = 0;
@@ -301,7 +354,14 @@ export class DenseHead {
  * - kind="mlp_gru": forward(input) updates hidden state and returns output.
  */
 export class BrainController {
-  constructor(arch, weights) {
+  arch: ArchDefinition;
+  info: ArchInfo;
+  kind: ArchKind;
+  mlp: MLP;
+  gru: GRU | null;
+  head: DenseHead | null;
+
+  constructor(arch: ArchDefinition, weights: Float32Array) {
     this.arch = arch;
     this.info = enrichArchInfo(arch);
     this.kind = this.info.kind;
@@ -321,15 +381,15 @@ export class BrainController {
     }
   }
 
-  reset() {
+  reset(): void {
     if (this.gru) this.gru.reset();
   }
 
-  forward(input) {
+  forward(input: Float32Array): Float32Array {
     if (this.kind === "mlp") return this.mlp.forward(input);
     const feat = this.mlp.forward(input);
-    const h = this.gru.step(feat);
-    return this.head.forward(h);
+    const h = this.gru!.step(feat);
+    return this.head!.forward(h);
   }
 }
 /**
@@ -337,9 +397,13 @@ export class BrainController {
  * architecture key, the weight vector and the fitness score.
  */
 export class Genome {
-  constructor(archKey, weights) {
+  archKey: string;
+  weights: Float32Array;
+  fitness: number;
+
+  constructor(archKey: string, weights: Float32Array) {
     this.archKey = archKey;
-    this.weights = weights ? weights.slice() : null;
+    this.weights = weights ? weights.slice() : new Float32Array(0);
     this.fitness = 0;
   }
   /**
@@ -348,7 +412,7 @@ export class Genome {
    * @param {Array<number>} arch
    * @returns {Genome}
    */
-  static random(arch) {
+  static random(arch: ArchDefinition): Genome {
     const info = enrichArchInfo(arch);
     if (info.kind === "mlp") {
       const net = new MLP(info.mlpSizes);
@@ -371,7 +435,7 @@ export class Genome {
    * Builds an MLP instance from the stored weights.
    * @param {Array<number>} arch
    */
-  buildBrain(arch) {
+  buildBrain(arch: ArchDefinition): BrainController {
     const brain = new BrainController(arch, this.weights);
     brain.reset();
     return brain;
@@ -380,7 +444,7 @@ export class Genome {
    * Creates a deep copy of this genome, preserving fitness and weights.
    * @returns {Genome}
    */
-  clone() {
+  clone(): Genome {
     const g = new Genome(this.archKey, this.weights);
     g.fitness = this.fitness;
     return g;
@@ -389,7 +453,7 @@ export class Genome {
    * Serialises the genome to a plain object.
    * @returns {Object}
    */
-  toJSON() {
+  toJSON(): { archKey: string; weights: number[]; fitness: number } {
     return {
       archKey: this.archKey,
       weights: Array.from(this.weights),
@@ -401,7 +465,7 @@ export class Genome {
    * @param {Object} json
    * @returns {Genome}
    */
-  static fromJSON(json) {
+  static fromJSON(json: { archKey: string; weights: number[]; fitness?: number }): Genome {
     const g = new Genome(json.archKey, new Float32Array(json.weights));
     g.fitness = json.fitness || 0;
     return g;
@@ -416,7 +480,7 @@ export class Genome {
  * @param {Genome} b
  * @returns {Genome}
  */
-export function crossover(a, b, arch) {
+export function crossover(a: Genome, b: Genome, arch: ArchDefinition): Genome {
   const info = enrichArchInfo(arch);
   const wa = a.weights;
   const wb = b.weights;
@@ -498,7 +562,7 @@ export function crossover(a, b, arch) {
  * perturbed by a Gaussian noise scaled by mutationStd.
  * @param {Genome} genome
  */
-export function mutate(genome, arch) {
+export function mutate(genome: Genome, arch: ArchDefinition): void {
   const info = enrichArchInfo(arch);
   const w = genome.weights;
   if (info.kind === "mlp") {

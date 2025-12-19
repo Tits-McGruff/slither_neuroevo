@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Storage, savePopulation, loadPopulation } from './storage.ts';
-import { Genome, buildArch } from './mlp.js';
+import { Genome, buildArch } from './mlp.ts';
 
 describe('storage.js', () => {
   let originalStorage;

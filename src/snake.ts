@@ -1,4 +1,4 @@
-// snake.js
+// snake.ts
 // Definitions of Pellet, Snake and segment grid classes.  These objects
 // encapsulate the state and behaviour of the snakes and provide
 // geometry helpers for collision detection.
@@ -6,13 +6,27 @@
 import { CFG } from './config.js';
 import { clamp, hashColor, rand, lerp, angNorm, hypot, TAU } from './utils.js';
 import { buildSensors } from './sensors.js';
+import type { ArchDefinition, BrainController, Genome } from './mlp.ts';
 
 /**
  * Simple data class representing a pellet at (x,y) with value v.
  * @class
  */
 export class Pellet {
-  constructor(x, y, v, color = null, kind = "ambient", colorId = 0) {
+  x: number;
+  y: number;
+  v: number;
+  color: string | null;
+  kind: string;
+  colorId: number;
+  _idx?: number;
+  _pcx?: number;
+  _pcy?: number;
+  _pkey?: string;
+  _cellArr: Pellet[] | null = null;
+  _cellIndex?: number;
+
+  constructor(x: number, y: number, v: number, color: string | null = null, kind = "ambient", colorId = 0) {
     this.x = x;
     this.y = y;
     this.v = v;
@@ -22,14 +36,34 @@ export class Pellet {
   }
 }
 
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface PelletGridLike {
+  forEachInRadius: (x: number, y: number, r: number, fn: (p: Pellet) => void) => void;
+}
+
+interface ParticleSystemLike {
+  spawnBurst: (x: number, y: number, color: string, count: number, strength: number) => void;
+  spawnBoost: (x: number, y: number, ang: number, color: string) => void;
+}
+
+interface WorldLike {
+  pellets: Pellet[];
+  pelletGrid?: PelletGridLike;
+  particles: ParticleSystemLike;
+  addPellet: (p: Pellet) => void;
+  removePellet: (p: Pellet) => void;
+}
+
 /**
  * Computes a snake’s radius as a function of its length using a
  * logarithmic growth curve.  The radius increases slowly with length
  * until clamped at snakeRadiusMax.
- * @param {number} len
- * @returns {number}
  */
-function computeSnakeRadiusByLen(len) {
+function computeSnakeRadiusByLen(len: number): number {
   const grow = Math.max(0, len - CFG.snakeStartLen);
   const div = Math.max(1e-6, CFG.snakeThicknessLogDiv);
   const r = CFG.snakeRadius + CFG.snakeThicknessScale * Math.log1p(grow / div);
@@ -43,7 +77,33 @@ function computeSnakeRadiusByLen(len) {
  * logic, food collection and state updates.
  */
 export class Snake {
-  constructor(id, genome, arch) {
+  id: number;
+  color: string;
+  x: number;
+  y: number;
+  dir: number;
+  radius: number;
+  speed: number;
+  boost: number;
+  alive: boolean;
+  foodEaten: number;
+  age: number;
+  killScore: number;
+  pointsScore: number;
+  targetLen: number;
+  points: Point[];
+  genome: Genome;
+  brain: BrainController;
+  turnInput: number;
+  boostInput: number;
+  _sensorBuf?: Float32Array;
+  _ctrlAcc?: number;
+  _hasAct?: number;
+  lastSensors?: number[];
+  lastOutputs?: number[];
+  fitness?: number;
+
+  constructor(id: number, genome: Genome, arch: ArchDefinition) {
     this.id = id;
     this.color = hashColor(id * 17 + 3);
     // Spawn at a random position and orientation within a fraction of the arena.
@@ -72,7 +132,7 @@ export class Snake {
   /**
    * Builds the initial body by laying out points behind the head.
    */
-  _initBody() {
+  _initBody(): void {
     this.points.length = 0;
     let px = this.x,
       py = this.y;
@@ -86,33 +146,33 @@ export class Snake {
   /**
    * Returns the head segment.
    */
-  head() {
+  head(): Point {
     return this.points[0];
   }
   /**
    * Current number of segments in the body.
    */
-  length() {
+  length(): number {
     return this.points.length;
   }
   /**
    * Normalised size fraction relative to the start and maximum length.
    */
-  sizeNorm() {
+  sizeNorm(): number {
     const denom = Math.max(1, CFG.snakeMaxLen - CFG.snakeStartLen);
     return clamp((this.length() - CFG.snakeStartLen) / denom, 0, 1);
   }
   /**
    * Updates the radius field to reflect the current length.
    */
-  updateRadiusFromLen() {
+  updateRadiusFromLen(): void {
     this.radius = computeSnakeRadiusByLen(this.length());
   }
   /**
    * Kills the snake and drops pellets behind it.  Only applies once.
    * @param {World} world
    */
-  die(world) {
+  die(world: WorldLike): void {
     if (!this.alive) return;
     this.alive = false;
     world.particles.spawnBurst(this.x, this.y, this.color, 25, 3.0);
@@ -195,7 +255,7 @@ export class Snake {
    * @param {number} pointsNorm Normalised points score in [0,1].
    * @param {number} topPointsBonus Bonus applied to top performers.
    */
-  computeFitness(pointsNorm, topPointsBonus) {
+  computeFitness(pointsNorm: number, topPointsBonus: number): number {
     const len = this.length();
     const survive = this.age;
     const eat = this.foodEaten;
@@ -217,7 +277,7 @@ export class Snake {
    * @param {number} dt
    * @returns {number} Points spent this frame
    */
-  _applyBoostMassBurn(world, dt) {
+  _applyBoostMassBurn(world: WorldLike, dt: number): number {
     const lenNow = this.length();
     if (lenNow <= CFG.snakeMinLen + 1) return 0;
     if (this.pointsScore < CFG.boost.minPointsToBoost) return 0;
@@ -235,7 +295,7 @@ export class Snake {
       ? this.color.replace("rgb(", "rgba(").replace(")", ",0.70)")
       : null;
     while (this.points.length > desired) {
-      const tail = this.points.pop();
+      const tail = this.points.pop()!;
       const back = this.points[this.points.length - 1] || tail;
       const dx = tail.x - back.x;
       const dy = tail.y - back.y;
@@ -262,7 +322,7 @@ export class Snake {
    * @param {World} world
    * @param {number} dt
    */
-  update(world, dt) {
+  update(world: WorldLike, dt: number): void {
     if (!this.alive) return;
     this.age += dt;
     this.pointsScore += dt * CFG.reward.pointsPerSecondAlive;
@@ -276,7 +336,7 @@ export class Snake {
       this._ctrlAcc = this._ctrlAcc % ctrlDt;
       const sensors = buildSensors(world, this, this._sensorBuf);
       this.lastSensors = Array.from(sensors);
-      const out = this.brain.forward(sensors);
+    const out = this.brain.forward(sensors);
       this.lastOutputs = Array.from(out);
       this.turnInput = clamp(out[0], -1, 1);
       this.boostInput = clamp(out[1], -1, 1);
@@ -329,7 +389,7 @@ export class Snake {
 const eatR = this.radius + 6;
 const eatR2 = eatR * eatR;
 // Fast local pellet collection using the pellet grid.
-const candidates = [];
+const candidates: Pellet[] = [];
 if (world.pelletGrid) {
   world.pelletGrid.forEachInRadius(this.x, this.y, eatR, p => candidates.push(p));
 } else {
@@ -372,7 +432,14 @@ for (let k = 0; k < candidates.length; k++) {
  * Returns the squared distance from point (px,py) to segment (ax,ay)-(bx,by).
  * Used by collision detection.
  */
-export function pointSegmentDist2(px, py, ax, ay, bx, by) {
+export function pointSegmentDist2(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number {
   const abx = bx - ax;
   const aby = by - ay;
   const apx = px - ax;
@@ -398,6 +465,9 @@ export function pointSegmentDist2(px, py, ax, ay, bx, by) {
  * cells can then be queried during collision resolution.
  */
 export class SegmentGrid {
+  cellSize: number;
+  map: Map<string, Array<{ s: Snake; i: number }>>;
+
   constructor() {
     this.cellSize = CFG.collision.cellSize;
     this.map = new Map();
@@ -405,14 +475,14 @@ export class SegmentGrid {
   /**
    * Updates the cell size from the current CFG and clears the map.
    */
-  resetForCFG() {
+  resetForCFG(): void {
     this.cellSize = Math.max(1, CFG.collision.cellSize);
     this.map.clear();
   }
   /**
    * Builds a unique key for a cell coordinate.
    */
-  _key(cx, cy) {
+  _key(cx: number, cy: number): string {
     return cx + "," + cy;
   }
   /**
@@ -420,7 +490,7 @@ export class SegmentGrid {
    * index must be >=1 so that it references a valid segment between
    * points[idx-1] and points[idx].
    */
-  addSegment(snake, idx) {
+  addSegment(snake: Snake, idx: number): void {
     const p0 = snake.points[idx - 1];
     const p1 = snake.points[idx];
     const mx = (p0.x + p1.x) * 0.5;
@@ -439,7 +509,7 @@ export class SegmentGrid {
    * Populates the grid with segments from all alive snakes.
    * @param {Array<Snake>} snakes
    */
-  build(snakes) {
+  build(snakes: Snake[]): void {
     this.resetForCFG();
     const skip = Math.max(0, Math.floor(CFG.collision.skipSegments));
     for (const s of snakes) {
@@ -454,7 +524,7 @@ export class SegmentGrid {
    * @param {number} cy
    * @returns {Array<{s: Snake, i: number}>|null}
    */
-  query(cx, cy) {
+  query(cx: number, cy: number): Array<{ s: Snake; i: number }> | null {
     return this.map.get(this._key(cx, cy)) || null;
   }
 }

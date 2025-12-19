@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { World } from './world.js';
-import { Pellet } from './snake.js';
+import { World } from './world.ts';
+import { Pellet } from './snake.ts';
 import { CFG, resetCFGToDefaults } from './config.js';
 
 describe('world.js', () => {

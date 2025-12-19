@@ -9,7 +9,7 @@ import { CFG, resetCFGToDefaults } from './config.js';
 import { setupSettingsUI, updateCFGFromUI } from './settings.ts';
 import { setByPath, clamp, TAU } from './utils.js';
 import { renderWorldStruct } from './render.ts';
-// import { World } from './world.js'; // Logic moved to worker
+// import { World } from './world.ts'; // Logic moved to worker
 import { savePopulation, loadPopulation, exportToFile, importFromFile } from './storage.ts';
 import { hof } from './hallOfFame.js';
 import { BrainViz } from './BrainViz.js';
