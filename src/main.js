@@ -301,6 +301,9 @@ worker.onmessage = (e) => {
       }
       if (fitnessHistory.length > 120) fitnessHistory.shift();
     }
+    if (msg.stats.hofEntry) {
+      hof.add(msg.stats.hofEntry);
+    }
     if (msg.stats.viz) {
       currentVizData = msg.stats.viz;
     }

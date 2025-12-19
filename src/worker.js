@@ -199,6 +199,11 @@ function loop(token) {
           stats.viz = buildVizData(world.focusSnake.brain);
         }
       }
+
+      if (world._lastHoFEntry) {
+        stats.hofEntry = world._lastHoFEntry;
+        world._lastHoFEntry = null;
+      }
       
       // We transfer the buffer to avoid copy
       self.postMessage({ type: 'frame', buffer: buffer.buffer, stats }, [buffer.buffer]);
