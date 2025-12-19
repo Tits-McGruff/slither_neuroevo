@@ -12,6 +12,7 @@ let viewW = 0;
 let viewH = 0;
 let vizEnabled = false;
 let vizTick = 0;
+let lastHistoryLen = 0;
 
 self.onmessage = function(e) {
   const msg = e.data;
@@ -147,6 +148,11 @@ function loop(token) {
             minFitness: minFit
           }
       };
+
+      if (world.fitnessHistory.length !== lastHistoryLen) {
+        stats.fitnessHistory = world.fitnessHistory.slice();
+        lastHistoryLen = world.fitnessHistory.length;
+      }
 
       if (vizEnabled && world.focusSnake && world.focusSnake.brain) {
         vizTick = (vizTick + 1) % 6;

@@ -405,7 +405,8 @@ removePellet(p) {
     
     // Record history
     const avgFit = this.population.reduce((sum, g) => sum + g.fitness, 0) / this.population.length;
-    this.fitnessHistory.push({ gen: this.generation, best: this.population[0].fitness, avg: avgFit });
+    const minFit = this.population[this.population.length - 1]?.fitness ?? 0;
+    this.fitnessHistory.push({ gen: this.generation, best: this.population[0].fitness, avg: avgFit, min: minFit });
     if (this.fitnessHistory.length > 100) this.fitnessHistory.shift();
 
     // Hall of Fame: Record the best snake of this generation

@@ -62,8 +62,8 @@
 
 ## Phase 8: Entity Visuals
 
-- [ ] Restore Snake Head/Eye Rendering.
-- [ ] Implement Neon Glow particle effects.
+- [x] Restore Snake Head/Eye Rendering.
+- [x] Implement Neon Glow particle effects.
 
 ## Phase 9: God Mode
 
@@ -73,6 +73,6 @@
 
 ## Phase 10: Analytics & Graphs
 
-- [ ] Implement Fitness History logging.
-- [ ] Integrate Charting (Min/Avg/Max).
-- [ ] Implement Brain Visualizer (Activation heatmap).
+- [x] Implement Fitness History logging.
+- [x] Integrate Charting (Min/Avg/Max).
+- [x] Implement Brain Visualizer (Activation heatmap).

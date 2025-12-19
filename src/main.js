@@ -210,14 +210,32 @@ worker.onmessage = (e) => {
     proxyWorld.generation = currentStats.gen;
     
     // Track fitness history for charts
+    if (msg.stats.fitnessHistory) {
+      fitnessHistory.length = 0;
+      msg.stats.fitnessHistory.forEach(entry => {
+        fitnessHistory.push({
+          gen: entry.gen,
+          avgFitness: entry.avg,
+          maxFitness: entry.best,
+          minFitness: entry.min ?? 0
+        });
+      });
+    }
     if (msg.stats.fitnessData) {
-      // Update or add generation fitness data
-      const existingIdx = fitnessHistory.findIndex(f => f.gen === msg.stats.gen);
+      const data = msg.stats.fitnessData;
+      const entry = {
+        gen: data.gen,
+        avgFitness: data.avgFitness,
+        maxFitness: data.maxFitness,
+        minFitness: data.minFitness
+      };
+      const existingIdx = fitnessHistory.findIndex(f => f.gen === data.gen);
       if (existingIdx >= 0) {
-        fitnessHistory[existingIdx] = msg.stats.fitnessData;
+        fitnessHistory[existingIdx] = entry;
       } else {
-        fitnessHistory.push(msg.stats.fitnessData);
+        fitnessHistory.push(entry);
       }
+      if (fitnessHistory.length > 120) fitnessHistory.shift();
     }
     if (msg.stats.viz) {
       currentVizData = msg.stats.viz;

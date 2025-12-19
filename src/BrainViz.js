@@ -1,6 +1,8 @@
 // BrainViz.js
 // Visualizes the neural network structure and activity.
 
+import { clamp } from './utils.js';
+
 export class BrainViz {
   constructor(x, y, w, h) {
     this.x = x;
@@ -76,6 +78,7 @@ export class BrainViz {
     ctx.save();
     ctx.translate(this.x, this.y);
     
+    const heatW = Math.min(12, colStep * 0.4);
     for (let c = 0; c < maxCols; c++) {
       const layer = layers[c];
       const cx = c * colStep;
@@ -85,6 +88,7 @@ export class BrainViz {
       
       for (let r = 0; r < count; r++) {
         const cy = startY + r * rowStep;
+        const rectH = Math.max(3, rowStep * 0.8);
         
         // Connections to prev layer
         if (c > 0) {
@@ -108,6 +112,17 @@ export class BrainViz {
           }
         }
         
+        // Activation heat strip
+        if (layer.activations && r < layer.activations.length) {
+          const val = layer.activations[r];
+          const intensity = clamp(Math.abs(val), 0, 1);
+          const alpha = 0.15 + intensity * 0.65;
+          ctx.fillStyle = val >= 0
+            ? `rgba(80,220,140,${alpha})`
+            : `rgba(240,90,90,${alpha})`;
+          ctx.fillRect(cx - heatW * 0.5, cy - rectH * 0.5, heatW, rectH);
+        }
+
         // Neuron circle
         let alpha = 0.2;
         let val = 0;

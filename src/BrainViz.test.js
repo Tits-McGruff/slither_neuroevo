@@ -14,6 +14,7 @@ function makeCtx() {
     stroke: () => calls.push(['stroke']),
     arc: () => calls.push(['arc']),
     fill: () => calls.push(['fill']),
+    fillRect: () => calls.push(['fillRect']),
     set fillStyle(value) {
       calls.push(['fillStyle', value]);
     },

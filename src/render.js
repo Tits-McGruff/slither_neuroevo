@@ -7,6 +7,72 @@ import { TAU, clamp, hashColor } from './utils.js';
 import { THEME, getPelletColor, getPelletGlow } from './theme.js';
 import { CFG } from './config.js';
 
+const snakeRenderCache = new Map();
+const boostParticles = [];
+const MAX_BOOST_PARTICLES = 1400;
+const BOOST_PARTICLE_LIFE = 0.38;
+let renderTick = 0;
+let lastRenderTime = 0;
+
+function randRange(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+function getRenderDt() {
+  if (typeof performance === 'undefined' || !performance.now) return 1 / 60;
+  const now = performance.now();
+  const dt = lastRenderTime ? Math.min(0.05, (now - lastRenderTime) / 1000) : 1 / 60;
+  lastRenderTime = now;
+  return dt || 1 / 60;
+}
+
+function getSnakeColor(id, skin) {
+  if (skin === 1.0) return '#FFD700';
+  return hashColor(id * 17 + 3);
+}
+
+function spawnBoostParticle(x, y, ang, color, strength) {
+  if (boostParticles.length >= MAX_BOOST_PARTICLES) boostParticles.shift();
+  const dir = ang + Math.PI + randRange(-0.35, 0.35);
+  const speed = randRange(60, 140) * (0.65 + strength);
+  boostParticles.push({
+    x: x + Math.cos(dir) * randRange(4, 10),
+    y: y + Math.sin(dir) * randRange(4, 10),
+    vx: Math.cos(dir) * speed,
+    vy: Math.sin(dir) * speed,
+    life: BOOST_PARTICLE_LIFE,
+    maxLife: BOOST_PARTICLE_LIFE,
+    size: randRange(1.6, 3.4) * (0.7 + strength),
+    color
+  });
+}
+
+function renderBoostParticles(ctx, dt) {
+  if (!boostParticles.length) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = boostParticles.length - 1; i >= 0; i--) {
+    const p = boostParticles[i];
+    p.life -= dt;
+    if (p.life <= 0) {
+      boostParticles.splice(i, 1);
+      continue;
+    }
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= 0.94;
+    p.vy *= 0.94;
+    const alpha = clamp(p.life / p.maxLife, 0, 1);
+    ctx.globalAlpha = alpha;
+    ctx.shadowBlur = p.size * 4;
+    ctx.shadowColor = p.color;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
 
 function hash2(x, y) {
   let h = (x * 374761393 + y * 668265263) | 0;
@@ -141,28 +207,20 @@ export function drawSnakeStruct(ctx, s, zoom) {
   
   // Resolve Color
   // 0.0 = Default, 1.0 = Gold.
-  let color = THEME.snakeDefault;
-  if (s.skin === 1.0) color = '#FFD700'; // Gold
-  else {
-      // Re-hash ID for color
-      // Need hashColor from utils. But utils import is available.
-      // We can duplicate hashColor logic here for speed or import.
-      // Ideally import.
-      // For now, let's assuming importing 'hashColor' works.
-      // import { hashColor } from './utils.js';
-      // Wait, we need to import it in this file.
-      // It is imported at top of file.
-      color = hashColor(s.id * 17 + 3);
-  }
+  const color = s.color || getSnakeColor(s.id, s.skin);
 
   // Shadow/Glow
-  ctx.shadowBlur = s.radius * 1.5;
+  const speed = Math.max(0, s.speed || 0);
+  const boostGlow = s.boost > 0.5 ? 1.35 : 1;
+  const speedGlow = clamp(speed / Math.max(6, s.radius * 1.6), 0, 1);
+  const glowScale = 1 + speedGlow * 0.9;
+  ctx.shadowBlur = s.radius * 1.6 * glowScale * boostGlow;
   ctx.shadowColor = color;
   ctx.strokeStyle = color;
   
   const minPx = 2.1;
   const worldMin = minPx / Math.max(0.0001, zoom);
-  ctx.lineWidth = Math.max(s.radius * 2, worldMin);
+  ctx.lineWidth = Math.max(s.radius * 2 * (1 + speedGlow * 0.25), worldMin);
   
   ctx.beginPath();
   const pts = s.pts;
@@ -204,6 +262,8 @@ export function drawSnakeStruct(ctx, s, zoom) {
  * @param {Float32Array} flt 
  */
 export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOverride, camYOverride) {
+  const dt = getRenderDt();
+  renderTick += 1;
   const dpr = ctx.getTransform().a || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, viewW, viewH);
@@ -250,8 +310,7 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
   
   // We MUST scan snakes to find pellets.
   // Let's just scan and store pointers?
-  const snakePtrs = [];
-  const count = aliveCount; // Wait, loop until we parse 'aliveCount' snakes?
+  const snakeMeta = [];
   // Loop 'total' times? No, Serializer loops 'world.snakes'.
   // BUT Serializer writes 'AliveCount'.
   // And loops 'world.snakes' but `if (!s.alive) continue;`.
@@ -259,13 +318,33 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
   // So we read 'AliveCount' blocks.
   
   for (let i = 0; i < aliveCount; i++) {
-      snakePtrs.push(ptr);
-      // Skip this snake
-      // ID, Rad, Skin, X, Y, Ang, Boost, PtCount
-      // 8 floats.
-      const ptCount = flt[ptr + 7];
-      ptr += 8 + ptCount * 2;
+      const basePtr = ptr;
+      const id = flt[ptr++];
+      const rad = flt[ptr++];
+      const skin = flt[ptr++];
+      const x = flt[ptr++];
+      const y = flt[ptr++];
+      const ang = flt[ptr++];
+      const boost = flt[ptr++];
+      const ptCount = flt[ptr++] | 0;
+
+      const prev = snakeRenderCache.get(id);
+      let speed = 0;
+      if (prev) {
+        const dx = x - prev.x;
+        const dy = y - prev.y;
+        const inst = Math.hypot(dx, dy);
+        speed = prev.speed * 0.65 + inst * 0.35;
+      }
+      snakeRenderCache.set(id, { x, y, speed, seen: renderTick });
+
+      snakeMeta.push({ basePtr, ptCount, id, rad, skin, x, y, ang, boost, speed });
+      ptr += ptCount * 2;
   };
+
+  for (const [id, data] of snakeRenderCache) {
+    if (renderTick - data.seen > 120) snakeRenderCache.delete(id);
+  }
   
   // Now ptr is at Pellets Count
   const pelletCount = flt[ptr++];
@@ -317,10 +396,24 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
       ctx.fill();
       ctx.shadowBlur = 0;
   }
+
+  for (let i = 0; i < snakeMeta.length; i++) {
+    const meta = snakeMeta[i];
+    if (meta.boost > 0.5) {
+      const strength = clamp(meta.speed / Math.max(12, meta.rad * 2), 0, 1);
+      const color = getSnakeColor(meta.id, meta.skin);
+      const count = 1 + Math.floor(strength * 2);
+      for (let k = 0; k < count; k++) {
+        spawnBoostParticle(meta.x, meta.y, meta.ang, color, strength);
+      }
+    }
+  }
+  renderBoostParticles(ctx, dt);
   
   // Draw Snakes
-  for (let idx of snakePtrs) {
-      let p = idx;
+  for (let i = 0; i < snakeMeta.length; i++) {
+      const meta = snakeMeta[i];
+      let p = meta.basePtr;
       const id = flt[p++];
       const rad = flt[p++];
       const skin = flt[p++];
@@ -337,7 +430,15 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
       const pts = flt.subarray(p, p + ptCount * 2);
       
       const s = {
-          id, radius: rad, skin, x, y, ang, boost, pts
+          id,
+          radius: rad,
+          skin,
+          x,
+          y,
+          ang,
+          boost,
+          pts,
+          speed: meta.speed
       };
       
       drawSnakeStruct(ctx, s, zoom);
