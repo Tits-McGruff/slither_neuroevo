@@ -27,12 +27,15 @@ Note: This project uses ES modules, so opening `index.html` directly in a file b
 ## Understanding the brain (MLP vs GRU)
 
 ### MLP (feed-forward)
+
 An MLP uses only the current sensor inputs. It reacts quickly but has no memory. Expect twitchier, reflex-like behavior that can be strong for fast foraging but weaker at long-term planning.
 
 ### GRU (memory)
+
 A GRU adds a hidden state that persists across time steps. This gives the snake short-term memory: smoother steering, better wall avoidance, and more stable pursuit or escape behavior. GRU brains can be more sensitive to mutation and may need gentler mutation settings.
 
 ### Practical effect
+
 - **MLP**: quick reactions, simpler strategies, faster training.
 - **GRU**: smoother motion, memory of recent events, better long arcs or deliberate turning.
 
@@ -136,7 +139,9 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 ## Preset recipes (QA-friendly)
 
 ### Fast iteration
+
 Use this to quickly see visible evolution.
+
 - NPC snakes: 30–60
 - World radius: 1600–2200
 - Generation duration: 20–40
@@ -145,28 +150,36 @@ Use this to quickly see visible evolution.
 - Elite fraction: 0.10–0.20
 
 ### Survival-focused
+
 Encourages long-lived snakes.
+
 - Points per second alive: 1.0–2.5
 - Fitness survival per second: 1.5–3.0
 - Points per kill: 10–30
 - Fitness per kill: 10–30
 
 ### Aggressive combat
+
 Encourages hunting and kills.
+
 - Points per kill: 80–150
 - Fitness per kill: 100–200
 - Points per food: 1–2
 - Fitness per food: 2–5
 
 ### Foraging/exploration
+
 Encourages food-seeking behavior.
+
 - Points per food: 3–6
 - Fitness per food: 10–20
 - Pellet target count: 3000–8000
 - Pellet spawn per second: 200–600
 
 ### Memory-heavy (GRU)
+
 Use GRU for smoother, more deliberate behavior.
+
 - Use GRU memory: 1
 - GRU hidden size: 24–48
 - GRU mutation rate: 0.01–0.03
