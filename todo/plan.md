@@ -21,7 +21,7 @@ Goal: convert the full runtime to TypeScript to maximize static context, while k
 Checklist:
 
 - [ ] Add `tsconfig.json` with strict settings, `noEmit`, `allowJs: false`.
-- [ ] Add `npm run typecheck` script and wire into CI (optional if you want).
+- [ ] Add `npm run typecheck` script and wire into CI.
 - [ ] Add a short TS policy section to `.github/copilot-instructions.md`.
 
 Deliverable: TS toolchain is configured but no files converted yet.
