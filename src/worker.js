@@ -13,6 +13,7 @@ let viewH = 0;
 let vizEnabled = false;
 let vizTick = 0;
 let lastHistoryLen = 0;
+let pendingImport = null;
 
 self.onmessage = function(e) {
   const msg = e.data;
@@ -29,7 +30,20 @@ self.onmessage = function(e) {
       // We need to "load" the imported brains if persistence was used?
       // Handled via separate 'import' message or 'init' payload.
       if (msg.population) {
-        // TODO: Resurrect/Link population
+        const result = world.importPopulation({
+          generation: msg.generation,
+          genomes: msg.population
+        });
+        if (!result.ok) {
+          console.warn('[Worker] Failed to import population during init:', result.reason);
+        }
+      }
+      if (pendingImport) {
+        const result = world.importPopulation(pendingImport);
+        if (!result.ok) {
+          console.warn('[Worker] Failed to apply pending import:', result.reason);
+        }
+        pendingImport = null;
       }
       lastTime = performance.now();
       accumulator = 0;
@@ -66,6 +80,30 @@ self.onmessage = function(e) {
     case 'resurrect':
         if(world) world.resurrect(msg.genome);
         break;
+        
+    case 'import':
+      if (!msg.data) break;
+      if (!world) {
+        pendingImport = msg.data;
+        break;
+      }
+      {
+        const result = world.importPopulation(msg.data);
+        self.postMessage({
+          type: 'importResult',
+          ok: result.ok,
+          reason: result.reason || null,
+          generation: world.generation,
+          used: result.used || 0,
+          total: result.total || 0
+        });
+      }
+      break;
+
+    case 'export':
+      if (!world) break;
+      self.postMessage({ type: 'exportResult', data: world.exportPopulation() });
+      break;
         
     case 'godMode':
       // God Mode interactions: kill, move, etc.

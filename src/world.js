@@ -5,7 +5,7 @@
 // functions for genetic selection and pellet spawning.
 
 import { CFG } from './config.js';
-import { buildArch, archKey, Genome, crossover, mutate } from './mlp.js';
+import { buildArch, archKey, Genome, crossover, mutate, enrichArchInfo } from './mlp.js';
 import { ParticleSystem } from './particles.js';
 import { Snake, Pellet, SegmentGrid as LegacyGrid, pointSegmentDist2 } from './snake.js';
 import { randInt, clamp, lerp, TAU } from './utils.js';
@@ -113,6 +113,67 @@ export class World {
     for (let i = 0; i < this.settings.snakeCount; i++) {
       this.population.push(Genome.random(this.arch));
     }
+  }
+
+  /**
+   * Serializes the current population for export.
+   * @returns {{generation:number, archKey:string, genomes:Array<Object>}}
+   */
+  exportPopulation() {
+    return {
+      generation: this.generation,
+      archKey: this.archKey,
+      genomes: this.population.map(g => g.toJSON())
+    };
+  }
+
+  /**
+   * Replaces the current population from imported JSON data.
+   * The caller is responsible for validating the data before calling.
+   * @param {{generation?:number, genomes?:Array<Object>}} data
+   * @returns {{ok:boolean, reason?:string, used?:number, total?:number}}
+   */
+  importPopulation(data) {
+    if (!data || !Array.isArray(data.genomes)) {
+      return { ok: false, reason: 'missing genomes' };
+    }
+    const info = enrichArchInfo(this.arch);
+    const expectedLen = info.totalCount;
+    const expectedKey = this.archKey;
+    const parsed = [];
+    for (const raw of data.genomes) {
+      try {
+        const g = Genome.fromJSON(raw);
+        if (g.archKey !== expectedKey) continue;
+        if (!g.weights || g.weights.length !== expectedLen) continue;
+        g.fitness = 0;
+        parsed.push(g);
+      } catch (err) {
+        // Skip malformed entries.
+      }
+    }
+    if (!parsed.length) {
+      return { ok: false, reason: 'no compatible genomes' };
+    }
+    const targetCount = Math.max(1, Math.floor(this.settings.snakeCount || parsed.length));
+    const nextPop = [];
+    for (let i = 0; i < targetCount; i++) {
+      if (i < parsed.length) nextPop.push(parsed[i].clone());
+      else nextPop.push(Genome.random(this.arch));
+    }
+    this.population = nextPop;
+    this.generation = Number.isFinite(data.generation) ? Math.max(1, Math.floor(data.generation)) : 1;
+    this.generationTime = 0;
+    this.bestPointsThisGen = 0;
+    this.bestPointsSnakeId = 0;
+    this.bestFitnessEver = 0;
+    this.fitnessHistory = [];
+    this.particles = new ParticleSystem();
+    this._initPellets();
+    this._spawnAll();
+    this._collGrid.build(this.snakes, CFG.collision.skipSegments);
+    this._chooseInitialFocus();
+    return { ok: true, used: parsed.length, total: targetCount };
   }
   /**
    * Spawns snakes from the current population genomes.
@@ -408,7 +469,18 @@ removePellet(p) {
     // Record history
     const avgFit = this.population.reduce((sum, g) => sum + g.fitness, 0) / this.population.length;
     const minFit = this.population[this.population.length - 1]?.fitness ?? 0;
-    this.fitnessHistory.push({ gen: this.generation, best: this.population[0].fitness, avg: avgFit, min: minFit });
+    const diversity = computeSpeciesStats(this.population);
+    const complexity = computeNetworkStats(this.population);
+    this.fitnessHistory.push({
+      gen: this.generation,
+      best: this.population[0].fitness,
+      avg: avgFit,
+      min: minFit,
+      speciesCount: diversity.speciesCount,
+      topSpeciesSize: diversity.topSpeciesSize,
+      avgWeight: complexity.avgWeight,
+      weightVariance: complexity.weightVariance
+    });
     if (this.fitnessHistory.length > 100) this.fitnessHistory.shift();
 
     // Hall of Fame: Record the best snake of this generation
@@ -572,6 +644,66 @@ class PelletGrid {
       }
     }
   }
+}
+
+const SPECIES_DISTANCE_THRESHOLD = 0.35;
+
+function genomeDistanceRms(a, b) {
+  const wa = a.weights;
+  const wb = b.weights;
+  if (!wa || !wb || wa.length !== wb.length) return Infinity;
+  let sumSq = 0;
+  for (let i = 0; i < wa.length; i++) {
+    const d = wa[i] - wb[i];
+    sumSq += d * d;
+  }
+  return Math.sqrt(sumSq / wa.length);
+}
+
+function computeSpeciesStats(population) {
+  if (!population || population.length === 0) {
+    return { speciesCount: 0, topSpeciesSize: 0 };
+  }
+  const species = [];
+  for (const genome of population) {
+    let assigned = false;
+    for (const bucket of species) {
+      if (genomeDistanceRms(genome, bucket.rep) <= SPECIES_DISTANCE_THRESHOLD) {
+        bucket.size += 1;
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) {
+      species.push({ rep: genome, size: 1 });
+    }
+  }
+  let topSize = 0;
+  for (const bucket of species) topSize = Math.max(topSize, bucket.size);
+  return { speciesCount: species.length, topSpeciesSize: topSize };
+}
+
+function computeNetworkStats(population) {
+  if (!population || population.length === 0) {
+    return { avgWeight: 0, weightVariance: 0 };
+  }
+  let sumAbs = 0;
+  let sumAbsSq = 0;
+  let count = 0;
+  for (const genome of population) {
+    const w = genome.weights;
+    if (!w) continue;
+    for (let i = 0; i < w.length; i++) {
+      const aw = Math.abs(w[i]);
+      sumAbs += aw;
+      sumAbsSq += aw * aw;
+      count += 1;
+    }
+  }
+  if (!count) return { avgWeight: 0, weightVariance: 0 };
+  const avgWeight = sumAbs / count;
+  const weightVariance = Math.max(0, sumAbsSq / count - avgWeight * avgWeight);
+  return { avgWeight, weightVariance };
 }
 
 function randomPellet() {

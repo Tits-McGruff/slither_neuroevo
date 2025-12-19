@@ -80,6 +80,18 @@ export class HallOfFame {
   }
 
   /**
+   * Replaces entries with a new set and persists them.
+   * @param {Array} entries
+   */
+  replace(entries) {
+    if (!Array.isArray(entries)) return;
+    this.entries = entries.filter(e => e && typeof e.fitness === 'number');
+    this.entries.sort((a, b) => b.fitness - a.fitness);
+    if (this.entries.length > MAX_HOF_ENTRIES) this.entries.length = MAX_HOF_ENTRIES;
+    this.save();
+  }
+
+  /**
    * Clears all history.
    */
   reset() {

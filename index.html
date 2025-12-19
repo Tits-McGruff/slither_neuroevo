@@ -110,8 +110,13 @@
     <!-- Tab: Stats -->
     <div id="tab-stats" class="tab-content">
       <div class="row">
-        <h3>Fitness History</h3>
-        <p class="meta">Population fitness over generations.</p>
+        <h3 id="statsTitle">Fitness History</h3>
+        <p id="statsSubtitle" class="meta">Population fitness over generations.</p>
+      </div>
+      <div class="row stats-selector">
+        <button class="stats-view-btn active" data-stats="fitness">Fitness</button>
+        <button class="stats-view-btn" data-stats="diversity">Diversity</button>
+        <button class="stats-view-btn" data-stats="complexity">Complexity</button>
       </div>
       <canvas id="statsCanvas" width="360" height="300"></canvas>
       <div id="statsInfo" class="info-block"></div>

@@ -23,7 +23,8 @@ function makeElement(id, overrides = {}) {
     dataset: {},
     classList: {
       add() {},
-      remove() {}
+      remove() {},
+      toggle() {}
     },
     addEventListener() {},
     appendChild() {},
@@ -71,6 +72,8 @@ describe('main.js', () => {
       'btnExport',
       'btnImport',
       'fileInput',
+      'statsTitle',
+      'statsSubtitle',
       'statsInfo',
       'hofTable',
       'vizInfo',
@@ -168,7 +171,11 @@ describe('main.js', () => {
       gen: 1,
       avgFitness: 2.5,
       maxFitness: 4,
-      minFitness: 1
+      minFitness: 1,
+      speciesCount: 0,
+      topSpeciesSize: 0,
+      avgWeight: 0,
+      weightVariance: 0
     });
   });
 });

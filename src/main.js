@@ -76,6 +76,7 @@ const brainViz = new BrainViz(0, 0, vizCanvas.width, vizCanvas.height);
 const fitChart = new FitnessChart(0, 0, statsCanvas.width, statsCanvas.height);
 
 let activeTab = 'tab-settings';
+let statsView = 'fitness';
 tabBtns.forEach(btn => {
   btn.addEventListener('click', () => {
     // UI toggle
@@ -89,6 +90,39 @@ tabBtns.forEach(btn => {
     }
   });
 });
+
+const statsViewBtns = document.querySelectorAll('.stats-view-btn');
+const statsTitle = document.getElementById('statsTitle');
+const statsSubtitle = document.getElementById('statsSubtitle');
+const statsViewMeta = {
+  fitness: {
+    title: 'Fitness History',
+    subtitle: 'Population fitness over generations.'
+  },
+  diversity: {
+    title: 'Species Diversity',
+    subtitle: 'Genome clustering by weight distance.'
+  },
+  complexity: {
+    title: 'Network Complexity',
+    subtitle: 'Average absolute weight and variance.'
+  }
+};
+
+function setStatsView(view) {
+  statsView = view;
+  statsViewBtns.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.stats === view);
+  });
+  const meta = statsViewMeta[view];
+  if (statsTitle && meta) statsTitle.textContent = meta.title;
+  if (statsSubtitle && meta) statsSubtitle.textContent = meta.subtitle;
+}
+
+statsViewBtns.forEach(btn => {
+  btn.addEventListener('click', () => setStatsView(btn.dataset.stats));
+});
+if (statsViewBtns.length) setStatsView(statsView);
 
 /**
  * Reads the core UI slider values into a settings object for the world.
@@ -168,6 +202,7 @@ let dragStartX = 0;
 let dragStartY = 0;
 
 let currentVizData = null;
+let pendingExport = false;
 
 let proxyWorld = {
   generation: 1,
@@ -203,6 +238,30 @@ worker.postMessage({ type: 'resize', viewW: cssW, viewH: cssH });
 worker.onmessage = (e) => {
   // console.log("Received message from worker", e.data.type); // Spammy
   const msg = e.data;
+  if (msg.type === 'exportResult') {
+    pendingExport = false;
+    if (!msg.data || !Array.isArray(msg.data.genomes)) {
+      alert('Export failed: invalid payload from worker.');
+      return;
+    }
+    const exportData = {
+      generation: msg.data.generation || 1,
+      genomes: msg.data.genomes,
+      hof: hof.getAll()
+    };
+    exportToFile(exportData, `slither_neuroevo_gen${exportData.generation}.json`);
+    return;
+  }
+  if (msg.type === 'importResult') {
+    if (!msg.ok) {
+      alert(`Import failed: ${msg.reason || 'unknown error'}`);
+    } else {
+      const used = msg.used || 0;
+      const total = msg.total || 0;
+      alert(`Import applied. Loaded ${used}/${total} genomes.`);
+    }
+    return;
+  }
   if (msg.type === 'frame') {
     if (!currentFrameBuffer) console.log("First frame received!");
     currentFrameBuffer = new Float32Array(msg.buffer);
@@ -218,7 +277,11 @@ worker.onmessage = (e) => {
           gen: entry.gen,
           avgFitness: entry.avg,
           maxFitness: entry.best,
-          minFitness: entry.min ?? 0
+          minFitness: entry.min ?? 0,
+          speciesCount: entry.speciesCount ?? 0,
+          topSpeciesSize: entry.topSpeciesSize ?? 0,
+          avgWeight: entry.avgWeight ?? 0,
+          weightVariance: entry.weightVariance ?? 0
         });
       });
     }
@@ -232,7 +295,7 @@ worker.onmessage = (e) => {
       };
       const existingIdx = fitnessHistory.findIndex(f => f.gen === data.gen);
       if (existingIdx >= 0) {
-        fitnessHistory[existingIdx] = entry;
+        fitnessHistory[existingIdx] = { ...fitnessHistory[existingIdx], ...entry };
       } else {
         fitnessHistory.push(entry);
       }
@@ -442,10 +505,9 @@ canvas.addEventListener('mouseup', (e) => {
 const btnExport = document.getElementById('btnExport');
 if (btnExport) {
   btnExport.addEventListener('click', () => {
-    // We cannot export easily because population is in worker.
-    // We need to ask worker.
-    alert("Export pending worker sync... (Not implemented yet)");
-    // worker.postMessage({ type: 'export' });
+    if (pendingExport) return;
+    pendingExport = true;
+    worker.postMessage({ type: 'export' });
   });
 }
 
@@ -460,17 +522,19 @@ if (btnImport && fileInput) {
     if (!e.target.files.length) return;
     try {
       const data = await importFromFile(e.target.files[0]);
-      if (data.genomes) {
-        // Send to worker
-        // worker.postMessage({ type: 'import', data });
-        alert("Import synced to worker (Not implemented logic yet, reloading page works best for now)");
-        localStorage.setItem('slither_neuroevo_pop', JSON.stringify({ generation: data.generation, genomes: data.genomes }));
-        if (data.hof) localStorage.setItem('slither_neuroevo_hof', JSON.stringify(data.hof));
-        location.reload();
+      if (!data || !Array.isArray(data.genomes)) {
+        throw new Error('Invalid import file: missing genomes array.');
       }
+      if (Array.isArray(data.hof)) {
+        hof.replace(data.hof);
+      }
+      localStorage.setItem('slither_neuroevo_pop', JSON.stringify({ generation: data.generation, genomes: data.genomes }));
+      worker.postMessage({ type: 'import', data });
     } catch (err) {
       console.error("Import failed", err);
       alert("Failed to import file: " + err.message);
+    } finally {
+      e.target.value = '';
     }
   });
 }
@@ -491,7 +555,7 @@ function frame(t) {
       brainViz.render(ctxViz, currentVizData);
     } else {
       ctxViz.fillStyle = '#fff';
-      ctxViz.fillText("Visualizer not available in Fast Mode", 20, 20);
+      ctxViz.fillText("Waiting for visualization data...", 20, 20);
     }
   } else if (activeTab === 'tab-fitness') {
     // Fitness Chart needs history.
@@ -519,9 +583,13 @@ function frame(t) {
       statsCanvas.width = statsCanvas.clientWidth;
       statsCanvas.height = Math.max(statsCanvas.clientHeight, 300);
       ctxStats.clearRect(0, 0, statsCanvas.width, statsCanvas.height);
-      
-      // Render average fitness chart
-      AdvancedCharts.renderAverageFitness(ctxStats, fitnessHistory, statsCanvas.width, statsCanvas.height);
+      if (statsView === 'diversity') {
+        AdvancedCharts.renderSpeciesDiversity(ctxStats, fitnessHistory, statsCanvas.width, statsCanvas.height);
+      } else if (statsView === 'complexity') {
+        AdvancedCharts.renderNetworkComplexity(ctxStats, fitnessHistory, statsCanvas.width, statsCanvas.height);
+      } else {
+        AdvancedCharts.renderAverageFitness(ctxStats, fitnessHistory, statsCanvas.width, statsCanvas.height);
+      }
     }
     
     // Display God Mode Log

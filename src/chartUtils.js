@@ -127,14 +127,77 @@ export class AdvancedCharts {
     const padding = 40;
     const graphW = w - padding * 2;
     const graphH = h - padding * 2;
-    
-    // For now, just show a placeholder
-    ctx.fillStyle = '#888';
-    ctx.font = '14px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('Species Diversity (Coming Soon)', w/2, h/2);
+
+    let maxVal = 0;
+    history.forEach(h => {
+      const species = h.speciesCount || 0;
+      const topSize = h.topSpeciesSize || 0;
+      maxVal = Math.max(maxVal, species, topSize);
+    });
+    if (maxVal <= 0) maxVal = 1;
+
+    // Axes
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, h - padding);
+    ctx.lineTo(w - padding, h - padding);
+    ctx.stroke();
+
+    // Grid + labels
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 5; i++) {
+      const y = padding + (graphH * i / 5);
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(w - padding, y);
+      ctx.stroke();
+      const val = maxVal - (maxVal * i / 5);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(val.toFixed(0), padding - 5, y + 3);
+    }
+
+    const xStep = graphW / Math.max(1, history.length - 1);
+    const barW = Math.max(4, xStep * 0.55);
+
+    // Bars for species count
+    history.forEach((h, i) => {
+      const x = padding + i * xStep;
+      const species = h.speciesCount || 0;
+      const barH = (species / maxVal) * graphH;
+      ctx.fillStyle = 'rgba(90,170,255,0.35)';
+      ctx.fillRect(x - barW * 0.5, padding + graphH - barH, barW, barH);
+    });
+
+    // Line for top species size
+    if (history.length > 1) {
+      ctx.strokeStyle = '#ffb347';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      history.forEach((h, i) => {
+        const x = padding + i * xStep;
+        const topSize = h.topSpeciesSize || 0;
+        const y = padding + graphH - (topSize / maxVal) * graphH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    // Title + legend
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('Species Diversity', padding, 20);
     ctx.font = '11px sans-serif';
-    ctx.fillText('Clustering algorithm needed for species detection', w/2, h/2 + 20);
+    ctx.fillStyle = 'rgba(90,170,255,0.9)';
+    ctx.fillText('■ Species count', padding + 180, 20);
+    ctx.fillStyle = '#ffb347';
+    ctx.fillText('— Top species size', padding + 300, 20);
   }
   
   /**
@@ -152,13 +215,80 @@ export class AdvancedCharts {
     const padding = 40;
     const graphW = w - padding * 2;
     const graphH = h - padding * 2;
-    
-    // Placeholder
-    ctx.fillStyle = '#888';
-    ctx.font = '14px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('Network Complexity (Coming Soon)', w/2, h/2);
+
+    let maxVal = 0;
+    let minVal = Infinity;
+    history.forEach(h => {
+      const avgW = h.avgWeight || 0;
+      const varW = h.weightVariance || 0;
+      maxVal = Math.max(maxVal, avgW, varW);
+      minVal = Math.min(minVal, avgW, varW);
+    });
+    if (minVal === Infinity) minVal = 0;
+    const range = maxVal - minVal || 1;
+
+    // Axes
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, h - padding);
+    ctx.lineTo(w - padding, h - padding);
+    ctx.stroke();
+
+    // Grid + labels
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 5; i++) {
+      const y = padding + (graphH * i / 5);
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(w - padding, y);
+      ctx.stroke();
+      const val = maxVal - (range * i / 5);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(val.toFixed(2), padding - 5, y + 3);
+    }
+
+    if (history.length > 1) {
+      const xStep = graphW / (history.length - 1);
+
+      // Avg absolute weight line
+      ctx.strokeStyle = '#5ee1ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      history.forEach((h, i) => {
+        const x = padding + i * xStep;
+        const y = padding + graphH - ((h.avgWeight || 0) - minVal) / range * graphH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Weight variance line
+      ctx.strokeStyle = '#d58bff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      history.forEach((h, i) => {
+        const x = padding + i * xStep;
+        const y = padding + graphH - ((h.weightVariance || 0) - minVal) / range * graphH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    // Title + legend
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('Network Complexity', padding, 20);
     ctx.font = '11px sans-serif';
-    ctx.fillText('Weight statistics and layer analysis', w/2, h/2 + 20);
+    ctx.fillStyle = '#5ee1ff';
+    ctx.fillText('— Avg |w|', padding + 200, 20);
+    ctx.fillStyle = '#d58bff';
+    ctx.fillText('— Var(|w|)', padding + 280, 20);
   }
 }

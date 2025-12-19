@@ -200,3 +200,32 @@ summary {
   margin-top: 8px;
   display: block;
 }
+
+.stats-selector {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.stats-view-btn {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #c7d0e2;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.stats-view-btn:hover {
+  color: #eef2ff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.stats-view-btn.active {
+  color: #4fceff;
+  border-color: rgba(79, 206, 255, 0.6);
+  background: rgba(79, 206, 255, 0.08);
+}

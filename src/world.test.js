@@ -64,6 +64,17 @@ describe('world.js', () => {
         expect(world.snakes[0].age).toBeGreaterThan(initialAge);
     });
 
+    it('imports a compatible population and resets generation state', () => {
+        const world = new World(settings);
+        const exportData = world.exportPopulation();
+        exportData.generation = 5;
+        const result = world.importPopulation(exportData);
+        expect(result.ok).toBe(true);
+        expect(world.generation).toBe(5);
+        expect(world.snakes.length).toBe(settings.snakeCount);
+        expect(world.fitnessHistory.length).toBe(0);
+    });
+
     it('keeps initial sensors and points finite after the first tick', () => {
         resetCFGToDefaults();
         const originalTarget = CFG.pelletCountTarget;
@@ -104,9 +115,15 @@ describe('world.js', () => {
             expect(entry).toHaveProperty('best');
             expect(entry).toHaveProperty('avg');
             expect(entry).toHaveProperty('min');
+            expect(entry).toHaveProperty('speciesCount');
+            expect(entry).toHaveProperty('topSpeciesSize');
+            expect(entry).toHaveProperty('avgWeight');
+            expect(entry).toHaveProperty('weightVariance');
             expect(Number.isFinite(entry.best)).toBe(true);
             expect(Number.isFinite(entry.avg)).toBe(true);
             expect(Number.isFinite(entry.min)).toBe(true);
+            expect(Number.isFinite(entry.avgWeight)).toBe(true);
+            expect(Number.isFinite(entry.weightVariance)).toBe(true);
         } finally {
             CFG.pelletCountTarget = originalTarget;
             resetCFGToDefaults();

@@ -10,6 +10,7 @@ function makeCtx() {
     moveTo: (...args) => calls.push(['moveTo', ...args]),
     lineTo: (...args) => calls.push(['lineTo', ...args]),
     stroke: () => calls.push(['stroke']),
+    fillRect: (...args) => calls.push(['fillRect', ...args]),
     fillText: (...args) => calls.push(['fillText', ...args]),
     set strokeStyle(value) {
       calls.push(['strokeStyle', value]);
@@ -41,6 +42,36 @@ describe('chartUtils.js', () => {
 
     const hasTitle = ctx.calls.some(
       (call) => call[0] === 'fillText' && String(call[1]).includes('Average Fitness')
+    );
+    expect(hasTitle).toBe(true);
+  });
+
+  it('renders species diversity with labels', () => {
+    const ctx = makeCtx();
+    const history = [
+      { gen: 1, speciesCount: 3, topSpeciesSize: 2 },
+      { gen: 2, speciesCount: 4, topSpeciesSize: 3 }
+    ];
+
+    AdvancedCharts.renderSpeciesDiversity(ctx, history, 400, 200);
+
+    const hasTitle = ctx.calls.some(
+      (call) => call[0] === 'fillText' && String(call[1]).includes('Species Diversity')
+    );
+    expect(hasTitle).toBe(true);
+  });
+
+  it('renders network complexity with labels', () => {
+    const ctx = makeCtx();
+    const history = [
+      { gen: 1, avgWeight: 0.2, weightVariance: 0.05 },
+      { gen: 2, avgWeight: 0.25, weightVariance: 0.08 }
+    ];
+
+    AdvancedCharts.renderNetworkComplexity(ctx, history, 400, 200);
+
+    const hasTitle = ctx.calls.some(
+      (call) => call[0] === 'fillText' && String(call[1]).includes('Network Complexity')
     );
     expect(hasTitle).toBe(true);
   });
