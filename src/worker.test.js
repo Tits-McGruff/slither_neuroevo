@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { CFG, resetCFGToDefaults } from './config.js';
 
-describe('worker.js', () => {
+describe('worker.ts', () => {
   let originalSelf;
 
   beforeEach(() => {
@@ -18,7 +18,7 @@ describe('worker.js', () => {
   });
 
   it('applies updateSettings messages to CFG', async () => {
-    await import('./worker.js');
+    await import('./worker.ts');
 
     globalThis.self.onmessage({
       data: {

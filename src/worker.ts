@@ -1,21 +1,34 @@
-// worker.js
+// worker.ts
 // Runs the rigid-body physics and neural network simulation in a separate thread.
 
 import { World } from './world.js';
 import { CFG, resetCFGToDefaults } from './config.js';
-import { WorldSerializer } from './serializer.js';
+import { WorldSerializer } from './serializer.ts';
 import { setByPath } from './utils.js';
+import type {
+  FrameStats,
+  MainToWorkerMessage,
+  PopulationImportData,
+  VizData
+} from './protocol/messages.ts';
 
-let world = null;
+type WorkerScope = {
+  postMessage: (message: any, transfer?: Transferable[]) => void;
+  onmessage: ((ev: MessageEvent<MainToWorkerMessage>) => void) | null;
+};
+
+const workerScope = self as unknown as WorkerScope;
+
+let world: any = null;
 let loopToken = 0;
 let viewW = 0;
 let viewH = 0;
 let vizEnabled = false;
 let vizTick = 0;
 let lastHistoryLen = 0;
-let pendingImport = null;
+let pendingImport: PopulationImportData | null = null;
 
-self.onmessage = function(e) {
+workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
   const msg = e.data;
   switch (msg.type) {
     case 'init':
@@ -89,7 +102,7 @@ self.onmessage = function(e) {
       }
       {
         const result = world.importPopulation(msg.data);
-        self.postMessage({
+      workerScope.postMessage({
           type: 'importResult',
           ok: result.ok,
           reason: result.reason || null,
@@ -102,7 +115,7 @@ self.onmessage = function(e) {
 
     case 'export':
       if (!world) break;
-      self.postMessage({ type: 'exportResult', data: world.exportPopulation() });
+      workerScope.postMessage({ type: 'exportResult', data: world.exportPopulation() });
       break;
         
     case 'godMode':
@@ -111,14 +124,14 @@ self.onmessage = function(e) {
       
       if (msg.action === 'kill') {
         // Find snake by ID and kill it
-        const snake = world.snakes.find(s => s.id === msg.snakeId);
+        const snake = world.snakes.find((s: any) => s.id === msg.snakeId);
         if (snake && snake.alive) {
           snake.die(world);
           console.log(`[Worker] God Mode: Killed snake #${msg.snakeId}`);
         }
       } else if (msg.action === 'move') {
         // Move snake to specific position
-        const snake = world.snakes.find(s => s.id === msg.snakeId);
+        const snake = world.snakes.find((s: any) => s.id === msg.snakeId);
         if (snake && snake.alive) {
           snake.x = msg.x;
           snake.y = msg.y;
@@ -130,6 +143,10 @@ self.onmessage = function(e) {
         }
       }
       break;
+    default: {
+      const _exhaustive: never = msg;
+      break;
+    }
   }
 };
 
@@ -137,7 +154,7 @@ let lastTime = performance.now();
 const FIXED_DT = 1 / 60;
 let accumulator = 0;
 
-function loop(token) {
+function loop(token: number): void {
   if (token !== loopToken) return;
   const now = performance.now();
   let dt = (now - lastTime) / 1000;
@@ -158,12 +175,12 @@ function loop(token) {
       const buffer = WorldSerializer.serialize(world);
       
       // Calculate fitness stats for this generation
-      const aliveSnakes = world.snakes.filter(s => s.alive);
+      const aliveSnakes = world.snakes.filter((s: any) => s.alive);
       let maxFit = 0;
       let minFit = Infinity;
       let sumFit = 0;
       
-      aliveSnakes.forEach(s => {
+      aliveSnakes.forEach((s: any) => {
         // Calculate approximate fitness (we don't have exact formula here)
         const fit = s.pointsScore || 0;
         maxFit = Math.max(maxFit, fit);
@@ -175,7 +192,7 @@ function loop(token) {
       if (minFit === Infinity) minFit = 0;
       
       // Send stats. Keep payload small per frame; full history is sent only on growth.
-      const stats = {
+      const stats: FrameStats = {
           gen: world.generation,
           alive: aliveSnakes.length,
           fps: 1/dt, // Approx
@@ -196,7 +213,8 @@ function loop(token) {
       if (vizEnabled && world.focusSnake && world.focusSnake.brain) {
         vizTick = (vizTick + 1) % 6;
         if (vizTick === 0) {
-          stats.viz = buildVizData(world.focusSnake.brain);
+          const viz = buildVizData(world.focusSnake.brain);
+          if (viz) stats.viz = viz;
         }
       }
 
@@ -206,7 +224,7 @@ function loop(token) {
       }
       
       // We transfer the buffer to avoid copy
-      self.postMessage({ type: 'frame', buffer: buffer.buffer, stats }, [buffer.buffer]);
+      workerScope.postMessage({ type: 'frame', buffer: buffer.buffer, stats }, [buffer.buffer]);
   }
   
   // Schedule next loop
@@ -218,14 +236,14 @@ function loop(token) {
   setTimeout(() => loop(token), 16);
 }
 
-function buildVizData(brain) {
+function buildVizData(brain: any): VizData | null {
   if (!brain) return null;
   if (brain.kind === 'mlp') {
     return {
       kind: 'mlp',
       mlp: {
         layerSizes: brain.mlp.layerSizes.slice(),
-        _bufs: brain.mlp._bufs.map(buf => buf.slice())
+        _bufs: brain.mlp._bufs.map((buf: Float32Array) => buf.slice())
       }
     };
   }
@@ -233,7 +251,7 @@ function buildVizData(brain) {
     kind: brain.kind,
     mlp: {
       layerSizes: brain.mlp.layerSizes.slice(),
-      _bufs: brain.mlp._bufs.map(buf => buf.slice())
+      _bufs: brain.mlp._bufs.map((buf: Float32Array) => buf.slice())
     },
     gru: brain.gru ? { hiddenSize: brain.gru.hiddenSize, h: brain.gru.h.slice() } : null,
     head: brain.head ? { outSize: brain.head.outSize } : null

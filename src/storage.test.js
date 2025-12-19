@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { Storage, savePopulation, loadPopulation } from './storage.js';
+import { Storage, savePopulation, loadPopulation } from './storage.ts';
 import { Genome, buildArch } from './mlp.js';
 
 describe('storage.js', () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { renderWorldStruct } from './render.js';
-import { WorldSerializer } from './serializer.js';
+import { renderWorldStruct } from './render.ts';
+import { WorldSerializer } from './serializer.ts';
 import { World } from './world.js';
 import { CFG, resetCFGToDefaults } from './config.js';
 

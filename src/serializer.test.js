@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { WorldSerializer } from './serializer.js';
+import { WorldSerializer } from './serializer.ts';
+import { FRAME_HEADER_FLOATS, FRAME_HEADER_OFFSETS } from './protocol/frame.ts';
 
 describe('serializer.js', () => {
   it('serializes header, snakes, and pellets into a flat buffer', () => {
@@ -51,14 +52,14 @@ describe('serializer.js', () => {
 
     const buf = WorldSerializer.serialize(world);
 
-    expect(buf[0]).toBe(3);
-    expect(buf[1]).toBe(3);
-    expect(buf[2]).toBe(2);
-    expect(buf[3]).toBe(12);
-    expect(buf[4]).toBe(-8);
-    expect(buf[5]).toBe(0.75);
+    expect(buf[FRAME_HEADER_OFFSETS.generation]).toBe(3);
+    expect(buf[FRAME_HEADER_OFFSETS.totalSnakes]).toBe(3);
+    expect(buf[FRAME_HEADER_OFFSETS.aliveCount]).toBe(2);
+    expect(buf[FRAME_HEADER_OFFSETS.cameraX]).toBe(12);
+    expect(buf[FRAME_HEADER_OFFSETS.cameraY]).toBe(-8);
+    expect(buf[FRAME_HEADER_OFFSETS.zoom]).toBe(0.75);
 
-    let ptr = 6;
+    let ptr = FRAME_HEADER_FLOATS;
     const aliveSnake1 = world.snakes[0];
     expect(buf[ptr++]).toBe(aliveSnake1.id);
     expect(buf[ptr++]).toBe(aliveSnake1.radius);
@@ -112,7 +113,7 @@ describe('serializer.js', () => {
     };
 
     const buf = WorldSerializer.serialize(world);
-    let ptr = 6;
+    let ptr = FRAME_HEADER_FLOATS;
     expect(buf[ptr++]).toBe(1); // pellet count
     expect(buf[ptr++]).toBe(5);
     expect(buf[ptr++]).toBe(6);

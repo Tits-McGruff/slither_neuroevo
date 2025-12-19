@@ -1,4 +1,4 @@
-// main.js
+// main.ts
 // Entry point for the slither simulation.  Sets up the canvas, UI,
 // Entry point for the slither simulation. Sets up the canvas, UI,
 // constructs the World and runs the animation loop. All global
@@ -6,27 +6,77 @@
 // this script executes.
 
 import { CFG, resetCFGToDefaults } from './config.js';
-import { setupSettingsUI, updateCFGFromUI } from './settings.js';
+import { setupSettingsUI, updateCFGFromUI } from './settings.ts';
 import { setByPath, clamp, TAU } from './utils.js';
-import { renderWorldStruct } from './render.js';
+import { renderWorldStruct } from './render.ts';
 // import { World } from './world.js'; // Logic moved to worker
-import { savePopulation, loadPopulation, exportToFile, importFromFile } from './storage.js';
+import { savePopulation, loadPopulation, exportToFile, importFromFile } from './storage.ts';
 import { hof } from './hallOfFame.js';
 import { BrainViz } from './BrainViz.js';
 import { FitnessChart } from './FitnessChart.js';
 import { AdvancedCharts } from './chartUtils.js';
+import type { FrameStats, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
+import type { SettingsUpdate } from './protocol/settings.ts';
+
+interface ProxyWorld {
+  generation: number;
+  population: unknown[];
+  snakes: unknown[];
+  zoom: number;
+  cameraX: number;
+  cameraY: number;
+  viewMode: string;
+  fitnessHistory: FitnessHistoryUiEntry[];
+  toggleViewMode: () => void;
+  resurrect: (genome: unknown) => void;
+}
+
+interface FitnessHistoryUiEntry {
+  gen: number;
+  avgFitness: number;
+  maxFitness: number;
+  minFitness: number;
+  speciesCount?: number;
+  topSpeciesSize?: number;
+  avgWeight?: number;
+  weightVariance?: number;
+}
+
+interface GodModeLogEntry {
+  time: number;
+  action: string;
+  snakeId: number;
+  result: string;
+}
+
+interface SelectedSnake {
+  id: number;
+  x: number;
+  y: number;
+  radius: number;
+  skin: number;
+}
+
+declare global {
+  interface Window {
+    ctx: CanvasRenderingContext2D;
+    currentWorld: ProxyWorld;
+    spawnHoF: (idx: number) => void;
+  }
+}
 
 // Canvas and HUD
-let worker = null;
-const canvas = document.getElementById('c');
+let worker: Worker | null = null;
+const canvas = document.getElementById('c') as HTMLCanvasElement;
 // HUD removed, using tab info panels instead
 // Expose the rendering context globally so render helpers can draw.
-window.ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d')!;
+window.ctx = ctx;
 let cssW = 0,
   cssH = 0,
   dpr = 1;
 
-function resize() {
+function resize(): void {
   dpr = window.devicePixelRatio || 1;
   cssW = Math.floor(window.innerWidth);
   cssH = Math.floor(window.innerHeight);
@@ -43,34 +93,34 @@ window.addEventListener('resize', resize);
 resize();
 
 // Core UI elements
-const elSnakes = document.getElementById('snakes');
-const elSimSpeed = document.getElementById('simSpeed');
-const elLayers = document.getElementById('layers');
-const elN1 = document.getElementById('n1');
-const elN2 = document.getElementById('n2');
-const elN3 = document.getElementById('n3');
-const elN4 = document.getElementById('n4');
-const elN5 = document.getElementById('n5');
-const snakesVal = document.getElementById('snakesVal');
-const simSpeedVal = document.getElementById('simSpeedVal');
-const layersVal = document.getElementById('layersVal');
-const n1Val = document.getElementById('n1Val');
-const n2Val = document.getElementById('n2Val');
-const n3Val = document.getElementById('n3Val');
-const n4Val = document.getElementById('n4Val');
-const n5Val = document.getElementById('n5Val');
-const btnApply = document.getElementById('apply');
-const btnDefaults = document.getElementById('defaults');
-const btnToggle = document.getElementById('toggle');
-const settingsContainer = document.getElementById('settingsContainer');
+const elSnakes = document.getElementById('snakes') as HTMLInputElement;
+const elSimSpeed = document.getElementById('simSpeed') as HTMLInputElement;
+const elLayers = document.getElementById('layers') as HTMLInputElement;
+const elN1 = document.getElementById('n1') as HTMLInputElement;
+const elN2 = document.getElementById('n2') as HTMLInputElement;
+const elN3 = document.getElementById('n3') as HTMLInputElement;
+const elN4 = document.getElementById('n4') as HTMLInputElement;
+const elN5 = document.getElementById('n5') as HTMLInputElement;
+const snakesVal = document.getElementById('snakesVal') as HTMLElement;
+const simSpeedVal = document.getElementById('simSpeedVal') as HTMLElement;
+const layersVal = document.getElementById('layersVal') as HTMLElement;
+const n1Val = document.getElementById('n1Val') as HTMLElement;
+const n2Val = document.getElementById('n2Val') as HTMLElement;
+const n3Val = document.getElementById('n3Val') as HTMLElement;
+const n4Val = document.getElementById('n4Val') as HTMLElement;
+const n5Val = document.getElementById('n5Val') as HTMLElement;
+const btnApply = document.getElementById('apply') as HTMLButtonElement;
+const btnDefaults = document.getElementById('defaults') as HTMLButtonElement;
+const btnToggle = document.getElementById('toggle') as HTMLButtonElement;
+const settingsContainer = document.getElementById('settingsContainer') as HTMLElement;
 
 // Tabs and visualizers
-const tabBtns = document.querySelectorAll('.tab-btn');
-const tabContents = document.querySelectorAll('.tab-content');
-const vizCanvas = document.getElementById('vizCanvas');
-const statsCanvas = document.getElementById('statsCanvas');
-const ctxViz = vizCanvas.getContext('2d');
-const ctxStats = statsCanvas.getContext('2d');
+const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn');
+const tabContents = document.querySelectorAll<HTMLElement>('.tab-content');
+const vizCanvas = document.getElementById('vizCanvas') as HTMLCanvasElement;
+const statsCanvas = document.getElementById('statsCanvas') as HTMLCanvasElement;
+const ctxViz = vizCanvas.getContext('2d')!;
+const ctxStats = statsCanvas.getContext('2d')!;
 
 const brainViz = new BrainViz(0, 0, vizCanvas.width, vizCanvas.height);
 const fitChart = new FitnessChart(0, 0, statsCanvas.width, statsCanvas.height);
@@ -83,18 +133,19 @@ tabBtns.forEach(btn => {
     tabBtns.forEach(b => b.classList.remove('active'));
     tabContents.forEach(c => c.classList.remove('active'));
     btn.classList.add('active');
-    document.getElementById(btn.dataset.tab).classList.add('active');
-    activeTab = btn.dataset.tab;
+    const tabId = btn.dataset.tab!;
+    document.getElementById(tabId)!.classList.add('active');
+    activeTab = tabId;
     if (worker) {
       worker.postMessage({ type: 'viz', enabled: activeTab === 'tab-viz' });
     }
   });
 });
 
-const statsViewBtns = document.querySelectorAll('.stats-view-btn');
-const statsTitle = document.getElementById('statsTitle');
-const statsSubtitle = document.getElementById('statsSubtitle');
-const statsViewMeta = {
+const statsViewBtns = document.querySelectorAll<HTMLButtonElement>('.stats-view-btn');
+const statsTitle = document.getElementById('statsTitle') as HTMLElement | null;
+const statsSubtitle = document.getElementById('statsSubtitle') as HTMLElement | null;
+const statsViewMeta: Record<string, { title: string; subtitle: string }> = {
   fitness: {
     title: 'Fitness History',
     subtitle: 'Population fitness over generations.'
@@ -109,7 +160,7 @@ const statsViewMeta = {
   }
 };
 
-function setStatsView(view) {
+function setStatsView(view: string): void {
   statsView = view;
   statsViewBtns.forEach(btn => {
     btn.classList.toggle('active', btn.dataset.stats === view);
@@ -120,14 +171,23 @@ function setStatsView(view) {
 }
 
 statsViewBtns.forEach(btn => {
-  btn.addEventListener('click', () => setStatsView(btn.dataset.stats));
+  btn.addEventListener('click', () => setStatsView(btn.dataset.stats!));
 });
 if (statsViewBtns.length) setStatsView(statsView);
 
 /**
  * Reads the core UI slider values into a settings object for the world.
  */
-function readSettingsFromCoreUI() {
+function readSettingsFromCoreUI(): {
+  snakeCount: number;
+  simSpeed: number;
+  hiddenLayers: number;
+  neurons1: number;
+  neurons2: number;
+  neurons3: number;
+  neurons4: number;
+  neurons5: number;
+} {
   const hiddenLayers = parseInt(elLayers.value, 10);
   return {
     snakeCount: parseInt(elSnakes.value, 10),
@@ -141,12 +201,11 @@ function readSettingsFromCoreUI() {
   };
 }
 
-function collectSettingsUpdates(root) {
-  if (!root || !root.querySelectorAll) return [];
-  const sliders = root.querySelectorAll('input[type="range"][data-path]');
-  const updates = [];
+function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
+  const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
+  const updates: SettingsUpdate[] = [];
   sliders.forEach(sl => {
-    updates.push({ path: sl.dataset.path, value: Number(sl.value) });
+    updates.push({ path: sl.dataset.path! as SettingsUpdate['path'], value: Number(sl.value) });
   });
   return updates;
 }
@@ -156,7 +215,7 @@ function collectSettingsUpdates(root) {
  * disables or enables the neuron sliders based on the number of hidden
  * layers.
  */
-function refreshCoreUIState() {
+function refreshCoreUIState(): void {
   snakesVal.textContent = elSnakes.value;
   simSpeedVal.textContent = Number(elSimSpeed.value).toFixed(2);
   layersVal.textContent = elLayers.value;
@@ -190,21 +249,21 @@ elN5.value = '32';
 refreshCoreUIState();
 
 // Worker Setup
-worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
 
-let currentFrameBuffer = null;
-let currentStats = { gen: 1, alive: 0, fps: 60 };
-let fitnessHistory = []; // Track fitness over generations for charts
-let godModeLog = []; // Track God Mode interactions
-let selectedSnake = null; // Currently selected snake for God Mode
+let currentFrameBuffer: Float32Array | null = null;
+let currentStats: FrameStats = { gen: 1, alive: 0, fps: 60 };
+let fitnessHistory: FitnessHistoryUiEntry[] = []; // Track fitness over generations for charts
+let godModeLog: GodModeLogEntry[] = []; // Track God Mode interactions
+let selectedSnake: SelectedSnake | null = null; // Currently selected snake for God Mode
 let isDragging = false;
 let dragStartX = 0;
 let dragStartY = 0;
 
-let currentVizData = null;
+let currentVizData: VizData | null = null;
 let pendingExport = false;
 
-let proxyWorld = {
+const proxyWorld: ProxyWorld = {
   generation: 1,
   population: [],
   snakes: [],
@@ -215,97 +274,104 @@ let proxyWorld = {
   fitnessHistory: fitnessHistory,
   // Helpers mimicking World for Settings UI/Persistence
   toggleViewMode: () => {
-    worker.postMessage({ type: 'action', action: 'toggleView' });
+    worker!.postMessage({ type: 'action', action: 'toggleView' });
     proxyWorld.viewMode = proxyWorld.viewMode === 'overview' ? 'follow' : 'overview';
   },
-  resurrect: (genome) => {
-    worker.postMessage({ type: 'resurrect', genome });
+  resurrect: (genome: unknown) => {
+    worker!.postMessage({ type: 'resurrect', genome });
   }
 };
 window.currentWorld = proxyWorld; // For HoF
 
-function initWorker(resetCfg = true) {
+function initWorker(resetCfg = true): void {
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdates(settingsContainer);
-  worker.postMessage({ type: 'init', settings, updates, resetCfg, viewW: cssW, viewH: cssH });
+  worker!.postMessage({ type: 'init', settings, updates, resetCfg, viewW: cssW, viewH: cssH });
 }
 
 // Init Worker
 initWorker(true);
-worker.postMessage({ type: 'resize', viewW: cssW, viewH: cssH });
+worker!.postMessage({ type: 'resize', viewW: cssW, viewH: cssH });
 
 // Message Handler
-worker.onmessage = (e) => {
+worker.onmessage = (e: MessageEvent<WorkerToMainMessage>) => {
   // console.log("Received message from worker", e.data.type); // Spammy
   const msg = e.data;
-  if (msg.type === 'exportResult') {
-    pendingExport = false;
-    if (!msg.data || !Array.isArray(msg.data.genomes)) {
-      alert('Export failed: invalid payload from worker.');
+  switch (msg.type) {
+    case 'exportResult': {
+      pendingExport = false;
+      if (!msg.data || !Array.isArray(msg.data.genomes)) {
+        alert('Export failed: invalid payload from worker.');
+        return;
+      }
+      const exportData = {
+        generation: msg.data.generation || 1,
+        genomes: msg.data.genomes,
+        hof: hof.getAll()
+      };
+      exportToFile(exportData, `slither_neuroevo_gen${exportData.generation}.json`);
       return;
     }
-    const exportData = {
-      generation: msg.data.generation || 1,
-      genomes: msg.data.genomes,
-      hof: hof.getAll()
-    };
-    exportToFile(exportData, `slither_neuroevo_gen${exportData.generation}.json`);
-    return;
-  }
-  if (msg.type === 'importResult') {
-    if (!msg.ok) {
-      alert(`Import failed: ${msg.reason || 'unknown error'}`);
-    } else {
-      const used = msg.used || 0;
-      const total = msg.total || 0;
-      alert(`Import applied. Loaded ${used}/${total} genomes.`);
-    }
-    return;
-  }
-  if (msg.type === 'frame') {
-    if (!currentFrameBuffer) console.log("First frame received!");
-    currentFrameBuffer = new Float32Array(msg.buffer);
-    currentStats = msg.stats;
-    proxyWorld.generation = currentStats.gen;
-    
-    // Track fitness history for charts
-    // Full history arrives occasionally; keep UI buffer synced and capped.
-    if (msg.stats.fitnessHistory) {
-      fitnessHistory.length = 0;
-      msg.stats.fitnessHistory.forEach(entry => {
-        fitnessHistory.push({
-          gen: entry.gen,
-          avgFitness: entry.avg,
-          maxFitness: entry.best,
-          minFitness: entry.min ?? 0,
-          speciesCount: entry.speciesCount ?? 0,
-          topSpeciesSize: entry.topSpeciesSize ?? 0,
-          avgWeight: entry.avgWeight ?? 0,
-          weightVariance: entry.weightVariance ?? 0
-        });
-      });
-    }
-    if (msg.stats.fitnessData) {
-      const data = msg.stats.fitnessData;
-      const entry = {
-        gen: data.gen,
-        avgFitness: data.avgFitness,
-        maxFitness: data.maxFitness,
-        minFitness: data.minFitness
-      };
-      const existingIdx = fitnessHistory.findIndex(f => f.gen === data.gen);
-      if (existingIdx >= 0) {
-        fitnessHistory[existingIdx] = { ...fitnessHistory[existingIdx], ...entry };
+    case 'importResult': {
+      if (!msg.ok) {
+        alert(`Import failed: ${msg.reason || 'unknown error'}`);
       } else {
-        fitnessHistory.push(entry);
+        const used = msg.used || 0;
+        const total = msg.total || 0;
+        alert(`Import applied. Loaded ${used}/${total} genomes.`);
       }
-      if (fitnessHistory.length > 120) fitnessHistory.shift();
+      return;
     }
-    if (msg.stats.hofEntry) {
-      hof.add(msg.stats.hofEntry);
+    case 'frame': {
+      if (!currentFrameBuffer) console.log("First frame received!");
+      currentFrameBuffer = new Float32Array(msg.buffer);
+      currentStats = msg.stats;
+      proxyWorld.generation = currentStats.gen;
+
+      // Track fitness history for charts
+      // Full history arrives occasionally; keep UI buffer synced and capped.
+      if (msg.stats.fitnessHistory) {
+        fitnessHistory.length = 0;
+        msg.stats.fitnessHistory.forEach(entry => {
+          fitnessHistory.push({
+            gen: entry.gen,
+            avgFitness: entry.avg,
+            maxFitness: entry.best,
+            minFitness: entry.min ?? 0,
+            speciesCount: entry.speciesCount ?? 0,
+            topSpeciesSize: entry.topSpeciesSize ?? 0,
+            avgWeight: entry.avgWeight ?? 0,
+            weightVariance: entry.weightVariance ?? 0
+          });
+        });
+      }
+      if (msg.stats.fitnessData) {
+        const data = msg.stats.fitnessData;
+        const entry = {
+          gen: data.gen,
+          avgFitness: data.avgFitness,
+          maxFitness: data.maxFitness,
+          minFitness: data.minFitness
+        };
+        const existingIdx = fitnessHistory.findIndex(f => f.gen === data.gen);
+        if (existingIdx >= 0) {
+          fitnessHistory[existingIdx] = { ...fitnessHistory[existingIdx], ...entry };
+        } else {
+          fitnessHistory.push(entry);
+        }
+        if (fitnessHistory.length > 120) fitnessHistory.shift();
+      }
+      if (msg.stats.hofEntry) {
+        hof.add(msg.stats.hofEntry);
+      }
+      if (msg.stats.viz) {
+        currentVizData = msg.stats.viz;
+      }
+      return;
     }
-    if (msg.stats.viz) {
-      currentVizData = msg.stats.viz;
+    default: {
+      const _exhaustive: never = msg;
+      return;
     }
   }
 };
@@ -315,18 +381,21 @@ worker.onmessage = (e) => {
  * the corresponding CFG value and allows world to respond immediately.
  * @param {HTMLInputElement} sliderEl
  */
-function liveUpdateFromSlider(sliderEl) {
-  setByPath(CFG, sliderEl.dataset.path, Number(sliderEl.value));
-  worker.postMessage({ 
+function liveUpdateFromSlider(sliderEl: HTMLInputElement): void {
+  setByPath(CFG, sliderEl.dataset.path!, Number(sliderEl.value));
+  worker!.postMessage({ 
       type: 'updateSettings', 
-      updates: [{ path: sliderEl.dataset.path, value: Number(sliderEl.value) }] 
+      updates: [{
+        path: sliderEl.dataset.path! as SettingsUpdate['path'],
+        value: Number(sliderEl.value)
+      }] 
   });
 }
 
 // Live update simulation speed when the slider moves
 elSimSpeed.addEventListener('input', () => {
   refreshCoreUIState();
-  worker.postMessage({ type: 'action', action: 'simSpeed', value: parseFloat(elSimSpeed.value) });
+  worker!.postMessage({ type: 'action', action: 'simSpeed', value: parseFloat(elSimSpeed.value) });
 });
 // Update other core UI labels live
 elSnakes.addEventListener('input', refreshCoreUIState);
@@ -369,7 +438,7 @@ window.addEventListener('keydown', e => {
 /**
  * Convert screen coordinates to world coordinates
  */
-function screenToWorld(screenX, screenY) {
+function screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
   // Get camera data from buffer if available
   let camX = 0, camY = 0, zoom = 1;
   if (currentFrameBuffer && currentFrameBuffer.length >= 6) {
@@ -388,7 +457,7 @@ function screenToWorld(screenX, screenY) {
 /**
  * Find snake near world coordinates
  */
-function findSnakeNear(worldX, worldY, maxDist = 50) {
+function findSnakeNear(worldX: number, worldY: number, maxDist = 50): SelectedSnake | null {
   if (!currentFrameBuffer || currentFrameBuffer.length < 6) return null;
   
   let ptr = 6; // Skip header
@@ -452,7 +521,7 @@ canvas.addEventListener('contextmenu', (e) => {
   
   const snake = findSnakeNear(world.x, world.y);
   if (snake) {
-    worker.postMessage({ type: 'godMode', action: 'kill', snakeId: snake.id });
+    worker!.postMessage({ type: 'godMode', action: 'kill', snakeId: snake.id });
     godModeLog.push({
       time: Date.now(),
       action: 'kill',
@@ -480,7 +549,7 @@ canvas.addEventListener('mousemove', (e) => {
     const screenY = e.clientY - rect.top;
     const world = screenToWorld(screenX, screenY);
     
-    worker.postMessage({ 
+    worker!.postMessage({ 
       type: 'godMode', 
       action: 'move', 
       snakeId: selectedSnake.id,
@@ -505,26 +574,27 @@ canvas.addEventListener('mouseup', (e) => {
 });
 
 // Persistence UI Wiring
-const btnExport = document.getElementById('btnExport');
+const btnExport = document.getElementById('btnExport') as HTMLButtonElement | null;
 if (btnExport) {
   btnExport.addEventListener('click', () => {
     if (pendingExport) return;
     pendingExport = true;
-    worker.postMessage({ type: 'export' });
+    worker!.postMessage({ type: 'export' });
   });
 }
 
-const btnImport = document.getElementById('btnImport');
-const fileInput = document.getElementById('fileInput');
+const btnImport = document.getElementById('btnImport') as HTMLButtonElement | null;
+const fileInput = document.getElementById('fileInput') as HTMLInputElement | null;
 if (btnImport && fileInput) {
   btnImport.addEventListener('click', () => {
     fileInput.click();
   });
 
   fileInput.addEventListener('change', async (e) => {
-    if (!e.target.files.length) return;
+    const target = e.target as HTMLInputElement | null;
+    if (!target?.files?.length) return;
     try {
-      const data = await importFromFile(e.target.files[0]);
+      const data = await importFromFile(target.files[0]);
       if (!data || !Array.isArray(data.genomes)) {
         throw new Error('Invalid import file: missing genomes array.');
       }
@@ -532,19 +602,20 @@ if (btnImport && fileInput) {
         hof.replace(data.hof);
       }
       localStorage.setItem('slither_neuroevo_pop', JSON.stringify({ generation: data.generation, genomes: data.genomes }));
-      worker.postMessage({ type: 'import', data });
+      worker!.postMessage({ type: 'import', data });
     } catch (err) {
       console.error("Import failed", err);
-      alert("Failed to import file: " + err.message);
+      const error = err as Error;
+      alert("Failed to import file: " + error.message);
     } finally {
-      e.target.value = '';
+      if (target) target.value = '';
     }
   });
 }
 
 // Fixed simulation step to decouple physics from rendering
 const FIXED_DT = 1 / 60;
-function frame(t) {
+function frame(t: number): void {
   // console.log("Frame loop running"); // Spammy
   if (currentFrameBuffer) {
       // Camera/zoom come from the worker buffer; avoid local overrides here.
@@ -613,9 +684,9 @@ function frame(t) {
   requestAnimationFrame(frame);
 }
 
-function updateInfoPanels(world) {
+function updateInfoPanels(world: any): void {
   // 1. Stats Tab Info
-  const alive = world.snakes.reduce((acc, s) => acc + (s.alive ? 1 : 0), 0);
+  const alive = world.snakes.reduce((acc: number, s: any) => acc + (s.alive ? 1 : 0), 0);
   let maxPts = 0;
   for (const s of world.snakes) maxPts = Math.max(maxPts, s.pointsScore);
   if (maxPts <= 0) maxPts = 1;
@@ -663,8 +734,8 @@ function updateInfoPanels(world) {
       `<div class="row">Boost: ${focus.boost ? 'ON' : 'off'}</div>`;
       
     if (focus.lastSensors && focus.lastOutputs) {
-      const sens = focus.lastSensors.map(v => v.toFixed(2)).join(', ');
-      const outs = focus.lastOutputs.map(v => v.toFixed(2)).join(', ');
+      const sens = focus.lastSensors.map((v: number) => v.toFixed(2)).join(', ');
+      const outs = focus.lastOutputs.map((v: number) => v.toFixed(2)).join(', ');
       vizInfoHtml += 
         `<div class="row" style="margin-top:8px"><strong>Inputs</strong></div>` +
         `<div class="row" style="font-size:10px; word-break:break-all">[${sens}]</div>` +
@@ -679,21 +750,21 @@ function updateInfoPanels(world) {
   if (vizEl && activeTab === 'tab-viz') vizEl.innerHTML = vizInfoHtml;
 }
 
-function updateHoFTable(world) {
+function updateHoFTable(world: ProxyWorld): void {
   const container = document.getElementById('hofTable');
   if (!container) return;
   
   // Throttle updates?
   if (world.generation % 1 !== 0 && Math.random() > 0.1) return;
 
-  const list = hof.getAll();
+  const list = hof.getAll() as HallOfFameEntry[];
   if (!list.length) {
     container.innerHTML = '<div style="padding:10px; color:#aaa">No records yet.</div>';
     return;
   }
 
   let html = '';
-  list.forEach((entry, idx) => {
+  list.forEach((entry: HallOfFameEntry, idx: number) => {
     html += `
       <div class="hof-item">
         <span>#${idx+1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})</span>
@@ -712,6 +783,6 @@ window.spawnHoF = function(idx) {
     // Switch to visualizer?
     // Actually resurrect sets viewMode to follow, so we just need to ensure correct tab?
     // Let's auto-switch tab too.
-    document.querySelector('[data-tab="tab-viz"]').click();
+    (document.querySelector('[data-tab="tab-viz"]') as HTMLButtonElement).click();
   }
 };

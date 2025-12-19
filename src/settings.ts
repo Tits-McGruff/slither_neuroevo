@@ -1,4 +1,4 @@
-// settings.js
+// settings.ts
 // UI slider specifications and helper functions for building and interacting
 // with the settings panel.  This module does not render anything itself;
 // rather, it populates a provided container element with controls defined
@@ -7,10 +7,21 @@
 import { CFG } from './config.js';
 import { getByPath, setByPath, fmtNumber } from './utils.js';
 
+interface SettingSpec {
+  group: string;
+  path: string;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  decimals: number;
+  requiresReset: boolean;
+}
+
 // Each entry in SETTING_SPECS describes a slider.  See the original
 // slither_neuroevo.html for more details on the range and meaning of
 // individual parameters.
-const SETTING_SPECS = [
+const SETTING_SPECS: SettingSpec[] = [
   { group: "World and food", path: "worldRadius", label: "World radius", min: 800, max: 10000, step: 50, decimals: 0, requiresReset: true },
   { group: "World and food", path: "pelletCountTarget", label: "Pellet target count", min: 100, max: 25000, step: 50, decimals: 0, requiresReset: true },
   { group: "World and food", path: "pelletSpawnPerSecond", label: "Pellet spawn per second", min: 5, max: 3500, step: 5, decimals: 0, requiresReset: true },
@@ -90,11 +101,11 @@ const SETTING_SPECS = [
  * sections.
  * @returns {Map<string, Array<Object>>}
  */
-function groupSpecs() {
-  const m = new Map();
+function groupSpecs(): Map<string, SettingSpec[]> {
+  const m = new Map<string, SettingSpec[]>();
   for (const s of SETTING_SPECS) {
     if (!m.has(s.group)) m.set(s.group, []);
-    m.get(s.group).push(s);
+    m.get(s.group)!.push(s);
   }
   return m;
 }
@@ -106,7 +117,7 @@ function groupSpecs() {
  * container to the DOM before invoking this function.
  * @param {HTMLElement} container
  */
-export function buildSettingsUI(container) {
+export function buildSettingsUI(container: HTMLElement): void {
   container.innerHTML = "";
   const grouped = groupSpecs();
   for (const [groupName, specs] of grouped.entries()) {
@@ -159,13 +170,13 @@ export function buildSettingsUI(container) {
  * to each slider.
  * @param {HTMLElement} root
  */
-export function applyValuesToSlidersFromCFG(root) {
-  const sliders = root.querySelectorAll('input[type="range"][data-path]');
+export function applyValuesToSlidersFromCFG(root: HTMLElement): void {
+  const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
   sliders.forEach(sl => {
-    const path = sl.dataset.path;
+    const path = sl.dataset.path!;
     const v = getByPath(CFG, path);
     sl.value = String(v);
-    const decimals = parseInt(sl.dataset.decimals, 10);
+    const decimals = parseInt(sl.dataset.decimals!, 10);
     const out = document.getElementById("val_" + path.replaceAll(".", "_"));
     if (out) out.textContent = fmtNumber(Number(sl.value), decimals);
   });
@@ -178,12 +189,15 @@ export function applyValuesToSlidersFromCFG(root) {
  * @param {HTMLElement} root
  * @param {Function} onLiveUpdate
  */
-export function hookSliderEvents(root, onLiveUpdate) {
-  const sliders = root.querySelectorAll('input[type="range"][data-path]');
+export function hookSliderEvents(
+  root: HTMLElement,
+  onLiveUpdate: (sliderEl: HTMLInputElement) => void
+): void {
+  const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
   sliders.forEach(sl => {
     sl.addEventListener("input", () => {
-      const decimals = parseInt(sl.dataset.decimals, 10);
-      const out = document.getElementById("val_" + sl.dataset.path.replaceAll(".", "_"));
+      const decimals = parseInt(sl.dataset.decimals!, 10);
+      const out = document.getElementById("val_" + sl.dataset.path!.replaceAll(".", "_"));
       if (out) out.textContent = fmtNumber(Number(sl.value), decimals);
       if (sl.dataset.requiresReset === "0") onLiveUpdate(sl);
     });
@@ -197,18 +211,21 @@ export function hookSliderEvents(root, onLiveUpdate) {
  * world is constructed.
  * @param {HTMLElement} root
  */
-export function updateCFGFromUI(root) {
-  const sliders = root.querySelectorAll('input[type="range"][data-path]');
-  sliders.forEach(sl => setByPath(CFG, sl.dataset.path, Number(sl.value)));
+export function updateCFGFromUI(root: HTMLElement): void {
+  const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
+  sliders.forEach(sl => setByPath(CFG, sl.dataset.path!, Number(sl.value)));
 }
 
 /**
  * Orchestrates the full UI setup: build, apply values, and hook events.
- * Used by main.js to init or reset the sidebar.
+ * Used by main.ts to init or reset the sidebar.
  * @param {HTMLElement} container 
  * @param {Function} onLiveUpdate 
  */
-export function setupSettingsUI(container, onLiveUpdate) {
+export function setupSettingsUI(
+  container: HTMLElement,
+  onLiveUpdate?: (sliderEl: HTMLInputElement) => void
+): void {
   buildSettingsUI(container);
   applyValuesToSlidersFromCFG(container);
   if (onLiveUpdate) hookSliderEvents(container, onLiveUpdate);

@@ -1,4 +1,4 @@
-// render.js
+// render.ts
 // Helper functions for drawing the world onto the canvas.  These
 // functions rely on the global 2D rendering context `ctx` which is
 // passed in to the render function.
@@ -7,18 +7,104 @@ import { TAU, clamp, hashColor } from './utils.js';
 import { THEME, getPelletColor, getPelletGlow } from './theme.js';
 import { CFG } from './config.js';
 
-const snakeRenderCache = new Map();
-const boostParticles = [];
+interface CameraState {
+  zoom: number;
+  cameraX: number;
+  cameraY: number;
+}
+
+interface BoostParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  size: number;
+  color: string;
+}
+
+interface SnakeRenderCacheEntry {
+  x: number;
+  y: number;
+  speed: number;
+  seen: number;
+}
+
+interface SnakeStruct {
+  id: number;
+  radius: number;
+  skin: number;
+  x: number;
+  y: number;
+  ang: number;
+  boost: number;
+  pts: ArrayLike<number>;
+  speed?: number;
+  color?: string | null;
+}
+
+interface SnakeMeta {
+  basePtr: number;
+  ptCount: number;
+  id: number;
+  rad: number;
+  skin: number;
+  x: number;
+  y: number;
+  ang: number;
+  boost: number;
+  speed: number;
+}
+
+interface RenderPellet {
+  x: number;
+  y: number;
+  v: number;
+  kind?: string;
+  colorId?: number;
+}
+
+interface RenderSnake {
+  id: number;
+  alive: boolean;
+  radius: number;
+  x: number;
+  y: number;
+  dir: number;
+  turnInput?: number;
+  boostInput?: number;
+  lastSensors?: number[];
+  lastOutputs?: number[];
+}
+
+interface RenderWorld {
+  zoom: number;
+  cameraX: number;
+  cameraY: number;
+  pellets: RenderPellet[];
+  snakes: RenderSnake[];
+  particles: {
+    render: (ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number, zoom: number) => void;
+  };
+  focusSnake?: RenderSnake | null;
+  viewMode?: string;
+}
+
+declare function drawSnake(ctx: CanvasRenderingContext2D, s: RenderSnake, zoom: number): void;
+
+const snakeRenderCache = new Map<number, SnakeRenderCacheEntry>();
+const boostParticles: BoostParticle[] = [];
 const MAX_BOOST_PARTICLES = 1400;
 const BOOST_PARTICLE_LIFE = 0.38;
 let renderTick = 0;
 let lastRenderTime = 0;
 
-function randRange(min, max) {
+function randRange(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
-function getRenderDt() {
+function getRenderDt(): number {
   if (typeof performance === 'undefined' || !performance.now) return 1 / 60;
   const now = performance.now();
   const dt = lastRenderTime ? Math.min(0.05, (now - lastRenderTime) / 1000) : 1 / 60;
@@ -26,12 +112,12 @@ function getRenderDt() {
   return dt || 1 / 60;
 }
 
-function getSnakeColor(id, skin) {
+function getSnakeColor(id: number, skin: number): string {
   if (skin === 1.0) return '#FFD700';
   return hashColor(id * 17 + 3);
 }
 
-function spawnBoostParticle(x, y, ang, color, strength) {
+function spawnBoostParticle(x: number, y: number, ang: number, color: string, strength: number): void {
   if (boostParticles.length >= MAX_BOOST_PARTICLES) boostParticles.shift();
   const dir = ang + Math.PI + randRange(-0.35, 0.35);
   const speed = randRange(60, 140) * (0.65 + strength);
@@ -47,7 +133,7 @@ function spawnBoostParticle(x, y, ang, color, strength) {
   });
 }
 
-function renderBoostParticles(ctx, dt) {
+function renderBoostParticles(ctx: CanvasRenderingContext2D, dt: number): void {
   if (!boostParticles.length) return;
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -74,21 +160,26 @@ function renderBoostParticles(ctx, dt) {
   ctx.restore();
 }
 
-function hash2(x, y) {
+function hash2(x: number, y: number): number {
   let h = (x * 374761393 + y * 668265263) | 0;
   h ^= h >>> 13;
   h = Math.imul(h, 1274126177);
   return h >>> 0;
 }
 
-function nextRand(h) {
+function nextRand(h: number): number {
   h ^= h << 13;
   h ^= h >>> 17;
   h ^= h << 5;
   return h >>> 0;
 }
 
-export function drawStarfield(ctx, world, viewW, viewH) {
+export function drawStarfield(
+  ctx: CanvasRenderingContext2D,
+  world: CameraState,
+  viewW: number,
+  viewH: number
+): void {
   const cell = 240;
   const halfWWorld = viewW / (2 * world.zoom);
   const halfHWorld = viewH / (2 * world.zoom);
@@ -131,10 +222,15 @@ export function drawStarfield(ctx, world, viewW, viewH) {
 /**
  * Draws a grid centred on the origin using a cached pattern.
  */
-let bgPattern = null;
-let bgCanvas = null;
+let bgPattern: CanvasPattern | null = null;
+let bgCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 
-export function drawGrid(ctx, world, viewW, viewH) {
+export function drawGrid(
+  ctx: CanvasRenderingContext2D,
+  world: CameraState,
+  viewW: number,
+  viewH: number
+): void {
   const step = 160;
   
   // Lazy init the pattern once
@@ -147,7 +243,7 @@ export function drawGrid(ctx, world, viewW, viewH) {
       bgCanvas.width = step;
       bgCanvas.height = step;
     }
-    const bx = bgCanvas.getContext('2d');
+    const bx = bgCanvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
     
     // Fill background (optional, but keep transparent for now)
     // Draw lines
@@ -201,7 +297,7 @@ export function drawGrid(ctx, world, viewW, viewH) {
  * Renders a single snake from serialized data.
  * struct: { id, radius, skin, x, y, ang, boost, pts: [x,y,x,y...] }
  */
-export function drawSnakeStruct(ctx, s, zoom) {
+export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, zoom: number): void {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   
@@ -261,7 +357,15 @@ export function drawSnakeStruct(ctx, s, zoom) {
  * Renders the world state from a binary buffer.
  * @param {Float32Array} flt 
  */
-export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOverride, camYOverride) {
+export function renderWorldStruct(
+  ctx: CanvasRenderingContext2D,
+  flt: Float32Array,
+  viewW: number,
+  viewH: number,
+  zoomOverride?: number,
+  camXOverride?: number,
+  camYOverride?: number
+): void {
   // Buffer layout contract: [gen, totalSnakes, aliveCount, camX, camY, zoom] then
   // for each alive snake: [id, radius, skinFlag, x, y, ang, boost, ptCount, ...pts],
   // then pellets: [pelletCount, x, y, value, type, colorId] * pelletCount.
@@ -313,7 +417,7 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
   
   // We MUST scan snakes to find pellets.
   // Let's just scan and store pointers?
-  const snakeMeta = [];
+  const snakeMeta: SnakeMeta[] = [];
   // Loop 'total' times? No, Serializer loops 'world.snakes'.
   // BUT Serializer writes 'AliveCount'.
   // And loops 'world.snakes' but `if (!s.alive) continue;`.
@@ -363,8 +467,8 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
       // Draw pellet
       // Can't use Pellet object.
       // Inline drawing
-      let color = null;
-      let glow = null;
+      let color: string | null = null;
+      let glow: string | null = null;
       if (colorId > 0) {
         color = hashColor(colorId * 17 + 3);
         glow = color;
@@ -391,9 +495,9 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
       
       const r = 2 + Math.sqrt(pv) * 2; // Approx radius logic
       
-      ctx.fillStyle = color;
+      ctx.fillStyle = color!;
       ctx.shadowBlur = r * 1.5;
-      ctx.shadowColor = glow;
+      ctx.shadowColor = glow!;
       ctx.beginPath();
       ctx.arc(px, py, r, 0, TAU);
       ctx.fill();
@@ -432,7 +536,7 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
       // We can pass the typed array subarray?
       const pts = flt.subarray(p, p + ptCount * 2);
       
-      const s = {
+      const s: SnakeStruct = {
           id,
           radius: rad,
           skin,
@@ -457,7 +561,13 @@ export function renderWorldStruct(ctx, flt, viewW, viewH, zoomOverride, camXOver
  * @param {number} viewH
  * @param {number} dpr
  */
-export function renderWorld(ctx, world, viewW, viewH, dpr) {
+export function renderWorld(
+  ctx: CanvasRenderingContext2D,
+  world: RenderWorld,
+  viewW: number,
+  viewH: number,
+  dpr: number
+): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, viewW, viewH);
   ctx.save();
@@ -536,7 +646,7 @@ export function renderWorld(ctx, world, viewW, viewH, dpr) {
       ctx.stroke();
     }
     // Boost intent ring
-    if (s.boostInput > 0.35) {
+    if ((s.boostInput ?? 0) > 0.35) {
       ctx.strokeStyle = THEME.snakeBoostActive;
       ctx.lineWidth = 2;
       ctx.beginPath();

@@ -77,3 +77,8 @@ Performance is a constant concern in this codebase. Hot paths avoid allocations 
 Keep the sensors and brain input size aligned. If you change `CFG.sense.bubbleBins` or adjust the sensor vector layout, update `CFG.brain.inSize` and any code that assumes a fixed input length (including BrainViz or any debug panels). Similarly, changes to genetic operators or architecture keys can invalidate saved genomes in localStorage, so consider how `Genome.toJSON()` and `archKey()` are used before altering their output.
 
 If any section here feels unclear or you want deeper coverage (for example, the collision math, the exact fitness weighting, or how God Mode parsing walks the buffer), tell me which part to expand so we can iterate.
+
+## TypeScript policy (in-progress conversion)
+- Keep runtime behavior and performance identical; types must not alter logic or hot-loop allocations.
+- Use strict typechecking (`tsconfig.json`, `noEmit`) and convert files in dependency order.
+- Prefer shared protocol types under `src/protocol/` for worker/main message contracts.

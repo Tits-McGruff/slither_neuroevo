@@ -1,5 +1,39 @@
-// serializer.js
+// serializer.ts
 // Helpers to pack World state into Transferable ArrayBuffers for the Worker.
+
+interface SerializablePoint {
+  x: number;
+  y: number;
+}
+
+interface SerializableSnake {
+  id: number;
+  radius: number;
+  color?: string;
+  x: number;
+  y: number;
+  dir: number;
+  boost: boolean;
+  alive: boolean;
+  points: SerializablePoint[];
+}
+
+interface SerializablePellet {
+  x: number;
+  y: number;
+  v: number;
+  kind: string;
+  colorId?: number;
+}
+
+interface SerializableWorld {
+  generation: number;
+  cameraX: number;
+  cameraY: number;
+  zoom: number;
+  snakes: SerializableSnake[];
+  pellets: SerializablePellet[];
+}
 
 export class WorldSerializer {
   constructor(maxSnakes = 5000, maxPointsPerSnake = 1000, maxPellets = 50000) {
@@ -8,10 +42,8 @@ export class WorldSerializer {
   
   /**
    * Packs the world state for rendering.
-   * @param {World} world 
-   * @returns {Float32Array}
    */
-  static serialize(world) {
+  static serialize(world: SerializableWorld): Float32Array {
     // 1. Calculate size
     let snakeFloats = 0;
     let aliveCount = 0;

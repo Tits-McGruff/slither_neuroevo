@@ -4,7 +4,7 @@ import {
   applyValuesToSlidersFromCFG,
   hookSliderEvents,
   updateCFGFromUI
-} from './settings.js';
+} from './settings.ts';
 import { CFG } from './config.js';
 import { fmtNumber } from './utils.js';
 

@@ -35,7 +35,7 @@ function makeElement(id, overrides = {}) {
   };
 }
 
-describe('main.js', () => {
+describe('main.ts', () => {
   let originalDocument;
   let originalWindow;
   let originalWorker;
@@ -140,7 +140,7 @@ describe('main.js', () => {
   });
 
   it('initializes the worker and posts init', async () => {
-    await import('./main.js');
+    await import('./main.ts');
 
     const worker = globalThis.__workerInstance;
     expect(worker).toBeDefined();
@@ -149,7 +149,7 @@ describe('main.js', () => {
   });
 
   it('maps fitness history payloads into the shared history buffer', async () => {
-    await import('./main.js');
+    await import('./main.ts');
     const worker = globalThis.__workerInstance;
     const buffer = new Float32Array([1, 0, 0, 0, 0, 1]).buffer;
     worker.onmessage({
