@@ -1,4 +1,4 @@
-# Copilot instructions for slither_neuroevo
+# Agent instructions for slither_neuroevo
 
 ## Project overview and top-level layout
 This repository is a browser-based neuroevolution simulation modeled after slither.io, built with Vite and ES modules. The user-facing entry point is `index.html`, which provides a full-screen canvas plus the control panel tabs, while `styles.css` defines the UI layout, tab visuals, and animation. The `README.md` explains how to run the dev server and why the project cannot be opened directly from the filesystem, so follow those workflow notes when suggesting run instructions.
@@ -49,7 +49,7 @@ Import/export is exposed in the Settings tab and now syncs through the worker. `
 
 ## Documentation expectations
 - `README.md` is for users and QA: explain sliders, brain types, presets, and troubleshooting. Keep dev architecture and testing details out of README.
-- `.github/copilot-instructions.md` is the dev reference: include system architecture, buffer contracts, and regression pitfalls.
+- `AGENTS.md` is the dev reference: include system architecture, buffer contracts, and regression pitfalls.
 - Slider names and meanings in README should mirror `src/settings.ts` and `src/config.ts`. If you change a slider label or path, update docs accordingly.
 
 ## Recent additions and footguns
