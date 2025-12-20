@@ -97,3 +97,7 @@ If any section here feels unclear or you want deeper coverage (for example, the 
 - Keep runtime behavior and performance identical; types must not alter logic or hot-loop allocations.
 - Use strict typechecking (`tsconfig.json`, `noEmit`) and convert files in dependency order.
 - Prefer shared protocol types under `src/protocol/` for worker/main message contracts.
+
+## Markdown policy
+
+- Follow the rules in /markdown-rules/rules.md
