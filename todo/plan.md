@@ -21,8 +21,9 @@ Goal: convert the full runtime to TypeScript to maximize static context, while k
 Checklist:
 
 - [ ] Add `tsconfig.json` with strict settings, `noEmit`, `allowJs: false`.
-- [ ] Add `npm run typecheck` script and wire into CI.
-- [ ] Add a short TS policy section to `.github/copilot-instructions.md`.
+- [x] Add `tsconfig.json` with strict settings, `noEmit`, `allowJs: false`.
+- [x] Add `npm run typecheck` script and wire into CI.
+- [x] Add a short TS policy section to `.github/copilot-instructions.md`.
 
 Deliverable: TS toolchain is configured but no files converted yet.
 
@@ -32,10 +33,10 @@ Create a new `src/protocol/` folder for shared types/constants used by both main
 
 Checklist:
 
-- [ ] Create `src/protocol/messages.ts` defining all worker message payloads and stats shapes.
-- [ ] Create `src/protocol/frame.ts` defining frame header offsets + typed reader helpers.
-- [ ] Create `src/protocol/settings.ts` with slider path unions and `SettingsUpdate` types.
-- [ ] Update tests to import shared protocol types/constants where helpful.
+- [x] Create `src/protocol/messages.ts` defining all worker message payloads and stats shapes.
+- [x] Create `src/protocol/frame.ts` defining frame header offsets + typed reader helpers.
+- [x] Create `src/protocol/settings.ts` with slider path unions and `SettingsUpdate` types.
+- [x] Update tests to import shared protocol types/constants where helpful.
 
 Acceptance: no runtime changes yet; tests pass.
 
@@ -45,11 +46,11 @@ Convert the modules that define contracts and external IO first.
 
 Checklist:
 
-- [ ] Convert `src/serializer.js` → `src/serializer.ts`.
-- [ ] Convert `src/render.js` → `src/render.ts`.
-- [ ] Convert `src/settings.js` → `src/settings.ts`.
-- [ ] Convert `src/storage.js` → `src/storage.ts`.
-- [ ] Ensure JSON import/export payload types are explicit and stable.
+- [x] Convert `src/serializer.js` → `src/serializer.ts`.
+- [x] Convert `src/render.js` → `src/render.ts`.
+- [x] Convert `src/settings.js` → `src/settings.ts`.
+- [x] Convert `src/storage.js` → `src/storage.ts`.
+- [x] Ensure JSON import/export payload types are explicit and stable.
 
 Acceptance: buffer layout unchanged; tests pass; visual output unchanged.
 
@@ -59,10 +60,10 @@ Convert the main thread and worker modules to enforce message contracts.
 
 Checklist:
 
-- [ ] Convert `src/worker.js` → `src/worker.ts`.
-- [ ] Convert `src/main.js` → `src/main.ts`.
-- [ ] Make message switch statements exhaustive and typed.
-- [ ] Type `stats` payload, `fitnessHistory`, and HoF sync paths.
+- [x] Convert `src/worker.js` → `src/worker.ts`.
+- [x] Convert `src/main.js` → `src/main.ts`.
+- [x] Make message switch statements exhaustive and typed.
+- [x] Type `stats` payload, `fitnessHistory`, and HoF sync paths.
 
 Acceptance: worker/main behavior unchanged; no missing message cases.
 
@@ -72,11 +73,11 @@ Convert the core simulation while preserving logic and memory behavior.
 
 Checklist:
 
-- [ ] Convert `src/world.js` → `src/world.ts`.
-- [ ] Convert `src/snake.js` → `src/snake.ts`.
-- [ ] Convert `src/mlp.js` → `src/mlp.ts`.
-- [ ] Ensure typed arrays stay as `Float32Array` and avoid new allocations.
-- [ ] Keep performance-sensitive helpers inline where they already are.
+- [x] Convert `src/world.js` → `src/world.ts`.
+- [x] Convert `src/snake.js` → `src/snake.ts`.
+- [x] Convert `src/mlp.js` → `src/mlp.ts`.
+- [x] Ensure typed arrays stay as `Float32Array` and avoid new allocations.
+- [x] Keep performance-sensitive helpers inline where they already are.
 
 Acceptance: full simulation parity; no new GC churn.
 
@@ -86,8 +87,8 @@ Convert the rest of the codebase for completeness.
 
 Checklist:
 
-- [ ] Convert `src/utils.js`, `src/sensors.js`, `src/spatialHash.js`, `src/particles.js`, `src/theme.js`, `src/BrainViz.js`, `src/FitnessChart.js`, `src/chartUtils.js`, `src/hallOfFame.js`, and all tests.
-- [ ] Update import paths and ensure build/test consistency.
+- [x] Convert `src/utils.js`, `src/sensors.js`, `src/spatialHash.js`, `src/particles.js`, `src/theme.js`, `src/BrainViz.js`, `src/FitnessChart.js`, `src/chartUtils.js`, `src/hallOfFame.js`, and all tests.
+- [x] Update import paths and ensure build/test consistency.
 
 Acceptance: project builds/tests with only `.ts` sources.
 
@@ -97,9 +98,9 @@ Update docs to reflect the TS conversion.
 
 Checklist:
 
-- [ ] Update `.github/copilot-instructions.md` with TS policy, new `src/protocol/` folder, and new file extensions.
-- [ ] Update `README.md` only for user-facing paths if needed (avoid dev-only details).
-- [ ] Remove or update references to `.js` filenames where they changed.
+- [x] Update `.github/copilot-instructions.md` with TS policy, new `src/protocol/` folder, and new file extensions.
+- [x] Update `README.md` only for user-facing paths if needed (avoid dev-only details).
+- [x] Remove or update references to `.js` filenames where they changed.
 
 Acceptance: docs match code layout and no stale references remain.
 
