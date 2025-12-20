@@ -20,7 +20,7 @@ Goal: convert the full runtime to TypeScript to maximize static context, while k
 
 Checklist:
 
-- [ ] Add `tsconfig.json` with strict settings, `noEmit`, `allowJs: false`.
+- [x] Add `tsconfig.json` with strict settings, `noEmit`, `allowJs: false`.
 - [x] Add `tsconfig.json` with strict settings, `noEmit`, `allowJs: false`.
 - [x] Add `npm run typecheck` script and wire into CI.
 - [x] Add a short TS policy section to `.github/copilot-instructions.md`.
@@ -119,8 +119,8 @@ Acceptance: docs match code layout and no stale references remain.
 
 ## Rollout checklist (per phase)
 
-- [ ] Build passes (`npm run build`).
-- [ ] Tests pass (`npm test`).
-- [ ] No buffer layout change.
-- [ ] No new allocations in hot loops.
-- [ ] Docs updated when file extensions change.
+- [x] Build passes (`npm run build`).
+- [x] Tests pass (`npm test`).
+- [x] No buffer layout change.
+- [x] No new allocations in hot loops.
+- [x] Docs updated when file extensions change.
