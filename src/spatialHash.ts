@@ -82,6 +82,7 @@ export class FlatSpatialHash {
       for (let i = Math.max(1, skip); i < pts.length; i++) {
         const p0 = pts[i - 1];
         const p1 = pts[i];
+        if (!p0 || !p1) continue;
         const mx = (p0.x + p1.x) * 0.5;
         const my = (p0.y + p1.y) * 0.5;
         this.add(mx, my, s, i);
@@ -104,7 +105,7 @@ export class FlatSpatialHash {
 
     this.objects[i] = snake;
     this.indices[i] = segIdx;
-    this.next[i] = this.head[cellIndex];
+    this.next[i] = this.head[cellIndex] ?? -1;
     this.head[cellIndex] = i;
   }
 
@@ -121,13 +122,17 @@ export class FlatSpatialHash {
     if (cx < 0 || cx >= this.cols || cy < 0 || cy >= this.rows) return;
 
     const cellIndex = cy * this.cols + cx;
-    let i = this.head[cellIndex];
+    let i = this.head[cellIndex] ?? -1;
     const max = this.count;
     let steps = 0;
 
     while (i !== -1 && i >= 0 && i < max && steps < max) {
-      callback(this.objects[i], this.indices[i]);
-      i = this.next[i];
+      const obj = this.objects[i];
+      const segIdx = this.indices[i];
+      if (obj !== undefined && segIdx !== undefined) {
+        callback(obj, segIdx);
+      }
+      i = this.next[i] ?? -1;
       steps++;
     }
   }
@@ -145,13 +150,17 @@ export class FlatSpatialHash {
     if (cx < 0 || cx >= this.cols || cy < 0 || cy >= this.rows) return;
 
     const cellIndex = cy * this.cols + cx;
-    let i = this.head[cellIndex];
+    let i = this.head[cellIndex] ?? -1;
     const max = this.count;
     let steps = 0;
 
     while (i !== -1 && i >= 0 && i < max && steps < max) {
-      callback(this.objects[i], this.indices[i]);
-      i = this.next[i];
+      const obj = this.objects[i];
+      const segIdx = this.indices[i];
+      if (obj !== undefined && segIdx !== undefined) {
+        callback(obj, segIdx);
+      }
+      i = this.next[i] ?? -1;
       steps++;
     }
   }

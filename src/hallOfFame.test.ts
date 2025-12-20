@@ -20,7 +20,11 @@ describe('hallOfFame.ts', () => {
   });
 
   afterEach(() => {
-    globalAny.localStorage = originalStorage;
+    if (originalStorage === undefined) {
+      delete globalAny.localStorage;
+    } else {
+      globalAny.localStorage = originalStorage;
+    }
   });
 
   it('adds entries sorted by fitness and trims to max', () => {
@@ -41,6 +45,10 @@ describe('hallOfFame.ts', () => {
     hof.add(makeEntry(3, 20));
 
     const list = hof.getAll();
+    expect(list[0]).toBeDefined();
+    expect(list[1]).toBeDefined();
+    expect(list[2]).toBeDefined();
+    if (!list[0] || !list[1] || !list[2]) return;
     expect(list[0].fitness).toBe(30);
     expect(list[1].fitness).toBe(20);
     expect(list[2].fitness).toBe(10);
@@ -60,6 +68,9 @@ describe('hallOfFame.ts', () => {
     const hof = new HallOfFame();
     const list = hof.getAll();
     expect(list.length).toBe(1);
-    expect(list[0].fitness).toBe(99);
+    const first = list[0];
+    expect(first).toBeDefined();
+    if (!first) return;
+    expect(first.fitness).toBe(99);
   });
 });

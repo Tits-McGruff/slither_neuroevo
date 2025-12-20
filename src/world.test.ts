@@ -70,11 +70,12 @@ describe('world.ts', () => {
 
     it('World update should advance physics', () => {
         const world = new World(settings);
-        const initialAge = world.snakes[0].age;
+        const snake = world.snakes[0]!;
+        const initialAge = snake.age;
         
         world.update(0.1, 800, 600);
         
-        expect(world.snakes[0].age).toBeGreaterThan(initialAge);
+        expect(snake.age).toBeGreaterThan(initialAge);
     });
 
     it('imports a compatible population and resets generation state', () => {
@@ -123,7 +124,7 @@ describe('world.ts', () => {
             const world = new World({ ...settings, snakeCount: 3 });
             world._endGeneration();
             expect(world.fitnessHistory.length).toBeGreaterThan(0);
-            const entry = world.fitnessHistory[0];
+            const entry = world.fitnessHistory[0]!;
             expect(entry).toHaveProperty('gen');
             expect(entry).toHaveProperty('best');
             expect(entry).toHaveProperty('avg');

@@ -146,9 +146,9 @@ export function buildSettingsUI(container: HTMLElement): void {
       slider.min = String(spec.min);
       slider.max = String(spec.max);
       slider.step = String(spec.step);
-      slider.dataset.path = spec.path;
-      slider.dataset.decimals = String(spec.decimals ?? 2);
-      slider.dataset.requiresReset = spec.requiresReset ? "1" : "0";
+      slider.dataset['path'] = spec.path;
+      slider.dataset['decimals'] = String(spec.decimals ?? 2);
+      slider.dataset['requiresReset'] = spec.requiresReset ? "1" : "0";
       const foot = document.createElement("div");
       foot.className = "foot";
       foot.innerHTML = spec.requiresReset
@@ -173,10 +173,10 @@ export function buildSettingsUI(container: HTMLElement): void {
 export function applyValuesToSlidersFromCFG(root: HTMLElement): void {
   const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
   sliders.forEach(sl => {
-    const path = sl.dataset.path!;
+    const path = sl.dataset['path']!;
     const v = getByPath(CFG, path);
     sl.value = String(v);
-    const decimals = parseInt(sl.dataset.decimals!, 10);
+    const decimals = parseInt(sl.dataset['decimals']!, 10);
     const out = document.getElementById("val_" + path.replaceAll(".", "_"));
     if (out) out.textContent = fmtNumber(Number(sl.value), decimals);
   });
@@ -196,10 +196,10 @@ export function hookSliderEvents(
   const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
   sliders.forEach(sl => {
     sl.addEventListener("input", () => {
-      const decimals = parseInt(sl.dataset.decimals!, 10);
-      const out = document.getElementById("val_" + sl.dataset.path!.replaceAll(".", "_"));
+      const decimals = parseInt(sl.dataset['decimals']!, 10);
+      const out = document.getElementById("val_" + sl.dataset['path']!.replaceAll(".", "_"));
       if (out) out.textContent = fmtNumber(Number(sl.value), decimals);
-      if (sl.dataset.requiresReset === "0") onLiveUpdate(sl);
+      if (sl.dataset['requiresReset'] === "0") onLiveUpdate(sl);
     });
   });
 }
@@ -213,7 +213,7 @@ export function hookSliderEvents(
  */
 export function updateCFGFromUI(root: HTMLElement): void {
   const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
-  sliders.forEach(sl => setByPath(CFG, sl.dataset.path!, Number(sl.value)));
+  sliders.forEach(sl => setByPath(CFG, sl.dataset['path']!, Number(sl.value)));
 }
 
 /**

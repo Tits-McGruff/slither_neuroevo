@@ -140,6 +140,7 @@ function renderBoostParticles(ctx: CanvasRenderingContext2D, dt: number): void {
   ctx.globalCompositeOperation = 'lighter';
   for (let i = boostParticles.length - 1; i >= 0; i--) {
     const p = boostParticles[i];
+    if (!p) continue;
     p.life -= dt;
     if (p.life <= 0) {
       boostParticles.splice(i, 1);
@@ -322,16 +323,21 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
   ctx.beginPath();
   const pts = s.pts;
   if (pts.length >= 2) {
-      ctx.moveTo(pts[0], pts[1]);
+      const startX = pts[0] ?? s.x;
+      const startY = pts[1] ?? s.y;
+      ctx.moveTo(startX, startY);
       for (let i = 2; i < pts.length; i+=2) {
-          ctx.lineTo(pts[i], pts[i+1]);
+          const px = pts[i];
+          const py = pts[i + 1];
+          if (px === undefined || py === undefined) continue;
+          ctx.lineTo(px, py);
       }
   }
   ctx.stroke();
 
   // Head and eyes
-  const hx = pts.length >= 2 ? pts[0] : s.x;
-  const hy = pts.length >= 2 ? pts[1] : s.y;
+  const hx = pts.length >= 2 ? (pts[0] ?? s.x) : s.x;
+  const hy = pts.length >= 2 ? (pts[1] ?? s.y) : s.y;
   ctx.fillStyle = color;
   ctx.beginPath();
   ctx.arc(hx, hy, s.radius * 1.05, 0, TAU);
@@ -367,6 +373,7 @@ export function renderWorldStruct(
   camXOverride?: number,
   camYOverride?: number
 ): void {
+  const read = (idx: number): number => flt[idx] ?? 0;
   // Buffer layout contract: [gen, totalSnakes, aliveCount, camX, camY, zoom] then
   // for each alive snake: [id, radius, skinFlag, x, y, ang, boost, ptCount, ...pts],
   // then pellets: [pelletCount, x, y, value, type, colorId] * pelletCount.
@@ -380,12 +387,14 @@ export function renderWorldStruct(
   // Header: Gen, TotalCount, AliveCount, CamX, CamY, Zoom
   let ptr = 0;
   // Header: Gen, TotalCount, AliveCount, CamX, CamY, Zoom
-  const gen = flt[ptr++];
-  const totalCount = flt[ptr++];
-  const aliveCount = flt[ptr++];
-  const camX = flt[ptr++];
-  const camY = flt[ptr++];
-  const camZoom = flt[ptr++];
+  const gen = read(ptr++);
+  const totalCount = read(ptr++);
+  const aliveCount = read(ptr++) | 0;
+  const camX = read(ptr++);
+  const camY = read(ptr++);
+  const camZoom = read(ptr++);
+  void gen;
+  void totalCount;
   
   const zoom = zoomOverride || camZoom || 1;
   const cX = camXOverride ?? camX ?? 0;
@@ -427,14 +436,16 @@ export function renderWorldStruct(
   
   for (let i = 0; i < aliveCount; i++) {
       const basePtr = ptr;
-      const id = flt[ptr++];
-      const rad = flt[ptr++];
-      const skin = flt[ptr++];
-      const x = flt[ptr++];
-      const y = flt[ptr++];
-      const ang = flt[ptr++];
-      const boost = flt[ptr++];
-      const ptCount = flt[ptr++] | 0; // Stored as float, but must be treated as an int for pointer math.
+      const id = read(ptr++);
+      const rad = read(ptr++);
+      const skin = read(ptr++);
+      const x = read(ptr++);
+      const y = read(ptr++);
+      const ang = read(ptr++);
+      const boost = read(ptr++);
+      const ptCount = read(ptr++) | 0; // Stored as float, but must be treated as an int for pointer math.
+      const pointsEnd = ptr + ptCount * 2;
+      if (pointsEnd > flt.length) break;
 
       const prev = snakeRenderCache.get(id);
       let speed = 0;
@@ -447,7 +458,7 @@ export function renderWorldStruct(
       snakeRenderCache.set(id, { x, y, speed, seen: renderTick });
 
       snakeMeta.push({ basePtr, ptCount, id, rad, skin, x, y, ang, boost, speed });
-      ptr += ptCount * 2;
+      ptr = pointsEnd;
   };
 
   for (const [id, data] of snakeRenderCache) {
@@ -455,15 +466,16 @@ export function renderWorldStruct(
   }
   
   // Now ptr is at Pellets Count
-  const pelletCount = flt[ptr++];
+  const pelletCount = read(ptr++) | 0;
   
   // Draw Pellets
   for (let i = 0; i < pelletCount; i++) {
-      const px = flt[ptr++];
-      const py = flt[ptr++];
-      const pv = flt[ptr++];
-      const type = flt[ptr++];
-      const colorId = flt[ptr++];
+      if (ptr + 4 >= flt.length) break;
+      const px = read(ptr++);
+      const py = read(ptr++);
+      const pv = read(ptr++);
+      const type = read(ptr++);
+      const colorId = read(ptr++);
       
       // Draw pellet
       // Can't use Pellet object.
@@ -505,8 +517,7 @@ export function renderWorldStruct(
       ctx.shadowBlur = 0;
   }
 
-  for (let i = 0; i < snakeMeta.length; i++) {
-    const meta = snakeMeta[i];
+  for (const meta of snakeMeta) {
     if (meta.boost > 0.5) {
       const strength = clamp(meta.speed / Math.max(12, meta.rad * 2), 0, 1);
       const color = getSnakeColor(meta.id, meta.skin);
@@ -519,17 +530,16 @@ export function renderWorldStruct(
   renderBoostParticles(ctx, dt);
   
   // Draw Snakes
-  for (let i = 0; i < snakeMeta.length; i++) {
-      const meta = snakeMeta[i];
+  for (const meta of snakeMeta) {
       let p = meta.basePtr;
-      const id = flt[p++];
-      const rad = flt[p++];
-      const skin = flt[p++];
-      const x = flt[p++];
-      const y = flt[p++];
-      const ang = flt[p++];
-      const boost = flt[p++];
-      const ptCount = flt[p++];
+      const id = read(p++);
+      const rad = read(p++);
+      const skin = read(p++);
+      const x = read(p++);
+      const y = read(p++);
+      const ang = read(p++);
+      const boost = read(p++);
+      const ptCount = read(p++) | 0;
       
       // Reconstruct points array wrapper
       // We can't use subarray as points because it's [x,y,x,y].
@@ -585,8 +595,7 @@ export function renderWorld(
   world.particles.render(ctx, world.cameraX, world.cameraY, world.zoom);
 
   // Draw pellets
-  for (let i = 0; i < world.pellets.length; i++) {
-    const p = world.pellets[i];
+  for (const p of world.pellets) {
     const kind = p.kind || 'ambient';
     let pr = 1.8 + Math.sqrt(Math.max(0, p.v)) * 0.9;
     if (kind === 'boost') pr *= 0.85;
@@ -663,7 +672,7 @@ export function renderWorld(
     ctx.arc(s.x, s.y, s.radius * (0.8 + wallRatio * 1.8), 0, TAU);
     ctx.stroke();
     // Boost margin bar
-    const margin = s.lastSensors && s.lastSensors.length > 3 ? s.lastSensors[3] : -1;
+    const margin = s.lastSensors && s.lastSensors.length > 3 ? (s.lastSensors[3] ?? -1) : -1;
     const barLen = s.radius * 3;
     const barDir = s.dir;
     const barX = s.x + Math.cos(barDir) * s.radius * 2.6;

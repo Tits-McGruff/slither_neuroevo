@@ -2,7 +2,7 @@
 // A simple, high-performance particle system for visual effects like
 // boost exhaust, deaths, and impacts.
 
-import { rand, randInt, clamp, TAU } from './utils.ts';
+import { rand, clamp, TAU } from './utils.ts';
 
 class Particle {
   x: number;
@@ -94,6 +94,7 @@ export class ParticleSystem {
     let spawned = 0;
     for (let i = 0; i < this.pool.length; i++) {
       const p = this.pool[i];
+      if (!p) continue;
       if (!p.active) {
         const a = baseAngle + rand(spread, -spread);
         const s = rand(speedMax, speedMin);
@@ -118,6 +119,9 @@ export class ParticleSystem {
   }
 
   render(ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number, zoom: number): void {
+    void cameraX;
+    void cameraY;
+    void zoom;
     ctx.save();
     // Batch drawing could be optimized but standard path stroking/filling is fine for <2000 particles
     // We can group by color if needed, but simple iteration is okay for now.

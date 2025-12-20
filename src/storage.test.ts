@@ -21,7 +21,11 @@ describe('storage.ts', () => {
   });
 
   afterEach(() => {
-    globalAny.localStorage = originalStorage;
+    if (originalStorage === undefined) {
+      delete globalAny.localStorage;
+    } else {
+      globalAny.localStorage = originalStorage;
+    }
   });
 
   it('Storage save/load/remove round-trips JSON', () => {
@@ -49,8 +53,12 @@ describe('storage.ts', () => {
     const loaded = loadPopulation(arch);
 
     expect(loaded).not.toBeNull();
-    expect(loaded!.generation).toBe(7);
-    expect(loaded!.genomes.length).toBe(1);
-    expect(loaded!.genomes[0].weights.length).toBe(genome.weights.length);
+    if (!loaded) return;
+    expect(loaded.generation).toBe(7);
+    expect(loaded.genomes.length).toBe(1);
+    const first = loaded.genomes[0];
+    expect(first).toBeDefined();
+    if (!first) return;
+    expect(first.weights.length).toBe(genome.weights.length);
   });
 });

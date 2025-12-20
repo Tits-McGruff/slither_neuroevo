@@ -2,8 +2,6 @@
 // Centralized color palette and theme management for the simulation.
 // Using HSLA helper for consistent, vibrant visualization.
 
-import { deepClone } from './utils.ts';
-
 export const THEME = {
   // Background/Grid
   gridLine: 'rgba(255,255,255,0.04)',

@@ -38,6 +38,9 @@ interface SerializableWorld {
 export class WorldSerializer {
   constructor(maxSnakes = 5000, maxPointsPerSnake = 1000, maxPellets = 50000) {
     // Estimate buffer size
+    void maxSnakes;
+    void maxPointsPerSnake;
+    void maxPellets;
   }
   
   /**
@@ -88,8 +91,9 @@ export class WorldSerializer {
       const pts = s.points;
       buffer[ptr++] = pts.length; // Point Count
       for (let i = 0; i < pts.length; i++) {
-        buffer[ptr++] = pts[i].x;
-        buffer[ptr++] = pts[i].y;
+        const pt = pts[i];
+        buffer[ptr++] = pt ? pt.x : 0;
+        buffer[ptr++] = pt ? pt.y : 0;
       }
     }
     
@@ -97,6 +101,14 @@ export class WorldSerializer {
     buffer[ptr++] = world.pellets.length;
     for (let i = 0; i < world.pellets.length; i++) {
       const p = world.pellets[i];
+      if (!p) {
+        buffer[ptr++] = 0;
+        buffer[ptr++] = 0;
+        buffer[ptr++] = 0;
+        buffer[ptr++] = 0;
+        buffer[ptr++] = 0;
+        continue;
+      }
       buffer[ptr++] = p.x;
       buffer[ptr++] = p.y;
       buffer[ptr++] = p.v;

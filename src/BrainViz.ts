@@ -21,15 +21,17 @@ export class BrainViz {
     if (!brain) return;
     
     // Determine layers to draw
-    const layers = [];
+    const layers: Array<{
+      count: number;
+      activations: ArrayLike<number> | null;
+      isRecurrent?: boolean;
+    }> = [];
     
     if (brain.kind === 'mlp') {
       // Just MLP layers
       const mlp = brain.mlp;
       if (mlp.layerSizes) {
         for (let i = 0; i < mlp.layerSizes.length; i++) {
-          const val = (i === 0) ? null : // Inputs not easily avail here unless passed? 
-                      (i < mlp.layerSizes.length) ? mlp._bufs[i-1] : null;
           // Actually _bufs[0] is output of layer 0 (which is input to layer 1).
           // Wait, MLP.forward: cur = input. Loop l=0..N-1. next = _bufs[l]. cur processed to next.
           // So _bufs[l] stores output of layer l+1?
@@ -38,9 +40,11 @@ export class BrainViz {
           // l=1: h1->h2. next=_bufs[1]. Stores h2 activations.
           // l=2: h2->out. next=_bufs[2]. Stores out activations.
           
+          const count = mlp.layerSizes[i];
+          if (count == null) continue;
           layers.push({ 
-            count: mlp.layerSizes[i], 
-            activations: (i === 0) ? null : mlp._bufs[i-1] 
+            count, 
+            activations: (i === 0) ? null : (mlp._bufs[i - 1] ?? null)
           });
         }
       }
@@ -51,9 +55,11 @@ export class BrainViz {
         for (let i = 0; i < brain.mlp.layerSizes.length; i++) {
            // Skip last layer of MLP if it feeds into GRU? 
            // Usually MLP output is GRU input.
+           const count = brain.mlp.layerSizes[i];
+           if (count == null) continue;
            layers.push({
-             count: brain.mlp.layerSizes[i],
-             activations: (i === 0) ? null : brain.mlp._bufs[i-1]
+             count,
+             activations: (i === 0) ? null : (brain.mlp._bufs[i - 1] ?? null)
            });
         }
       }
@@ -88,9 +94,10 @@ export class BrainViz {
     const heatW = Math.min(12, colStep * 0.4);
     for (let c = 0; c < maxCols; c++) {
       const layer = layers[c];
+      if (!layer) continue;
       const cx = c * colStep;
       const count = layer.count;
-      const rowStep = Math.min(15, this.h / count);
+      const rowStep = Math.min(15, this.h / Math.max(1, count));
       const startY = (this.h - (count - 1) * rowStep) / 2;
       
       for (let r = 0; r < count; r++) {
@@ -100,6 +107,7 @@ export class BrainViz {
         // Connections to prev layer
         if (c > 0) {
           const prevLayer = layers[c - 1];
+          if (!prevLayer) continue;
           const prevCount = prevLayer.count;
           const prevRowStep = Math.min(15, this.h / prevCount);
           const prevStartY = (this.h - (prevCount - 1) * prevRowStep) / 2;
@@ -121,7 +129,7 @@ export class BrainViz {
         
         // Activation heat strip
         if (layer.activations && r < layer.activations.length) {
-          const val = layer.activations[r];
+          const val = layer.activations[r] ?? 0;
           const intensity = clamp(Math.abs(val), 0, 1);
           const alpha = 0.15 + intensity * 0.65;
           ctx.fillStyle = val >= 0
@@ -134,7 +142,7 @@ export class BrainViz {
         let alpha = 0.2;
         let val = 0;
         if (layer.activations && r < layer.activations.length) {
-          val = layer.activations[r];
+          val = layer.activations[r] ?? 0;
           // Tanh -1 to 1.
           alpha = 0.3 + Math.abs(val) * 0.7;
         }

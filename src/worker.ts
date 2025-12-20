@@ -145,6 +145,7 @@ workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
       break;
     default: {
       const _exhaustive: never = msg;
+      void _exhaustive;
       break;
     }
   }

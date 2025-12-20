@@ -7,11 +7,11 @@
 import { CFG } from './config.ts';
 import { buildArch, archKey, Genome, crossover, mutate, enrichArchInfo } from './mlp.ts';
 import { ParticleSystem } from './particles.ts';
-import { Snake, Pellet, SegmentGrid as LegacyGrid, pointSegmentDist2 } from './snake.ts';
+import { Snake, Pellet, pointSegmentDist2 } from './snake.ts';
 import { randInt, clamp, lerp, TAU } from './utils.ts';
 import { hof } from './hallOfFame.ts';
 import { FlatSpatialHash } from './spatialHash.ts';
-import type { ArchDefinition, ArchInfo } from './mlp.ts';
+import type { ArchDefinition } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData, PopulationExport } from './protocol/messages.ts';
 
 interface WorldSettingsInput {
@@ -169,7 +169,9 @@ export class World {
    */
   _pickAnyAlive(): Snake | null {
     const alive = this.snakes.filter(s => s.alive);
-    return alive.length ? alive[randInt(alive.length)] : null;
+    if (!alive.length) return null;
+    const idx = randInt(alive.length);
+    return alive[idx] ?? null;
   }
   /**
    * Initialises the population with random genomes according to the
@@ -225,7 +227,8 @@ export class World {
     const targetCount = Math.max(1, Math.floor(this.settings.snakeCount || parsed.length));
     const nextPop = [];
     for (let i = 0; i < targetCount; i++) {
-      if (i < parsed.length) nextPop.push(parsed[i].clone());
+      const candidate = parsed[i];
+      if (candidate) nextPop.push(candidate.clone());
       else nextPop.push(Genome.random(this.arch));
     }
     this.population = nextPop;
@@ -250,7 +253,9 @@ export class World {
   _spawnAll(): void {
     this.snakes.length = 0;
     for (let i = 0; i < this.population.length; i++) {
-      this.snakes.push(new Snake(i + 1, this.population[i].clone(), this.arch));
+      const g = this.population[i];
+      if (!g) continue;
+      this.snakes.push(new Snake(i + 1, g.clone(), this.arch));
     }
   }
   /**
@@ -349,6 +354,7 @@ removePellet(p: Pellet): void {
       for (let i = Math.max(1, skip); i < pts.length; i++) {
         const p0 = pts[i-1];
         const p1 = pts[i];
+        if (!p0 || !p1) continue;
         const mx = (p0.x + p1.x) * 0.5;
         const my = (p0.y + p1.y) * 0.5;
         this._collGrid.add(mx, my, s, i);
@@ -364,7 +370,12 @@ removePellet(p: Pellet): void {
    */
   _chooseInitialFocus(): void {
     const alive = this.snakes.filter(s => s.alive);
-    this.focusSnake = alive.length ? alive[randInt(alive.length)] : null;
+    if (alive.length) {
+      const idx = randInt(alive.length);
+      this.focusSnake = alive[idx] ?? null;
+    } else {
+      this.focusSnake = null;
+    }
     if (this.viewMode === "follow" && this.focusSnake) {
       const h = this.focusSnake.head();
       this.cameraX = h.x;
@@ -400,10 +411,11 @@ removePellet(p: Pellet): void {
       this._focusCooldown = CFG.observer.focusRecheckSeconds;
       return;
     }
-    let best = alive[0];
+    let best = alive[0]!;
     let bestScore = this._leaderScore(best);
     for (let i = 1; i < alive.length; i++) {
       const s = alive[i];
+      if (!s) continue;
       const sc = this._leaderScore(s);
       if (sc > bestScore) {
         best = s;
@@ -475,12 +487,13 @@ removePellet(p: Pellet): void {
           if (otherS === s) return;
           if (!otherS || !otherS.alive) return; // Guard against empty grid entries
 
-          const p = otherS.points;
-          if (idx >= p.length || idx <= 0) return; // Ensure valid segment indices
+      const p = otherS.points;
+      if (idx >= p.length || idx <= 0) return; // Ensure valid segment indices
 
-          const p0 = p[idx - 1];
-          const p1 = p[idx];
-          const dist2 = pointSegmentDist2(hx, hy, p0.x, p0.y, p1.x, p1.y);
+      const p0 = p[idx - 1];
+      const p1 = p[idx];
+      if (!p0 || !p1) return;
+      const dist2 = pointSegmentDist2(hx, hy, p0.x, p0.y, p1.x, p1.y);
           // Effective radius
           const thr = (s.radius + otherS.radius) * hitScale;
           if (dist2 <= thr * thr) {
@@ -492,8 +505,6 @@ removePellet(p: Pellet): void {
       // Query local and neighbor cells
       const cx = Math.floor(hx / cellSize);
       const cy = Math.floor(hy / cellSize);
-      const cs = cellSize; // Use cs for clarity in queries
-
       // Query current cell and 8 neighbors
       for (let oy = -1; oy <= 1; oy++) {
         for (let ox = -1; ox <= 1; ox++) {
@@ -519,6 +530,7 @@ removePellet(p: Pellet): void {
    * mutation.  Resets state for the new generation.
    */
   _endGeneration(): void {
+    if (!this.population.length) return;
     let maxPts = 0;
     for (const s of this.snakes) maxPts = Math.max(maxPts, s.pointsScore);
     if (maxPts <= 0) maxPts = 1;
@@ -527,10 +539,12 @@ removePellet(p: Pellet): void {
     for (const s of this.snakes) if (Math.abs(s.pointsScore - maxPts) <= 1e-6) topIds.add(s.id);
     for (let i = 0; i < this.snakes.length; i++) {
       const s = this.snakes[i];
+      const pop = this.population[i];
+      if (!s || !pop) continue;
       const pointsNorm = clamp(Math.log(1 + s.pointsScore) / logDen, 0, 1);
       const topBonus = topIds.has(s.id) ? CFG.reward.fitnessTopPointsBonus : 0;
       const fit = s.computeFitness(pointsNorm, topBonus);
-      this.population[i].fitness = fit;
+      pop.fitness = fit;
       s.fitness = fit; // Store on snake for HoF retrieval
       if (fit > this.bestFitnessEver) this.bestFitnessEver = fit;
     }
@@ -541,9 +555,11 @@ removePellet(p: Pellet): void {
     const minFit = this.population[this.population.length - 1]?.fitness ?? 0;
     const diversity = computeSpeciesStats(this.population);
     const complexity = computeNetworkStats(this.population);
+    const bestGenome = this.population[0];
+    if (!bestGenome) return;
     this.fitnessHistory.push({
       gen: this.generation,
-      best: this.population[0].fitness,
+      best: bestGenome.fitness,
       avg: avgFit,
       min: minFit,
       speciesCount: diversity.speciesCount,
@@ -554,7 +570,7 @@ removePellet(p: Pellet): void {
     if (this.fitnessHistory.length > 100) this.fitnessHistory.shift();
 
     // Hall of Fame: Record the best snake of this generation
-    const bestG = this.population[0];
+    const bestG = bestGenome;
     // Find the actual snake object to get its length/kill stats, as genome doesn't have them
     // The population is sorted by fitness, so population[0] is the best genome.
     // However, the snakes array might not match population order unless we track IDs.
@@ -569,7 +585,7 @@ removePellet(p: Pellet): void {
       }
     }
     // Fallback if fitness wasn't stored on snake yet (it is computed in this function)
-    if (!bestS && this.snakes.length > 0) bestS = this.snakes[0]; // Should rarely happen
+    if (!bestS && this.snakes.length > 0) bestS = this.snakes[0] ?? null; // Should rarely happen
 
     if (bestS) {
       const hofEntry = {
@@ -587,7 +603,10 @@ removePellet(p: Pellet): void {
     const eliteN = Math.max(1, Math.floor(CFG.eliteFrac * this.population.length));
     const elites = this.population.slice(0, eliteN).map(g => g.clone());
     const newPop = [];
-    for (let i = 0; i < eliteN; i++) newPop.push(elites[i].clone());
+    for (let i = 0; i < eliteN; i++) {
+      const elite = elites[i];
+      if (elite) newPop.push(elite.clone());
+    }
     while (newPop.length < this.population.length) {
       const parentA = tournamentPick(this.population, 5);
       const parentB = tournamentPick(this.population, 5);
@@ -638,7 +657,7 @@ removePellet(p: Pellet): void {
 function tournamentPick(pop: Genome[], k: number): Genome {
   let best: Genome | null = null;
   for (let i = 0; i < k; i++) {
-    const g = pop[randInt(pop.length)];
+    const g = pop[randInt(pop.length)] ?? pop[0]!;
     if (!best || g.fitness > best.fitness) best = g;
   }
   return best!;
@@ -716,7 +735,10 @@ class PelletGrid {
       for (let cx = minCx; cx <= maxCx; cx++) {
         const arr = this.map.get(this._key(cx, cy));
         if (!arr) continue;
-        for (let i = 0; i < arr.length; i++) fn(arr[i]);
+        for (let i = 0; i < arr.length; i++) {
+          const pellet = arr[i];
+          if (pellet) fn(pellet);
+        }
       }
     }
   }
@@ -730,7 +752,7 @@ function genomeDistanceRms(a: Genome, b: Genome): number {
   if (!wa || !wb || wa.length !== wb.length) return Infinity;
   let sumSq = 0;
   for (let i = 0; i < wa.length; i++) {
-    const d = wa[i] - wb[i];
+    const d = (wa[i] ?? 0) - (wb[i] ?? 0);
     sumSq += d * d;
   }
   return Math.sqrt(sumSq / wa.length);
@@ -770,7 +792,7 @@ function computeNetworkStats(population: Genome[]): { avgWeight: number; weightV
     const w = genome.weights;
     if (!w) continue;
     for (let i = 0; i < w.length; i++) {
-      const aw = Math.abs(w[i]);
+      const aw = Math.abs(w[i] ?? 0);
       sumAbs += aw;
       sumAbsSq += aw * aw;
       count += 1;

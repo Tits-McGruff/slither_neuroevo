@@ -102,7 +102,9 @@ function _forEachNearbySegment(
       const arr = grid.query(cx, cy);
       if (!arr) continue;
       for (let j = 0; j < arr.length; j++) {
-        fn(arr[j]);
+        const ref = arr[j];
+        if (!ref) continue;
+        fn(ref);
         checks++;
         if (checks >= maxChecks) return;
       }
@@ -131,6 +133,7 @@ function _forEachNearbyPellet(
     const step = Math.max(1, Math.ceil(world.pellets.length / maxChecks));
     for (let i = 0; i < world.pellets.length; i += step) {
       const p = world.pellets[i];
+      if (!p) continue;
       const dx = p.x - x;
       const dy = p.y - y;
       if (dx * dx + dy * dy > r * r) continue;
@@ -154,6 +157,7 @@ function _forEachNearbyPellet(
       if (!arr) continue;
       for (let i = 0; i < arr.length; i++) {
         const p = arr[i];
+        if (!p) continue;
         const dx = p.x - x;
         const dy = p.y - y;
         if (dx * dx + dy * dy > r2) continue;
@@ -226,7 +230,8 @@ function _fillFoodBubbleBins(
     const b = _angleToBin(rel, bins);
     const wDist = 1 - d / r;
     const wVal = clamp(p.v / baseV, 0, 6.0);
-    _scratchFood[b] += wDist * wVal;
+    const prev = _scratchFood[b] ?? 0;
+    _scratchFood[b] = prev + wDist * wVal;
   });
 
   const K0 = Math.max(0.1, CFG.sense?.bubbleFoodK ?? 4.0);
@@ -234,7 +239,7 @@ function _fillFoodBubbleBins(
   const K = K0 * Math.max(0.75, scale);
 
   for (let i = 0; i < bins; i++) {
-    const s = _scratchFood[i];
+    const s = _scratchFood[i] ?? 0;
     const frac = s / (s + K);
     ins[insOffset + i] = clamp(frac * 2 - 1, -1, 1);
   }
@@ -265,6 +270,7 @@ function _fillHazardBubbleBins(
     if (!pts || i <= 0 || i >= pts.length) return;
     const a = pts[i - 1];
     const b = pts[i];
+    if (!a || !b) return;
     const c = _closestPointOnSegment(sx, sy, a.x, a.y, b.x, b.y);
     const d = Math.sqrt(c.d2);
     if (d > r + (other.radius || CFG.snakeRadius) + 8) return;
@@ -272,11 +278,13 @@ function _fillHazardBubbleBins(
     const ang = Math.atan2(c.qy - sy, c.qx - sx);
     const rel = angNorm(ang - snake.dir);
     const bi = _angleToBin(rel, bins);
-    if (free < _scratchHaz[bi]) _scratchHaz[bi] = free;
+    const prev = _scratchHaz[bi] ?? r;
+    if (free < prev) _scratchHaz[bi] = free;
   });
 
   for (let i = 0; i < bins; i++) {
-    const ratio = clamp(_scratchHaz[i] / r, 0, 1);
+    const haz = _scratchHaz[i] ?? r;
+    const ratio = clamp(haz / r, 0, 1);
     ins[insOffset + i] = ratio * 2 - 1;
   }
 }

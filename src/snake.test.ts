@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Snake, Pellet, SegmentGrid, pointSegmentDist2 } from './snake.ts';
+import { Snake, SegmentGrid, pointSegmentDist2 } from './snake.ts';
 import { Genome, buildArch } from './mlp.ts';
 import { CFG } from './config.ts';
 
@@ -64,11 +64,13 @@ describe('snake.ts', () => {
         grid.addSegment(snake, 1);
         const cx = Math.floor(2.5 / grid.cellSize);
         const cy = Math.floor(2.5 / grid.cellSize);
-        const results = grid.query(cx, cy);
+        const results = grid.query(cx, cy) ?? [];
         
-        expect(results).not.toBeNull();
-        expect(results!.length).toBe(1);
-        expect(results![0].s).toBe(snake);
-        expect(results![0].i).toBe(1);
+        expect(results.length).toBe(1);
+        const first = results[0];
+        expect(first).toBeDefined();
+        if (!first) return;
+        expect(first.s).toBe(snake);
+        expect(first.i).toBe(1);
     });
 });

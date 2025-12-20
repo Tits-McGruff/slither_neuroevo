@@ -60,7 +60,7 @@ describe('serializer.ts', () => {
     expect(buf[FRAME_HEADER_OFFSETS.zoom]).toBe(0.75);
 
     let ptr = FRAME_HEADER_FLOATS;
-    const aliveSnake1 = world.snakes[0];
+    const aliveSnake1 = world.snakes[0]!;
     expect(buf[ptr++]).toBe(aliveSnake1.id);
     expect(buf[ptr++]).toBe(aliveSnake1.radius);
     expect(buf[ptr++]).toBe(0);
@@ -69,12 +69,14 @@ describe('serializer.ts', () => {
     expect(buf[ptr++]).toBe(aliveSnake1.dir);
     expect(buf[ptr++]).toBe(1);
     expect(buf[ptr++]).toBe(aliveSnake1.points.length);
-    expect(buf[ptr++]).toBe(aliveSnake1.points[0].x);
-    expect(buf[ptr++]).toBe(aliveSnake1.points[0].y);
-    expect(buf[ptr++]).toBe(aliveSnake1.points[1].x);
-    expect(buf[ptr++]).toBe(aliveSnake1.points[1].y);
+    const aliveSnake1P0 = aliveSnake1.points[0]!;
+    const aliveSnake1P1 = aliveSnake1.points[1]!;
+    expect(buf[ptr++]).toBe(aliveSnake1P0.x);
+    expect(buf[ptr++]).toBe(aliveSnake1P0.y);
+    expect(buf[ptr++]).toBe(aliveSnake1P1.x);
+    expect(buf[ptr++]).toBe(aliveSnake1P1.y);
 
-    const aliveSnake2 = world.snakes[2];
+    const aliveSnake2 = world.snakes[2]!;
     expect(buf[ptr++]).toBe(aliveSnake2.id);
     expect(buf[ptr++]).toBe(aliveSnake2.radius);
     expect(buf[ptr++]).toBe(1);
@@ -83,8 +85,9 @@ describe('serializer.ts', () => {
     expect(buf[ptr++]).toBeCloseTo(aliveSnake2.dir, 5);
     expect(buf[ptr++]).toBe(0);
     expect(buf[ptr++]).toBe(aliveSnake2.points.length);
-    expect(buf[ptr++]).toBe(aliveSnake2.points[0].x);
-    expect(buf[ptr++]).toBe(aliveSnake2.points[0].y);
+    const aliveSnake2P0 = aliveSnake2.points[0]!;
+    expect(buf[ptr++]).toBe(aliveSnake2P0.x);
+    expect(buf[ptr++]).toBe(aliveSnake2P0.y);
 
     const pelletCount = buf[ptr++];
     expect(pelletCount).toBe(2);

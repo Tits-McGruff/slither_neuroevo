@@ -108,8 +108,8 @@ export class MLP {
     // Count the number of parameters required by this network.
     this.paramCount = 0;
     for (let l = 0; l < this.layerSizes.length - 1; l++) {
-      const ins = this.layerSizes[l];
-      const outs = this.layerSizes[l + 1];
+      const ins = this.layerSizes[l]!;
+      const outs = this.layerSizes[l + 1]!;
       // Each output has ins weights plus one bias term.
       this.paramCount += outs * ins + outs;
     }
@@ -122,7 +122,10 @@ export class MLP {
     }
     // Per-layer output buffers to avoid per-tick allocations.
     this._bufs = [];
-    for (let l = 1; l < this.layerSizes.length; l++) this._bufs.push(new Float32Array(this.layerSizes[l]));
+    for (let l = 1; l < this.layerSizes.length; l++) {
+      const size = this.layerSizes[l]!;
+      this._bufs.push(new Float32Array(size));
+    }
   }
 
   /**
@@ -135,13 +138,13 @@ export class MLP {
     let wi = 0;
     let cur = input;
     for (let l = 0; l < this.layerSizes.length - 1; l++) {
-      const ins = this.layerSizes[l];
-      const outs = this.layerSizes[l + 1];
-      const next = this._bufs[l];
+      const ins = this.layerSizes[l]!;
+      const outs = this.layerSizes[l + 1]!;
+      const next = this._bufs[l]!;
       for (let o = 0; o < outs; o++) {
         let sum = 0;
-        for (let i = 0; i < ins; i++) sum += this.w[wi++] * cur[i];
-        sum += this.w[wi++]; // bias
+        for (let i = 0; i < ins; i++) sum += (this.w[wi++] ?? 0) * (cur[i] ?? 0);
+        sum += this.w[wi++] ?? 0; // bias
         next[o] = Math.tanh(sum);
       }
       cur = next;
@@ -153,8 +156,8 @@ export class MLP {
 function mlpParamCount(layerSizes: number[]): number {
   let n = 0;
   for (let l = 0; l < layerSizes.length - 1; l++) {
-    const ins = layerSizes[l];
-    const outs = layerSizes[l + 1];
+    const ins = layerSizes[l]!;
+    const outs = layerSizes[l + 1]!;
     n += outs * ins + outs;
   }
   return n;
@@ -284,19 +287,19 @@ export class GRU {
       const wzRow = Wz + j * I;
       const wrRow = Wr + j * I;
       for (let i = 0; i < I; i++) {
-        const xi = x[i];
-        sumZ += this.w[wzRow + i] * xi;
-        sumR += this.w[wrRow + i] * xi;
+        const xi = x[i] ?? 0;
+        sumZ += (this.w[wzRow + i] ?? 0) * xi;
+        sumR += (this.w[wrRow + i] ?? 0) * xi;
       }
       const uzRow = Uz + j * H;
       const urRow = Ur + j * H;
       for (let k = 0; k < H; k++) {
-        const hk = this.h[k];
-        sumZ += this.w[uzRow + k] * hk;
-        sumR += this.w[urRow + k] * hk;
+        const hk = this.h[k] ?? 0;
+        sumZ += (this.w[uzRow + k] ?? 0) * hk;
+        sumR += (this.w[urRow + k] ?? 0) * hk;
       }
-      sumZ += this.w[bz + j];
-      sumR += this.w[br + j];
+      sumZ += this.w[bz + j] ?? 0;
+      sumR += this.w[br + j] ?? 0;
       this._z[j] = sigmoid(sumZ);
       this._r[j] = sigmoid(sumR);
     }
@@ -305,15 +308,18 @@ export class GRU {
     for (let j = 0; j < H; j++) {
       let sumH = 0;
       const whRow = Wh + j * I;
-      for (let i = 0; i < I; i++) sumH += this.w[whRow + i] * x[i];
+      for (let i = 0; i < I; i++) sumH += (this.w[whRow + i] ?? 0) * (x[i] ?? 0);
       const uhRow = Uh + j * H;
       for (let k = 0; k < H; k++) {
-        sumH += this.w[uhRow + k] * (this._r[k] * this.h[k]);
+        const rVal = this._r[k] ?? 0;
+        const hVal = this.h[k] ?? 0;
+        sumH += (this.w[uhRow + k] ?? 0) * (rVal * hVal);
       }
-      sumH += this.w[bh + j];
+      sumH += this.w[bh + j] ?? 0;
       const hTilde = Math.tanh(sumH);
-      const z = this._z[j];
-      this.h[j] = (1 - z) * this.h[j] + z * hTilde;
+      const z = this._z[j] ?? 0;
+      const prevH = this.h[j] ?? 0;
+      this.h[j] = (1 - z) * prevH + z * hTilde;
     }
     return this.h;
   }
@@ -340,8 +346,8 @@ export class DenseHead {
     let idx = 0;
     for (let o = 0; o < this.outSize; o++) {
       let sum = 0;
-      for (let i = 0; i < this.inSize; i++) sum += this.w[idx++] * x[i];
-      sum += this.w[idx++];
+      for (let i = 0; i < this.inSize; i++) sum += (this.w[idx++] ?? 0) * (x[i] ?? 0);
+      sum += this.w[idx++] ?? 0;
       this._out[o] = Math.tanh(sum);
     }
     return this._out;
@@ -493,7 +499,11 @@ export function crossover(a: Genome, b: Genome, arch: ArchDefinition): Genome {
       child.set(Math.random() < 0.5 ? wa : wb);
       return new Genome(a.archKey, child);
     }
-    for (let i = 0; i < n; i++) child[i] = Math.random() < 0.5 ? wa[i] : wb[i];
+    for (let i = 0; i < n; i++) {
+      const aVal = wa[i] ?? 0;
+      const bVal = wb[i] ?? 0;
+      child[i] = Math.random() < 0.5 ? aVal : bVal;
+    }
     return new Genome(a.archKey, child);
   }
 
@@ -510,9 +520,17 @@ export function crossover(a: Genome, b: Genome, arch: ArchDefinition): Genome {
     // Copy all weights from one parent as the baseline.
     child.set(Math.random() < 0.5 ? wa : wb);
   } else {
-    for (let i = 0; i < mlpEnd; i++) child[i] = Math.random() < 0.5 ? wa[i] : wb[i];
+    for (let i = 0; i < mlpEnd; i++) {
+      const aVal = wa[i] ?? 0;
+      const bVal = wb[i] ?? 0;
+      child[i] = Math.random() < 0.5 ? aVal : bVal;
+    }
     // Head segment
-    for (let i = headStart; i < n; i++) child[i] = Math.random() < 0.5 ? wa[i] : wb[i];
+    for (let i = headStart; i < n; i++) {
+      const aVal = wa[i] ?? 0;
+      const bVal = wb[i] ?? 0;
+      child[i] = Math.random() < 0.5 ? aVal : bVal;
+    }
   }
 
   const mode = Math.floor((CFG.brain && CFG.brain.gruCrossoverMode) || 0);
@@ -548,9 +566,9 @@ export function crossover(a: Genome, b: Genome, arch: ArchDefinition): Genome {
       child.set(src.subarray(Ur + j * H, Ur + (j + 1) * H), Ur + j * H);
       child.set(src.subarray(Uh + j * H, Uh + (j + 1) * H), Uh + j * H);
       // Biases
-      child[bz + j] = src[bz + j];
-      child[br + j] = src[br + j];
-      child[bh + j] = src[bh + j];
+      child[bz + j] = src[bz + j] ?? 0;
+      child[br + j] = src[br + j] ?? 0;
+      child[bh + j] = src[bh + j] ?? 0;
     }
   }
 
@@ -567,7 +585,7 @@ export function mutate(genome: Genome, arch: ArchDefinition): void {
   const w = genome.weights;
   if (info.kind === "mlp") {
     for (let i = 0; i < w.length; i++) {
-      if (Math.random() < CFG.mutationRate) w[i] = clamp(w[i] + gaussian() * CFG.mutationStd, -5, 5);
+      if (Math.random() < CFG.mutationRate) w[i] = clamp((w[i] ?? 0) + gaussian() * CFG.mutationStd, -5, 5);
     }
     return;
   }
@@ -579,6 +597,6 @@ export function mutate(genome: Genome, arch: ArchDefinition): void {
     const inGRU = i >= gruStart && i < gruEnd;
     const rate = inGRU ? mRateGRU : CFG.mutationRate;
     const std = inGRU ? mStdGRU : CFG.mutationStd;
-    if (Math.random() < rate) w[i] = clamp(w[i] + gaussian() * std, -5, 5);
+    if (Math.random() < rate) w[i] = clamp((w[i] ?? 0) + gaussian() * std, -5, 5);
   }
 }

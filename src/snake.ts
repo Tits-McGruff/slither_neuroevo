@@ -156,7 +156,7 @@ export class Snake {
    * Returns the head segment.
    */
   head(): Point {
-    return this.points[0];
+    return this.points[0]!;
   }
   /**
    * Current number of segments in the body.
@@ -229,12 +229,14 @@ export class Snake {
     // Big orbs: placed evenly along the body, value varies slightly.
     if (bigCount <= 1) {
       const p = this.points[0];
+      if (!p) return;
       const v = bigVBase * (0.85 + Math.random() * 0.30);
       world.addPellet(new Pellet(p.x + rand(jitter, -jitter), p.y + rand(jitter, -jitter), v, corpseColor, "corpse_big", this.id));
     } else {
       for (let k = 0; k < bigCount; k++) {
         const idx = Math.floor((k * (len - 1)) / (bigCount - 1));
         const p = this.points[idx];
+        if (!p) continue;
         const v = bigVBase * (0.85 + Math.random() * 0.30);
         world.addPellet(new Pellet(p.x + rand(jitter, -jitter), p.y + rand(jitter, -jitter), v, corpseColor, "corpse_big", this.id));
       }
@@ -245,6 +247,7 @@ export class Snake {
       for (let k = 0; k < smallCount; k++) {
         const idx = Math.floor((k * (len - 1)) / Math.max(1, smallCount));
         const p = this.points[idx];
+        if (!p) continue;
         const v = smallVBase * (0.80 + Math.random() * 0.40);
         world.addPellet(
           new Pellet(
@@ -333,6 +336,7 @@ export class Snake {
    */
   update(world: WorldLike, dt: number): void {
     if (!this.alive) return;
+    if (!this.points.length) this.points.push({ x: this.x, y: this.y });
     this.age += dt;
     this.pointsScore += dt * CFG.reward.pointsPerSecondAlive;
     if (!this._sensorBuf || this._sensorBuf.length !== CFG.brain.inSize) this._sensorBuf = new Float32Array(CFG.brain.inSize);
@@ -345,10 +349,10 @@ export class Snake {
       this._ctrlAcc = this._ctrlAcc % ctrlDt;
       const sensors = buildSensors(world, this, this._sensorBuf);
       this.lastSensors = Array.from(sensors);
-    const out = this.brain.forward(sensors);
+      const out = this.brain.forward(sensors);
       this.lastOutputs = Array.from(out);
-      this.turnInput = clamp(out[0], -1, 1);
-      this.boostInput = clamp(out[1], -1, 1);
+      this.turnInput = clamp(out[0] ?? 0, -1, 1);
+      this.boostInput = clamp(out[1] ?? 0, -1, 1);
       this._hasAct = 1;
     }
     const boostWanted = this.boostInput > 0.35;
@@ -381,11 +385,15 @@ export class Snake {
       this.x = (this.x / d) * CFG.worldRadius;
       this.y = (this.y / d) * CFG.worldRadius;
     }
-    this.points[0].x = this.x;
-    this.points[0].y = this.y;
+    const head = this.points[0];
+    if (head) {
+      head.x = this.x;
+      head.y = this.y;
+    }
     for (let i = 1; i < this.points.length; i++) {
       const prev = this.points[i - 1];
       const cur = this.points[i];
+      if (!prev || !cur) continue;
       const dx = cur.x - prev.x;
       const dy = cur.y - prev.y;
       const dist = Math.hypot(dx, dy) || 1e-6;
@@ -395,34 +403,42 @@ export class Snake {
       cur.y -= dy * t;
     }
     // Eat food
-const eatR = this.radius + 6;
-const eatR2 = eatR * eatR;
-// Fast local pellet collection using the pellet grid.
-const candidates: Pellet[] = [];
-if (world.pelletGrid?.forEachInRadius) {
-  world.pelletGrid.forEachInRadius(this.x, this.y, eatR, p => candidates.push(p));
-} else {
-  for (let i = 0; i < world.pellets.length; i++) candidates.push(world.pellets[i]);
-}
-for (let k = 0; k < candidates.length; k++) {
-  const p = candidates[k];
-  const dx = p.x - this.x;
-  const dy = p.y - this.y;
-  if (dx * dx + dy * dy <= eatR2) {
-    world.removePellet(p);
-    this.foodEaten += p.v;
-    this.pointsScore += p.v * CFG.reward.pointsPerFood;
-    this.targetLen = clamp(
-      this.targetLen + CFG.growPerFood * p.v,
-      CFG.snakeMinLen,
-      CFG.snakeMaxLen
-    );
-  }
-}
-// Grow or shrink to target length
+    const eatR = this.radius + 6;
+    const eatR2 = eatR * eatR;
+    // Fast local pellet collection using the pellet grid.
+    const candidates: Pellet[] = [];
+    if (world.pelletGrid?.forEachInRadius) {
+      world.pelletGrid.forEachInRadius(this.x, this.y, eatR, p => candidates.push(p));
+    } else {
+      for (let i = 0; i < world.pellets.length; i++) {
+        const pellet = world.pellets[i];
+        if (pellet) candidates.push(pellet);
+      }
+    }
+    for (let k = 0; k < candidates.length; k++) {
+      const p = candidates[k];
+      if (!p) continue;
+      const dx = p.x - this.x;
+      const dy = p.y - this.y;
+      if (dx * dx + dy * dy <= eatR2) {
+        world.removePellet(p);
+        this.foodEaten += p.v;
+        this.pointsScore += p.v * CFG.reward.pointsPerFood;
+        this.targetLen = clamp(
+          this.targetLen + CFG.growPerFood * p.v,
+          CFG.snakeMinLen,
+          CFG.snakeMaxLen
+        );
+      }
+    }
+    // Grow or shrink to target length
 
     while (this.points.length < Math.floor(this.targetLen)) {
       const tail = this.points[this.points.length - 1];
+      if (!tail) {
+        this.points.push({ x: this.x, y: this.y });
+        continue;
+      }
       const before = this.points[this.points.length - 2] || tail;
       const dx = tail.x - before.x;
       const dy = tail.y - before.y;
@@ -502,6 +518,7 @@ export class SegmentGrid {
   addSegment(snake: Snake, idx: number): void {
     const p0 = snake.points[idx - 1];
     const p1 = snake.points[idx];
+    if (!p0 || !p1) return;
     const mx = (p0.x + p1.x) * 0.5;
     const my = (p0.y + p1.y) * 0.5;
     const cx = Math.floor(mx / this.cellSize);

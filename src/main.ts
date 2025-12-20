@@ -7,13 +7,12 @@
 
 import { CFG, resetCFGToDefaults } from './config.ts';
 import { setupSettingsUI, updateCFGFromUI } from './settings.ts';
-import { setByPath, clamp, TAU } from './utils.ts';
+import { setByPath } from './utils.ts';
 import { renderWorldStruct } from './render.ts';
 // import { World } from './world.ts'; // Logic moved to worker
-import { savePopulation, loadPopulation, exportToFile, importFromFile } from './storage.ts';
+import { exportToFile, importFromFile } from './storage.ts';
 import { hof } from './hallOfFame.ts';
 import { BrainViz } from './BrainViz.ts';
-import { FitnessChart } from './FitnessChart.ts';
 import { AdvancedCharts } from './chartUtils.ts';
 import type { FrameStats, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
 import type { SettingsUpdate } from './protocol/settings.ts';
@@ -123,8 +122,6 @@ const ctxViz = vizCanvas.getContext('2d')!;
 const ctxStats = statsCanvas.getContext('2d')!;
 
 const brainViz = new BrainViz(0, 0, vizCanvas.width, vizCanvas.height);
-const fitChart = new FitnessChart(0, 0, statsCanvas.width, statsCanvas.height);
-
 let activeTab = 'tab-settings';
 let statsView = 'fitness';
 tabBtns.forEach(btn => {
@@ -133,8 +130,9 @@ tabBtns.forEach(btn => {
     tabBtns.forEach(b => b.classList.remove('active'));
     tabContents.forEach(c => c.classList.remove('active'));
     btn.classList.add('active');
-    const tabId = btn.dataset.tab!;
-    document.getElementById(tabId)!.classList.add('active');
+    const tabId = btn.dataset['tab']!;
+    const tabEl = document.getElementById(tabId);
+    if (tabEl) tabEl.classList.add('active');
     activeTab = tabId;
     if (worker) {
       worker.postMessage({ type: 'viz', enabled: activeTab === 'tab-viz' });
@@ -163,7 +161,7 @@ const statsViewMeta: Record<string, { title: string; subtitle: string }> = {
 function setStatsView(view: string): void {
   statsView = view;
   statsViewBtns.forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.stats === view);
+    btn.classList.toggle('active', btn.dataset['stats'] === view);
   });
   const meta = statsViewMeta[view];
   if (statsTitle && meta) statsTitle.textContent = meta.title;
@@ -171,7 +169,7 @@ function setStatsView(view: string): void {
 }
 
 statsViewBtns.forEach(btn => {
-  btn.addEventListener('click', () => setStatsView(btn.dataset.stats!));
+  btn.addEventListener('click', () => setStatsView(btn.dataset['stats']!));
 });
 if (statsViewBtns.length) setStatsView(statsView);
 
@@ -205,7 +203,7 @@ function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
   const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
   const updates: SettingsUpdate[] = [];
   sliders.forEach(sl => {
-    updates.push({ path: sl.dataset.path! as SettingsUpdate['path'], value: Number(sl.value) });
+    updates.push({ path: sl.dataset['path']! as SettingsUpdate['path'], value: Number(sl.value) });
   });
   return updates;
 }
@@ -257,8 +255,6 @@ let fitnessHistory: FitnessHistoryUiEntry[] = []; // Track fitness over generati
 let godModeLog: GodModeLogEntry[] = []; // Track God Mode interactions
 let selectedSnake: SelectedSnake | null = null; // Currently selected snake for God Mode
 let isDragging = false;
-let dragStartX = 0;
-let dragStartY = 0;
 
 let currentVizData: VizData | null = null;
 let pendingExport = false;
@@ -371,7 +367,7 @@ worker.onmessage = (e: MessageEvent<WorkerToMainMessage>) => {
     }
     default: {
       const _exhaustive: never = msg;
-      return;
+      return _exhaustive;
     }
   }
 };
@@ -382,11 +378,11 @@ worker.onmessage = (e: MessageEvent<WorkerToMainMessage>) => {
  * @param {HTMLInputElement} sliderEl
  */
 function liveUpdateFromSlider(sliderEl: HTMLInputElement): void {
-  setByPath(CFG, sliderEl.dataset.path!, Number(sliderEl.value));
+  setByPath(CFG, sliderEl.dataset['path']!, Number(sliderEl.value));
   worker!.postMessage({ 
       type: 'updateSettings', 
       updates: [{
-        path: sliderEl.dataset.path! as SettingsUpdate['path'],
+        path: sliderEl.dataset['path']! as SettingsUpdate['path'],
         value: Number(sliderEl.value)
       }] 
   });
@@ -442,9 +438,9 @@ function screenToWorld(screenX: number, screenY: number): { x: number; y: number
   // Get camera data from buffer if available
   let camX = 0, camY = 0, zoom = 1;
   if (currentFrameBuffer && currentFrameBuffer.length >= 6) {
-    camX = currentFrameBuffer[3];
-    camY = currentFrameBuffer[4];
-    zoom = currentFrameBuffer[5];
+    camX = currentFrameBuffer[3] ?? 0;
+    camY = currentFrameBuffer[4] ?? 0;
+    zoom = currentFrameBuffer[5] ?? 1;
   }
   
   const centerX = cssW / 2;
@@ -461,17 +457,21 @@ function findSnakeNear(worldX: number, worldY: number, maxDist = 50): SelectedSn
   if (!currentFrameBuffer || currentFrameBuffer.length < 6) return null;
   
   let ptr = 6; // Skip header
-  const aliveCount = currentFrameBuffer[2];
+  const buffer = currentFrameBuffer;
+  const read = (idx: number): number => buffer[idx] ?? 0;
+  const aliveCount = read(2) | 0;
   let closestSnake = null;
   let closestDist = maxDist;
   
   for (let i = 0; i < aliveCount; i++) {
-    const id = currentFrameBuffer[ptr];
-    const radius = currentFrameBuffer[ptr + 1];
-    const skin = currentFrameBuffer[ptr + 2];
-    const x = currentFrameBuffer[ptr + 3];
-    const y = currentFrameBuffer[ptr + 4];
-    const ptCount = currentFrameBuffer[ptr + 7];
+    const ptCount = read(ptr + 7) | 0;
+    const blockSize = 8 + ptCount * 2;
+    if (ptr + blockSize > buffer.length) break;
+    const id = read(ptr);
+    const radius = read(ptr + 1);
+    const skin = read(ptr + 2);
+    const x = read(ptr + 3);
+    const y = read(ptr + 4);
     
     const dist = Math.hypot(x - worldX, y - worldY);
     if (dist < closestDist && dist < radius + maxDist) {
@@ -479,7 +479,7 @@ function findSnakeNear(worldX: number, worldY: number, maxDist = 50): SelectedSn
       closestSnake = { id, x, y, radius, skin };
     }
     
-    ptr += 8 + ptCount * 2;
+    ptr += blockSize;
   }
   
   return closestSnake;
@@ -536,9 +536,6 @@ canvas.addEventListener('contextmenu', (e) => {
 canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0 && selectedSnake) {
     isDragging = true;
-    const rect = canvas.getBoundingClientRect();
-    dragStartX = e.clientX - rect.left;
-    dragStartY = e.clientY - rect.top;
   }
 });
 
@@ -559,7 +556,7 @@ canvas.addEventListener('mousemove', (e) => {
   }
 });
 
-canvas.addEventListener('mouseup', (e) => {
+canvas.addEventListener('mouseup', () => {
   if (isDragging) {
     isDragging = false;
     if (selectedSnake) {
@@ -593,8 +590,10 @@ if (btnImport && fileInput) {
   fileInput.addEventListener('change', async (e) => {
     const target = e.target as HTMLInputElement | null;
     if (!target?.files?.length) return;
+    const file = target.files.item(0);
+    if (!file) return;
     try {
-      const data = await importFromFile(target.files[0]);
+      const data = await importFromFile(file);
       if (!data || !Array.isArray(data.genomes)) {
         throw new Error('Invalid import file: missing genomes array.');
       }
@@ -613,9 +612,7 @@ if (btnImport && fileInput) {
   });
 }
 
-// Fixed simulation step to decouple physics from rendering
-const FIXED_DT = 1 / 60;
-function frame(t: number): void {
+function frame(): void {
   // console.log("Frame loop running"); // Spammy
   if (currentFrameBuffer) {
       // Camera/zoom come from the worker buffer; avoid local overrides here.
@@ -682,72 +679,6 @@ function frame(t: number): void {
   }
 
   requestAnimationFrame(frame);
-}
-
-function updateInfoPanels(world: any): void {
-  // 1. Stats Tab Info
-  const alive = world.snakes.reduce((acc: number, s: any) => acc + (s.alive ? 1 : 0), 0);
-  let maxPts = 0;
-  for (const s of world.snakes) maxPts = Math.max(maxPts, s.pointsScore);
-  if (maxPts <= 0) maxPts = 1;
-  const logDenRender = Math.log(1 + maxPts);
-  let bestNow = 0;
-  for (const s of world.snakes) {
-    if (!s.alive) continue;
-    const pointsNorm = clamp(Math.log(1 + s.pointsScore) / logDenRender, 0, 1);
-    bestNow = Math.max(bestNow, s.computeFitness(pointsNorm, 0));
-  }
-
-  const stepInfo = `substep ${clamp(CFG.collision.substepMaxDt, 0.004, 0.08).toFixed(3)}s max`;
-  
-  const statsInfoHtml = 
-    `<div class="row"><strong>Simulation Status</strong></div>` +
-    `<div class="row">Generation: ${world.generation}</div>` +
-    `<div class="row">Time: ${world.generationTime.toFixed(1)} / ${CFG.generationSeconds}s</div>` +
-    `<div class="row">Speed: ${world.simSpeed.toFixed(2)}x</div>` +
-    `<div class="row">Alive: ${alive} / ${world.settings.snakeCount}</div>` +
-    `<div class="row">Pellets: ${world.pellets.length}</div>` +
-    `<div class="row">Best Fitness (Alive): ~${bestNow.toFixed(1)}</div>` +
-    `<div class="row">Best Fitness (Ever): ${world.bestFitnessEver.toFixed(1)}</div>` +
-    `<div class="row">Best Points (Gen): ${world.bestPointsThisGen.toFixed(1)}</div>` +
-    `<div class="note" style="margin-top: 10px; font-size: 11px;">${stepInfo}</div>`;
-  
-  const statsEl = document.getElementById('statsInfo');
-  if (statsEl && activeTab === 'tab-stats') {
-    statsEl.innerHTML = statsInfoHtml;
-    updateHoFTable(world);
-  }
-
-  // 2. Visualizer Tab Info
-  const focus = world.focusSnake && world.focusSnake.alive ? world.focusSnake : null;
-  let vizInfoHtml = '';
-  
-  if (focus) {
-    vizInfoHtml += 
-      `<div class="row"><strong>Focused Snake (ID ${focus.id})</strong></div>` +
-      `<div class="row">Length: ${focus.length()}</div>` +
-      `<div class="row">Radius: ${focus.radius.toFixed(1)}</div>` +
-      `<div class="row">Points: ${focus.pointsScore.toFixed(1)}</div>` +
-      `<div class="row">Food: ${focus.foodEaten.toFixed(0)}</div>` +
-      `<div class="row">Kills: ${focus.killScore}</div>` +
-      `<div class="row">Age: ${focus.age.toFixed(1)}s</div>` +
-      `<div class="row">Boost: ${focus.boost ? 'ON' : 'off'}</div>`;
-      
-    if (focus.lastSensors && focus.lastOutputs) {
-      const sens = focus.lastSensors.map((v: number) => v.toFixed(2)).join(', ');
-      const outs = focus.lastOutputs.map((v: number) => v.toFixed(2)).join(', ');
-      vizInfoHtml += 
-        `<div class="row" style="margin-top:8px"><strong>Inputs</strong></div>` +
-        `<div class="row" style="font-size:10px; word-break:break-all">[${sens}]</div>` +
-        `<div class="row" style="margin-top:4px"><strong>Outputs</strong></div>` +
-        `<div class="row" style="font-size:10px; word-break:break-all">[${outs}]</div>`;
-    }
-  } else {
-    vizInfoHtml = `<div class="row">No snake focused. Click a snake or press V to auto-follow.</div>`;
-  }
-  
-  const vizEl = document.getElementById('vizInfo');
-  if (vizEl && activeTab === 'tab-viz') vizEl.innerHTML = vizInfoHtml;
 }
 
 function updateHoFTable(world: ProxyWorld): void {

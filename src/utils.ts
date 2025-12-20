@@ -96,8 +96,14 @@ export function getByPath(obj: any, path: string): any {
 export function setByPath(obj: any, path: string, value: any): void {
   const parts = path.split(".");
   let cur = obj;
-  for (let i = 0; i < parts.length - 1; i++) cur = cur[parts[i]];
-  cur[parts[parts.length - 1]] = value;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const key = parts[i];
+    if (key == null) return;
+    cur = cur[key];
+  }
+  const lastKey = parts[parts.length - 1];
+  if (lastKey == null) return;
+  cur[lastKey] = value;
 }
 
 /**
