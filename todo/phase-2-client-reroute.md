@@ -77,6 +77,12 @@ after being primary, start the worker. If WS reconnects, stop the worker and
 prefer WS frames. Stopping the worker terminates it and clears any worker-only
 state like pending exports.
 
+When switching away from server mode, the client must invalidate any
+server-issued identity. That includes `sessionId`, `snakeId`, and any cached
+`sensorSpec` assumptions. On reconnect, the client performs a fresh join and
+accepts a new assignment rather than reusing old identity. This avoids subtle
+bugs where a reconnecting client sends actions for a stale snake id.
+
 ## UI changes
 
 Add a small connection status indicator using the element id

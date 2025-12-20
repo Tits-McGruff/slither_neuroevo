@@ -81,12 +81,23 @@ Endpoints are minimal and intended for local use:
 - `GET /api/export/latest` returns the latest snapshot JSON.
 - `POST /api/import` loads a new population snapshot into the current world.
 
+The import handler must validate that the snapshot `cfgHash` matches the
+server's current config hash unless an explicit override flag is provided. This
+prevents confusing behavior where a population evolved under one brain layout
+is imported into a different layout and fails silently.
+
 ## Validation rules
 
 Payload validation occurs before any database writes or world modifications.
 The `generation` value must be finite, `genomes` must be a non-empty array,
 each genome must have `archKey` and `weights`, and the `weights` arrays must be
 bounded by a size limit. Payloads larger than 50 MB are rejected.
+
+Snapshots should include configuration metadata alongside the population. At a
+minimum, store `cfgHash` and `worldSeed` in the snapshot payload so imports can
+detect mismatches. If the config hash does not match the current server config,
+the import should either reject or require a manual override, rather than
+silently loading an incompatible population.
 
 ## Checkpoint timing
 

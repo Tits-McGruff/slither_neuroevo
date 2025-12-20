@@ -25,6 +25,12 @@ metadata in the welcome message. The last action is used for `N` ticks, then
 the snake drops to neutral control, and after a sustained timeout the server
 returns the snake to AI control.
 
+Tick semantics are explicit: sensors labeled tick `T` describe the world state
+at the start of tick `T` before applying any action. The client should respond
+with an action intended for tick `T+1`. The server never blocks waiting for a
+specific tick; it simply uses the latest valid action it has when tick `T+1`
+begins. The tick field is used for debugging and stale detection, not gating.
+
 ## Low-level simulation changes
 
 ### `Snake.update` signature
@@ -41,6 +47,11 @@ update(world: WorldLike, dt: number, control?: ControlInput): void;
 Behavior rules: when `control` is provided, set `turnInput` and `boostInput`
 directly and skip brain inference. When `control` is missing, run brain
 inference as usual.
+
+When control mode switches between external and AI, the brain state is reset.
+For recurrent brains, this avoids resuming from a stale hidden state after
+external control stops. This reset rule is deterministic and keeps semantics
+clear.
 
 ### `Snake.computeSensors`
 
@@ -98,6 +109,10 @@ The server clamps `turn` to `[-1, 1]` and `boost` to `[0, 1]`, rejects NaN and
 Infinity, enforces `maxActionsPerTick = 1` per connection, and drops any extra
 messages beyond `maxActionsPerSecond`.
 
+Action overwrite policy is explicit: within a single tick window, the server
+accepts the most recent valid action and overwrites the previous one. This
+\"last wins\" rule makes bot corrections possible without waiting a full tick.
+
 ### Timeout policy
 
 If `tickId - lastTick <= actionTimeoutTicks`, reuse the last action. If the
@@ -111,6 +126,10 @@ When a client joins in player mode, the server assigns a snake id and returns
 `assign`. When the client sends `action`, the server validates that the snake id
 matches the connection assignment. Sensor payloads are sent only to the owning
 connection.
+
+Inbound WS messages must obey a size limit. Any action message larger than
+`maxWsMessageBytes` is rejected and the connection is closed, ensuring the
+server cannot be forced into expensive JSON parsing under load.
 
 ## Sensor payload format
 
@@ -127,6 +146,11 @@ connection.
 Sensors are serialized as JSON arrays. This allocates per tick, but that is
 acceptable for a hobby-scale deployment. If bandwidth becomes an issue, this
 can be upgraded to a binary sensor channel later.
+
+The `sensorSpec` included in the welcome message must define the sensor ordering
+explicitly. At minimum it includes an array of names for each index and a
+sensorCount. Optional fields include per-sensor ranges and units, which allow
+external bots to normalize inputs without hardcoding the current sensor layout.
 
 ## Detailed design notes
 
@@ -153,6 +177,9 @@ brain inference, that `computeSensors` returns the correct length into the
 provided buffer, and that `ControllerRegistry` applies timeout and rate limit
 rules. Integration tests connect a bot client, receive sensors, and confirm
 that actions steer a snake.
+
+The test suite must also cover the \"last wins\" overwrite rule by sending two
+actions within a tick and verifying the later one is applied.
 
 ## Footguns
 

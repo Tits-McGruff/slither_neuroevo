@@ -35,16 +35,19 @@ Graph definition format:
     { "id": "n4", "type": "Dense", "inputSize": 16, "outputSize": 2 }
   ],
   "edges": [
-    { "from": "n1", "to": "n2" },
-    { "from": "n2", "to": "n3" },
-    { "from": "n3", "to": "n4" }
+    { "from": "n1", "to": "n2", "toPort": 0 },
+    { "from": "n2", "to": "n3", "toPort": 0 },
+    { "from": "n3", "to": "n4", "toPort": 0 }
   ],
   "outputs": ["n4"]
 }
 ```
 
 Rules: the Input node has no incoming edges, every edge output size matches the
-destination input size, and outputs refer to valid nodes.
+destination input size, outputs refer to valid nodes, and `toPort` specifies a
+deterministic ordering for multi-input nodes such as Concat. If `toPort` is not
+present, the compiler sorts incoming edges by stable `from` id to ensure a
+deterministic order.
 
 ## Compiler pipeline
 
@@ -56,6 +59,12 @@ destination input size, and outputs refer to valid nodes.
 
 The compiler returns a `CompiledGraph` containing the execution order, parameter
 slices, and buffer references used by the runtime.
+
+To avoid repeated compilation cost for large populations, the compiled program
+is separated from the runtime instance. The compiled program is shared across
+snakes that use the same graph spec, while each snake owns its own runtime
+instance with per-node buffers and recurrent state. This split preserves
+determinism and keeps memory usage predictable.
 
 ## Runtime execution
 

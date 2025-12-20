@@ -19,6 +19,13 @@ rate should be decoupled from the simulation rate so the UI can run at a
 smoother, lower frame rate without affecting the sim. In this phase there is
 no database, no auth, no multi-session support, and no remote control logic.
 
+A practical prework requirement for server mode is separating observer state
+from simulation state. The current codebase includes camera and focus fields in
+World, and World.update currently accepts view dimensions. For server mode, the
+authoritative world state should not depend on viewport dimensions or per-client
+camera state. That observer logic should move to the client (or a spectator-only
+view object) before the server loop is considered complete.
+
 ## Architecture narrative
 
 At runtime the server spins up an HTTP server and a WebSocket server. The HTTP
@@ -49,6 +56,20 @@ WS clients connect -> handshake -> server tick loop -> serialize -> broadcast
 Tick loop timing uses a drift-compensated `setTimeout` rather than `setInterval`
 so it can recover from transient delays. `performance.now()` is used to compute
 accurate deadlines.
+
+## Tick semantics and real-time policy
+
+The tick number is an internal server counter that increments once per fixed
+simulation step. The server does not pause to wait for network input. When
+under load, the loop does not try to catch up by running an unbounded number of
+ticks in one callback. Instead, it runs at most one tick per loop iteration and
+allows the simulation to slow relative to real time. This is a deliberate
+tradeoff to avoid starvation of networking and to keep the server responsive.
+
+If a later phase needs partial catch-up, it should be capped explicitly (for
+example, at two ticks per callback) and should log a warning when a tick is
+skipped or delayed. In Phase 1 the policy is: stable, deterministic stepping
+with no catch-up beyond one tick per loop.
 
 ## Module map and responsibilities
 
@@ -107,7 +128,8 @@ Client -> server messages:
 
 Server -> client messages:
 
-- `welcome`: includes tick rate, seed, and sensor schema metadata.
+- `welcome`: includes tick rate, seed, sensor schema metadata, and frame
+  compatibility hints such as `serializerVersion` and `frameByteLength`.
 - `stats`: heartbeat message.
 - `error`: protocol error and disconnect reason.
 
@@ -147,6 +169,11 @@ export interface ConnectionState {
 
 Behavior: require `hello` before `join`, and close the socket on any protocol
 violation. Only UI clients receive binary frames; all clients receive stats.
+
+Inbound WS messages must also obey a strict size limit. If a client sends JSON
+larger than `maxWsMessageBytes`, the server closes the connection immediately.
+This protects the event loop from large parse spikes without introducing an
+auth system.
 
 ### Pseudocode: `server/simServer.ts`
 
@@ -214,7 +241,9 @@ Example `welcome` message:
   "tickRate": 60,
   "worldSeed": 12345,
   "cfgHash": "...",
-  "sensorSpec": { "sensorCount": 128, "order": [] }
+  "sensorSpec": { "sensorCount": 128, "order": [] },
+  "serializerVersion": 1,
+  "frameByteLength": 0
 }
 ```
 

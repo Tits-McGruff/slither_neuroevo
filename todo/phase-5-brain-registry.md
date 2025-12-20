@@ -61,6 +61,12 @@ export interface BrainSpec {
 }
 ```
 
+Brain construction from JSON should be centralized in the registry. Instead of
+calling `fromJSON` on an instance, the registry should parse the JSON payload,
+choose the correct factory, and construct the brain with the declared spec and
+weights. This keeps compatibility logic in one place and avoids per-implementation
+divergence.
+
 ## Parameter layouts
 
 ### MLP layout
@@ -126,6 +132,10 @@ is `mlp` if a genome does not specify one.
 
 Genome JSON is extended to include `brainType`. Older genomes that lack
 `brainType` default to `mlp` when loaded.
+
+Import validation should check that the weights length matches the computed
+`paramLength` for the declared brain spec. If it does not match, import fails
+with a clear error rather than silently truncating or padding.
 
 ## Settings changes
 
