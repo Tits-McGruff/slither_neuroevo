@@ -8,12 +8,29 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json"
+    "test:unit": "tsx scripts/run-tests.ts unit",
+    "test:integration": "tsx scripts/run-tests.ts integration",
+    "test:system": "tsx scripts/run-tests.ts system",
+    "test:acceptance": "tsx scripts/run-tests.ts acceptance",
+    "test:regression": "tsx scripts/run-tests.ts regression",
+    "test:performance": "tsx scripts/run-tests.ts performance",
+    "test:security": "tsx scripts/run-tests.ts security",
+    "typecheck": "tsc -p tsconfig.json",
+    "server": "tsx server/index.ts",
+    "server:dev": "tsx watch server/index.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "ws": "^8.18.0"
+  },
   "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.10",
+    "@types/better-sqlite3": "^7.6.9",
+    "tsx": "^4.19.0",
     "typescript": "^5.9.2",
     "vite": "^7.3.0",
     "vitest": "^4.0.16"

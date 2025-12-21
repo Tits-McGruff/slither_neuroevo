@@ -180,13 +180,13 @@ be selected and run, and all tests pass.
 
 ## Execution checklist
 
-- [ ] Add `src/brains/` module structure
-- [ ] Implement Brain interface
-- [ ] Wrap MLP and GRU
-- [ ] Implement LSTM and RRU
-- [ ] Update Genome JSON format
-- [ ] Update settings UI
-- [ ] Add tests
+- [x] Add `src/brains/` module structure
+- [x] Implement Brain interface
+- [x] Wrap MLP and GRU
+- [x] Implement LSTM and RRU
+- [x] Update Genome JSON format
+- [x] Update settings UI
+- [x] Add tests
 
 ## Function-by-function pseudocode
 

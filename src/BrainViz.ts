@@ -21,68 +21,8 @@ export class BrainViz {
     if (!brain) return;
     
     // Determine layers to draw
-    const layers: Array<{
-      count: number;
-      activations: ArrayLike<number> | null;
-      isRecurrent?: boolean;
-    }> = [];
-    
-    if (brain.kind === 'mlp') {
-      // Just MLP layers
-      const mlp = brain.mlp;
-      if (mlp.layerSizes) {
-        for (let i = 0; i < mlp.layerSizes.length; i++) {
-          // Actually _bufs[0] is output of layer 0 (which is input to layer 1).
-          // Wait, MLP.forward: cur = input. Loop l=0..N-1. next = _bufs[l]. cur processed to next.
-          // So _bufs[l] stores output of layer l+1?
-          // layerSizes: [in, h1, h2, out]
-          // l=0: in->h1. next=_bufs[0]. Stores h1 activations.
-          // l=1: h1->h2. next=_bufs[1]. Stores h2 activations.
-          // l=2: h2->out. next=_bufs[2]. Stores out activations.
-          
-          const count = mlp.layerSizes[i];
-          if (count == null) continue;
-          layers.push({ 
-            count, 
-            activations: (i === 0) ? null : (mlp._bufs[i - 1] ?? null)
-          });
-        }
-      }
-    } else {
-      // MLP feature extractor -> GRU -> Head
-      // 1. MLP inputs
-      if (brain.mlp) {
-        for (let i = 0; i < brain.mlp.layerSizes.length; i++) {
-           // Skip last layer of MLP if it feeds into GRU? 
-           // Usually MLP output is GRU input.
-           const count = brain.mlp.layerSizes[i];
-           if (count == null) continue;
-           layers.push({
-             count,
-             activations: (i === 0) ? null : (brain.mlp._bufs[i - 1] ?? null)
-           });
-        }
-      }
-      // 2. GRU
-      const rec = brain as Exclude<VizData, { kind: 'mlp' }>;
-      if (rec.gru) {
-        layers.push({
-          count: rec.gru.hiddenSize,
-          activations: rec.gru.h,
-          isRecurrent: true
-        });
-      }
-      // 3. Head
-      if (rec.head) {
-         // Head is just linear layer from GRU to Out.
-         // Head doesn't store state usually? DenseHead.forward returns result.
-         // But BrainController stores final output.
-         layers.push({
-           count: rec.head.outSize,
-           activations: null // We don't have internal buffer for head easily, but distinct from output
-         });
-      }
-    }
+    const layers = brain.layers ?? [];
+    if (!layers.length) return;
 
     // Draw
     const maxCols = layers.length;

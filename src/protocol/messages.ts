@@ -1,4 +1,5 @@
 import type { CoreSettings, SettingsUpdate } from './settings';
+import type { GraphSpec } from '../brains/graph/schema.ts';
 
 export interface ObserverSettings {
   focusRecheckSeconds: number;
@@ -29,6 +30,7 @@ export interface InitSettings extends Partial<CoreSettings> {
 
 export interface GenomeJSON {
   archKey: string;
+  brainType?: string;
   weights: number[];
   fitness?: number;
 }
@@ -64,31 +66,16 @@ export interface FitnessHistoryEntry {
   weightVariance?: number;
 }
 
-export interface VizMLPData {
-  layerSizes: number[];
-  _bufs: ArrayLike<number>[];
+export interface VizLayer {
+  count: number;
+  activations: ArrayLike<number> | null;
+  isRecurrent?: boolean;
 }
 
-export interface VizGRUData {
-  hiddenSize: number;
-  h: ArrayLike<number>;
+export interface VizData {
+  kind: string;
+  layers: VizLayer[];
 }
-
-export interface VizHeadData {
-  outSize: number;
-}
-
-export type VizData =
-  | {
-      kind: 'mlp';
-      mlp: VizMLPData;
-    }
-  | {
-      kind: string;
-      mlp: VizMLPData;
-      gru: VizGRUData | null;
-      head: VizHeadData | null;
-    };
 
 export interface HallOfFameEntry {
   gen: number;
@@ -118,6 +105,8 @@ export type InitMessage = {
   viewH?: number;
   population?: GenomeJSON[];
   generation?: number;
+  graphSpec?: GraphSpec | null;
+  stackOrder?: string[];
 };
 
 export type UpdateSettingsMessage = {

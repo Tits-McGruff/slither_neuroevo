@@ -112,16 +112,7 @@ export function loadPopulation(
  * @param {string} filename 
  */
 export function exportToFile(data: PopulationFilePayload, filename: string): void {
-  const json = JSON.stringify(data, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  exportJsonToFile(data, filename);
 }
 
 /**
@@ -143,4 +134,22 @@ export function importFromFile(file: File): Promise<PopulationFilePayload> {
     reader.onerror = reject;
     reader.readAsText(file);
   });
+}
+
+/**
+ * Triggers a download of the given data object as a JSON file.
+ * @param {Object} data 
+ * @param {string} filename 
+ */
+export function exportJsonToFile(data: unknown, filename: string): void {
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

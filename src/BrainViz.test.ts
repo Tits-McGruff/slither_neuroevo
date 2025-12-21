@@ -36,11 +36,12 @@ describe('BrainViz.ts', () => {
     const vizCtx = ctx as unknown as CanvasRenderingContext2D;
     const viz = new BrainViz(0, 0, 200, 100);
     const brain: VizData = {
-      kind: 'mlp',
-      mlp: {
-        layerSizes: [2, 3, 1],
-        _bufs: [new Float32Array([0.1, -0.2, 0.3]), new Float32Array([0.4])]
-      }
+      kind: 'graph',
+      layers: [
+        { count: 2, activations: null },
+        { count: 3, activations: new Float32Array([0.1, -0.2, 0.3]) },
+        { count: 1, activations: new Float32Array([0.4]) }
+      ]
     };
 
     viz.render(vizCtx, brain);

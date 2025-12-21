@@ -5,6 +5,7 @@ import { World } from './world.ts';
 import { CFG, resetCFGToDefaults } from './config.ts';
 import { WorldSerializer } from './serializer.ts';
 import { setByPath } from './utils.ts';
+import { validateGraph } from './brains/graph/validate.ts';
 import type {
   FrameStats,
   MainToWorkerMessage,
@@ -36,6 +37,22 @@ workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
       // Apply initial settings if any
       if (msg.updates) {
         msg.updates.forEach(u => setByPath(CFG, u.path, u.value));
+      }
+      if ('stackOrder' in msg && Array.isArray(msg.stackOrder)) {
+        CFG.brain.stackOrder = msg.stackOrder.slice();
+      }
+      if ('graphSpec' in msg) {
+        if (msg.graphSpec) {
+          const result = validateGraph(msg.graphSpec);
+          if (result.ok) {
+            CFG.brain.graphSpec = msg.graphSpec;
+          } else {
+            CFG.brain.graphSpec = null;
+            console.warn('[Worker] Invalid graph spec ignored:', result.reason);
+          }
+        } else {
+          CFG.brain.graphSpec = null;
+        }
       }
       world = new World(msg.settings || {});
       if (msg.viewW) viewW = msg.viewW;
@@ -238,23 +255,6 @@ function loop(token: number): void {
 }
 
 function buildVizData(brain: any): VizData | null {
-  if (!brain) return null;
-  if (brain.kind === 'mlp') {
-    return {
-      kind: 'mlp',
-      mlp: {
-        layerSizes: brain.mlp.layerSizes.slice(),
-        _bufs: brain.mlp._bufs.map((buf: Float32Array) => buf.slice())
-      }
-    };
-  }
-  return {
-    kind: brain.kind,
-    mlp: {
-      layerSizes: brain.mlp.layerSizes.slice(),
-      _bufs: brain.mlp._bufs.map((buf: Float32Array) => buf.slice())
-    },
-    gru: brain.gru ? { hiddenSize: brain.gru.hiddenSize, h: brain.gru.h.slice() } : null,
-    head: brain.head ? { outSize: brain.head.outSize } : null
-  };
+  if (!brain || typeof brain.getVizData !== 'function') return null;
+  return brain.getVizData();
 }

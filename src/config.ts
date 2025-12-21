@@ -2,6 +2,7 @@
 // Default configuration values and mutable configuration state for the simulation.
 
 import { deepClone } from './utils.ts';
+import type { GraphSpec } from './brains/graph/schema.ts';
 
 // Default configuration values.  These mirror the values from the original
 // monolithic implementation and expose every adjustable parameter via
@@ -80,12 +81,20 @@ sense: {
     outSize: 2,
 
     // Recurrent memory.
-    // When enabled the controller is:
-    // inputs -> MLP feature extractor -> GRU -> output heads.
-    useGRU: 1,
+    // Stackable memory units sit after the MLP feature extractor.
+    useMlp: true,
+    stack: {
+      gru: 1,
+      lstm: 0,
+      rru: 0
+    },
+    stackOrder: ["gru", "lstm", "rru"],
+    graphSpec: null as GraphSpec | null,
 
     // GRU hidden state size.
     gruHidden: 16,
+    lstmHidden: 16,
+    rruHidden: 16,
 
     // Brain is evaluated on a fixed controller timestep independent of physics substeps.
     // This stabilises what “memory length” means when collision substepping changes.

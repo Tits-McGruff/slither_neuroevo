@@ -6,7 +6,8 @@
 import { CFG } from './config.ts';
 import { clamp, hashColor, rand, lerp, angNorm, hypot, TAU } from './utils.ts';
 import { buildSensors } from './sensors.ts';
-import type { ArchDefinition, BrainController, Genome } from './mlp.ts';
+import type { ArchDefinition, Genome } from './mlp.ts';
+import type { Brain } from './brains/types.ts';
 
 /**
  * Simple data class representing a pellet at (x,y) with value v.
@@ -67,6 +68,8 @@ interface WorldLike {
   bestPointsThisGen: number;
 }
 
+export type ControlInput = { turn: number; boost: number };
+
 /**
  * Computes a snake’s radius as a function of its length using a
  * logarithmic growth curve.  The radius increases slowly with length
@@ -102,12 +105,13 @@ export class Snake {
   targetLen: number;
   points: Point[];
   genome: Genome;
-  brain: BrainController;
+  brain: Brain;
   turnInput: number;
   boostInput: number;
   _sensorBuf?: Float32Array;
   _ctrlAcc?: number;
   _hasAct?: number;
+  _lastControlExternal?: boolean;
   lastSensors?: number[];
   lastOutputs?: number[];
   fitness?: number;
@@ -328,32 +332,55 @@ export class Snake {
     return spend;
   }
   /**
+   * Computes sensors into the provided buffer (or the internal buffer)
+   * without mutating snake state beyond the sensor scratch space.
+   */
+  computeSensors(world: WorldLike, out?: Float32Array): Float32Array {
+    const expected = CFG.brain.inSize;
+    if (out && out.length === expected) return buildSensors(world, this, out);
+    if (!this._sensorBuf || this._sensorBuf.length !== expected) {
+      this._sensorBuf = new Float32Array(expected);
+    }
+    return buildSensors(world, this, this._sensorBuf);
+  }
+  /**
    * Main update routine.  Invoked once per substep by the World.  Handles
    * sensor evaluation, neural network inference, movement, food collection
    * and growth/shrink logic.
    * @param {World} world
    * @param {number} dt
    */
-  update(world: WorldLike, dt: number): void {
+  update(world: WorldLike, dt: number, control?: ControlInput): void {
     if (!this.alive) return;
     if (!this.points.length) this.points.push({ x: this.x, y: this.y });
     this.age += dt;
     this.pointsScore += dt * CFG.reward.pointsPerSecondAlive;
-    if (!this._sensorBuf || this._sensorBuf.length !== CFG.brain.inSize) this._sensorBuf = new Float32Array(CFG.brain.inSize);
-    if (this._ctrlAcc == null) this._ctrlAcc = 0;
-    const ctrlDt = Math.max(0.001, (CFG.brain && CFG.brain.controlDt) ? CFG.brain.controlDt : 1 / 60);
-    this._ctrlAcc += dt;
-    // Only evaluate the brain on a fixed controller step. Movement and
-    // collision substepping can change dt, so this keeps "memory" stable.
-    if (!this._hasAct || this._ctrlAcc >= ctrlDt) {
-      this._ctrlAcc = this._ctrlAcc % ctrlDt;
-      const sensors = buildSensors(world, this, this._sensorBuf);
-      this.lastSensors = Array.from(sensors);
-      const out = this.brain.forward(sensors);
-      this.lastOutputs = Array.from(out);
-      this.turnInput = clamp(out[0] ?? 0, -1, 1);
-      this.boostInput = clamp(out[1] ?? 0, -1, 1);
-      this._hasAct = 1;
+    const usingExternal = !!control;
+    if (usingExternal !== (this._lastControlExternal ?? false)) {
+      this.brain.reset();
+      this._ctrlAcc = 0;
+      this._hasAct = 0;
+    }
+    this._lastControlExternal = usingExternal;
+    if (usingExternal) {
+      this.turnInput = clamp(control!.turn, -1, 1);
+      this.boostInput = clamp(control!.boost, 0, 1);
+    } else {
+      if (this._ctrlAcc == null) this._ctrlAcc = 0;
+      const ctrlDt = Math.max(0.001, (CFG.brain && CFG.brain.controlDt) ? CFG.brain.controlDt : 1 / 60);
+      this._ctrlAcc += dt;
+      // Only evaluate the brain on a fixed controller step. Movement and
+      // collision substepping can change dt, so this keeps "memory" stable.
+      if (!this._hasAct || this._ctrlAcc >= ctrlDt) {
+        this._ctrlAcc = this._ctrlAcc % ctrlDt;
+        const sensors = this.computeSensors(world, this._sensorBuf);
+        this.lastSensors = Array.from(sensors);
+        const out = this.brain.forward(sensors);
+        this.lastOutputs = Array.from(out);
+        this.turnInput = clamp(out[0] ?? 0, -1, 1);
+        this.boostInput = clamp(out[1] ?? 0, -1, 1);
+        this._hasAct = 1;
+      }
     }
     const boostWanted = this.boostInput > 0.35;
     let boostingNow = 0;

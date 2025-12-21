@@ -84,13 +84,14 @@ const SETTING_SPECS: SettingSpec[] = [
   { group: "Rewards", path: "reward.fitnessPointsNorm", label: "Fitness points normalization weight", min: 0.0, max: 300.0, step: 1, decimals: 0, requiresReset: false },
   { group: "Rewards", path: "reward.fitnessTopPointsBonus", label: "Fitness top points bonus", min: 0.0, max: 600.0, step: 1, decimals: 0, requiresReset: false },
 
-  { group: "Brain and memory", path: "brain.useGRU", label: "Use GRU memory (0/1)", min: 0, max: 1, step: 1, decimals: 0, requiresReset: true },
   { group: "Brain and memory", path: "brain.gruHidden", label: "GRU hidden size", min: 4, max: 96, step: 1, decimals: 0, requiresReset: true },
+  { group: "Brain and memory", path: "brain.lstmHidden", label: "LSTM hidden size", min: 4, max: 96, step: 1, decimals: 0, requiresReset: true },
+  { group: "Brain and memory", path: "brain.rruHidden", label: "RRU hidden size", min: 4, max: 96, step: 1, decimals: 0, requiresReset: true },
   { group: "Brain and memory", path: "brain.controlDt", label: "Brain control dt", min: 0.008, max: 0.060, step: 0.001, decimals: 3, requiresReset: false },
-  { group: "Brain and memory", path: "brain.gruMutationRate", label: "GRU mutation rate", min: 0.0, max: 0.35, step: 0.005, decimals: 3, requiresReset: true },
-  { group: "Brain and memory", path: "brain.gruMutationStd", label: "GRU mutation std", min: 0.0, max: 1.60, step: 0.02, decimals: 2, requiresReset: true },
-  { group: "Brain and memory", path: "brain.gruCrossoverMode", label: "GRU crossover mode (0 block, 1 unit)", min: 0, max: 1, step: 1, decimals: 0, requiresReset: true },
-  { group: "Brain and memory", path: "brain.gruInitUpdateBias", label: "GRU init update gate bias", min: -2.5, max: 1.5, step: 0.05, decimals: 2, requiresReset: true },
+  { group: "Brain and memory", path: "brain.gruMutationRate", label: "Recurrent mutation rate (GRU/LSTM/RRU)", min: 0.0, max: 0.35, step: 0.005, decimals: 3, requiresReset: true },
+  { group: "Brain and memory", path: "brain.gruMutationStd", label: "Recurrent mutation std (GRU/LSTM/RRU)", min: 0.0, max: 1.60, step: 0.02, decimals: 2, requiresReset: true },
+  { group: "Brain and memory", path: "brain.gruCrossoverMode", label: "Recurrent crossover mode (0 block, 1 unit)", min: 0, max: 1, step: 1, decimals: 0, requiresReset: true },
+  { group: "Brain and memory", path: "brain.gruInitUpdateBias", label: "GRU init update gate bias (GRU only)", min: -2.5, max: 1.5, step: 0.05, decimals: 2, requiresReset: true },
 
   { group: "Misc", path: "dtClamp", label: "Frame dt clamp", min: 0.01, max: 0.12, step: 0.005, decimals: 3, requiresReset: false }
 ];
@@ -212,8 +213,12 @@ export function hookSliderEvents(
  * @param {HTMLElement} root
  */
 export function updateCFGFromUI(root: HTMLElement): void {
-  const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
-  sliders.forEach(sl => setByPath(CFG, sl.dataset['path']!, Number(sl.value)));
+  const inputs = root.querySelectorAll<HTMLInputElement>('input[data-path]');
+  inputs.forEach(input => {
+    const path = input.dataset['path']!;
+    const value = input.type === "checkbox" ? (input.checked ? 1 : 0) : Number(input.value);
+    setByPath(CFG, path, value);
+  });
 }
 
 /**

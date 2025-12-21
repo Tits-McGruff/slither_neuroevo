@@ -73,4 +73,63 @@ describe('snake.ts', () => {
         expect(first.s).toBe(snake);
         expect(first.i).toBe(1);
     });
+
+    it('uses external control without running the brain', () => {
+        const snake = new Snake(1, genome, arch);
+        let forwardCalls = 0;
+        snake.brain.forward = () => {
+            forwardCalls += 1;
+            return new Float32Array([0.2, 0.8]);
+        };
+        const world = {
+            pellets: [],
+            particles: { spawnBurst: () => {}, spawnBoost: () => {} },
+            addPellet: () => {},
+            removePellet: () => {},
+            bestPointsThisGen: 1
+        } as any;
+
+        snake.update(world, 1 / 60, { turn: 1, boost: 1 });
+
+        expect(forwardCalls).toBe(0);
+        expect(snake.turnInput).toBe(1);
+        expect(snake.boostInput).toBe(1);
+    });
+
+    it('resets the brain when control mode changes', () => {
+        const snake = new Snake(1, genome, arch);
+        let resetCalls = 0;
+        snake.brain.reset = () => {
+            resetCalls += 1;
+        };
+        const world = {
+            pellets: [],
+            particles: { spawnBurst: () => {}, spawnBoost: () => {} },
+            addPellet: () => {},
+            removePellet: () => {},
+            bestPointsThisGen: 1
+        } as any;
+
+        snake.update(world, 1 / 60, { turn: 0, boost: 0 });
+        snake.update(world, 1 / 60);
+
+        expect(resetCalls).toBe(2);
+    });
+
+    it('computes sensors into a provided buffer', () => {
+        const snake = new Snake(1, genome, arch);
+        const world = {
+            pellets: [],
+            pelletGrid: { map: new Map(), cellSize: 120 },
+            particles: { spawnBurst: () => {}, spawnBoost: () => {} },
+            addPellet: () => {},
+            removePellet: () => {},
+            bestPointsThisGen: 1
+        } as any;
+        const out = new Float32Array(CFG.brain.inSize);
+        const sensors = snake.computeSensors(world, out);
+
+        expect(sensors).toBe(out);
+        expect(sensors.length).toBe(CFG.brain.inSize);
+    });
 });

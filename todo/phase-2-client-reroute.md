@@ -139,12 +139,12 @@ status indicator.
 
 ## Execution checklist
 
-- [ ] Add `src/net/wsClient.ts`
-- [ ] Implement URL resolution
-- [ ] Integrate WS client into `main.ts`
-- [ ] Add connection status UI
-- [ ] Implement worker fallback logic
-- [ ] Add URL + state unit tests
+- [x] Add `src/net/wsClient.ts`
+- [x] Implement URL resolution
+- [x] Integrate WS client into `main.ts`
+- [x] Add connection status UI
+- [x] Implement worker fallback logic
+- [x] Add URL + state unit tests
 
 ## Function-by-function pseudocode
 

@@ -120,13 +120,17 @@ and the output size matches `CFG.brain.outSize`.
 
 ## Execution checklist
 
-- [ ] Define schema types
-- [ ] Implement validator
-- [ ] Implement compiler
-- [ ] Implement runtime
-- [ ] Implement ops for each node type
-- [ ] Register GraphBrain in the registry
-- [ ] Add tests
+- [x] Define schema types
+- [x] Implement validator
+- [x] Implement compiler
+- [x] Implement runtime
+- [x] Implement ops for each node type
+- [x] Register GraphBrain in the registry
+- [x] Add tests
+- [x] Add stack order controls to Settings UI
+- [x] Expose graph presets and graph spec input in Settings
+- [x] Save/load graph presets from the server database
+- [x] Copy/export the active graph spec from Settings
 
 ## Function-by-function pseudocode
 

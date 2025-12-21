@@ -8,6 +8,7 @@ import { CFG } from './config.ts';
 import { buildArch, archKey, Genome, crossover, mutate, enrichArchInfo } from './mlp.ts';
 import { ParticleSystem } from './particles.ts';
 import { Snake, Pellet, pointSegmentDist2 } from './snake.ts';
+import type { ControlInput } from './snake.ts';
 import { randInt, clamp, lerp, TAU } from './utils.ts';
 import { hof } from './hallOfFame.ts';
 import { FlatSpatialHash } from './spatialHash.ts';
@@ -51,6 +52,17 @@ interface FitnessHistoryEntry {
   topSpeciesSize: number;
   avgWeight: number;
   weightVariance: number;
+}
+
+export interface ControllerRegistryLike {
+  isControlled: (snakeId: number) => boolean;
+  getAction: (snakeId: number, tickId: number) => ControlInput | null;
+  publishSensors: (
+    snakeId: number,
+    tickId: number,
+    sensors: Float32Array,
+    meta: { x: number; y: number; dir: number }
+  ) => void;
 }
 
 export class World {
@@ -302,16 +314,24 @@ removePellet(p: Pellet): void {
    * @param {number} viewW Canvas width in CSS pixels
    * @param {number} viewH Canvas height in CSS pixels
    */
-  update(dt: number, viewW: number, viewH: number): void {
+  update(
+    dt: number,
+    viewW: number,
+    viewH: number,
+    controllers?: ControllerRegistryLike,
+    tickId?: number
+  ): void {
     const rawScaled = dt * this.simSpeed;
     const scaled = clamp(rawScaled, 0, Math.max(0.004, CFG.dtClamp));
     const maxStep = clamp(CFG.collision.substepMaxDt, 0.004, 0.08);
     const steps = clamp(Math.ceil(scaled / maxStep), 1, 20);
     const stepDt = scaled / steps;
+    const controllerTick = Number.isFinite(tickId) ? (tickId as number) : 0;
     this.generationTime += scaled;
     this.particles.update(scaled); // Update particles
+    if (controllers) this._publishControllerSensors(controllers, controllerTick);
     for (let s = 0; s < steps; s++) {
-      this._stepPhysics(stepDt);
+      this._stepPhysics(stepDt, controllers, controllerTick);
     }
     this._updateFocus(scaled);
     this._updateCamera(viewW, viewH);
@@ -337,13 +357,27 @@ removePellet(p: Pellet): void {
    * and resolve collisions.
    * @param {number} dt
    */
-  _stepPhysics(dt: number): void {
+  _stepPhysics(
+    dt: number,
+    controllers?: ControllerRegistryLike,
+    tickId = 0
+  ): void {
     const deficit = Math.max(0, CFG.pelletCountTarget - this.pellets.length);
     this._pelletSpawnAcc += CFG.pelletSpawnPerSecond * dt;
     const spawnN = Math.min(deficit, Math.floor(this._pelletSpawnAcc));
     this._pelletSpawnAcc -= spawnN;
     for (let i = 0; i < spawnN; i++) this.addPellet(randomPellet());
-    for (const sn of this.snakes) sn.update(this, dt);
+    for (const sn of this.snakes) {
+      if (!sn.alive) continue;
+      if (controllers && controllers.isControlled(sn.id)) {
+        const control = controllers.getAction(sn.id, tickId);
+        if (control) {
+          sn.update(this, dt, control);
+          continue;
+        }
+      }
+      sn.update(this, dt);
+    }
     // Rebuild collision grid
     const skip = Math.max(0, Math.floor(CFG.collision.skipSegments));
     this._collGrid.reset(CFG.collision.cellSize);
@@ -363,6 +397,18 @@ removePellet(p: Pellet): void {
 
     // Substep physics for collisions
     this._resolveCollisionsGrid();
+  }
+  /**
+   * Publishes sensor vectors for externally controlled snakes at the start
+   * of each tick so clients see a consistent snapshot.
+   */
+  _publishControllerSensors(controllers: ControllerRegistryLike, tickId: number): void {
+    for (const sn of this.snakes) {
+      if (!sn.alive) continue;
+      if (!controllers.isControlled(sn.id)) continue;
+      const sensors = sn.computeSensors(this);
+      controllers.publishSensors(sn.id, tickId, sensors, { x: sn.x, y: sn.y, dir: sn.dir });
+    }
   }
   /**
    * Selects an initial focus snake when a generation starts or when

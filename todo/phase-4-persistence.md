@@ -141,12 +141,12 @@ import/export endpoints work.
 
 ## Execution checklist
 
-- [ ] Add `better-sqlite3` dependency
-- [ ] Implement `persistence.ts`
-- [ ] Implement `httpApi.ts`
-- [ ] Add config keys for `dbPath` and `checkpointEveryGenerations`
-- [ ] Wire checkpointing to generation end
-- [ ] Add persistence tests
+- [x] Add `better-sqlite3` dependency
+- [x] Implement `persistence.ts`
+- [x] Implement `httpApi.ts`
+- [x] Add config keys for `dbPath` and `checkpointEveryGenerations`
+- [x] Wire checkpointing to generation end
+- [x] Add persistence tests
 
 ## Function-by-function pseudocode
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MLP, GRU, Genome, mutate, buildArch } from './mlp.ts';
+import { MLP, GRU, LSTM, RRU, lstmParamCount, rruParamCount, Genome, mutate, buildArch } from './mlp.ts';
 import { CFG } from './config.ts';
 
 describe('mlp.ts', () => {
@@ -25,6 +25,30 @@ describe('mlp.ts', () => {
     const hidden = gru.step(input);
     expect(hidden).toBeInstanceOf(Float32Array);
     expect(hidden.length).toBe(hiddenSize);
+  });
+
+  it('LSTM should be deterministic for fixed weights', () => {
+    const inSize = 2;
+    const hiddenSize = 3;
+    const weights = new Float32Array(lstmParamCount(inSize, hiddenSize)).fill(0.05);
+    const lstm = new LSTM(inSize, hiddenSize, weights);
+    const input = new Float32Array([0.25, -0.1]);
+    const out1 = lstm.step(input).slice();
+    lstm.reset();
+    const out2 = lstm.step(input).slice();
+    expect(Array.from(out1)).toEqual(Array.from(out2));
+  });
+
+  it('RRU should be deterministic for fixed weights', () => {
+    const inSize = 2;
+    const hiddenSize = 3;
+    const weights = new Float32Array(rruParamCount(inSize, hiddenSize)).fill(-0.02);
+    const rru = new RRU(inSize, hiddenSize, weights);
+    const input = new Float32Array([0.25, -0.1]);
+    const out1 = rru.step(input).slice();
+    rru.reset();
+    const out2 = rru.step(input).slice();
+    expect(Array.from(out1)).toEqual(Array.from(out2));
   });
 
   it('Genome should initialize randomly', () => {
@@ -79,13 +103,20 @@ describe('mlp.ts', () => {
     
     const json = genome.toJSON();
     expect(json.archKey).toBe(genome.archKey);
+    expect(json.brainType).toBe(genome.brainType);
     expect(json.weights).toEqual(Array.from(genome.weights));
     expect(json.fitness).toBe(123.45);
     
     const reconstructed = Genome.fromJSON(json);
     expect(reconstructed.archKey).toBe(genome.archKey);
+    expect(reconstructed.brainType).toBe(genome.brainType);
     expect(reconstructed.weights).toEqual(genome.weights);
     expect(reconstructed.fitness).toBe(genome.fitness);
     expect(reconstructed.weights).toBeInstanceOf(Float32Array);
+  });
+
+  it('Genome defaults brainType to mlp when missing', () => {
+    const reconstructed = Genome.fromJSON({ archKey: 'test', weights: [], fitness: 0 });
+    expect(reconstructed.brainType).toBe('mlp');
   });
 });

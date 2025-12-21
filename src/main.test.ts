@@ -26,7 +26,10 @@ function makeElement(id: string, overrides: Record<string, unknown> = {}): any {
     classList: {
       add() {},
       remove() {},
-      toggle() {}
+      toggle() {},
+      contains() {
+        return false;
+      }
     },
     addEventListener() {},
     appendChild() {},
@@ -42,6 +45,7 @@ describe('main.ts', () => {
   let originalWindow: unknown;
   let originalWorker: unknown;
   let originalRaf: unknown;
+  let originalLocalStorage: unknown;
   let elements: Map<string, any>;
 
   beforeEach(() => {
@@ -57,6 +61,25 @@ describe('main.ts', () => {
       'n3',
       'n4',
       'n5',
+      'useMLP',
+      'stackGRU',
+      'stackLSTM',
+      'stackRRU',
+      'stackOrder',
+      'graphPreset',
+      'graphPresetApply',
+      'graphPresetSaved',
+      'graphPresetLoad',
+      'graphPresetName',
+      'graphPresetSave',
+      'graphExample',
+      'graphExampleApply',
+      'graphSpecInput',
+      'graphSpecApply',
+      'graphSpecClear',
+      'graphSpecCopy',
+      'graphSpecExport',
+      'graphSpecStatus',
       'snakesVal',
       'simSpeedVal',
       'layersVal',
@@ -69,6 +92,7 @@ describe('main.ts', () => {
       'defaults',
       'toggle',
       'settingsContainer',
+      'connectionStatus',
       'vizCanvas',
       'statsCanvas',
       'btnExport',
@@ -80,6 +104,14 @@ describe('main.ts', () => {
       'hofTable',
       'vizInfo',
       'godModeLog',
+      'joinOverlay',
+      'joinName',
+      'joinPlay',
+      'joinSpectate',
+      'joinStatus',
+      'toggleSettingsLock',
+      'settingsControls',
+      'settingsLockHint',
       'tab-settings',
       'tab-viz',
       'tab-stats'
@@ -117,6 +149,18 @@ describe('main.ts', () => {
     globalAny.window.devicePixelRatio = 1;
     globalAny.window.addEventListener = () => {};
 
+    originalLocalStorage = globalAny.localStorage;
+    const storage = new Map<string, string>();
+    globalAny.localStorage = {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+      removeItem: (key: string) => {
+        storage.delete(key);
+      }
+    };
+
     originalRaf = globalAny.requestAnimationFrame;
     globalAny.requestAnimationFrame = () => 0;
 
@@ -134,12 +178,16 @@ describe('main.ts', () => {
         this.messages.push(msg);
       }
     } as any;
+
+    globalAny.WebSocket = undefined;
   });
 
   afterEach(() => {
     globalAny.document = originalDocument;
     globalAny.window = originalWindow;
     globalAny.Worker = originalWorker;
+    globalAny.localStorage = originalLocalStorage;
+    delete globalAny.WebSocket;
     globalAny.requestAnimationFrame = originalRaf;
     delete globalAny.__workerInstance;
   });
