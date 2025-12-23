@@ -127,8 +127,8 @@ and the output size matches `CFG.brain.outSize`.
 - [x] Implement ops for each node type
 - [x] Register GraphBrain in the registry
 - [x] Add tests
-- [x] Add stack order controls to Settings UI
-- [x] Expose graph presets and graph spec input in Settings
+- [x] Add unified graph editor UI (nodes/edges/outputs + templates)
+- [x] Expose graph presets and optional JSON import/export in Settings
 - [x] Save/load graph presets from the server database
 - [x] Copy/export the active graph spec from Settings
 

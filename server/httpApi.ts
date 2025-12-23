@@ -181,7 +181,8 @@ async function handleRequest(
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(payload));
 }
 

@@ -90,6 +90,7 @@ export class World {
   _focusCooldown: number;
   viewMode: string;
   _collGrid: any;
+  _nextExternalSnakeId: number;
 
   constructor(settings: WorldSettingsInput = {}) {
     // Store a shallow copy of the UI settings to decouple from external
@@ -145,6 +146,7 @@ export class World {
     // worldRadius * 2 = width.
     const w = this.settings.worldRadius * 2.5; 
     this._collGrid = new FlatSpatialHash(w, w, this.settings.collision.cellSize, 200000);
+    this._nextExternalSnakeId = 100000;
     this._initPopulation();
     this._spawnAll();
     this._collGrid.build(this.snakes, CFG.collision.skipSegments);
@@ -690,6 +692,17 @@ removePellet(p: Pellet): void {
     this.focusSnake = snake; // Auto-focus the resurrected snake
     this.viewMode = 'follow';
     this.zoom = 1.0;
+  }
+
+  /**
+   * Spawns a new externally controlled snake with a fresh genome.
+   */
+  spawnExternalSnake(): Snake {
+    const id = this._nextExternalSnakeId++;
+    const genome = Genome.random(this.arch);
+    const snake = new Snake(id, genome, this.arch);
+    this.snakes.push(snake);
+    return snake;
   }
 }
 

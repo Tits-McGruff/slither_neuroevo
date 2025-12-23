@@ -110,7 +110,11 @@ sense: {
     gruCrossoverMode: 0,
 
     // Initial bias for the GRU update gate. More negative means longer default memory.
-    gruInitUpdateBias: -0.7
+    gruInitUpdateBias: -0.7,
+    // Initial bias for the LSTM forget gate.
+    lstmInitForgetBias: 0.6,
+    // Initial bias for the RRU gate.
+    rruInitGateBias: 0.1
   },
   collision: {
     substepMaxDt: 0.018,

@@ -277,7 +277,7 @@ export class RRU {
   w: Float32Array;
   h: Float32Array;
 
-  constructor(inSize: number, hiddenSize: number, weights: Float32Array | null = null) {
+  constructor(inSize: number, hiddenSize: number, weights: Float32Array | null = null, initGateBias = 0.1) {
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
     this.paramCount = rruParamCount(inSize, hiddenSize);
@@ -291,7 +291,7 @@ export class RRU {
       for (let i = 0; i < 2 * Wsz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.35;
       for (let i = 0; i < 2 * Usz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.18;
       for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // bc
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // br
+      for (let j = 0; j < H; j++) this.w[idx++] = initGateBias + (Math.random() * 2 - 1) * 0.10; // br
     }
     this.h = new Float32Array(hiddenSize);
   }

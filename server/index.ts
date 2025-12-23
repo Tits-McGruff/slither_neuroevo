@@ -91,6 +91,8 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     onJoin: (connId, msg, clientType) =>
       simServer?.handleJoin(connId, msg.mode, clientType, msg.name),
     onAction: (connId, msg) => simServer?.handleAction(connId, msg),
+    onView: (connId, msg) => simServer?.handleView(connId, msg),
+    onViz: (connId, msg) => simServer?.handleViz(connId, msg),
     onDisconnect: (connId) => simServer?.handleDisconnect(connId)
   });
 

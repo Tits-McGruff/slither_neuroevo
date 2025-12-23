@@ -1,4 +1,4 @@
-import type { FitnessData, FitnessHistoryEntry } from '../src/protocol/messages.ts';
+import type { FitnessData, FitnessHistoryEntry, VizData } from '../src/protocol/messages.ts';
 
 export const PROTOCOL_VERSION = 1;
 export const SERIALIZER_VERSION = 1;
@@ -32,7 +32,19 @@ export interface ActionMsg {
   boost: number;
 }
 
-export type ClientMessage = HelloMsg | JoinMsg | PingMsg | ActionMsg;
+export interface ViewMsg {
+  type: 'view';
+  viewW?: number;
+  viewH?: number;
+  mode?: 'overview' | 'follow' | 'toggle';
+}
+
+export interface VizMsg {
+  type: 'viz';
+  enabled: boolean;
+}
+
+export type ClientMessage = HelloMsg | JoinMsg | PingMsg | ActionMsg | ViewMsg | VizMsg;
 
 export interface SensorSpec {
   sensorCount: number;
@@ -58,6 +70,7 @@ export interface StatsMsg {
   fps: number;
   fitnessData?: FitnessData;
   fitnessHistory?: FitnessHistoryEntry[];
+  viz?: VizData;
 }
 
 export interface AssignMsg {
@@ -126,6 +139,25 @@ export function isAction(msg: unknown): msg is ActionMsg {
   return true;
 }
 
+export function isView(msg: unknown): msg is ViewMsg {
+  if (!isRecord(msg)) return false;
+  if (msg['type'] !== 'view') return false;
+  if ('viewW' in msg && !isFiniteNumber(msg['viewW'])) return false;
+  if ('viewH' in msg && !isFiniteNumber(msg['viewH'])) return false;
+  if ('mode' in msg) {
+    const mode = msg['mode'];
+    if (mode !== 'overview' && mode !== 'follow' && mode !== 'toggle') return false;
+  }
+  return true;
+}
+
+export function isViz(msg: unknown): msg is VizMsg {
+  if (!isRecord(msg)) return false;
+  if (msg['type'] !== 'viz') return false;
+  if (typeof msg['enabled'] !== 'boolean') return false;
+  return true;
+}
+
 export function parseClientMessage(raw: unknown): ClientMessage | null {
   if (!isRecord(raw)) return null;
   if (typeof raw['type'] !== 'string') return null;
@@ -138,6 +170,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return isPing(raw) ? raw : null;
     case 'action':
       return isAction(raw) ? raw : null;
+    case 'view':
+      return isView(raw) ? raw : null;
+    case 'viz':
+      return isViz(raw) ? raw : null;
     default:
       return null;
   }

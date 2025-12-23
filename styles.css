@@ -315,6 +315,87 @@ canvas {
 .panel .preset-row .btn {
   flex: 0 0 auto;
 }
+.panel .btn.small {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.panel .graph-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(14, 20, 32, 0.65);
+}
+.panel .graph-templates-title,
+.panel .graph-section-title {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9fb0c8;
+  margin-bottom: 6px;
+}
+.panel .graph-templates-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.panel .graph-section {
+  display: grid;
+  gap: 8px;
+}
+.panel .graph-list {
+  display: grid;
+  gap: 8px;
+}
+.panel .graph-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 12, 20, 0.6);
+}
+.panel .graph-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 110px;
+  flex: 1 1 140px;
+}
+.panel .graph-field label {
+  font-size: 11px;
+  color: #9aa8be;
+}
+.panel .graph-field input[type="text"],
+.panel .graph-field input[type="number"],
+.panel .graph-field select {
+  width: 100%;
+}
+.panel .graph-actions {
+  display: grid;
+  gap: 8px;
+}
+.panel .graph-presets {
+  display: grid;
+  gap: 8px;
+}
+.panel .graph-preset-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 12, 20, 0.55);
+  color: #d6def0;
+}
+.panel .graph-preset-name {
+  font-size: 13px;
+}
 .panel .btnrow {
   display: flex;
   gap: 8px;

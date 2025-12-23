@@ -59,13 +59,14 @@ export class ControllerRegistry {
     return this.bySnake.has(snakeId);
   }
 
-  assignSnake(connId: number, controllerType: ControllerType): number | null {
+  assignSnake(connId: number, controllerType: ControllerType, snakeId?: number): number | null {
     this.releaseSnake(connId);
-    const snakeId = this.pickAvailableSnake();
-    if (snakeId == null) return null;
+    const assignedId = snakeId ?? this.pickAvailableSnake();
+    if (assignedId == null) return null;
+    if (!this.isSnakeAssignable(assignedId)) return null;
     const now = Date.now();
     const state: ControllerState = {
-      snakeId,
+      snakeId: assignedId,
       connId,
       controllerType,
       lastTurn: 0,
@@ -79,14 +80,14 @@ export class ControllerRegistry {
       droppedActions: 0
     };
     this.byConn.set(connId, state);
-    this.bySnake.set(snakeId, state);
+    this.bySnake.set(assignedId, state);
     const assignMsg: AssignMsg = {
       type: 'assign',
-      snakeId,
+      snakeId: assignedId,
       controller: controllerType
     };
     this.send(connId, assignMsg);
-    return snakeId;
+    return assignedId;
   }
 
   releaseSnake(connId: number): void {
@@ -96,7 +97,7 @@ export class ControllerRegistry {
     this.bySnake.delete(state.snakeId);
   }
 
-  reassignDeadSnakes(): void {
+  reassignDeadSnakes(spawn?: () => number | null): void {
     const aliveIds = new Set<number>();
     for (const snake of this.getSnakes()) {
       if (snake.alive) aliveIds.add(snake.id);
@@ -104,8 +105,9 @@ export class ControllerRegistry {
     for (const state of this.byConn.values()) {
       if (aliveIds.has(state.snakeId)) continue;
       this.bySnake.delete(state.snakeId);
-      const nextId = this.pickAvailableSnake();
+      const nextId = spawn ? spawn() : this.pickAvailableSnake();
       if (nextId == null) continue;
+      if (!this.isSnakeAssignable(nextId)) continue;
       const now = Date.now();
       state.snakeId = nextId;
       state.lastTurn = 0;
@@ -205,5 +207,11 @@ export class ControllerRegistry {
       return snake.id;
     }
     return null;
+  }
+
+  private isSnakeAssignable(snakeId: number): boolean {
+    if (this.bySnake.has(snakeId)) return false;
+    const snakes = this.getSnakes();
+    return snakes.some(snake => snake.id === snakeId && snake.alive);
   }
 }

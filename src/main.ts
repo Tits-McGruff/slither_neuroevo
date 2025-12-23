@@ -15,9 +15,8 @@ import { hof } from './hallOfFame.ts';
 import { BrainViz } from './BrainViz.ts';
 import { AdvancedCharts } from './chartUtils.ts';
 import { createWsClient, resolveServerUrl, storeServerUrl } from './net/wsClient.ts';
-import { buildStackGraphSpec } from './brains/stackBuilder.ts';
 import { validateGraph } from './brains/graph/validate.ts';
-import type { GraphSpec } from './brains/graph/schema.ts';
+import type { GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
 import type { FrameStats, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
 import type { SettingsUpdate } from './protocol/settings.ts';
 
@@ -86,10 +85,8 @@ let playerSensorMeta: { x: number; y: number; dir: number } | null = null;
 let pointerWorld: { x: number; y: number } | null = null;
 let boostHeld = false;
 const GRAPH_SPEC_STORAGE_KEY = 'slither_neuroevo_graph_spec';
-const STACK_ORDER_STORAGE_KEY = 'slither_neuroevo_stack_order';
-const DEFAULT_STACK_ORDER: Array<'gru' | 'lstm' | 'rru'> = ['gru', 'lstm', 'rru'];
-let stackOrder: Array<'gru' | 'lstm' | 'rru'> = DEFAULT_STACK_ORDER.slice();
 let customGraphSpec: GraphSpec | null = null;
+let graphDraft: GraphSpec | null = null;
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 // HUD removed, using tab info panels instead
 // Expose the rendering context globally so render helpers can draw.
@@ -111,6 +108,9 @@ function resize(): void {
   if (worker) {
     worker.postMessage({ type: 'resize', viewW: cssW, viewH: cssH });
   }
+  if (wsClient && wsClient.isConnected() && connectionMode === 'server') {
+    wsClient.sendView({ viewW: cssW, viewH: cssH });
+  }
 }
 window.addEventListener('resize', resize);
 resize();
@@ -124,22 +124,20 @@ const elN2 = document.getElementById('n2') as HTMLInputElement;
 const elN3 = document.getElementById('n3') as HTMLInputElement;
 const elN4 = document.getElementById('n4') as HTMLInputElement;
 const elN5 = document.getElementById('n5') as HTMLInputElement;
-const elUseMlp = document.getElementById('useMLP') as HTMLInputElement | null;
-const elStackGru = document.getElementById('stackGRU') as HTMLInputElement | null;
-const elStackLstm = document.getElementById('stackLSTM') as HTMLInputElement | null;
-const elStackRru = document.getElementById('stackRRU') as HTMLInputElement | null;
-const stackOrderList = document.getElementById('stackOrder') as HTMLElement | null;
-const graphPresetSelect = document.getElementById('graphPreset') as HTMLSelectElement | null;
-const graphPresetApply = document.getElementById('graphPresetApply') as HTMLButtonElement | null;
-const graphPresetSaved = document.getElementById('graphPresetSaved') as HTMLSelectElement | null;
-const graphPresetLoad = document.getElementById('graphPresetLoad') as HTMLButtonElement | null;
+const graphNodes = document.getElementById('graphNodes') as HTMLElement | null;
+const graphEdges = document.getElementById('graphEdges') as HTMLElement | null;
+const graphOutputs = document.getElementById('graphOutputs') as HTMLElement | null;
+const graphNodeAdd = document.getElementById('graphNodeAdd') as HTMLButtonElement | null;
+const graphEdgeAdd = document.getElementById('graphEdgeAdd') as HTMLButtonElement | null;
+const graphOutputAdd = document.getElementById('graphOutputAdd') as HTMLButtonElement | null;
+const graphApply = document.getElementById('graphApply') as HTMLButtonElement | null;
+const graphReset = document.getElementById('graphReset') as HTMLButtonElement | null;
+const graphPresetList = document.getElementById('graphPresetList') as HTMLElement | null;
+const graphTemplateButtons = document.querySelectorAll<HTMLButtonElement>('[data-template]');
 const graphPresetName = document.getElementById('graphPresetName') as HTMLInputElement | null;
 const graphPresetSave = document.getElementById('graphPresetSave') as HTMLButtonElement | null;
-const graphExampleSelect = document.getElementById('graphExample') as HTMLSelectElement | null;
-const graphExampleApply = document.getElementById('graphExampleApply') as HTMLButtonElement | null;
 const graphSpecInput = document.getElementById('graphSpecInput') as HTMLTextAreaElement | null;
 const graphSpecApply = document.getElementById('graphSpecApply') as HTMLButtonElement | null;
-const graphSpecClear = document.getElementById('graphSpecClear') as HTMLButtonElement | null;
 const graphSpecCopy = document.getElementById('graphSpecCopy') as HTMLButtonElement | null;
 const graphSpecExport = document.getElementById('graphSpecExport') as HTMLButtonElement | null;
 const graphSpecStatus = document.getElementById('graphSpecStatus') as HTMLElement | null;
@@ -189,6 +187,9 @@ tabBtns.forEach(btn => {
     activeTab = tabId;
     if (worker) {
       worker.postMessage({ type: 'viz', enabled: activeTab === 'tab-viz' });
+    }
+    if (wsClient && wsClient.isConnected()) {
+      wsClient.sendViz(activeTab === 'tab-viz');
     }
   });
 });
@@ -242,6 +243,7 @@ if (joinPlay) {
     setJoinStatus('Joining...');
     updateJoinControls();
     wsClient?.sendJoin('player', name);
+    wsClient?.sendView({ mode: 'follow', viewW: cssW, viewH: cssH });
   });
 }
 if (joinSpectate) {
@@ -251,6 +253,7 @@ if (joinSpectate) {
     setJoinStatus('Spectating');
     updateJoinControls();
     wsClient.sendJoin('spectator');
+    wsClient.sendView({ mode: 'overview', viewW: cssW, viewH: cssH });
     setJoinOverlayVisible(false);
   });
 }
@@ -307,25 +310,14 @@ function refreshCoreUIState(): void {
   n3Val.textContent = elN3.value;
   n4Val.textContent = elN4.value;
   n5Val.textContent = elN5.value;
-  const useMlp = elUseMlp ? elUseMlp.checked : true;
   const L = parseInt(elLayers.value, 10);
-  elLayers.disabled = !useMlp;
-  elN1.disabled = !useMlp;
-  if (useMlp) {
-    elN2.disabled = L < 2;
-    elN3.disabled = L < 3;
-    elN4.disabled = L < 4;
-    elN5.disabled = L < 5;
-  } else {
-    elN2.disabled = true;
-    elN3.disabled = true;
-    elN4.disabled = true;
-    elN5.disabled = true;
-  }
+  elN2.disabled = L < 2;
+  elN3.disabled = L < 3;
+  elN4.disabled = L < 4;
+  elN5.disabled = L < 5;
   const applyOpacity = (el: HTMLInputElement) => {
     el.style.opacity = el.disabled ? '0.45' : '1';
   };
-  applyOpacity(elLayers);
   applyOpacity(elN1);
   applyOpacity(elN2);
   applyOpacity(elN3);
@@ -344,17 +336,7 @@ elN2.value = '64';
 elN3.value = '64';
 elN4.value = '48';
 elN5.value = '32';
-if (elStackGru) elStackGru.checked = !!CFG.brain?.stack?.gru;
-if (elStackLstm) elStackLstm.checked = !!CFG.brain?.stack?.lstm;
-if (elStackRru) elStackRru.checked = !!CFG.brain?.stack?.rru;
-if (elUseMlp) {
-  const useMlp = CFG.brain?.useMlp;
-  elUseMlp.checked = useMlp == null ? true : Boolean(useMlp);
-}
 refreshCoreUIState();
-loadStoredStackOrder();
-if (CFG.brain) CFG.brain.stackOrder = stackOrder.slice();
-renderStackOrder();
 loadStoredGraphSpec();
 if (toggleSettingsLock) {
   toggleSettingsLock.addEventListener('click', () => {
@@ -364,20 +346,69 @@ if (toggleSettingsLock) {
 }
 applySettingsLock();
 
-if (graphPresetApply && graphPresetSelect) {
-  graphPresetApply.addEventListener('click', () => {
-    const presetId = graphPresetSelect.value;
-    const preset = buildPresetSpec(presetId);
-    if (!preset) {
-      setGraphSpecStatus('Unknown preset selection.', true);
+graphTemplateButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const template = btn.dataset['template'];
+    const spec =
+      template === 'mlp-gru-mlp'
+        ? buildMlpGruMlpTemplate()
+        : template === 'skip'
+          ? buildSkipTemplate()
+          : template === 'split'
+            ? buildSplitTemplate()
+            : buildLinearMlpTemplate();
+    setGraphDraft(spec, 'Template loaded. Apply graph to use it.');
+  });
+});
+
+if (graphNodeAdd) {
+  graphNodeAdd.addEventListener('click', () => {
+    const draft = ensureGraphDraft();
+    draft.nodes.push(buildDefaultNode('Dense', buildUniqueNodeId(draft, 'node')));
+    renderGraphEditor();
+    setGraphSpecStatus('Node added. Apply graph to use it.');
+  });
+}
+
+if (graphEdgeAdd) {
+  graphEdgeAdd.addEventListener('click', () => {
+    const draft = ensureGraphDraft();
+    const ids = draft.nodes.map(node => node.id);
+    if (ids.length < 2) {
+      setGraphSpecStatus('Add at least two nodes before adding edges.', true);
       return;
     }
-    applyStackPreset(preset);
-    const label = graphPresetSelect.options[graphPresetSelect.selectedIndex]?.text || presetId;
-    const note = `Using layout "${label}".`;
-    clearCustomGraphSpec(note);
-    refreshCoreUIState();
+    draft.edges.push({ from: ids[0]!, to: ids[1]! });
+    renderGraphEditor();
+    setGraphSpecStatus('Edge added. Apply graph to use it.');
+  });
+}
+
+if (graphOutputAdd) {
+  graphOutputAdd.addEventListener('click', () => {
+    const draft = ensureGraphDraft();
+    const ids = draft.nodes.map(node => node.id);
+    if (!ids.length) {
+      setGraphSpecStatus('Add a node before adding outputs.', true);
+      return;
+    }
+    draft.outputs.push({ nodeId: ids[ids.length - 1]! });
+    renderGraphEditor();
+    setGraphSpecStatus('Output added. Apply graph to use it.');
+  });
+}
+
+if (graphApply) {
+  graphApply.addEventListener('click', () => {
+    const draft = ensureGraphDraft();
+    if (!applyGraphSpec(draft, 'Graph applied.')) return;
     initWorker(true);
+  });
+}
+
+if (graphReset) {
+  graphReset.addEventListener('click', () => {
+    resetGraphDraft();
   });
 }
 
@@ -393,7 +424,7 @@ if (graphPresetSave) {
       setGraphSpecStatus('Server not available for saving presets.', true);
       return;
     }
-    const spec = getActiveGraphSpec();
+    const spec = getDraftGraphSpec();
     try {
       const response = await fetch(`${baseUrl}/api/graph-presets`, {
         method: 'POST',
@@ -407,56 +438,11 @@ if (graphPresetSave) {
       }
       setGraphSpecStatus(`Saved preset "${name}".`);
       if (graphPresetName) graphPresetName.value = '';
-      await refreshSavedPresets(data.presetId);
+      await refreshSavedPresets();
     } catch (err) {
       console.warn('[graph-presets] save failed', err);
       setGraphSpecStatus('Failed to save preset.', true);
     }
-  });
-}
-
-if (graphPresetLoad) {
-  graphPresetLoad.addEventListener('click', async () => {
-    const rawId = graphPresetSaved?.value ?? '';
-    const presetId = Number(rawId);
-    if (!Number.isFinite(presetId)) {
-      setGraphSpecStatus('Select a saved preset to load.', true);
-      return;
-    }
-    const baseUrl = resolveServerHttpUrl();
-    if (!baseUrl || typeof fetch === 'undefined') {
-      setGraphSpecStatus('Server not available for loading presets.', true);
-      return;
-    }
-    try {
-      const response = await fetch(`${baseUrl}/api/graph-presets/${presetId}`);
-      const data = (await response.json()) as { ok?: boolean; preset?: LoadedGraphPreset; message?: string };
-      if (!response.ok || !data.ok || !data.preset) {
-        setGraphSpecStatus(data.message || 'Failed to load preset.', true);
-        return;
-      }
-      const result = validateGraph(data.preset.spec);
-      if (!result.ok) {
-        setGraphSpecStatus(`Preset graph invalid: ${result.reason}`, true);
-        return;
-      }
-      applyCustomGraphSpec(data.preset.spec, `Loaded preset "${data.preset.name}".`);
-      initWorker(true);
-    } catch (err) {
-      console.warn('[graph-presets] load failed', err);
-      setGraphSpecStatus('Failed to load preset.', true);
-    }
-  });
-}
-
-if (graphExampleApply && graphExampleSelect) {
-  graphExampleApply.addEventListener('click', () => {
-    const exampleId = graphExampleSelect.value;
-    const spec = exampleId === 'split' ? buildSplitExampleSpec() : buildSkipExampleSpec();
-    if (graphSpecInput) {
-      graphSpecInput.value = JSON.stringify(spec, null, 2);
-    }
-    setGraphSpecStatus('Loaded example. Click "Use graph spec" to apply.');
   });
 }
 
@@ -493,33 +479,25 @@ if (graphSpecApply && graphSpecInput) {
       setGraphSpecStatus(`Output size mismatch (expected ${CFG.brain.outSize}).`, true);
       return;
     }
-    applyCustomGraphSpec(parsed);
-    initWorker(true);
-  });
-}
-
-if (graphSpecClear) {
-  graphSpecClear.addEventListener('click', () => {
-    clearCustomGraphSpec('Using layout controls.');
-    initWorker(true);
+    setGraphDraft(parsed, 'Loaded JSON into editor. Apply graph to use it.');
   });
 }
 
 if (graphSpecCopy) {
   graphSpecCopy.addEventListener('click', () => {
-    const spec = getActiveGraphSpec();
+    const spec = getDraftGraphSpec();
     if (graphSpecInput) {
       graphSpecInput.value = JSON.stringify(spec, null, 2);
     }
-    setGraphSpecStatus('Copied active graph into the editor.');
+    setGraphSpecStatus('Copied current graph into the JSON editor.');
   });
 }
 
 if (graphSpecExport) {
   graphSpecExport.addEventListener('click', () => {
-    const spec = getActiveGraphSpec();
+    const spec = getDraftGraphSpec();
     exportJsonToFile(spec, 'slither_neuroevo_graph_spec.json');
-    setGraphSpecStatus('Exported active graph spec.');
+    setGraphSpecStatus('Exported current graph spec.');
   });
 }
 
@@ -544,9 +522,15 @@ const proxyWorld: ProxyWorld = {
   fitnessHistory: fitnessHistory,
   // Helpers mimicking World for Settings UI/Persistence
   toggleViewMode: () => {
-    if (!worker) return;
-    worker.postMessage({ type: 'action', action: 'toggleView' });
-    proxyWorld.viewMode = proxyWorld.viewMode === 'overview' ? 'follow' : 'overview';
+    if (worker) {
+      worker.postMessage({ type: 'action', action: 'toggleView' });
+      proxyWorld.viewMode = proxyWorld.viewMode === 'overview' ? 'follow' : 'overview';
+      return;
+    }
+    if (wsClient && wsClient.isConnected()) {
+      wsClient.sendView({ mode: 'toggle', viewW: cssW, viewH: cssH });
+      proxyWorld.viewMode = proxyWorld.viewMode === 'overview' ? 'follow' : 'overview';
+    }
   },
   resurrect: (genome: unknown) => {
     if (!worker) return;
@@ -599,93 +583,37 @@ function resolveServerHttpUrl(): string | null {
   }
 }
 
-function normalizeStackOrder(order: string[]): Array<'gru' | 'lstm' | 'rru'> {
-  const cleaned = order
-    .map(key => key.toLowerCase())
-    .filter((key): key is 'gru' | 'lstm' | 'rru' => key === 'gru' || key === 'lstm' || key === 'rru')
-    .filter((key, idx, arr) => arr.indexOf(key) === idx);
-  if (!cleaned.length) return DEFAULT_STACK_ORDER.slice();
-  return cleaned;
-}
-
-function loadStoredStackOrder(): void {
-  try {
-    const raw = localStorage.getItem(STACK_ORDER_STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) stackOrder = normalizeStackOrder(parsed);
-  } catch {
-    stackOrder = DEFAULT_STACK_ORDER.slice();
-  }
-}
-
-function storeStackOrder(): void {
-  try {
-    localStorage.setItem(STACK_ORDER_STORAGE_KEY, JSON.stringify(stackOrder));
-  } catch {
-    // Ignore storage failures.
-  }
-}
-
-function renderStackOrder(): void {
-  if (!stackOrderList) return;
-  stackOrderList.innerHTML = '';
-  stackOrder.forEach((key, idx) => {
-    const row = document.createElement('div');
-    row.className = 'stack-order-item';
-    const label = document.createElement('div');
-    label.className = 'stack-order-label';
-    label.textContent = key.toUpperCase();
-    const up = document.createElement('button');
-    up.className = 'stack-order-btn';
-    up.textContent = 'Up';
-    up.disabled = idx === 0;
-    const down = document.createElement('button');
-    down.className = 'stack-order-btn';
-    down.textContent = 'Down';
-    down.disabled = idx === stackOrder.length - 1;
-    up.addEventListener('click', () => {
-      if (idx === 0) return;
-      const next = stackOrder.slice();
-      const swap = next[idx - 1];
-      next[idx - 1] = next[idx]!;
-      next[idx] = swap!;
-      stackOrder = normalizeStackOrder(next);
-      if (CFG.brain) CFG.brain.stackOrder = stackOrder.slice();
-      storeStackOrder();
-      renderStackOrder();
-    });
-    down.addEventListener('click', () => {
-      if (idx >= stackOrder.length - 1) return;
-      const next = stackOrder.slice();
-      const swap = next[idx + 1];
-      next[idx + 1] = next[idx]!;
-      next[idx] = swap!;
-      stackOrder = normalizeStackOrder(next);
-      if (CFG.brain) CFG.brain.stackOrder = stackOrder.slice();
-      storeStackOrder();
-      renderStackOrder();
-    });
-    row.appendChild(label);
-    row.appendChild(up);
-    row.appendChild(down);
-    stackOrderList.appendChild(row);
-  });
-}
-
 function getActiveGraphSpec(): GraphSpec {
-  if (customGraphSpec) return customGraphSpec;
-  const settings = readSettingsFromCoreUI();
-  const stack = readStackToggles();
-  const useMlp = readUseMlpToggle();
-  return buildStackGraphSpec(settings, {
-    brain: {
-      ...CFG.brain,
-      useMlp,
-      stack,
-      stackOrder
-    }
-  });
+  return customGraphSpec ?? graphDraft ?? buildLinearMlpTemplate();
+}
+
+function getDraftGraphSpec(): GraphSpec {
+  return graphDraft ?? customGraphSpec ?? buildLinearMlpTemplate();
+}
+
+function cloneGraphSpec(spec: GraphSpec): GraphSpec {
+  return {
+    type: 'graph',
+    outputSize: spec.outputSize,
+    nodes: spec.nodes.map(node => {
+      if (node.type === 'MLP') {
+        return { ...node, hiddenSizes: node.hiddenSizes ? node.hiddenSizes.slice() : [] };
+      }
+      if (node.type === 'Split') {
+        return { ...node, outputSizes: node.outputSizes.slice() };
+      }
+      return { ...node };
+    }),
+    edges: spec.edges.map(edge => ({ ...edge })),
+    outputs: spec.outputs.map(out => ({ ...out }))
+  };
+}
+
+function ensureGraphDraft(): GraphSpec {
+  if (!graphDraft) {
+    graphDraft = cloneGraphSpec(getActiveGraphSpec());
+  }
+  return graphDraft;
 }
 
 function setGraphSpecStatus(text: string, isError = false): void {
@@ -694,54 +622,110 @@ function setGraphSpecStatus(text: string, isError = false): void {
   graphSpecStatus.style.color = isError ? '#ff9b9b' : '';
 }
 
-function applyCustomGraphSpec(spec: GraphSpec, note = 'Using custom graph spec (layout toggles ignored).'): void {
-  customGraphSpec = spec;
-  CFG.brain.graphSpec = spec;
-  if (graphSpecInput) graphSpecInput.value = JSON.stringify(spec, null, 2);
+function setGraphDraft(spec: GraphSpec, note = ''): void {
+  graphDraft = cloneGraphSpec(spec);
+  renderGraphEditor();
+  if (note) setGraphSpecStatus(note);
+}
+
+function applyGraphSpec(spec: GraphSpec, note = 'Graph applied.'): boolean {
+  const next = cloneGraphSpec(spec);
+  next.outputSize = CFG.brain.outSize;
+  const inputNodes = next.nodes.filter(node => node.type === 'Input');
+  if (inputNodes.length !== 1) {
+    setGraphSpecStatus('Graph must include exactly one Input node.', true);
+    return false;
+  }
+  const inputNode = inputNodes[0]!;
+  if (inputNode.outputSize !== CFG.brain.inSize) {
+    setGraphSpecStatus(`Input size mismatch (expected ${CFG.brain.inSize}).`, true);
+    return false;
+  }
+  const result = validateGraph(next);
+  if (!result.ok) {
+    setGraphSpecStatus(`Graph error: ${result.reason}`, true);
+    return false;
+  }
+  customGraphSpec = next;
+  CFG.brain.graphSpec = next;
+  graphDraft = cloneGraphSpec(next);
+  if (graphSpecInput) graphSpecInput.value = JSON.stringify(next, null, 2);
   try {
-    localStorage.setItem(GRAPH_SPEC_STORAGE_KEY, JSON.stringify(spec));
+    localStorage.setItem(GRAPH_SPEC_STORAGE_KEY, JSON.stringify(next));
   } catch {
     // Ignore storage failures.
   }
+  renderGraphEditor();
   setGraphSpecStatus(note);
+  return true;
 }
 
-function clearCustomGraphSpec(note = 'Using layout controls.'): void {
-  customGraphSpec = null;
-  CFG.brain.graphSpec = null;
-  try {
-    localStorage.removeItem(GRAPH_SPEC_STORAGE_KEY);
-  } catch {
-    // Ignore storage failures.
+function resetGraphDraft(): void {
+  if (customGraphSpec) {
+    setGraphDraft(customGraphSpec, 'Editor reset to applied graph.');
+    return;
   }
-  setGraphSpecStatus(note);
+  setGraphDraft(buildLinearMlpTemplate(), 'Editor reset to default graph.');
 }
 
-function updateSavedPresetSelect(presets: SavedGraphPreset[], selectedId?: number): void {
-  if (!graphPresetSaved) return;
-  const current = selectedId ?? Number(graphPresetSaved.value);
-  graphPresetSaved.innerHTML = '';
+function renderSavedPresetList(presets: SavedGraphPreset[]): void {
+  if (!graphPresetList) return;
+  graphPresetList.innerHTML = '';
   if (!presets.length) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'No saved presets';
-    graphPresetSaved.appendChild(option);
+    const empty = document.createElement('div');
+    empty.className = 'meta';
+    empty.textContent = 'No saved presets yet.';
+    graphPresetList.appendChild(empty);
     return;
   }
   presets.forEach(preset => {
-    const option = document.createElement('option');
-    option.value = String(preset.id);
-    option.textContent = preset.name;
-    if (preset.id === current) option.selected = true;
-    graphPresetSaved.appendChild(option);
+    const row = document.createElement('div');
+    row.className = 'graph-preset-item';
+    const name = document.createElement('div');
+    name.className = 'graph-preset-name';
+    name.textContent = preset.name;
+    const load = document.createElement('button');
+    load.className = 'btn small';
+    load.textContent = 'Load';
+    load.addEventListener('click', () => {
+      void loadPresetById(preset.id);
+    });
+    row.appendChild(name);
+    row.appendChild(load);
+    graphPresetList.appendChild(row);
   });
 }
 
-async function refreshSavedPresets(selectedId?: number): Promise<void> {
-  if (!graphPresetSaved) return;
+async function loadPresetById(presetId: number): Promise<void> {
+  const baseUrl = resolveServerHttpUrl();
+  if (!baseUrl || typeof fetch === 'undefined') {
+    setGraphSpecStatus('Server not available for loading presets.', true);
+    return;
+  }
+  try {
+    const response = await fetch(`${baseUrl}/api/graph-presets/${presetId}`);
+    const data = (await response.json()) as { ok?: boolean; preset?: LoadedGraphPreset; message?: string };
+    if (!response.ok || !data.ok || !data.preset) {
+      setGraphSpecStatus(data.message || 'Failed to load preset.', true);
+      return;
+    }
+    const result = validateGraph(data.preset.spec);
+    if (!result.ok) {
+      setGraphSpecStatus(`Preset graph invalid: ${result.reason}`, true);
+      return;
+    }
+    setGraphDraft(data.preset.spec, `Loaded preset "${data.preset.name}". Apply graph to use it.`);
+  } catch (err) {
+    console.warn('[graph-presets] load failed', err);
+    setGraphSpecStatus('Failed to load preset.', true);
+  }
+}
+
+async function refreshSavedPresets(): Promise<void> {
+  if (!graphPresetList) return;
   const baseUrl = resolveServerHttpUrl();
   if (!baseUrl) {
-    updateSavedPresetSelect([], selectedId);
+    renderSavedPresetList([]);
     return;
   }
   if (typeof fetch === 'undefined') {
@@ -753,88 +737,38 @@ async function refreshSavedPresets(selectedId?: number): Promise<void> {
     const data = (await response.json()) as { ok?: boolean; presets?: SavedGraphPreset[]; message?: string };
     if (!response.ok || !data.ok) {
       setGraphSpecStatus(data.message || 'Failed to load saved presets.', true);
-      updateSavedPresetSelect([], selectedId);
+      renderSavedPresetList([]);
       return;
     }
-    updateSavedPresetSelect(data.presets ?? [], selectedId);
+    renderSavedPresetList(data.presets ?? []);
   } catch (err) {
     console.warn('[graph-presets] load failed', err);
     setGraphSpecStatus('Failed to load saved presets.', true);
-    updateSavedPresetSelect([], selectedId);
+    renderSavedPresetList([]);
   }
 }
 
 function loadStoredGraphSpec(): void {
   try {
     const raw = localStorage.getItem(GRAPH_SPEC_STORAGE_KEY);
-    if (!raw) return;
+    if (!raw) {
+      const fallback = buildLinearMlpTemplate();
+      applyGraphSpec(fallback, 'Default graph applied.');
+      return;
+    }
     const parsed = JSON.parse(raw) as GraphSpec;
     const result = validateGraph(parsed);
     if (result.ok) {
-      customGraphSpec = parsed;
-      CFG.brain.graphSpec = parsed;
-      if (graphSpecInput) graphSpecInput.value = JSON.stringify(parsed, null, 2);
-      setGraphSpecStatus('Using custom graph spec (loaded).');
+      const applied = applyGraphSpec(parsed, 'Loaded saved graph.');
+      if (!applied) {
+        applyGraphSpec(buildLinearMlpTemplate(), 'Stored graph invalid. Using default.');
+      }
     } else {
-      clearCustomGraphSpec('Invalid graph spec in storage. Using layout controls.');
+      applyGraphSpec(buildLinearMlpTemplate(), 'Stored graph invalid. Using default.');
     }
   } catch {
-    clearCustomGraphSpec('Invalid graph spec in storage. Using layout controls.');
+    applyGraphSpec(buildLinearMlpTemplate(), 'Stored graph invalid. Using default.');
   }
-}
-
-type StackPreset = {
-  useMlp: boolean;
-  stack: { gru: number; lstm: number; rru: number };
-};
-
-function applyStackPreset(preset: StackPreset): void {
-  const stack = preset.stack;
-  if (elUseMlp) elUseMlp.checked = preset.useMlp;
-  if (elStackGru) elStackGru.checked = !!stack.gru;
-  if (elStackLstm) elStackLstm.checked = !!stack.lstm;
-  if (elStackRru) elStackRru.checked = !!stack.rru;
-  if (CFG.brain) {
-    CFG.brain.useMlp = preset.useMlp;
-    if (CFG.brain.stack) {
-      CFG.brain.stack.gru = stack.gru;
-      CFG.brain.stack.lstm = stack.lstm;
-      CFG.brain.stack.rru = stack.rru;
-    }
-  }
-}
-
-function readStackToggles(): { gru: number; lstm: number; rru: number } {
-  return {
-    gru: elStackGru?.checked ? 1 : 0,
-    lstm: elStackLstm?.checked ? 1 : 0,
-    rru: elStackRru?.checked ? 1 : 0
-  };
-}
-
-function readUseMlpToggle(): boolean {
-  if (elUseMlp) return elUseMlp.checked;
-  const useMlp = CFG.brain?.useMlp;
-  return useMlp == null ? true : Boolean(useMlp);
-}
-
-function buildPresetSpec(presetId: string): StackPreset | null {
-  const presets: Record<string, StackPreset> = {
-    mlp: { useMlp: true, stack: { gru: 0, lstm: 0, rru: 0 } },
-    'mlp-gru': { useMlp: true, stack: { gru: 1, lstm: 0, rru: 0 } },
-    'mlp-lstm': { useMlp: true, stack: { gru: 0, lstm: 1, rru: 0 } },
-    'mlp-rru': { useMlp: true, stack: { gru: 0, lstm: 0, rru: 1 } },
-    'mlp-gru-lstm': { useMlp: true, stack: { gru: 1, lstm: 1, rru: 0 } },
-    'mlp-gru-rru': { useMlp: true, stack: { gru: 1, lstm: 0, rru: 1 } },
-    'mlp-gru-lstm-rru': { useMlp: true, stack: { gru: 1, lstm: 1, rru: 1 } },
-    gru: { useMlp: false, stack: { gru: 1, lstm: 0, rru: 0 } },
-    lstm: { useMlp: false, stack: { gru: 0, lstm: 1, rru: 0 } },
-    rru: { useMlp: false, stack: { gru: 0, lstm: 0, rru: 1 } },
-    'gru-lstm': { useMlp: false, stack: { gru: 1, lstm: 1, rru: 0 } },
-    'gru-rru': { useMlp: false, stack: { gru: 1, lstm: 0, rru: 1 } },
-    'gru-lstm-rru': { useMlp: false, stack: { gru: 1, lstm: 1, rru: 1 } }
-  };
-  return presets[presetId] ?? null;
 }
 
 function buildHiddenSizesForExample(settings: ReturnType<typeof readSettingsFromCoreUI>): number[] {
@@ -849,67 +783,422 @@ function buildHiddenSizesForExample(settings: ReturnType<typeof readSettingsFrom
   return hidden;
 }
 
-function buildSkipExampleSpec(): GraphSpec {
-  const settings = readSettingsFromCoreUI();
-  const hiddenSizes = buildHiddenSizesForExample(settings);
+function buildLinearMlpTemplate(): GraphSpec {
+  const hiddenSizes = buildHiddenSizesForExample(readSettingsFromCoreUI());
   const inputSize = CFG.brain.inSize;
   const outputSize = CFG.brain.outSize;
-  const featureSize = Math.max(2, Math.floor(hiddenSizes[hiddenSizes.length - 1] ?? 8));
-  const mlpHidden = hiddenSizes.slice(0, -1);
-  const concatSize = featureSize * 2;
   return {
     type: 'graph',
     outputSize,
     nodes: [
       { id: 'input', type: 'Input', outputSize: inputSize },
-      { id: 'mlp', type: 'MLP', inputSize, outputSize: featureSize, hiddenSizes: mlpHidden },
-      { id: 'skip', type: 'Dense', inputSize, outputSize: featureSize },
-      { id: 'concat', type: 'Concat' },
-      { id: 'head', type: 'Dense', inputSize: concatSize, outputSize }
+      { id: 'mlp', type: 'MLP', inputSize, outputSize, hiddenSizes }
+    ],
+    edges: [{ from: 'input', to: 'mlp' }],
+    outputs: [{ nodeId: 'mlp' }]
+  };
+}
+
+function buildMlpGruMlpTemplate(): GraphSpec {
+  const hiddenSizes = buildHiddenSizesForExample(readSettingsFromCoreUI());
+  const inputSize = CFG.brain.inSize;
+  const outputSize = CFG.brain.outSize;
+  const featureSize = hiddenSizes[hiddenSizes.length - 1] ?? Math.max(4, Math.floor(inputSize * 0.75));
+  const mlpHidden = hiddenSizes.length > 1 ? hiddenSizes.slice(0, -1) : hiddenSizes;
+  const gruHidden = Math.max(2, Math.floor(CFG.brain.gruHidden || featureSize));
+  return {
+    type: 'graph',
+    outputSize,
+    nodes: [
+      { id: 'input', type: 'Input', outputSize: inputSize },
+      { id: 'mlp-a', type: 'MLP', inputSize, outputSize: featureSize, hiddenSizes: mlpHidden },
+      { id: 'gru', type: 'GRU', inputSize: featureSize, hiddenSize: gruHidden },
+      { id: 'mlp-b', type: 'MLP', inputSize: gruHidden, outputSize, hiddenSizes }
     ],
     edges: [
-      { from: 'input', to: 'mlp' },
-      { from: 'input', to: 'skip' },
-      { from: 'mlp', to: 'concat', toPort: 0 },
-      { from: 'skip', to: 'concat', toPort: 1 },
+      { from: 'input', to: 'mlp-a' },
+      { from: 'mlp-a', to: 'gru' },
+      { from: 'gru', to: 'mlp-b' }
+    ],
+    outputs: [{ nodeId: 'mlp-b' }]
+  };
+}
+
+function buildSkipTemplate(): GraphSpec {
+  const hiddenSizes = buildHiddenSizesForExample(readSettingsFromCoreUI());
+  const inputSize = CFG.brain.inSize;
+  const outputSize = CFG.brain.outSize;
+  const mlpOut = inputSize;
+  return {
+    type: 'graph',
+    outputSize,
+    nodes: [
+      { id: 'input', type: 'Input', outputSize: inputSize },
+      { id: 'mlp-skip', type: 'MLP', inputSize, outputSize: mlpOut, hiddenSizes },
+      { id: 'concat', type: 'Concat' },
+      { id: 'head', type: 'Dense', inputSize: inputSize + mlpOut, outputSize }
+    ],
+    edges: [
+      { from: 'input', to: 'mlp-skip' },
+      { from: 'input', to: 'concat', toPort: 0 },
+      { from: 'mlp-skip', to: 'concat', toPort: 1 },
       { from: 'concat', to: 'head' }
     ],
     outputs: [{ nodeId: 'head' }]
   };
 }
 
-function buildSplitExampleSpec(): GraphSpec {
-  const settings = readSettingsFromCoreUI();
-  const hiddenSizes = buildHiddenSizesForExample(settings);
+function buildSplitTemplate(): GraphSpec {
   const inputSize = CFG.brain.inSize;
   const outputSize = CFG.brain.outSize;
-  const baseSize = Math.max(2, Math.floor(hiddenSizes[hiddenSizes.length - 1] ?? 8));
-  const splitSize = Math.max(2, baseSize);
-  const splitA = Math.max(1, Math.floor(splitSize / 2));
-  const splitB = Math.max(1, splitSize - splitA);
-  const branchOutA = Math.max(1, Math.floor(outputSize / 2));
-  const branchOutB = Math.max(1, outputSize - branchOutA);
+  const leftIn = Math.max(1, Math.floor(inputSize / 2));
+  const rightIn = Math.max(1, inputSize - leftIn);
+  const leftOut = Math.max(1, Math.floor(outputSize / 2));
+  const rightOut = Math.max(1, outputSize - leftOut);
   return {
     type: 'graph',
     outputSize,
     nodes: [
       { id: 'input', type: 'Input', outputSize: inputSize },
-      { id: 'mlp', type: 'MLP', inputSize, outputSize: splitSize, hiddenSizes: hiddenSizes.slice(0, -1) },
-      { id: 'split', type: 'Split', outputSizes: [splitA, splitB] },
-      { id: 'headA', type: 'Dense', inputSize: splitA, outputSize: branchOutA },
-      { id: 'headB', type: 'Dense', inputSize: splitB, outputSize: branchOutB },
-      { id: 'concat', type: 'Concat' }
+      { id: 'split', type: 'Split', outputSizes: [leftIn, rightIn] },
+      { id: 'head-a', type: 'Dense', inputSize: leftIn, outputSize: leftOut },
+      { id: 'head-b', type: 'Dense', inputSize: rightIn, outputSize: rightOut }
     ],
     edges: [
-      { from: 'input', to: 'mlp' },
-      { from: 'mlp', to: 'split' },
-      { from: 'split', to: 'headA', fromPort: 0 },
-      { from: 'split', to: 'headB', fromPort: 1 },
-      { from: 'headA', to: 'concat', toPort: 0 },
-      { from: 'headB', to: 'concat', toPort: 1 }
+      { from: 'input', to: 'split' },
+      { from: 'split', to: 'head-a', fromPort: 0 },
+      { from: 'split', to: 'head-b', fromPort: 1 }
     ],
-    outputs: [{ nodeId: 'concat' }]
+    outputs: [{ nodeId: 'head-a' }, { nodeId: 'head-b' }]
   };
+}
+
+function buildDefaultNode(type: GraphNodeType, id: string): GraphNodeSpec {
+  const inputSize = CFG.brain.inSize;
+  const outputSize = CFG.brain.outSize;
+  const hiddenSizes = buildHiddenSizesForExample(readSettingsFromCoreUI());
+  switch (type) {
+    case 'Input':
+      return { id, type: 'Input', outputSize: inputSize };
+    case 'Dense':
+      return { id, type: 'Dense', inputSize, outputSize };
+    case 'MLP':
+      return { id, type: 'MLP', inputSize, outputSize, hiddenSizes };
+    case 'GRU':
+      return { id, type: 'GRU', inputSize, hiddenSize: Math.max(2, Math.floor(CFG.brain.gruHidden || 8)) };
+    case 'LSTM':
+      return { id, type: 'LSTM', inputSize, hiddenSize: Math.max(2, Math.floor(CFG.brain.lstmHidden || CFG.brain.gruHidden || 8)) };
+    case 'RRU':
+      return { id, type: 'RRU', inputSize, hiddenSize: Math.max(2, Math.floor(CFG.brain.rruHidden || CFG.brain.gruHidden || 8)) };
+    case 'Split': {
+      const first = Math.max(1, Math.floor(inputSize / 2));
+      const second = Math.max(1, inputSize - first);
+      return { id, type: 'Split', outputSizes: [first, second] };
+    }
+    case 'Concat':
+      return { id, type: 'Concat' };
+  }
+}
+
+function buildUniqueNodeId(spec: GraphSpec, prefix: string): string {
+  let idx = 1;
+  let next = `${prefix}-${idx}`;
+  const used = new Set(spec.nodes.map(node => node.id));
+  if (!used.has(prefix)) return prefix;
+  while (used.has(next)) {
+    idx += 1;
+    next = `${prefix}-${idx}`;
+  }
+  return next;
+}
+
+function renderGraphEditor(): void {
+  if (!graphNodes || !graphEdges || !graphOutputs) return;
+  const spec = ensureGraphDraft();
+  const nodeIds = spec.nodes.map(node => node.id);
+
+  const makeField = (labelText: string, input: HTMLInputElement | HTMLSelectElement): HTMLDivElement => {
+    const field = document.createElement('div');
+    field.className = 'graph-field';
+    const label = document.createElement('label');
+    label.textContent = labelText;
+    field.appendChild(label);
+    field.appendChild(input);
+    return field;
+  };
+
+  const makeNumberInput = (value: number, min?: number): HTMLInputElement => {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = Number.isFinite(value) ? String(value) : '';
+    if (min != null) input.min = String(min);
+    return input;
+  };
+
+  const parseNumberList = (value: string): number[] => {
+    return value
+      .split(',')
+      .map(part => Number(part.trim()))
+      .filter(num => Number.isFinite(num) && num > 0);
+  };
+
+  graphNodes.innerHTML = '';
+  spec.nodes.forEach((node, index) => {
+    const row = document.createElement('div');
+    row.className = 'graph-row';
+
+    const idInput = document.createElement('input');
+    idInput.type = 'text';
+    idInput.value = node.id;
+    idInput.addEventListener('change', () => {
+      const nextId = idInput.value.trim();
+      if (!nextId) {
+        idInput.value = node.id;
+        setGraphSpecStatus('Node id cannot be empty.', true);
+        return;
+      }
+      if (nextId !== node.id && spec.nodes.some((n, idx) => idx !== index && n.id === nextId)) {
+        idInput.value = node.id;
+        setGraphSpecStatus('Node id must be unique.', true);
+        return;
+      }
+      if (nextId === node.id) return;
+      const oldId = node.id;
+      spec.nodes[index] = { ...node, id: nextId };
+      spec.edges.forEach(edge => {
+        if (edge.from === oldId) edge.from = nextId;
+        if (edge.to === oldId) edge.to = nextId;
+      });
+      spec.outputs.forEach(output => {
+        if (output.nodeId === oldId) output.nodeId = nextId;
+      });
+      renderGraphEditor();
+      setGraphSpecStatus('Node id updated. Apply graph to use it.');
+    });
+    row.appendChild(makeField('Id', idInput));
+
+    const typeSelect = document.createElement('select');
+    const availableTypes: GraphNodeType[] =
+      node.type === 'Input'
+        ? ['Input']
+        : ['Dense', 'MLP', 'GRU', 'LSTM', 'RRU', 'Split', 'Concat'];
+    availableTypes.forEach(type => {
+      const option = document.createElement('option');
+      option.value = type;
+      option.textContent = type;
+      typeSelect.appendChild(option);
+    });
+    typeSelect.value = node.type;
+    typeSelect.addEventListener('change', () => {
+      const nextType = typeSelect.value as GraphNodeType;
+      spec.nodes[index] = buildDefaultNode(nextType, node.id);
+      renderGraphEditor();
+      setGraphSpecStatus('Node type updated. Apply graph to use it.');
+    });
+    row.appendChild(makeField('Type', typeSelect));
+
+    if (node.type === 'Input') {
+      const out = makeNumberInput(CFG.brain.inSize, 1);
+      out.disabled = true;
+      row.appendChild(makeField('Output', out));
+    }
+    if (node.type === 'Dense' || node.type === 'MLP') {
+      const input = makeNumberInput(node.inputSize, 1);
+      input.addEventListener('input', () => {
+        const next = Number(input.value);
+        if (!Number.isFinite(next)) return;
+        node.inputSize = next;
+        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
+      });
+      row.appendChild(makeField('Input', input));
+
+      const output = makeNumberInput(node.outputSize, 1);
+      output.addEventListener('input', () => {
+        const next = Number(output.value);
+        if (!Number.isFinite(next)) return;
+        node.outputSize = next;
+        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
+      });
+      row.appendChild(makeField('Output', output));
+    }
+    if (node.type === 'MLP') {
+      const hidden = document.createElement('input');
+      hidden.type = 'text';
+      hidden.value = (node.hiddenSizes ?? []).join(', ');
+      hidden.placeholder = '16, 16';
+      hidden.addEventListener('change', () => {
+        node.hiddenSizes = parseNumberList(hidden.value);
+        setGraphSpecStatus('Updated hidden sizes. Apply graph to use it.');
+      });
+      row.appendChild(makeField('Hidden', hidden));
+    }
+    if (node.type === 'GRU' || node.type === 'LSTM' || node.type === 'RRU') {
+      const input = makeNumberInput(node.inputSize, 1);
+      input.addEventListener('input', () => {
+        const next = Number(input.value);
+        if (!Number.isFinite(next)) return;
+        node.inputSize = next;
+        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
+      });
+      row.appendChild(makeField('Input', input));
+
+      const hidden = makeNumberInput(node.hiddenSize, 1);
+      hidden.addEventListener('input', () => {
+        const next = Number(hidden.value);
+        if (!Number.isFinite(next)) return;
+        node.hiddenSize = next;
+        setGraphSpecStatus('Updated hidden size. Apply graph to use it.');
+      });
+      row.appendChild(makeField('Hidden', hidden));
+    }
+    if (node.type === 'Split') {
+      const sizes = document.createElement('input');
+      sizes.type = 'text';
+      sizes.value = node.outputSizes.join(', ');
+      sizes.placeholder = '8, 8';
+      sizes.addEventListener('change', () => {
+        const next = parseNumberList(sizes.value);
+        if (!next.length) return;
+        node.outputSizes = next;
+        setGraphSpecStatus('Updated split sizes. Apply graph to use it.');
+      });
+      row.appendChild(makeField('Outputs', sizes));
+    }
+
+    if (node.type !== 'Input') {
+      const remove = document.createElement('button');
+      remove.className = 'btn small';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', () => {
+        const removedId = node.id;
+        spec.nodes.splice(index, 1);
+        spec.edges = spec.edges.filter(edge => edge.from !== removedId && edge.to !== removedId);
+        spec.outputs = spec.outputs.filter(out => out.nodeId !== removedId);
+        renderGraphEditor();
+        setGraphSpecStatus('Node removed. Apply graph to use it.');
+      });
+      row.appendChild(remove);
+    }
+
+    graphNodes.appendChild(row);
+  });
+
+  graphEdges.innerHTML = '';
+  spec.edges.forEach((edge, index) => {
+    const row = document.createElement('div');
+    row.className = 'graph-row';
+
+    const fromSelect = document.createElement('select');
+    nodeIds.forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      fromSelect.appendChild(opt);
+    });
+    fromSelect.value = edge.from;
+    fromSelect.addEventListener('change', () => {
+      edge.from = fromSelect.value;
+      setGraphSpecStatus('Edge updated. Apply graph to use it.');
+    });
+    row.appendChild(makeField('From', fromSelect));
+
+    const fromPort = makeNumberInput(edge.fromPort ?? 0, 0);
+    fromPort.value = edge.fromPort == null ? '' : String(edge.fromPort);
+    fromPort.addEventListener('change', () => {
+      const value = fromPort.value.trim();
+      if (value === '') {
+        if ('fromPort' in edge) delete edge.fromPort;
+      } else {
+        edge.fromPort = Number(value);
+      }
+      setGraphSpecStatus('Edge updated. Apply graph to use it.');
+    });
+    row.appendChild(makeField('From port', fromPort));
+
+    const toSelect = document.createElement('select');
+    nodeIds.forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      toSelect.appendChild(opt);
+    });
+    toSelect.value = edge.to;
+    toSelect.addEventListener('change', () => {
+      edge.to = toSelect.value;
+      setGraphSpecStatus('Edge updated. Apply graph to use it.');
+    });
+    row.appendChild(makeField('To', toSelect));
+
+    const toPort = makeNumberInput(edge.toPort ?? 0, 0);
+    toPort.value = edge.toPort == null ? '' : String(edge.toPort);
+    toPort.addEventListener('change', () => {
+      const value = toPort.value.trim();
+      if (value === '') {
+        if ('toPort' in edge) delete edge.toPort;
+      } else {
+        edge.toPort = Number(value);
+      }
+      setGraphSpecStatus('Edge updated. Apply graph to use it.');
+    });
+    row.appendChild(makeField('To port', toPort));
+
+    const remove = document.createElement('button');
+    remove.className = 'btn small';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => {
+      spec.edges.splice(index, 1);
+      renderGraphEditor();
+      setGraphSpecStatus('Edge removed. Apply graph to use it.');
+    });
+    row.appendChild(remove);
+
+    graphEdges.appendChild(row);
+  });
+
+  graphOutputs.innerHTML = '';
+  spec.outputs.forEach((output, index) => {
+    const row = document.createElement('div');
+    row.className = 'graph-row';
+
+    const nodeSelect = document.createElement('select');
+    nodeIds.forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      nodeSelect.appendChild(opt);
+    });
+    nodeSelect.value = output.nodeId;
+    nodeSelect.addEventListener('change', () => {
+      output.nodeId = nodeSelect.value;
+      setGraphSpecStatus('Output updated. Apply graph to use it.');
+    });
+    row.appendChild(makeField('Node', nodeSelect));
+
+    const portInput = makeNumberInput(output.port ?? 0, 0);
+    portInput.value = output.port == null ? '' : String(output.port);
+    portInput.addEventListener('change', () => {
+      const value = portInput.value.trim();
+      if (value === '') {
+        if ('port' in output) delete output.port;
+      } else {
+        output.port = Number(value);
+      }
+      setGraphSpecStatus('Output updated. Apply graph to use it.');
+    });
+    row.appendChild(makeField('Port', portInput));
+
+    const remove = document.createElement('button');
+    remove.className = 'btn small';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => {
+      spec.outputs.splice(index, 1);
+      renderGraphEditor();
+      setGraphSpecStatus('Output removed. Apply graph to use it.');
+    });
+    row.appendChild(remove);
+
+    graphOutputs.appendChild(row);
+  });
 }
 
 function applySettingsLock(): void {
@@ -970,7 +1259,6 @@ function initWorker(resetCfg = true): void {
   if (!worker) return;
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdates(settingsControls ?? settingsContainer);
-  if (CFG.brain) CFG.brain.stackOrder = stackOrder.slice();
   worker.postMessage({
     type: 'init',
     settings,
@@ -978,8 +1266,7 @@ function initWorker(resetCfg = true): void {
     resetCfg,
     viewW: cssW,
     viewH: cssH,
-    graphSpec: customGraphSpec,
-    stackOrder
+    graphSpec: customGraphSpec
   });
 }
 
@@ -1139,9 +1426,12 @@ wsClient = createWsClient({
     }
     if (worker) stopWorker();
     currentStats = { gen: 1, alive: 0, fps: info.tickRate };
+    currentVizData = null;
     setConnectionStatus('server');
     joinPending = false;
     wsClient?.sendJoin('spectator');
+    wsClient?.sendView({ viewW: cssW, viewH: cssH, mode: 'overview' });
+    wsClient?.sendViz(activeTab === 'tab-viz');
     setJoinOverlayVisible(true);
     setJoinStatus('Enter a nickname to play');
     updateJoinControls();
@@ -1159,6 +1449,7 @@ wsClient = createWsClient({
     playerSensorMeta = null;
     pointerWorld = null;
     boostHeld = false;
+    currentVizData = null;
     joinPending = false;
     if (!hasWorker) {
       setJoinOverlayVisible(true);
@@ -1206,6 +1497,9 @@ wsClient = createWsClient({
         fitnessHistory.push(entry);
       }
       if (fitnessHistory.length > 120) fitnessHistory.shift();
+    }
+    if (msg.viz) {
+      currentVizData = msg.viz;
     }
   },
   onAssign: (msg) => {
@@ -1272,9 +1566,6 @@ elN2.addEventListener('input', refreshCoreUIState);
 elN3.addEventListener('input', refreshCoreUIState);
 elN4.addEventListener('input', refreshCoreUIState);
 elN5.addEventListener('input', refreshCoreUIState);
-if (elUseMlp) {
-  elUseMlp.addEventListener('input', refreshCoreUIState);
-}
 
 // Apply new configuration and reset world
 btnApply.addEventListener('click', () => {
@@ -1294,20 +1585,7 @@ btnDefaults.addEventListener('click', () => {
   elN3.value = '64';
   elN4.value = '48';
   elN5.value = '32';
-  if (elStackGru) elStackGru.checked = !!CFG.brain?.stack?.gru;
-  if (elStackLstm) elStackLstm.checked = !!CFG.brain?.stack?.lstm;
-  if (elStackRru) elStackRru.checked = !!CFG.brain?.stack?.rru;
-  if (elUseMlp) {
-    const useMlp = CFG.brain?.useMlp;
-    elUseMlp.checked = useMlp == null ? true : Boolean(useMlp);
-  }
-  stackOrder = DEFAULT_STACK_ORDER.slice();
-  if (CFG.brain) CFG.brain.stackOrder = stackOrder.slice();
-  storeStackOrder();
-  renderStackOrder();
-  clearCustomGraphSpec('Using layout controls.');
-  if (graphSpecInput) graphSpecInput.value = '';
-  if (graphPresetSelect) graphPresetSelect.value = 'mlp';
+  applyGraphSpec(buildLinearMlpTemplate(), 'Default graph applied.');
   refreshCoreUIState();
   applySettingsLock();
   initWorker(true);

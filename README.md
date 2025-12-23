@@ -124,13 +124,16 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 
 ### Brain and memory
 
-- **Use GRU memory (0/1)**: Enable memory (1) or pure MLP (0).
 - **GRU hidden size**: Memory width; bigger = more capacity, more parameters.
+- **LSTM hidden size**: LSTM memory width.
+- **RRU hidden size**: RRU memory width.
 - **Brain control dt**: How often the brain updates relative to physics.
 - **GRU mutation rate**: Mutation rate applied to GRU weights.
 - **GRU mutation std**: Mutation strength for GRU weights.
 - **GRU crossover mode**: 0 = block, 1 = unit-wise crossover.
 - **GRU init update gate bias**: Sets default memory persistence.
+- **LSTM init forget gate bias**: Sets default memory persistence for LSTM.
+- **RRU init gate bias**: Sets default gating bias for RRU.
 
 ### Misc
 

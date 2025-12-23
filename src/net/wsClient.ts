@@ -1,4 +1,4 @@
-import type { FitnessData, FitnessHistoryEntry } from '../protocol/messages.ts';
+import type { FitnessData, FitnessHistoryEntry, VizData } from '../protocol/messages.ts';
 
 export interface WelcomeMsg {
   type: 'welcome';
@@ -19,6 +19,7 @@ export interface StatsMsg {
   fps: number;
   fitnessData?: FitnessData;
   fitnessHistory?: FitnessHistoryEntry[];
+  viz?: VizData;
 }
 
 export interface ActionMsg {
@@ -63,6 +64,8 @@ export interface WsClient {
   disconnect: () => void;
   sendJoin: (mode: 'spectator' | 'player', name?: string) => void;
   sendAction: (tick: number, snakeId: number, turn: number, boost: number) => void;
+  sendView: (payload: { viewW?: number; viewH?: number; mode?: 'overview' | 'follow' | 'toggle' }) => void;
+  sendViz: (enabled: boolean) => void;
   isConnected: () => boolean;
 }
 
@@ -154,6 +157,16 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     socket.send(JSON.stringify(payload));
   };
 
+  const sendView = (payload: { viewW?: number; viewH?: number; mode?: 'overview' | 'follow' | 'toggle' }): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'view', ...payload }));
+  };
+
+  const sendViz = (enabled: boolean): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'viz', enabled }));
+  };
+
   const isConnected = (): boolean => connected;
 
   const handleMessage = (data: unknown): void => {
@@ -213,6 +226,8 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     disconnect,
     sendJoin,
     sendAction,
+    sendView,
+    sendViz,
     isConnected
   };
 }

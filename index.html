@@ -95,51 +95,49 @@
         </div>
 
         <div class="row">
-          <label>Brain layout</label>
-          <div class="brain-stack">
-            <label class="stack-pill"><input id="useMLP" type="checkbox" data-path="brain.useMlp" /> MLP front-end</label>
-            <label class="stack-pill"><input id="stackGRU" type="checkbox" data-path="brain.stack.gru" /> GRU</label>
-            <label class="stack-pill"><input id="stackLSTM" type="checkbox" data-path="brain.stack.lstm" /> LSTM</label>
-            <label class="stack-pill"><input id="stackRRU" type="checkbox" data-path="brain.stack.rru" /> RRU</label>
+          <label>Brain graph</label>
+          <div class="meta">One layout editor for MLP/GRU/LSTM/RRU/Dense/Split/Concat. Requires reset.</div>
+        </div>
+
+        <div class="row graph-panel">
+          <div class="graph-templates">
+            <div class="graph-templates-title">Templates</div>
+            <div class="graph-templates-grid">
+              <button class="btn" data-template="linear">Linear MLP</button>
+              <button class="btn" data-template="mlp-gru-mlp">MLP → GRU → MLP</button>
+              <button class="btn" data-template="skip">Skip + concat</button>
+              <button class="btn" data-template="split">Split + parallel heads</button>
+            </div>
           </div>
-          <div class="meta">Linear stack only. Use Advanced graph for splits/skips. Requires reset.</div>
+
+          <div class="graph-section">
+            <div class="graph-section-title">Nodes</div>
+            <div id="graphNodes" class="graph-list"></div>
+            <button id="graphNodeAdd" class="btn small">Add node</button>
+          </div>
+
+          <div class="graph-section">
+            <div class="graph-section-title">Edges</div>
+            <div id="graphEdges" class="graph-list"></div>
+            <button id="graphEdgeAdd" class="btn small">Add edge</button>
+          </div>
+
+          <div class="graph-section">
+            <div class="graph-section-title">Outputs</div>
+            <div id="graphOutputs" class="graph-list"></div>
+            <button id="graphOutputAdd" class="btn small">Add output</button>
+          </div>
+
+          <div class="graph-actions">
+            <button id="graphApply" class="btn">Apply graph</button>
+            <button id="graphReset" class="btn">Reset graph</button>
+            <div id="graphSpecStatus" class="meta">Graph not applied yet.</div>
+          </div>
         </div>
 
         <div class="row">
-          <label>Memory order</label>
-          <div id="stackOrder" class="stack-order"></div>
-          <div class="meta">Use arrows to reorder the stack.</div>
-        </div>
-
-        <div class="row">
-          <label for="graphPreset">Quick layouts</label>
-          <div class="preset-row">
-            <select id="graphPreset">
-              <option value="mlp">MLP only</option>
-              <option value="mlp-gru">MLP + GRU</option>
-              <option value="mlp-lstm">MLP + LSTM</option>
-              <option value="mlp-rru">MLP + RRU</option>
-              <option value="mlp-gru-lstm">MLP + GRU + LSTM</option>
-              <option value="mlp-gru-rru">MLP + GRU + RRU</option>
-              <option value="mlp-gru-lstm-rru">MLP + GRU + LSTM + RRU</option>
-              <option value="gru">GRU only</option>
-              <option value="lstm">LSTM only</option>
-              <option value="rru">RRU only</option>
-              <option value="gru-lstm">GRU + LSTM</option>
-              <option value="gru-rru">GRU + RRU</option>
-              <option value="gru-lstm-rru">GRU + LSTM + RRU</option>
-            </select>
-            <button id="graphPresetApply" class="btn">Apply layout</button>
-          </div>
-          <div class="meta">Quick layouts just set the toggles above.</div>
-        </div>
-
-        <div class="row">
-          <label for="graphPresetSaved">Saved presets (database)</label>
-          <div class="preset-row">
-            <select id="graphPresetSaved"></select>
-            <button id="graphPresetLoad" class="btn">Load saved</button>
-          </div>
+          <label>Saved presets (database)</label>
+          <div id="graphPresetList" class="graph-presets"></div>
           <div class="preset-row">
             <input id="graphPresetName" type="text" placeholder="Preset name" />
             <button id="graphPresetSave" class="btn">Save preset</button>
@@ -147,30 +145,16 @@
         </div>
 
         <details class="graph-advanced">
-          <summary>Advanced graph layout (splits/skips)</summary>
+          <summary>Advanced JSON (optional)</summary>
           <div class="group">
-            <div class="row">
-              <label for="graphExample">Graph examples</label>
-              <div class="preset-row">
-                <select id="graphExample">
-                  <option value="skip">Skip + concat</option>
-                  <option value="split">Split + parallel heads</option>
-                </select>
-                <button id="graphExampleApply" class="btn">Load example</button>
-              </div>
-            </div>
             <div class="row">
               <label for="graphSpecInput">Graph spec (JSON)</label>
               <textarea id="graphSpecInput" class="graph-input" rows="10" placeholder='{"type":"graph","nodes":[...],"edges":[...],"outputs":[...],"outputSize":2}'></textarea>
               <div class="preset-row">
-                <button id="graphSpecApply" class="btn">Use graph spec</button>
-                <button id="graphSpecClear" class="btn">Use layout</button>
+                <button id="graphSpecApply" class="btn">Load JSON into editor</button>
+                <button id="graphSpecCopy" class="btn">Copy current graph</button>
+                <button id="graphSpecExport" class="btn">Export JSON</button>
               </div>
-              <div class="preset-row">
-                <button id="graphSpecCopy" class="btn">Copy active spec</button>
-                <button id="graphSpecExport" class="btn">Export spec</button>
-              </div>
-              <div id="graphSpecStatus" class="meta">Using layout controls.</div>
             </div>
           </div>
         </details>

@@ -145,12 +145,18 @@ export class Genome {
           break;
         }
         case 'LSTM': {
-          const lstm = new LSTM(node.inputSize, node.hiddenSize ?? node.outputSize);
+          const initBias = CFG.brain && typeof CFG.brain.lstmInitForgetBias === 'number'
+            ? CFG.brain.lstmInitForgetBias
+            : 0.6;
+          const lstm = new LSTM(node.inputSize, node.hiddenSize ?? node.outputSize, null, initBias);
           slice.set(lstm.w);
           break;
         }
         case 'RRU': {
-          const rru = new RRU(node.inputSize, node.hiddenSize ?? node.outputSize);
+          const initBias = CFG.brain && typeof CFG.brain.rruInitGateBias === 'number'
+            ? CFG.brain.rruInitGateBias
+            : 0.1;
+          const rru = new RRU(node.inputSize, node.hiddenSize ?? node.outputSize, null, initBias);
           slice.set(rru.w);
           break;
         }

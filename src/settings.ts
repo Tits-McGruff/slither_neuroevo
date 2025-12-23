@@ -92,6 +92,8 @@ const SETTING_SPECS: SettingSpec[] = [
   { group: "Brain and memory", path: "brain.gruMutationStd", label: "Recurrent mutation std (GRU/LSTM/RRU)", min: 0.0, max: 1.60, step: 0.02, decimals: 2, requiresReset: true },
   { group: "Brain and memory", path: "brain.gruCrossoverMode", label: "Recurrent crossover mode (0 block, 1 unit)", min: 0, max: 1, step: 1, decimals: 0, requiresReset: true },
   { group: "Brain and memory", path: "brain.gruInitUpdateBias", label: "GRU init update gate bias (GRU only)", min: -2.5, max: 1.5, step: 0.05, decimals: 2, requiresReset: true },
+  { group: "Brain and memory", path: "brain.lstmInitForgetBias", label: "LSTM init forget gate bias (LSTM only)", min: -1.5, max: 3.0, step: 0.05, decimals: 2, requiresReset: true },
+  { group: "Brain and memory", path: "brain.rruInitGateBias", label: "RRU init gate bias (RRU only)", min: -1.5, max: 2.0, step: 0.05, decimals: 2, requiresReset: true },
 
   { group: "Misc", path: "dtClamp", label: "Frame dt clamp", min: 0.01, max: 0.12, step: 0.005, decimals: 3, requiresReset: false }
 ];

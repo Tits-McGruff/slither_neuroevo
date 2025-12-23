@@ -3,11 +3,12 @@ import { CFG } from '../src/config.ts';
 import { World } from '../src/world.ts';
 import { WorldSerializer } from '../src/serializer.ts';
 import type { ServerConfig } from './config.ts';
-import type { ActionMsg, ClientType, JoinMode, StatsMsg } from './protocol.ts';
+import type { ActionMsg, ClientType, JoinMode, StatsMsg, ViewMsg, VizMsg } from './protocol.ts';
 import type { PopulationImportData } from '../src/protocol/messages.ts';
 import { ControllerRegistry } from './controllerRegistry.ts';
 import type { Persistence, PopulationSnapshotPayload } from './persistence.ts';
 import { WsHub } from './wsHub.ts';
+import type { VizData } from '../src/protocol/messages.ts';
 
 export class SimServer {
   private world: World;
@@ -32,6 +33,7 @@ export class SimServer {
   private lastGeneration: number;
   private lastHofGenSaved: number;
   private lastHistoryLen: number;
+  private vizConnections: Set<number>;
 
   constructor(
     config: ServerConfig,
@@ -64,6 +66,7 @@ export class SimServer {
     this.lastGeneration = this.world.generation;
     this.lastHofGenSaved = 0;
     this.lastHistoryLen = this.world.fitnessHistory.length;
+    this.vizConnections = new Set();
   }
 
   start(): void {
@@ -107,18 +110,42 @@ export class SimServer {
       return;
     }
     const controller = clientType === 'bot' ? 'bot' : 'player';
-    const snakeId = this.controllers.assignSnake(connId, controller);
+    const snake = this.world.spawnExternalSnake();
+    const snakeId = this.controllers.assignSnake(connId, controller, snake.id);
     if (snakeId == null) {
       this.wsHub.sendJsonTo(connId, { type: 'error', message: 'no available snakes' });
+      return;
     }
+    this.world.focusSnake = snake;
+    this.world.viewMode = 'follow';
   }
 
   handleAction(connId: number, msg: ActionMsg): void {
     this.controllers.handleAction(connId, msg);
   }
 
+  handleView(_connId: number, msg: ViewMsg): void {
+    if (Number.isFinite(msg.viewW)) this.viewW = Math.max(1, msg.viewW ?? this.viewW);
+    if (Number.isFinite(msg.viewH)) this.viewH = Math.max(1, msg.viewH ?? this.viewH);
+    if (msg.mode === 'toggle') {
+      this.world.toggleViewMode();
+      return;
+    }
+    if (msg.mode === 'overview' || msg.mode === 'follow') {
+      if (this.world.viewMode !== msg.mode) {
+        this.world.toggleViewMode();
+      }
+    }
+  }
+
+  handleViz(connId: number, msg: VizMsg): void {
+    if (msg.enabled) this.vizConnections.add(connId);
+    else this.vizConnections.delete(connId);
+  }
+
   handleDisconnect(connId: number): void {
     this.controllers.releaseSnake(connId);
+    this.vizConnections.delete(connId);
   }
 
   private loop(): void {
@@ -143,7 +170,7 @@ export class SimServer {
 
     const dt = 1 / this.tickRateHz;
     this.world.update(dt, this.viewW, this.viewH, this.controllers, this.tickId);
-    this.controllers.reassignDeadSnakes();
+    this.controllers.reassignDeadSnakes(() => this.world.spawnExternalSnake().id);
     this.handleGenerationEnd();
 
     const frame = WorldSerializer.serialize(this.world);
@@ -222,6 +249,15 @@ export class SimServer {
       stats.fitnessHistory = this.world.fitnessHistory.slice();
       this.lastHistoryLen = this.world.fitnessHistory.length;
     }
+    if (this.vizConnections.size > 0) {
+      const viz = buildVizData(this.world.focusSnake?.brain);
+      if (viz) stats.viz = viz;
+    }
     return stats;
   }
+}
+
+function buildVizData(brain: { getVizData?: () => VizData } | null | undefined): VizData | null {
+  if (!brain || typeof brain.getVizData !== 'function') return null;
+  return brain.getVizData();
 }

@@ -5,6 +5,8 @@ import type {
   ClientType,
   JoinMode,
   JoinMsg,
+  ViewMsg,
+  VizMsg,
   ServerMessage,
   StatsMsg,
   WelcomeMsg
@@ -30,6 +32,8 @@ export interface WsHubOptions {
 export interface WsHubHandlers {
   onJoin?: (connId: number, msg: JoinMsg, clientType: ClientType) => void;
   onAction?: (connId: number, msg: ActionMsg) => void;
+  onView?: (connId: number, msg: ViewMsg) => void;
+  onViz?: (connId: number, msg: VizMsg) => void;
   onDisconnect?: (connId: number) => void;
 }
 
@@ -170,6 +174,20 @@ export class WsHub {
           return;
         }
         this.handlers?.onAction?.(state.id, msg);
+        return;
+      case 'view':
+        if (!state.joined) {
+          this.protocolError(state, 'join required before view');
+          return;
+        }
+        this.handlers?.onView?.(state.id, msg);
+        return;
+      case 'viz':
+        if (!state.joined) {
+          this.protocolError(state, 'join required before viz');
+          return;
+        }
+        this.handlers?.onViz?.(state.id, msg);
         return;
       case 'ping':
         return;

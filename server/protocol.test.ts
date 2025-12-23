@@ -26,4 +26,22 @@ describe('server protocol', () => {
     });
     expect(msg?.type).toBe('action');
   });
+
+  it('accepts a valid view message', () => {
+    const msg = parseClientMessage({
+      type: 'view',
+      viewW: 1280,
+      viewH: 720,
+      mode: 'overview'
+    });
+    expect(msg?.type).toBe('view');
+  });
+
+  it('accepts a valid viz message', () => {
+    const msg = parseClientMessage({
+      type: 'viz',
+      enabled: true
+    });
+    expect(msg?.type).toBe('viz');
+  });
 });
