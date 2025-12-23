@@ -113,9 +113,17 @@
           <div id="graphDiagramWrap" class="graph-diagram">
             <div class="graph-diagram-header">
               <div class="graph-templates-title">Diagram</div>
-              <button id="graphDiagramToggle" class="btn small" type="button">Full screen</button>
+              <div class="graph-diagram-actions">
+                <button id="graphDiagramAddNode" class="btn small" type="button">Add node</button>
+                <button id="graphDiagramConnect" class="btn small" type="button">Connect</button>
+                <button id="graphDiagramAddOutput" class="btn small" type="button">Add output</button>
+                <button id="graphDiagramAuto" class="btn small" type="button">Auto layout</button>
+                <button id="graphDiagramDelete" class="btn small" type="button">Delete</button>
+                <button id="graphDiagramToggle" class="btn small" type="button">Full screen</button>
+              </div>
             </div>
             <svg id="graphDiagram" class="graph-diagram-svg" viewBox="0 0 800 360" role="img" aria-label="Brain graph diagram"></svg>
+            <div id="graphDiagramInspector" class="graph-diagram-inspector"></div>
             <div class="meta">Flow is left → right. Outputs are shown at the far right.</div>
           </div>
 

@@ -16,7 +16,7 @@ import { BrainViz } from './BrainViz.ts';
 import { AdvancedCharts } from './chartUtils.ts';
 import { createWsClient, resolveServerUrl, storeServerUrl } from './net/wsClient.ts';
 import { validateGraph } from './brains/graph/validate.ts';
-import type { GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
+import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
 import type { FrameStats, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
 import type { SettingsUpdate } from './protocol/settings.ts';
 
@@ -87,6 +87,16 @@ let boostHeld = false;
 const GRAPH_SPEC_STORAGE_KEY = 'slither_neuroevo_graph_spec';
 let customGraphSpec: GraphSpec | null = null;
 let graphDraft: GraphSpec | null = null;
+const DIAGRAM_NODE_WIDTH = 140;
+const DIAGRAM_NODE_HEIGHT = 44;
+const graphLayoutOverrides = new Map<string, { x: number; y: number }>();
+let graphConnectMode = false;
+let graphConnectFromId: string | null = null;
+let graphSelectedNodeId: string | null = null;
+let graphSelectedEdgeIndex: number | null = null;
+let graphSelectedOutputIndex: number | null = null;
+let graphDragState: { id: string; offsetX: number; offsetY: number } | null = null;
+let graphPointerPos: { x: number; y: number } | null = null;
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 // HUD removed, using tab info panels instead
 // Expose the rendering context globally so render helpers can draw.
@@ -145,6 +155,12 @@ const graphDiagramWrap = document.getElementById('graphDiagramWrap') as HTMLElem
 const graphDiagram = document.getElementById('graphDiagram') as SVGSVGElement | null;
 const graphDiagramToggle = document.getElementById('graphDiagramToggle') as HTMLButtonElement | null;
 const graphDiagramBackdrop = document.getElementById('graphDiagramBackdrop') as HTMLDivElement | null;
+const graphDiagramAddNode = document.getElementById('graphDiagramAddNode') as HTMLButtonElement | null;
+const graphDiagramConnect = document.getElementById('graphDiagramConnect') as HTMLButtonElement | null;
+const graphDiagramAddOutput = document.getElementById('graphDiagramAddOutput') as HTMLButtonElement | null;
+const graphDiagramAuto = document.getElementById('graphDiagramAuto') as HTMLButtonElement | null;
+const graphDiagramDelete = document.getElementById('graphDiagramDelete') as HTMLButtonElement | null;
+const graphDiagramInspector = document.getElementById('graphDiagramInspector') as HTMLDivElement | null;
 const snakesVal = document.getElementById('snakesVal') as HTMLElement;
 const simSpeedVal = document.getElementById('simSpeedVal') as HTMLElement;
 const layersVal = document.getElementById('layersVal') as HTMLElement;
@@ -384,6 +400,119 @@ if (graphDiagramToggle) {
 if (graphDiagramBackdrop) {
   graphDiagramBackdrop.addEventListener('click', () => {
     setGraphDiagramFullscreen(false);
+  });
+}
+
+if (graphDiagramConnect) {
+  graphDiagramConnect.addEventListener('click', () => {
+    setGraphConnectMode(!graphConnectMode);
+  });
+}
+
+if (graphDiagramAddNode) {
+  graphDiagramAddNode.addEventListener('click', () => {
+    const draft = ensureGraphDraft();
+    const id = buildUniqueNodeId(draft, 'node');
+    draft.nodes.push(buildDefaultNode('Dense', id));
+    if (graphDiagram?.viewBox?.baseVal) {
+      const box = graphDiagram.viewBox.baseVal;
+      const centerX = graphPointerPos?.x ?? box.x + box.width / 2 - DIAGRAM_NODE_WIDTH / 2;
+      const centerY = graphPointerPos?.y ?? box.y + box.height / 2 - DIAGRAM_NODE_HEIGHT / 2;
+      graphLayoutOverrides.set(id, { x: centerX, y: centerY });
+    }
+    renderGraphEditor();
+    setGraphSelection({ nodeId: id });
+    setGraphSpecStatus('Node added. Apply graph to use it.');
+  });
+}
+
+if (graphDiagramAddOutput) {
+  graphDiagramAddOutput.addEventListener('click', () => {
+    const draft = ensureGraphDraft();
+    const targetId =
+      graphSelectedNodeId ??
+      draft.nodes.find(node => node.type !== 'Input')?.id ??
+      draft.nodes[0]?.id;
+    if (!targetId) {
+      setGraphSpecStatus('Add a node before adding outputs.', true);
+      return;
+    }
+    draft.outputs.push({ nodeId: targetId });
+    renderGraphEditor();
+    setGraphSelection({ outputIndex: draft.outputs.length - 1 });
+    setGraphSpecStatus('Output added. Apply graph to use it.');
+  });
+}
+
+if (graphDiagramAuto) {
+  graphDiagramAuto.addEventListener('click', () => {
+    graphLayoutOverrides.clear();
+    renderGraphEditor();
+    setGraphSpecStatus('Layout reset to auto.', false);
+  });
+}
+
+if (graphDiagramDelete) {
+  graphDiagramDelete.addEventListener('click', () => {
+    const draft = ensureGraphDraft();
+    if (graphSelectedNodeId) {
+      const idx = draft.nodes.findIndex(node => node.id === graphSelectedNodeId);
+      if (idx < 0) return;
+      if (draft.nodes[idx]?.type === 'Input') {
+        setGraphSpecStatus('Input node cannot be removed.', true);
+        return;
+      }
+      const removedId = draft.nodes[idx]!.id;
+      draft.nodes.splice(idx, 1);
+      draft.edges = draft.edges.filter(edge => edge.from !== removedId && edge.to !== removedId);
+      draft.outputs = draft.outputs.filter(out => out.nodeId !== removedId);
+      graphLayoutOverrides.delete(removedId);
+      setGraphSelection({});
+      renderGraphEditor();
+      setGraphSpecStatus('Node removed. Apply graph to use it.');
+      return;
+    }
+    if (graphSelectedEdgeIndex != null) {
+      draft.edges.splice(graphSelectedEdgeIndex, 1);
+      setGraphSelection({});
+      renderGraphEditor();
+      setGraphSpecStatus('Edge removed. Apply graph to use it.');
+      return;
+    }
+    if (graphSelectedOutputIndex != null) {
+      draft.outputs.splice(graphSelectedOutputIndex, 1);
+      setGraphSelection({});
+      renderGraphEditor();
+      setGraphSpecStatus('Output removed. Apply graph to use it.');
+    }
+  });
+}
+
+if (graphDiagram) {
+  graphDiagram.addEventListener('pointermove', (event) => {
+    const point = getSvgPoint(event);
+    if (point) {
+      graphPointerPos = point;
+    }
+    if (graphDragState && point) {
+      const x = point.x - graphDragState.offsetX;
+      const y = point.y - graphDragState.offsetY;
+      graphLayoutOverrides.set(graphDragState.id, { x, y });
+      renderGraphDiagram(ensureGraphDraft());
+    }
+  });
+  graphDiagram.addEventListener('pointerup', () => {
+    graphDragState = null;
+  });
+  graphDiagram.addEventListener('pointerleave', () => {
+    graphDragState = null;
+  });
+  graphDiagram.addEventListener('click', () => {
+    if (graphConnectMode) {
+      graphConnectFromId = null;
+      setGraphSpecStatus('Connect mode: select a start node.');
+    }
+    setGraphSelection({});
   });
 }
 
@@ -946,6 +1075,7 @@ type DiagramNode = {
   label: string;
   type: string;
   layer: number;
+  outputIndex?: number;
 };
 
 type DiagramEdge = {
@@ -953,7 +1083,134 @@ type DiagramEdge = {
   to: string;
   fromPort?: number;
   toPort?: number;
+  edgeIndex?: number;
+  outputIndex?: number;
 };
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function setGraphSelection(next: { nodeId?: string | null; edgeIndex?: number | null; outputIndex?: number | null }): void {
+  graphSelectedNodeId = next.nodeId ?? null;
+  graphSelectedEdgeIndex = next.edgeIndex ?? null;
+  graphSelectedOutputIndex = next.outputIndex ?? null;
+  if (graphSelectedNodeId) {
+    graphSelectedEdgeIndex = null;
+    graphSelectedOutputIndex = null;
+  }
+  if (graphSelectedEdgeIndex != null) {
+    graphSelectedNodeId = null;
+    graphSelectedOutputIndex = null;
+  }
+  if (graphSelectedOutputIndex != null) {
+    graphSelectedNodeId = null;
+    graphSelectedEdgeIndex = null;
+  }
+  renderGraphEditor();
+}
+
+function syncGraphSelection(spec: GraphSpec): void {
+  if (graphSelectedNodeId && !spec.nodes.some(node => node.id === graphSelectedNodeId)) {
+    graphSelectedNodeId = null;
+  }
+  if (graphSelectedEdgeIndex != null && (graphSelectedEdgeIndex < 0 || graphSelectedEdgeIndex >= spec.edges.length)) {
+    graphSelectedEdgeIndex = null;
+  }
+  if (
+    graphSelectedOutputIndex != null &&
+    (graphSelectedOutputIndex < 0 || graphSelectedOutputIndex >= spec.outputs.length)
+  ) {
+    graphSelectedOutputIndex = null;
+  }
+}
+
+function getSvgPoint(evt: PointerEvent | MouseEvent): { x: number; y: number } | null {
+  if (!graphDiagram) return null;
+  const rect = graphDiagram.getBoundingClientRect();
+  const viewBox = graphDiagram.viewBox?.baseVal;
+  if (!viewBox) return null;
+  const x = ((evt.clientX - rect.left) / rect.width) * viewBox.width + viewBox.x;
+  const y = ((evt.clientY - rect.top) / rect.height) * viewBox.height + viewBox.y;
+  return { x, y };
+}
+
+function setGraphConnectMode(next: boolean): void {
+  graphConnectMode = next;
+  graphConnectFromId = null;
+  if (graphDiagramConnect) {
+    graphDiagramConnect.classList.toggle('active', next);
+    graphDiagramConnect.textContent = next ? 'Connecting' : 'Connect';
+  }
+  setGraphSpecStatus(next ? 'Connect mode: click a start node.' : 'Connect mode off.');
+}
+
+function handleDiagramConnect(targetId: string): void {
+  const spec = ensureGraphDraft();
+  if (!graphConnectFromId) {
+    graphConnectFromId = targetId;
+    setGraphSelection({ nodeId: targetId });
+    setGraphSpecStatus('Connect mode: select a target node.');
+    return;
+  }
+  if (graphConnectFromId === targetId) {
+    graphConnectFromId = null;
+    setGraphSpecStatus('Connect mode cancelled.');
+    return;
+  }
+  const created = addGraphEdge(graphConnectFromId, targetId, spec);
+  graphConnectFromId = null;
+  if (created != null) {
+    setGraphSelection({ edgeIndex: created });
+    setGraphSpecStatus('Edge added. Apply graph to use it.');
+  }
+}
+
+function addGraphEdge(fromId: string, toId: string, spec: GraphSpec): number | null {
+  const fromNode = spec.nodes.find(node => node.id === fromId);
+  const toNode = spec.nodes.find(node => node.id === toId);
+  if (!fromNode || !toNode) return null;
+  if (fromNode.id === toNode.id) return null;
+  const next: GraphEdge = { from: fromId, to: toId };
+
+  if (fromNode.type === 'Split') {
+    const maxPorts = fromNode.outputSizes.length;
+    const used = new Set(
+      spec.edges
+        .filter(edge => edge.from === fromId && edge.fromPort != null)
+        .map(edge => edge.fromPort as number)
+    );
+    let chosen = 0;
+    while (used.has(chosen) && chosen < maxPorts) chosen += 1;
+    next.fromPort = clamp(chosen, 0, Math.max(0, maxPorts - 1));
+  }
+
+  if (toNode.type === 'Concat') {
+    const used = new Set(
+      spec.edges
+        .filter(edge => edge.to === toId && edge.toPort != null)
+        .map(edge => edge.toPort as number)
+    );
+    let chosen = 0;
+    while (used.has(chosen)) chosen += 1;
+    next.toPort = chosen;
+  }
+
+  const duplicate = spec.edges.some(
+    edge =>
+      edge.from === next.from &&
+      edge.to === next.to &&
+      (edge.fromPort ?? null) === (next.fromPort ?? null) &&
+      (edge.toPort ?? null) === (next.toPort ?? null)
+  );
+  if (duplicate) {
+    setGraphSpecStatus('Edge already exists.', true);
+    return null;
+  }
+  spec.edges.push(next);
+  renderGraphEditor();
+  return spec.edges.length - 1;
+}
 
 function renderGraphDiagram(spec: GraphSpec): void {
   if (!graphDiagram) return;
@@ -964,14 +1221,16 @@ function renderGraphDiagram(spec: GraphSpec): void {
   const nodeById = new Map<string, GraphNodeSpec>();
   spec.nodes.forEach(node => nodeById.set(node.id, node));
 
-  const edges = spec.edges.filter(edge => nodeById.has(edge.from) && nodeById.has(edge.to));
+  const edges = spec.edges
+    .map((edge, index) => ({ edge, index }))
+    .filter(({ edge }) => nodeById.has(edge.from) && nodeById.has(edge.to));
   const outgoing = new Map<string, string[]>();
   const incoming = new Map<string, string[]>();
   spec.nodes.forEach(node => {
     outgoing.set(node.id, []);
     incoming.set(node.id, []);
   });
-  edges.forEach(edge => {
+  edges.forEach(({ edge }) => {
     outgoing.get(edge.from)?.push(edge.to);
     incoming.get(edge.to)?.push(edge.from);
   });
@@ -1009,6 +1268,7 @@ function renderGraphDiagram(spec: GraphSpec): void {
     label: `Out ${index + 1}`,
     type: 'Output',
     layer: maxLayer + 1,
+    outputIndex: index,
     fromId: output.nodeId,
     port: output.port
   }));
@@ -1024,19 +1284,20 @@ function renderGraphDiagram(spec: GraphSpec): void {
       id: node.id,
       label: node.label,
       type: node.type,
-      layer: node.layer
+      layer: node.layer,
+      outputIndex: node.outputIndex
     }))
   ];
 
   const diagramEdges: DiagramEdge[] = [
-    ...edges.map(edge => {
-      const entry: DiagramEdge = { from: edge.from, to: edge.to };
+    ...edges.map(({ edge, index }) => {
+      const entry: DiagramEdge = { from: edge.from, to: edge.to, edgeIndex: index };
       if (edge.fromPort != null) entry.fromPort = edge.fromPort;
       if (edge.toPort != null) entry.toPort = edge.toPort;
       return entry;
     }),
     ...outputNodes.map(node => {
-      const entry: DiagramEdge = { from: node.fromId, to: node.id };
+      const entry: DiagramEdge = { from: node.fromId, to: node.id, outputIndex: node.outputIndex };
       if (node.port != null) entry.fromPort = node.port;
       return entry;
     })
@@ -1052,8 +1313,8 @@ function renderGraphDiagram(spec: GraphSpec): void {
   const sortedLayers = Array.from(layerGroups.keys()).sort((a, b) => a - b);
   const maxPerLayer = Math.max(1, ...sortedLayers.map(layer => layerGroups.get(layer)?.length ?? 0));
 
-  const nodeWidth = 140;
-  const nodeHeight = 44;
+  const nodeWidth = DIAGRAM_NODE_WIDTH;
+  const nodeHeight = DIAGRAM_NODE_HEIGHT;
   const layerGap = 90;
   const rowGap = 18;
   const padding = 20;
@@ -1075,6 +1336,15 @@ function renderGraphDiagram(spec: GraphSpec): void {
     });
   });
 
+  diagramNodes.forEach(node => {
+    if (node.id.startsWith('__out-')) return;
+    const override = graphLayoutOverrides.get(node.id);
+    if (!override) return;
+    const x = clamp(override.x, padding, width - padding - nodeWidth);
+    const y = clamp(override.y, padding, height - padding - nodeHeight);
+    positions.set(node.id, { x, y });
+  });
+
   const edgesGroup = document.createElementNS(svgNs, 'g');
   diagramEdges.forEach(edge => {
     const from = positions.get(edge.from);
@@ -1086,8 +1356,15 @@ function renderGraphDiagram(spec: GraphSpec): void {
     const y2 = to.y + nodeHeight / 2;
     const curve = Math.max(20, (x2 - x1) * 0.35);
     const path = document.createElementNS(svgNs, 'path');
-    path.setAttribute('class', 'graph-diagram-edge');
+    const isSelected = edge.edgeIndex != null && edge.edgeIndex === graphSelectedEdgeIndex;
+    path.setAttribute('class', isSelected ? 'graph-diagram-edge selected' : 'graph-diagram-edge');
     path.setAttribute('d', `M ${x1} ${y1} C ${x1 + curve} ${y1} ${x2 - curve} ${y2} ${x2} ${y2}`);
+    if (edge.edgeIndex != null) {
+      path.addEventListener('click', (event) => {
+        event.stopPropagation();
+        setGraphSelection({ edgeIndex: edge.edgeIndex ?? null });
+      });
+    }
     edgesGroup.appendChild(path);
 
     const addPortLabel = (value: number | undefined, x: number, y: number) => {
@@ -1109,6 +1386,17 @@ function renderGraphDiagram(spec: GraphSpec): void {
   diagramNodes.forEach(node => {
     const pos = positions.get(node.id);
     if (!pos) return;
+    const group = document.createElementNS(svgNs, 'g');
+    group.setAttribute('data-node-id', node.id);
+    if (node.outputIndex != null) {
+      group.setAttribute('data-output-index', String(node.outputIndex));
+    }
+    group.setAttribute('cursor', 'pointer');
+
+    const isSelected =
+      node.outputIndex != null
+        ? graphSelectedOutputIndex === node.outputIndex
+        : graphSelectedNodeId === node.id;
     const rect = document.createElementNS(svgNs, 'rect');
     rect.setAttribute('x', String(pos.x));
     rect.setAttribute('y', String(pos.y));
@@ -1118,9 +1406,9 @@ function renderGraphDiagram(spec: GraphSpec): void {
     rect.setAttribute('height', String(nodeHeight));
     rect.setAttribute(
       'class',
-      `graph-diagram-node graph-diagram-${node.type.toLowerCase()}`
+      `graph-diagram-node graph-diagram-${node.type.toLowerCase()}${isSelected ? ' selected' : ''}`
     );
-    nodesGroup.appendChild(rect);
+    group.appendChild(rect);
 
     const text = document.createElementNS(svgNs, 'text');
     text.setAttribute('class', 'graph-diagram-label');
@@ -1136,14 +1424,375 @@ function renderGraphDiagram(spec: GraphSpec): void {
     line2.setAttribute('dy', '14');
     text.appendChild(line1);
     text.appendChild(line2);
-    nodesGroup.appendChild(text);
+    group.appendChild(text);
+
+    group.addEventListener('pointerdown', (event) => {
+      event.stopPropagation();
+      if (event.button !== 0) return;
+      if (graphConnectMode || node.outputIndex != null || node.id.startsWith('__out-')) return;
+      const point = getSvgPoint(event);
+      if (!point) return;
+      const current = positions.get(node.id);
+      if (!current) return;
+      graphDragState = {
+        id: node.id,
+        offsetX: point.x - current.x,
+        offsetY: point.y - current.y
+      };
+      graphDiagram?.setPointerCapture?.(event.pointerId);
+    });
+
+    group.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (node.outputIndex != null) {
+        setGraphSelection({ outputIndex: node.outputIndex });
+        return;
+      }
+      if (graphConnectMode) {
+        handleDiagramConnect(node.id);
+        return;
+      }
+      setGraphSelection({ nodeId: node.id });
+    });
+
+    nodesGroup.appendChild(group);
   });
   graphDiagram.appendChild(nodesGroup);
+}
+
+function renderGraphInspector(spec: GraphSpec): void {
+  if (!graphDiagramInspector) return;
+  graphDiagramInspector.innerHTML = '';
+
+  const makeRow = (labelText: string, input: HTMLElement): HTMLDivElement => {
+    const row = document.createElement('div');
+    row.className = 'graph-inspector-row';
+    const label = document.createElement('label');
+    label.textContent = labelText;
+    row.appendChild(label);
+    row.appendChild(input);
+    return row;
+  };
+
+  const makeNumberInput = (value: number): HTMLInputElement => {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = Number.isFinite(value) ? String(value) : '';
+    return input;
+  };
+
+  const parseNumberList = (value: string): number[] => {
+    return value
+      .split(',')
+      .map(part => Number(part.trim()))
+      .filter(num => Number.isFinite(num) && num > 0);
+  };
+
+  const nodeIds = spec.nodes.map(node => node.id);
+
+  const addActions = (actions: Array<{ label: string; onClick: () => void }>): void => {
+    const row = document.createElement('div');
+    row.className = 'graph-inspector-actions';
+    actions.forEach(action => {
+      const btn = document.createElement('button');
+      btn.className = 'btn small';
+      btn.type = 'button';
+      btn.textContent = action.label;
+      btn.addEventListener('click', action.onClick);
+      row.appendChild(btn);
+    });
+    graphDiagramInspector.appendChild(row);
+  };
+
+  if (graphSelectedNodeId) {
+    const nodeIndex = spec.nodes.findIndex(node => node.id === graphSelectedNodeId);
+    const node = nodeIndex >= 0 ? spec.nodes[nodeIndex] : null;
+    if (!node) return;
+    graphDiagramInspector.classList.remove('hidden');
+
+    const title = document.createElement('div');
+    title.textContent = `Node: ${node.id}`;
+    graphDiagramInspector.appendChild(title);
+
+    const idInput = document.createElement('input');
+    idInput.type = 'text';
+    idInput.value = node.id;
+    idInput.addEventListener('change', () => {
+      const nextId = idInput.value.trim();
+      if (!nextId) {
+        idInput.value = node.id;
+        setGraphSpecStatus('Node id cannot be empty.', true);
+        return;
+      }
+      if (nextId !== node.id && spec.nodes.some(n => n.id === nextId)) {
+        idInput.value = node.id;
+        setGraphSpecStatus('Node id must be unique.', true);
+        return;
+      }
+      if (nextId === node.id) return;
+      const oldId = node.id;
+      node.id = nextId;
+      spec.edges.forEach(edge => {
+        if (edge.from === oldId) edge.from = nextId;
+        if (edge.to === oldId) edge.to = nextId;
+      });
+      spec.outputs.forEach(output => {
+        if (output.nodeId === oldId) output.nodeId = nextId;
+      });
+      if (graphLayoutOverrides.has(oldId)) {
+        const override = graphLayoutOverrides.get(oldId)!;
+        graphLayoutOverrides.delete(oldId);
+        graphLayoutOverrides.set(nextId, override);
+      }
+      if (graphSelectedNodeId === oldId) graphSelectedNodeId = nextId;
+      if (graphConnectFromId === oldId) graphConnectFromId = nextId;
+      renderGraphEditor();
+      setGraphSpecStatus('Node id updated. Apply graph to use it.');
+    });
+    graphDiagramInspector.appendChild(makeRow('Id', idInput));
+
+    const typeSelect = document.createElement('select');
+    const availableTypes: GraphNodeType[] =
+      node.type === 'Input'
+        ? ['Input']
+        : ['Dense', 'MLP', 'GRU', 'LSTM', 'RRU', 'Split', 'Concat'];
+    availableTypes.forEach(type => {
+      const option = document.createElement('option');
+      option.value = type;
+      option.textContent = type;
+      typeSelect.appendChild(option);
+    });
+    typeSelect.value = node.type;
+    typeSelect.addEventListener('change', () => {
+      const nextType = typeSelect.value as GraphNodeType;
+      spec.nodes[nodeIndex] = buildDefaultNode(nextType, node.id);
+      renderGraphEditor();
+      setGraphSpecStatus('Node type updated. Apply graph to use it.');
+    });
+    graphDiagramInspector.appendChild(makeRow('Type', typeSelect));
+
+    if (node.type === 'Dense' || node.type === 'MLP') {
+      const input = makeNumberInput(node.inputSize);
+      input.addEventListener('input', () => {
+        const next = Number(input.value);
+        if (!Number.isFinite(next)) return;
+        node.inputSize = next;
+        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
+      });
+      graphDiagramInspector.appendChild(makeRow('Input', input));
+
+      const output = makeNumberInput(node.outputSize);
+      output.addEventListener('input', () => {
+        const next = Number(output.value);
+        if (!Number.isFinite(next)) return;
+        node.outputSize = next;
+        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
+      });
+      graphDiagramInspector.appendChild(makeRow('Output', output));
+    }
+    if (node.type === 'MLP') {
+      const hidden = document.createElement('input');
+      hidden.type = 'text';
+      hidden.value = (node.hiddenSizes ?? []).join(', ');
+      hidden.addEventListener('change', () => {
+        node.hiddenSizes = parseNumberList(hidden.value);
+        setGraphSpecStatus('Updated hidden sizes. Apply graph to use it.');
+      });
+      graphDiagramInspector.appendChild(makeRow('Hidden', hidden));
+    }
+    if (node.type === 'GRU' || node.type === 'LSTM' || node.type === 'RRU') {
+      const input = makeNumberInput(node.inputSize);
+      input.addEventListener('input', () => {
+        const next = Number(input.value);
+        if (!Number.isFinite(next)) return;
+        node.inputSize = next;
+        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
+      });
+      graphDiagramInspector.appendChild(makeRow('Input', input));
+
+      const hidden = makeNumberInput(node.hiddenSize);
+      hidden.addEventListener('input', () => {
+        const next = Number(hidden.value);
+        if (!Number.isFinite(next)) return;
+        node.hiddenSize = next;
+        setGraphSpecStatus('Updated hidden size. Apply graph to use it.');
+      });
+      graphDiagramInspector.appendChild(makeRow('Hidden', hidden));
+    }
+    if (node.type === 'Split') {
+      const sizes = document.createElement('input');
+      sizes.type = 'text';
+      sizes.value = node.outputSizes.join(', ');
+      sizes.addEventListener('change', () => {
+        const next = parseNumberList(sizes.value);
+        if (!next.length) return;
+        node.outputSizes = next;
+        setGraphSpecStatus('Updated split sizes. Apply graph to use it.');
+      });
+      graphDiagramInspector.appendChild(makeRow('Outputs', sizes));
+    }
+
+    addActions([
+      {
+        label: 'Delete',
+        onClick: () => {
+          if (node.type === 'Input') {
+            setGraphSpecStatus('Input node cannot be removed.', true);
+            return;
+          }
+          const removedId = node.id;
+          spec.nodes.splice(nodeIndex, 1);
+          spec.edges = spec.edges.filter(edge => edge.from !== removedId && edge.to !== removedId);
+          spec.outputs = spec.outputs.filter(out => out.nodeId !== removedId);
+          graphLayoutOverrides.delete(removedId);
+          setGraphSelection({});
+          renderGraphEditor();
+          setGraphSpecStatus('Node removed. Apply graph to use it.');
+        }
+      }
+    ]);
+    return;
+  }
+
+  if (graphSelectedEdgeIndex != null) {
+    const edge = spec.edges[graphSelectedEdgeIndex];
+    if (!edge) return;
+    graphDiagramInspector.classList.remove('hidden');
+    const title = document.createElement('div');
+    title.textContent = 'Edge';
+    graphDiagramInspector.appendChild(title);
+
+    const fromSelect = document.createElement('select');
+    nodeIds.forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      fromSelect.appendChild(opt);
+    });
+    fromSelect.value = edge.from;
+    fromSelect.addEventListener('change', () => {
+      edge.from = fromSelect.value;
+      renderGraphEditor();
+      setGraphSpecStatus('Edge updated. Apply graph to use it.');
+    });
+    graphDiagramInspector.appendChild(makeRow('From', fromSelect));
+
+    const fromPort = makeNumberInput(edge.fromPort ?? 0);
+    fromPort.value = edge.fromPort == null ? '' : String(edge.fromPort);
+    fromPort.addEventListener('change', () => {
+      const value = fromPort.value.trim();
+      if (value === '') {
+        if ('fromPort' in edge) delete edge.fromPort;
+      } else {
+        edge.fromPort = Number(value);
+      }
+      setGraphSpecStatus('Edge updated. Apply graph to use it.');
+    });
+    graphDiagramInspector.appendChild(makeRow('From port', fromPort));
+
+    const toSelect = document.createElement('select');
+    nodeIds.forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      toSelect.appendChild(opt);
+    });
+    toSelect.value = edge.to;
+    toSelect.addEventListener('change', () => {
+      edge.to = toSelect.value;
+      renderGraphEditor();
+      setGraphSpecStatus('Edge updated. Apply graph to use it.');
+    });
+    graphDiagramInspector.appendChild(makeRow('To', toSelect));
+
+    const toPort = makeNumberInput(edge.toPort ?? 0);
+    toPort.value = edge.toPort == null ? '' : String(edge.toPort);
+    toPort.addEventListener('change', () => {
+      const value = toPort.value.trim();
+      if (value === '') {
+        if ('toPort' in edge) delete edge.toPort;
+      } else {
+        edge.toPort = Number(value);
+      }
+      setGraphSpecStatus('Edge updated. Apply graph to use it.');
+    });
+    graphDiagramInspector.appendChild(makeRow('To port', toPort));
+
+    const edgeIndex = graphSelectedEdgeIndex;
+    addActions([
+      {
+        label: 'Delete',
+        onClick: () => {
+          if (edgeIndex == null) return;
+          spec.edges.splice(edgeIndex, 1);
+          setGraphSelection({});
+          renderGraphEditor();
+          setGraphSpecStatus('Edge removed. Apply graph to use it.');
+        }
+      }
+    ]);
+    return;
+  }
+
+  if (graphSelectedOutputIndex != null) {
+    const output = spec.outputs[graphSelectedOutputIndex];
+    if (!output) return;
+    graphDiagramInspector.classList.remove('hidden');
+    const title = document.createElement('div');
+    title.textContent = `Output ${graphSelectedOutputIndex + 1}`;
+    graphDiagramInspector.appendChild(title);
+
+    const nodeSelect = document.createElement('select');
+    nodeIds.forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      nodeSelect.appendChild(opt);
+    });
+    nodeSelect.value = output.nodeId;
+    nodeSelect.addEventListener('change', () => {
+      output.nodeId = nodeSelect.value;
+      renderGraphEditor();
+      setGraphSpecStatus('Output updated. Apply graph to use it.');
+    });
+    graphDiagramInspector.appendChild(makeRow('Node', nodeSelect));
+
+    const portInput = makeNumberInput(output.port ?? 0);
+    portInput.value = output.port == null ? '' : String(output.port);
+    portInput.addEventListener('change', () => {
+      const value = portInput.value.trim();
+      if (value === '') {
+        if ('port' in output) delete output.port;
+      } else {
+        output.port = Number(value);
+      }
+      setGraphSpecStatus('Output updated. Apply graph to use it.');
+    });
+    graphDiagramInspector.appendChild(makeRow('Port', portInput));
+
+    const outputIndex = graphSelectedOutputIndex;
+    addActions([
+      {
+        label: 'Delete',
+        onClick: () => {
+          if (outputIndex == null) return;
+          spec.outputs.splice(outputIndex, 1);
+          setGraphSelection({});
+          renderGraphEditor();
+          setGraphSpecStatus('Output removed. Apply graph to use it.');
+        }
+      }
+    ]);
+    return;
+  }
+
+  graphDiagramInspector.classList.add('hidden');
 }
 
 function renderGraphEditor(): void {
   if (!graphNodes || !graphEdges || !graphOutputs) return;
   const spec = ensureGraphDraft();
+  syncGraphSelection(spec);
   const nodeIds = spec.nodes.map(node => node.id);
 
   const makeField = (labelText: string, input: HTMLInputElement | HTMLSelectElement): HTMLDivElement => {
@@ -1201,6 +1850,13 @@ function renderGraphEditor(): void {
       spec.outputs.forEach(output => {
         if (output.nodeId === oldId) output.nodeId = nextId;
       });
+      if (graphLayoutOverrides.has(oldId)) {
+        const override = graphLayoutOverrides.get(oldId)!;
+        graphLayoutOverrides.delete(oldId);
+        graphLayoutOverrides.set(nextId, override);
+      }
+      if (graphSelectedNodeId === oldId) graphSelectedNodeId = nextId;
+      if (graphConnectFromId === oldId) graphConnectFromId = nextId;
       renderGraphEditor();
       setGraphSpecStatus('Node id updated. Apply graph to use it.');
     });
@@ -1303,6 +1959,9 @@ function renderGraphEditor(): void {
         spec.nodes.splice(index, 1);
         spec.edges = spec.edges.filter(edge => edge.from !== removedId && edge.to !== removedId);
         spec.outputs = spec.outputs.filter(out => out.nodeId !== removedId);
+        graphLayoutOverrides.delete(removedId);
+        if (graphSelectedNodeId === removedId) graphSelectedNodeId = null;
+        if (graphConnectFromId === removedId) graphConnectFromId = null;
         renderGraphEditor();
         setGraphSpecStatus('Node removed. Apply graph to use it.');
       });
@@ -1430,6 +2089,7 @@ function renderGraphEditor(): void {
   });
 
   renderGraphDiagram(spec);
+  renderGraphInspector(spec);
 }
 
 function applySettingsLock(): void {

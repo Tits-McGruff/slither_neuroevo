@@ -333,6 +333,7 @@ canvas {
   background: rgba(14, 20, 32, 0.65);
 }
 .panel .graph-diagram {
+  position: relative;
   display: grid;
   gap: 8px;
   padding: 10px;
@@ -346,6 +347,17 @@ canvas {
   justify-content: space-between;
   gap: 8px;
 }
+.panel .graph-diagram-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.panel .graph-diagram-actions .btn.active {
+  border-color: rgba(116, 223, 255, 0.9);
+  color: #7dd7ff;
+  background: rgba(116, 223, 255, 0.1);
+}
 .panel .graph-diagram-svg {
   width: 100%;
   height: 220px;
@@ -358,6 +370,10 @@ canvas {
   stroke-width: 1.6px;
   fill: none;
 }
+.panel .graph-diagram-svg .graph-diagram-edge.selected {
+  stroke: rgba(116, 223, 255, 0.9);
+  stroke-width: 2.4px;
+}
 .panel .graph-diagram-svg .graph-diagram-port {
   fill: #c6d3f1;
   font-size: 10px;
@@ -366,6 +382,10 @@ canvas {
   fill: rgba(20, 27, 38, 0.94);
   stroke: rgba(255, 255, 255, 0.18);
   stroke-width: 1px;
+}
+.panel .graph-diagram-svg .graph-diagram-node.selected {
+  stroke: rgba(116, 223, 255, 0.9);
+  stroke-width: 2px;
 }
 .panel .graph-diagram-svg .graph-diagram-node.graph-diagram-input {
   fill: rgba(35, 78, 62, 0.9);
@@ -403,6 +423,42 @@ canvas {
   fill: #9fb0c8;
   font-size: 10px;
 }
+.panel .graph-diagram-inspector {
+  position: absolute;
+  top: 58px;
+  right: 12px;
+  width: 220px;
+  max-width: 60%;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(10, 14, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  color: #d6def0;
+  font-size: 11px;
+}
+.panel .graph-diagram-inspector.hidden {
+  display: none;
+}
+.panel .graph-diagram-inspector label {
+  font-size: 10px;
+  color: #9fb0c8;
+}
+.panel .graph-diagram-inspector .graph-inspector-row {
+  display: grid;
+  gap: 4px;
+}
+.panel .graph-diagram-inspector .graph-inspector-actions {
+  display: flex;
+  gap: 6px;
+}
+.panel .graph-diagram-inspector button {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 11px;
+}
 .panel .graph-diagram-backdrop {
   position: fixed;
   top: 0;
@@ -432,6 +488,11 @@ canvas {
 .panel .graph-diagram.fullscreen .graph-diagram-svg {
   height: calc(100vh - 210px);
   min-height: 360px;
+}
+.panel .graph-diagram.fullscreen .graph-diagram-inspector {
+  top: 70px;
+  right: 24px;
+  width: 260px;
 }
 body.graph-diagram-open {
   overflow: hidden;

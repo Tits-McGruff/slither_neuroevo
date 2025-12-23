@@ -144,6 +144,7 @@ The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM
 - **Edges**: Connect nodes. `fromPort` picks an output on a multi-output node (Split). `toPort` sets input order for multi-input nodes (Concat). Ports are 0-based; leave blank for default ordering.
 - **Outputs**: Defines which node outputs become the final brain output. If the output comes from a Split, set `port`. The summed output size must equal 2 (turn + boost).
 - **Diagram**: Visualizes the current editor graph left → right. Use the **Full screen** button to bring it forward while editing.
+- **Diagram editing**: Drag nodes to reposition, click a node to edit it in the inspector, and use **Connect** to click start/target nodes. **Add node/output**, **Delete**, and **Auto layout** are available in the diagram toolbar.
 
 ### Misc
 
