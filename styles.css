@@ -188,16 +188,21 @@ canvas {
 }
 
 /* Control panel styling */
+:root {
+  --panel-offset: 10px;
+  --panel-width: 400px;
+  --panel-safe: 420px;
+}
 .panel {
   position: fixed;
-  right: 10px;
-  top: 10px;
+  right: var(--panel-offset);
+  top: var(--panel-offset);
   color: #d6d6d6;
   font: 12px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   background: rgba(0, 0, 0, 0.45);
   padding: 10px 12px;
   border-radius: 10px;
-  width: 400px;
+  width: var(--panel-width);
   max-height: calc(100vh - 20px);
   overflow: auto;
   user-select: none;
@@ -400,7 +405,10 @@ canvas {
 }
 .panel .graph-diagram-backdrop {
   position: fixed;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: var(--panel-safe);
   background: rgba(6, 8, 12, 0.72);
   opacity: 0;
   pointer-events: none;
@@ -413,7 +421,10 @@ canvas {
 }
 .panel .graph-diagram.fullscreen {
   position: fixed;
-  inset: 18px;
+  top: 18px;
+  bottom: 18px;
+  left: 18px;
+  right: var(--panel-safe);
   z-index: 60;
   max-width: none;
   box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
