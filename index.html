@@ -110,6 +110,15 @@
             </div>
           </div>
 
+          <div id="graphDiagramWrap" class="graph-diagram">
+            <div class="graph-diagram-header">
+              <div class="graph-templates-title">Diagram</div>
+              <button id="graphDiagramToggle" class="btn small" type="button">Full screen</button>
+            </div>
+            <svg id="graphDiagram" class="graph-diagram-svg" viewBox="0 0 800 360" role="img" aria-label="Brain graph diagram"></svg>
+            <div class="meta">Flow is left → right. Outputs are shown at the far right.</div>
+          </div>
+
           <div class="graph-section">
             <div class="graph-section-title">Nodes</div>
             <div id="graphNodes" class="graph-list"></div>
@@ -120,6 +129,9 @@
             <div class="graph-section-title">Edges</div>
             <div id="graphEdges" class="graph-list"></div>
             <button id="graphEdgeAdd" class="btn small">Add edge</button>
+            <div class="graph-help meta">
+              Ports pick a Split output or set Concat input order. Leave blank for default.
+            </div>
           </div>
 
           <div class="graph-section">
@@ -134,6 +146,7 @@
             <div id="graphSpecStatus" class="meta">Graph not applied yet.</div>
           </div>
         </div>
+        <div id="graphDiagramBackdrop" class="graph-diagram-backdrop" aria-hidden="true"></div>
 
         <div class="row">
           <label>Saved presets (database)</label>

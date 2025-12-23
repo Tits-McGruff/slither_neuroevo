@@ -141,6 +141,10 @@ const graphSpecApply = document.getElementById('graphSpecApply') as HTMLButtonEl
 const graphSpecCopy = document.getElementById('graphSpecCopy') as HTMLButtonElement | null;
 const graphSpecExport = document.getElementById('graphSpecExport') as HTMLButtonElement | null;
 const graphSpecStatus = document.getElementById('graphSpecStatus') as HTMLElement | null;
+const graphDiagramWrap = document.getElementById('graphDiagramWrap') as HTMLElement | null;
+const graphDiagram = document.getElementById('graphDiagram') as SVGSVGElement | null;
+const graphDiagramToggle = document.getElementById('graphDiagramToggle') as HTMLButtonElement | null;
+const graphDiagramBackdrop = document.getElementById('graphDiagramBackdrop') as HTMLDivElement | null;
 const snakesVal = document.getElementById('snakesVal') as HTMLElement;
 const simSpeedVal = document.getElementById('simSpeedVal') as HTMLElement;
 const layersVal = document.getElementById('layersVal') as HTMLElement;
@@ -360,6 +364,28 @@ graphTemplateButtons.forEach(btn => {
     setGraphDraft(spec, 'Template loaded. Apply graph to use it.');
   });
 });
+
+function setGraphDiagramFullscreen(isFullscreen: boolean): void {
+  if (!graphDiagramWrap) return;
+  graphDiagramWrap.classList.toggle('fullscreen', isFullscreen);
+  graphDiagramBackdrop?.classList.toggle('active', isFullscreen);
+  document.body.classList.toggle('graph-diagram-open', isFullscreen);
+  if (graphDiagramToggle) {
+    graphDiagramToggle.textContent = isFullscreen ? 'Close' : 'Full screen';
+  }
+}
+
+if (graphDiagramToggle) {
+  graphDiagramToggle.addEventListener('click', () => {
+    const isFullscreen = graphDiagramWrap?.classList.contains('fullscreen') ?? false;
+    setGraphDiagramFullscreen(!isFullscreen);
+  });
+}
+if (graphDiagramBackdrop) {
+  graphDiagramBackdrop.addEventListener('click', () => {
+    setGraphDiagramFullscreen(false);
+  });
+}
 
 if (graphNodeAdd) {
   graphNodeAdd.addEventListener('click', () => {
@@ -620,6 +646,9 @@ function setGraphSpecStatus(text: string, isError = false): void {
   if (!graphSpecStatus) return;
   graphSpecStatus.textContent = text;
   graphSpecStatus.style.color = isError ? '#ff9b9b' : '';
+  if (graphDiagram) {
+    renderGraphDiagram(ensureGraphDraft());
+  }
 }
 
 function setGraphDraft(spec: GraphSpec, note = ''): void {
@@ -912,6 +941,206 @@ function buildUniqueNodeId(spec: GraphSpec, prefix: string): string {
   return next;
 }
 
+type DiagramNode = {
+  id: string;
+  label: string;
+  type: string;
+  layer: number;
+};
+
+type DiagramEdge = {
+  from: string;
+  to: string;
+  fromPort?: number;
+  toPort?: number;
+};
+
+function renderGraphDiagram(spec: GraphSpec): void {
+  if (!graphDiagram) return;
+  graphDiagram.innerHTML = '';
+  if (!spec.nodes.length) return;
+
+  const svgNs = 'http://www.w3.org/2000/svg';
+  const nodeById = new Map<string, GraphNodeSpec>();
+  spec.nodes.forEach(node => nodeById.set(node.id, node));
+
+  const edges = spec.edges.filter(edge => nodeById.has(edge.from) && nodeById.has(edge.to));
+  const outgoing = new Map<string, string[]>();
+  const incoming = new Map<string, string[]>();
+  spec.nodes.forEach(node => {
+    outgoing.set(node.id, []);
+    incoming.set(node.id, []);
+  });
+  edges.forEach(edge => {
+    outgoing.get(edge.from)?.push(edge.to);
+    incoming.get(edge.to)?.push(edge.from);
+  });
+
+  const layerById = new Map<string, number>();
+  const roots = spec.nodes
+    .filter(node => node.type === 'Input' || (incoming.get(node.id)?.length ?? 0) === 0)
+    .map(node => node.id)
+    .sort((a, b) => a.localeCompare(b));
+  roots.forEach(id => layerById.set(id, 0));
+  const queue = [...roots];
+  while (queue.length) {
+    const id = queue.shift();
+    if (!id) break;
+    const baseLayer = layerById.get(id) ?? 0;
+    for (const next of outgoing.get(id) ?? []) {
+      const nextLayer = baseLayer + 1;
+      const current = layerById.get(next);
+      if (current == null || nextLayer > current) {
+        layerById.set(next, nextLayer);
+        queue.push(next);
+      }
+    }
+  }
+  let maxLayer = Math.max(0, ...Array.from(layerById.values()));
+  spec.nodes.forEach(node => {
+    if (!layerById.has(node.id)) {
+      maxLayer += 1;
+      layerById.set(node.id, maxLayer);
+    }
+  });
+
+  const outputNodes = spec.outputs.map((output, index) => ({
+    id: `__out-${index + 1}`,
+    label: `Out ${index + 1}`,
+    type: 'Output',
+    layer: maxLayer + 1,
+    fromId: output.nodeId,
+    port: output.port
+  }));
+
+  const diagramNodes: DiagramNode[] = [
+    ...spec.nodes.map(node => ({
+      id: node.id,
+      label: node.id,
+      type: node.type,
+      layer: layerById.get(node.id) ?? 0
+    })),
+    ...outputNodes.map(node => ({
+      id: node.id,
+      label: node.label,
+      type: node.type,
+      layer: node.layer
+    }))
+  ];
+
+  const diagramEdges: DiagramEdge[] = [
+    ...edges.map(edge => {
+      const entry: DiagramEdge = { from: edge.from, to: edge.to };
+      if (edge.fromPort != null) entry.fromPort = edge.fromPort;
+      if (edge.toPort != null) entry.toPort = edge.toPort;
+      return entry;
+    }),
+    ...outputNodes.map(node => {
+      const entry: DiagramEdge = { from: node.fromId, to: node.id };
+      if (node.port != null) entry.fromPort = node.port;
+      return entry;
+    })
+  ];
+
+  const layerGroups = new Map<number, DiagramNode[]>();
+  diagramNodes.forEach(node => {
+    const group = layerGroups.get(node.layer) ?? [];
+    group.push(node);
+    layerGroups.set(node.layer, group);
+  });
+
+  const sortedLayers = Array.from(layerGroups.keys()).sort((a, b) => a - b);
+  const maxPerLayer = Math.max(1, ...sortedLayers.map(layer => layerGroups.get(layer)?.length ?? 0));
+
+  const nodeWidth = 140;
+  const nodeHeight = 44;
+  const layerGap = 90;
+  const rowGap = 18;
+  const padding = 20;
+  const totalLayers = sortedLayers.length;
+  const width = padding * 2 + totalLayers * nodeWidth + Math.max(0, totalLayers - 1) * layerGap;
+  const height = padding * 2 + maxPerLayer * nodeHeight + Math.max(0, maxPerLayer - 1) * rowGap;
+  graphDiagram.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+  const positions = new Map<string, { x: number; y: number }>();
+  sortedLayers.forEach((layer, index) => {
+    const nodes = layerGroups.get(layer) ?? [];
+    nodes.sort((a, b) => a.id.localeCompare(b.id));
+    const totalHeight = nodes.length * nodeHeight + Math.max(0, nodes.length - 1) * rowGap;
+    const startY = padding + (height - padding * 2 - totalHeight) / 2;
+    const x = padding + index * (nodeWidth + layerGap);
+    nodes.forEach((node, idx) => {
+      const y = startY + idx * (nodeHeight + rowGap);
+      positions.set(node.id, { x, y });
+    });
+  });
+
+  const edgesGroup = document.createElementNS(svgNs, 'g');
+  diagramEdges.forEach(edge => {
+    const from = positions.get(edge.from);
+    const to = positions.get(edge.to);
+    if (!from || !to) return;
+    const x1 = from.x + nodeWidth;
+    const y1 = from.y + nodeHeight / 2;
+    const x2 = to.x;
+    const y2 = to.y + nodeHeight / 2;
+    const curve = Math.max(20, (x2 - x1) * 0.35);
+    const path = document.createElementNS(svgNs, 'path');
+    path.setAttribute('class', 'graph-diagram-edge');
+    path.setAttribute('d', `M ${x1} ${y1} C ${x1 + curve} ${y1} ${x2 - curve} ${y2} ${x2} ${y2}`);
+    edgesGroup.appendChild(path);
+
+    const addPortLabel = (value: number | undefined, x: number, y: number) => {
+      if (value == null) return;
+      const label = document.createElementNS(svgNs, 'text');
+      label.setAttribute('class', 'graph-diagram-port');
+      label.setAttribute('x', String(x));
+      label.setAttribute('y', String(y));
+      label.textContent = `p${value}`;
+      edgesGroup.appendChild(label);
+    };
+
+    addPortLabel(edge.fromPort, x1 + 6, y1 - 6);
+    addPortLabel(edge.toPort, x2 - 18, y2 - 6);
+  });
+  graphDiagram.appendChild(edgesGroup);
+
+  const nodesGroup = document.createElementNS(svgNs, 'g');
+  diagramNodes.forEach(node => {
+    const pos = positions.get(node.id);
+    if (!pos) return;
+    const rect = document.createElementNS(svgNs, 'rect');
+    rect.setAttribute('x', String(pos.x));
+    rect.setAttribute('y', String(pos.y));
+    rect.setAttribute('rx', '10');
+    rect.setAttribute('ry', '10');
+    rect.setAttribute('width', String(nodeWidth));
+    rect.setAttribute('height', String(nodeHeight));
+    rect.setAttribute(
+      'class',
+      `graph-diagram-node graph-diagram-${node.type.toLowerCase()}`
+    );
+    nodesGroup.appendChild(rect);
+
+    const text = document.createElementNS(svgNs, 'text');
+    text.setAttribute('class', 'graph-diagram-label');
+    text.setAttribute('x', String(pos.x + nodeWidth / 2));
+    text.setAttribute('y', String(pos.y + nodeHeight / 2 - 6));
+    const line1 = document.createElementNS(svgNs, 'tspan');
+    line1.textContent = node.label;
+    line1.setAttribute('x', String(pos.x + nodeWidth / 2));
+    const line2 = document.createElementNS(svgNs, 'tspan');
+    line2.textContent = node.type;
+    line2.setAttribute('class', 'graph-diagram-label-sub');
+    line2.setAttribute('x', String(pos.x + nodeWidth / 2));
+    line2.setAttribute('dy', '14');
+    text.appendChild(line1);
+    text.appendChild(line2);
+    nodesGroup.appendChild(text);
+  });
+  graphDiagram.appendChild(nodesGroup);
+}
+
 function renderGraphEditor(): void {
   if (!graphNodes || !graphEdges || !graphOutputs) return;
   const spec = ensureGraphDraft();
@@ -1199,6 +1428,8 @@ function renderGraphEditor(): void {
 
     graphOutputs.appendChild(row);
   });
+
+  renderGraphDiagram(spec);
 }
 
 function applySettingsLock(): void {

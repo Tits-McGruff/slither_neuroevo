@@ -21,6 +21,7 @@ function makeElement(id: string, overrides: Record<string, unknown> = {}): any {
     id,
     value: '',
     textContent: '',
+    innerHTML: '',
     style: {},
     dataset: {},
     classList: {
@@ -33,6 +34,7 @@ function makeElement(id: string, overrides: Record<string, unknown> = {}): any {
     },
     addEventListener() {},
     appendChild() {},
+    setAttribute() {},
     querySelectorAll: () => [],
     getContext: () => makeCtx(),
     click() {},
@@ -138,7 +140,8 @@ describe('main.ts', () => {
         return [];
       },
       querySelector: () => tabBtns[1],
-      createElement: () => makeElement('created')
+      createElement: () => makeElement('created'),
+      createElementNS: () => makeElement('created-ns')
     } as any;
 
     originalWindow = globalAny.window;

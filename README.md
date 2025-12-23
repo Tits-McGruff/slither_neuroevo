@@ -135,6 +135,16 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 - **LSTM init forget gate bias**: Sets default memory persistence for LSTM.
 - **RRU init gate bias**: Sets default gating bias for RRU.
 
+## Brain graph editor
+
+The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM/RRU/Dense/Split/Concat, including splits and skip connections. Changes require **Apply graph** and then **Apply and reset**.
+
+- **Templates**: Quick starting points (Linear MLP, MLP → GRU → MLP, Skip + concat, Split + parallel heads).
+- **Nodes**: Each node has an id and a type. Input is fixed to the sensor size. Dense/MLP use input/output sizes, GRU/LSTM/RRU use hidden size, Split uses a comma list of output sizes (must sum to its input size).
+- **Edges**: Connect nodes. `fromPort` picks an output on a multi-output node (Split). `toPort` sets input order for multi-input nodes (Concat). Ports are 0-based; leave blank for default ordering.
+- **Outputs**: Defines which node outputs become the final brain output. If the output comes from a Split, set `port`. The summed output size must equal 2 (turn + boost).
+- **Diagram**: Visualizes the current editor graph left → right. Use the **Full screen** button to bring it forward while editing.
+
 ### Misc
 
 - **Frame dt clamp**: Max time step per physics update (stability guard).

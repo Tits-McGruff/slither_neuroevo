@@ -327,6 +327,104 @@ canvas {
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(14, 20, 32, 0.65);
 }
+.panel .graph-diagram {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(7, 10, 18, 0.55);
+}
+.panel .graph-diagram-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.panel .graph-diagram-svg {
+  width: 100%;
+  height: 220px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: radial-gradient(circle at top, rgba(42, 60, 90, 0.18), rgba(8, 10, 16, 0.8));
+}
+.panel .graph-diagram-svg .graph-diagram-edge {
+  stroke: rgba(170, 196, 255, 0.55);
+  stroke-width: 1.6px;
+  fill: none;
+}
+.panel .graph-diagram-svg .graph-diagram-port {
+  fill: #c6d3f1;
+  font-size: 10px;
+}
+.panel .graph-diagram-svg .graph-diagram-node {
+  fill: rgba(20, 27, 38, 0.94);
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 1px;
+}
+.panel .graph-diagram-svg .graph-diagram-node.graph-diagram-input {
+  fill: rgba(35, 78, 62, 0.9);
+}
+.panel .graph-diagram-svg .graph-diagram-node.graph-diagram-mlp {
+  fill: rgba(32, 56, 94, 0.9);
+}
+.panel .graph-diagram-svg .graph-diagram-node.graph-diagram-gru {
+  fill: rgba(53, 46, 90, 0.9);
+}
+.panel .graph-diagram-svg .graph-diagram-node.graph-diagram-lstm {
+  fill: rgba(64, 44, 76, 0.9);
+}
+.panel .graph-diagram-svg .graph-diagram-node.graph-diagram-rru {
+  fill: rgba(54, 58, 70, 0.9);
+}
+.panel .graph-diagram-svg .graph-diagram-node.graph-diagram-dense {
+  fill: rgba(46, 50, 78, 0.9);
+}
+.panel .graph-diagram-svg .graph-diagram-node.graph-diagram-split {
+  fill: rgba(62, 60, 40, 0.9);
+}
+.panel .graph-diagram-svg .graph-diagram-node.graph-diagram-concat {
+  fill: rgba(52, 46, 34, 0.9);
+}
+.panel .graph-diagram-svg .graph-diagram-node.graph-diagram-output {
+  fill: rgba(34, 44, 58, 0.9);
+}
+.panel .graph-diagram-svg .graph-diagram-label {
+  fill: #d9e3f6;
+  font-size: 12px;
+  text-anchor: middle;
+}
+.panel .graph-diagram-svg .graph-diagram-label-sub {
+  fill: #9fb0c8;
+  font-size: 10px;
+}
+.panel .graph-diagram-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 8, 12, 0.72);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 55;
+}
+.panel .graph-diagram-backdrop.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+.panel .graph-diagram.fullscreen {
+  position: fixed;
+  inset: 18px;
+  z-index: 60;
+  max-width: none;
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
+}
+.panel .graph-diagram.fullscreen .graph-diagram-svg {
+  height: calc(100vh - 210px);
+  min-height: 360px;
+}
+body.graph-diagram-open {
+  overflow: hidden;
+}
 .panel .graph-templates-title,
 .panel .graph-section-title {
   font-size: 11px;
@@ -343,6 +441,10 @@ canvas {
 .panel .graph-section {
   display: grid;
   gap: 8px;
+}
+.panel .graph-help {
+  font-size: 12px;
+  color: #9fb0c8;
 }
 .panel .graph-list {
   display: grid;
