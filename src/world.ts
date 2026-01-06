@@ -613,14 +613,15 @@ removePellet(p: Pellet): void {
    */
   _endGeneration(): void {
     if (!this.population.length) return;
+    const populationSnakes = this.snakes.slice(0, this.population.length);
     let maxPts = 0;
-    for (const s of this.snakes) maxPts = Math.max(maxPts, s.pointsScore);
+    for (const s of populationSnakes) if (s) maxPts = Math.max(maxPts, s.pointsScore);
     if (maxPts <= 0) maxPts = 1;
     const logDen = Math.log(1 + maxPts);
     const topIds = new Set();
-    for (const s of this.snakes) if (Math.abs(s.pointsScore - maxPts) <= 1e-6) topIds.add(s.id);
-    for (let i = 0; i < this.snakes.length; i++) {
-      const s = this.snakes[i];
+    for (const s of populationSnakes) if (s && Math.abs(s.pointsScore - maxPts) <= 1e-6) topIds.add(s.id);
+    for (let i = 0; i < this.population.length; i++) {
+      const s = populationSnakes[i];
       const pop = this.population[i];
       if (!s || !pop) continue;
       const pointsNorm = clamp(Math.log(1 + s.pointsScore) / logDen, 0, 1);
