@@ -4,21 +4,19 @@
 
 This repository is a browser-based neuroevolution simulation modeled after slither.io, built with Vite and ES modules. The user-facing entry point is `index.html`, which provides a full-screen canvas plus the control panel tabs, while `styles.css` defines the UI layout, tab visuals, and animation. The `README.md` explains how to run the dev server and why the project cannot be opened directly from the filesystem, so follow those workflow notes when suggesting run instructions.
 
-At the top level, `package.json` and `package-lock.json` define the Node toolchain (`vite` for dev/build/preview and `vitest` for tests), and `vite.config.mjs` contains the non-default cache directory that avoids file-lock issues on network drives. The Node server lives under `server/` and persists data in `data/slither.db` (SQLite). Windows users have a convenience launcher in `play.bat` that installs dependencies and runs the dev server. Active planning notes live in `docs/todo/phase-*.md` plus `docs/todo/multiplayer-plan.md`, while historical plans are archived under `docs/todo/archive/`. CI is wired through `.github/workflows/node.js.yml`, which runs `npm ci`, `npm run build`, and `npm test` across multiple Node versions.
-<!-- Updated planning-note paths to match docs/todo/ in the repo layout. -->
+At the top level, `package.json` and `package-lock.json` define the Node toolchain (`vite` for dev/build/preview and `vitest` for tests), and `vite.config.mjs` contains the non-default cache directory that avoids file-lock issues on network drives. The Node server lives under `server/` and persists data in `data/slither.db` (SQLite). Windows users have a convenience launcher in `play.bat` that installs dependencies and runs the dev server. Active planning notes live in `docs/todo/*.md`, while historical plans are archived under `docs/todo/archive/`. CI is wired through `.github/workflows/node.js.yml`, which runs `npm ci`, `npm run build`, and `npm test` across multiple Node versions.
 
 ## Runtime architecture and data flow
 
 The runtime has two modes: a Node server that owns the `World` and streams frames over WebSocket, and a local Web Worker fallback when the server is unavailable. `src/main.ts` owns the DOM, canvas sizing, tab switching, settings sliders, and rendering. It connects to the server with `src/net/wsClient.ts` (see `server/protocol.ts` for message shapes) and falls back to a worker via `new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })` if the WS connection fails.
 
 Server mode is implemented in `server/index.ts` + `server/simServer.ts` + `server/wsHub.ts`. The server runs the fixed-step loop, serializes frames with `WorldSerializer`, and sends a binary buffer plus stats messages. Clients send `hello`, `join`, `action`, `view` (viewport + follow/overview toggle), and `viz` (visualizer streaming) messages; the server replies with `welcome`, `stats`, `assign`, `sensors`, and the raw frame buffer. Player control relies on per-snake sensor messages and tick-aligned actions; when a controlled snake dies, the controller registry spawns a fresh external snake and emits a new `assign`.
-<!-- Kept server protocol summary but added below for client connection behavior. -->
+
 On a successful server connection, the client auto-joins as a spectator, requests overview view, and shows the join overlay until the user submits a nickname.
-<!-- Added to reflect wsClient onConnected behavior in src/main.ts. -->
+
 If the server handshake fails, a 2-second fallback starts the worker, hides the join overlay, and keeps reconnection attempts running in the background.
-<!-- Added to document scheduleWorkerFallback/scheduleReconnect behavior in src/main.ts. -->
+
 Server URLs resolve from `?server=ws://...` or the `slither_server_url` localStorage key (default `ws://localhost:5174`).
-<!-- Added to reflect resolveServerUrl/storeServerUrl in src/net/wsClient.ts. -->
 
 Worker mode runs the same loop inside `src/worker.ts` and posts a transferable buffer back to the main thread each iteration. The worker message protocol is explicit: `init` rebuilds a world (and resets `CFG`), `updateSettings` applies `path/value` updates to `CFG`, `action` handles camera/sim speed toggles, `resurrect` injects a saved genome, and `godMode` handles kill/move actions. `init` can include `graphSpec` to override the brain layout. When adding new messages or fields, update both ends (`src/main.ts` and `src/worker.ts`) and keep tests or parsing code in sync. Shared worker message and settings types live in `src/protocol/messages.ts` and `src/protocol/settings.ts`.
 
@@ -53,21 +51,20 @@ Rendering is split into a fast path and a legacy path. The serialized-buffer pat
 `index.html` defines the tabbed control panel (Settings, Visualizer, Stats, Hall of Fame) plus the God Mode log panel and the join overlay. `styles.css` implements the panel layout, sliders, tab buttons, the join overlay, and simple entry transitions. `src/main.ts` wires these DOM elements to the worker or server connection, holds a `currentFrameBuffer`, and uses a `proxyWorld` to expose minimal world-like methods (`toggleViewMode`, `resurrect`) to the UI and Hall of Fame code. The God Mode interactions (click to select, right-click to kill, drag to move) depend on parsing the buffer and converting screen coordinates to world coordinates using the camera values embedded in the frame header. The Settings lock hides `#settingsControls` to keep sliders out of reach, and the join overlay requires a nickname before player control is enabled.
 
 The settings system is in `src/settings.ts`, which constructs grouped sliders from `SETTING_SPECS` and uses `data-path` attributes to map slider values into `CFG` via `setByPath` from `src/utils.ts`. Sliders marked `requiresReset` only apply on world reset; live sliders call back to `src/main.ts`, which posts incremental updates to the worker. The top-level core sliders (snake count, sim speed, layer counts, neuron sizes) are wired directly in `src/main.ts` and must stay aligned with `buildArch()` in `src/mlp.ts` and defaults in `src/config.ts`. Brain layouts are edited via the unified graph editor in the Settings tab (nodes/edges/outputs + templates), with optional JSON import/export for advanced edits.
-<!-- Split out graph-editor specifics to match the current Settings UI in index.html. -->
+
 The diagram is interactive: drag nodes to reposition (layout overrides are UI-only), toggle Connect mode to add edges by clicking start/target nodes, and use the inspector to edit node/edge/output fields.
-<!-- Added inspector/connect behavior per graph editor logic in src/main.ts. -->
+
 Connect mode auto-assigns Split/Concat ports, and Full screen uses a backdrop that leaves the right-hand control panel visible.
-<!-- Added to reflect addGraphEdge port assignment and graph-diagram-backdrop styling. -->
+
 The diagram toolbar supports Add node/output, Delete, Auto layout, and Full screen.
-<!-- Annotated to match the toolbar buttons in index.html. -->
+
 Saved presets load from the server DB, and the current graph draft can be applied to reset the world.
-<!-- Added to reflect graph preset list + Apply/Reset buttons in index.html. -->
+
 Graph preset lists come from `/api/graph-presets` and stay empty in worker mode.
-<!-- Added to reflect fetch usage in src/main.ts and server-only presets. -->
+
 Advanced JSON controls (Load JSON into editor, Copy current graph, Export JSON) live under the optional details panel.
-<!-- Added to match the Advanced JSON section in index.html. -->
+
 `src/main.ts` persists the applied graph spec to localStorage (`slither_neuroevo_graph_spec`) and reloads it on startup, falling back to the default template if invalid.
-<!-- Added to document graph spec persistence in src/main.ts. -->
 
 Visualization helpers live in `src/BrainViz.ts`, `src/FitnessChart.ts`, and `src/chartUtils.ts`. The Brain Visualizer renders activation heat strips when the worker or server sends `stats.viz` data (enabled via the Visualizer tab; `src/main.ts` posts a `viz` message to toggle streaming). The Stats tab uses a chart selector to render fitness, species diversity, and network complexity from `fitnessHistory` entries sent by the worker or server (min/avg/max plus species/complexity metrics).
 
@@ -96,7 +93,6 @@ Import/export is exposed in the Settings tab and uses the worker path only (serv
 - Graph editor ports are 0-based; Split output sizes must sum to the input size, and total output size must match `CFG.brain.outSize` (turn+boost). Diagram layout overrides are UI-only.
 - `data/slither.db` is local server state and should not be committed; it will exceed GitHub size limits if tracked.
 - `better-sqlite3` is a native dependency; Windows installs need C++ build tools and a Windows SDK.
-<!-- Added to capture the current Windows install prerequisite for server dependencies. -->
 
 ## Tests and verification
 
@@ -130,4 +126,3 @@ If any section here feels unclear or you want deeper coverage (for example, the 
 ## Markdown policy
 
 - When writing markdown follow the style and formatting rules in markdown-rules/rules.md
-<!-- Updated the path to match the repo location. -->
