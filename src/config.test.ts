@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { CFG, CFG_DEFAULT, resetCFGToDefaults } from './config.ts';
 
-describe('config.ts', () => {
+/** Test suite label for config defaults. */
+const SUITE = 'config.ts';
+
+describe(SUITE, () => {
   it('resetCFGToDefaults restores default values', () => {
     const original = CFG.snakeBaseSpeed;
     CFG.snakeBaseSpeed = original + 10;

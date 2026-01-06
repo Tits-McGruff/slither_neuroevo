@@ -1,15 +1,26 @@
-// BrainViz.ts
-// Visualizes the neural network structure and activity.
+/** Visualizes the neural network structure and activity. */
 
 import { clamp } from './utils.ts';
 import type { VizData } from './protocol/messages.ts';
 
+/** Canvas-based brain visualizer for layer activations. */
 export class BrainViz {
+  /** Left position of the visualizer region. */
   x: number;
+  /** Top position of the visualizer region. */
   y: number;
+  /** Width of the visualizer region. */
   w: number;
+  /** Height of the visualizer region. */
   h: number;
 
+  /**
+   * Create a visualizer with a fixed drawing rectangle.
+   * @param x - Left position of the visualization.
+   * @param y - Top position of the visualization.
+   * @param w - Width in pixels.
+   * @param h - Height in pixels.
+   */
   constructor(x: number, y: number, w: number, h: number) {
     this.x = x;
     this.y = y;
@@ -17,72 +28,17 @@ export class BrainViz {
     this.h = h;
   }
 
+  /**
+   * Render the brain visualization if data is available.
+   * @param ctx - Canvas 2D context to draw into.
+   * @param brain - Visualization data payload.
+   */
   render(ctx: CanvasRenderingContext2D, brain: VizData | null): void {
     if (!brain) return;
     
     // Determine layers to draw
-    const layers: Array<{
-      count: number;
-      activations: ArrayLike<number> | null;
-      isRecurrent?: boolean;
-    }> = [];
-    
-    if (brain.kind === 'mlp') {
-      // Just MLP layers
-      const mlp = brain.mlp;
-      if (mlp.layerSizes) {
-        for (let i = 0; i < mlp.layerSizes.length; i++) {
-          // Actually _bufs[0] is output of layer 0 (which is input to layer 1).
-          // Wait, MLP.forward: cur = input. Loop l=0..N-1. next = _bufs[l]. cur processed to next.
-          // So _bufs[l] stores output of layer l+1?
-          // layerSizes: [in, h1, h2, out]
-          // l=0: in->h1. next=_bufs[0]. Stores h1 activations.
-          // l=1: h1->h2. next=_bufs[1]. Stores h2 activations.
-          // l=2: h2->out. next=_bufs[2]. Stores out activations.
-          
-          const count = mlp.layerSizes[i];
-          if (count == null) continue;
-          layers.push({ 
-            count, 
-            activations: (i === 0) ? null : (mlp._bufs[i - 1] ?? null)
-          });
-        }
-      }
-    } else {
-      // MLP feature extractor -> GRU -> Head
-      // 1. MLP inputs
-      if (brain.mlp) {
-        for (let i = 0; i < brain.mlp.layerSizes.length; i++) {
-           // Skip last layer of MLP if it feeds into GRU? 
-           // Usually MLP output is GRU input.
-           const count = brain.mlp.layerSizes[i];
-           if (count == null) continue;
-           layers.push({
-             count,
-             activations: (i === 0) ? null : (brain.mlp._bufs[i - 1] ?? null)
-           });
-        }
-      }
-      // 2. GRU
-      const rec = brain as Exclude<VizData, { kind: 'mlp' }>;
-      if (rec.gru) {
-        layers.push({
-          count: rec.gru.hiddenSize,
-          activations: rec.gru.h,
-          isRecurrent: true
-        });
-      }
-      // 3. Head
-      if (rec.head) {
-         // Head is just linear layer from GRU to Out.
-         // Head doesn't store state usually? DenseHead.forward returns result.
-         // But BrainController stores final output.
-         layers.push({
-           count: rec.head.outSize,
-           activations: null // We don't have internal buffer for head easily, but distinct from output
-         });
-      }
-    }
+    const layers = brain.layers ?? [];
+    if (!layers.length) return;
 
     // Draw
     const maxCols = layers.length;

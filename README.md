@@ -15,14 +15,37 @@ Open the local URL printed by Vite (usually `http://localhost:5173`).
 
 Note: This project uses ES modules, so opening `index.html` directly in a file browser will not work.
 
+### Server mode (optional)
+
+Run the simulation server in a second terminal to enable multiplayer join/spectate and DB-backed graph presets.
+
+```bash
+npm run server
+npm run dev
+```
+
+The UI will connect over WebSocket and show **SERVER** in the status pill. If the server is down, the app falls back to a local Web Worker.
+Server mode also enables DB-backed graph presets in the Brain graph panel.
+By default the client connects to `ws://localhost:5174`; use `?server=ws://host:port` to point at a different server.
+
 ## Controls
 
 - `V`: Toggle camera mode between Overview and Follow.
 - Left click: Select a snake (God Mode selection).
 - Right click: Kill the selected snake (God Mode).
 - Left click + drag: Move a selected snake (God Mode).
+- Mouse to steer, hold click to boost (when playing as a user snake).
+- **Settings lock**: Hides all sliders and controls inside the Settings tab; unlock to edit.
 - **Apply and reset**: Rebuild the world using reset-only settings.
 - **Defaults**: Restore default slider values and reset.
+
+## Join and spectate
+
+- Enter a nickname, then **Play** to spawn a player snake (server mode only).
+- **Spectate** starts the sim with no player control.
+- If the server is unavailable, the join overlay is hidden and the sim runs in worker mode.
+- When a server connection is established, the client auto-spectates in overview mode until you join.
+- Player control begins after the server sends an assignment; the overlay hides once assigned.
 
 ## Understanding the brain (MLP vs GRU)
 
@@ -38,6 +61,7 @@ A GRU adds a hidden state that persists across time steps. This gives the snake 
 
 - **MLP**: quick reactions, simpler strategies, faster training.
 - **GRU**: smoother motion, memory of recent events, better long arcs or deliberate turning.
+- **LSTM/RRU**: alternate memory cells with their own hidden-size sliders.
 
 ## Slider guide
 
@@ -124,13 +148,37 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 
 ### Brain and memory
 
-- **Use GRU memory (0/1)**: Enable memory (1) or pure MLP (0).
 - **GRU hidden size**: Memory width; bigger = more capacity, more parameters.
+- **LSTM hidden size**: LSTM memory width.
+- **RRU hidden size**: RRU memory width.
 - **Brain control dt**: How often the brain updates relative to physics.
-- **GRU mutation rate**: Mutation rate applied to GRU weights.
-- **GRU mutation std**: Mutation strength for GRU weights.
-- **GRU crossover mode**: 0 = block, 1 = unit-wise crossover.
+- **Recurrent mutation rate (GRU/LSTM/RRU)**: Mutation rate applied to recurrent weights.
+- **Recurrent mutation std (GRU/LSTM/RRU)**: Mutation strength for recurrent weights.
+- **Recurrent crossover mode (0 block, 1 unit)**: 0 = block, 1 = unit-wise crossover.
 - **GRU init update gate bias**: Sets default memory persistence.
+- **LSTM init forget gate bias**: Sets default memory persistence for LSTM.
+- **RRU init gate bias**: Sets default gating bias for RRU.
+
+## Brain graph editor
+
+The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM/RRU/Dense/Split/Concat, including splits and skip connections. Changes require **Apply graph** and then **Apply and reset**.
+
+- **Templates**: Quick starting points (Linear MLP, MLP → GRU → MLP, Skip + concat, Split + parallel heads).
+- **Nodes**: Each node has an id and a type. Input is fixed to the sensor size. Dense/MLP use input/output sizes, GRU/LSTM/RRU use hidden size, Split uses a comma list of output sizes (must sum to its input size).
+- **Edges**: Connect nodes. `fromPort` picks an output on a multi-output node (Split). `toPort` sets input order for multi-input nodes (Concat). Ports are 0-based; leave blank for default ordering.
+- **Outputs**: Defines which node outputs become the final brain output. If the output comes from a Split, set `port`. The summed output size must equal 2 (turn + boost).
+- **Diagram**: Visualizes the current editor graph left → right. Use **Full screen** to bring it forward while editing.
+- **Diagram overlay**: Full screen dims the arena while keeping the right-side control panel visible.
+- **Diagram editing**:
+  - **Select**: Click a node/edge/output to edit it in the inspector.
+  - **Connect**: Click **Connect**, then click a start node and a target node to add an edge (Split/Concat ports auto-assign).
+  - **Move**: Drag nodes to reposition the diagram (visual layout only).
+  - **Toolbar**: **Add node**, **Add output**, **Delete**, **Auto layout** (clears manual positions), **Full screen**.
+- **Saved presets**: Enter a name and **Save preset** to store in the server database; in worker mode the list stays empty.
+- **Preset loading**: Click a saved preset entry to load it into the editor (you still need Apply graph).
+- **Layout persistence**: Diagram positions are UI-only and reset after refresh or Auto layout.
+- **Graph storage**: The applied graph spec is saved in browser localStorage; **Reset graph** reloads the applied spec or the default template.
+- **Advanced JSON**: Use **Load JSON into editor** to import, **Copy current graph** to populate the JSON editor, and **Export JSON** to download a file.
 
 ### Misc
 
@@ -189,6 +237,7 @@ Use GRU for smoother, more deliberate behavior.
 ## Visualizer and Hall of Fame
 
 - **Brain Visualizer**: Shows the focused snake’s network activations. If you don’t see anything, switch to follow mode or select a snake.
+- **Visualizer streaming**: Data is only requested while the Visualizer tab is active.
 - **Fitness Stats**: Shows min/avg/max over generations.
 - **Hall of Fame**: Lets you resurrect top genomes; imports/exports are stored in browser storage.
 
@@ -196,5 +245,8 @@ Use GRU for smoother, more deliberate behavior.
 
 - **No snakes visible**: Click Apply and reset; reduce world radius or increase snake count.
 - **Sim too slow**: Reduce NPC snakes, pellet target count, or world radius.
+- **Windows install fails**: Server dependencies use `better-sqlite3`; install Visual Studio C++ build tools plus a Windows SDK, then re-run `npm install`.
 - **Visualizer empty**: Ensure a snake is focused (Follow mode) and wait a tick.
+- **Join disabled**: The server is not connected; worker mode does not allow player control.
 - **Snakes die instantly**: Lower hit scale or increase skip segments near head.
+- **Server install fails on Windows**: Use Node 20 LTS or install the Visual Studio C++ build tools + Windows SDK (for `better-sqlite3`).

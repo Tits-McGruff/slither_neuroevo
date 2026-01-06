@@ -7,6 +7,7 @@
 import { CFG } from './config.ts';
 import { getByPath, setByPath, fmtNumber } from './utils.ts';
 
+/** Slider specification describing a single CFG path control. */
 interface SettingSpec {
   group: string;
   path: string;
@@ -18,9 +19,7 @@ interface SettingSpec {
   requiresReset: boolean;
 }
 
-// Each entry in SETTING_SPECS describes a slider.  See the original
-// slither_neuroevo.html for more details on the range and meaning of
-// individual parameters.
+/** Slider specifications used to build the settings UI. */
 const SETTING_SPECS: SettingSpec[] = [
   { group: "World and food", path: "worldRadius", label: "World radius", min: 800, max: 10000, step: 50, decimals: 0, requiresReset: true },
   { group: "World and food", path: "pelletCountTarget", label: "Pellet target count", min: 100, max: 25000, step: 50, decimals: 0, requiresReset: true },
@@ -84,22 +83,24 @@ const SETTING_SPECS: SettingSpec[] = [
   { group: "Rewards", path: "reward.fitnessPointsNorm", label: "Fitness points normalization weight", min: 0.0, max: 300.0, step: 1, decimals: 0, requiresReset: false },
   { group: "Rewards", path: "reward.fitnessTopPointsBonus", label: "Fitness top points bonus", min: 0.0, max: 600.0, step: 1, decimals: 0, requiresReset: false },
 
-  { group: "Brain and memory", path: "brain.useGRU", label: "Use GRU memory (0/1)", min: 0, max: 1, step: 1, decimals: 0, requiresReset: true },
   { group: "Brain and memory", path: "brain.gruHidden", label: "GRU hidden size", min: 4, max: 96, step: 1, decimals: 0, requiresReset: true },
+  { group: "Brain and memory", path: "brain.lstmHidden", label: "LSTM hidden size", min: 4, max: 96, step: 1, decimals: 0, requiresReset: true },
+  { group: "Brain and memory", path: "brain.rruHidden", label: "RRU hidden size", min: 4, max: 96, step: 1, decimals: 0, requiresReset: true },
   { group: "Brain and memory", path: "brain.controlDt", label: "Brain control dt", min: 0.008, max: 0.060, step: 0.001, decimals: 3, requiresReset: false },
-  { group: "Brain and memory", path: "brain.gruMutationRate", label: "GRU mutation rate", min: 0.0, max: 0.35, step: 0.005, decimals: 3, requiresReset: true },
-  { group: "Brain and memory", path: "brain.gruMutationStd", label: "GRU mutation std", min: 0.0, max: 1.60, step: 0.02, decimals: 2, requiresReset: true },
-  { group: "Brain and memory", path: "brain.gruCrossoverMode", label: "GRU crossover mode (0 block, 1 unit)", min: 0, max: 1, step: 1, decimals: 0, requiresReset: true },
-  { group: "Brain and memory", path: "brain.gruInitUpdateBias", label: "GRU init update gate bias", min: -2.5, max: 1.5, step: 0.05, decimals: 2, requiresReset: true },
+  { group: "Brain and memory", path: "brain.gruMutationRate", label: "Recurrent mutation rate (GRU/LSTM/RRU)", min: 0.0, max: 0.35, step: 0.005, decimals: 3, requiresReset: true },
+  { group: "Brain and memory", path: "brain.gruMutationStd", label: "Recurrent mutation std (GRU/LSTM/RRU)", min: 0.0, max: 1.60, step: 0.02, decimals: 2, requiresReset: true },
+  { group: "Brain and memory", path: "brain.gruCrossoverMode", label: "Recurrent crossover mode (0 block, 1 unit)", min: 0, max: 1, step: 1, decimals: 0, requiresReset: true },
+  { group: "Brain and memory", path: "brain.gruInitUpdateBias", label: "GRU init update gate bias (GRU only)", min: -2.5, max: 1.5, step: 0.05, decimals: 2, requiresReset: true },
+  { group: "Brain and memory", path: "brain.lstmInitForgetBias", label: "LSTM init forget gate bias (LSTM only)", min: -1.5, max: 3.0, step: 0.05, decimals: 2, requiresReset: true },
+  { group: "Brain and memory", path: "brain.rruInitGateBias", label: "RRU init gate bias (RRU only)", min: -1.5, max: 2.0, step: 0.05, decimals: 2, requiresReset: true },
 
   { group: "Misc", path: "dtClamp", label: "Frame dt clamp", min: 0.01, max: 0.12, step: 0.005, decimals: 3, requiresReset: false }
 ];
 
 /**
- * Groups the specifications by their "group" property into a map.  Used
- * internally by buildSettingsUI to organise sliders into collapsible
- * sections.
- * @returns {Map<string, Array<Object>>}
+ * Group the specifications by their group property into a map.
+ * Used internally by buildSettingsUI to organize sliders into collapsible sections.
+ * @returns Grouped setting specs keyed by group name.
  */
 function groupSpecs(): Map<string, SettingSpec[]> {
   const m = new Map<string, SettingSpec[]>();
@@ -111,11 +112,11 @@ function groupSpecs(): Map<string, SettingSpec[]> {
 }
 
 /**
- * Builds the settings UI inside a given container element.  Each group
- * becomes a <details> element containing slider controls for its
- * respective parameters.  The caller is responsible for appending the
- * container to the DOM before invoking this function.
- * @param {HTMLElement} container
+ * Build the settings UI inside a given container element.
+ * Each group becomes a details element containing slider controls for its
+ * respective parameters. The caller is responsible for appending the container
+ * to the DOM before invoking this function.
+ * @param container - Container element to populate.
  */
 export function buildSettingsUI(container: HTMLElement): void {
   container.innerHTML = "";
@@ -165,10 +166,9 @@ export function buildSettingsUI(container: HTMLElement): void {
 }
 
 /**
- * Sets all slider controls within the given root element to match the
- * current values in CFG.  Also updates the displayed numeric values next
- * to each slider.
- * @param {HTMLElement} root
+ * Set all slider controls within the given root element to match CFG.
+ * Also updates the displayed numeric values next to each slider.
+ * @param root - Root element containing the sliders.
  */
 export function applyValuesToSlidersFromCFG(root: HTMLElement): void {
   const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
@@ -183,11 +183,11 @@ export function applyValuesToSlidersFromCFG(root: HTMLElement): void {
 }
 
 /**
- * Attaches live update handlers to all sliders under the given root.
- * When the user drags a slider that does not require a reset, the global
- * CFG is updated immediately and the provided callback is invoked.
- * @param {HTMLElement} root
- * @param {Function} onLiveUpdate
+ * Attach live update handlers to all sliders under the given root.
+ * When the user drags a slider that does not require a reset, the global CFG
+ * is updated immediately and the provided callback is invoked.
+ * @param root - Root element containing the sliders.
+ * @param onLiveUpdate - Callback invoked for live sliders.
  */
 export function hookSliderEvents(
   root: HTMLElement,
@@ -205,22 +205,25 @@ export function hookSliderEvents(
 }
 
 /**
- * Persists the current slider values from the UI back into CFG.  This
- * should be called whenever the user clicks "Apply" to commit their
- * changes.  Sliders that require a reset are not applied until a new
- * world is constructed.
- * @param {HTMLElement} root
+ * Persist the current slider values from the UI back into CFG.
+ * This should be called whenever the user clicks "Apply" to commit changes.
+ * Sliders that require a reset are not applied until a new world is constructed.
+ * @param root - Root element containing the sliders.
  */
 export function updateCFGFromUI(root: HTMLElement): void {
-  const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
-  sliders.forEach(sl => setByPath(CFG, sl.dataset['path']!, Number(sl.value)));
+  const inputs = root.querySelectorAll<HTMLInputElement>('input[data-path]');
+  inputs.forEach(input => {
+    const path = input.dataset['path']!;
+    const value = input.type === "checkbox" ? (input.checked ? 1 : 0) : Number(input.value);
+    setByPath(CFG, path, value);
+  });
 }
 
 /**
- * Orchestrates the full UI setup: build, apply values, and hook events.
- * Used by main.ts to init or reset the sidebar.
- * @param {HTMLElement} container 
- * @param {Function} onLiveUpdate 
+ * Orchestrate the full UI setup: build, apply values, and hook events.
+ * Used by main.ts to initialize or reset the sidebar.
+ * @param container - Container element to populate.
+ * @param onLiveUpdate - Optional callback for live slider updates.
  */
 export function setupSettingsUI(
   container: HTMLElement,

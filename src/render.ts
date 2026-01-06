@@ -1,18 +1,17 @@
-// render.ts
-// Helper functions for drawing the world onto the canvas.  These
-// functions rely on the global 2D rendering context `ctx` which is
-// passed in to the render function.
+/** Helper functions for drawing the world onto the canvas. */
 
 import { TAU, clamp, hashColor } from './utils.ts';
 import { THEME, getPelletColor, getPelletGlow } from './theme.ts';
 import { CFG } from './config.ts';
 
+/** Camera state required by background drawing. */
 interface CameraState {
   zoom: number;
   cameraX: number;
   cameraY: number;
 }
 
+/** Boost particle state for fast-path rendering. */
 interface BoostParticle {
   x: number;
   y: number;
@@ -24,6 +23,7 @@ interface BoostParticle {
   color: string;
 }
 
+/** Cached snake render state for speed smoothing. */
 interface SnakeRenderCacheEntry {
   x: number;
   y: number;
@@ -31,6 +31,7 @@ interface SnakeRenderCacheEntry {
   seen: number;
 }
 
+/** Serialized snake structure used by the fast renderer. */
 interface SnakeStruct {
   id: number;
   radius: number;
@@ -44,6 +45,7 @@ interface SnakeStruct {
   color?: string | null;
 }
 
+/** Metadata for deferred snake rendering. */
 interface SnakeMeta {
   basePtr: number;
   ptCount: number;
@@ -57,6 +59,7 @@ interface SnakeMeta {
   speed: number;
 }
 
+/** Pellet shape for legacy renderer. */
 interface RenderPellet {
   x: number;
   y: number;
@@ -66,6 +69,7 @@ interface RenderPellet {
   [key: string]: unknown;
 }
 
+/** Snake shape for legacy renderer. */
 interface RenderSnake {
   id: number;
   alive: boolean;
@@ -79,6 +83,7 @@ interface RenderSnake {
   lastOutputs?: number[];
 }
 
+/** World shape for legacy renderer. */
 interface RenderWorld {
   zoom: number;
   cameraX: number;
@@ -92,19 +97,36 @@ interface RenderWorld {
   viewMode?: string;
 }
 
+/** Legacy drawSnake helper provided elsewhere in the renderer. */
 declare function drawSnake(ctx: CanvasRenderingContext2D, s: RenderSnake, zoom: number): void;
 
+/** Cached render info for snakes by id. */
 const snakeRenderCache = new Map<number, SnakeRenderCacheEntry>();
+/** Active boost particles for fast-path rendering. */
 const boostParticles: BoostParticle[] = [];
+/** Upper bound on boost particle count. */
 const MAX_BOOST_PARTICLES = 1400;
+/** Boost particle lifetime in seconds. */
 const BOOST_PARTICLE_LIFE = 0.38;
+/** Global render tick counter for cache eviction. */
 let renderTick = 0;
+/** Last render timestamp for dt calculation. */
 let lastRenderTime = 0;
 
+/**
+ * Generate a random number in [min,max].
+ * @param min - Minimum value.
+ * @param max - Maximum value.
+ * @returns Random value in range.
+ */
 function randRange(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
+/**
+ * Compute render delta time clamped to avoid large spikes.
+ * @returns Delta time in seconds.
+ */
 function getRenderDt(): number {
   if (typeof performance === 'undefined' || !performance.now) return 1 / 60;
   const now = performance.now();
@@ -113,11 +135,25 @@ function getRenderDt(): number {
   return dt || 1 / 60;
 }
 
+/**
+ * Resolve a snake color from id and skin flag.
+ * @param id - Snake id.
+ * @param skin - Skin flag (1 indicates gold).
+ * @returns CSS color string.
+ */
 function getSnakeColor(id: number, skin: number): string {
   if (skin === 1.0) return '#FFD700';
   return hashColor(id * 17 + 3);
 }
 
+/**
+ * Spawn a boost particle in the fast renderer.
+ * @param x - Spawn x position.
+ * @param y - Spawn y position.
+ * @param ang - Snake heading angle in radians.
+ * @param color - Particle color.
+ * @param strength - Boost strength in [0,1].
+ */
 function spawnBoostParticle(x: number, y: number, ang: number, color: string, strength: number): void {
   if (boostParticles.length >= MAX_BOOST_PARTICLES) boostParticles.shift();
   const dir = ang + Math.PI + randRange(-0.35, 0.35);
@@ -134,6 +170,11 @@ function spawnBoostParticle(x: number, y: number, ang: number, color: string, st
   });
 }
 
+/**
+ * Render and advance boost particles.
+ * @param ctx - Canvas 2D context to draw into.
+ * @param dt - Delta time in seconds.
+ */
 function renderBoostParticles(ctx: CanvasRenderingContext2D, dt: number): void {
   if (!boostParticles.length) return;
   ctx.save();
@@ -162,6 +203,12 @@ function renderBoostParticles(ctx: CanvasRenderingContext2D, dt: number): void {
   ctx.restore();
 }
 
+/**
+ * Hash two integer coordinates into a deterministic 32-bit value.
+ * @param x - Cell x coordinate.
+ * @param y - Cell y coordinate.
+ * @returns Unsigned 32-bit hash.
+ */
 function hash2(x: number, y: number): number {
   let h = (x * 374761393 + y * 668265263) | 0;
   h ^= h >>> 13;
@@ -169,6 +216,11 @@ function hash2(x: number, y: number): number {
   return h >>> 0;
 }
 
+/**
+ * Advance the hash to the next pseudo-random value.
+ * @param h - Current hash value.
+ * @returns Next hash value.
+ */
 function nextRand(h: number): number {
   h ^= h << 13;
   h ^= h >>> 17;
@@ -176,6 +228,13 @@ function nextRand(h: number): number {
   return h >>> 0;
 }
 
+/**
+ * Draw a starfield background aligned to the camera.
+ * @param ctx - Canvas 2D context to draw into.
+ * @param world - Camera state for positioning.
+ * @param viewW - Viewport width in pixels.
+ * @param viewH - Viewport height in pixels.
+ */
 export function drawStarfield(
   ctx: CanvasRenderingContext2D,
   world: CameraState,
@@ -222,11 +281,12 @@ export function drawStarfield(
 }
 
 /**
- * Draws a grid centred on the origin using a cached pattern.
+ * Draw a grid centered on the origin using a cached pattern.
+ * @param ctx - Canvas 2D context to draw into.
+ * @param world - Camera state for positioning.
+ * @param viewW - Viewport width in pixels.
+ * @param viewH - Viewport height in pixels.
  */
-let bgPattern: CanvasPattern | null = null;
-let bgCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
-
 export function drawGrid(
   ctx: CanvasRenderingContext2D,
   world: CameraState,
@@ -292,12 +352,14 @@ export function drawGrid(
   ctx.restore();
 }
 
+/** Cached grid pattern for background rendering. */
+let bgPattern: CanvasPattern | null = null;
+/** Cached canvas for generating the grid pattern. */
+let bgCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
+
 /**
- * Renders a single snake.
- */
-/**
- * Renders a single snake from serialized data.
- * struct: { id, radius, skin, x, y, ang, boost, pts: [x,y,x,y...] }
+ * Render a single snake from serialized data.
+ * Uses fields: id, radius, skin, x, y, ang, boost, pts.
  */
 export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, zoom: number): void {
   ctx.lineCap = "round";
@@ -361,8 +423,14 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
 }
 
 /**
- * Renders the world state from a binary buffer.
- * @param {Float32Array} flt 
+ * Render the world state from a binary buffer.
+ * @param ctx - Canvas 2D context to draw into.
+ * @param flt - Serialized frame buffer data.
+ * @param viewW - Viewport width in pixels.
+ * @param viewH - Viewport height in pixels.
+ * @param zoomOverride - Optional zoom override value.
+ * @param camXOverride - Optional camera X override.
+ * @param camYOverride - Optional camera Y override.
  */
 export function renderWorldStruct(
   ctx: CanvasRenderingContext2D,
@@ -565,12 +633,12 @@ export function renderWorldStruct(
 }
 
 /**
- * Renders the entire world to the canvas.
- * @param {CanvasRenderingContext2D} ctx
- * @param {World} world
- * @param {number} viewW
- * @param {number} viewH
- * @param {number} dpr
+ * Render the entire world to the canvas.
+ * @param ctx - Canvas 2D context to draw into.
+ * @param world - World snapshot to render.
+ * @param viewW - Viewport width in pixels.
+ * @param viewH - Viewport height in pixels.
+ * @param dpr - Device pixel ratio for scaling.
  */
 export function renderWorld(
   ctx: CanvasRenderingContext2D,

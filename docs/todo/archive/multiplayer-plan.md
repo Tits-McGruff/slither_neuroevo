@@ -321,34 +321,34 @@ Reliability rules:
 
 Phase 1: Server skeleton
 
-- [ ] Create /server entry
-- [ ] Run world loop in Node
-- [ ] Broadcast frames over WS
+- [x] Create /server entry
+- [x] Run world loop in Node
+- [x] Broadcast frames over WS
 
 Phase 2: Client reroute
 
-- [ ] UI receives frames from WS
-- [ ] Remove worker dependency (keep fallback)
+- [x] UI receives frames from WS
+- [x] Remove worker dependency (keep fallback)
 
 Phase 3: Controller override
 
-- [ ] Player/bot actions control a snake
-- [ ] Sensors sent per player
+- [x] Player/bot actions control a snake
+- [x] Sensors sent per player
 
 Phase 4: Persistence
 
-- [ ] SQLite schema + save/load
-- [ ] Import/export through server endpoints
+- [x] SQLite schema + save/load
+- [x] Import/export through server endpoints
 
 Phase 5: Brain registry
 
-- [ ] MLP/GRU behind Brain interface
-- [ ] Add LSTM (or RRU) as new module
+- [x] MLP/GRU behind Brain interface
+- [x] Add LSTM (or RRU) as new module
 
 Phase 6: Graph-based layouts
 
-- [ ] DAG format + compiler
-- [ ] Update arch config and genome mapping
+- [x] DAG format + compiler
+- [x] Update arch config and genome mapping
 
 ## Open questions
 

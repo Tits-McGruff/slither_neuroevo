@@ -3,8 +3,13 @@ import { Snake, SegmentGrid, pointSegmentDist2 } from './snake.ts';
 import { Genome, buildArch } from './mlp.ts';
 import { CFG } from './config.ts';
 
-describe('snake.ts', () => {
+/** Test suite label for snake behaviors. */
+const SUITE = 'snake.ts';
+
+describe(SUITE, () => {
+    /** Architecture used to build test genomes. */
     let arch: ReturnType<typeof buildArch>;
+    /** Genome used to spawn snakes in tests. */
     let genome: Genome;
 
     beforeEach(() => {
@@ -72,5 +77,64 @@ describe('snake.ts', () => {
         if (!first) return;
         expect(first.s).toBe(snake);
         expect(first.i).toBe(1);
+    });
+
+    it('uses external control without running the brain', () => {
+        const snake = new Snake(1, genome, arch);
+        let forwardCalls = 0;
+        snake.brain.forward = () => {
+            forwardCalls += 1;
+            return new Float32Array([0.2, 0.8]);
+        };
+        const world: Parameters<Snake['update']>[0] = {
+            pellets: [],
+            particles: { spawnBurst: () => {}, spawnBoost: () => {} },
+            addPellet: () => {},
+            removePellet: () => {},
+            bestPointsThisGen: 1
+        };
+
+        snake.update(world, 1 / 60, { turn: 1, boost: 1 });
+
+        expect(forwardCalls).toBe(0);
+        expect(snake.turnInput).toBe(1);
+        expect(snake.boostInput).toBe(1);
+    });
+
+    it('resets the brain when control mode changes', () => {
+        const snake = new Snake(1, genome, arch);
+        let resetCalls = 0;
+        snake.brain.reset = () => {
+            resetCalls += 1;
+        };
+        const world: Parameters<Snake['update']>[0] = {
+            pellets: [],
+            particles: { spawnBurst: () => {}, spawnBoost: () => {} },
+            addPellet: () => {},
+            removePellet: () => {},
+            bestPointsThisGen: 1
+        };
+
+        snake.update(world, 1 / 60, { turn: 0, boost: 0 });
+        snake.update(world, 1 / 60);
+
+        expect(resetCalls).toBe(2);
+    });
+
+    it('computes sensors into a provided buffer', () => {
+        const snake = new Snake(1, genome, arch);
+        const world: Parameters<Snake['computeSensors']>[0] = {
+            pellets: [],
+            pelletGrid: { map: new Map(), cellSize: 120 },
+            particles: { spawnBurst: () => {}, spawnBoost: () => {} },
+            addPellet: () => {},
+            removePellet: () => {},
+            bestPointsThisGen: 1
+        };
+        const out = new Float32Array(CFG.brain.inSize);
+        const sensors = snake.computeSensors(world, out);
+
+        expect(sensors).toBe(out);
+        expect(sensors.length).toBe(CFG.brain.inSize);
     });
 });

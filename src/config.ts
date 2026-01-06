@@ -2,10 +2,9 @@
 // Default configuration values and mutable configuration state for the simulation.
 
 import { deepClone } from './utils.ts';
+import type { GraphSpec } from './brains/graph/schema.ts';
 
-// Default configuration values.  These mirror the values from the original
-// monolithic implementation and expose every adjustable parameter via
-// sliders.  See settings.ts for the slider specifications.
+/** Default configuration values for the simulation and UI sliders. */
 export const CFG_DEFAULT = {
   worldRadius: 2400,
   pelletCountTarget: 2400,
@@ -80,12 +79,20 @@ sense: {
     outSize: 2,
 
     // Recurrent memory.
-    // When enabled the controller is:
-    // inputs -> MLP feature extractor -> GRU -> output heads.
-    useGRU: 1,
+    // Stackable memory units sit after the MLP feature extractor.
+    useMlp: true,
+    stack: {
+      gru: 1,
+      lstm: 0,
+      rru: 0
+    },
+    stackOrder: ["gru", "lstm", "rru"],
+    graphSpec: null as GraphSpec | null,
 
     // GRU hidden state size.
     gruHidden: 16,
+    lstmHidden: 16,
+    rruHidden: 16,
 
     // Brain is evaluated on a fixed controller timestep independent of physics substeps.
     // This stabilises what “memory length” means when collision substepping changes.
@@ -101,7 +108,11 @@ sense: {
     gruCrossoverMode: 0,
 
     // Initial bias for the GRU update gate. More negative means longer default memory.
-    gruInitUpdateBias: -0.7
+    gruInitUpdateBias: -0.7,
+    // Initial bias for the LSTM forget gate.
+    lstmInitForgetBias: 0.6,
+    // Initial bias for the RRU gate.
+    rruInitGateBias: 0.1
   },
   collision: {
     substepMaxDt: 0.018,
@@ -147,13 +158,12 @@ sense: {
   dtClamp: 0.045
 };
 
-// Mutable configuration object.  Always clone the defaults so that
-// resetting settings does not modify CFG_DEFAULT.
+/** Mutable configuration object, cloned from CFG_DEFAULT on reset. */
 export let CFG = deepClone(CFG_DEFAULT);
 
 /**
  * Resets the global configuration to its default values.
  */
-export function resetCFGToDefaults() {
+export function resetCFGToDefaults(): void {
   CFG = deepClone(CFG_DEFAULT);
 }

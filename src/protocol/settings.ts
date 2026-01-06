@@ -1,3 +1,4 @@
+/** Ordered list of config paths that can be updated live. */
 export const SETTINGS_PATHS = [
   'worldRadius',
   'pelletCountTarget',
@@ -50,8 +51,13 @@ export const SETTINGS_PATHS = [
   'reward.fitnessKill',
   'reward.fitnessPointsNorm',
   'reward.fitnessTopPointsBonus',
-  'brain.useGRU',
+  'brain.useMlp',
+  'brain.stack.gru',
+  'brain.stack.lstm',
+  'brain.stack.rru',
   'brain.gruHidden',
+  'brain.lstmHidden',
+  'brain.rruHidden',
   'brain.controlDt',
   'brain.gruMutationRate',
   'brain.gruMutationStd',
@@ -60,13 +66,16 @@ export const SETTINGS_PATHS = [
   'dtClamp'
 ] as const;
 
+/** Union type of all supported settings paths. */
 export type SettingsPath = (typeof SETTINGS_PATHS)[number];
 
+/** Update payload for a single settings path. */
 export interface SettingsUpdate {
   path: SettingsPath;
   value: number;
 }
 
+/** Core UI settings that are controlled outside of CFG. */
 export interface CoreSettings {
   snakeCount: number;
   simSpeed: number;

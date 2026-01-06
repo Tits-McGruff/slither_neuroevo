@@ -1,11 +1,12 @@
-// serializer.ts
-// Helpers to pack World state into Transferable ArrayBuffers for the Worker.
+/** Helpers to pack world state into transferable buffers. */
 
+/** Minimal point shape used in serialized snakes. */
 interface SerializablePoint {
   x: number;
   y: number;
 }
 
+/** Minimal snake shape for serialization. */
 interface SerializableSnake {
   id: number;
   radius: number;
@@ -18,6 +19,7 @@ interface SerializableSnake {
   points: SerializablePoint[];
 }
 
+/** Minimal pellet shape for serialization. */
 interface SerializablePellet {
   x: number;
   y: number;
@@ -26,6 +28,7 @@ interface SerializablePellet {
   colorId?: number;
 }
 
+/** Minimal world shape for serialization. */
 interface SerializableWorld {
   generation: number;
   cameraX: number;
@@ -35,7 +38,14 @@ interface SerializableWorld {
   pellets: SerializablePellet[];
 }
 
+/** Serializer for packing world state into a Float32Array. */
 export class WorldSerializer {
+  /**
+   * Create a serializer with optional sizing hints.
+   * @param maxSnakes - Maximum snakes expected.
+   * @param maxPointsPerSnake - Maximum points per snake expected.
+   * @param maxPellets - Maximum pellets expected.
+   */
   constructor(maxSnakes = 5000, maxPointsPerSnake = 1000, maxPellets = 50000) {
     // Estimate buffer size
     void maxSnakes;
@@ -45,6 +55,8 @@ export class WorldSerializer {
   
   /**
    * Packs the world state for rendering.
+   * @param world - World snapshot to serialize.
+   * @returns Float32Array buffer containing the serialized frame.
    */
   static serialize(world: SerializableWorld): Float32Array {
     // 1. Calculate size

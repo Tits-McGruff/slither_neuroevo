@@ -4,8 +4,13 @@ import { WorldSerializer } from './serializer.ts';
 import { World } from './world.ts';
 import { CFG, resetCFGToDefaults } from './config.ts';
 
+/** Recorded canvas call for asserting drawing behavior. */
 type CallRecord = [string, ...unknown[]];
 
+/**
+ * Creates a fake canvas context that logs drawing calls.
+ * @returns Canvas context shim with call recording.
+ */
 function makeCtx() {
   const calls: CallRecord[] = [];
   return {
@@ -43,14 +48,18 @@ function makeCtx() {
   };
 }
 
+/** OffscreenCanvas stub to satisfy grid caching in render tests. */
 class StubOffscreenCanvas {
+  /** Canvas width in pixels. */
   width: number;
+  /** Canvas height in pixels. */
   height: number;
 
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height;
   }
+  /** Return a minimal 2D context stub. */
   getContext(): CanvasRenderingContext2D {
     return {
       beginPath() {},
@@ -65,11 +74,12 @@ class StubOffscreenCanvas {
 
 describe('render.ts', () => {
   beforeAll(() => {
-    (globalThis as any).OffscreenCanvas = StubOffscreenCanvas;
+    const globalShim = globalThis as unknown as { OffscreenCanvas?: typeof StubOffscreenCanvas };
+    globalShim.OffscreenCanvas = StubOffscreenCanvas;
   });
 
   it('renders a serialized buffer without throwing', () => {
-    const world = {
+    const world: Parameters<typeof WorldSerializer.serialize>[0] = {
       generation: 1,
       cameraX: 0,
       cameraY: 0,
@@ -90,7 +100,7 @@ describe('render.ts', () => {
       pellets: [{ x: 10, y: 0, v: 1, kind: 'ambient' }]
     };
 
-    const buffer = WorldSerializer.serialize(world as any);
+    const buffer = WorldSerializer.serialize(world);
     const ctx = makeCtx();
     const renderCtx = ctx as unknown as CanvasRenderingContext2D;
 
@@ -111,7 +121,7 @@ describe('render.ts', () => {
     try {
       const world = new World({ snakeCount: 6, hiddenLayers: 1, neurons1: 12, neurons2: 8 });
       world.update(1 / 30, 800, 600);
-      const buffer = WorldSerializer.serialize(world as any);
+      const buffer = WorldSerializer.serialize(world);
       const ctx = makeCtx();
       const renderCtx = ctx as unknown as CanvasRenderingContext2D;
 

@@ -1,6 +1,6 @@
-// chartUtils.ts
-// Advanced chart rendering utilities for visualizing evolution statistics
+/** Advanced chart rendering utilities for visualizing evolution statistics. */
 
+/** Fitness history record used by chart rendering helpers. */
 interface FitnessHistoryEntry {
   gen: number;
   avgFitness?: number;
@@ -12,13 +12,14 @@ interface FitnessHistoryEntry {
   weightVariance?: number;
 }
 
+/** Chart renderer for advanced stats graphs. */
 export class AdvancedCharts {
   /**
-   * Renders average fitness over generations
-   * @param {CanvasRenderingContext2D} ctx 
-   * @param {Array} history Array of {gen, avgFitness, maxFitness, minFitness}
-   * @param {number} w 
-   * @param {number} h 
+   * Render average fitness over generations.
+   * @param ctx - Canvas 2D context to draw into.
+   * @param history - Fitness history entries to plot.
+   * @param w - Canvas width in pixels.
+   * @param h - Canvas height in pixels.
    */
   static renderAverageFitness(
     ctx: CanvasRenderingContext2D,
@@ -129,11 +130,11 @@ export class AdvancedCharts {
   }
   
   /**
-   * Renders species diversity as a bar chart
-   * @param {CanvasRenderingContext2D} ctx 
-   * @param {Array} history Array of {gen, speciesCount, topSpeciesSize}
-   * @param {number} w 
-   * @param {number} h 
+   * Render species diversity as a bar chart.
+   * @param ctx - Canvas 2D context to draw into.
+   * @param history - Fitness history entries to plot.
+   * @param w - Canvas width in pixels.
+   * @param h - Canvas height in pixels.
    */
   static renderSpeciesDiversity(
     ctx: CanvasRenderingContext2D,
@@ -222,11 +223,11 @@ export class AdvancedCharts {
   }
   
   /**
-   * Renders network complexity metrics
-   * @param {CanvasRenderingContext2D} ctx 
-   * @param {Array} history Array of {gen, avgWeights, weightVariance}
-   * @param {number} w 
-   * @param {number} h 
+   * Render network complexity metrics.
+   * @param ctx - Canvas 2D context to draw into.
+   * @param history - Fitness history entries to plot.
+   * @param w - Canvas width in pixels.
+   * @param h - Canvas height in pixels.
    */
   static renderNetworkComplexity(
     ctx: CanvasRenderingContext2D,

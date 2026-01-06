@@ -3,7 +3,9 @@ import { buildSensors } from './sensors.ts';
 import { CFG } from './config.ts';
 
 describe('sensors.ts', () => {
+  /** Snapshot of default bubble bin count for cleanup. */
   const originalBins = CFG.sense.bubbleBins;
+  /** Snapshot of default boost threshold for cleanup. */
   const originalMinBoost = CFG.boost.minPointsToBoost;
 
   beforeEach(() => {
@@ -16,6 +18,11 @@ describe('sensors.ts', () => {
     CFG.boost.minPointsToBoost = originalMinBoost;
   });
 
+  /**
+   * Builds a minimal snake stub with optional overrides.
+   * @param overrides - Additional fields to merge into the stub.
+   * @returns Snake-like object for sensor tests.
+   */
   function makeSnake(overrides: Record<string, unknown> = {}) {
     return {
       x: 0,
@@ -31,6 +38,11 @@ describe('sensors.ts', () => {
     };
   }
 
+  /**
+   * Builds a world stub with pellet grid and fitness tracking fields.
+   * @param options - World options such as pellets and best points.
+   * @returns World-like object for sensor tests.
+   */
   function makeWorld(
     { pellets = [], bestPointsThisGen = 1 }: { pellets?: Array<{ x: number; y: number; v: number }>; bestPointsThisGen?: number } = {}
   ) {

@@ -312,14 +312,14 @@ Test files:
 
 ## Execution checklist
 
-- [ ] Create `server/` directory and files
-- [ ] Implement config parsing and validation
-- [ ] Implement protocol validators
-- [ ] Implement wsHub connection lifecycle
-- [ ] Implement simServer tick loop
-- [ ] Broadcast frames and stats
-- [ ] Add server scripts to `package.json`
-- [ ] Add protocol + integration tests
+- [x] Create `server/` directory and files
+- [x] Implement config parsing and validation
+- [x] Implement protocol validators
+- [x] Implement wsHub connection lifecycle
+- [x] Implement simServer tick loop
+- [x] Broadcast frames and stats
+- [x] Add server scripts to `package.json`
+- [x] Add protocol + integration tests
 
 ## Function-by-function pseudocode
 

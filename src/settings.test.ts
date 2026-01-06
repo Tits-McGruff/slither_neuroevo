@@ -8,18 +8,33 @@ import {
 import { CFG } from './config.ts';
 import { fmtNumber } from './utils.ts';
 
+/** Minimal DOM element stub for settings UI tests. */
 class FakeElement {
+  /** Element tag name. */
   tagName: string;
+  /** Child element list. */
   children: FakeElement[];
+  /** Data attributes map. */
   dataset: Record<string, string>;
+  /** CSS class string. */
   className: string;
+  /** Element id. */
   id: string;
+  /** Text content value. */
   textContent: string;
+  /** Inner HTML value. */
   innerHTML: string;
+  /** Input value string. */
   value: string;
+  /** Input type string. */
   type: string;
+  /** Inline style map. */
   style: Record<string, string>;
 
+  /**
+   * Create a fake element with a tag name.
+   * @param tag - Tag name to assign.
+   */
   constructor(tag: string) {
     this.tagName = tag;
     this.children = [];
@@ -32,30 +47,41 @@ class FakeElement {
     this.type = '';
     this.style = {};
   }
+  /**
+   * Append a child element.
+   * @param child - Child element to append.
+   * @returns The appended child.
+   */
   appendChild(child: FakeElement) {
     this.children.push(child);
     return child;
   }
+  /**
+   * Return matching children for a selector.
+   * @returns Empty list for this stub.
+   */
   querySelectorAll(): FakeElement[] {
     return [];
   }
+  /** No-op event listener registration for the stub. */
   addEventListener(): void {}
 }
 
 describe('settings.ts', () => {
   let originalDocument: unknown;
-  const globalAny = globalThis as any;
+  const globalAny = globalThis as typeof globalThis & { document?: Document };
 
   beforeEach(() => {
     originalDocument = globalAny.document;
-    globalAny.document = {
-      createElement: (tag: string) => new FakeElement(tag),
+    const mockDocument: Partial<Document> = {
+      createElement: (tag: string) => new FakeElement(tag) as unknown as HTMLElement,
       getElementById: () => null
-    } as any;
+    };
+    globalAny.document = mockDocument as Document;
   });
 
   afterEach(() => {
-    globalAny.document = originalDocument;
+    globalAny.document = originalDocument as Document;
   });
 
   it('buildSettingsUI populates the container', () => {
@@ -72,7 +98,7 @@ describe('settings.ts', () => {
       dataset: { path: 'boost.minPointsToBoost', decimals: '1' },
       value: '0'
     };
-    const output = { textContent: '' };
+    const output = { textContent: '' } as unknown as HTMLElement;
     globalAny.document.getElementById = () => output;
 
     const root = { querySelectorAll: () => [slider] };

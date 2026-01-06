@@ -1,39 +1,64 @@
-// mlp.ts
-// Definition of a multi‑layer perceptron and genetic operators for
-// neuroevolution.  We reuse the same architecture and mutation logic as
-// the original monolithic implementation.
+/** Architecture selection, genome representation, and evolution operators. */
 
 import { CFG } from './config.ts';
 import { clamp, gaussian } from './utils.ts';
+import { buildStackGraphSpec } from './brains/stackBuilder.ts';
+import { graphKey } from './brains/graph/compiler.ts';
+import type { CompiledGraph } from './brains/graph/compiler.ts';
+import type { GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
+import { validateGraph } from './brains/graph/validate.ts';
+import type { Brain } from './brains/types.ts';
+import { buildBrain as buildBrainInstance, compileBrainSpec } from './brains/registry.ts';
+import { DenseHead, GRU, LSTM, MLP, RRU } from './brains/ops.ts';
 
-export type ArchKind = 'mlp' | 'mlp_gru';
+/** Re-export core brain ops and parameter helpers. */
+export {
+  DenseHead,
+  GRU,
+  LSTM,
+  MLP,
+  RRU,
+  gruParamCount,
+  headParamCount,
+  lstmParamCount,
+  mlpParamCount,
+  rruParamCount,
+  sigmoid
+} from './brains/ops.ts';
 
+/** Architecture definition bundling a graph spec and its key. */
 export interface ArchDefinition {
-  kind?: ArchKind;
-  mlpSizes?: number[];
-  mlp?: number[];
-  gruHidden?: number;
-  outSize?: number;
-  key?: string;
+  spec: GraphSpec;
+  key: string;
   _info?: ArchInfo;
 }
 
+/** Parameter metadata for a single graph node. */
+export interface NodeParamInfo {
+  id: string;
+  type: GraphNodeType;
+  offset: number;
+  length: number;
+  inputSize: number;
+  outputSize: number;
+  hiddenSize?: number;
+  hiddenSizes?: number[];
+  isRecurrent: boolean;
+}
+
+/** Cached architecture info derived from a compiled graph. */
 export interface ArchInfo {
-  kind: ArchKind;
-  mlpSizes: number[];
-  gruHidden: number;
-  outSize: number;
-  mlpCount: number;
-  gruCount: number;
-  headCount: number;
+  key: string;
+  spec: GraphSpec;
   totalCount: number;
-  featureSize: number;
-  offs: { mlp: number; gru: number; head: number };
+  nodes: NodeParamInfo[];
+  compiled: CompiledGraph;
 }
 
 /**
- * Builds a neural network architecture array from UI settings.
- * Uses the global CFG to determine input/output sizes.
+ * Builds a stacked brain graph spec from UI settings + CFG toggles.
+ * @param settings - Layer size and depth settings from the UI.
+ * @returns Architecture definition derived from settings or graph spec.
  */
 export function buildArch(settings: {
   hiddenLayers: number;
@@ -43,510 +68,222 @@ export function buildArch(settings: {
   neurons4: number;
   neurons5: number;
 }): ArchDefinition {
-  const layers = settings.hiddenLayers;
-  const hidden = [];
-  if (layers >= 1) hidden.push(settings.neurons1);
-  if (layers >= 2) hidden.push(settings.neurons2);
-  if (layers >= 3) hidden.push(settings.neurons3);
-  if (layers >= 4) hidden.push(settings.neurons4);
-  if (layers >= 5) hidden.push(settings.neurons5);
-
-  // Ensure at least one hidden layer for feature extraction.
-  if (hidden.length === 0) hidden.push(Math.max(4, settings.neurons1 || 8));
-
-  const useGRU = !!(CFG.brain && CFG.brain.useGRU);
-  if (!useGRU) {
-    const mlpSizes = [CFG.brain.inSize, ...hidden, CFG.brain.outSize];
-    return {
-      kind: "mlp",
-      mlpSizes,
-      key: archKey({ kind: "mlp", mlpSizes })
-    };
+  const customSpec = CFG.brain?.graphSpec as GraphSpec | null | undefined;
+  if (customSpec && typeof customSpec === 'object') {
+    const result = validateGraph(customSpec);
+    if (result.ok) {
+      const inputNode = customSpec.nodes.find(node => node.type === 'Input');
+      const inputSize = inputNode && 'outputSize' in inputNode ? inputNode.outputSize : null;
+      if (inputSize === CFG.brain.inSize && customSpec.outputSize === CFG.brain.outSize) {
+        return { spec: customSpec, key: graphKey(customSpec) };
+      }
+      console.warn('[Brain] Ignoring custom graph spec (input/output size mismatch).');
+    } else {
+      console.warn('[Brain] Ignoring custom graph spec:', result.reason);
+    }
   }
-
-  const gruHidden = Math.max(2, Math.floor(CFG.brain.gruHidden || 8));
-  const mlpSizes = [CFG.brain.inSize, ...hidden];
-  return {
-    kind: "mlp_gru",
-    mlpSizes,
-    gruHidden,
-    outSize: CFG.brain.outSize,
-    key: archKey({ kind: "mlp_gru", mlpSizes, gruHidden, outSize: CFG.brain.outSize })
-  };
+  const spec = buildStackGraphSpec(settings, CFG);
+  return { spec, key: graphKey(spec) };
 }
 
 /**
- * Produces a stable key for a given neural network architecture.
+ * Compute a stable architecture key from a definition or raw spec.
+ * @param arch - Architecture definition or raw graph spec.
+ * @returns Graph key string.
  */
-export function archKey(arch: ArchDefinition | number[]): string {
-  if (Array.isArray(arch)) return arch.join("x");
-  const kind = arch.kind || "mlp";
-  const mlp = (arch.mlpSizes || arch.mlp || []).join("x");
-  if (kind === "mlp_gru") {
-    const h = arch.gruHidden || 0;
-    const o = arch.outSize || CFG.brain.outSize;
-    return `mlp:${mlp}|gru:${h}|out:${o}`;
-  }
-  return `mlp:${mlp}`;
+export function archKey(arch: ArchDefinition | GraphSpec): string {
+  if ('spec' in arch) return graphKey(arch.spec);
+  return graphKey(arch);
 }
 
 /**
- * Simple fully connected neural network with tanh activations.
+ * Enrich an architecture with compiled info and parameter metadata.
+ * @param arch - Architecture definition to enrich.
+ * @returns Cached architecture info.
  */
-export class MLP {
-  layerSizes: number[];
-  key: string;
-  paramCount: number;
-  w: Float32Array;
-  _bufs: Float32Array[];
-
-  constructor(layerSizes: number[], weights: Float32Array | null = null) {
-    // Copy sizes to avoid accidental mutation by caller.
-    this.layerSizes = layerSizes.slice();
-    // Unique key for caching neural architectures.
-    this.key = archKey(this.layerSizes);
-    // Count the number of parameters required by this network.
-    this.paramCount = 0;
-    for (let l = 0; l < this.layerSizes.length - 1; l++) {
-      const ins = this.layerSizes[l]!;
-      const outs = this.layerSizes[l + 1]!;
-      // Each output has ins weights plus one bias term.
-      this.paramCount += outs * ins + outs;
-    }
-    // If weights are provided, use them; otherwise initialise randomly.
-    this.w = weights ? weights.slice() : new Float32Array(this.paramCount);
-    if (!weights) {
-      for (let i = 0; i < this.paramCount; i++) {
-        this.w[i] = (Math.random() * 2 - 1) * 0.6;
-      }
-    }
-    // Per-layer output buffers to avoid per-tick allocations.
-    this._bufs = [];
-    for (let l = 1; l < this.layerSizes.length; l++) {
-      const size = this.layerSizes[l]!;
-      this._bufs.push(new Float32Array(size));
-    }
-  }
-
-  /**
-   * Performs a forward pass through the network.  Uses tanh activations
-   * everywhere.  Accepts and returns Float32Array instances.
-   * @param {Float32Array} input
-   * @returns {Float32Array}
-   */
-  forward(input: Float32Array): Float32Array {
-    let wi = 0;
-    let cur = input;
-    for (let l = 0; l < this.layerSizes.length - 1; l++) {
-      const ins = this.layerSizes[l]!;
-      const outs = this.layerSizes[l + 1]!;
-      const next = this._bufs[l]!;
-      for (let o = 0; o < outs; o++) {
-        let sum = 0;
-        for (let i = 0; i < ins; i++) sum += (this.w[wi++] ?? 0) * (cur[i] ?? 0);
-        sum += this.w[wi++] ?? 0; // bias
-        next[o] = Math.tanh(sum);
-      }
-      cur = next;
-    }
-    return cur;
-  }
-}
-
-function mlpParamCount(layerSizes: number[]): number {
-  let n = 0;
-  for (let l = 0; l < layerSizes.length - 1; l++) {
-    const ins = layerSizes[l]!;
-    const outs = layerSizes[l + 1]!;
-    n += outs * ins + outs;
-  }
-  return n;
-}
-
-function gruParamCount(inSize: number, hiddenSize: number): number {
-  // z, r, h~ gates each have: W (H x I), U (H x H), b (H)
-  return 3 * hiddenSize * (inSize + hiddenSize + 1);
-}
-
-function headParamCount(hiddenSize: number, outSize: number): number {
-  return outSize * hiddenSize + outSize;
-}
-
 export function enrichArchInfo(arch: ArchDefinition): ArchInfo {
   if (arch && arch._info) return arch._info;
-  const kind = arch.kind || "mlp";
-  const mlpSizes = arch.mlpSizes || arch.mlp || [];
-  const info: ArchInfo = {
-    kind,
-    mlpSizes,
-    gruHidden: 0,
-    outSize: CFG.brain.outSize,
-    mlpCount: 0,
-    gruCount: 0,
-    headCount: 0,
-    totalCount: 0,
-    featureSize: 0,
-    offs: { mlp: 0, gru: 0, head: 0 }
-  };
-  if (kind === "mlp") {
-    info.mlpCount = mlpParamCount(mlpSizes);
-    info.totalCount = info.mlpCount;
-    info.featureSize = mlpSizes[mlpSizes.length - 1] || 0;
-    info.offs = { mlp: 0, gru: info.mlpCount, head: info.mlpCount };
-  } else {
-    info.gruHidden = Math.max(2, Math.floor(arch.gruHidden || 8));
-    info.outSize = Math.max(1, Math.floor(arch.outSize || CFG.brain.outSize));
-    info.mlpCount = mlpParamCount(mlpSizes);
-    info.featureSize = mlpSizes[mlpSizes.length - 1] || 0;
-    info.gruCount = gruParamCount(info.featureSize, info.gruHidden);
-    info.headCount = headParamCount(info.gruHidden, info.outSize);
-    info.offs = {
-      mlp: 0,
-      gru: info.mlpCount,
-      head: info.mlpCount + info.gruCount
+  const compiled = compileBrainSpec(arch.spec);
+  const nodes: NodeParamInfo[] = compiled.nodes.map(node => {
+    const base: NodeParamInfo = {
+      id: node.id,
+      type: node.type,
+      offset: node.paramOffset,
+      length: node.paramLength,
+      inputSize: node.inputSize,
+      outputSize: node.outputSize,
+      isRecurrent: node.type === 'GRU' || node.type === 'LSTM' || node.type === 'RRU'
     };
-    info.totalCount = info.mlpCount + info.gruCount + info.headCount;
-  }
+    if (node.hiddenSize != null) base.hiddenSize = node.hiddenSize;
+    if (node.hiddenSizes && node.hiddenSizes.length) base.hiddenSizes = node.hiddenSizes.slice();
+    return base;
+  });
+  const info: ArchInfo = {
+    key: compiled.key,
+    spec: compiled.spec,
+    totalCount: compiled.totalParams,
+    nodes,
+    compiled
+  };
   arch._info = info;
   return info;
 }
 
-export function sigmoid(x: number): number {
-  // Stable enough for our weight ranges.
-  return 1 / (1 + Math.exp(-x));
-}
-
 /**
- * Minimal GRU cell. Keeps internal hidden state and exposes step(x).
- */
-export class GRU {
-  inSize: number;
-  hiddenSize: number;
-  paramCount: number;
-  w: Float32Array;
-  h: Float32Array;
-  _z: Float32Array;
-  _r: Float32Array;
-
-  constructor(
-    inSize: number,
-    hiddenSize: number,
-    weights: Float32Array | null = null,
-    initUpdateBias = -0.7
-  ) {
-    this.inSize = inSize;
-    this.hiddenSize = hiddenSize;
-    this.paramCount = gruParamCount(inSize, hiddenSize);
-    this.w = weights ? weights.slice() : new Float32Array(this.paramCount);
-    if (!weights) {
-      // Keep recurrent weights smaller for stability.
-      const I = inSize;
-      const H = hiddenSize;
-      const Wsz = H * I; // per-gate input weights
-      const Usz = H * H; // per-gate recurrent weights
-      let idx = 0;
-      // Wz, Wr, Wh
-      for (let i = 0; i < 3 * Wsz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.35;
-      // Uz, Ur, Uh
-      for (let i = 0; i < 3 * Usz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.18;
-      // bz, br, bh
-      for (let j = 0; j < H; j++) this.w[idx++] = initUpdateBias + (Math.random() * 2 - 1) * 0.10; // bz
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // br
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // bh
-    }
-    this.h = new Float32Array(hiddenSize);
-    this._z = new Float32Array(hiddenSize);
-    this._r = new Float32Array(hiddenSize);
-  }
-
-  reset(): void {
-    this.h.fill(0);
-  }
-
-  step(x: Float32Array): Float32Array {
-    const I = this.inSize;
-    const H = this.hiddenSize;
-    const Wsz = H * I;
-    const Usz = H * H;
-
-    // Layout: Wz, Wr, Wh, Uz, Ur, Uh, bz, br, bh
-    const Wz = 0;
-    const Wr = Wz + Wsz;
-    const Wh = Wr + Wsz;
-    const Uz = Wh + Wsz;
-    const Ur = Uz + Usz;
-    const Uh = Ur + Usz;
-    const bz = Uh + Usz;
-    const br = bz + H;
-    const bh = br + H;
-
-    // z and r
-    for (let j = 0; j < H; j++) {
-      let sumZ = 0;
-      let sumR = 0;
-      const wzRow = Wz + j * I;
-      const wrRow = Wr + j * I;
-      for (let i = 0; i < I; i++) {
-        const xi = x[i] ?? 0;
-        sumZ += (this.w[wzRow + i] ?? 0) * xi;
-        sumR += (this.w[wrRow + i] ?? 0) * xi;
-      }
-      const uzRow = Uz + j * H;
-      const urRow = Ur + j * H;
-      for (let k = 0; k < H; k++) {
-        const hk = this.h[k] ?? 0;
-        sumZ += (this.w[uzRow + k] ?? 0) * hk;
-        sumR += (this.w[urRow + k] ?? 0) * hk;
-      }
-      sumZ += this.w[bz + j] ?? 0;
-      sumR += this.w[br + j] ?? 0;
-      this._z[j] = sigmoid(sumZ);
-      this._r[j] = sigmoid(sumR);
-    }
-
-    // candidate and update hidden
-    for (let j = 0; j < H; j++) {
-      let sumH = 0;
-      const whRow = Wh + j * I;
-      for (let i = 0; i < I; i++) sumH += (this.w[whRow + i] ?? 0) * (x[i] ?? 0);
-      const uhRow = Uh + j * H;
-      for (let k = 0; k < H; k++) {
-        const rVal = this._r[k] ?? 0;
-        const hVal = this.h[k] ?? 0;
-        sumH += (this.w[uhRow + k] ?? 0) * (rVal * hVal);
-      }
-      sumH += this.w[bh + j] ?? 0;
-      const hTilde = Math.tanh(sumH);
-      const z = this._z[j] ?? 0;
-      const prevH = this.h[j] ?? 0;
-      this.h[j] = (1 - z) * prevH + z * hTilde;
-    }
-    return this.h;
-  }
-}
-
-export class DenseHead {
-  inSize: number;
-  outSize: number;
-  paramCount: number;
-  w: Float32Array;
-  _out: Float32Array;
-
-  constructor(inSize: number, outSize: number, weights: Float32Array | null = null) {
-    this.inSize = inSize;
-    this.outSize = outSize;
-    this.paramCount = headParamCount(inSize, outSize);
-    this.w = weights ? weights.slice() : new Float32Array(this.paramCount);
-    if (!weights) {
-      for (let i = 0; i < this.w.length; i++) this.w[i] = (Math.random() * 2 - 1) * 0.45;
-    }
-    this._out = new Float32Array(outSize);
-  }
-  forward(x: Float32Array): Float32Array {
-    let idx = 0;
-    for (let o = 0; o < this.outSize; o++) {
-      let sum = 0;
-      for (let i = 0; i < this.inSize; i++) sum += (this.w[idx++] ?? 0) * (x[i] ?? 0);
-      sum += this.w[idx++] ?? 0;
-      this._out[o] = Math.tanh(sum);
-    }
-    return this._out;
-  }
-}
-
-/**
- * Unified controller wrapper.
- * - kind="mlp": forward(input) returns output.
- * - kind="mlp_gru": forward(input) updates hidden state and returns output.
- */
-export class BrainController {
-  arch: ArchDefinition;
-  info: ArchInfo;
-  kind: ArchKind;
-  mlp: MLP;
-  gru: GRU | null;
-  head: DenseHead | null;
-
-  constructor(arch: ArchDefinition, weights: Float32Array) {
-    this.arch = arch;
-    this.info = enrichArchInfo(arch);
-    this.kind = this.info.kind;
-    if (this.kind === "mlp") {
-      this.mlp = new MLP(this.info.mlpSizes, weights);
-      this.gru = null;
-      this.head = null;
-    } else {
-      const w = weights;
-      const mlpW = w.slice(0, this.info.mlpCount);
-      const gruW = w.slice(this.info.offs.gru, this.info.offs.gru + this.info.gruCount);
-      const headW = w.slice(this.info.offs.head, this.info.offs.head + this.info.headCount);
-      this.mlp = new MLP(this.info.mlpSizes, mlpW);
-      const initBias = CFG.brain && typeof CFG.brain.gruInitUpdateBias === "number" ? CFG.brain.gruInitUpdateBias : -0.7;
-      this.gru = new GRU(this.info.featureSize, this.info.gruHidden, gruW, initBias);
-      this.head = new DenseHead(this.info.gruHidden, this.info.outSize, headW);
-    }
-  }
-
-  reset(): void {
-    if (this.gru) this.gru.reset();
-  }
-
-  forward(input: Float32Array): Float32Array {
-    if (this.kind === "mlp") return this.mlp.forward(input);
-    const feat = this.mlp.forward(input);
-    const h = this.gru!.step(feat);
-    return this.head!.forward(h);
-  }
-}
-/**
- * Represents an individual in the population.  Stores a neural
- * architecture key, the weight vector and the fitness score.
+ * Represents an individual genome (weights + metadata).
  */
 export class Genome {
+  /** Architecture key used for compatibility checks. */
   archKey: string;
+  /** Brain type identifier used for registry lookups. */
+  brainType: string;
+  /** Weight buffer for the genome. */
   weights: Float32Array;
+  /** Cached fitness value assigned during evolution. */
   fitness: number;
 
-  constructor(archKey: string, weights: Float32Array) {
+  /**
+   * Create a genome with an architecture key and weights.
+   * @param archKey - Architecture key string.
+   * @param weights - Weight array to store.
+   * @param brainType - Brain type identifier.
+   */
+  constructor(archKey: string, weights: Float32Array, brainType = 'mlp') {
     this.archKey = archKey;
+    this.brainType = brainType;
     this.weights = weights ? weights.slice() : new Float32Array(0);
     this.fitness = 0;
   }
+
   /**
-   * Creates a genome with a randomly initialised weight vector for the
-   * given architecture.
-   * @param {Array<number>} arch
-   * @returns {Genome}
+   * Build a randomized genome for a specific architecture.
+   * @param arch - Architecture definition to target.
+   * @returns New randomized genome.
    */
   static random(arch: ArchDefinition): Genome {
     const info = enrichArchInfo(arch);
-    if (info.kind === "mlp") {
-      const net = new MLP(info.mlpSizes);
-      return new Genome(arch.key || net.key, net.w);
-    }
     const w = new Float32Array(info.totalCount);
-    // MLP weights
-    const mlp = new MLP(info.mlpSizes);
-    w.set(mlp.w, 0);
-    // GRU weights
-    const initBias = CFG.brain && typeof CFG.brain.gruInitUpdateBias === "number" ? CFG.brain.gruInitUpdateBias : -0.7;
-    const gru = new GRU(info.featureSize, info.gruHidden, null, initBias);
-    w.set(gru.w, info.offs.gru);
-    // Head weights
-    const head = new DenseHead(info.gruHidden, info.outSize);
-    w.set(head.w, info.offs.head);
-    return new Genome(arch.key || archKey(arch), w);
+    for (const node of info.nodes) {
+      if (node.length <= 0) continue;
+      const slice = w.subarray(node.offset, node.offset + node.length);
+      switch (node.type) {
+        case 'MLP': {
+          const sizes = [node.inputSize, ...(node.hiddenSizes ?? []), node.outputSize];
+          const mlp = new MLP(sizes);
+          slice.set(mlp.w);
+          break;
+        }
+        case 'Dense': {
+          const head = new DenseHead(node.inputSize, node.outputSize);
+          slice.set(head.w);
+          break;
+        }
+        case 'GRU': {
+          const initBias = CFG.brain && typeof CFG.brain.gruInitUpdateBias === 'number'
+            ? CFG.brain.gruInitUpdateBias
+            : -0.7;
+          const gru = new GRU(node.inputSize, node.hiddenSize ?? node.outputSize, null, initBias);
+          slice.set(gru.w);
+          break;
+        }
+        case 'LSTM': {
+          const initBias = CFG.brain && typeof CFG.brain.lstmInitForgetBias === 'number'
+            ? CFG.brain.lstmInitForgetBias
+            : 0.6;
+          const lstm = new LSTM(node.inputSize, node.hiddenSize ?? node.outputSize, null, initBias);
+          slice.set(lstm.w);
+          break;
+        }
+        case 'RRU': {
+          const initBias = CFG.brain && typeof CFG.brain.rruInitGateBias === 'number'
+            ? CFG.brain.rruInitGateBias
+            : 0.1;
+          const rru = new RRU(node.inputSize, node.hiddenSize ?? node.outputSize, null, initBias);
+          slice.set(rru.w);
+          break;
+        }
+        default:
+          break;
+      }
+    }
+    return new Genome(arch.key, w, arch.spec.type);
   }
+
   /**
-   * Builds an MLP instance from the stored weights.
-   * @param {Array<number>} arch
+   * Build a brain instance from the genome weights and architecture.
+   * @param arch - Architecture definition to compile.
+   * @returns Initialized brain instance.
    */
-  buildBrain(arch: ArchDefinition): BrainController {
-    const brain = new BrainController(arch, this.weights);
+  buildBrain(arch: ArchDefinition): Brain {
+    const info = enrichArchInfo(arch);
+    const brain = buildBrainInstance(info.compiled.spec, this.weights);
     brain.reset();
     return brain;
   }
+
   /**
-   * Creates a deep copy of this genome, preserving fitness and weights.
-   * @returns {Genome}
+   * Clone this genome including weights and fitness.
+   * @returns New genome clone.
    */
   clone(): Genome {
-    const g = new Genome(this.archKey, this.weights);
+    const g = new Genome(this.archKey, this.weights, this.brainType);
     g.fitness = this.fitness;
     return g;
   }
+
   /**
-   * Serialises the genome to a plain object.
-   * @returns {Object}
+   * Serialize this genome into JSON-friendly data.
+   * @returns JSON payload for persistence.
    */
-  toJSON(): { archKey: string; weights: number[]; fitness: number } {
+  toJSON(): { archKey: string; brainType: string; weights: number[]; fitness: number } {
     return {
       archKey: this.archKey,
+      brainType: this.brainType,
       weights: Array.from(this.weights),
       fitness: this.fitness
     };
   }
+
   /**
-   * Reconstructs a genome from a plain object.
-   * @param {Object} json
-   * @returns {Genome}
+   * Deserialize a genome from a JSON payload.
+   * @param json - JSON payload containing weights and metadata.
+   * @returns New genome instance.
    */
-  static fromJSON(json: { archKey: string; weights: number[]; fitness?: number }): Genome {
-    const g = new Genome(json.archKey, new Float32Array(json.weights));
+  static fromJSON(json: { archKey: string; brainType?: string; weights: number[]; fitness?: number }): Genome {
+    const g = new Genome(json.archKey, new Float32Array(json.weights), json.brainType || 'mlp');
     g.fitness = json.fitness || 0;
     return g;
   }
 }
 
 /**
- * Performs crossover between two parent genomes.  With probability
- * 1−crossoverRate the child is a copy of one parent; otherwise each
- * weight is chosen randomly from either parent.
- * @param {Genome} a
- * @param {Genome} b
- * @returns {Genome}
+ * Perform structured crossover for recurrent blocks.
+ * @param out - Output weight buffer to write into.
+ * @param wa - Parent A weights.
+ * @param wb - Parent B weights.
+ * @param node - Node parameter metadata.
+ * @param mode - Crossover mode (0 block, 1 unit).
  */
-export function crossover(a: Genome, b: Genome, arch: ArchDefinition): Genome {
-  const info = enrichArchInfo(arch);
-  const wa = a.weights;
-  const wb = b.weights;
-  const n = wa.length;
-  const child = new Float32Array(n);
-
-  // MLP-only uses the original uniform crossover.
-  if (info.kind === "mlp") {
-    if (Math.random() > CFG.crossoverRate) {
-      child.set(Math.random() < 0.5 ? wa : wb);
-      return new Genome(a.archKey, child);
-    }
-    for (let i = 0; i < n; i++) {
-      const aVal = wa[i] ?? 0;
-      const bVal = wb[i] ?? 0;
-      child[i] = Math.random() < 0.5 ? aVal : bVal;
-    }
-    return new Genome(a.archKey, child);
-  }
-
-  // For recurrent controllers we keep crossover structured.
-  // MLP feature extractor + head: original uniform crossover.
-  // GRU block: either inherit as a whole (mode 0) or unit-wise row crossover (mode 1).
-  const mlpEnd = info.mlpCount;
-  const gruStart = info.offs.gru;
-  const gruEnd = info.offs.head;
-  const headStart = info.offs.head;
-
-  // MLP segment
-  if (Math.random() > CFG.crossoverRate) {
-    // Copy all weights from one parent as the baseline.
-    child.set(Math.random() < 0.5 ? wa : wb);
-  } else {
-    for (let i = 0; i < mlpEnd; i++) {
-      const aVal = wa[i] ?? 0;
-      const bVal = wb[i] ?? 0;
-      child[i] = Math.random() < 0.5 ? aVal : bVal;
-    }
-    // Head segment
-    for (let i = headStart; i < n; i++) {
-      const aVal = wa[i] ?? 0;
-      const bVal = wb[i] ?? 0;
-      child[i] = Math.random() < 0.5 ? aVal : bVal;
-    }
-  }
-
-  const mode = Math.floor((CFG.brain && CFG.brain.gruCrossoverMode) || 0);
+function crossoverRecurrentBlock(
+  out: Float32Array,
+  wa: Float32Array,
+  wb: Float32Array,
+  node: NodeParamInfo,
+  mode: number
+): void {
+  const offset = node.offset;
+  const len = node.length;
   if (mode === 0) {
-    // Inherit the entire GRU block from one parent.
     const src = Math.random() < 0.5 ? wa : wb;
-    child.set(src.subarray(gruStart, gruEnd), gruStart);
-  } else {
-    // Unit-wise row crossover: copy each unit's rows (all gates) from one parent.
-    const I = info.featureSize;
-    const H = info.gruHidden;
-    const Wsz = H * I;
-    const Usz = H * H;
-    const local = gruStart;
-    // Layout inside GRU block: Wz, Wr, Wh, Uz, Ur, Uh, bz, br, bh
-    const Wz = local;
+    out.set(src.subarray(offset, offset + len), offset);
+    return;
+  }
+  const I = node.inputSize;
+  const H = node.hiddenSize ?? node.outputSize;
+  const Wsz = H * I;
+  const Usz = H * H;
+  if (node.type === 'GRU') {
+    const Wz = offset;
     const Wr = Wz + Wsz;
     const Wh = Wr + Wsz;
     const Uz = Wh + Wsz;
@@ -557,46 +294,121 @@ export function crossover(a: Genome, b: Genome, arch: ArchDefinition): Genome {
     const bh = br + H;
     for (let j = 0; j < H; j++) {
       const src = Math.random() < 0.5 ? wa : wb;
-      // Input weights rows
-      child.set(src.subarray(Wz + j * I, Wz + (j + 1) * I), Wz + j * I);
-      child.set(src.subarray(Wr + j * I, Wr + (j + 1) * I), Wr + j * I);
-      child.set(src.subarray(Wh + j * I, Wh + (j + 1) * I), Wh + j * I);
-      // Recurrent rows
-      child.set(src.subarray(Uz + j * H, Uz + (j + 1) * H), Uz + j * H);
-      child.set(src.subarray(Ur + j * H, Ur + (j + 1) * H), Ur + j * H);
-      child.set(src.subarray(Uh + j * H, Uh + (j + 1) * H), Uh + j * H);
-      // Biases
-      child[bz + j] = src[bz + j] ?? 0;
-      child[br + j] = src[br + j] ?? 0;
-      child[bh + j] = src[bh + j] ?? 0;
+      out.set(src.subarray(Wz + j * I, Wz + (j + 1) * I), Wz + j * I);
+      out.set(src.subarray(Wr + j * I, Wr + (j + 1) * I), Wr + j * I);
+      out.set(src.subarray(Wh + j * I, Wh + (j + 1) * I), Wh + j * I);
+      out.set(src.subarray(Uz + j * H, Uz + (j + 1) * H), Uz + j * H);
+      out.set(src.subarray(Ur + j * H, Ur + (j + 1) * H), Ur + j * H);
+      out.set(src.subarray(Uh + j * H, Uh + (j + 1) * H), Uh + j * H);
+      out[bz + j] = src[bz + j] ?? 0;
+      out[br + j] = src[br + j] ?? 0;
+      out[bh + j] = src[bh + j] ?? 0;
+    }
+    return;
+  }
+  if (node.type === 'LSTM') {
+    const Wi = offset;
+    const Wf = Wi + Wsz;
+    const Wo = Wf + Wsz;
+    const Wg = Wo + Wsz;
+    const Ui = Wg + Wsz;
+    const Uf = Ui + Usz;
+    const Uo = Uf + Usz;
+    const Ug = Uo + Usz;
+    const bi = Ug + Usz;
+    const bf = bi + H;
+    const bo = bf + H;
+    const bg = bo + H;
+    for (let j = 0; j < H; j++) {
+      const src = Math.random() < 0.5 ? wa : wb;
+      out.set(src.subarray(Wi + j * I, Wi + (j + 1) * I), Wi + j * I);
+      out.set(src.subarray(Wf + j * I, Wf + (j + 1) * I), Wf + j * I);
+      out.set(src.subarray(Wo + j * I, Wo + (j + 1) * I), Wo + j * I);
+      out.set(src.subarray(Wg + j * I, Wg + (j + 1) * I), Wg + j * I);
+      out.set(src.subarray(Ui + j * H, Ui + (j + 1) * H), Ui + j * H);
+      out.set(src.subarray(Uf + j * H, Uf + (j + 1) * H), Uf + j * H);
+      out.set(src.subarray(Uo + j * H, Uo + (j + 1) * H), Uo + j * H);
+      out.set(src.subarray(Ug + j * H, Ug + (j + 1) * H), Ug + j * H);
+      out[bi + j] = src[bi + j] ?? 0;
+      out[bf + j] = src[bf + j] ?? 0;
+      out[bo + j] = src[bo + j] ?? 0;
+      out[bg + j] = src[bg + j] ?? 0;
+    }
+    return;
+  }
+  if (node.type === 'RRU') {
+    const Wc = offset;
+    const Wr = Wc + Wsz;
+    const Uc = Wr + Wsz;
+    const Ur = Uc + Usz;
+    const bc = Ur + Usz;
+    const br = bc + H;
+    for (let j = 0; j < H; j++) {
+      const src = Math.random() < 0.5 ? wa : wb;
+      out.set(src.subarray(Wc + j * I, Wc + (j + 1) * I), Wc + j * I);
+      out.set(src.subarray(Wr + j * I, Wr + (j + 1) * I), Wr + j * I);
+      out.set(src.subarray(Uc + j * H, Uc + (j + 1) * H), Uc + j * H);
+      out.set(src.subarray(Ur + j * H, Ur + (j + 1) * H), Ur + j * H);
+      out[bc + j] = src[bc + j] ?? 0;
+      out[br + j] = src[br + j] ?? 0;
     }
   }
-
-  return new Genome(a.archKey, child);
 }
 
 /**
- * Applies mutation to a genome in place.  Each weight has a chance to be
- * perturbed by a Gaussian noise scaled by mutationStd.
- * @param {Genome} genome
+ * Create a child genome by crossover of two parents.
+ * @param a - Parent A genome.
+ * @param b - Parent B genome.
+ * @param arch - Architecture definition.
+ * @returns Child genome.
+ */
+export function crossover(a: Genome, b: Genome, arch: ArchDefinition): Genome {
+  const info = enrichArchInfo(arch);
+  const wa = a.weights;
+  const wb = b.weights;
+  const n = wa.length;
+  const child = new Float32Array(n);
+
+  if (Math.random() > CFG.crossoverRate) {
+    child.set(Math.random() < 0.5 ? wa : wb);
+    return new Genome(a.archKey, child, arch.spec.type);
+  }
+
+  const mode = Math.floor((CFG.brain && CFG.brain.gruCrossoverMode) || 0);
+  for (const node of info.nodes) {
+    if (node.length <= 0) continue;
+    if (node.isRecurrent) {
+      crossoverRecurrentBlock(child, wa, wb, node, mode);
+      continue;
+    }
+    for (let i = node.offset; i < node.offset + node.length; i++) {
+      const aVal = wa[i] ?? 0;
+      const bVal = wb[i] ?? 0;
+      child[i] = Math.random() < 0.5 ? aVal : bVal;
+    }
+  }
+  return new Genome(a.archKey, child, arch.spec.type);
+}
+
+/**
+ * Mutate a genome in-place using configured mutation rates.
+ * @param genome - Genome to mutate.
+ * @param arch - Architecture definition for recurrent ranges.
  */
 export function mutate(genome: Genome, arch: ArchDefinition): void {
   const info = enrichArchInfo(arch);
   const w = genome.weights;
-  if (info.kind === "mlp") {
-    for (let i = 0; i < w.length; i++) {
-      if (Math.random() < CFG.mutationRate) w[i] = clamp((w[i] ?? 0) + gaussian() * CFG.mutationStd, -5, 5);
-    }
-    return;
+  const recurrentRanges: Array<{ start: number; end: number }> = [];
+  for (const node of info.nodes) {
+    if (!node.isRecurrent) continue;
+    recurrentRanges.push({ start: node.offset, end: node.offset + node.length });
   }
-  const gruStart = info.offs.gru;
-  const gruEnd = info.offs.head;
-  const mRateGRU = (CFG.brain && typeof CFG.brain.gruMutationRate === "number") ? CFG.brain.gruMutationRate : CFG.mutationRate;
-  const mStdGRU = (CFG.brain && typeof CFG.brain.gruMutationStd === "number") ? CFG.brain.gruMutationStd : CFG.mutationStd;
+  const mRateGRU = (CFG.brain && typeof CFG.brain.gruMutationRate === 'number') ? CFG.brain.gruMutationRate : CFG.mutationRate;
+  const mStdGRU = (CFG.brain && typeof CFG.brain.gruMutationStd === 'number') ? CFG.brain.gruMutationStd : CFG.mutationStd;
   for (let i = 0; i < w.length; i++) {
-    const inGRU = i >= gruStart && i < gruEnd;
-    const rate = inGRU ? mRateGRU : CFG.mutationRate;
-    const std = inGRU ? mStdGRU : CFG.mutationStd;
+    const inRecurrent = recurrentRanges.some(r => i >= r.start && i < r.end);
+    const rate = inRecurrent ? mRateGRU : CFG.mutationRate;
+    const std = inRecurrent ? mStdGRU : CFG.mutationStd;
     if (Math.random() < rate) w[i] = clamp((w[i] ?? 0) + gaussian() * std, -5, 5);
   }
 }

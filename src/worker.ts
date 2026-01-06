@@ -1,33 +1,45 @@
-// worker.ts
-// Runs the rigid-body physics and neural network simulation in a separate thread.
+/** Runs physics and neural simulation in a dedicated worker thread. */
 
 import { World } from './world.ts';
 import { CFG, resetCFGToDefaults } from './config.ts';
 import { WorldSerializer } from './serializer.ts';
 import { setByPath } from './utils.ts';
+import { validateGraph } from './brains/graph/validate.ts';
 import type {
   FrameStats,
   MainToWorkerMessage,
   PopulationImportData,
-  VizData
+  VizData,
+  WorkerToMainMessage
 } from './protocol/messages.ts';
 
+/** Minimal worker scope typing for postMessage and onmessage. */
 type WorkerScope = {
-  postMessage: (message: any, transfer?: Transferable[]) => void;
+  postMessage: (message: WorkerToMainMessage, transfer?: Transferable[]) => void;
   onmessage: ((ev: MessageEvent<MainToWorkerMessage>) => void) | null;
 };
 
+/** Worker global scope wrapper with typed message helpers. */
 const workerScope = self as unknown as WorkerScope;
 
-let world: any = null;
+/** Active world instance managed by the worker. */
+let world: World | null = null;
+/** Token used to cancel outdated loops. */
 let loopToken = 0;
+/** Current viewport width. */
 let viewW = 0;
+/** Current viewport height. */
 let viewH = 0;
+/** Whether brain visualization streaming is enabled. */
 let vizEnabled = false;
+/** Tick counter for throttling visualization payloads. */
 let vizTick = 0;
+/** Last sent fitness history length. */
 let lastHistoryLen = 0;
+/** Deferred import payload when init is not complete. */
 let pendingImport: PopulationImportData | null = null;
 
+/** Handle incoming messages from the main thread. */
 workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
   const msg = e.data;
   switch (msg.type) {
@@ -37,16 +49,35 @@ workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
       if (msg.updates) {
         msg.updates.forEach(u => setByPath(CFG, u.path, u.value));
       }
+      if ('stackOrder' in msg && Array.isArray(msg.stackOrder)) {
+        CFG.brain.stackOrder = msg.stackOrder.slice();
+      }
+      if ('graphSpec' in msg) {
+        if (msg.graphSpec) {
+          const result = validateGraph(msg.graphSpec);
+          if (result.ok) {
+            CFG.brain.graphSpec = msg.graphSpec;
+          } else {
+            CFG.brain.graphSpec = null;
+            console.warn('[Worker] Invalid graph spec ignored:', result.reason);
+          }
+        } else {
+          CFG.brain.graphSpec = null;
+        }
+      }
       world = new World(msg.settings || {});
       if (msg.viewW) viewW = msg.viewW;
       if (msg.viewH) viewH = msg.viewH;
       // We need to "load" the imported brains if persistence was used?
       // Handled via separate 'import' message or 'init' payload.
       if (msg.population) {
-        const result = world.importPopulation({
-          generation: msg.generation,
+        const importPayload: PopulationImportData = {
           genomes: msg.population
-        });
+        };
+        if (msg.generation !== undefined) {
+          importPayload.generation = msg.generation;
+        }
+        const result = world.importPopulation(importPayload);
         if (!result.ok) {
           console.warn('[Worker] Failed to import population during init:', result.reason);
         }
@@ -124,21 +155,22 @@ workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
       
       if (msg.action === 'kill') {
         // Find snake by ID and kill it
-        const snake = world.snakes.find((s: any) => s.id === msg.snakeId);
+        const snake = world.snakes.find(s => s.id === msg.snakeId);
         if (snake && snake.alive) {
           snake.die(world);
           console.log(`[Worker] God Mode: Killed snake #${msg.snakeId}`);
         }
       } else if (msg.action === 'move') {
         // Move snake to specific position
-        const snake = world.snakes.find((s: any) => s.id === msg.snakeId);
+        const snake = world.snakes.find(s => s.id === msg.snakeId);
         if (snake && snake.alive) {
           snake.x = msg.x;
           snake.y = msg.y;
           // Update head position
-          if (snake.points && snake.points.length > 0) {
-            snake.points[0].x = msg.x;
-            snake.points[0].y = msg.y;
+          const head = snake.points[0];
+          if (head) {
+            head.x = msg.x;
+            head.y = msg.y;
           }
         }
       }
@@ -151,10 +183,17 @@ workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
   }
 };
 
+/** Last timestamp for the fixed-step loop. */
 let lastTime = performance.now();
+/** Fixed-step delta time for simulation updates. */
 const FIXED_DT = 1 / 60;
+/** Accumulator for fixed-step time integration. */
 let accumulator = 0;
 
+/**
+ * Run the fixed-step simulation loop and post frames to the main thread.
+ * @param token - Loop token for cancellation.
+ */
 function loop(token: number): void {
   if (token !== loopToken) return;
   const now = performance.now();
@@ -176,12 +215,12 @@ function loop(token: number): void {
       const buffer = WorldSerializer.serialize(world);
       
       // Calculate fitness stats for this generation
-      const aliveSnakes = world.snakes.filter((s: any) => s.alive);
+      const aliveSnakes = world.snakes.filter(s => s.alive);
       let maxFit = 0;
       let minFit = Infinity;
       let sumFit = 0;
       
-      aliveSnakes.forEach((s: any) => {
+      aliveSnakes.forEach((s) => {
         // Calculate approximate fitness (we don't have exact formula here)
         const fit = s.pointsScore || 0;
         maxFit = Math.max(maxFit, fit);
@@ -225,7 +264,12 @@ function loop(token: number): void {
       }
       
       // We transfer the buffer to avoid copy
-      workerScope.postMessage({ type: 'frame', buffer: buffer.buffer, stats }, [buffer.buffer]);
+      const transferBuffer =
+        buffer.buffer instanceof ArrayBuffer ? buffer.buffer : buffer.slice().buffer;
+      workerScope.postMessage(
+        { type: 'frame', buffer: transferBuffer, stats },
+        [transferBuffer]
+      );
   }
   
   // Schedule next loop
@@ -237,24 +281,12 @@ function loop(token: number): void {
   setTimeout(() => loop(token), 16);
 }
 
-function buildVizData(brain: any): VizData | null {
-  if (!brain) return null;
-  if (brain.kind === 'mlp') {
-    return {
-      kind: 'mlp',
-      mlp: {
-        layerSizes: brain.mlp.layerSizes.slice(),
-        _bufs: brain.mlp._bufs.map((buf: Float32Array) => buf.slice())
-      }
-    };
-  }
-  return {
-    kind: brain.kind,
-    mlp: {
-      layerSizes: brain.mlp.layerSizes.slice(),
-      _bufs: brain.mlp._bufs.map((buf: Float32Array) => buf.slice())
-    },
-    gru: brain.gru ? { hiddenSize: brain.gru.hiddenSize, h: brain.gru.h.slice() } : null,
-    head: brain.head ? { outSize: brain.head.outSize } : null
-  };
+/**
+ * Build visualization data from a brain instance if supported.
+ * @param brain - Brain instance or null.
+ * @returns Visualization payload or null.
+ */
+function buildVizData(brain: { getVizData?: () => VizData } | null | undefined): VizData | null {
+  if (!brain || typeof brain.getVizData !== 'function') return null;
+  return brain.getVizData();
 }

@@ -10,9 +10,27 @@
 <body>
   <!-- Main drawing surface for the simulation -->
   <canvas id="c"></canvas>
+  <div id="joinOverlay" class="join-overlay">
+    <div class="join-card">
+      <div class="join-title">
+        <span class="join-title-main">neuro</span><span class="join-title-accent">evo</span>
+      </div>
+      <div class="join-subtitle">Enter a nickname to play</div>
+      <div class="join-hint">Mouse to steer. Hold click to boost.</div>
+      <input id="joinName" class="join-input" type="text" maxlength="24" placeholder="Nickname" autocomplete="off" />
+      <div class="join-actions">
+        <button id="joinPlay" class="join-play" disabled>Play</button>
+        <button id="joinSpectate" class="join-spectate">Spectate</button>
+      </div>
+      <div id="joinStatus" class="join-status">Connecting...</div>
+    </div>
+  </div>
   <!-- Control panel for adjusting simulation settings -->
   <div class="panel" id="panel">
-    <div class="title">Sim controls</div>
+    <div class="title">
+      Sim controls
+      <span id="connectionStatus" class="connection-status connecting">Connecting</span>
+    </div>
     
     <!-- Tab Headers -->
     <div class="tab-header">
@@ -24,76 +42,172 @@
 
     <!-- Tab: Settings -->
     <div id="tab-settings" class="tab-content active">
-      <div class="row">
-        <label for="snakes">NPC snakes: <span id="snakesVal"></span></label>
-        <input id="snakes" type="range" min="5" max="300" step="1" value="55" />
-        <div class="meta">Changing this requires a reset.</div>
+      <div class="settings-lock">
+        <div class="lock-row">
+          <span class="lock-label">Settings lock</span>
+          <button id="toggleSettingsLock" class="lock-btn">Unlock</button>
+        </div>
+        <div id="settingsLockHint" class="meta">Locked to keep little hands off the sliders.</div>
       </div>
 
-      <div class="row">
-        <label for="simSpeed">Simulation speed: <span id="simSpeedVal"></span>x</label>
-        <input id="simSpeed" type="range" min="0.10" max="12.0" step="0.05" value="1.0" />
-        <div class="meta">This applies immediately.</div>
-      </div>
+      <div id="settingsControls">
+        <div class="row">
+          <label for="snakes">NPC snakes: <span id="snakesVal"></span></label>
+          <input id="snakes" type="range" min="5" max="300" step="1" value="55" />
+          <div class="meta">Changing this requires a reset.</div>
+        </div>
 
-      <div class="row">
-        <label for="layers">AI hidden layers: <span id="layersVal"></span></label>
-        <input id="layers" type="range" min="1" max="5" step="1" value="2" />
-        <div class="meta">Changing this requires a reset.</div>
-      </div>
+        <div class="row">
+          <label for="simSpeed">Simulation speed: <span id="simSpeedVal"></span>x</label>
+          <input id="simSpeed" type="range" min="0.10" max="12.0" step="0.05" value="1.0" />
+          <div class="meta">This applies immediately.</div>
+        </div>
 
-      <div class="row">
-        <label for="n1">Neurons layer 1: <span id="n1Val"></span></label>
-        <input id="n1" type="range" min="4" max="256" step="1" value="64" />
-      </div>
+        <div class="row">
+          <label for="layers">AI hidden layers: <span id="layersVal"></span></label>
+          <input id="layers" type="range" min="1" max="5" step="1" value="2" />
+          <div class="meta">Changing this requires a reset.</div>
+        </div>
 
-      <div class="row">
-        <label for="n2">Neurons layer 2: <span id="n2Val"></span></label>
-        <input id="n2" type="range" min="4" max="256" step="1" value="64" />
-      </div>
+        <div class="row">
+          <label for="n1">Neurons layer 1: <span id="n1Val"></span></label>
+          <input id="n1" type="range" min="4" max="256" step="1" value="64" />
+        </div>
 
-      <div class="row">
-        <label for="n3">Neurons layer 3: <span id="n3Val"></span></label>
-        <input id="n3" type="range" min="4" max="256" step="1" value="64" />
-      </div>
+        <div class="row">
+          <label for="n2">Neurons layer 2: <span id="n2Val"></span></label>
+          <input id="n2" type="range" min="4" max="256" step="1" value="64" />
+        </div>
 
-      <div class="row">
-        <label for="n4">Neurons layer 4: <span id="n4Val"></span></label>
-        <input id="n4" type="range" min="4" max="256" step="1" value="48" />
-      </div>
+        <div class="row">
+          <label for="n3">Neurons layer 3: <span id="n3Val"></span></label>
+          <input id="n3" type="range" min="4" max="256" step="1" value="64" />
+        </div>
 
-      <div class="row">
-        <label for="n5">Neurons layer 5: <span id="n5Val"></span></label>
-        <input id="n5" type="range" min="4" max="256" step="1" value="32" />
-      </div>
+        <div class="row">
+          <label for="n4">Neurons layer 4: <span id="n4Val"></span></label>
+          <input id="n4" type="range" min="4" max="256" step="1" value="48" />
+        </div>
 
-      <details open>
-        <summary>All other settings</summary>
-        <div class="group" id="settingsContainer"></div>
-        <div class="control-group">
-          <label>Persistence</label>
-          <div class="row" style="gap: 8px;">
-            <button id="btnExport" class="btn">Export</button>
-            <button id="btnImport" class="btn">Import</button>
-            <input type="file" id="fileInput" style="display: none;" accept=".json">
+        <div class="row">
+          <label for="n5">Neurons layer 5: <span id="n5Val"></span></label>
+          <input id="n5" type="range" min="4" max="256" step="1" value="32" />
+        </div>
+
+        <div class="row">
+          <label>Brain graph</label>
+          <div class="meta">One layout editor for MLP/GRU/LSTM/RRU/Dense/Split/Concat. Requires reset.</div>
+        </div>
+
+        <div class="row graph-panel">
+          <div class="graph-templates">
+            <div class="graph-templates-title">Templates</div>
+            <div class="graph-templates-grid">
+              <button class="btn" data-template="linear">Linear MLP</button>
+              <button class="btn" data-template="mlp-gru-mlp">MLP → GRU → MLP</button>
+              <button class="btn" data-template="skip">Skip + concat</button>
+              <button class="btn" data-template="split">Split + parallel heads</button>
+            </div>
+          </div>
+
+          <div id="graphDiagramWrap" class="graph-diagram">
+            <div class="graph-diagram-header">
+              <div class="graph-templates-title">Diagram</div>
+              <div class="graph-diagram-actions">
+                <button id="graphDiagramAddNode" class="btn small" type="button">Add node</button>
+                <button id="graphDiagramConnect" class="btn small" type="button">Connect</button>
+                <button id="graphDiagramAddOutput" class="btn small" type="button">Add output</button>
+                <button id="graphDiagramAuto" class="btn small" type="button">Auto layout</button>
+                <button id="graphDiagramDelete" class="btn small" type="button">Delete</button>
+                <button id="graphDiagramToggle" class="btn small" type="button">Full screen</button>
+              </div>
+            </div>
+            <svg id="graphDiagram" class="graph-diagram-svg" viewBox="0 0 800 360" role="img" aria-label="Brain graph diagram"></svg>
+            <div id="graphDiagramInspector" class="graph-diagram-inspector"></div>
+            <div class="meta">Flow is left → right. Outputs are shown at the far right.</div>
+          </div>
+
+          <div class="graph-section">
+            <div class="graph-section-title">Nodes</div>
+            <div id="graphNodes" class="graph-list"></div>
+            <button id="graphNodeAdd" class="btn small">Add node</button>
+          </div>
+
+          <div class="graph-section">
+            <div class="graph-section-title">Edges</div>
+            <div id="graphEdges" class="graph-list"></div>
+            <button id="graphEdgeAdd" class="btn small">Add edge</button>
+            <div class="graph-help meta">
+              Ports pick a Split output or set Concat input order. Leave blank for default.
+            </div>
+          </div>
+
+          <div class="graph-section">
+            <div class="graph-section-title">Outputs</div>
+            <div id="graphOutputs" class="graph-list"></div>
+            <button id="graphOutputAdd" class="btn small">Add output</button>
+          </div>
+
+          <div class="graph-actions">
+            <button id="graphApply" class="btn">Apply graph</button>
+            <button id="graphReset" class="btn">Reset graph</button>
+            <div id="graphSpecStatus" class="meta">Graph not applied yet.</div>
           </div>
         </div>
-        <div class="note">
-          Collision is fixed using head to body segment distance plus substepping, so bodies no longer visually overlap without a death. Thickness now increases slowly with length. Boost consumes points, shrinks the snake, and drops pellets behind it as it burns mass.
+        <div id="graphDiagramBackdrop" class="graph-diagram-backdrop" aria-hidden="true"></div>
+
+        <div class="row">
+          <label>Saved presets (database)</label>
+          <div id="graphPresetList" class="graph-presets"></div>
+          <div class="preset-row">
+            <input id="graphPresetName" type="text" placeholder="Preset name" />
+            <button id="graphPresetSave" class="btn">Save preset</button>
+          </div>
         </div>
-      </details>
 
-      <div class="btnrow">
-        <button id="apply">Apply and reset</button>
-        <button id="defaults">Defaults</button>
-      </div>
+        <details class="graph-advanced">
+          <summary>Advanced JSON (optional)</summary>
+          <div class="group">
+            <div class="row">
+              <label for="graphSpecInput">Graph spec (JSON)</label>
+              <textarea id="graphSpecInput" class="graph-input" rows="10" placeholder='{"type":"graph","nodes":[...],"edges":[...],"outputs":[...],"outputSize":2}'></textarea>
+              <div class="preset-row">
+                <button id="graphSpecApply" class="btn">Load JSON into editor</button>
+                <button id="graphSpecCopy" class="btn">Copy current graph</button>
+                <button id="graphSpecExport" class="btn">Export JSON</button>
+              </div>
+            </div>
+          </div>
+        </details>
 
-      <div class="btnrow">
-        <button id="toggle">Toggle view (V)</button>
-      </div>
+        <details open>
+          <summary>All other settings</summary>
+          <div class="group" id="settingsContainer"></div>
+          <div class="control-group">
+            <label>Persistence</label>
+            <div class="row" style="gap: 8px;">
+              <button id="btnExport" class="btn">Export</button>
+              <button id="btnImport" class="btn">Import</button>
+              <input type="file" id="fileInput" style="display: none;" accept=".json">
+            </div>
+          </div>
+          <div class="note">
+            Collision is fixed using head to body segment distance plus substepping, so bodies no longer visually overlap without a death. Thickness now increases slowly with length. Boost consumes points, shrinks the snake, and drops pellets behind it as it burns mass.
+          </div>
+        </details>
 
-      <div class="note">
-        Overview fits the entire arena; follow keeps the focused head exactly centered. Points are both a scoreboard and an energy pool, since boosting spends them and turns body mass into pellets.
+        <div class="btnrow">
+          <button id="apply">Apply and reset</button>
+          <button id="defaults">Defaults</button>
+        </div>
+
+        <div class="btnrow">
+          <button id="toggle">Toggle view (V)</button>
+        </div>
+
+        <div class="note">
+          Overview fits the entire arena; follow keeps the focused head exactly centered. Points are both a scoreboard and an energy pool, since boosting spends them and turns body mass into pellets.
+        </div>
       </div>
     </div>
     

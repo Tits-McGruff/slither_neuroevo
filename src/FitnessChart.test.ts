@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { FitnessChart } from './FitnessChart.ts';
 
+/** Recorded canvas call for asserting drawing behavior. */
 type CallRecord = [string, ...unknown[]];
 
+/**
+ * Creates a fake canvas context that logs drawing calls.
+ * @returns Canvas context shim with call recording.
+ */
 function makeCtx() {
   const calls: CallRecord[] = [];
   return {

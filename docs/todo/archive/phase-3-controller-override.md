@@ -194,13 +194,13 @@ uncontrolled snakes behave exactly as before.
 
 ## Execution checklist
 
-- [ ] Add `ControlInput` type
-- [ ] Extend `Snake.update`
-- [ ] Add `Snake.computeSensors`
-- [ ] Update `World.update` to accept controller registry
-- [ ] Implement controller registry
-- [ ] Wire WS routing to controller registry
-- [ ] Add unit tests for control override + timeout
+- [x] Add `ControlInput` type
+- [x] Extend `Snake.update`
+- [x] Add `Snake.computeSensors`
+- [x] Update `World.update` to accept controller registry
+- [x] Implement controller registry
+- [x] Wire WS routing to controller registry
+- [x] Add unit tests for control override + timeout
 
 ## Function-by-function pseudocode
 
