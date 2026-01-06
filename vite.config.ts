@@ -29,7 +29,7 @@ interface UiDefaults {
   /** Resolved simulation server port. */
   serverPort: number;
   /** Hostname to advertise for HMR when needed. */
-  hmrHost?: string;
+  hmrHost: string | undefined;
 }
 
 /**
