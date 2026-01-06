@@ -110,15 +110,20 @@ export class SimServer {
       return;
     }
     const controller = clientType === 'bot' ? 'bot' : 'player';
-    let snakeId = this.controllers.assignSnake(connId, controller);
-    if (snakeId == null) {
-      const spawned = this.world.spawnExternalSnake();
-      snakeId = this.controllers.assignSnake(connId, controller, spawned.id);
-      if (snakeId == null) {
-        spawned.alive = false;
-        this.wsHub.sendJsonTo(connId, { type: 'error', message: 'no available snakes' });
+    const existingId = this.controllers.getAssignedSnakeId(connId);
+    if (existingId != null) {
+      const existingSnake = this.world.snakes.find(snake => snake.id === existingId);
+      if (existingSnake && existingSnake.alive) {
+        this.controllers.assignSnake(connId, controller, existingId);
         return;
       }
+    }
+    const spawned = this.world.spawnExternalSnake();
+    const snakeId = this.controllers.assignSnake(connId, controller, spawned.id);
+    if (snakeId == null) {
+      spawned.alive = false;
+      this.wsHub.sendJsonTo(connId, { type: 'error', message: 'no available snakes' });
+      return;
     }
   }
 

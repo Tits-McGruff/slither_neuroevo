@@ -59,6 +59,10 @@ export class ControllerRegistry {
     return this.bySnake.has(snakeId);
   }
 
+  getAssignedSnakeId(connId: number): number | null {
+    return this.byConn.get(connId)?.snakeId ?? null;
+  }
+
   assignSnake(connId: number, controllerType: ControllerType, snakeId?: number): number | null {
     this.releaseSnake(connId);
     const assignedId = snakeId ?? this.pickAvailableSnake();
