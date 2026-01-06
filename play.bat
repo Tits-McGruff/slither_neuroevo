@@ -31,7 +31,13 @@ if not exist "node_modules" (
     echo [SUCCESS] Dependencies installed!
 )
 
-:: 3. Run the development server and open browser
+:: 3. Start the simulation server in a separate window
+echo.
+echo Starting Simulation Server...
+echo.
+start "Slither Server" cmd /c npm run server
+
+:: 4. Run the development server and open browser
 echo.
 echo Starting Simulation...
 echo Your browser should open automatically.
