@@ -1,5 +1,8 @@
 import type { FitnessData, FitnessHistoryEntry, VizData } from '../protocol/messages.ts';
 
+/** Default WebSocket URL injected at build time. */
+declare const __SLITHER_DEFAULT_WS_URL__: string | undefined;
+
 /** Welcome message payload from the server. */
 export interface WelcomeMsg {
   type: 'welcome';
@@ -78,7 +81,14 @@ export interface WsClient {
 }
 
 /** Default server URL used when none is configured. */
-export const DEFAULT_SERVER_URL = 'ws://localhost:5174';
+/** Build-time server URL from Vite when configured. */
+const INJECTED_SERVER_URL =
+  typeof __SLITHER_DEFAULT_WS_URL__ === 'string' ? __SLITHER_DEFAULT_WS_URL__ : '';
+/** Default server URL used when none is configured. */
+export const DEFAULT_SERVER_URL =
+  INJECTED_SERVER_URL && INJECTED_SERVER_URL.trim()
+    ? INJECTED_SERVER_URL.trim()
+    : 'ws://localhost:5174';
 /** Handshake timeout in milliseconds before forcing reconnect. */
 const HANDSHAKE_TIMEOUT_MS = 1500;
 /** Local storage key for persisting the server URL. */

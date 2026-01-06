@@ -27,6 +27,14 @@ npm run dev
 The UI will connect over WebSocket and show **SERVER** in the status pill. If the server is down, the app falls back to a local Web Worker.
 Server mode also enables DB-backed graph presets in the Brain graph panel.
 By default the client connects to `ws://localhost:5174`; use `?server=ws://host:port` to point at a different server.
+UI defaults come from `server/config.toml`:
+
+- `host`/`port` bind the simulation server.
+- `uiHost`/`uiPort` bind the Vite dev server.
+- `publicWsUrl` sets the client default when no `?server=` override is used.
+
+If you bind `host` to `0.0.0.0`, set `publicWsUrl` to
+`ws://<vm-ip>:5174` for remote clients.
 
 ## Controls
 

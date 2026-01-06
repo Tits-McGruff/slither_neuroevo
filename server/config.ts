@@ -9,6 +9,12 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 export interface ServerConfig {
   host: string;
   port: number;
+  /** Hostname or IP for the UI dev server bind. */
+  uiHost: string;
+  /** Port for the UI dev server bind. */
+  uiPort: number;
+  /** Default WebSocket URL the UI should use when no override is provided. */
+  publicWsUrl: string;
   tickRateHz: number;
   uiFrameRateHz: number;
   actionTimeoutTicks: number;
@@ -24,6 +30,9 @@ export interface ServerConfig {
 export const DEFAULT_CONFIG: ServerConfig = {
   host: '127.0.0.1',
   port: 5174,
+  uiHost: '127.0.0.1',
+  uiPort: 5173,
+  publicWsUrl: 'ws://localhost:5174',
   tickRateHz: 60,
   uiFrameRateHz: 30,
   actionTimeoutTicks: 10,
@@ -144,6 +153,19 @@ export function normalizeConfig(
   if (input.host !== undefined && !rawHost.trim()) {
     warn?.(`host is invalid; using ${host}.`);
   }
+  const rawUiHost = typeof input.uiHost === 'string' ? input.uiHost : '';
+  const uiHost = rawUiHost.trim() ? rawUiHost : DEFAULT_CONFIG.uiHost;
+  if (input.uiHost !== undefined && !rawUiHost.trim()) {
+    warn?.(`uiHost is invalid; using ${uiHost}.`);
+  }
+  const uiPort = coerceInt('uiPort', input.uiPort, DEFAULT_CONFIG.uiPort, 1, 65535, warn);
+  const rawPublicWsUrl = typeof input.publicWsUrl === 'string' ? input.publicWsUrl : '';
+  const publicWsUrl = rawPublicWsUrl.trim()
+    ? rawPublicWsUrl.trim()
+    : DEFAULT_CONFIG.publicWsUrl;
+  if (input.publicWsUrl !== undefined && !rawPublicWsUrl.trim()) {
+    warn?.(`publicWsUrl is invalid; using ${publicWsUrl}.`);
+  }
   const tickRateHz = coerceInt(
     'tickRateHz',
     input.tickRateHz,
@@ -226,6 +248,9 @@ export function normalizeConfig(
   const output: ServerConfig = {
     host,
     port,
+    uiHost,
+    uiPort,
+    publicWsUrl,
     tickRateHz,
     uiFrameRateHz,
     actionTimeoutTicks,
@@ -246,7 +271,10 @@ export function normalizeConfig(
 function defaultConfigToml(): string {
   const base = stringifyToml(DEFAULT_CONFIG).trim();
   const seedHint = '# seed = 12345 # optional: fixed world seed\n';
-  return `# Slither Neuroevo server configuration (TOML)\n${seedHint}${base}\n`;
+  const publicWsHint =
+    '# publicWsUrl sets the UI default when no ?server= override is used.\n';
+  const uiHint = '# uiHost/uiPort control the Vite dev server bind.\n';
+  return `# Slither Neuroevo server configuration (TOML)\n${seedHint}${publicWsHint}${uiHint}${base}\n`;
 }
 
 /**
@@ -287,6 +315,9 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
   return {
     host: data['host'],
     port: data['port'],
+    uiHost: data['uiHost'],
+    uiPort: data['uiPort'],
+    publicWsUrl: data['publicWsUrl'],
     tickRateHz: data['tickRateHz'],
     uiFrameRateHz: data['uiFrameRateHz'],
     actionTimeoutTicks: data['actionTimeoutTicks'],
@@ -335,6 +366,12 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
   if (host) input.host = host;
   const port = parseIntValue(getArgValue(argv, '--port')) ?? parseIntValue(env['PORT']);
   if (port !== undefined) input.port = port;
+  const uiHost = getArgValue(argv, '--ui-host') ?? env['UI_HOST'];
+  if (uiHost) input.uiHost = uiHost;
+  const uiPort = parseIntValue(getArgValue(argv, '--ui-port')) ?? parseIntValue(env['UI_PORT']);
+  if (uiPort !== undefined) input.uiPort = uiPort;
+  const publicWsUrl = getArgValue(argv, '--public-ws-url') ?? env['PUBLIC_WS_URL'];
+  if (publicWsUrl) input.publicWsUrl = publicWsUrl;
   const tickRate =
     parseIntValue(getArgValue(argv, '--tick')) ?? parseIntValue(env['TICK_RATE']);
   if (tickRate !== undefined) input.tickRateHz = tickRate;
