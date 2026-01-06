@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export interface ServerConfig {
@@ -28,8 +32,10 @@ export const DEFAULT_CONFIG: ServerConfig = {
 };
 
 type Env = Record<string, string | undefined>;
+type RawConfigInput = Partial<Record<keyof ServerConfig, unknown>>;
 
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
+const DEFAULT_CONFIG_PATH = 'server/config.toml';
 
 function clampInt(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -88,13 +94,13 @@ function coerceInt(
 }
 
 export function normalizeConfig(
-  input: Partial<ServerConfig>,
+  input: RawConfigInput,
   warn?: (msg: string) => void
 ): ServerConfig {
   const port = coerceInt('port', input.port, DEFAULT_CONFIG.port, 1, 65535, warn);
-  const rawHost = input.host;
-  const host = rawHost && rawHost.trim() ? rawHost : DEFAULT_CONFIG.host;
-  if (rawHost !== undefined && (!rawHost || !rawHost.trim())) {
+  const rawHost = typeof input.host === 'string' ? input.host : '';
+  const host = rawHost.trim() ? rawHost : DEFAULT_CONFIG.host;
+  if (input.host !== undefined && !rawHost.trim()) {
     warn?.(`host is invalid; using ${host}.`);
   }
   const tickRateHz = coerceInt(
@@ -149,18 +155,17 @@ export function normalizeConfig(
     100000,
     warn
   );
-  const rawDbPath = input.dbPath;
-  const dbPath = rawDbPath && rawDbPath.trim()
-    ? rawDbPath
-    : DEFAULT_CONFIG.dbPath;
-  if (rawDbPath !== undefined && (!rawDbPath || !rawDbPath.trim())) {
+  const rawDbPath = typeof input.dbPath === 'string' ? input.dbPath : '';
+  const dbPath = rawDbPath.trim() ? rawDbPath : DEFAULT_CONFIG.dbPath;
+  if (input.dbPath !== undefined && !rawDbPath.trim()) {
     warn?.(`dbPath is invalid; using ${dbPath}.`);
   }
   let logLevel = DEFAULT_CONFIG.logLevel;
-  if (input.logLevel && LOG_LEVELS.includes(input.logLevel)) {
-    logLevel = input.logLevel;
-  } else if (input.logLevel) {
-    warn?.(`logLevel "${input.logLevel}" is invalid; using ${logLevel}.`);
+  const rawLogLevel = typeof input.logLevel === 'string' ? input.logLevel : '';
+  if (rawLogLevel && LOG_LEVELS.includes(rawLogLevel as LogLevel)) {
+    logLevel = rawLogLevel as LogLevel;
+  } else if (input.logLevel !== undefined) {
+    warn?.(`logLevel "${String(input.logLevel)}" is invalid; using ${logLevel}.`);
   }
 
   let seed: number | undefined;
@@ -192,8 +197,65 @@ export function normalizeConfig(
   return output;
 }
 
+function defaultConfigToml(): string {
+  const base = stringifyToml(DEFAULT_CONFIG).trim();
+  const seedHint = '# seed = 12345 # optional: fixed world seed\n';
+  return `# Slither Neuroevo server configuration (TOML)\n${seedHint}${base}\n`;
+}
+
+function resolveConfigPath(argv: string[], env: Env): string {
+  return getArgValue(argv, '--config') ?? env['SERVER_CONFIG'] ?? DEFAULT_CONFIG_PATH;
+}
+
+function ensureConfigFile(filePath: string, warn?: (msg: string) => void): void {
+  if (fs.existsSync(filePath)) return;
+  const dir = path.dirname(filePath);
+  if (dir && dir !== '.') fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(filePath, defaultConfigToml(), 'utf8');
+  warn?.(`config file missing; created default at ${filePath}.`);
+}
+
+function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigInput {
+  if (!raw || typeof raw !== 'object') {
+    warn?.('config file must be a TOML table; ignoring.');
+    return {};
+  }
+  const data = raw as Record<string, unknown>;
+  return {
+    host: data['host'],
+    port: data['port'],
+    tickRateHz: data['tickRateHz'],
+    uiFrameRateHz: data['uiFrameRateHz'],
+    actionTimeoutTicks: data['actionTimeoutTicks'],
+    maxActionsPerTick: data['maxActionsPerTick'],
+    maxActionsPerSecond: data['maxActionsPerSecond'],
+    dbPath: data['dbPath'],
+    checkpointEveryGenerations: data['checkpointEveryGenerations'],
+    logLevel: data['logLevel'],
+    seed: data['seed']
+  };
+}
+
+function loadConfigFile(filePath: string, warn?: (msg: string) => void): RawConfigInput {
+  ensureConfigFile(filePath, warn);
+  if (!fs.existsSync(filePath)) return {};
+  const raw = fs.readFileSync(filePath, 'utf8');
+  if (!raw.trim()) return {};
+  try {
+    const parsed = parseToml(raw) as unknown;
+    return parseConfigFile(parsed, warn);
+  } catch (err) {
+    warn?.(`failed to parse TOML config: ${(err as Error).message}`);
+    return {};
+  }
+}
+
 export function parseConfig(argv: string[], env: Env): ServerConfig {
-  const input: Partial<ServerConfig> = {};
+  const warn = (msg: string) => console.warn(`[config] ${msg}`);
+  const configPath = resolveConfigPath(argv, env);
+  const input: RawConfigInput = {
+    ...loadConfigFile(configPath, warn)
+  };
   const host = getArgValue(argv, '--host') ?? env['HOST'];
   if (host) input.host = host;
   const port = parseIntValue(getArgValue(argv, '--port')) ?? parseIntValue(env['PORT']);
@@ -229,5 +291,5 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
   const seed =
     parseIntValue(getArgValue(argv, '--seed')) ?? parseIntValue(env['WORLD_SEED']);
   if (seed !== undefined) input.seed = seed;
-  return normalizeConfig(input, (msg) => console.warn(`[config] ${msg}`));
+  return normalizeConfig(input, warn);
 }

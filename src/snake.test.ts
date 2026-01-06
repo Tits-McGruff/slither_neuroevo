@@ -81,13 +81,13 @@ describe('snake.ts', () => {
             forwardCalls += 1;
             return new Float32Array([0.2, 0.8]);
         };
-        const world = {
+        const world: Parameters<Snake['update']>[0] = {
             pellets: [],
             particles: { spawnBurst: () => {}, spawnBoost: () => {} },
             addPellet: () => {},
             removePellet: () => {},
             bestPointsThisGen: 1
-        } as any;
+        };
 
         snake.update(world, 1 / 60, { turn: 1, boost: 1 });
 
@@ -102,13 +102,13 @@ describe('snake.ts', () => {
         snake.brain.reset = () => {
             resetCalls += 1;
         };
-        const world = {
+        const world: Parameters<Snake['update']>[0] = {
             pellets: [],
             particles: { spawnBurst: () => {}, spawnBoost: () => {} },
             addPellet: () => {},
             removePellet: () => {},
             bestPointsThisGen: 1
-        } as any;
+        };
 
         snake.update(world, 1 / 60, { turn: 0, boost: 0 });
         snake.update(world, 1 / 60);
@@ -118,14 +118,14 @@ describe('snake.ts', () => {
 
     it('computes sensors into a provided buffer', () => {
         const snake = new Snake(1, genome, arch);
-        const world = {
+        const world: Parameters<Snake['computeSensors']>[0] = {
             pellets: [],
             pelletGrid: { map: new Map(), cellSize: 120 },
             particles: { spawnBurst: () => {}, spawnBoost: () => {} },
             addPellet: () => {},
             removePellet: () => {},
             bestPointsThisGen: 1
-        } as any;
+        };
         const out = new Float32Array(CFG.brain.inSize);
         const sensors = snake.computeSensors(world, out);
 

@@ -10,17 +10,18 @@ import type {
   FrameStats,
   MainToWorkerMessage,
   PopulationImportData,
-  VizData
+  VizData,
+  WorkerToMainMessage
 } from './protocol/messages.ts';
 
 type WorkerScope = {
-  postMessage: (message: any, transfer?: Transferable[]) => void;
+  postMessage: (message: WorkerToMainMessage, transfer?: Transferable[]) => void;
   onmessage: ((ev: MessageEvent<MainToWorkerMessage>) => void) | null;
 };
 
 const workerScope = self as unknown as WorkerScope;
 
-let world: any = null;
+let world: World | null = null;
 let loopToken = 0;
 let viewW = 0;
 let viewH = 0;
@@ -141,14 +142,14 @@ workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
       
       if (msg.action === 'kill') {
         // Find snake by ID and kill it
-        const snake = world.snakes.find((s: any) => s.id === msg.snakeId);
+        const snake = world.snakes.find(s => s.id === msg.snakeId);
         if (snake && snake.alive) {
           snake.die(world);
           console.log(`[Worker] God Mode: Killed snake #${msg.snakeId}`);
         }
       } else if (msg.action === 'move') {
         // Move snake to specific position
-        const snake = world.snakes.find((s: any) => s.id === msg.snakeId);
+        const snake = world.snakes.find(s => s.id === msg.snakeId);
         if (snake && snake.alive) {
           snake.x = msg.x;
           snake.y = msg.y;
@@ -193,12 +194,12 @@ function loop(token: number): void {
       const buffer = WorldSerializer.serialize(world);
       
       // Calculate fitness stats for this generation
-      const aliveSnakes = world.snakes.filter((s: any) => s.alive);
+      const aliveSnakes = world.snakes.filter(s => s.alive);
       let maxFit = 0;
       let minFit = Infinity;
       let sumFit = 0;
       
-      aliveSnakes.forEach((s: any) => {
+      aliveSnakes.forEach((s) => {
         // Calculate approximate fitness (we don't have exact formula here)
         const fit = s.pointsScore || 0;
         maxFit = Math.max(maxFit, fit);
@@ -254,7 +255,7 @@ function loop(token: number): void {
   setTimeout(() => loop(token), 16);
 }
 
-function buildVizData(brain: any): VizData | null {
+function buildVizData(brain: { getVizData?: () => VizData } | null | undefined): VizData | null {
   if (!brain || typeof brain.getVizData !== 'function') return null;
   return brain.getVizData();
 }

@@ -1,4 +1,6 @@
 import { WebSocket, WebSocketServer } from 'ws';
+import type { RawData } from 'ws';
+import type { Server } from 'node:http';
 import { parseClientMessage } from './protocol.ts';
 import type {
   ActionMsg,
@@ -47,7 +49,7 @@ export class WsHub {
   private handlers: WsHubHandlers | null;
 
   constructor(
-    httpServer: any,
+    httpServer: Server,
     welcome: WelcomeMsg,
     options: WsHubOptions = {},
     handlers?: WsHubHandlers
@@ -122,7 +124,7 @@ export class WsHub {
     });
   }
 
-  private handleMessage(state: ConnectionState, data: any, isBinary: boolean): void {
+  private handleMessage(state: ConnectionState, data: RawData, isBinary: boolean): void {
     const size = payloadSize(data);
     if (size > this.maxMessageBytes) {
       this.protocolError(state, 'message too large');
@@ -204,20 +206,18 @@ export class WsHub {
   }
 }
 
-function payloadSize(data: any): number {
-  if (typeof data === 'string') return Buffer.byteLength(data, 'utf8');
+function payloadSize(data: RawData): number {
   if (Buffer.isBuffer(data)) return data.byteLength;
   if (data instanceof ArrayBuffer) return data.byteLength;
-  if (ArrayBuffer.isView(data)) return data.byteLength;
+  if (Array.isArray(data)) return data.reduce((sum, buf) => sum + buf.byteLength, 0);
   return 0;
 }
 
-function payloadToText(data: any): string {
-  if (typeof data === 'string') return data;
+function payloadToText(data: RawData): string {
   if (Buffer.isBuffer(data)) return data.toString('utf8');
   if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
-  if (ArrayBuffer.isView(data)) {
-    return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8');
+  if (Array.isArray(data)) {
+    return Buffer.concat(data).toString('utf8');
   }
-  return String(data ?? '');
+  return '';
 }

@@ -3,34 +3,37 @@ import { FlatSpatialHash } from './spatialHash.ts';
 
 describe('spatialHash.ts', () => {
   it('adds and queries entries in the same cell', () => {
-    const grid = new FlatSpatialHash(100, 100, 10, 4);
+    type SnakeLike = { id?: number | string; alive: boolean; points: Array<{ x: number; y: number }> };
+    const grid = new FlatSpatialHash<SnakeLike>(100, 100, 10, 4);
     grid.reset();
-    const snake = { id: 1 };
+    const snake: SnakeLike = { id: 1, alive: true, points: [] };
     grid.add(0, 0, snake, 2);
 
-    const hits: Array<[unknown, number]> = [];
+    const hits: Array<[SnakeLike, number]> = [];
     grid.query(0, 0, (obj, idx) => hits.push([obj, idx]));
 
     expect(hits).toEqual([[snake, 2]]);
   });
 
   it('queryCell uses raw cell coordinates', () => {
-    const grid = new FlatSpatialHash(100, 100, 10, 4);
+    type SnakeLike = { id?: number | string; alive: boolean; points: Array<{ x: number; y: number }> };
+    const grid = new FlatSpatialHash<SnakeLike>(100, 100, 10, 4);
     grid.reset();
-    const snake = { id: 2 };
+    const snake: SnakeLike = { id: 2, alive: true, points: [] };
     grid.add(15, 15, snake, 1); // cell (1,1)
 
-    const hits: Array<[unknown, number]> = [];
+    const hits: Array<[SnakeLike, number]> = [];
     grid.queryCell(1, 1, (obj, idx) => hits.push([obj, idx]));
 
     expect(hits).toEqual([[snake, 1]]);
   });
 
   it('ignores out-of-bounds adds and queries', () => {
-    const grid = new FlatSpatialHash(20, 20, 10, 2);
+    type SnakeLike = { id?: number | string; alive: boolean; points: Array<{ x: number; y: number }> };
+    const grid = new FlatSpatialHash<SnakeLike>(20, 20, 10, 2);
     grid.reset();
 
-    grid.add(1000, 0, { id: 3 }, 0);
+    grid.add(1000, 0, { id: 3, alive: true, points: [] }, 0);
     expect(grid.count).toBe(0);
 
     let hit = false;
@@ -41,27 +44,29 @@ describe('spatialHash.ts', () => {
   });
 
   it('reset clears entries', () => {
-    const grid = new FlatSpatialHash(100, 100, 10, 4);
+    type SnakeLike = { id?: number | string; alive: boolean; points: Array<{ x: number; y: number }> };
+    const grid = new FlatSpatialHash<SnakeLike>(100, 100, 10, 4);
     grid.reset();
-    const snake = { id: 4 };
+    const snake: SnakeLike = { id: 4, alive: true, points: [] };
     grid.add(0, 0, snake, 3);
 
     grid.reset();
-    const hits: Array<[unknown, number]> = [];
+    const hits: Array<[SnakeLike, number]> = [];
     grid.query(0, 0, (obj, idx) => hits.push([obj, idx]));
 
     expect(hits).toEqual([]);
   });
 
   it('caps inserts at capacity', () => {
-    const grid = new FlatSpatialHash(100, 100, 10, 1);
+    type SnakeLike = { id?: number | string; alive: boolean; points: Array<{ x: number; y: number }> };
+    const grid = new FlatSpatialHash<SnakeLike>(100, 100, 10, 1);
     grid.reset();
-    const snakeA = { id: 'a' };
-    const snakeB = { id: 'b' };
+    const snakeA: SnakeLike = { id: 'a', alive: true, points: [] };
+    const snakeB: SnakeLike = { id: 'b', alive: true, points: [] };
     grid.add(0, 0, snakeA, 1);
     grid.add(0, 0, snakeB, 2);
 
-    const hits: Array<[unknown, number]> = [];
+    const hits: Array<[SnakeLike, number]> = [];
     grid.query(0, 0, (obj, idx) => hits.push([obj, idx]));
 
     expect(grid.count).toBe(1);
@@ -69,7 +74,8 @@ describe('spatialHash.ts', () => {
   });
 
   it('build populates segments for alive snakes', () => {
-    const grid = new FlatSpatialHash(100, 100, 10, 10);
+    type SnakeLike = { alive: boolean; points: Array<{ x: number; y: number }> };
+    const grid = new FlatSpatialHash<SnakeLike>(100, 100, 10, 10);
     const alive = {
       alive: true,
       points: [
@@ -88,7 +94,7 @@ describe('spatialHash.ts', () => {
 
     grid.build([alive, dead], 0);
 
-    const hits: Array<[unknown, number]> = [];
+    const hits: Array<[SnakeLike, number]> = [];
     grid.query(5, 0, (obj, idx) => hits.push([obj, idx]));
     expect(hits).toEqual([[alive, 1]]);
   });

@@ -73,7 +73,7 @@ export class World {
   pelletGrid: PelletGrid;
   _pelletSpawnAcc: number;
   snakes: Snake[];
-  particles: any;
+  particles: ParticleSystem;
   generation: number;
   generationTime: number;
   population: Genome[];
@@ -89,7 +89,7 @@ export class World {
   focusSnake: Snake | null;
   _focusCooldown: number;
   viewMode: string;
-  _collGrid: any;
+  _collGrid: FlatSpatialHash<Snake>;
   _nextExternalSnakeId: number;
 
   constructor(settings: WorldSettingsInput = {}) {
@@ -231,7 +231,7 @@ export class World {
         if (!g.weights || g.weights.length !== expectedLen) continue;
         g.fitness = 0;
         parsed.push(g);
-      } catch (err) {
+      } catch {
         // Skip malformed entries.
       }
     }

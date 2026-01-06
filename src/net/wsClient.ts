@@ -190,14 +190,16 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
   };
 
   const handleJson = (raw: string): void => {
-    let msg: any;
+    let parsed: unknown;
     try {
-      msg = JSON.parse(raw);
+      parsed = JSON.parse(raw) as unknown;
     } catch {
       callbacks.onError?.({ type: 'error', message: 'Invalid JSON message' });
       return;
     }
-    if (!msg || typeof msg.type !== 'string') return;
+    if (!parsed || typeof parsed !== 'object') return;
+    const msg = parsed as Record<string, unknown>;
+    if (typeof msg.type !== 'string') return;
     switch (msg.type) {
       case 'welcome':
         connected = true;

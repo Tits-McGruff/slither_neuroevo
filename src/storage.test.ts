@@ -5,7 +5,7 @@ import { Genome, buildArch } from './mlp.ts';
 describe('storage.ts', () => {
   let originalStorage: Storage | undefined;
   let backing: Map<string, string>;
-  const globalAny = globalThis as any;
+  const globalAny = globalThis as typeof globalThis & { localStorage?: Storage };
 
   beforeEach(() => {
     originalStorage = globalAny.localStorage;

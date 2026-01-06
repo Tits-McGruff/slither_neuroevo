@@ -2,7 +2,7 @@
 // A flat, zero-allocation spatial hash grid for collision detection.
 // Uses TypedArrays for the linked list structure to avoid Garbage Collection.
 
-export class FlatSpatialHash {
+export class FlatSpatialHash<T extends { alive: boolean; points: Array<{ x: number; y: number }> }> {
   cellSize: number;
   cols: number;
   rows: number;
@@ -11,7 +11,7 @@ export class FlatSpatialHash {
   head: Int32Array;
   next: Int32Array;
   indices: Int32Array;
-  objects: any[];
+  objects: Array<T | undefined>;
   count: number;
   capacity: number;
 
@@ -35,7 +35,7 @@ export class FlatSpatialHash {
     // Linked List of Items
     this.next = new Int32Array(capacity);
     this.indices = new Int32Array(capacity);  // Segment index
-    this.objects = new Array(capacity);       // Snake reference (direct pointer)
+    this.objects = new Array<T | undefined>(capacity);       // Snake reference (direct pointer)
     
     this.count = 0;
     this.capacity = capacity;
@@ -73,7 +73,7 @@ export class FlatSpatialHash {
    * @param {Array<{alive: boolean, points: Array<{x: number, y: number}>}>} snakes
    * @param {number} skipSegments
    */
-  build(snakes: Array<{ alive: boolean; points: Array<{ x: number; y: number }> }>, skipSegments = 0): void {
+  build(snakes: T[], skipSegments = 0): void {
     this.reset();
     const skip = Math.max(0, Math.floor(skipSegments));
     for (const s of snakes) {
@@ -90,7 +90,7 @@ export class FlatSpatialHash {
     }
   }
   
-  add(x: number, y: number, snake: any, segIdx: number): void {
+  add(x: number, y: number, snake: T, segIdx: number): void {
     if (this.count >= this.capacity) return; // Full
 
     // Map (x,y) to cell index
@@ -115,7 +115,7 @@ export class FlatSpatialHash {
    * @param {number} y 
    * @param {Function} callback (snake, segIdx) => void
    */
-  query(x: number, y: number, callback: (snake: any, segIdx: number) => void): void {
+  query(x: number, y: number, callback: (snake: T, segIdx: number) => void): void {
     const cx = Math.floor(x / this.cellSize) + this.halfCols;
     const cy = Math.floor(y / this.cellSize) + this.halfRows;
 
@@ -143,7 +143,7 @@ export class FlatSpatialHash {
    * @param {number} rawCy 
    * @param {Function} callback 
    */
-  queryCell(rawCx: number, rawCy: number, callback: (snake: any, segIdx: number) => void): void {
+  queryCell(rawCx: number, rawCy: number, callback: (snake: T, segIdx: number) => void): void {
     const cx = rawCx + this.halfCols;
     const cy = rawCy + this.halfRows;
     

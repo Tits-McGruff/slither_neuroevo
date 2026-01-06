@@ -10,7 +10,7 @@ function getStorage(): Storage | null {
   if (typeof globalThis === 'undefined') return null;
   try {
     return globalThis.localStorage || null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -34,8 +34,8 @@ export class HallOfFame {
       if (raw) {
         this.entries = JSON.parse(raw) as HallOfFameEntry[];
       }
-    } catch (e) {
-      console.error("Failed to load HoF", e);
+    } catch (err) {
+      console.error("Failed to load HoF", err);
       this.entries = [];
     }
   }
@@ -48,8 +48,8 @@ export class HallOfFame {
     if (!storage) return;
     try {
       storage.setItem(HOF_STORAGE_KEY, JSON.stringify(this.entries));
-    } catch (e) {
-      console.error("Failed to save HoF", e);
+    } catch (err) {
+      console.error("Failed to save HoF", err);
     }
   }
 

@@ -1,6 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const globalAny = globalThis as any;
+type WorkerStub = {
+  messages: unknown[];
+  onmessage: ((event: MessageEvent) => void) | null;
+  postMessage: (msg: unknown) => void;
+};
+
+type TestGlobal = typeof globalThis & {
+  document?: Document;
+  window?: Window & typeof globalThis;
+  Worker?: typeof Worker;
+  WebSocket?: unknown;
+  localStorage?: Storage;
+  requestAnimationFrame?: (callback: FrameRequestCallback) => number;
+  __workerInstance?: WorkerStub;
+  currentWorld?: { fitnessHistory: unknown[] };
+};
+
+const globalAny = globalThis as TestGlobal;
 
 function makeCtx(): CanvasRenderingContext2D {
   return {
@@ -16,7 +33,28 @@ function makeCtx(): CanvasRenderingContext2D {
   } as unknown as CanvasRenderingContext2D;
 }
 
-function makeElement(id: string, overrides: Record<string, unknown> = {}): any {
+type TestElement = Partial<HTMLElement> & {
+  id: string;
+  value: string;
+  textContent: string;
+  innerHTML: string;
+  style: Record<string, string>;
+  dataset: Record<string, string>;
+  classList: {
+    add: () => void;
+    remove: () => void;
+    toggle: () => void;
+    contains: () => boolean;
+  };
+  addEventListener: () => void;
+  appendChild: () => void;
+  setAttribute: () => void;
+  querySelectorAll: () => TestElement[];
+  getContext: () => CanvasRenderingContext2D;
+  click: () => void;
+};
+
+function makeElement(id: string, overrides: Record<string, unknown> = {}): TestElement {
   return {
     id,
     value: '',
@@ -39,7 +77,7 @@ function makeElement(id: string, overrides: Record<string, unknown> = {}): any {
     getContext: () => makeCtx(),
     click() {},
     ...overrides
-  };
+  } as TestElement;
 }
 
 describe('main.ts', () => {
@@ -48,7 +86,7 @@ describe('main.ts', () => {
   let originalWorker: unknown;
   let originalRaf: unknown;
   let originalLocalStorage: unknown;
-  let elements: Map<string, any>;
+  let elements: Map<string, TestElement>;
 
   beforeEach(() => {
     vi.resetModules();
@@ -132,17 +170,18 @@ describe('main.ts', () => {
     ];
 
     originalDocument = globalAny.document;
-    globalAny.document = {
+    const mockDocument: Partial<Document> = {
       getElementById: (id: string) => elements.get(id) || makeElement(id),
       querySelectorAll: (selector: string) => {
         if (selector === '.tab-btn') return tabBtns;
         if (selector === '.tab-content') return tabContents;
         return [];
       },
-      querySelector: () => tabBtns[1],
-      createElement: () => makeElement('created'),
-      createElementNS: () => makeElement('created-ns')
-    } as any;
+      querySelector: () => tabBtns[1] ?? null,
+      createElement: () => makeElement('created') as unknown as HTMLElement,
+      createElementNS: () => makeElement('created-ns') as unknown as HTMLElement
+    };
+    globalAny.document = mockDocument as Document;
 
     originalWindow = globalAny.window;
     globalAny.window = globalAny;
@@ -165,8 +204,8 @@ describe('main.ts', () => {
     globalAny.requestAnimationFrame = () => 0;
 
     originalWorker = globalAny.Worker;
-    globalAny.Worker = class StubWorker {
-      messages: any[];
+    class StubWorker implements WorkerStub {
+      messages: unknown[];
       onmessage: ((event: MessageEvent) => void) | null;
 
       constructor() {
@@ -174,10 +213,11 @@ describe('main.ts', () => {
         this.onmessage = null;
         globalAny.__workerInstance = this;
       }
-      postMessage(msg: any) {
+      postMessage(msg: unknown) {
         this.messages.push(msg);
       }
-    } as any;
+    }
+    globalAny.Worker = StubWorker as unknown as typeof Worker;
 
     globalAny.WebSocket = undefined;
   });
@@ -197,13 +237,19 @@ describe('main.ts', () => {
 
     const worker = globalAny.__workerInstance;
     expect(worker).toBeDefined();
-    expect(worker.messages.length).toBeGreaterThan(0);
-    expect(worker.messages[0].type).toBe('init');
+    expect(worker?.messages.length ?? 0).toBeGreaterThan(0);
+    const first = worker?.messages[0];
+    const firstMsg =
+      first && typeof first === 'object' ? (first as Record<string, unknown>) : null;
+    expect(firstMsg?.type).toBe('init');
   });
 
   it('maps fitness history payloads into the shared history buffer', async () => {
     await import('./main.ts');
     const worker = globalAny.__workerInstance;
+    if (!worker || !worker.onmessage) {
+      throw new Error('Expected worker to be initialized');
+    }
     const buffer = new Float32Array([1, 0, 0, 0, 0, 1]).buffer;
     worker.onmessage({
       data: {
@@ -216,7 +262,7 @@ describe('main.ts', () => {
           fitnessHistory: [{ gen: 1, best: 4, avg: 2.5, min: 1 }]
         }
       }
-    });
+    } as MessageEvent);
 
     expect(globalAny.currentWorld).toBeDefined();
     expect(globalAny.currentWorld.fitnessHistory.length).toBe(1);

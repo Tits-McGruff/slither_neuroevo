@@ -3,6 +3,24 @@ import WebSocket, { type RawData } from 'ws';
 import { startServer } from './index.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 
+function parseJsonMessage(data: RawData): Record<string, unknown> | null {
+  const text =
+    typeof data === 'string'
+      ? data
+      : Buffer.isBuffer(data)
+      ? data.toString('utf8')
+      : data instanceof ArrayBuffer
+      ? Buffer.from(data).toString('utf8')
+      : String(data ?? '');
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 async function startServerWithGuard() {
   const isEperm = (err: unknown): boolean =>
     (err as { code?: string } | null)?.code === 'EPERM';
@@ -59,29 +77,17 @@ describe('acceptance: join and play flow', () => {
 
         ws.on('message', (data: RawData, isBinary: boolean) => {
           if (isBinary) return;
-          const text =
-            typeof data === 'string'
-              ? data
-              : Buffer.isBuffer(data)
-              ? data.toString('utf8')
-              : data instanceof ArrayBuffer
-              ? Buffer.from(data).toString('utf8')
-              : String(data ?? '');
-          let msg: any;
-          try {
-            msg = JSON.parse(text);
-          } catch {
-            return;
-          }
+          const msg = parseJsonMessage(data);
+          if (!msg) return;
           if (msg.type === 'assign') {
-            assignedId = msg.snakeId ?? null;
+            assignedId = typeof msg.snakeId === 'number' ? msg.snakeId : null;
           }
           if (msg.type === 'sensors') {
             sawSensor = true;
             if (assignedId) {
               ws.send(JSON.stringify({
                 type: 'action',
-                tick: msg.tick ?? 0,
+                tick: typeof msg.tick === 'number' ? msg.tick : 0,
                 snakeId: assignedId,
                 turn: 0.2,
                 boost: 0

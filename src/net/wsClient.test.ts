@@ -6,7 +6,24 @@ import {
   DEFAULT_SERVER_URL
 } from './wsClient.ts';
 
-const globalAny = globalThis as any;
+type WebSocketCtor = new (...args: unknown[]) => {
+  readyState: number;
+  onopen: (() => void) | null;
+  onmessage: ((event: { data: unknown }) => void) | null;
+  onerror: (() => void) | null;
+  onclose: (() => void) | null;
+  binaryType: string;
+  send: (...args: unknown[]) => void;
+  close: () => void;
+};
+
+type TestGlobal = typeof globalThis & {
+  window?: { location: { search: string } };
+  localStorage?: Storage;
+  WebSocket?: WebSocketCtor;
+};
+
+const globalAny = globalThis as TestGlobal;
 
 describe('wsClient', () => {
   let originalWindow: unknown;
@@ -83,7 +100,7 @@ describe('wsClient', () => {
       }
     }
 
-    globalAny.WebSocket = StubWebSocket as any;
+    globalAny.WebSocket = StubWebSocket as unknown as WebSocketCtor;
 
     let sawWelcome = false;
     let sawFrame = false;

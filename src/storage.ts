@@ -25,7 +25,7 @@ export const Storage = {
     /**
      * Saves an item to localStorage.
      * @param {string} key
-     * @param {any} value
+     * @param {unknown} value
      */
     save(key: string, value: unknown): boolean {
         try {
@@ -41,7 +41,7 @@ export const Storage = {
     /**
      * Loads an item from localStorage.
      * @param {string} key
-     * @returns {any|null}
+     * @returns {unknown|null}
      */
     load(key: string): unknown | null {
         try {

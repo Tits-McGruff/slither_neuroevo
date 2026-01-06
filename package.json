@@ -16,6 +16,7 @@
     "test:performance": "tsx scripts/run-tests.ts performance",
     "test:security": "tsx scripts/run-tests.ts security",
     "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
     "server": "tsx server/index.ts",
     "server:dev": "tsx watch server/index.ts"
   },
@@ -24,12 +25,18 @@
   "license": "ISC",
   "dependencies": {
     "better-sqlite3": "^11.5.0",
+    "smol-toml": "^1.6.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/better-sqlite3": "^7.6.9",
     "@types/node": "^22.10.2",
     "@types/ws": "^8.5.10",
-    "@types/better-sqlite3": "^7.6.9",
+    "@typescript-eslint/eslint-plugin": "^8.52.0",
+    "@typescript-eslint/parser": "^8.52.0",
+    "eslint": "^9.39.2",
+    "globals": "^17.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.9.2",
     "vite": "^7.3.0",

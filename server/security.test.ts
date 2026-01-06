@@ -3,6 +3,24 @@ import WebSocket, { type RawData } from 'ws';
 import { startServer } from './index.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 
+function parseJsonMessage(data: RawData): Record<string, unknown> | null {
+  const text =
+    typeof data === 'string'
+      ? data
+      : Buffer.isBuffer(data)
+      ? data.toString('utf8')
+      : data instanceof ArrayBuffer
+      ? Buffer.from(data).toString('utf8')
+      : String(data ?? '');
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 async function startServerWithGuard() {
   const isEperm = (err: unknown): boolean =>
     (err as { code?: string } | null)?.code === 'EPERM';
@@ -52,20 +70,8 @@ describe('security: invalid WS payloads', () => {
 
         ws.on('message', (data: RawData, isBinary: boolean) => {
           if (isBinary) return;
-          const text =
-            typeof data === 'string'
-              ? data
-              : Buffer.isBuffer(data)
-              ? data.toString('utf8')
-              : data instanceof ArrayBuffer
-              ? Buffer.from(data).toString('utf8')
-              : String(data ?? '');
-          let msg: any;
-          try {
-            msg = JSON.parse(text);
-          } catch {
-            return;
-          }
+          const msg = parseJsonMessage(data);
+          if (!msg) return;
           if (msg.type === 'error') {
             sawError = true;
             clearTimeout(timeout);
@@ -100,20 +106,8 @@ describe('security: invalid WS payloads', () => {
 
         ws.on('message', (data: RawData, isBinary: boolean) => {
           if (isBinary) return;
-          const text =
-            typeof data === 'string'
-              ? data
-              : Buffer.isBuffer(data)
-              ? data.toString('utf8')
-              : data instanceof ArrayBuffer
-              ? Buffer.from(data).toString('utf8')
-              : String(data ?? '');
-          let msg: any;
-          try {
-            msg = JSON.parse(text);
-          } catch {
-            return;
-          }
+          const msg = parseJsonMessage(data);
+          if (!msg) return;
           if (msg.type === 'error') {
             sawError = true;
             clearTimeout(timeout);

@@ -44,14 +44,15 @@ class FakeElement {
 
 describe('settings.ts', () => {
   let originalDocument: unknown;
-  const globalAny = globalThis as any;
+  const globalAny = globalThis as typeof globalThis & { document?: Document };
 
   beforeEach(() => {
     originalDocument = globalAny.document;
-    globalAny.document = {
+    const mockDocument: Partial<Document> = {
       createElement: (tag: string) => new FakeElement(tag),
       getElementById: () => null
-    } as any;
+    };
+    globalAny.document = mockDocument as Document;
   });
 
   afterEach(() => {

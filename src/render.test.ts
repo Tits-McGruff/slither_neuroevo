@@ -65,11 +65,12 @@ class StubOffscreenCanvas {
 
 describe('render.ts', () => {
   beforeAll(() => {
-    (globalThis as any).OffscreenCanvas = StubOffscreenCanvas;
+    const globalShim = globalThis as { OffscreenCanvas?: typeof StubOffscreenCanvas };
+    globalShim.OffscreenCanvas = StubOffscreenCanvas;
   });
 
   it('renders a serialized buffer without throwing', () => {
-    const world = {
+    const world: Parameters<typeof WorldSerializer.serialize>[0] = {
       generation: 1,
       cameraX: 0,
       cameraY: 0,
@@ -90,7 +91,7 @@ describe('render.ts', () => {
       pellets: [{ x: 10, y: 0, v: 1, kind: 'ambient' }]
     };
 
-    const buffer = WorldSerializer.serialize(world as any);
+    const buffer = WorldSerializer.serialize(world);
     const ctx = makeCtx();
     const renderCtx = ctx as unknown as CanvasRenderingContext2D;
 
@@ -111,7 +112,7 @@ describe('render.ts', () => {
     try {
       const world = new World({ snakeCount: 6, hiddenLayers: 1, neurons1: 12, neurons2: 8 });
       world.update(1 / 30, 800, 600);
-      const buffer = WorldSerializer.serialize(world as any);
+      const buffer = WorldSerializer.serialize(world);
       const ctx = makeCtx();
       const renderCtx = ctx as unknown as CanvasRenderingContext2D;
 

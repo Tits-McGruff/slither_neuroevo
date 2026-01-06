@@ -80,10 +80,10 @@ export function angNorm(a: number): number {
  * @param {Object} obj
  * @param {string} path
  */
-export function getByPath(obj: any, path: string): any {
+export function getByPath(obj: object, path: string): unknown {
   const parts = path.split(".");
-  let cur = obj;
-  for (const p of parts) cur = cur[p];
+  let cur: unknown = obj as Record<string, unknown>;
+  for (const p of parts) cur = (cur as Record<string, unknown>)[p];
   return cur;
 }
 
@@ -91,15 +91,15 @@ export function getByPath(obj: any, path: string): any {
  * Sets a nested value on an object given a dot‑separated path.
  * @param {Object} obj
  * @param {string} path
- * @param {any} value
+ * @param {unknown} value
  */
-export function setByPath(obj: any, path: string, value: any): void {
+export function setByPath(obj: object, path: string, value: unknown): void {
   const parts = path.split(".");
-  let cur = obj;
+  let cur: Record<string, unknown> = obj as Record<string, unknown>;
   for (let i = 0; i < parts.length - 1; i++) {
     const key = parts[i];
     if (key == null) return;
-    cur = cur[key];
+    cur = (cur as Record<string, unknown>)[key] as Record<string, unknown>;
   }
   const lastKey = parts[parts.length - 1];
   if (lastKey == null) return;
