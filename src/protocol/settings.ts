@@ -63,6 +63,8 @@ export const SETTINGS_PATHS = [
   'brain.gruMutationStd',
   'brain.gruCrossoverMode',
   'brain.gruInitUpdateBias',
+  'brain.lstmInitForgetBias',
+  'brain.rruInitGateBias',
   'dtClamp'
 ] as const;
 
