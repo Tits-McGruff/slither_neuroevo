@@ -28,6 +28,8 @@ interface UiDefaults {
   publicWsUrl: string;
   /** Resolved simulation server port. */
   serverPort: number;
+  /** Hostname to advertise for HMR when needed. */
+  hmrHost?: string;
 }
 
 /**
@@ -78,6 +80,38 @@ function coercePort(value: unknown, fallback: number): number {
 }
 
 /**
+ * Extract a hostname from a WebSocket URL string.
+ * @param url - Raw URL string.
+ * @returns Hostname or null when parsing fails.
+ */
+function extractHostFromWsUrl(url: string): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Find a LAN IPv4 address for HMR when bound to all interfaces.
+ * @returns First non-internal IPv4 address or null.
+ */
+function pickLanIpv4(): string | null {
+  const interfaces = os.networkInterfaces();
+  for (const entries of Object.values(interfaces)) {
+    if (!entries) continue;
+    for (const entry of entries) {
+      if (entry.family !== "IPv4") continue;
+      if (entry.internal) continue;
+      return entry.address;
+    }
+  }
+  return null;
+}
+
+/**
  * Resolve UI defaults from the server TOML config.
  * @param raw - Raw TOML config data.
  * @returns Resolved UI defaults.
@@ -98,12 +132,18 @@ function resolveUiDefaults(raw: ServerTomlConfig): UiDefaults {
       ? raw.publicWsUrl.trim()
       : "";
   const serverPort = coercePort(raw.port, defaultServerPort);
+  const publicHost = extractHostFromWsUrl(publicWsUrl);
+  const hmrHost =
+    uiHost && uiHost !== "0.0.0.0" && uiHost !== "::"
+      ? uiHost
+      : publicHost || pickLanIpv4() || undefined;
 
   return {
     uiHost,
     uiPort,
     publicWsUrl,
-    serverPort
+    serverPort,
+    hmrHost
   };
 }
 
@@ -115,6 +155,20 @@ function buildViteConfig() {
   const configPath = resolveServerConfigPath();
   const rawConfig = loadTomlConfig(configPath);
   const defaults = resolveUiDefaults(rawConfig);
+  const serverConfig = {
+    open: true,
+    host: defaults.uiHost,
+    port: defaults.uiPort
+  } as {
+    open: boolean;
+    host: string;
+    port: number;
+    hmr?: { host: string };
+  };
+
+  if (defaults.hmrHost) {
+    serverConfig.hmr = { host: defaults.hmrHost };
+  }
 
   return {
     // Fix EPERM/locking issues on network drives by moving cache to local temp
@@ -128,11 +182,7 @@ function buildViteConfig() {
       __SLITHER_DEFAULT_WS_URL__: JSON.stringify(defaults.publicWsUrl),
       __SLITHER_SERVER_PORT__: JSON.stringify(defaults.serverPort)
     },
-    server: {
-      open: true,
-      host: defaults.uiHost,
-      port: defaults.uiPort
-    }
+    server: serverConfig
   };
 }
 
