@@ -7,6 +7,7 @@ import type {
   ClientType,
   JoinMode,
   JoinMsg,
+  ResetMsg,
   ViewMsg,
   VizMsg,
   ServerMessage,
@@ -41,6 +42,8 @@ export interface WsHubHandlers {
   onAction?: (connId: number, msg: ActionMsg) => void;
   onView?: (connId: number, msg: ViewMsg) => void;
   onViz?: (connId: number, msg: VizMsg) => void;
+  /** Optional handler for reset requests from UI clients. */
+  onReset?: (connId: number, msg: ResetMsg) => void;
   onDisconnect?: (connId: number) => void;
 }
 
@@ -258,6 +261,17 @@ export class WsHub {
           return;
         }
         this.handlers?.onViz?.(state.id, msg);
+        return;
+      case 'reset':
+        if (!state.joined) {
+          this.protocolError(state, 'join required before reset');
+          return;
+        }
+        if (state.clientType !== 'ui') {
+          this.protocolError(state, 'reset requires ui client');
+          return;
+        }
+        this.handlers?.onReset?.(state.id, msg);
         return;
       case 'ping':
         return;

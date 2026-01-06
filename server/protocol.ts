@@ -1,4 +1,7 @@
 import type { FitnessData, FitnessHistoryEntry, VizData } from '../src/protocol/messages.ts';
+import type { CoreSettings, SettingsUpdate } from '../src/protocol/settings.ts';
+import { SETTINGS_PATHS } from '../src/protocol/settings.ts';
+import type { GraphSpec } from '../src/brains/graph/schema.ts';
 
 /** Current protocol version for handshake compatibility. */
 export const PROTOCOL_VERSION = 1;
@@ -6,6 +9,19 @@ export const PROTOCOL_VERSION = 1;
 export const SERIALIZER_VERSION = 1;
 /** Max player name length accepted during join. */
 const MAX_NAME_LENGTH = 24;
+/** Set of valid settings update paths for reset messages. */
+const SETTINGS_PATH_SET = new Set(SETTINGS_PATHS);
+/** Core settings keys accepted in reset messages. */
+const CORE_SETTINGS_KEYS: Array<keyof CoreSettings> = [
+  'snakeCount',
+  'simSpeed',
+  'hiddenLayers',
+  'neurons1',
+  'neurons2',
+  'neurons3',
+  'neurons4',
+  'neurons5'
+];
 
 /** Client identity types that can connect to the server. */
 export type ClientType = 'ui' | 'bot';
@@ -55,8 +71,23 @@ export interface VizMsg {
   enabled: boolean;
 }
 
+/** Reset request to rebuild the server world using updated settings. */
+export interface ResetMsg {
+  type: 'reset';
+  settings?: Partial<CoreSettings>;
+  updates?: SettingsUpdate[];
+  graphSpec?: GraphSpec | null;
+}
+
 /** Union of all client-to-server message shapes. */
-export type ClientMessage = HelloMsg | JoinMsg | PingMsg | ActionMsg | ViewMsg | VizMsg;
+export type ClientMessage =
+  | HelloMsg
+  | JoinMsg
+  | PingMsg
+  | ActionMsg
+  | ViewMsg
+  | VizMsg
+  | ResetMsg;
 
 /** Sensor metadata describing the array order and size. */
 export interface SensorSpec {
@@ -218,6 +249,63 @@ export function isViz(msg: unknown): msg is VizMsg {
 }
 
 /**
+ * Validate a core settings payload for reset messages.
+ * @param value - Raw settings payload.
+ * @returns True when the payload shape is valid.
+ */
+function isCoreSettings(value: unknown): value is Partial<CoreSettings> {
+  if (!isRecord(value)) return false;
+  for (const key of CORE_SETTINGS_KEYS) {
+    if (key in value && !isFiniteNumber(value[key])) return false;
+  }
+  return true;
+}
+
+/**
+ * Validate a single settings update payload.
+ * @param value - Raw update payload.
+ * @returns True when the payload is valid.
+ */
+function isSettingsUpdate(value: unknown): value is SettingsUpdate {
+  if (!isRecord(value)) return false;
+  if (typeof value['path'] !== 'string') return false;
+  if (!SETTINGS_PATH_SET.has(value['path'])) return false;
+  if (!isFiniteNumber(value['value'])) return false;
+  return true;
+}
+
+/**
+ * Validate an array of settings update payloads.
+ * @param value - Raw updates payload.
+ * @returns True when every update entry is valid.
+ */
+function isSettingsUpdates(value: unknown): value is SettingsUpdate[] {
+  if (!Array.isArray(value)) return false;
+  return value.every(isSettingsUpdate);
+}
+
+/**
+ * Validate a reset message.
+ * @param msg - Raw message to validate.
+ * @returns True when the payload is a valid reset message.
+ */
+export function isReset(msg: unknown): msg is ResetMsg {
+  if (!isRecord(msg)) return false;
+  if (msg['type'] !== 'reset') return false;
+  if ('settings' in msg && msg['settings'] !== undefined && !isCoreSettings(msg['settings'])) {
+    return false;
+  }
+  if ('updates' in msg && msg['updates'] !== undefined && !isSettingsUpdates(msg['updates'])) {
+    return false;
+  }
+  if ('graphSpec' in msg) {
+    const spec = msg['graphSpec'];
+    if (spec !== null && spec !== undefined && !isRecord(spec)) return false;
+  }
+  return true;
+}
+
+/**
  * Parse and validate a raw client message into a typed shape.
  * @param raw - Raw message payload.
  * @returns Validated client message or null on failure.
@@ -238,6 +326,8 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return isView(raw) ? raw : null;
     case 'viz':
       return isViz(raw) ? raw : null;
+    case 'reset':
+      return isReset(raw) ? raw : null;
     default:
       return null;
   }

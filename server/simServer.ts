@@ -1,9 +1,21 @@
 import { performance } from 'node:perf_hooks';
-import { CFG } from '../src/config.ts';
+import { CFG, resetCFGToDefaults } from '../src/config.ts';
 import { World } from '../src/world.ts';
 import { WorldSerializer } from '../src/serializer.ts';
+import { setByPath } from '../src/utils.ts';
+import { validateGraph } from '../src/brains/graph/validate.ts';
+import type { GraphSpec } from '../src/brains/graph/schema.ts';
+import type { CoreSettings, SettingsUpdate } from '../src/protocol/settings.ts';
 import type { ServerConfig } from './config.ts';
-import type { ActionMsg, ClientType, JoinMode, StatsMsg, ViewMsg, VizMsg } from './protocol.ts';
+import type {
+  ActionMsg,
+  ClientType,
+  JoinMode,
+  ResetMsg,
+  StatsMsg,
+  ViewMsg,
+  VizMsg
+} from './protocol.ts';
 import type { PopulationImportData } from '../src/protocol/messages.ts';
 import { ControllerRegistry } from './controllerRegistry.ts';
 import type { Persistence, PopulationSnapshotPayload } from './persistence.ts';
@@ -210,6 +222,34 @@ export class SimServer {
   }
 
   /**
+   * Handle a reset request to rebuild the world with new settings.
+   * @param connId - Connection id requesting the reset.
+   * @param msg - Reset message payload.
+   */
+  handleReset(connId: number, msg: ResetMsg): void {
+    const settings = coerceCoreSettings(msg.settings);
+    resetCFGToDefaults();
+    applySettingsUpdates(msg.updates);
+    applyGraphSpecOverride(msg.graphSpec, (reason) => {
+      this.wsHub.sendJsonTo(connId, { type: 'error', message: `reset failed: ${reason}` });
+    });
+
+    this.world = new World(settings);
+    this.tickId = 0;
+    this.lastTickAt = 0;
+    this.lastFrameSentAt = 0;
+    this.lastStatsSentAt = 0;
+    this.lastFps = 0;
+    this.viewW = CFG.worldRadius * 2;
+    this.viewH = CFG.worldRadius * 2;
+    this.lastGeneration = this.world.generation;
+    this.lastHofGenSaved = 0;
+    this.lastHistoryLen = this.world.fitnessHistory.length;
+    this.controllers.setTickId(this.tickId);
+    this.controllers.reassignDeadSnakes(() => this.world.spawnExternalSnake().id);
+  }
+
+  /**
    * Handle connection teardown and cleanup.
    * @param connId - Connection id.
    */
@@ -352,4 +392,82 @@ export class SimServer {
 function buildVizData(brain: { getVizData?: () => VizData } | null | undefined): VizData | null {
   if (!brain || typeof brain.getVizData !== 'function') return null;
   return brain.getVizData();
+}
+
+/**
+ * Check if a value is a plain record.
+ * @param value - Value to inspect.
+ * @returns True when the value is a non-null object.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Check if a value is a finite number.
+ * @param value - Value to inspect.
+ * @returns True when the value is a finite number.
+ */
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/**
+ * Coerce a core settings payload to a partial settings object.
+ * @param value - Raw settings payload.
+ * @returns Sanitized core settings values.
+ */
+function coerceCoreSettings(value: unknown): Partial<CoreSettings> {
+  if (!isRecord(value)) return {};
+  const output: Partial<CoreSettings> = {};
+  const raw = value as Record<string, unknown>;
+  if (isFiniteNumber(raw['snakeCount'])) {
+    output.snakeCount = Math.max(1, Math.floor(raw['snakeCount']));
+  }
+  if (isFiniteNumber(raw['simSpeed'])) {
+    output.simSpeed = raw['simSpeed'];
+  }
+  if (isFiniteNumber(raw['hiddenLayers'])) {
+    output.hiddenLayers = Math.max(1, Math.floor(raw['hiddenLayers']));
+  }
+  if (isFiniteNumber(raw['neurons1'])) output.neurons1 = Math.max(1, Math.floor(raw['neurons1']));
+  if (isFiniteNumber(raw['neurons2'])) output.neurons2 = Math.max(1, Math.floor(raw['neurons2']));
+  if (isFiniteNumber(raw['neurons3'])) output.neurons3 = Math.max(1, Math.floor(raw['neurons3']));
+  if (isFiniteNumber(raw['neurons4'])) output.neurons4 = Math.max(1, Math.floor(raw['neurons4']));
+  if (isFiniteNumber(raw['neurons5'])) output.neurons5 = Math.max(1, Math.floor(raw['neurons5']));
+  return output;
+}
+
+/**
+ * Apply settings updates to the global configuration.
+ * @param updates - Settings updates to apply.
+ */
+function applySettingsUpdates(updates: SettingsUpdate[] | undefined): void {
+  if (!updates) return;
+  updates.forEach((update) => {
+    setByPath(CFG, update.path, update.value);
+  });
+}
+
+/**
+ * Apply an optional graph spec override to the global configuration.
+ * @param spec - Graph spec to apply or null to clear.
+ * @param onError - Optional error callback for invalid specs.
+ */
+function applyGraphSpecOverride(
+  spec: GraphSpec | null | undefined,
+  onError?: (message: string) => void
+): void {
+  if (spec === undefined) return;
+  if (spec === null) {
+    CFG.brain.graphSpec = null;
+    return;
+  }
+  const result = validateGraph(spec);
+  if (!result.ok) {
+    CFG.brain.graphSpec = null;
+    onError?.(result.reason);
+    return;
+  }
+  CFG.brain.graphSpec = spec;
 }

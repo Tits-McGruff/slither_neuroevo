@@ -2533,6 +2533,20 @@ function initWorker(resetCfg = true): void {
 }
 
 /**
+ * Apply a full reset using the active simulation backend.
+ * @param resetCfg - Whether to reset CFG before applying updates in worker mode.
+ */
+function applyResetToSimulation(resetCfg = true): void {
+  const settings = readSettingsFromCoreUI();
+  const updates = collectSettingsUpdates(settingsControls ?? settingsContainer);
+  if (wsClient && wsClient.isConnected()) {
+    wsClient.sendReset(settings, updates, customGraphSpec ?? null);
+    return;
+  }
+  initWorker(resetCfg);
+}
+
+/**
  * Handle messages arriving from the worker.
  * @param msg - Worker message payload.
  */
@@ -2856,7 +2870,7 @@ elN5.addEventListener('input', refreshCoreUIState);
 btnApply.addEventListener('click', () => {
   refreshCoreUIState();
   updateCFGFromUI(settingsControls ?? settingsContainer);
-  initWorker(true); // Restart worker world with updated settings
+  applyResetToSimulation(true);
 });
 // Restore defaults
 btnDefaults.addEventListener('click', () => {
@@ -2873,7 +2887,7 @@ btnDefaults.addEventListener('click', () => {
   applyGraphSpec(buildLinearMlpTemplate(), 'Default graph applied.');
   refreshCoreUIState();
   applySettingsLock();
-  initWorker(true);
+  applyResetToSimulation(true);
 });
 // Toggle view mode
 btnToggle.addEventListener('click', () => proxyWorld.toggleViewMode());

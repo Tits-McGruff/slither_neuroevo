@@ -1,4 +1,6 @@
 import type { FitnessData, FitnessHistoryEntry, VizData } from '../protocol/messages.ts';
+import type { GraphSpec } from '../brains/graph/schema.ts';
+import type { CoreSettings, SettingsUpdate } from '../protocol/settings.ts';
 
 /** Default WebSocket URL injected at build time. */
 declare const __SLITHER_DEFAULT_WS_URL__: string | undefined;
@@ -60,6 +62,14 @@ export interface ErrorMsg {
   message: string;
 }
 
+/** Reset request payload sent to the server. */
+export interface ResetMsg {
+  type: 'reset';
+  settings: CoreSettings;
+  updates?: SettingsUpdate[];
+  graphSpec?: GraphSpec | null;
+}
+
 /** Callback handlers for the websocket client lifecycle and messages. */
 export interface WsClientCallbacks {
   onConnected: (info: WelcomeMsg) => void;
@@ -79,6 +89,7 @@ export interface WsClient {
   sendAction: (tick: number, snakeId: number, turn: number, boost: number) => void;
   sendView: (payload: { viewW?: number; viewH?: number; mode?: 'overview' | 'follow' | 'toggle' }) => void;
   sendViz: (enabled: boolean) => void;
+  sendReset: (settings: CoreSettings, updates: SettingsUpdate[], graphSpec?: GraphSpec | null) => void;
   isConnected: () => boolean;
 }
 
@@ -232,6 +243,17 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     socket.send(JSON.stringify({ type: 'viz', enabled }));
   };
 
+  const sendReset = (
+    settings: CoreSettings,
+    updates: SettingsUpdate[],
+    graphSpec?: GraphSpec | null
+  ): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    const payload: ResetMsg = { type: 'reset', settings, updates };
+    if (graphSpec !== undefined) payload.graphSpec = graphSpec;
+    socket.send(JSON.stringify(payload));
+  };
+
   const isConnected = (): boolean => connected;
 
   const handleMessage = (data: unknown): void => {
@@ -295,6 +317,7 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     sendAction,
     sendView,
     sendViz,
+    sendReset,
     isConnected
   };
 }

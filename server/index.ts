@@ -105,6 +105,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     onAction: (connId, msg) => simServer?.handleAction(connId, msg),
     onView: (connId, msg) => simServer?.handleView(connId, msg),
     onViz: (connId, msg) => simServer?.handleViz(connId, msg),
+    onReset: (connId, msg) => simServer?.handleReset(connId, msg),
     onDisconnect: (connId) => simServer?.handleDisconnect(connId)
   });
 

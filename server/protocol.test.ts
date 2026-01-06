@@ -47,4 +47,22 @@ describe(SUITE, () => {
     });
     expect(msg?.type).toBe('viz');
   });
+
+  it('accepts a valid reset message', () => {
+    const msg = parseClientMessage({
+      type: 'reset',
+      settings: {
+        snakeCount: 80,
+        simSpeed: 1.25,
+        hiddenLayers: 2,
+        neurons1: 64,
+        neurons2: 64,
+        neurons3: 64,
+        neurons4: 48,
+        neurons5: 32
+      },
+      updates: [{ path: 'worldRadius', value: 3200 }]
+    });
+    expect(msg?.type).toBe('reset');
+  });
 });
