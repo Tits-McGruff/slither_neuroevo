@@ -60,6 +60,42 @@ describe('ControllerRegistry', () => {
     expect(action?.boost).toBe(1);
   });
 
+  it('drops actions beyond maxActionsPerTick', () => {
+    const snakes = [{ id: 1, alive: true }];
+    const registry = new ControllerRegistry(
+      {
+        actionTimeoutTicks: 2,
+        maxActionsPerTick: 1,
+        maxActionsPerSecond: 100
+      },
+      {
+        getSnakes: () => snakes,
+        send: () => {}
+      }
+    );
+    registry.setTickId(5);
+    const snakeId = registry.assignSnake(11, 'player');
+    expect(snakeId).toBe(1);
+    if (!snakeId) return;
+    registry.handleAction(11, {
+      type: 'action',
+      tick: 5,
+      snakeId,
+      turn: -0.4,
+      boost: 0
+    });
+    registry.handleAction(11, {
+      type: 'action',
+      tick: 5,
+      snakeId,
+      turn: 0.9,
+      boost: 1
+    });
+    const action = registry.getAction(snakeId, 5);
+    expect(action?.turn).toBe(-0.4);
+    expect(action?.boost).toBe(0);
+  });
+
   it('returns neutral action after timeout and releases on extended timeout', () => {
     const { registry } = makeRegistry();
     registry.setTickId(1);

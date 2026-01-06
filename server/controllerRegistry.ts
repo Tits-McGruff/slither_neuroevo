@@ -151,11 +151,12 @@ export class ControllerRegistry {
       return;
     }
 
-    if (!overTickLimit) {
-      state.actionsThisTick += 1;
-    } else {
+    if (overTickLimit) {
       state.droppedActions += 1;
+      state.actionsThisSecond += 1;
+      return;
     }
+    state.actionsThisTick += 1;
     state.actionsThisSecond += 1;
     state.lastTurn = clamp(msg.turn, -1, 1);
     state.lastBoost = clamp(msg.boost, 0, 1);

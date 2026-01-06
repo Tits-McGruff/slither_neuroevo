@@ -3,13 +3,13 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const categories = {
-  unit: ['.unit.test.ts'],
-  integration: ['.integration.test.ts'],
-  system: ['.system.test.ts'],
-  acceptance: ['.acceptance.test.ts'],
-  regression: ['.regression.test.ts'],
-  performance: ['.performance.test.ts'],
-  security: ['.security.test.ts']
+  unit: ['unit.test.ts'],
+  integration: ['integration.test.ts'],
+  system: ['system.test.ts'],
+  acceptance: ['acceptance.test.ts'],
+  regression: ['regression.test.ts'],
+  performance: ['performance.test.ts'],
+  security: ['security.test.ts']
 } as const;
 
 type Category = keyof typeof categories;

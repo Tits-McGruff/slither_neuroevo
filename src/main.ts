@@ -7,7 +7,7 @@
 
 import { CFG, resetCFGToDefaults } from './config.ts';
 import { setupSettingsUI, updateCFGFromUI } from './settings.ts';
-import { setByPath } from './utils.ts';
+import { clamp, lerp, setByPath } from './utils.ts';
 import { renderWorldStruct } from './render.ts';
 // import { World } from './world.ts'; // Logic moved to worker
 import { exportJsonToFile, exportToFile, importFromFile } from './storage.ts';
@@ -117,9 +117,6 @@ function resize(): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (worker) {
     worker.postMessage({ type: 'resize', viewW: cssW, viewH: cssH });
-  }
-  if (wsClient && wsClient.isConnected() && connectionMode === 'server') {
-    wsClient.sendView({ viewW: cssW, viewH: cssH });
   }
 }
 window.addEventListener('resize', resize);
@@ -662,6 +659,9 @@ let fitnessHistory: FitnessHistoryUiEntry[] = []; // Track fitness over generati
 let godModeLog: GodModeLogEntry[] = []; // Track God Mode interactions
 let selectedSnake: SelectedSnake | null = null; // Currently selected snake for God Mode
 let isDragging = false;
+let clientCamX = 0;
+let clientCamY = 0;
+let clientZoom = 1;
 
 let currentVizData: VizData | null = null;
 let pendingExport = false;
@@ -683,7 +683,6 @@ const proxyWorld: ProxyWorld = {
       return;
     }
     if (wsClient && wsClient.isConnected()) {
-      wsClient.sendView({ mode: 'toggle', viewW: cssW, viewH: cssH });
       proxyWorld.viewMode = proxyWorld.viewMode === 'overview' ? 'follow' : 'overview';
     }
   },
@@ -2146,6 +2145,66 @@ function applyFrameBuffer(buffer: ArrayBuffer): void {
   }
 }
 
+type FrameSnakeSnapshot = { id: number; x: number; y: number; ptCount: number };
+
+function findSnakeInFrame(buffer: Float32Array, targetId: number | null): FrameSnakeSnapshot | null {
+  if (buffer.length < 6) return null;
+  const aliveCount = (buffer[2] ?? 0) | 0;
+  let ptr = 6;
+  let first: FrameSnakeSnapshot | null = null;
+  for (let i = 0; i < aliveCount; i++) {
+    if (ptr + 7 >= buffer.length) break;
+    const id = (buffer[ptr] ?? 0) | 0;
+    const x = buffer[ptr + 3] ?? 0;
+    const y = buffer[ptr + 4] ?? 0;
+    const ptCount = (buffer[ptr + 7] ?? 0) | 0;
+    const info = { id, x, y, ptCount };
+    if (!first) first = info;
+    if (targetId != null && id === targetId) return info;
+    ptr += 8 + ptCount * 2;
+  }
+  return first;
+}
+
+function updateClientCamera(): void {
+  if (connectionMode !== 'server') return;
+  const frame = currentFrameBuffer;
+  if (!frame) return;
+  const mode = proxyWorld.viewMode === 'follow' ? 'follow' : 'overview';
+  if (mode === 'overview') {
+    clientCamX = 0;
+    clientCamY = 0;
+    const effectiveR = CFG.worldRadius + CFG.observer.overviewExtraWorldMargin;
+    const fit = Math.min(cssW, cssH) / (2 * effectiveR * CFG.observer.overviewPadding);
+    const targetZoom = clamp(fit, 0.01, 2.0);
+    if (CFG.observer.snapZoomOutInOverview && clientZoom > targetZoom) {
+      clientZoom = targetZoom;
+    } else {
+      clientZoom = lerp(clientZoom, targetZoom, CFG.observer.zoomLerpOverview);
+    }
+    proxyWorld.cameraX = clientCamX;
+    proxyWorld.cameraY = clientCamY;
+    proxyWorld.zoom = clientZoom;
+    return;
+  }
+
+  const focus = findSnakeInFrame(frame, playerSnakeId);
+  if (focus) {
+    clientCamX = focus.x;
+    clientCamY = focus.y;
+    const denom = Math.max(1, CFG.snakeMaxLen);
+    const targetZoom = clamp(1.15 - (focus.ptCount / denom) * 0.55, 0.45, 1.12);
+    clientZoom = lerp(clientZoom, targetZoom, CFG.observer.zoomLerpFollow);
+  } else {
+    clientCamX = 0;
+    clientCamY = 0;
+    clientZoom = lerp(clientZoom, 0.95, 0.05);
+  }
+  proxyWorld.cameraX = clientCamX;
+  proxyWorld.cameraY = clientCamY;
+  proxyWorld.zoom = clientZoom;
+}
+
 function initWorker(resetCfg = true): void {
   if (!worker) return;
   const settings = readSettingsFromCoreUI();
@@ -2321,7 +2380,6 @@ wsClient = createWsClient({
     setConnectionStatus('server');
     joinPending = false;
     wsClient?.sendJoin('spectator');
-    wsClient?.sendView({ viewW: cssW, viewH: cssH, mode: 'overview' });
     wsClient?.sendViz(activeTab === 'tab-viz');
     setJoinOverlayVisible(true);
     setJoinStatus('Enter a nickname to play');
@@ -2495,7 +2553,11 @@ window.addEventListener('keydown', e => {
 function screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
   // Get camera data from buffer if available
   let camX = 0, camY = 0, zoom = 1;
-  if (currentFrameBuffer && currentFrameBuffer.length >= 6) {
+  if (connectionMode === 'server') {
+    camX = clientCamX;
+    camY = clientCamY;
+    zoom = clientZoom;
+  } else if (currentFrameBuffer && currentFrameBuffer.length >= 6) {
     camX = currentFrameBuffer[3] ?? 0;
     camY = currentFrameBuffer[4] ?? 0;
     zoom = currentFrameBuffer[5] ?? 1;
@@ -2703,8 +2765,13 @@ if (btnImport && fileInput) {
 function frame(): void {
   // console.log("Frame loop running"); // Spammy
   if (currentFrameBuffer) {
-      // Camera/zoom come from the worker buffer; avoid local overrides here.
-      renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH);
+      if (connectionMode === 'server') {
+        updateClientCamera();
+        renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH, clientZoom, clientCamX, clientCamY);
+      } else {
+        // Camera/zoom come from the worker buffer; avoid local overrides here.
+        renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH);
+      }
   }
   
   // Render active tab content

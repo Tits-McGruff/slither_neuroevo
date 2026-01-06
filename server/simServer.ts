@@ -110,32 +110,24 @@ export class SimServer {
       return;
     }
     const controller = clientType === 'bot' ? 'bot' : 'player';
-    const snake = this.world.spawnExternalSnake();
-    const snakeId = this.controllers.assignSnake(connId, controller, snake.id);
+    let snakeId = this.controllers.assignSnake(connId, controller);
     if (snakeId == null) {
-      this.wsHub.sendJsonTo(connId, { type: 'error', message: 'no available snakes' });
-      return;
+      const spawned = this.world.spawnExternalSnake();
+      snakeId = this.controllers.assignSnake(connId, controller, spawned.id);
+      if (snakeId == null) {
+        spawned.alive = false;
+        this.wsHub.sendJsonTo(connId, { type: 'error', message: 'no available snakes' });
+        return;
+      }
     }
-    this.world.focusSnake = snake;
-    this.world.viewMode = 'follow';
   }
 
   handleAction(connId: number, msg: ActionMsg): void {
     this.controllers.handleAction(connId, msg);
   }
 
-  handleView(_connId: number, msg: ViewMsg): void {
-    if (Number.isFinite(msg.viewW)) this.viewW = Math.max(1, msg.viewW ?? this.viewW);
-    if (Number.isFinite(msg.viewH)) this.viewH = Math.max(1, msg.viewH ?? this.viewH);
-    if (msg.mode === 'toggle') {
-      this.world.toggleViewMode();
-      return;
-    }
-    if (msg.mode === 'overview' || msg.mode === 'follow') {
-      if (this.world.viewMode !== msg.mode) {
-        this.world.toggleViewMode();
-      }
-    }
+  handleView(_connId: number, _msg: ViewMsg): void {
+    // Camera/view is per-client; server ignores view messages.
   }
 
   handleViz(connId: number, msg: VizMsg): void {
