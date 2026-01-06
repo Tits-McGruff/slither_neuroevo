@@ -424,6 +424,26 @@ function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
 }
 
 /**
+ * Resolve the root element containing CFG-backed settings sliders.
+ * @returns Root element containing data-path inputs.
+ */
+function resolveSettingsRoot(): HTMLElement {
+  const hasContainerInputs =
+    typeof settingsContainer?.querySelector === 'function' &&
+    settingsContainer.querySelector('input[data-path]') != null;
+  if (hasContainerInputs) return settingsContainer;
+  return settingsControls ?? settingsContainer;
+}
+
+/**
+ * Collect settings updates from the active settings root.
+ * @returns List of settings updates.
+ */
+function collectSettingsUpdatesFromUI(): SettingsUpdate[] {
+  return collectSettingsUpdates(resolveSettingsRoot());
+}
+
+/**
  * Synchronises the displayed numbers next to the core UI sliders and
  * disables or enables the neuron sliders based on the number of hidden
  * layers.
@@ -2520,7 +2540,7 @@ function updateClientCamera(): void {
 function initWorker(resetCfg = true): void {
   if (!worker) return;
   const settings = readSettingsFromCoreUI();
-  const updates = collectSettingsUpdates(settingsControls ?? settingsContainer);
+  const updates = collectSettingsUpdatesFromUI();
   worker.postMessage({
     type: 'init',
     settings,
@@ -2538,7 +2558,7 @@ function initWorker(resetCfg = true): void {
  */
 function applyResetToSimulation(resetCfg = true): void {
   const settings = readSettingsFromCoreUI();
-  const updates = collectSettingsUpdates(settingsControls ?? settingsContainer);
+  const updates = collectSettingsUpdatesFromUI();
   if (wsClient && wsClient.isConnected()) {
     wsClient.sendReset(settings, updates, customGraphSpec ?? null);
     return;
@@ -2869,7 +2889,7 @@ elN5.addEventListener('input', refreshCoreUIState);
 // Apply new configuration and reset world
 btnApply.addEventListener('click', () => {
   refreshCoreUIState();
-  updateCFGFromUI(settingsControls ?? settingsContainer);
+  updateCFGFromUI(resolveSettingsRoot());
   applyResetToSimulation(true);
 });
 // Restore defaults
