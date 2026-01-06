@@ -1,6 +1,7 @@
 const js = require('@eslint/js');
 const tsParser = require('@typescript-eslint/parser');
 const tsPlugin = require('@typescript-eslint/eslint-plugin');
+const tsdoc = require('eslint-plugin-tsdoc');
 const globals = require('globals');
 
 const tsRules = {
@@ -54,10 +55,12 @@ module.exports = [
       }
     },
     plugins: {
-      '@typescript-eslint': tsPlugin
+      '@typescript-eslint': tsPlugin,
+      tsdoc
     },
     rules: {
-      ...tsRules
+      ...tsRules,
+      'tsdoc/syntax': 'error'
     }
   },
   {
@@ -71,10 +74,12 @@ module.exports = [
       }
     },
     plugins: {
-      '@typescript-eslint': tsPlugin
+      '@typescript-eslint': tsPlugin,
+      tsdoc
     },
     rules: {
-      ...tsRules
+      ...tsRules,
+      'tsdoc/syntax': 'error'
     }
   }
 ];

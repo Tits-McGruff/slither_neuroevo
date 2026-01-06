@@ -3,7 +3,10 @@ import { compileGraph } from './graph/compiler.ts';
 import { GraphBrain } from './graph/runtime.ts';
 import type { GraphSpec } from './graph/schema.ts';
 
-describe('graph brain (integration)', () => {
+/** Test suite label for graph brain integration. */
+const SUITE = 'graph brain (integration)';
+
+describe(SUITE, () => {
   it('runs a simple graph forward pass', () => {
     const spec: GraphSpec = {
       type: 'graph',

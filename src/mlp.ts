@@ -1,5 +1,4 @@
-// mlp.ts
-// Architecture selection, genome representation, and evolution operators.
+/** Architecture selection, genome representation, and evolution operators. */
 
 import { CFG } from './config.ts';
 import { clamp, gaussian } from './utils.ts';
@@ -12,14 +11,29 @@ import type { Brain } from './brains/types.ts';
 import { buildBrain as buildBrainInstance, compileBrainSpec } from './brains/registry.ts';
 import { DenseHead, GRU, LSTM, MLP, RRU } from './brains/ops.ts';
 
-export { DenseHead, GRU, LSTM, MLP, RRU, gruParamCount, headParamCount, lstmParamCount, mlpParamCount, rruParamCount, sigmoid } from './brains/ops.ts';
+/** Re-export core brain ops and parameter helpers. */
+export {
+  DenseHead,
+  GRU,
+  LSTM,
+  MLP,
+  RRU,
+  gruParamCount,
+  headParamCount,
+  lstmParamCount,
+  mlpParamCount,
+  rruParamCount,
+  sigmoid
+} from './brains/ops.ts';
 
+/** Architecture definition bundling a graph spec and its key. */
 export interface ArchDefinition {
   spec: GraphSpec;
   key: string;
   _info?: ArchInfo;
 }
 
+/** Parameter metadata for a single graph node. */
 export interface NodeParamInfo {
   id: string;
   type: GraphNodeType;
@@ -32,6 +46,7 @@ export interface NodeParamInfo {
   isRecurrent: boolean;
 }
 
+/** Cached architecture info derived from a compiled graph. */
 export interface ArchInfo {
   key: string;
   spec: GraphSpec;
@@ -42,6 +57,8 @@ export interface ArchInfo {
 
 /**
  * Builds a stacked brain graph spec from UI settings + CFG toggles.
+ * @param settings - Layer size and depth settings from the UI.
+ * @returns Architecture definition derived from settings or graph spec.
  */
 export function buildArch(settings: {
   hiddenLayers: number;
@@ -69,11 +86,21 @@ export function buildArch(settings: {
   return { spec, key: graphKey(spec) };
 }
 
+/**
+ * Compute a stable architecture key from a definition or raw spec.
+ * @param arch - Architecture definition or raw graph spec.
+ * @returns Graph key string.
+ */
 export function archKey(arch: ArchDefinition | GraphSpec): string {
   if ('spec' in arch) return graphKey(arch.spec);
   return graphKey(arch);
 }
 
+/**
+ * Enrich an architecture with compiled info and parameter metadata.
+ * @param arch - Architecture definition to enrich.
+ * @returns Cached architecture info.
+ */
 export function enrichArchInfo(arch: ArchDefinition): ArchInfo {
   if (arch && arch._info) return arch._info;
   const compiled = compileBrainSpec(arch.spec);
@@ -106,11 +133,21 @@ export function enrichArchInfo(arch: ArchDefinition): ArchInfo {
  * Represents an individual genome (weights + metadata).
  */
 export class Genome {
+  /** Architecture key used for compatibility checks. */
   archKey: string;
+  /** Brain type identifier used for registry lookups. */
   brainType: string;
+  /** Weight buffer for the genome. */
   weights: Float32Array;
+  /** Cached fitness value assigned during evolution. */
   fitness: number;
 
+  /**
+   * Create a genome with an architecture key and weights.
+   * @param archKey - Architecture key string.
+   * @param weights - Weight array to store.
+   * @param brainType - Brain type identifier.
+   */
   constructor(archKey: string, weights: Float32Array, brainType = 'mlp') {
     this.archKey = archKey;
     this.brainType = brainType;
@@ -118,6 +155,11 @@ export class Genome {
     this.fitness = 0;
   }
 
+  /**
+   * Build a randomized genome for a specific architecture.
+   * @param arch - Architecture definition to target.
+   * @returns New randomized genome.
+   */
   static random(arch: ArchDefinition): Genome {
     const info = enrichArchInfo(arch);
     const w = new Float32Array(info.totalCount);
@@ -167,6 +209,11 @@ export class Genome {
     return new Genome(arch.key, w, arch.spec.type);
   }
 
+  /**
+   * Build a brain instance from the genome weights and architecture.
+   * @param arch - Architecture definition to compile.
+   * @returns Initialized brain instance.
+   */
   buildBrain(arch: ArchDefinition): Brain {
     const info = enrichArchInfo(arch);
     const brain = buildBrainInstance(info.compiled.spec, this.weights);
@@ -174,12 +221,20 @@ export class Genome {
     return brain;
   }
 
+  /**
+   * Clone this genome including weights and fitness.
+   * @returns New genome clone.
+   */
   clone(): Genome {
     const g = new Genome(this.archKey, this.weights, this.brainType);
     g.fitness = this.fitness;
     return g;
   }
 
+  /**
+   * Serialize this genome into JSON-friendly data.
+   * @returns JSON payload for persistence.
+   */
   toJSON(): { archKey: string; brainType: string; weights: number[]; fitness: number } {
     return {
       archKey: this.archKey,
@@ -189,6 +244,11 @@ export class Genome {
     };
   }
 
+  /**
+   * Deserialize a genome from a JSON payload.
+   * @param json - JSON payload containing weights and metadata.
+   * @returns New genome instance.
+   */
   static fromJSON(json: { archKey: string; brainType?: string; weights: number[]; fitness?: number }): Genome {
     const g = new Genome(json.archKey, new Float32Array(json.weights), json.brainType || 'mlp');
     g.fitness = json.fitness || 0;
@@ -196,6 +256,14 @@ export class Genome {
   }
 }
 
+/**
+ * Perform structured crossover for recurrent blocks.
+ * @param out - Output weight buffer to write into.
+ * @param wa - Parent A weights.
+ * @param wb - Parent B weights.
+ * @param node - Node parameter metadata.
+ * @param mode - Crossover mode (0 block, 1 unit).
+ */
 function crossoverRecurrentBlock(
   out: Float32Array,
   wa: Float32Array,
@@ -287,6 +355,13 @@ function crossoverRecurrentBlock(
   }
 }
 
+/**
+ * Create a child genome by crossover of two parents.
+ * @param a - Parent A genome.
+ * @param b - Parent B genome.
+ * @param arch - Architecture definition.
+ * @returns Child genome.
+ */
 export function crossover(a: Genome, b: Genome, arch: ArchDefinition): Genome {
   const info = enrichArchInfo(arch);
   const wa = a.weights;
@@ -315,6 +390,11 @@ export function crossover(a: Genome, b: Genome, arch: ArchDefinition): Genome {
   return new Genome(a.archKey, child, arch.spec.type);
 }
 
+/**
+ * Mutate a genome in-place using configured mutation rates.
+ * @param genome - Genome to mutate.
+ * @param arch - Architecture definition for recurrent ranges.
+ */
 export function mutate(genome: Genome, arch: ArchDefinition): void {
   const info = enrichArchInfo(arch);
   const w = genome.weights;

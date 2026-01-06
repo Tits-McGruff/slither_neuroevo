@@ -1,12 +1,23 @@
-// FitnessChart.ts
-// Renders a fitness history chart.
+/** Renders a fitness history chart. */
 
+/** Simple chart renderer for fitness history. */
 export class FitnessChart {
+  /** Left position of the chart region. */
   x: number;
+  /** Top position of the chart region. */
   y: number;
+  /** Width of the chart region. */
   w: number;
+  /** Height of the chart region. */
   h: number;
 
+  /**
+   * Create a chart renderer with a fixed drawing rectangle.
+   * @param x - Left position of the chart.
+   * @param y - Top position of the chart.
+   * @param w - Chart width in pixels.
+   * @param h - Chart height in pixels.
+   */
   constructor(x: number, y: number, w: number, h: number) {
     this.x = x;
     this.y = y;
@@ -14,6 +25,11 @@ export class FitnessChart {
     this.h = h;
   }
 
+  /**
+   * Render the fitness chart into the given canvas context.
+   * @param ctx - Canvas 2D context to draw into.
+   * @param history - Fitness history records to plot.
+   */
   render(
     ctx: CanvasRenderingContext2D,
     history: Array<{ gen: number; best: number; avg: number }>

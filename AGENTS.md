@@ -83,6 +83,7 @@ Import/export is exposed in the Settings tab and uses the worker path only (serv
 - `README.md` is for users and QA: explain sliders, brain types, presets, and troubleshooting. Keep dev architecture and testing details out of README.
 - `AGENTS.md` is the dev reference: include system architecture, buffer contracts, and regression pitfalls.
 - Slider names and meanings in README should mirror `src/settings.ts` and `src/config.ts`. If you change a slider label or path, update docs accordingly.
+- Add TSDoc-style documentation for every function, class, class field, and module-level variable (including tests and server/util scripts), plus inline comments for behavior not covered by the docblocks.
 
 ## Recent additions and footguns
 

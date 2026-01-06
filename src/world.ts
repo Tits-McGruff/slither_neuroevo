@@ -1,8 +1,4 @@
-// world.ts
-// Defines the World class which encapsulates the simulation state and
-// manages updating snakes, spawning pellets, collision resolution and
-// evolution of genomes between generations.  Also includes helper
-// functions for genetic selection and pellet spawning.
+/** Simulation world state, evolution loop, and rendering helpers. */
 
 import { CFG } from './config.ts';
 import { buildArch, archKey, Genome, crossover, mutate, enrichArchInfo } from './mlp.ts';
@@ -15,6 +11,7 @@ import { FlatSpatialHash } from './spatialHash.ts';
 import type { ArchDefinition } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData, PopulationExport } from './protocol/messages.ts';
 
+/** Optional settings overrides accepted by the World constructor. */
 interface WorldSettingsInput {
   snakeCount?: number;
   simSpeed?: number;
@@ -29,6 +26,7 @@ interface WorldSettingsInput {
   collision?: Partial<typeof CFG.collision>;
 }
 
+/** Normalized settings stored by the World instance. */
 interface WorldSettings {
   snakeCount: number;
   simSpeed: number;
@@ -43,6 +41,7 @@ interface WorldSettings {
   collision: typeof CFG.collision;
 }
 
+/** Fitness history record stored by the world for charts. */
 interface FitnessHistoryEntry {
   gen: number;
   best: number;
@@ -54,6 +53,7 @@ interface FitnessHistoryEntry {
   weightVariance: number;
 }
 
+/** Minimal controller registry interface used by the World. */
 export interface ControllerRegistryLike {
   isControlled: (snakeId: number) => boolean;
   getAction: (snakeId: number, tickId: number) => ControlInput | null;
@@ -65,33 +65,63 @@ export interface ControllerRegistryLike {
   ) => void;
 }
 
+/** Main simulation world containing population state, pellets, and snakes. */
 export class World {
+  /** Normalized settings for the world instance. */
   settings: WorldSettings;
+  /** Neural network architecture definition for the population. */
   arch: ArchDefinition;
+  /** Stable architecture key used for persistence. */
   archKey: string;
+  /** Active pellet instances in the world. */
   pellets: Pellet[];
+  /** Spatial grid for pellet lookup. */
   pelletGrid: PelletGrid;
+  /** Pellet spawn accumulator in seconds. */
   _pelletSpawnAcc: number;
+  /** Active snake instances in the world. */
   snakes: Snake[];
+  /** Particle system used by the legacy renderer. */
   particles: ParticleSystem;
+  /** Current generation index. */
   generation: number;
+  /** Elapsed time in the current generation. */
   generationTime: number;
+  /** Current population of genomes. */
   population: Genome[];
+  /** Best fitness recorded across all generations. */
   bestFitnessEver: number;
+  /** Rolling fitness history for charts. */
   fitnessHistory: FitnessHistoryEntry[];
+  /** Best points achieved in the current generation. */
   bestPointsThisGen: number;
+  /** Snake id that currently holds best points. */
   bestPointsSnakeId: number;
+  /** Last Hall of Fame entry emitted by the world. */
   _lastHoFEntry: HallOfFameEntry | null;
+  /** Simulation speed multiplier. */
   simSpeed: number;
+  /** Camera X coordinate for rendering. */
   cameraX: number;
+  /** Camera Y coordinate for rendering. */
   cameraY: number;
+  /** Camera zoom factor for rendering. */
   zoom: number;
+  /** Snake currently focused by the observer. */
   focusSnake: Snake | null;
+  /** Cooldown timer for focus switching. */
   _focusCooldown: number;
+  /** Observer view mode. */
   viewMode: string;
+  /** Collision grid for snake segments. */
   _collGrid: FlatSpatialHash<Snake>;
+  /** Next id to assign to externally controlled snakes. */
   _nextExternalSnakeId: number;
 
+  /**
+   * Create a new World instance with optional settings overrides.
+   * @param settings - World settings overrides from UI or worker.
+   */
   constructor(settings: WorldSettingsInput = {}) {
     // Store a shallow copy of the UI settings to decouple from external
     // mutations.  The settings include snakeCount, simSpeed and hidden layer
@@ -156,7 +186,7 @@ export class World {
   /**
    * Immediately adjusts the simulation speed.  Also stores the new
    * value back into the settings object.
-   * @param {number} x
+   * @param x - New simulation speed multiplier.
    */
   applyLiveSimSpeed(x: number): void {
     this.simSpeed = clamp(x, 0.01, 500.0);
@@ -200,7 +230,7 @@ export class World {
 
   /**
    * Serializes the current population for export.
-   * @returns {{generation:number, archKey:string, genomes:Array<Object>}}
+   * @returns Population export payload.
    */
   exportPopulation(): PopulationExport {
     return {
@@ -213,8 +243,8 @@ export class World {
   /**
    * Replaces the current population from imported JSON data.
    * The caller is responsible for validating the data before calling.
-   * @param {{generation?:number, genomes?:Array<Object>}} data
-   * @returns {{ok:boolean, reason?:string, used?:number, total?:number}}
+   * @param data - Import payload containing genomes and optional generation.
+   * @returns Import result summary.
    */
   importPopulation(data: PopulationImportData): { ok: boolean; reason?: string; used?: number; total?: number } {
     if (!data || !Array.isArray(data.genomes)) {
@@ -284,7 +314,7 @@ _initPellets(): void {
 
 /**
  * Adds a pellet to the world and to the pellet spatial hash.
- * @param {Pellet} p
+ * @param p - Pellet to add.
  */
 addPellet(p: Pellet): void {
   p._idx = this.pellets.length;
@@ -294,7 +324,7 @@ addPellet(p: Pellet): void {
 
 /**
  * Removes a pellet from the world and from the pellet spatial hash.
- * @param {Pellet} p
+ * @param p - Pellet to remove.
  */
 removePellet(p: Pellet): void {
   if (!p) return;
@@ -312,9 +342,11 @@ removePellet(p: Pellet): void {
   /**
    * Advances the simulation by dt seconds (scaled by simSpeed) and
    * updates camera and focus logic.  Handles early generation termination.
-   * @param {number} dt Base delta time (unscaled)
-   * @param {number} viewW Canvas width in CSS pixels
-   * @param {number} viewH Canvas height in CSS pixels
+   * @param dt - Base delta time (unscaled).
+   * @param viewW - Canvas width in CSS pixels.
+   * @param viewH - Canvas height in CSS pixels.
+   * @param controllers - Optional external controller registry.
+   * @param tickId - Optional tick id for controller sync.
    */
   update(
     dt: number,
@@ -357,7 +389,9 @@ removePellet(p: Pellet): void {
   /**
    * Performs a single substep of physics: spawn pellets, update snakes
    * and resolve collisions.
-   * @param {number} dt
+   * @param dt - Substep delta time in seconds.
+   * @param controllers - Optional external controller registry.
+   * @param tickId - Optional tick id for controller sync.
    */
   _stepPhysics(
     dt: number,
@@ -444,7 +478,7 @@ removePellet(p: Pellet): void {
   /**
    * Periodically reevaluates which snake should be the focus.  Uses
    * hysteresis to avoid rapid switching.
-   * @param {number} dt
+   * @param dt - Delta time in seconds.
    */
   _updateFocus(dt: number): void {
     this._focusCooldown -= dt;
@@ -480,8 +514,8 @@ removePellet(p: Pellet): void {
   }
   /**
    * Updates camera position and zoom based on view mode and focused snake.
-   * @param {number} viewW
-   * @param {number} viewH
+   * @param viewW - Viewport width in pixels.
+   * @param viewH - Viewport height in pixels.
    */
   _updateCamera(viewW: number, viewH: number): void {
     if (!Number.isFinite(viewW) || !Number.isFinite(viewH) || viewW <= 0 || viewH <= 0) {
@@ -677,7 +711,7 @@ removePellet(p: Pellet): void {
 
   /**
    * Spawns a snake from a saved genome immediately into the world.
-   * @param {Object} genomeJSON 
+   * @param genomeJSON - Serialized genome to resurrect.
    */
   resurrect(genomeJSON: GenomeJSON): void {
     const genome = Genome.fromJSON(genomeJSON);
@@ -710,8 +744,8 @@ removePellet(p: Pellet): void {
  * Selects a genome by k‑tournament selection: chooses k random candidates
  * from the population and returns the fittest among them.  Used for
  * breeding new individuals.
- * @param {Array<Genome>} pop
- * @param {number} k
+ * @param pop - Candidate population.
+ * @param k - Tournament size.
  */
 function tournamentPick(pop: Genome[], k: number): Genome {
   let best: Genome | null = null;
@@ -722,32 +756,44 @@ function tournamentPick(pop: Genome[], k: number): Genome {
   return best!;
 }
 
-/**
- * Returns a random pellet located uniformly within the arena.  The
- * pellet’s value equals the configured foodValue.
- */
-
-/**
- * Spatial hash for pellets to support fast local queries for sensing and eating.
- */
+/** Spatial hash for pellets to support fast local queries for sensing and eating. */
 class PelletGrid {
+  /** Grid cell size in world units. */
   cellSize: number;
+  /** Map of cell keys to pellets in that cell. */
   map: Map<string, Pellet[]>;
 
   constructor() {
     this.cellSize = Math.max(10, CFG.pelletGrid?.cellSize ?? 120);
     this.map = new Map();
   }
+  /** Reset the grid sizing based on the current CFG. */
   resetForCFG(): void {
     this.cellSize = Math.max(10, CFG.pelletGrid?.cellSize ?? 120);
     this.map.clear();
   }
+  /**
+   * Build the key for a cell coordinate.
+   * @param cx - Cell x coordinate.
+   * @param cy - Cell y coordinate.
+   * @returns Map key string.
+   */
   _key(cx: number, cy: number): string {
     return cx + "," + cy;
   }
+  /**
+   * Convert world coordinates to cell coordinates.
+   * @param x - World x position.
+   * @param y - World y position.
+   * @returns Cell coordinate object.
+   */
   _coords(x: number, y: number): { cx: number; cy: number } {
     return { cx: Math.floor(x / this.cellSize), cy: Math.floor(y / this.cellSize) };
   }
+  /**
+   * Add a pellet to the spatial hash.
+   * @param p - Pellet to add.
+   */
   add(p: Pellet): void {
     const { cx, cy } = this._coords(p.x, p.y);
     const k = this._key(cx, cy);
@@ -763,6 +809,10 @@ class PelletGrid {
     p._cellIndex = arr.length;
     arr.push(p);
   }
+  /**
+   * Remove a pellet from the spatial hash.
+   * @param p - Pellet to remove.
+   */
   remove(p: Pellet): void {
     const arr = p._cellArr;
     if (!arr) return;
@@ -781,8 +831,11 @@ class PelletGrid {
     }
   }
   /**
-   * Iterates pellets in cells intersecting a radius around (x,y).
-   * The callback receives the pellet object.
+   * Iterate pellets in cells intersecting a radius around (x,y).
+   * @param x - World x position.
+   * @param y - World y position.
+   * @param r - Query radius.
+   * @param fn - Callback invoked for each pellet.
    */
   forEachInRadius(x: number, y: number, r: number, fn: (p: Pellet) => void): void {
     const cs = this.cellSize;
@@ -803,8 +856,15 @@ class PelletGrid {
   }
 }
 
+/** Distance threshold for species bucketing. */
 const SPECIES_DISTANCE_THRESHOLD = 0.35;
 
+/**
+ * Compute RMS distance between two genomes.
+ * @param a - Genome A.
+ * @param b - Genome B.
+ * @returns RMS distance or Infinity when incompatible.
+ */
 function genomeDistanceRms(a: Genome, b: Genome): number {
   const wa = a.weights;
   const wb = b.weights;
@@ -817,6 +877,11 @@ function genomeDistanceRms(a: Genome, b: Genome): number {
   return Math.sqrt(sumSq / wa.length);
 }
 
+/**
+ * Compute species count and top species size for a population.
+ * @param population - Genomes to analyze.
+ * @returns Species statistics summary.
+ */
 function computeSpeciesStats(population: Genome[]): { speciesCount: number; topSpeciesSize: number } {
   if (!population || population.length === 0) {
     return { speciesCount: 0, topSpeciesSize: 0 };
@@ -840,6 +905,11 @@ function computeSpeciesStats(population: Genome[]): { speciesCount: number; topS
   return { speciesCount: species.length, topSpeciesSize: topSize };
 }
 
+/**
+ * Compute weight statistics across a population.
+ * @param population - Genomes to analyze.
+ * @returns Network weight summary.
+ */
 function computeNetworkStats(population: Genome[]): { avgWeight: number; weightVariance: number } {
   if (!population || population.length === 0) {
     return { avgWeight: 0, weightVariance: 0 };
@@ -863,6 +933,10 @@ function computeNetworkStats(population: Genome[]): { avgWeight: number; weightV
   return { avgWeight, weightVariance };
 }
 
+/**
+ * Create a random ambient pellet within the world radius.
+ * @returns New pellet instance.
+ */
 function randomPellet(): Pellet {
   const a = Math.random() * TAU;
   const r = Math.sqrt(Math.random()) * CFG.worldRadius;

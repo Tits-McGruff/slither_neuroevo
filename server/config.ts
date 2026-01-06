@@ -2,8 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 
+/** Allowed log levels for server output. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+/** Server runtime configuration values derived from defaults, config, env, and CLI. */
 export interface ServerConfig {
   host: string;
   port: number;
@@ -18,6 +20,7 @@ export interface ServerConfig {
   seed?: number;
 }
 
+/** Default server configuration used before overrides are applied. */
 export const DEFAULT_CONFIG: ServerConfig = {
   host: '127.0.0.1',
   port: 5174,
@@ -31,16 +34,32 @@ export const DEFAULT_CONFIG: ServerConfig = {
   logLevel: 'info'
 };
 
+/** Shape of a process environment map. */
 type Env = Record<string, string | undefined>;
+/** Partial raw config input before validation and coercion. */
 type RawConfigInput = Partial<Record<keyof ServerConfig, unknown>>;
 
+/** Supported log levels for validation. */
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
+/** Default TOML config file path relative to the repo root. */
 const DEFAULT_CONFIG_PATH = 'server/config.toml';
 
+/**
+ * Clamp a numeric value to a fixed integer range.
+ * @param value - Input value to clamp.
+ * @param min - Inclusive minimum.
+ * @param max - Inclusive maximum.
+ * @returns The clamped integer.
+ */
 function clampInt(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+/**
+ * Parse a decimal integer from a string, returning undefined for invalid input.
+ * @param raw - Raw string to parse.
+ * @returns Parsed integer or undefined when invalid.
+ */
 function parseIntValue(raw: string | undefined): number | undefined {
   if (raw == null) return undefined;
   const parsed = Number.parseInt(raw, 10);
@@ -48,6 +67,12 @@ function parseIntValue(raw: string | undefined): number | undefined {
   return parsed;
 }
 
+/**
+ * Resolve a CLI argument value for a flag, supporting `--flag value` and `--flag=value`.
+ * @param argv - Argument vector to scan.
+ * @param flag - Flag name to match (e.g. `--port`).
+ * @returns The resolved value if present.
+ */
 function getArgValue(argv: string[], flag: string): string | undefined {
   const prefix = `${flag}=`;
   for (let i = 0; i < argv.length; i++) {
@@ -63,6 +88,16 @@ function getArgValue(argv: string[], flag: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Coerce an arbitrary value into a bounded integer with warnings.
+ * @param name - Name for warning messages.
+ * @param value - Raw value to coerce.
+ * @param fallback - Fallback value when coercion fails.
+ * @param min - Inclusive minimum value.
+ * @param max - Inclusive maximum value.
+ * @param warn - Optional warning callback.
+ * @returns The validated, clamped integer value.
+ */
 function coerceInt(
   name: string,
   value: unknown,
@@ -93,6 +128,12 @@ function coerceInt(
   return clamped;
 }
 
+/**
+ * Normalize raw config input into a validated server config object.
+ * @param input - Raw config data to normalize.
+ * @param warn - Optional warning callback.
+ * @returns The normalized configuration object.
+ */
 export function normalizeConfig(
   input: RawConfigInput,
   warn?: (msg: string) => void
@@ -111,6 +152,7 @@ export function normalizeConfig(
     240,
     warn
   );
+  // Ensure the UI frame rate does not exceed the server tick rate.
   let uiFrameRateHz = coerceInt(
     'uiFrameRateHz',
     input.uiFrameRateHz,
@@ -197,16 +239,31 @@ export function normalizeConfig(
   return output;
 }
 
+/**
+ * Build the default TOML contents for the config file.
+ * @returns TOML-formatted string with defaults and comments.
+ */
 function defaultConfigToml(): string {
   const base = stringifyToml(DEFAULT_CONFIG).trim();
   const seedHint = '# seed = 12345 # optional: fixed world seed\n';
   return `# Slither Neuroevo server configuration (TOML)\n${seedHint}${base}\n`;
 }
 
+/**
+ * Resolve the config path from argv/env, falling back to the default file location.
+ * @param argv - CLI arguments to inspect.
+ * @param env - Environment variables.
+ * @returns Config path to use.
+ */
 function resolveConfigPath(argv: string[], env: Env): string {
   return getArgValue(argv, '--config') ?? env['SERVER_CONFIG'] ?? DEFAULT_CONFIG_PATH;
 }
 
+/**
+ * Ensure the config file exists by creating a default if missing.
+ * @param filePath - Path to the TOML file.
+ * @param warn - Optional warning callback.
+ */
 function ensureConfigFile(filePath: string, warn?: (msg: string) => void): void {
   if (fs.existsSync(filePath)) return;
   const dir = path.dirname(filePath);
@@ -215,6 +272,12 @@ function ensureConfigFile(filePath: string, warn?: (msg: string) => void): void 
   warn?.(`config file missing; created default at ${filePath}.`);
 }
 
+/**
+ * Parse a TOML object into raw config input.
+ * @param raw - Parsed TOML data.
+ * @param warn - Optional warning callback.
+ * @returns Partial raw config input.
+ */
 function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigInput {
   if (!raw || typeof raw !== 'object') {
     warn?.('config file must be a TOML table; ignoring.');
@@ -236,6 +299,12 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
   };
 }
 
+/**
+ * Load the config file, creating it when missing.
+ * @param filePath - Path to the TOML file.
+ * @param warn - Optional warning callback.
+ * @returns Partial raw config input from file.
+ */
 function loadConfigFile(filePath: string, warn?: (msg: string) => void): RawConfigInput {
   ensureConfigFile(filePath, warn);
   if (!fs.existsSync(filePath)) return {};
@@ -250,6 +319,12 @@ function loadConfigFile(filePath: string, warn?: (msg: string) => void): RawConf
   }
 }
 
+/**
+ * Parse config overrides from config file, env vars, and CLI args.
+ * @param argv - CLI arguments array.
+ * @param env - Environment variables map.
+ * @returns Normalized server config ready for runtime use.
+ */
 export function parseConfig(argv: string[], env: Env): ServerConfig {
   const warn = (msg: string) => console.warn(`[config] ${msg}`);
   const configPath = resolveConfigPath(argv, env);

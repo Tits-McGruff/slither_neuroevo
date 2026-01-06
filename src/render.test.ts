@@ -4,8 +4,13 @@ import { WorldSerializer } from './serializer.ts';
 import { World } from './world.ts';
 import { CFG, resetCFGToDefaults } from './config.ts';
 
+/** Recorded canvas call for asserting drawing behavior. */
 type CallRecord = [string, ...unknown[]];
 
+/**
+ * Creates a fake canvas context that logs drawing calls.
+ * @returns Canvas context shim with call recording.
+ */
 function makeCtx() {
   const calls: CallRecord[] = [];
   return {
@@ -43,14 +48,18 @@ function makeCtx() {
   };
 }
 
+/** OffscreenCanvas stub to satisfy grid caching in render tests. */
 class StubOffscreenCanvas {
+  /** Canvas width in pixels. */
   width: number;
+  /** Canvas height in pixels. */
   height: number;
 
   constructor(width: number, height: number) {
     this.width = width;
     this.height = height;
   }
+  /** Return a minimal 2D context stub. */
   getContext(): CanvasRenderingContext2D {
     return {
       beginPath() {},
@@ -65,7 +74,7 @@ class StubOffscreenCanvas {
 
 describe('render.ts', () => {
   beforeAll(() => {
-    const globalShim = globalThis as { OffscreenCanvas?: typeof StubOffscreenCanvas };
+    const globalShim = globalThis as unknown as { OffscreenCanvas?: typeof StubOffscreenCanvas };
     globalShim.OffscreenCanvas = StubOffscreenCanvas;
   });
 

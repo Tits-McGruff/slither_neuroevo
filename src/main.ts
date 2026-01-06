@@ -1,9 +1,4 @@
-// main.ts
-// Entry point for the slither simulation.  Sets up the canvas, UI,
-// Entry point for the slither simulation. Sets up the canvas, UI,
-// constructs the World and runs the animation loop. All global
-// functions and classes defined in other modules must be loaded before
-// this script executes.
+/** Entry point for the simulation UI, canvas, and client networking. */
 
 import { CFG, resetCFGToDefaults } from './config.ts';
 import { setupSettingsUI, updateCFGFromUI } from './settings.ts';
@@ -20,6 +15,7 @@ import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brain
 import type { FrameStats, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
 import type { SettingsUpdate } from './protocol/settings.ts';
 
+/** Minimal world interface exposed to UI panels and HoF actions. */
 interface ProxyWorld {
   generation: number;
   population: unknown[];
@@ -33,6 +29,7 @@ interface ProxyWorld {
   resurrect: (genome: unknown) => void;
 }
 
+/** UI-friendly fitness history entry used by charts. */
 interface FitnessHistoryUiEntry {
   gen: number;
   avgFitness: number;
@@ -44,6 +41,7 @@ interface FitnessHistoryUiEntry {
   weightVariance?: number;
 }
 
+/** God mode log entry shown in the UI panel. */
 interface GodModeLogEntry {
   time: number;
   action: string;
@@ -51,6 +49,7 @@ interface GodModeLogEntry {
   result: string;
 }
 
+/** Selected snake snapshot used by God Mode interactions. */
 interface SelectedSnake {
   id: number;
   x: number;
@@ -59,9 +58,11 @@ interface SelectedSnake {
   skin: number;
 }
 
+/** Connection mode used by the main UI. */
 type ConnectionMode = 'connecting' | 'server' | 'worker';
 
 declare global {
+  /** Global window extensions used by the UI. */
   interface Window {
     ctx: CanvasRenderingContext2D;
     currentWorld: ProxyWorld;
@@ -69,43 +70,75 @@ declare global {
   }
 }
 
-// Canvas and HUD
+/** Active worker instance when running locally. */
 let worker: Worker | null = null;
+/** WebSocket client when connected to the server. */
 let wsClient: ReturnType<typeof createWsClient> | null = null;
+/** Current connection mode state. */
 let connectionMode: ConnectionMode = 'connecting';
+/** Current server URL used for connection attempts. */
 let serverUrl = '';
+/** Backoff delay for reconnection attempts in ms. */
 let reconnectDelayMs = 1000;
+/** Timer id for reconnect scheduling. */
 let reconnectTimer: number | null = null;
+/** Timer id for worker fallback scheduling. */
 let fallbackTimer: number | null = null;
+/** Whether settings controls are locked. */
 let settingsLocked = true;
+/** Whether join overlay is awaiting user action. */
 let joinPending = false;
+/** Current player snake id when controlling. */
 let playerSnakeId: number | null = null;
+/** Tick id of the most recent player sensor packet. */
 let playerSensorTick = 0;
+/** Latest player sensor metadata for UI overlays. */
 let playerSensorMeta: { x: number; y: number; dir: number } | null = null;
+/** Current pointer position in world coordinates. */
 let pointerWorld: { x: number; y: number } | null = null;
+/** Whether boost is held down by input. */
 let boostHeld = false;
+/** Local storage key for graph spec persistence. */
 const GRAPH_SPEC_STORAGE_KEY = 'slither_neuroevo_graph_spec';
+/** Applied custom graph spec used for resets. */
 let customGraphSpec: GraphSpec | null = null;
+/** Current graph editor draft spec. */
 let graphDraft: GraphSpec | null = null;
+/** Diagram node width in pixels. */
 const DIAGRAM_NODE_WIDTH = 140;
+/** Diagram node height in pixels. */
 const DIAGRAM_NODE_HEIGHT = 44;
+/** Per-node layout overrides for the graph diagram. */
 const graphLayoutOverrides = new Map<string, { x: number; y: number }>();
+/** Whether connect mode is active in the graph editor. */
 let graphConnectMode = false;
+/** Source node id for connect mode. */
 let graphConnectFromId: string | null = null;
+/** Selected node id in the graph editor. */
 let graphSelectedNodeId: string | null = null;
+/** Selected edge index in the graph editor. */
 let graphSelectedEdgeIndex: number | null = null;
+/** Selected output index in the graph editor. */
 let graphSelectedOutputIndex: number | null = null;
+/** Drag state for graph node positioning. */
 let graphDragState: { id: string; offsetX: number; offsetY: number } | null = null;
+/** Pointer position within the graph diagram. */
 let graphPointerPos: { x: number; y: number } | null = null;
+/** Main canvas element. */
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 // HUD removed, using tab info panels instead
 // Expose the rendering context globally so render helpers can draw.
+/** 2D rendering context for the main canvas. */
 const ctx = canvas.getContext('2d')!;
 window.ctx = ctx;
+/** Cached CSS width, height, and device pixel ratio. */
 let cssW = 0,
   cssH = 0,
   dpr = 1;
 
+/**
+ * Resize the canvas and notify the worker of the new viewport size.
+ */
 function resize(): void {
   dpr = window.devicePixelRatio || 1;
   cssW = Math.floor(window.innerWidth);
@@ -122,75 +155,139 @@ function resize(): void {
 window.addEventListener('resize', resize);
 resize();
 
-// Core UI elements
+/** Slider input for snake count. */
 const elSnakes = document.getElementById('snakes') as HTMLInputElement;
+/** Slider input for simulation speed. */
 const elSimSpeed = document.getElementById('simSpeed') as HTMLInputElement;
+/** Slider input for hidden layer count. */
 const elLayers = document.getElementById('layers') as HTMLInputElement;
+/** Slider input for neurons in layer 1. */
 const elN1 = document.getElementById('n1') as HTMLInputElement;
+/** Slider input for neurons in layer 2. */
 const elN2 = document.getElementById('n2') as HTMLInputElement;
+/** Slider input for neurons in layer 3. */
 const elN3 = document.getElementById('n3') as HTMLInputElement;
+/** Slider input for neurons in layer 4. */
 const elN4 = document.getElementById('n4') as HTMLInputElement;
+/** Slider input for neurons in layer 5. */
 const elN5 = document.getElementById('n5') as HTMLInputElement;
+/** Graph node list container. */
 const graphNodes = document.getElementById('graphNodes') as HTMLElement | null;
+/** Graph edge list container. */
 const graphEdges = document.getElementById('graphEdges') as HTMLElement | null;
+/** Graph output list container. */
 const graphOutputs = document.getElementById('graphOutputs') as HTMLElement | null;
+/** Button to add a graph node. */
 const graphNodeAdd = document.getElementById('graphNodeAdd') as HTMLButtonElement | null;
+/** Button to add a graph edge. */
 const graphEdgeAdd = document.getElementById('graphEdgeAdd') as HTMLButtonElement | null;
+/** Button to add a graph output. */
 const graphOutputAdd = document.getElementById('graphOutputAdd') as HTMLButtonElement | null;
+/** Button to apply the current graph spec. */
 const graphApply = document.getElementById('graphApply') as HTMLButtonElement | null;
+/** Button to reset the graph editor to defaults. */
 const graphReset = document.getElementById('graphReset') as HTMLButtonElement | null;
+/** Container listing saved graph presets. */
 const graphPresetList = document.getElementById('graphPresetList') as HTMLElement | null;
+/** Buttons that apply built-in graph templates. */
 const graphTemplateButtons = document.querySelectorAll<HTMLButtonElement>('[data-template]');
+/** Input for naming a graph preset. */
 const graphPresetName = document.getElementById('graphPresetName') as HTMLInputElement | null;
+/** Button to save a graph preset. */
 const graphPresetSave = document.getElementById('graphPresetSave') as HTMLButtonElement | null;
+/** Textarea for JSON graph spec editing. */
 const graphSpecInput = document.getElementById('graphSpecInput') as HTMLTextAreaElement | null;
+/** Button to apply JSON graph spec input. */
 const graphSpecApply = document.getElementById('graphSpecApply') as HTMLButtonElement | null;
+/** Button to copy the current graph spec to clipboard. */
 const graphSpecCopy = document.getElementById('graphSpecCopy') as HTMLButtonElement | null;
+/** Button to export the graph spec as JSON. */
 const graphSpecExport = document.getElementById('graphSpecExport') as HTMLButtonElement | null;
+/** Status element for graph spec operations. */
 const graphSpecStatus = document.getElementById('graphSpecStatus') as HTMLElement | null;
+/** Wrapper for the SVG graph diagram. */
 const graphDiagramWrap = document.getElementById('graphDiagramWrap') as HTMLElement | null;
+/** SVG element for the graph diagram. */
 const graphDiagram = document.getElementById('graphDiagram') as SVGSVGElement | null;
+/** Button to toggle full-screen diagram mode. */
 const graphDiagramToggle = document.getElementById('graphDiagramToggle') as HTMLButtonElement | null;
+/** Backdrop element for full-screen diagram mode. */
 const graphDiagramBackdrop = document.getElementById('graphDiagramBackdrop') as HTMLDivElement | null;
+/** Button to add a node from the diagram toolbar. */
 const graphDiagramAddNode = document.getElementById('graphDiagramAddNode') as HTMLButtonElement | null;
+/** Button to toggle connect mode in the diagram toolbar. */
 const graphDiagramConnect = document.getElementById('graphDiagramConnect') as HTMLButtonElement | null;
+/** Button to add an output from the diagram toolbar. */
 const graphDiagramAddOutput = document.getElementById('graphDiagramAddOutput') as HTMLButtonElement | null;
+/** Button to auto-layout the diagram. */
 const graphDiagramAuto = document.getElementById('graphDiagramAuto') as HTMLButtonElement | null;
+/** Button to delete the selected node or edge. */
 const graphDiagramDelete = document.getElementById('graphDiagramDelete') as HTMLButtonElement | null;
+/** Inspector panel for graph diagram selection. */
 const graphDiagramInspector = document.getElementById('graphDiagramInspector') as HTMLDivElement | null;
+/** Label showing the current snake count slider value. */
 const snakesVal = document.getElementById('snakesVal') as HTMLElement;
+/** Label showing the current sim speed slider value. */
 const simSpeedVal = document.getElementById('simSpeedVal') as HTMLElement;
+/** Label showing the current layer count slider value. */
 const layersVal = document.getElementById('layersVal') as HTMLElement;
+/** Label showing the current layer 1 size slider value. */
 const n1Val = document.getElementById('n1Val') as HTMLElement;
+/** Label showing the current layer 2 size slider value. */
 const n2Val = document.getElementById('n2Val') as HTMLElement;
+/** Label showing the current layer 3 size slider value. */
 const n3Val = document.getElementById('n3Val') as HTMLElement;
+/** Label showing the current layer 4 size slider value. */
 const n4Val = document.getElementById('n4Val') as HTMLElement;
+/** Label showing the current layer 5 size slider value. */
 const n5Val = document.getElementById('n5Val') as HTMLElement;
+/** Button to apply core slider settings. */
 const btnApply = document.getElementById('apply') as HTMLButtonElement;
+/** Button to restore default settings. */
 const btnDefaults = document.getElementById('defaults') as HTMLButtonElement;
+/** Button to toggle the settings panel. */
 const btnToggle = document.getElementById('toggle') as HTMLButtonElement;
+/** Settings tab container element. */
 const settingsContainer = document.getElementById('settingsContainer') as HTMLElement;
+/** Connection status badge element. */
 const connectionStatus = document.getElementById('connectionStatus') as HTMLElement | null;
+/** Join overlay element shown before player entry. */
 const joinOverlay = document.getElementById('joinOverlay') as HTMLElement | null;
+/** Join overlay name input. */
 const joinName = document.getElementById('joinName') as HTMLInputElement | null;
+/** Join overlay play button. */
 const joinPlay = document.getElementById('joinPlay') as HTMLButtonElement | null;
+/** Join overlay spectate button. */
 const joinSpectate = document.getElementById('joinSpectate') as HTMLButtonElement | null;
+/** Join overlay status text element. */
 const joinStatus = document.getElementById('joinStatus') as HTMLElement | null;
+/** Button to lock or unlock settings. */
 const toggleSettingsLock = document.getElementById('toggleSettingsLock') as HTMLButtonElement | null;
+/** Wrapper for slider controls that are lockable. */
 const settingsControls = document.getElementById('settingsControls') as HTMLElement | null;
+/** Settings tab content element. */
 const settingsTab = document.getElementById('tab-settings') as HTMLElement | null;
+/** Hint text for settings lock state. */
 const settingsLockHint = document.getElementById('settingsLockHint') as HTMLElement | null;
 
-// Tabs and visualizers
+/** Tab button elements for the control panel. */
 const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn');
+/** Tab content elements corresponding to buttons. */
 const tabContents = document.querySelectorAll<HTMLElement>('.tab-content');
+/** Canvas element for brain visualizer rendering. */
 const vizCanvas = document.getElementById('vizCanvas') as HTMLCanvasElement;
+/** Canvas element for stats chart rendering. */
 const statsCanvas = document.getElementById('statsCanvas') as HTMLCanvasElement;
+/** 2D context for the visualizer canvas. */
 const ctxViz = vizCanvas.getContext('2d')!;
+/** 2D context for the stats canvas. */
 const ctxStats = statsCanvas.getContext('2d')!;
 
+/** Brain visualizer instance for the Viz tab. */
 const brainViz = new BrainViz(0, 0, vizCanvas.width, vizCanvas.height);
+/** Currently active tab id. */
 let activeTab = 'tab-settings';
+/** Currently selected stats view key. */
 let statsView = 'fitness';
 tabBtns.forEach(btn => {
   btn.addEventListener('click', () => {
@@ -211,9 +308,13 @@ tabBtns.forEach(btn => {
   });
 });
 
+/** Buttons for switching between stats views. */
 const statsViewBtns = document.querySelectorAll<HTMLButtonElement>('.stats-view-btn');
+/** Title element for the stats panel. */
 const statsTitle = document.getElementById('statsTitle') as HTMLElement | null;
+/** Subtitle element for the stats panel. */
 const statsSubtitle = document.getElementById('statsSubtitle') as HTMLElement | null;
+/** Mapping of stats view keys to titles/subtitles. */
 const statsViewMeta: Record<string, { title: string; subtitle: string }> = {
   fitness: {
     title: 'Fitness History',
@@ -229,6 +330,10 @@ const statsViewMeta: Record<string, { title: string; subtitle: string }> = {
   }
 };
 
+/**
+ * Switch the stats view and update UI labels.
+ * @param view - Stats view key to activate.
+ */
 function setStatsView(view: string): void {
   statsView = view;
   statsViewBtns.forEach(btn => {
@@ -303,6 +408,11 @@ function readSettingsFromCoreUI(): {
   };
 }
 
+/**
+ * Collect slider updates under a root element.
+ * @param root - Root element containing settings inputs.
+ * @returns List of settings updates.
+ */
 function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
   const sliders = root.querySelectorAll<HTMLInputElement>('input[data-path]');
   const updates: SettingsUpdate[] = [];
@@ -378,6 +488,10 @@ graphTemplateButtons.forEach(btn => {
   });
 });
 
+/**
+ * Toggle full screen mode for the graph diagram.
+ * @param isFullscreen - Whether fullscreen is enabled.
+ */
 function setGraphDiagramFullscreen(isFullscreen: boolean): void {
   if (!graphDiagramWrap) return;
   graphDiagramWrap.classList.toggle('fullscreen', isFullscreen);
@@ -653,19 +767,31 @@ if (graphSpecExport) {
   });
 }
 
+/** Latest received frame buffer for rendering. */
 let currentFrameBuffer: Float32Array | null = null;
+/** Latest stats payload for UI panels. */
 let currentStats: FrameStats = { gen: 1, alive: 0, fps: 60 };
-let fitnessHistory: FitnessHistoryUiEntry[] = []; // Track fitness over generations for charts
-let godModeLog: GodModeLogEntry[] = []; // Track God Mode interactions
-let selectedSnake: SelectedSnake | null = null; // Currently selected snake for God Mode
+/** Fitness history displayed in charts. */
+let fitnessHistory: FitnessHistoryUiEntry[] = [];
+/** God mode log entries for the UI panel. */
+let godModeLog: GodModeLogEntry[] = [];
+/** Currently selected snake for God mode actions. */
+let selectedSnake: SelectedSnake | null = null;
+/** Whether a pointer drag is in progress. */
 let isDragging = false;
+/** Client-side camera X for overlays and input. */
 let clientCamX = 0;
+/** Client-side camera Y for overlays and input. */
 let clientCamY = 0;
+/** Client-side camera zoom for overlays and input. */
 let clientZoom = 1;
 
+/** Current visualization payload for the brain viz tab. */
 let currentVizData: VizData | null = null;
+/** Whether an export request is pending. */
 let pendingExport = false;
 
+/** Proxy world exposed to UI helpers and HoF spawn. */
 const proxyWorld: ProxyWorld = {
   generation: 1,
   population: [],
@@ -693,6 +819,10 @@ const proxyWorld: ProxyWorld = {
 };
 window.currentWorld = proxyWorld; // For HoF
 
+/**
+ * Update the connection status UI indicator.
+ * @param mode - Connection mode to display.
+ */
 function setConnectionStatus(mode: ConnectionMode): void {
   connectionMode = mode;
   if (!connectionStatus) return;
@@ -703,16 +833,27 @@ function setConnectionStatus(mode: ConnectionMode): void {
   else connectionStatus.textContent = 'Connecting';
 }
 
+/**
+ * Show or hide the join overlay UI.
+ * @param visible - Whether the overlay should be visible.
+ */
 function setJoinOverlayVisible(visible: boolean): void {
   if (!joinOverlay) return;
   joinOverlay.classList.toggle('hidden', !visible);
 }
 
+/**
+ * Update the join overlay status text.
+ * @param text - Status message to display.
+ */
 function setJoinStatus(text: string): void {
   if (!joinStatus) return;
   joinStatus.textContent = text;
 }
 
+/**
+ * Enable or disable join controls based on connection state.
+ */
 function updateJoinControls(): void {
   if (!joinPlay || !joinName) return;
   const connected = wsClient?.isConnected() ?? false;
@@ -721,9 +862,15 @@ function updateJoinControls(): void {
   if (joinSpectate) joinSpectate.disabled = !connected || joinPending;
 }
 
+/** Saved graph preset summary from the server. */
 type SavedGraphPreset = { id: number; name: string; createdAt: number };
+/** Loaded graph preset including the graph spec. */
 type LoadedGraphPreset = SavedGraphPreset & { spec: GraphSpec };
 
+/**
+ * Resolve the HTTP base URL for graph preset APIs from the WS URL.
+ * @returns HTTP base URL or null when invalid.
+ */
 function resolveServerHttpUrl(): string | null {
   const wsUrl = serverUrl || resolveServerUrl();
   if (!wsUrl) return null;
@@ -737,14 +884,27 @@ function resolveServerHttpUrl(): string | null {
   }
 }
 
+/**
+ * Return the active graph spec (custom, draft, or default).
+ * @returns Active graph spec.
+ */
 function getActiveGraphSpec(): GraphSpec {
   return customGraphSpec ?? graphDraft ?? buildLinearMlpTemplate();
 }
 
+/**
+ * Return the current draft graph spec, falling back to active/default.
+ * @returns Draft graph spec.
+ */
 function getDraftGraphSpec(): GraphSpec {
   return graphDraft ?? customGraphSpec ?? buildLinearMlpTemplate();
 }
 
+/**
+ * Clone a graph spec to avoid mutating the original.
+ * @param spec - Graph spec to clone.
+ * @returns Cloned graph spec.
+ */
 function cloneGraphSpec(spec: GraphSpec): GraphSpec {
   return {
     type: 'graph',
@@ -763,6 +923,10 @@ function cloneGraphSpec(spec: GraphSpec): GraphSpec {
   };
 }
 
+/**
+ * Ensure a graph draft exists and return it.
+ * @returns Draft graph spec.
+ */
 function ensureGraphDraft(): GraphSpec {
   if (!graphDraft) {
     graphDraft = cloneGraphSpec(getActiveGraphSpec());
@@ -770,6 +934,11 @@ function ensureGraphDraft(): GraphSpec {
   return graphDraft;
 }
 
+/**
+ * Update the graph spec status message in the UI.
+ * @param text - Status message to display.
+ * @param isError - Whether the message indicates an error.
+ */
 function setGraphSpecStatus(text: string, isError = false): void {
   if (!graphSpecStatus) return;
   graphSpecStatus.textContent = text;
@@ -779,12 +948,23 @@ function setGraphSpecStatus(text: string, isError = false): void {
   }
 }
 
+/**
+ * Set the current graph draft and refresh the editor.
+ * @param spec - Graph spec to set as draft.
+ * @param note - Optional status note to display.
+ */
 function setGraphDraft(spec: GraphSpec, note = ''): void {
   graphDraft = cloneGraphSpec(spec);
   renderGraphEditor();
   if (note) setGraphSpecStatus(note);
 }
 
+/**
+ * Validate and apply a graph spec to CFG and local state.
+ * @param spec - Graph spec to apply.
+ * @param note - Status message to display on success.
+ * @returns True when applied successfully.
+ */
 function applyGraphSpec(spec: GraphSpec, note = 'Graph applied.'): boolean {
   const next = cloneGraphSpec(spec);
   next.outputSize = CFG.brain.outSize;
@@ -817,6 +997,9 @@ function applyGraphSpec(spec: GraphSpec, note = 'Graph applied.'): boolean {
   return true;
 }
 
+/**
+ * Reset the graph draft to the applied or default graph.
+ */
 function resetGraphDraft(): void {
   if (customGraphSpec) {
     setGraphDraft(customGraphSpec, 'Editor reset to applied graph.');
@@ -825,6 +1008,10 @@ function resetGraphDraft(): void {
   setGraphDraft(buildLinearMlpTemplate(), 'Editor reset to default graph.');
 }
 
+/**
+ * Render the saved graph preset list in the UI.
+ * @param presets - Presets to display.
+ */
 function renderSavedPresetList(presets: SavedGraphPreset[]): void {
   if (!graphPresetList) return;
   graphPresetList.innerHTML = '';
@@ -853,6 +1040,10 @@ function renderSavedPresetList(presets: SavedGraphPreset[]): void {
   });
 }
 
+/**
+ * Load a saved graph preset by id from the server.
+ * @param presetId - Preset id to load.
+ */
 async function loadPresetById(presetId: number): Promise<void> {
   const baseUrl = resolveServerHttpUrl();
   if (!baseUrl || typeof fetch === 'undefined') {
@@ -878,6 +1069,9 @@ async function loadPresetById(presetId: number): Promise<void> {
   }
 }
 
+/**
+ * Refresh the saved presets list from the server.
+ */
 async function refreshSavedPresets(): Promise<void> {
   if (!graphPresetList) return;
   const baseUrl = resolveServerHttpUrl();
@@ -905,6 +1099,9 @@ async function refreshSavedPresets(): Promise<void> {
   }
 }
 
+/**
+ * Load the stored graph spec from localStorage or fall back to defaults.
+ */
 function loadStoredGraphSpec(): void {
   try {
     const raw = localStorage.getItem(GRAPH_SPEC_STORAGE_KEY);
@@ -928,6 +1125,11 @@ function loadStoredGraphSpec(): void {
   }
 }
 
+/**
+ * Build hidden layer sizes from the current core UI settings.
+ * @param settings - Core UI settings snapshot.
+ * @returns Array of hidden layer sizes.
+ */
 function buildHiddenSizesForExample(settings: ReturnType<typeof readSettingsFromCoreUI>): number[] {
   const layers = settings.hiddenLayers;
   const hidden: number[] = [];
@@ -940,6 +1142,10 @@ function buildHiddenSizesForExample(settings: ReturnType<typeof readSettingsFrom
   return hidden;
 }
 
+/**
+ * Build a linear MLP-only graph template.
+ * @returns Graph spec for a linear MLP.
+ */
 function buildLinearMlpTemplate(): GraphSpec {
   const hiddenSizes = buildHiddenSizesForExample(readSettingsFromCoreUI());
   const inputSize = CFG.brain.inSize;
@@ -956,6 +1162,10 @@ function buildLinearMlpTemplate(): GraphSpec {
   };
 }
 
+/**
+ * Build a template with MLP to GRU to MLP stages.
+ * @returns Graph spec for MLP-GRU-MLP.
+ */
 function buildMlpGruMlpTemplate(): GraphSpec {
   const hiddenSizes = buildHiddenSizesForExample(readSettingsFromCoreUI());
   const inputSize = CFG.brain.inSize;
@@ -981,6 +1191,10 @@ function buildMlpGruMlpTemplate(): GraphSpec {
   };
 }
 
+/**
+ * Build a template with skip connection and concat.
+ * @returns Graph spec for a skip-style template.
+ */
 function buildSkipTemplate(): GraphSpec {
   const hiddenSizes = buildHiddenSizesForExample(readSettingsFromCoreUI());
   const inputSize = CFG.brain.inSize;
@@ -1005,6 +1219,10 @@ function buildSkipTemplate(): GraphSpec {
   };
 }
 
+/**
+ * Build a template with a split output head.
+ * @returns Graph spec for a split output template.
+ */
 function buildSplitTemplate(): GraphSpec {
   const inputSize = CFG.brain.inSize;
   const outputSize = CFG.brain.outSize;
@@ -1030,6 +1248,12 @@ function buildSplitTemplate(): GraphSpec {
   };
 }
 
+/**
+ * Build a default node spec for a given node type.
+ * @param type - Node type to create.
+ * @param id - Node id to assign.
+ * @returns Node specification.
+ */
 function buildDefaultNode(type: GraphNodeType, id: string): GraphNodeSpec {
   const inputSize = CFG.brain.inSize;
   const outputSize = CFG.brain.outSize;
@@ -1057,6 +1281,12 @@ function buildDefaultNode(type: GraphNodeType, id: string): GraphNodeSpec {
   }
 }
 
+/**
+ * Build a unique node id within a graph spec.
+ * @param spec - Graph spec to scan.
+ * @param prefix - Prefix to use for the id.
+ * @returns Unique node id.
+ */
 function buildUniqueNodeId(spec: GraphSpec, prefix: string): string {
   let idx = 1;
   let next = `${prefix}-${idx}`;
@@ -1069,6 +1299,7 @@ function buildUniqueNodeId(spec: GraphSpec, prefix: string): string {
   return next;
 }
 
+/** Diagram node derived from graph spec for SVG rendering. */
 type DiagramNode = {
   id: string;
   label: string;
@@ -1077,6 +1308,7 @@ type DiagramNode = {
   outputIndex?: number;
 };
 
+/** Diagram edge derived from graph spec for SVG rendering. */
 type DiagramEdge = {
   from: string;
   to: string;
@@ -1086,10 +1318,21 @@ type DiagramEdge = {
   outputIndex?: number;
 };
 
+/**
+ * Clamp a number to a range.
+ * @param value - Input value.
+ * @param min - Minimum value.
+ * @param max - Maximum value.
+ * @returns Clamped value.
+ */
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+/**
+ * Update the current graph selection state.
+ * @param next - Next selection state values.
+ */
 function setGraphSelection(next: { nodeId?: string | null; edgeIndex?: number | null; outputIndex?: number | null }): void {
   graphSelectedNodeId = next.nodeId ?? null;
   graphSelectedEdgeIndex = next.edgeIndex ?? null;
@@ -1109,6 +1352,10 @@ function setGraphSelection(next: { nodeId?: string | null; edgeIndex?: number | 
   renderGraphEditor();
 }
 
+/**
+ * Sync selection state against the current graph spec.
+ * @param spec - Graph spec to validate selection against.
+ */
 function syncGraphSelection(spec: GraphSpec): void {
   if (graphSelectedNodeId && !spec.nodes.some(node => node.id === graphSelectedNodeId)) {
     graphSelectedNodeId = null;
@@ -1124,6 +1371,11 @@ function syncGraphSelection(spec: GraphSpec): void {
   }
 }
 
+/**
+ * Map a pointer event to SVG coordinate space.
+ * @param evt - Pointer or mouse event.
+ * @returns SVG coordinates or null when unavailable.
+ */
 function getSvgPoint(evt: PointerEvent | MouseEvent): { x: number; y: number } | null {
   if (!graphDiagram) return null;
   const rect = graphDiagram.getBoundingClientRect();
@@ -1134,6 +1386,10 @@ function getSvgPoint(evt: PointerEvent | MouseEvent): { x: number; y: number } |
   return { x, y };
 }
 
+/**
+ * Enable or disable graph connect mode.
+ * @param next - Whether connect mode is enabled.
+ */
 function setGraphConnectMode(next: boolean): void {
   graphConnectMode = next;
   graphConnectFromId = null;
@@ -1144,6 +1400,10 @@ function setGraphConnectMode(next: boolean): void {
   setGraphSpecStatus(next ? 'Connect mode: click a start node.' : 'Connect mode off.');
 }
 
+/**
+ * Handle node selection while in connect mode.
+ * @param targetId - Target node id selected by the user.
+ */
 function handleDiagramConnect(targetId: string): void {
   const spec = ensureGraphDraft();
   if (!graphConnectFromId) {
@@ -1165,6 +1425,13 @@ function handleDiagramConnect(targetId: string): void {
   }
 }
 
+/**
+ * Add an edge to the graph spec, honoring split/concat ports.
+ * @param fromId - Source node id.
+ * @param toId - Target node id.
+ * @param spec - Graph spec to mutate.
+ * @returns Edge index or null when not created.
+ */
 function addGraphEdge(fromId: string, toId: string, spec: GraphSpec): number | null {
   const fromNode = spec.nodes.find(node => node.id === fromId);
   const toNode = spec.nodes.find(node => node.id === toId);
@@ -1211,6 +1478,10 @@ function addGraphEdge(fromId: string, toId: string, spec: GraphSpec): number | n
   return spec.edges.length - 1;
 }
 
+/**
+ * Render the graph diagram SVG from the spec.
+ * @param spec - Graph spec to render.
+ */
 function renderGraphDiagram(spec: GraphSpec): void {
   if (!graphDiagram) return;
   graphDiagram.innerHTML = '';
@@ -1459,6 +1730,10 @@ function renderGraphDiagram(spec: GraphSpec): void {
   graphDiagram.appendChild(nodesGroup);
 }
 
+/**
+ * Render the graph inspector panel for the current selection.
+ * @param spec - Graph spec to inspect and edit.
+ */
 function renderGraphInspector(spec: GraphSpec): void {
   if (!graphDiagramInspector) return;
   graphDiagramInspector.innerHTML = '';
@@ -1788,6 +2063,9 @@ function renderGraphInspector(spec: GraphSpec): void {
   graphDiagramInspector.classList.add('hidden');
 }
 
+/**
+ * Render the graph editor form controls for nodes, edges, and outputs.
+ */
 function renderGraphEditor(): void {
   if (!graphNodes || !graphEdges || !graphOutputs) return;
   const spec = ensureGraphDraft();
@@ -2091,6 +2369,9 @@ function renderGraphEditor(): void {
   renderGraphInspector(spec);
 }
 
+/**
+ * Apply the settings lock state to UI controls.
+ */
 function applySettingsLock(): void {
   if (!settingsTab || !settingsControls || !toggleSettingsLock) return;
   settingsTab.classList.toggle('settings-locked', settingsLocked);
@@ -2107,10 +2388,20 @@ function applySettingsLock(): void {
   if (!settingsLocked) refreshCoreUIState();
 }
 
+/**
+ * Check whether player control is currently active.
+ * @returns True when connected and controlling a snake.
+ */
 function isPlayerControlActive(): boolean {
   return connectionMode === 'server' && !!playerSnakeId;
 }
 
+/**
+ * Compute a normalized turn input toward a target position.
+ * @param meta - Current snake position and direction.
+ * @param target - Target world position.
+ * @returns Turn input in [-1,1].
+ */
 function computeTurnInput(
   meta: { x: number; y: number; dir: number },
   target: { x: number; y: number }
@@ -2124,6 +2415,9 @@ function computeTurnInput(
   return Math.max(-1, Math.min(1, scaled));
 }
 
+/**
+ * Send a player action message to the server.
+ */
 function sendPlayerAction(): void {
   if (!wsClient || !wsClient.isConnected()) return;
   if (!isPlayerControlActive()) return;
@@ -2135,6 +2429,10 @@ function sendPlayerAction(): void {
   wsClient.sendAction(tick, playerSnakeId!, turn, boost);
 }
 
+/**
+ * Store a new frame buffer and update generation stats.
+ * @param buffer - Raw frame buffer from worker/server.
+ */
 function applyFrameBuffer(buffer: ArrayBuffer): void {
   currentFrameBuffer = new Float32Array(buffer);
   const gen = currentFrameBuffer[0] ?? Number.NaN;
@@ -2145,8 +2443,15 @@ function applyFrameBuffer(buffer: ArrayBuffer): void {
   }
 }
 
+/** Minimal snapshot of a snake parsed from the frame buffer. */
 type FrameSnakeSnapshot = { id: number; x: number; y: number; ptCount: number };
 
+/**
+ * Find a snake in the frame buffer by id or return the first alive snake.
+ * @param buffer - Frame buffer to scan.
+ * @param targetId - Optional target snake id.
+ * @returns Snapshot of the snake or null when none found.
+ */
 function findSnakeInFrame(buffer: Float32Array, targetId: number | null): FrameSnakeSnapshot | null {
   if (buffer.length < 6) return null;
   const aliveCount = (buffer[2] ?? 0) | 0;
@@ -2166,6 +2471,9 @@ function findSnakeInFrame(buffer: Float32Array, targetId: number | null): FrameS
   return first;
 }
 
+/**
+ * Update client-side camera state when connected to the server.
+ */
 function updateClientCamera(): void {
   if (connectionMode !== 'server') return;
   const frame = currentFrameBuffer;
@@ -2205,6 +2513,10 @@ function updateClientCamera(): void {
   proxyWorld.zoom = clientZoom;
 }
 
+/**
+ * Initialize or reset the worker with current settings.
+ * @param resetCfg - Whether to reset CFG to defaults before applying updates.
+ */
 function initWorker(resetCfg = true): void {
   if (!worker) return;
   const settings = readSettingsFromCoreUI();
@@ -2220,6 +2532,10 @@ function initWorker(resetCfg = true): void {
   });
 }
 
+/**
+ * Handle messages arriving from the worker.
+ * @param msg - Worker message payload.
+ */
 function handleWorkerMessage(msg: WorkerToMainMessage): void {
   switch (msg.type) {
     case 'exportResult': {
@@ -2300,12 +2616,20 @@ function handleWorkerMessage(msg: WorkerToMainMessage): void {
   }
 }
 
+/**
+ * Attach message handlers to the worker instance.
+ * @param target - Worker instance to bind.
+ */
 function bindWorkerHandlers(target: Worker): void {
   target.onmessage = (e: MessageEvent<WorkerToMainMessage>) => {
     handleWorkerMessage(e.data);
   };
 }
 
+/**
+ * Start the worker-based simulation mode.
+ * @param resetCfg - Whether to reset CFG before init.
+ */
 function startWorker(resetCfg = true): void {
   if (worker) return;
   worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
@@ -2320,6 +2644,9 @@ function startWorker(resetCfg = true): void {
   setConnectionStatus('worker');
 }
 
+/**
+ * Stop and dispose the worker simulation.
+ */
 function stopWorker(): void {
   if (!worker) return;
   worker.terminate();
@@ -2328,6 +2655,9 @@ function stopWorker(): void {
   currentVizData = null;
 }
 
+/**
+ * Schedule a fallback to worker mode if server connection fails.
+ */
 function scheduleWorkerFallback(): void {
   if (fallbackTimer !== null) return;
   fallbackTimer = window.setTimeout(() => {
@@ -2337,6 +2667,9 @@ function scheduleWorkerFallback(): void {
   }, 2000);
 }
 
+/**
+ * Schedule a reconnect attempt to the server with backoff.
+ */
 function scheduleReconnect(): void {
   if (reconnectTimer !== null) return;
   reconnectTimer = window.setTimeout(() => {
@@ -2349,6 +2682,10 @@ function scheduleReconnect(): void {
   }, reconnectDelayMs);
 }
 
+/**
+ * Connect to the simulation server and set UI state.
+ * @param url - WebSocket URL to connect to.
+ */
 function connectToServer(url: string): void {
   if (!wsClient) return;
   serverUrl = url;
@@ -2485,9 +2822,8 @@ if (typeof WebSocket === 'undefined') {
 }
 
 /**
- * Live update handler for sliders that do not require a reset. Updates
- * the corresponding CFG value and allows world to respond immediately.
- * @param {HTMLInputElement} sliderEl
+ * Live update handler for sliders that do not require a reset.
+ * @param sliderEl - Slider input element to read.
  */
 function liveUpdateFromSlider(sliderEl: HTMLInputElement): void {
   setByPath(CFG, sliderEl.dataset['path']!, Number(sliderEl.value));
@@ -2548,7 +2884,10 @@ window.addEventListener('keydown', e => {
 // ============== GOD MODE: Canvas Event Handlers ==============
 
 /**
- * Convert screen coordinates to world coordinates
+ * Convert screen coordinates to world coordinates.
+ * @param screenX - Screen x coordinate in pixels.
+ * @param screenY - Screen y coordinate in pixels.
+ * @returns World coordinates.
  */
 function screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
   // Get camera data from buffer if available
@@ -2571,7 +2910,11 @@ function screenToWorld(screenX: number, screenY: number): { x: number; y: number
 }
 
 /**
- * Find snake near world coordinates
+ * Find a snake near the given world coordinates.
+ * @param worldX - World x coordinate.
+ * @param worldY - World y coordinate.
+ * @param maxDist - Maximum search distance in world units.
+ * @returns Selected snake snapshot or null.
  */
 function findSnakeNear(worldX: number, worldY: number, maxDist = 50): SelectedSnake | null {
   if (!currentFrameBuffer || currentFrameBuffer.length < 6) return null;
@@ -2718,6 +3061,7 @@ canvas.addEventListener('mouseleave', () => {
 });
 
 // Persistence UI Wiring
+/** Button that triggers exporting population and HoF data. */
 const btnExport = document.getElementById('btnExport') as HTMLButtonElement | null;
 if (btnExport) {
   btnExport.addEventListener('click', () => {
@@ -2728,7 +3072,9 @@ if (btnExport) {
   });
 }
 
+/** Button that opens the import file picker. */
 const btnImport = document.getElementById('btnImport') as HTMLButtonElement | null;
+/** Hidden file input used for population imports. */
 const fileInput = document.getElementById('fileInput') as HTMLInputElement | null;
 if (btnImport && fileInput) {
   btnImport.addEventListener('click', () => {
@@ -2762,6 +3108,9 @@ if (btnImport && fileInput) {
   });
 }
 
+/**
+ * Main animation frame loop for rendering and UI updates.
+ */
 function frame(): void {
   // console.log("Frame loop running"); // Spammy
   if (currentFrameBuffer) {
@@ -2836,6 +3185,10 @@ function frame(): void {
   requestAnimationFrame(frame);
 }
 
+/**
+ * Update the Hall of Fame table UI.
+ * @param world - Proxy world providing current generation state.
+ */
 function updateHoFTable(world: ProxyWorld): void {
   const container = document.getElementById('hofTable');
   if (!container) return;
@@ -2860,7 +3213,7 @@ function updateHoFTable(world: ProxyWorld): void {
   container.innerHTML = html;
 }
 
-// Expose global helper for the onclick handlers
+/** Expose global helper for HoF spawn buttons. */
 window.spawnHoF = function(idx) {
   const list = hof.getAll();
   const entry = list[idx];

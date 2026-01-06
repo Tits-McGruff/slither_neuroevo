@@ -7,11 +7,13 @@ import {
 } from '../ops.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphOutputRef, GraphSpec } from './schema.ts';
 
+/** Input reference for a compiled node. */
 export interface GraphInputRef {
   fromId: string;
   fromPort: number;
 }
 
+/** Compiled node metadata with resolved sizes and parameter ranges. */
 export interface CompiledNode {
   id: string;
   type: GraphNodeType;
@@ -25,6 +27,7 @@ export interface CompiledNode {
   inputs: GraphInputRef[];
 }
 
+/** Compiled graph containing topological order and parameter metadata. */
 export interface CompiledGraph {
   key: string;
   spec: GraphSpec;
@@ -35,6 +38,11 @@ export interface CompiledGraph {
   outputs: GraphOutputRef[];
 }
 
+/**
+ * Build a stable signature string for a node.
+ * @param node - Graph node spec.
+ * @returns Signature string used for hashing.
+ */
 function nodeSignature(node: GraphNodeSpec): string {
   switch (node.type) {
     case 'Input':
@@ -58,6 +66,11 @@ function nodeSignature(node: GraphNodeSpec): string {
   }
 }
 
+/**
+ * Compute a stable key for a graph spec.
+ * @param spec - Graph spec to hash.
+ * @returns Stable key string.
+ */
 export function graphKey(spec: GraphSpec): string {
   const nodes = [...spec.nodes].sort((a, b) => a.id.localeCompare(b.id)).map(nodeSignature);
   const edges = [...spec.edges]
@@ -71,6 +84,12 @@ export function graphKey(spec: GraphSpec): string {
   return `graph|out:${spec.outputSize}|nodes:${nodes.join(';')}|edges:${edges.join(';')}|outs:${outputs.join(';')}`;
 }
 
+/**
+ * Order incoming edges for a node, validating port assignments.
+ * @param edges - Incoming edges to order.
+ * @param nodeId - Node id for error reporting.
+ * @returns Ordered edges.
+ */
 function orderIncomingEdges(edges: GraphEdge[], nodeId: string): GraphEdge[] {
   if (edges.length <= 1) return edges;
   const hasPort = edges.some(edge => edge.toPort != null);
@@ -91,6 +110,11 @@ function orderIncomingEdges(edges: GraphEdge[], nodeId: string): GraphEdge[] {
   return [...edges].sort((a, b) => a.from.localeCompare(b.from));
 }
 
+/**
+ * Compile a graph spec into a runtime-ready structure.
+ * @param spec - Graph spec to compile.
+ * @returns Compiled graph metadata.
+ */
 export function compileGraph(spec: GraphSpec): CompiledGraph {
   if (!spec.nodes.length) throw new Error('Graph: no nodes defined.');
   const nodeById = new Map<string, GraphNodeSpec>();

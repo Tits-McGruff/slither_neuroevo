@@ -6,17 +6,20 @@
 import { CFG } from './config.ts';
 import { clamp, angNorm, TAU } from './utils.ts';
 
+/** Minimal pellet shape used by sensor sampling. */
 interface PelletLike {
   x: number;
   y: number;
   v: number;
 }
 
+/** Point structure for snake segments. */
 interface SnakePoint {
   x: number;
   y: number;
 }
 
+/** Snake interface required for sensor calculations. */
 interface SnakeLike {
   x: number;
   y: number;
@@ -29,11 +32,13 @@ interface SnakeLike {
   sizeNorm: () => number;
 }
 
+/** Segment reference returned by collision grid queries. */
 interface SegmentRef {
   s: SnakeLike;
   i: number;
 }
 
+/** World interface required for sensor calculations. */
 interface WorldLike {
   pellets: PelletLike[];
   bestPointsThisGen: number;
@@ -41,6 +46,16 @@ interface WorldLike {
   _collGrid?: { map?: Map<string, unknown>; cellSize?: number; query?: (cx: number, cy: number) => SegmentRef[] | null };
 }
 
+/**
+ * Compute the closest point on a segment to a point.
+ * @param px - Point x coordinate.
+ * @param py - Point y coordinate.
+ * @param ax - Segment start x.
+ * @param ay - Segment start y.
+ * @param bx - Segment end x.
+ * @param by - Segment end y.
+ * @returns Closest point coordinates and squared distance.
+ */
 function _closestPointOnSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
   const abx = bx - ax;
   const aby = by - ay;
@@ -74,9 +89,9 @@ function _distToWallAlongRay(x: number, y: number, theta: number, R: number): nu
 }
 
 /**
- * Iterates segments from the world collision grid in cells intersecting a radius
- * around (x,y). The callback receives {s, i} where i is the segment end index
- * in s.points (segment is i-1 -> i).
+ * Iterate segments from the collision grid in cells intersecting a radius
+ * around (x,y). The callback receives an object with fields s and i, where i is
+ * the segment end index in s.points (segment is i-1 to i).
  */
 function _forEachNearbySegment(
   world: WorldLike,
@@ -184,6 +199,12 @@ function _bubbleRadiusForSnake(snake: SnakeLike): number {
   return clamp(r, minR, maxR);
 }
 
+/**
+ * Map a relative angle to a histogram bin index.
+ * @param relAngle - Relative angle in radians.
+ * @param bins - Total number of bins.
+ * @returns Bin index.
+ */
 function _angleToBin(relAngle: number, bins: number): number {
   // relAngle is in [-pi, pi]. Map so 0 is forward.
   let a = relAngle;
@@ -196,9 +217,15 @@ function _angleToBin(relAngle: number, bins: number): number {
  * Computes a 360° food density histogram around the head.
  * Returns values in [-1,1] where -1 means "no food" and +1 means "very dense".
  */
+/** Scratch buffer for food bin accumulation. */
 let _scratchFood = new Float32Array(0);
+/** Scratch buffer for hazard bin accumulation. */
 let _scratchHaz = new Float32Array(0);
 
+/**
+ * Ensure scratch buffers are sized for the given bin count.
+ * @param bins - Number of bins to allocate.
+ */
 function _ensureScratch(bins: number): void {
   if (_scratchFood.length !== bins) _scratchFood = new Float32Array(bins);
   if (_scratchHaz.length !== bins) _scratchHaz = new Float32Array(bins);
@@ -312,11 +339,11 @@ function _fillWallBubbleBins(
 }
 
 /**
- * Builds the full sensor vector. If out is provided, fills it
- * in-place to avoid per‑tick allocations.
- * @param {World} world
- * @param {Snake} snake
- * @param {Float32Array|null} out
+ * Build the full sensor vector. If out is provided, fills it in-place to avoid
+ * per-tick allocations.
+ * @param world - World state providing pellets and collision data.
+ * @param snake - Snake to compute sensors for.
+ * @param out - Optional output buffer to reuse.
  */
 export function buildSensors(
   world: WorldLike,

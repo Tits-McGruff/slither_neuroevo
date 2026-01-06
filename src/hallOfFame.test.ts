@@ -4,6 +4,7 @@ import { HallOfFame } from './hallOfFame.ts';
 describe('hallOfFame.ts', () => {
   let originalStorage: Storage | undefined;
   let backing: Map<string, string>;
+  /** Global shim for localStorage swapping in tests. */
   const globalAny = globalThis as unknown as { localStorage?: Storage };
 
   beforeEach(() => {
@@ -31,6 +32,12 @@ describe('hallOfFame.ts', () => {
     const hof = new HallOfFame();
     hof.reset();
 
+    /**
+     * Builds a Hall of Fame entry with a specific fitness.
+     * @param gen - Generation number for the entry.
+     * @param fitness - Fitness score to assign.
+     * @returns Hall of Fame entry object.
+     */
     const makeEntry = (gen: number, fitness: number) => ({
       gen,
       fitness,

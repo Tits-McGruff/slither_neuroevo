@@ -4,28 +4,46 @@ import type { PopulationImportData } from '../src/protocol/messages.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateSnapshotPayload, type Persistence, type PopulationSnapshotPayload } from './persistence.ts';
 
+/** Hard limit for incoming request bodies to avoid memory pressure. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
 
+/** Dependencies injected into the HTTP API handler. */
 export interface HttpApiDeps {
+  /** Returns the current server status for health checks. */
   getStatus: () => { tick: number; clients: number };
+  /** Returns the current world instance, or null if not ready. */
   getWorld: () => World | null;
+  /** Imports a population snapshot into the active world. */
   importPopulation: (data: PopulationImportData) => {
     ok: boolean;
     reason?: string;
     used?: number;
     total?: number;
   };
+  /** Persistence adapter for snapshots and graph presets. */
   persistence: Persistence;
+  /** Hash of the active server configuration. */
   cfgHash: string;
+  /** Seed used to initialize the world. */
   worldSeed: number;
 }
 
+/**
+ * Builds the HTTP handler that serves API requests and health checks.
+ * @param deps - API dependencies and persistence adapters.
+ * @returns Request handler function.
+ */
 export function createHttpHandler(deps: HttpApiDeps): (req: IncomingMessage, res: ServerResponse) => void {
   return (req, res) => {
     void handleRequest(req, res, deps);
   };
 }
 
+/**
+ * Adds CORS headers for browser clients.
+ * @param req - Incoming request.
+ * @param res - Server response.
+ */
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
   if (origin) {
@@ -38,6 +56,12 @@ function applyCors(req: IncomingMessage, res: ServerResponse): void {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
+/**
+ * Routes incoming HTTP requests to the correct handler.
+ * @param req - Incoming request.
+ * @param res - Server response.
+ * @param deps - API dependencies and persistence adapters.
+ */
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -180,12 +204,24 @@ async function handleRequest(
   res.end('Not found');
 }
 
+/**
+ * Sends a JSON response with status code and payload.
+ * @param res - Server response.
+ * @param status - HTTP status code.
+ * @param payload - JSON payload to serialize.
+ */
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(payload));
 }
 
+/**
+ * Reads a JSON payload with a strict size limit.
+ * @param req - Incoming request.
+ * @param limitBytes - Maximum allowed payload size.
+ * @returns Parsed JSON payload.
+ */
 async function readJsonBody(req: IncomingMessage, limitBytes: number): Promise<unknown> {
   const chunks: Buffer[] = [];
   let total = 0;
@@ -202,6 +238,11 @@ async function readJsonBody(req: IncomingMessage, limitBytes: number): Promise<u
   return JSON.parse(text) as unknown;
 }
 
+/**
+ * Extracts a snapshot payload from wrapper objects.
+ * @param body - Incoming JSON body.
+ * @returns Snapshot payload object.
+ */
 function extractPayload(body: unknown): PopulationSnapshotPayload {
   if (body && typeof body === 'object' && 'payload' in body) {
     const payload = (body as { payload?: PopulationSnapshotPayload }).payload;
@@ -210,6 +251,13 @@ function extractPayload(body: unknown): PopulationSnapshotPayload {
   return body as PopulationSnapshotPayload;
 }
 
+/**
+ * Builds a snapshot payload from the active world and config metadata.
+ * @param world - World instance used for export.
+ * @param cfgHash - Active configuration hash.
+ * @param worldSeed - Seed used for world initialization.
+ * @returns Snapshot payload to persist.
+ */
 function buildSnapshotPayload(
   world: World,
   cfgHash: string,

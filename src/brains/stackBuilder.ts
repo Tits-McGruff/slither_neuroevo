@@ -1,4 +1,5 @@
 import type { GraphSpec, GraphNodeSpec, GraphEdge, GraphOutputRef } from './graph/schema.ts';
+/** Settings for hidden layer sizes used by stack builder. */
 type HiddenSettings = {
   hiddenLayers: number;
   neurons1: number;
@@ -8,6 +9,7 @@ type HiddenSettings = {
   neurons5: number;
 };
 
+/** Brain config subset needed to build a stack graph. */
 type BrainCfg = {
   inSize: number;
   outSize: number;
@@ -23,6 +25,11 @@ type BrainCfg = {
   stackOrder?: string[];
 };
 
+/**
+ * Build the list of hidden layer sizes from UI settings.
+ * @param settings - Hidden layer settings from the UI.
+ * @returns Array of hidden layer sizes.
+ */
 function buildHiddenSizes(settings: HiddenSettings): number[] {
   const layers = settings.hiddenLayers;
   const hidden: number[] = [];
@@ -35,6 +42,12 @@ function buildHiddenSizes(settings: HiddenSettings): number[] {
   return hidden;
 }
 
+/**
+ * Build a graph spec describing an MLP + recurrent stack architecture.
+ * @param settings - Hidden layer settings from the UI.
+ * @param cfg - Brain configuration values.
+ * @returns Graph spec describing the stack.
+ */
 export function buildStackGraphSpec(settings: HiddenSettings, cfg: { brain: BrainCfg }): GraphSpec {
   const hiddenSizes = buildHiddenSizes(settings);
   const inputSize = cfg.brain.inSize;

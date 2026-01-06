@@ -1,15 +1,26 @@
-// BrainViz.ts
-// Visualizes the neural network structure and activity.
+/** Visualizes the neural network structure and activity. */
 
 import { clamp } from './utils.ts';
 import type { VizData } from './protocol/messages.ts';
 
+/** Canvas-based brain visualizer for layer activations. */
 export class BrainViz {
+  /** Left position of the visualizer region. */
   x: number;
+  /** Top position of the visualizer region. */
   y: number;
+  /** Width of the visualizer region. */
   w: number;
+  /** Height of the visualizer region. */
   h: number;
 
+  /**
+   * Create a visualizer with a fixed drawing rectangle.
+   * @param x - Left position of the visualization.
+   * @param y - Top position of the visualization.
+   * @param w - Width in pixels.
+   * @param h - Height in pixels.
+   */
   constructor(x: number, y: number, w: number, h: number) {
     this.x = x;
     this.y = y;
@@ -17,6 +28,11 @@ export class BrainViz {
     this.h = h;
   }
 
+  /**
+   * Render the brain visualization if data is available.
+   * @param ctx - Canvas 2D context to draw into.
+   * @param brain - Visualization data payload.
+   */
   render(ctx: CanvasRenderingContext2D, brain: VizData | null): void {
     if (!brain) return;
     

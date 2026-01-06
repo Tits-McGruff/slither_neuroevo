@@ -2,9 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Storage, savePopulation, loadPopulation } from './storage.ts';
 import { Genome, buildArch } from './mlp.ts';
 
-describe('storage.ts', () => {
+/** Test suite label for storage helpers. */
+const SUITE = 'storage.ts';
+
+describe(SUITE, () => {
+  /** Stored localStorage reference for cleanup. */
   let originalStorage: Storage | undefined;
+  /** Backing map for the localStorage stub. */
   let backing: Map<string, string>;
+  /** Global shim for swapping localStorage in tests. */
   const globalAny = globalThis as typeof globalThis & { localStorage?: Storage };
 
   beforeEach(() => {

@@ -3,6 +3,10 @@ import WebSocket, { type RawData } from 'ws';
 import { startServer } from './index.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 
+/**
+ * Starts the server and returns null when permissions prevent binding.
+ * @returns Server handle or null when the port is unavailable.
+ */
 async function startServerWithGuard() {
   const isEperm = (err: unknown): boolean =>
     (err as { code?: string } | null)?.code === 'EPERM';

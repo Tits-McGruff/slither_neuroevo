@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { MLP, GRU, LSTM, RRU, lstmParamCount, rruParamCount, Genome, mutate, buildArch } from './mlp.ts';
 import { CFG } from './config.ts';
 
-describe('mlp.ts', () => {
+/** Test suite label for MLP and genome utilities. */
+const SUITE = 'mlp.ts';
+
+describe(SUITE, () => {
   it('MLP should initialize and perform forward pass', () => {
     const layerSizes = [2, 3, 1];
     const mlp = new MLP(layerSizes);

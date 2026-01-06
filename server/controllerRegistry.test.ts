@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { ControllerRegistry } from './controllerRegistry.ts';
 
 describe('ControllerRegistry', () => {
+  /**
+   * Builds a registry with a simple snake list and capture buffer.
+   * @returns Registry and shared test buffers.
+   */
   const makeRegistry = () => {
     const snakes = [
       { id: 1, alive: true },

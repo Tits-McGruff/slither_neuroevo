@@ -12,12 +12,17 @@ import { SERIALIZER_VERSION, type SensorSpec, type WelcomeMsg } from './protocol
 import { SimServer } from './simServer.ts';
 import { WsHub } from './wsHub.ts';
 
+/** Minimal server handle returned by `startServer` for lifecycle management. */
 export interface RunningServer {
   port: number;
   wsUrl: string;
   close: () => Promise<void>;
 }
 
+/**
+ * Build the sensor specification sent to clients during handshake.
+ * @returns Sensor spec containing order and count.
+ */
 function buildSensorSpec(): SensorSpec {
   const bins = Math.max(8, Math.floor(CFG.sense?.bubbleBins ?? 12));
   const order: string[] = [
@@ -31,6 +36,7 @@ function buildSensorSpec(): SensorSpec {
   for (let i = 0; i < bins; i++) order.push(`hazard_${i}`);
   for (let i = 0; i < bins; i++) order.push(`wall_${i}`);
   if (order.length !== CFG.brain.inSize) {
+    // Ensure the sensor order matches the configured input size.
     if (order.length > CFG.brain.inSize) {
       order.length = CFG.brain.inSize;
     } else {
@@ -42,12 +48,18 @@ function buildSensorSpec(): SensorSpec {
   return { sensorCount: order.length, order };
 }
 
+/**
+ * Start the HTTP/WS simulation server.
+ * @param config - Normalized server configuration.
+ * @returns Running server handle with close method.
+ */
 export async function startServer(config: ServerConfig): Promise<RunningServer> {
   resetCFGToDefaults();
   const worldSeed = Number.isFinite(config.seed)
     ? (config.seed as number)
     : Math.floor(Math.random() * 1e9);
   const sessionId = Math.random().toString(36).slice(2, 10);
+  // Hash config so clients can detect mismatched settings.
   const cfgHash = hashConfig(CFG);
   const sensorSpec = buildSensorSpec();
   const sampleWorld = new World({});
@@ -133,6 +145,9 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   };
 }
 
+/**
+ * CLI entry point for the simulation server.
+ */
 export async function main(): Promise<void> {
   const config = parseConfig(process.argv.slice(2), process.env);
   const logger = createLogger(config.logLevel);

@@ -1,12 +1,21 @@
-// ops.ts
-// Low-level neural network primitives and parameter layouts used by brains.
+/** Low-level neural network primitives and parameter layouts used by brains. */
 
 import { clamp } from '../utils.ts';
 
+/**
+ * Sigmoid activation function.
+ * @param x - Input value.
+ * @returns Sigmoid output in [0,1].
+ */
 export function sigmoid(x: number): number {
   return 1 / (1 + Math.exp(-x));
 }
 
+/**
+ * Compute parameter count for an MLP with the given layer sizes.
+ * @param layerSizes - Layer sizes including input and output.
+ * @returns Total parameter count.
+ */
 export function mlpParamCount(layerSizes: number[]): number {
   let n = 0;
   for (let l = 0; l < layerSizes.length - 1; l++) {
@@ -17,29 +26,64 @@ export function mlpParamCount(layerSizes: number[]): number {
   return n;
 }
 
+/**
+ * Compute parameter count for a GRU layer.
+ * @param inSize - Input size.
+ * @param hiddenSize - Hidden size.
+ * @returns Total parameter count.
+ */
 export function gruParamCount(inSize: number, hiddenSize: number): number {
   return 3 * hiddenSize * (inSize + hiddenSize + 1);
 }
 
+/**
+ * Compute parameter count for an LSTM layer.
+ * @param inSize - Input size.
+ * @param hiddenSize - Hidden size.
+ * @returns Total parameter count.
+ */
 export function lstmParamCount(inSize: number, hiddenSize: number): number {
   return 4 * hiddenSize * (inSize + hiddenSize + 1);
 }
 
+/**
+ * Compute parameter count for an RRU layer.
+ * @param inSize - Input size.
+ * @param hiddenSize - Hidden size.
+ * @returns Total parameter count.
+ */
 export function rruParamCount(inSize: number, hiddenSize: number): number {
   return 2 * hiddenSize * (inSize + hiddenSize + 1);
 }
 
+/**
+ * Compute parameter count for a dense head.
+ * @param hiddenSize - Input size.
+ * @param outSize - Output size.
+ * @returns Total parameter count.
+ */
 export function headParamCount(hiddenSize: number, outSize: number): number {
   return outSize * hiddenSize + outSize;
 }
 
+/** Simple feed-forward MLP with tanh activations. */
 export class MLP {
+  /** Layer sizes including input and output. */
   layerSizes: number[];
+  /** Architecture key derived from layer sizes. */
   key: string;
+  /** Total parameter count. */
   paramCount: number;
+  /** Packed weight and bias buffer. */
   w: Float32Array;
+  /** Scratch buffers for hidden layer activations. */
   _bufs: Float32Array[];
 
+  /**
+   * Create an MLP instance with optional weights.
+   * @param layerSizes - Layer sizes including input and output.
+   * @param weights - Optional weight buffer.
+   */
   constructor(layerSizes: number[], weights: Float32Array | null = null) {
     this.layerSizes = layerSizes.slice();
     this.key = this.layerSizes.join("x");
@@ -57,6 +101,11 @@ export class MLP {
     }
   }
 
+  /**
+   * Run a forward pass through the network.
+   * @param input - Input activations.
+   * @returns Output activations.
+   */
   forward(input: Float32Array): Float32Array {
     let wi = 0;
     let cur = input;
@@ -76,15 +125,30 @@ export class MLP {
   }
 }
 
+/** Gated recurrent unit implementation with configurable bias init. */
 export class GRU {
+  /** Input vector size. */
   inSize: number;
+  /** Hidden state size. */
   hiddenSize: number;
+  /** Total parameter count. */
   paramCount: number;
+  /** Packed weight and bias buffer. */
   w: Float32Array;
+  /** Current hidden state. */
   h: Float32Array;
+  /** Scratch buffer for update gate. */
   _z: Float32Array;
+  /** Scratch buffer for reset gate. */
   _r: Float32Array;
 
+  /**
+   * Create a GRU instance with optional weights.
+   * @param inSize - Input size.
+   * @param hiddenSize - Hidden state size.
+   * @param weights - Optional weight buffer.
+   * @param initUpdateBias - Initial update gate bias.
+   */
   constructor(
     inSize: number,
     hiddenSize: number,
@@ -112,10 +176,16 @@ export class GRU {
     this._r = new Float32Array(hiddenSize);
   }
 
+  /** Reset the hidden state to zero. */
   reset(): void {
     this.h.fill(0);
   }
 
+  /**
+   * Advance the GRU by one timestep.
+   * @param x - Input vector.
+   * @returns Updated hidden state.
+   */
   step(x: Float32Array): Float32Array {
     const I = this.inSize;
     const H = this.hiddenSize;
@@ -174,14 +244,28 @@ export class GRU {
   }
 }
 
+/** Long short-term memory implementation. */
 export class LSTM {
+  /** Input vector size. */
   inSize: number;
+  /** Hidden state size. */
   hiddenSize: number;
+  /** Total parameter count. */
   paramCount: number;
+  /** Packed weight and bias buffer. */
   w: Float32Array;
+  /** Current hidden state. */
   h: Float32Array;
+  /** Current cell state. */
   c: Float32Array;
 
+  /**
+   * Create an LSTM instance with optional weights.
+   * @param inSize - Input size.
+   * @param hiddenSize - Hidden state size.
+   * @param weights - Optional weight buffer.
+   * @param initForgetBias - Initial forget gate bias.
+   */
   constructor(inSize: number, hiddenSize: number, weights: Float32Array | null = null, initForgetBias = 0.6) {
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
@@ -204,11 +288,17 @@ export class LSTM {
     this.c = new Float32Array(hiddenSize);
   }
 
+  /** Reset the hidden and cell state to zero. */
   reset(): void {
     this.h.fill(0);
     this.c.fill(0);
   }
 
+  /**
+   * Advance the LSTM by one timestep.
+   * @param x - Input vector.
+   * @returns Updated hidden state.
+   */
   step(x: Float32Array): Float32Array {
     const I = this.inSize;
     const H = this.hiddenSize;
@@ -270,13 +360,26 @@ export class LSTM {
   }
 }
 
+/** Minimal recurrent unit with reset gate. */
 export class RRU {
+  /** Input vector size. */
   inSize: number;
+  /** Hidden state size. */
   hiddenSize: number;
+  /** Total parameter count. */
   paramCount: number;
+  /** Packed weight and bias buffer. */
   w: Float32Array;
+  /** Current hidden state. */
   h: Float32Array;
 
+  /**
+   * Create an RRU instance with optional weights.
+   * @param inSize - Input size.
+   * @param hiddenSize - Hidden state size.
+   * @param weights - Optional weight buffer.
+   * @param initGateBias - Initial reset gate bias.
+   */
   constructor(inSize: number, hiddenSize: number, weights: Float32Array | null = null, initGateBias = 0.1) {
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
@@ -296,10 +399,16 @@ export class RRU {
     this.h = new Float32Array(hiddenSize);
   }
 
+  /** Reset the hidden state to zero. */
   reset(): void {
     this.h.fill(0);
   }
 
+  /**
+   * Advance the RRU by one timestep.
+   * @param x - Input vector.
+   * @returns Updated hidden state.
+   */
   step(x: Float32Array): Float32Array {
     const I = this.inSize;
     const H = this.hiddenSize;
@@ -340,13 +449,25 @@ export class RRU {
   }
 }
 
+/** Dense output head for mapping features to action outputs. */
 export class DenseHead {
+  /** Input vector size. */
   inSize: number;
+  /** Output vector size. */
   outSize: number;
+  /** Total parameter count. */
   paramCount: number;
+  /** Packed weight and bias buffer. */
   w: Float32Array;
+  /** Output buffer for the latest forward pass. */
   _out: Float32Array;
 
+  /**
+   * Create a dense head with optional weights.
+   * @param inSize - Input size.
+   * @param outSize - Output size.
+   * @param weights - Optional weight buffer.
+   */
   constructor(inSize: number, outSize: number, weights: Float32Array | null = null) {
     this.inSize = inSize;
     this.outSize = outSize;
@@ -358,6 +479,11 @@ export class DenseHead {
     this._out = new Float32Array(outSize);
   }
 
+  /**
+   * Run a forward pass through the dense head.
+   * @param x - Input vector.
+   * @returns Output vector.
+   */
   forward(x: Float32Array): Float32Array {
     let idx = 0;
     for (let o = 0; o < this.outSize; o++) {

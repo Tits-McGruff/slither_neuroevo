@@ -10,31 +10,63 @@ import type { Persistence, PopulationSnapshotPayload } from './persistence.ts';
 import { WsHub } from './wsHub.ts';
 import type { VizData } from '../src/protocol/messages.ts';
 
+/** Server-side simulation loop and WS broadcasting. */
 export class SimServer {
+  /** World instance that owns simulation state. */
   private world: World;
+  /** WebSocket hub for broadcasting frames and stats. */
   private wsHub: WsHub;
+  /** Simulation tick rate in hertz. */
   private tickRateHz: number;
+  /** UI frame broadcast rate in hertz. */
   private uiFrameRateHz: number;
+  /** Current simulation tick id. */
   private tickId = 0;
+  /** Timestamp of the last sent frame in ms. */
   private lastFrameSentAt = 0;
+  /** Timestamp of the last stats message in ms. */
   private lastStatsSentAt = 0;
+  /** Whether the main loop is running. */
   private running = false;
+  /** Active timer id for scheduled ticks. */
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Target time for the next tick in ms. */
   private nextTickAt = 0;
+  /** Timestamp for the previous tick in ms. */
   private lastTickAt = 0;
+  /** Last computed simulation FPS. */
   private lastFps = 0;
+  /** Current view width used for serialization. */
   private viewW: number;
+  /** Current view height used for serialization. */
   private viewH: number;
+  /** Controller registry for player and bot assignments. */
   private controllers: ControllerRegistry;
+  /** Persistence adapter for snapshots and HoF. */
   private persistence: Persistence | null;
+  /** Hash for the active configuration. */
   private cfgHash: string;
+  /** Seed used for the world initialization. */
   private worldSeed: number;
+  /** Interval for snapshot checkpoints in generations. */
   private checkpointEveryGenerations: number;
+  /** Generation number at last checkpoint. */
   private lastGeneration: number;
+  /** Last generation recorded for HoF save. */
   private lastHofGenSaved: number;
+  /** Last seen fitness history length. */
   private lastHistoryLen: number;
+  /** Connection ids subscribed to viz streaming. */
   private vizConnections: Set<number>;
 
+  /**
+   * Create a simulation server instance for a websocket hub.
+   * @param config - Normalized server configuration.
+   * @param wsHub - WebSocket hub for broadcasting.
+   * @param persistence - Optional persistence interface.
+   * @param cfgHash - Hash of the config used for snapshots.
+   * @param worldSeed - Seed used for world initialization.
+   */
   constructor(
     config: ServerConfig,
     wsHub: WsHub,
@@ -69,6 +101,7 @@ export class SimServer {
     this.vizConnections = new Set();
   }
 
+  /** Start the server tick loop. */
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -76,20 +109,34 @@ export class SimServer {
     this.loop();
   }
 
+  /** Stop the server tick loop. */
   stop(): void {
     this.running = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
   }
 
+  /**
+   * Return the current server tick id.
+   * @returns Tick id.
+   */
   getTickId(): number {
     return this.tickId;
   }
 
+  /**
+   * Return the underlying world instance.
+   * @returns World instance.
+   */
   getWorld(): World {
     return this.world;
   }
 
+  /**
+   * Import a population snapshot into the world.
+   * @param data - Import payload to apply.
+   * @returns Import result summary.
+   */
   importPopulation(data: PopulationImportData): {
     ok: boolean;
     reason?: string;
@@ -103,6 +150,13 @@ export class SimServer {
     return result;
   }
 
+  /**
+   * Handle a join request and assign a snake if player mode.
+   * @param connId - Connection id.
+   * @param mode - Join mode.
+   * @param clientType - Client type.
+   * @param name - Optional player name.
+   */
   handleJoin(connId: number, mode: JoinMode, clientType: ClientType, name?: string): void {
     if (mode !== 'player') return;
     if (!name || !name.trim()) {
@@ -127,24 +181,44 @@ export class SimServer {
     }
   }
 
+  /**
+   * Handle an action message from a connection.
+   * @param connId - Connection id.
+   * @param msg - Action message payload.
+   */
   handleAction(connId: number, msg: ActionMsg): void {
     this.controllers.handleAction(connId, msg);
   }
 
+  /**
+   * Handle a view message (ignored server-side).
+   * @param _connId - Connection id (unused).
+   * @param _msg - View message payload (unused).
+   */
   handleView(_connId: number, _msg: ViewMsg): void {
     // Camera/view is per-client; server ignores view messages.
   }
 
+  /**
+   * Handle a viz message to toggle streaming for a connection.
+   * @param connId - Connection id.
+   * @param msg - Viz message payload.
+   */
   handleViz(connId: number, msg: VizMsg): void {
     if (msg.enabled) this.vizConnections.add(connId);
     else this.vizConnections.delete(connId);
   }
 
+  /**
+   * Handle connection teardown and cleanup.
+   * @param connId - Connection id.
+   */
   handleDisconnect(connId: number): void {
     this.controllers.releaseSnake(connId);
     this.vizConnections.delete(connId);
   }
 
+  /** Main timer loop for scheduling ticks. */
   private loop(): void {
     if (!this.running) return;
     const now = performance.now();
@@ -156,6 +230,10 @@ export class SimServer {
     this.timer = setTimeout(() => this.loop(), delay);
   }
 
+  /**
+   * Run a single server tick and broadcast frames/stats as needed.
+   * @param now - Current high-resolution timestamp.
+   */
   private tick(now: number): void {
     this.tickId += 1;
     this.controllers.setTickId(this.tickId);
@@ -181,6 +259,9 @@ export class SimServer {
     }
   }
 
+  /**
+   * Handle end-of-generation persistence checkpoints.
+   */
   private handleGenerationEnd(): void {
     if (!this.persistence) return;
     const currentGen = this.world.generation;
@@ -207,6 +288,10 @@ export class SimServer {
     }
   }
 
+  /**
+   * Build a snapshot payload for persistence.
+   * @returns Snapshot payload.
+   */
   private buildSnapshotPayload(): PopulationSnapshotPayload {
     const exportData = this.world.exportPopulation();
     return {
@@ -216,6 +301,10 @@ export class SimServer {
     };
   }
 
+  /**
+   * Build the stats payload broadcast to clients.
+   * @returns Stats message payload.
+   */
   private buildStats(): StatsMsg {
     const aliveSnakes = this.world.snakes.filter(snake => snake.alive);
     let maxFit = 0;
@@ -254,6 +343,11 @@ export class SimServer {
   }
 }
 
+/**
+ * Build visualization payloads from a brain instance if supported.
+ * @param brain - Brain instance or null.
+ * @returns Visualization payload or null.
+ */
 function buildVizData(brain: { getVizData?: () => VizData } | null | undefined): VizData | null {
   if (!brain || typeof brain.getVizData !== 'function') return null;
   return brain.getVizData();

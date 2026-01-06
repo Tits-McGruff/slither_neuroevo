@@ -3,7 +3,10 @@ import { compileGraph, graphKey } from './graph/compiler.ts';
 import type { GraphSpec } from './graph/schema.ts';
 import { headParamCount, mlpParamCount } from './ops.ts';
 
-describe('graph compiler', () => {
+/** Test suite label for graph compiler integration cases. */
+const SUITE = 'graph compiler';
+
+describe(SUITE, () => {
   it('compiles a simple graph and computes param length', () => {
     const spec: GraphSpec = {
       type: 'graph',

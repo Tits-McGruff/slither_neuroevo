@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { createPersistence, initDb, type PopulationSnapshotPayload } from './persistence.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 
-describe('persistence', () => {
+/** Test suite label for persistence helpers. */
+const SUITE = 'persistence';
+
+describe(SUITE, () => {
   it('creates schema and stores snapshots', () => {
     const db = initDb(':memory:');
     const persistence = createPersistence(db);

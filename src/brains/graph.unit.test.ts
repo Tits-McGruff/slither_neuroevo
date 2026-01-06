@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { compileGraph, graphKey } from './graph/compiler.ts';
 import type { GraphSpec } from './graph/schema.ts';
 
-describe('graph compiler (unit)', () => {
+/** Test suite label for graph compiler unit cases. */
+const SUITE = 'graph compiler (unit)';
+
+describe(SUITE, () => {
   it('rejects cycles', () => {
     const spec: GraphSpec = {
       type: 'graph',

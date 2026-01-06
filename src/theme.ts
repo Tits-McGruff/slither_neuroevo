@@ -1,7 +1,6 @@
-// theme.ts
-// Centralized color palette and theme management for the simulation.
-// Using HSLA helper for consistent, vibrant visualization.
+/** Centralized color palette and theme management for the simulation. */
 
+/** Theme colors for grid, snakes, pellets, and glows. */
 export const THEME = {
   // Background/Grid
   gridLine: 'rgba(255,255,255,0.04)',
@@ -29,6 +28,8 @@ export const THEME = {
 
 /**
  * Returns a CSS color string for a given pellet type.
+ * @param p - Pellet-like object with optional color and kind fields.
+ * @returns CSS color string.
  */
 export function getPelletColor(p: { color?: string | null; kind?: string; [key: string]: unknown }): string {
   if (p.color) return p.color;
@@ -42,6 +43,8 @@ export function getPelletColor(p: { color?: string | null; kind?: string; [key: 
 
 /**
  * Returns the glow color (shadowColor) for a given pellet type.
+ * @param p - Pellet-like object with kind field.
+ * @returns CSS glow color string.
  */
 export function getPelletGlow(p: { kind?: string; [key: string]: unknown }): string {
   switch (p.kind) {

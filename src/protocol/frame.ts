@@ -1,3 +1,4 @@
+/** Float offsets for the serialized frame header. */
 export const FRAME_HEADER_OFFSETS = {
   generation: 0,
   totalSnakes: 1,
@@ -7,8 +8,10 @@ export const FRAME_HEADER_OFFSETS = {
   zoom: 5
 } as const;
 
+/** Number of float entries in the frame header. */
 export const FRAME_HEADER_FLOATS = 6;
 
+/** Parsed header values for a serialized frame buffer. */
 export interface FrameHeader {
   generation: number;
   totalSnakes: number;
@@ -18,6 +21,12 @@ export interface FrameHeader {
   zoom: number;
 }
 
+/**
+ * Read a frame header from a Float32Array buffer.
+ * @param buffer - Serialized frame buffer.
+ * @param offset - Starting float offset.
+ * @returns Parsed frame header.
+ */
 export function readFrameHeader(buffer: Float32Array, offset = 0): FrameHeader {
   return {
     generation: buffer[offset + FRAME_HEADER_OFFSETS.generation] ?? 0,

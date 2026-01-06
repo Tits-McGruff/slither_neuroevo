@@ -4,9 +4,7 @@
 import { deepClone } from './utils.ts';
 import type { GraphSpec } from './brains/graph/schema.ts';
 
-// Default configuration values.  These mirror the values from the original
-// monolithic implementation and expose every adjustable parameter via
-// sliders.  See settings.ts for the slider specifications.
+/** Default configuration values for the simulation and UI sliders. */
 export const CFG_DEFAULT = {
   worldRadius: 2400,
   pelletCountTarget: 2400,
@@ -160,13 +158,12 @@ sense: {
   dtClamp: 0.045
 };
 
-// Mutable configuration object.  Always clone the defaults so that
-// resetting settings does not modify CFG_DEFAULT.
+/** Mutable configuration object, cloned from CFG_DEFAULT on reset. */
 export let CFG = deepClone(CFG_DEFAULT);
 
 /**
  * Resets the global configuration to its default values.
  */
-export function resetCFGToDefaults() {
+export function resetCFGToDefaults(): void {
   CFG = deepClone(CFG_DEFAULT);
 }

@@ -3,7 +3,11 @@ import { World } from './world.ts';
 import { Pellet } from './snake.ts';
 import { CFG, resetCFGToDefaults } from './config.ts';
 
-describe('world.ts', () => {
+/** Test suite label for world behaviors. */
+const SUITE = 'world.ts';
+
+describe(SUITE, () => {
+    /** Baseline settings used to construct test worlds. */
     let settings: {
       snakeCount: number;
       hiddenLayers: number;

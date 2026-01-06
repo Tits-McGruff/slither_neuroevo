@@ -1,5 +1,6 @@
 import type { FitnessData, FitnessHistoryEntry, VizData } from '../protocol/messages.ts';
 
+/** Welcome message payload from the server. */
 export interface WelcomeMsg {
   type: 'welcome';
   sessionId: string;
@@ -11,6 +12,7 @@ export interface WelcomeMsg {
   frameByteLength: number;
 }
 
+/** Stats message payload from the server. */
 export interface StatsMsg {
   type: 'stats';
   tick: number;
@@ -22,6 +24,7 @@ export interface StatsMsg {
   viz?: VizData;
 }
 
+/** Action message payload sent to the server. */
 export interface ActionMsg {
   type: 'action';
   tick: number;
@@ -30,12 +33,14 @@ export interface ActionMsg {
   boost: number;
 }
 
+/** Assignment message for controlled snakes. */
 export interface AssignMsg {
   type: 'assign';
   snakeId: number;
   controller: 'player' | 'bot';
 }
 
+/** Sensor message payload for controlled snakes. */
 export interface SensorsMsg {
   type: 'sensors';
   tick: number;
@@ -44,11 +49,13 @@ export interface SensorsMsg {
   meta?: { x: number; y: number; dir: number };
 }
 
+/** Error message payload from the server. */
 export interface ErrorMsg {
   type: 'error';
   message: string;
 }
 
+/** Callback handlers for the websocket client lifecycle and messages. */
 export interface WsClientCallbacks {
   onConnected: (info: WelcomeMsg) => void;
   onDisconnected: () => void;
@@ -59,6 +66,7 @@ export interface WsClientCallbacks {
   onError?: (msg: ErrorMsg) => void;
 }
 
+/** WebSocket client API used by the main thread. */
 export interface WsClient {
   connect: (url: string) => void;
   disconnect: () => void;
@@ -69,10 +77,18 @@ export interface WsClient {
   isConnected: () => boolean;
 }
 
+/** Default server URL used when none is configured. */
 export const DEFAULT_SERVER_URL = 'ws://localhost:5174';
+/** Handshake timeout in milliseconds before forcing reconnect. */
 const HANDSHAKE_TIMEOUT_MS = 1500;
+/** Local storage key for persisting the server URL. */
 const STORAGE_KEY = 'slither_server_url';
 
+/**
+ * Resolve the server URL from query params, local storage, or a default.
+ * @param defaultUrl - Fallback URL when none is provided.
+ * @returns Resolved WebSocket URL.
+ */
 export function resolveServerUrl(defaultUrl = DEFAULT_SERVER_URL): string {
   const search = typeof window !== 'undefined' && window.location ? window.location.search : '';
   const params = new URLSearchParams(search || '');
@@ -87,6 +103,10 @@ export function resolveServerUrl(defaultUrl = DEFAULT_SERVER_URL): string {
   return stored || defaultUrl;
 }
 
+/**
+ * Store the server URL in local storage.
+ * @param url - WebSocket URL to persist.
+ */
 export function storeServerUrl(url: string): void {
   try {
     localStorage.setItem(STORAGE_KEY, url);
@@ -95,6 +115,11 @@ export function storeServerUrl(url: string): void {
   }
 }
 
+/**
+ * Create a WebSocket client wrapper with typed callbacks.
+ * @param callbacks - Lifecycle and message callbacks.
+ * @returns WebSocket client instance.
+ */
 export function createWsClient(callbacks: WsClientCallbacks): WsClient {
   let socket: WebSocket | null = null;
   let connected = false;
@@ -199,24 +224,24 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     }
     if (!parsed || typeof parsed !== 'object') return;
     const msg = parsed as Record<string, unknown>;
-    if (typeof msg.type !== 'string') return;
-    switch (msg.type) {
+    if (typeof msg['type'] !== 'string') return;
+    switch (msg['type']) {
       case 'welcome':
         connected = true;
         clearHandshakeTimer();
-        callbacks.onConnected(msg as WelcomeMsg);
+        callbacks.onConnected(msg as unknown as WelcomeMsg);
         return;
       case 'stats':
-        callbacks.onStats(msg as StatsMsg);
+        callbacks.onStats(msg as unknown as StatsMsg);
         return;
       case 'assign':
-        callbacks.onAssign?.(msg as AssignMsg);
+        callbacks.onAssign?.(msg as unknown as AssignMsg);
         return;
       case 'sensors':
-        callbacks.onSensors?.(msg as SensorsMsg);
+        callbacks.onSensors?.(msg as unknown as SensorsMsg);
         return;
       case 'error':
-        callbacks.onError?.(msg as ErrorMsg);
+        callbacks.onError?.(msg as unknown as ErrorMsg);
         return;
       default:
         return;

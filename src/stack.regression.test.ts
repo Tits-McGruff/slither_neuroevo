@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { buildArch, Genome } from './mlp.ts';
 import { CFG } from './config.ts';
 
-describe('regression: stacked brains', () => {
+/** Test suite label for stacked brain regression coverage. */
+const SUITE = 'regression: stacked brains';
+
+describe(SUITE, () => {
   it('produces deterministic outputs for fixed weights', () => {
     const settings = {
       hiddenLayers: 1,

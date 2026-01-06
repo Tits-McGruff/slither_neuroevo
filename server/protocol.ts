@@ -1,29 +1,38 @@
 import type { FitnessData, FitnessHistoryEntry, VizData } from '../src/protocol/messages.ts';
 
+/** Current protocol version for handshake compatibility. */
 export const PROTOCOL_VERSION = 1;
+/** Serializer version for binary frame layout compatibility. */
 export const SERIALIZER_VERSION = 1;
+/** Max player name length accepted during join. */
 const MAX_NAME_LENGTH = 24;
 
+/** Client identity types that can connect to the server. */
 export type ClientType = 'ui' | 'bot';
+/** Join mode for client registration. */
 export type JoinMode = 'spectator' | 'player';
 
+/** Initial handshake payload from the client. */
 export interface HelloMsg {
   type: 'hello';
   clientType: ClientType;
   version: number;
 }
 
+/** Join request from client to register as spectator or player. */
 export interface JoinMsg {
   type: 'join';
   mode: JoinMode;
   name?: string;
 }
 
+/** Client heartbeat message. */
 export interface PingMsg {
   type: 'ping';
   t?: number;
 }
 
+/** Player action message aligned to a specific tick. */
 export interface ActionMsg {
   type: 'action';
   tick: number;
@@ -32,6 +41,7 @@ export interface ActionMsg {
   boost: number;
 }
 
+/** Viewport update from the UI client. */
 export interface ViewMsg {
   type: 'view';
   viewW?: number;
@@ -39,18 +49,22 @@ export interface ViewMsg {
   mode?: 'overview' | 'follow' | 'toggle';
 }
 
+/** Toggle visualization streaming. */
 export interface VizMsg {
   type: 'viz';
   enabled: boolean;
 }
 
+/** Union of all client-to-server message shapes. */
 export type ClientMessage = HelloMsg | JoinMsg | PingMsg | ActionMsg | ViewMsg | VizMsg;
 
+/** Sensor metadata describing the array order and size. */
 export interface SensorSpec {
   sensorCount: number;
   order: string[];
 }
 
+/** Initial server welcome payload. */
 export interface WelcomeMsg {
   type: 'welcome';
   sessionId: string;
@@ -62,6 +76,7 @@ export interface WelcomeMsg {
   frameByteLength: number;
 }
 
+/** Periodic stats payload from the server. */
 export interface StatsMsg {
   type: 'stats';
   tick: number;
@@ -73,12 +88,14 @@ export interface StatsMsg {
   viz?: VizData;
 }
 
+/** Server assignment for a newly controlled snake. */
 export interface AssignMsg {
   type: 'assign';
   snakeId: number;
   controller: 'player' | 'bot';
 }
 
+/** Sensor packet for a controlled snake. */
 export interface SensorsMsg {
   type: 'sensors';
   tick: number;
@@ -87,21 +104,38 @@ export interface SensorsMsg {
   meta?: { x: number; y: number; dir: number };
 }
 
+/** Error payload sent by the server. */
 export interface ErrorMsg {
   type: 'error';
   message: string;
 }
 
+/** Union of all server-to-client messages. */
 export type ServerMessage = WelcomeMsg | StatsMsg | AssignMsg | SensorsMsg | ErrorMsg;
 
+/**
+ * Narrow a value to a plain record for message validation.
+ * @param value - Unknown value to inspect.
+ * @returns True when value is a non-null object.
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+/**
+ * Check for a finite number payload.
+ * @param value - Value to test.
+ * @returns True when value is a finite number.
+ */
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+/**
+ * Validate a hello message.
+ * @param msg - Raw message to validate.
+ * @returns True when the payload is a valid hello message.
+ */
 export function isHello(msg: unknown): msg is HelloMsg {
   if (!isRecord(msg)) return false;
   return (
@@ -111,6 +145,11 @@ export function isHello(msg: unknown): msg is HelloMsg {
   );
 }
 
+/**
+ * Validate a join message.
+ * @param msg - Raw message to validate.
+ * @returns True when the payload is a valid join message.
+ */
 export function isJoin(msg: unknown): msg is JoinMsg {
   if (!isRecord(msg)) return false;
   if (msg['type'] !== 'join') return false;
@@ -122,6 +161,11 @@ export function isJoin(msg: unknown): msg is JoinMsg {
   return true;
 }
 
+/**
+ * Validate a ping message.
+ * @param msg - Raw message to validate.
+ * @returns True when the payload is a valid ping message.
+ */
 export function isPing(msg: unknown): msg is PingMsg {
   if (!isRecord(msg)) return false;
   if (msg['type'] !== 'ping') return false;
@@ -129,6 +173,11 @@ export function isPing(msg: unknown): msg is PingMsg {
   return true;
 }
 
+/**
+ * Validate an action message.
+ * @param msg - Raw message to validate.
+ * @returns True when the payload is a valid action message.
+ */
 export function isAction(msg: unknown): msg is ActionMsg {
   if (!isRecord(msg)) return false;
   if (msg['type'] !== 'action') return false;
@@ -139,6 +188,11 @@ export function isAction(msg: unknown): msg is ActionMsg {
   return true;
 }
 
+/**
+ * Validate a view message.
+ * @param msg - Raw message to validate.
+ * @returns True when the payload is a valid view message.
+ */
 export function isView(msg: unknown): msg is ViewMsg {
   if (!isRecord(msg)) return false;
   if (msg['type'] !== 'view') return false;
@@ -151,6 +205,11 @@ export function isView(msg: unknown): msg is ViewMsg {
   return true;
 }
 
+/**
+ * Validate a viz message.
+ * @param msg - Raw message to validate.
+ * @returns True when the payload is a valid viz message.
+ */
 export function isViz(msg: unknown): msg is VizMsg {
   if (!isRecord(msg)) return false;
   if (msg['type'] !== 'viz') return false;
@@ -158,6 +217,11 @@ export function isViz(msg: unknown): msg is VizMsg {
   return true;
 }
 
+/**
+ * Parse and validate a raw client message into a typed shape.
+ * @param raw - Raw message payload.
+ * @returns Validated client message or null on failure.
+ */
 export function parseClientMessage(raw: unknown): ClientMessage | null {
   if (!isRecord(raw)) return null;
   if (typeof raw['type'] !== 'string') return null;

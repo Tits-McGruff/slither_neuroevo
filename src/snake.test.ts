@@ -3,8 +3,13 @@ import { Snake, SegmentGrid, pointSegmentDist2 } from './snake.ts';
 import { Genome, buildArch } from './mlp.ts';
 import { CFG } from './config.ts';
 
-describe('snake.ts', () => {
+/** Test suite label for snake behaviors. */
+const SUITE = 'snake.ts';
+
+describe(SUITE, () => {
+    /** Architecture used to build test genomes. */
     let arch: ReturnType<typeof buildArch>;
+    /** Genome used to spawn snakes in tests. */
     let genome: Genome;
 
     beforeEach(() => {

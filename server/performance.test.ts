@@ -3,7 +3,10 @@ import { performance } from 'node:perf_hooks';
 import { World } from '../src/world.ts';
 import { WorldSerializer } from '../src/serializer.ts';
 
-describe('performance: world tick + serialize', () => {
+/** Test suite label for server performance checks. */
+const SUITE = 'performance: world tick + serialize';
+
+describe(SUITE, () => {
   it('ticks 120 frames under a reasonable budget', () => {
     const world = new World({ snakeCount: 40, simSpeed: 1 });
     const frames = 120;

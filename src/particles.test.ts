@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { ParticleSystem } from './particles.ts';
 
-describe('particles.ts', () => {
+/** Test suite label for particle system behavior. */
+const SUITE = 'particles.ts';
+
+describe(SUITE, () => {
   it('spawns particles and expires them after updates', () => {
     const system = new ParticleSystem(2);
     system.spawn(0, 0, 0, 0, 1, 1, 0.05, 2, '#fff', 1);

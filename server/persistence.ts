@@ -5,31 +5,39 @@ import type { HallOfFameEntry, PopulationExport } from '../src/protocol/messages
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateGraph } from '../src/brains/graph/validate.ts';
 
+/** Maximum serialized snapshot size in bytes. */
 const MAX_SNAPSHOT_BYTES = 50 * 1024 * 1024;
+/** Upper bound on genome weight array length. */
 const MAX_GENOME_WEIGHTS = 2_000_000;
+/** Maximum serialized preset size in bytes. */
 const MAX_PRESET_BYTES = 256 * 1024;
 
+/** Population snapshot payload stored in SQLite. */
 export interface PopulationSnapshotPayload extends PopulationExport {
   cfgHash: string;
   worldSeed: number;
 }
 
+/** Snapshot metadata returned by list endpoints. */
 export interface SnapshotMeta {
   id: number;
   createdAt: number;
   gen: number;
 }
 
+/** Graph preset metadata returned by list endpoints. */
 export interface GraphPresetMeta {
   id: number;
   name: string;
   createdAt: number;
 }
 
+/** Graph preset payload returned by load endpoints. */
 export interface GraphPresetPayload extends GraphPresetMeta {
   spec: GraphSpec;
 }
 
+/** Persistence interface for snapshots, HoF entries, and graph presets. */
 export interface Persistence {
   saveHofEntry: (entry: HallOfFameEntry) => void;
   saveSnapshot: (payload: PopulationSnapshotPayload) => number;
@@ -41,8 +49,10 @@ export interface Persistence {
   loadGraphPreset: (id: number) => GraphPresetPayload | null;
 }
 
+/** Database handle type for better-sqlite3. */
 type DbType = ReturnType<typeof Database>;
 
+/** SQLite schema used by the server for persistence. */
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS hof_entries (
   id INTEGER PRIMARY KEY,
@@ -80,6 +90,11 @@ CREATE INDEX IF NOT EXISTS idx_snap_gen ON population_snapshots(gen);
 CREATE INDEX IF NOT EXISTS idx_graph_presets_name ON graph_presets(name);
 `;
 
+/**
+ * Initialize the SQLite database and schema.
+ * @param dbPath - Path to the sqlite database file.
+ * @returns Database handle.
+ */
 export function initDb(dbPath: string): DbType {
   if (dbPath !== ':memory:') {
     const dir = path.dirname(dbPath);
@@ -92,6 +107,11 @@ export function initDb(dbPath: string): DbType {
   return db;
 }
 
+/**
+ * Create persistence helpers backed by a SQLite database.
+ * @param db - Database handle.
+ * @returns Persistence API surface.
+ */
 export function createPersistence(db: DbType): Persistence {
   const insertHof = db.prepare(
     `INSERT INTO hof_entries (created_at, gen, seed, fitness, points, length, genome_json)
@@ -121,6 +141,7 @@ export function createPersistence(db: DbType): Persistence {
     `SELECT id, created_at, name, spec_json FROM graph_presets WHERE id = ?`
   );
 
+  /** Persist a Hall of Fame entry. */
   const saveHofEntry = (entry: HallOfFameEntry): void => {
     if (!entry || !Number.isFinite(entry.gen)) return;
     if (!Number.isFinite(entry.fitness)) return;
@@ -135,6 +156,7 @@ export function createPersistence(db: DbType): Persistence {
     });
   };
 
+  /** Persist a population snapshot and return its id. */
   const saveSnapshot = (payload: PopulationSnapshotPayload): number => {
     validateSnapshotPayload(payload);
     const json = JSON.stringify(payload);
@@ -150,12 +172,14 @@ export function createPersistence(db: DbType): Persistence {
     return Number(info.lastInsertRowid);
   };
 
+  /** Load the latest population snapshot. */
   const loadLatestSnapshot = (): PopulationSnapshotPayload | null => {
     const row = latestSnapshot.get() as { payload_json?: string } | undefined;
     if (!row?.payload_json) return null;
     return JSON.parse(row.payload_json) as PopulationSnapshotPayload;
   };
 
+  /** List snapshot metadata in descending order. */
   const listSnapshots = (limit: number): SnapshotMeta[] => {
     const rows = listSnapshotStmt.all(limit) as Array<{
       id: number;
@@ -169,6 +193,7 @@ export function createPersistence(db: DbType): Persistence {
     }));
   };
 
+  /** Load a specific snapshot payload by id. */
   const exportSnapshot = (id: number): PopulationSnapshotPayload => {
     const row = exportSnapshotStmt.get(id) as { payload_json?: string } | undefined;
     if (!row?.payload_json) {
@@ -177,6 +202,7 @@ export function createPersistence(db: DbType): Persistence {
     return JSON.parse(row.payload_json) as PopulationSnapshotPayload;
   };
 
+  /** Persist a graph preset and return its id. */
   const saveGraphPreset = (name: string, spec: GraphSpec): number => {
     const trimmed = name.trim();
     if (!trimmed) {
@@ -199,6 +225,7 @@ export function createPersistence(db: DbType): Persistence {
     return Number(info.lastInsertRowid);
   };
 
+  /** List graph presets in descending order. */
   const listGraphPresets = (limit: number): GraphPresetMeta[] => {
     const rows = listGraphPresetsStmt.all(limit) as Array<{
       id: number;
@@ -212,6 +239,7 @@ export function createPersistence(db: DbType): Persistence {
     }));
   };
 
+  /** Load a graph preset payload by id. */
   const loadGraphPreset = (id: number): GraphPresetPayload | null => {
     const row = loadGraphPresetStmt.get(id) as
       | { id?: number; created_at?: number; name?: string; spec_json?: string }
@@ -242,6 +270,11 @@ export function createPersistence(db: DbType): Persistence {
   };
 }
 
+/**
+ * Validate a snapshot payload and assert it matches required fields.
+ * @param payload - Raw payload to validate.
+ * @throws Error when payload is invalid.
+ */
 export function validateSnapshotPayload(payload: unknown): asserts payload is PopulationSnapshotPayload {
   if (!payload || typeof payload !== 'object') {
     throw new Error('snapshot payload must be an object');

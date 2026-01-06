@@ -3,6 +3,11 @@ import WebSocket, { type RawData } from 'ws';
 import { startServer } from './index.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 
+/**
+ * Parses WS text payloads into JSON objects when possible.
+ * @param data - Raw websocket payload.
+ * @returns Parsed JSON object or null on failure.
+ */
 function parseJsonMessage(data: RawData): Record<string, unknown> | null {
   const text =
     typeof data === 'string'
@@ -21,6 +26,10 @@ function parseJsonMessage(data: RawData): Record<string, unknown> | null {
   }
 }
 
+/**
+ * Starts the server and returns null when permissions prevent binding.
+ * @returns Server handle or null when the port is unavailable.
+ */
 async function startServerWithGuard() {
   const isEperm = (err: unknown): boolean =>
     (err as { code?: string } | null)?.code === 'EPERM';

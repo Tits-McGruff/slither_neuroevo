@@ -5,17 +5,21 @@
 import { Genome } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry } from './protocol/messages.ts';
 
+/** Local storage key for population persistence. */
 const STORAGE_KEY = 'slither_neuroevo_pop';
 
+/** Payload stored in localStorage for population persistence. */
 export interface PopulationStoragePayload {
   generation: number;
   genomes: GenomeJSON[];
 }
 
+/** Payload stored in export files, optionally including HoF. */
 export interface PopulationFilePayload extends PopulationStoragePayload {
   hof?: HallOfFameEntry[];
 }
 
+/** Genome type alias for storage helpers. */
 type GenomeLike = Genome;
 
 /**
@@ -24,8 +28,8 @@ type GenomeLike = Genome;
 export const Storage = {
     /**
      * Saves an item to localStorage.
-     * @param {string} key
-     * @param {unknown} value
+     * @param key - Storage key to write.
+     * @param value - Value to serialize and store.
      */
     save(key: string, value: unknown): boolean {
         try {
@@ -40,8 +44,8 @@ export const Storage = {
 
     /**
      * Loads an item from localStorage.
-     * @param {string} key
-     * @returns {unknown|null}
+     * @param key - Storage key to read.
+     * @returns Parsed value or null when missing or invalid.
      */
     load(key: string): unknown | null {
         try {
@@ -55,7 +59,7 @@ export const Storage = {
 
     /**
      * Removes an item from localStorage.
-     * @param {string} key
+     * @param key - Storage key to remove.
      */
     remove(key: string): void {
         localStorage.removeItem(key);
@@ -64,8 +68,8 @@ export const Storage = {
 
 /**
  * Saves the current population and generation to localStorage.
- * @param {number} generation
- * @param {Array<Genome>} population
+ * @param generation - Current generation number.
+ * @param population - Genome instances to persist.
  */
 export function savePopulation(generation: number, population: GenomeLike[]): void {
   try {
@@ -82,8 +86,8 @@ export function savePopulation(generation: number, population: GenomeLike[]): vo
 
 /**
  * Loads the population from localStorage.
- * @param {Object} arch Neural network architecture definition (for validation/reconstruction if needed)
- * @returns {{generation: number, genomes: Array<Genome>}|null}
+ * @param arch - Neural network architecture definition (unused today).
+ * @returns Population payload or null when unavailable.
  */
 export function loadPopulation(
   arch: unknown
@@ -108,8 +112,8 @@ export function loadPopulation(
 
 /**
  * Triggers a download of the given data object as a JSON file.
- * @param {Object} data 
- * @param {string} filename 
+ * @param data - File payload to serialize.
+ * @param filename - Downloaded file name.
  */
 export function exportToFile(data: PopulationFilePayload, filename: string): void {
   exportJsonToFile(data, filename);
@@ -117,8 +121,8 @@ export function exportToFile(data: PopulationFilePayload, filename: string): voi
 
 /**
  * Reads a JSON file and parses it.
- * @param {File} file 
- * @returns {Promise<Object>}
+ * @param file - File object selected by the user.
+ * @returns Promise resolving to parsed payload.
  */
 export function importFromFile(file: File): Promise<PopulationFilePayload> {
   return new Promise((resolve, reject) => {
@@ -138,8 +142,8 @@ export function importFromFile(file: File): Promise<PopulationFilePayload> {
 
 /**
  * Triggers a download of the given data object as a JSON file.
- * @param {Object} data 
- * @param {string} filename 
+ * @param data - File payload to serialize.
+ * @param filename - Downloaded file name.
  */
 export function exportJsonToFile(data: unknown, filename: string): void {
   const json = JSON.stringify(data, null, 2);

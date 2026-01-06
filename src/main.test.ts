@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+/** Minimal worker stub for tracking messages in main thread tests. */
 type WorkerStub = {
   messages: unknown[];
   onmessage: ((event: MessageEvent) => void) | null;
   postMessage: (msg: unknown) => void;
 };
 
+/** Global object shape override used in DOM-free tests. */
 type TestGlobal = typeof globalThis & {
   document?: Document;
   window?: Window & typeof globalThis;
@@ -17,8 +19,13 @@ type TestGlobal = typeof globalThis & {
   currentWorld?: { fitnessHistory: unknown[] };
 };
 
+/** Mutable global alias with test-specific fields. */
 const globalAny = globalThis as TestGlobal;
 
+/**
+ * Builds a minimal 2D canvas context stub.
+ * @returns Canvas 2D context shim.
+ */
 function makeCtx(): CanvasRenderingContext2D {
   return {
     setTransform() {},
@@ -33,19 +40,15 @@ function makeCtx(): CanvasRenderingContext2D {
   } as unknown as CanvasRenderingContext2D;
 }
 
-type TestElement = Partial<HTMLElement> & {
+/** Minimal element stub used for DOM wiring tests. */
+type TestElement = {
   id: string;
   value: string;
   textContent: string;
   innerHTML: string;
   style: Record<string, string>;
   dataset: Record<string, string>;
-  classList: {
-    add: () => void;
-    remove: () => void;
-    toggle: () => void;
-    contains: () => boolean;
-  };
+  classList: DOMTokenList;
   addEventListener: () => void;
   appendChild: () => void;
   setAttribute: () => void;
@@ -54,6 +57,50 @@ type TestElement = Partial<HTMLElement> & {
   click: () => void;
 };
 
+/**
+ * Builds a DOMTokenList stub for classList usage.
+ * @returns DOMTokenList shim.
+ */
+function makeClassList(): DOMTokenList {
+  return {
+    length: 0,
+    value: '',
+    add() {},
+    remove() {},
+    toggle() {
+      return false;
+    },
+    contains() {
+      return false;
+    },
+    item() {
+      return null;
+    },
+    replace() {
+      return false;
+    },
+    supports() {
+      return false;
+    },
+    forEach() {},
+    entries() {
+      return [][Symbol.iterator]();
+    },
+    keys() {
+      return [][Symbol.iterator]();
+    },
+    values() {
+      return [][Symbol.iterator]();
+    }
+  } as unknown as DOMTokenList;
+}
+
+/**
+ * Creates a test element with optional property overrides.
+ * @param id - Element id to assign.
+ * @param overrides - Optional field overrides.
+ * @returns Test element stub.
+ */
 function makeElement(id: string, overrides: Record<string, unknown> = {}): TestElement {
   return {
     id,
@@ -62,14 +109,7 @@ function makeElement(id: string, overrides: Record<string, unknown> = {}): TestE
     innerHTML: '',
     style: {},
     dataset: {},
-    classList: {
-      add() {},
-      remove() {},
-      toggle() {},
-      contains() {
-        return false;
-      }
-    },
+    classList: makeClassList(),
     addEventListener() {},
     appendChild() {},
     setAttribute() {},
@@ -171,64 +211,82 @@ describe('main.ts', () => {
 
     originalDocument = globalAny.document;
     const mockDocument: Partial<Document> = {
-      getElementById: (id: string) => elements.get(id) || makeElement(id),
+      getElementById: (id: string) =>
+        (elements.get(id) || makeElement(id)) as unknown as HTMLElement,
       querySelectorAll: (selector: string) => {
-        if (selector === '.tab-btn') return tabBtns;
-        if (selector === '.tab-content') return tabContents;
-        return [];
+        if (selector === '.tab-btn') return tabBtns as unknown as NodeListOf<HTMLElement>;
+        if (selector === '.tab-content') return tabContents as unknown as NodeListOf<HTMLElement>;
+        return [] as unknown as NodeListOf<HTMLElement>;
       },
       querySelector: () => tabBtns[1] ?? null,
       createElement: () => makeElement('created') as unknown as HTMLElement,
-      createElementNS: () => makeElement('created-ns') as unknown as HTMLElement
+      createElementNS: ((namespaceURI: string, qualifiedName: string) => {
+        void namespaceURI;
+        void qualifiedName;
+        return makeElement('created-ns') as unknown as Element;
+      }) as Document['createElementNS']
     };
     globalAny.document = mockDocument as Document;
 
     originalWindow = globalAny.window;
-    globalAny.window = globalAny;
+    globalAny.window = globalAny as unknown as Window & typeof globalThis;
     globalAny.window.devicePixelRatio = 1;
     globalAny.window.addEventListener = () => {};
 
     originalLocalStorage = globalAny.localStorage;
     const storage = new Map<string, string>();
     globalAny.localStorage = {
+      length: 0,
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => {
         storage.set(key, value);
       },
       removeItem: (key: string) => {
         storage.delete(key);
-      }
-    };
+      },
+      clear: () => {
+        storage.clear();
+      },
+      key: () => null
+    } as Storage;
 
     originalRaf = globalAny.requestAnimationFrame;
     globalAny.requestAnimationFrame = () => 0;
 
     originalWorker = globalAny.Worker;
+    /** Worker stub that captures posted messages for assertions. */
     class StubWorker implements WorkerStub {
+      /** Recorded messages posted by the main thread. */
       messages: unknown[];
+      /** Message handler assigned by the main module. */
       onmessage: ((event: MessageEvent) => void) | null;
 
+      /** Create a stub worker and register it on the test global. */
       constructor() {
         this.messages = [];
         this.onmessage = null;
         globalAny.__workerInstance = this;
       }
+      /**
+       * Record a posted message.
+       * @param msg - Message payload to store.
+       */
       postMessage(msg: unknown) {
         this.messages.push(msg);
       }
     }
     globalAny.Worker = StubWorker as unknown as typeof Worker;
 
-    globalAny.WebSocket = undefined;
+    globalAny.WebSocket = undefined as unknown as typeof WebSocket;
   });
 
   afterEach(() => {
-    globalAny.document = originalDocument;
-    globalAny.window = originalWindow;
-    globalAny.Worker = originalWorker;
-    globalAny.localStorage = originalLocalStorage;
+    globalAny.document = originalDocument as Document;
+    globalAny.window = originalWindow as Window & typeof globalThis;
+    globalAny.Worker = originalWorker as typeof Worker;
+    globalAny.localStorage = originalLocalStorage as Storage;
     delete globalAny.WebSocket;
-    globalAny.requestAnimationFrame = originalRaf;
+    globalAny.requestAnimationFrame = originalRaf as (callback: FrameRequestCallback) => number;
     delete globalAny.__workerInstance;
   });
 
@@ -241,7 +299,7 @@ describe('main.ts', () => {
     const first = worker?.messages[0];
     const firstMsg =
       first && typeof first === 'object' ? (first as Record<string, unknown>) : null;
-    expect(firstMsg?.type).toBe('init');
+    expect(firstMsg?.['type']).toBe('init');
   });
 
   it('maps fitness history payloads into the shared history buffer', async () => {
@@ -265,8 +323,9 @@ describe('main.ts', () => {
     } as MessageEvent);
 
     expect(globalAny.currentWorld).toBeDefined();
-    expect(globalAny.currentWorld.fitnessHistory.length).toBe(1);
-    expect(globalAny.currentWorld.fitnessHistory[0]).toEqual({
+    const world = globalAny.currentWorld as NonNullable<TestGlobal['currentWorld']>;
+    expect(world.fitnessHistory.length).toBe(1);
+    expect(world.fitnessHistory[0]).toEqual({
       gen: 1,
       avgFitness: 2.5,
       maxFitness: 4,

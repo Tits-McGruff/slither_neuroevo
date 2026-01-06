@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+/** Map of test categories to filename suffix filters. */
 const categories = {
   unit: ['unit.test.ts'],
   integration: ['integration.test.ts'],
@@ -12,8 +13,10 @@ const categories = {
   security: ['security.test.ts']
 } as const;
 
+/** Valid test category names. */
 type Category = keyof typeof categories;
 
+/** Selected category from CLI args. */
 const category = process.argv[2] as Category | undefined;
 if (!category || !(category in categories)) {
   const allowed = Object.keys(categories).join(', ');
@@ -21,10 +24,14 @@ if (!category || !(category in categories)) {
   process.exit(1);
 }
 
+/** File suffixes to match for the selected category. */
 const suffixes = categories[category];
+/** Root folders to scan for tests. */
 const roots = ['src', 'server'];
+/** Collected test file paths for the selected category. */
 const files: string[] = [];
 
+/** Recursively scan a directory and collect matching test files. */
 function walk(dir: string): void {
   if (!existsSync(dir)) return;
   const entries = readdirSync(dir, { withFileTypes: true });

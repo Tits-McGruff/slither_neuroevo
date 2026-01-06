@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { parseClientMessage } from './protocol.ts';
 
-describe('server protocol', () => {
+/** Test suite label for server protocol validation. */
+const SUITE = 'server protocol';
+
+describe(SUITE, () => {
   it('accepts a valid hello message', () => {
     const msg = parseClientMessage({ type: 'hello', clientType: 'ui', version: 1 });
     expect(msg?.type).toBe('hello');

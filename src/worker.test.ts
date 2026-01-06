@@ -2,19 +2,21 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { CFG, resetCFGToDefaults } from './config.ts';
 
 describe('worker.ts', () => {
+  /** Minimal worker scope stub for message handling tests. */
   type WorkerScope = {
     onmessage: ((event: MessageEvent) => void) | null;
     postMessage: (message: unknown) => void;
   };
-  const globalAny = globalThis as typeof globalThis & { self?: WorkerScope };
-  let originalSelf: WorkerScope | undefined;
+  /** Global shim for worker self assignment. */
+  const globalAny = globalThis as Record<string, unknown> & { self?: unknown };
+  let originalSelf: unknown;
 
   beforeEach(() => {
     originalSelf = globalAny.self;
     globalAny.self = {
       onmessage: null,
       postMessage: () => {}
-    };
+    } as WorkerScope;
   });
 
   afterEach(() => {
@@ -25,7 +27,7 @@ describe('worker.ts', () => {
   it('applies updateSettings messages to CFG', async () => {
     await import('./worker.ts');
 
-    const handler = globalAny.self?.onmessage;
+    const handler = (globalAny.self as WorkerScope | undefined)?.onmessage;
     if (!handler) throw new Error('Expected worker onmessage handler');
     handler({
       data: {

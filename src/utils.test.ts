@@ -11,7 +11,10 @@ import {
   hsvToRgb
 } from './utils.ts';
 
-describe('utils.ts', () => {
+/** Test suite label for utils helpers. */
+const SUITE = 'utils.ts';
+
+describe(SUITE, () => {
   it('deepClone should create a deep copy', () => {
     const obj = { a: 1, b: { c: 2 } };
     const cloned = deepClone(obj);

@@ -11,22 +11,42 @@ import type { Brain } from './brains/types.ts';
 
 /**
  * Simple data class representing a pellet at (x,y) with value v.
- * @class
  */
 export class Pellet {
+  /** World X position. */
   x: number;
+  /** World Y position. */
   y: number;
+  /** Energy value provided when eaten. */
   v: number;
+  /** Optional explicit color override. */
   color: string | null;
+  /** Pellet kind identifier. */
   kind: string;
+  /** Optional palette id for fast renderer. */
   colorId: number;
+  /** Internal index hint for bookkeeping. */
   _idx?: number;
+  /** Cached grid cell X coordinate. */
   _pcx?: number;
+  /** Cached grid cell Y coordinate. */
   _pcy?: number;
+  /** Cached grid cell key string. */
   _pkey?: string;
+  /** Cached reference to the cell array. */
   _cellArr: Pellet[] | null = null;
+  /** Index within the cached cell array. */
   _cellIndex?: number;
 
+  /**
+   * Create a pellet with position, value, and optional styling metadata.
+   * @param x - World X position.
+   * @param y - World Y position.
+   * @param v - Pellet energy value.
+   * @param color - Optional explicit color.
+   * @param kind - Pellet kind identifier.
+   * @param colorId - Optional palette id for rendering.
+   */
   constructor(x: number, y: number, v: number, color: string | null = null, kind = "ambient", colorId = 0) {
     this.x = x;
     this.y = y;
@@ -37,28 +57,33 @@ export class Pellet {
   }
 }
 
+/** Simple point structure for snake segments. */
 interface Point {
   x: number;
   y: number;
 }
 
+/** Minimal pellet shape used for grid interfaces. */
 interface PelletLike {
   x: number;
   y: number;
   v: number;
 }
 
+/** Pellet grid interface used by the snake for local queries. */
 interface PelletGridLike {
   map?: Map<string, PelletLike[]>;
   cellSize?: number;
   forEachInRadius?: (x: number, y: number, r: number, fn: (p: Pellet) => void) => void;
 }
 
+/** Particle system interface used for snake effects. */
 interface ParticleSystemLike {
   spawnBurst: (x: number, y: number, color: string, count: number, strength: number) => void;
   spawnBoost: (x: number, y: number, ang: number, color: string) => void;
 }
 
+/** World interface required by the snake for updates and pellet ops. */
 interface WorldLike {
   pellets: Pellet[];
   pelletGrid?: PelletGridLike;
@@ -68,6 +93,7 @@ interface WorldLike {
   bestPointsThisGen: number;
 }
 
+/** External control input for turn and boost values. */
 export type ControlInput = { turn: number; boost: number };
 
 /**
@@ -89,33 +115,65 @@ function computeSnakeRadiusByLen(len: number): number {
  * logic, food collection and state updates.
  */
 export class Snake {
+  /** Unique snake identifier. */
   id: number;
+  /** Render color for the snake. */
   color: string;
+  /** World X position for the head. */
   x: number;
+  /** World Y position for the head. */
   y: number;
+  /** Heading angle in radians. */
   dir: number;
+  /** Current radius computed from length. */
   radius: number;
+  /** Current speed in world units per second. */
   speed: number;
+  /** Boost state flag as numeric value. */
   boost: number;
+  /** Whether the snake is alive. */
   alive: boolean;
+  /** Total number of pellets eaten. */
   foodEaten: number;
+  /** Age in seconds since spawn. */
   age: number;
+  /** Accumulated kill score. */
   killScore: number;
+  /** Accumulated points score. */
   pointsScore: number;
+  /** Target length for growth and shrink updates. */
   targetLen: number;
+  /** Body segment points from head to tail. */
   points: Point[];
+  /** Genome used to build the brain. */
   genome: Genome;
+  /** Brain instance used for control decisions. */
   brain: Brain;
+  /** Latest turn input applied. */
   turnInput: number;
+  /** Latest boost input applied. */
   boostInput: number;
+  /** Scratch buffer for sensor values. */
   _sensorBuf?: Float32Array;
+  /** Accumulator for control update timing. */
   _ctrlAcc?: number;
+  /** Flag indicating control action availability. */
   _hasAct?: number;
+  /** Whether the last control input was external. */
   _lastControlExternal?: boolean;
+  /** Cached last sensor vector for debug UI. */
   lastSensors?: number[];
+  /** Cached last output vector for debug UI. */
   lastOutputs?: number[];
+  /** Cached fitness value for reporting. */
   fitness?: number;
 
+  /**
+   * Create a new snake instance with a generated brain.
+   * @param id - Unique snake id.
+   * @param genome - Genome used to build the brain.
+   * @param arch - Architecture definition for the brain.
+   */
   constructor(id: number, genome: Genome, arch: ArchDefinition) {
     this.id = id;
     this.color = hashColor(id * 17 + 3);
@@ -182,8 +240,8 @@ export class Snake {
     this.radius = computeSnakeRadiusByLen(this.length());
   }
   /**
-   * Kills the snake and drops pellets behind it.  Only applies once.
-   * @param {World} world
+   * Kill the snake and drop pellets behind it. Only applies once.
+   * @param world - World context for pellet spawning.
    */
   die(world: WorldLike): void {
     if (!this.alive) return;
@@ -267,9 +325,9 @@ export class Snake {
     }
   }
   /**
-   * Computes the fitness score according to the configured reward weights.
-   * @param {number} pointsNorm Normalised points score in [0,1].
-   * @param {number} topPointsBonus Bonus applied to top performers.
+   * Compute the fitness score according to the configured reward weights.
+   * @param pointsNorm - Normalized points score in [0,1].
+   * @param topPointsBonus - Bonus applied to top performers.
    */
   computeFitness(pointsNorm: number, topPointsBonus: number): number {
     const len = this.length();
@@ -287,11 +345,11 @@ export class Snake {
     );
   }
   /**
-   * Burns points to enable boosting and shrinks the snake accordingly.
-   * @private
-   * @param {World} world
-   * @param {number} dt
-   * @returns {number} Points spent this frame
+   * Burn points to enable boosting and shrink the snake accordingly.
+   * @internal
+   * @param world - World context for pellet spawning.
+   * @param dt - Delta time in seconds.
+   * @returns Points spent this frame.
    */
   _applyBoostMassBurn(world: WorldLike, dt: number): number {
     const lenNow = this.length();
@@ -344,11 +402,12 @@ export class Snake {
     return buildSensors(world, this, this._sensorBuf);
   }
   /**
-   * Main update routine.  Invoked once per substep by the World.  Handles
-   * sensor evaluation, neural network inference, movement, food collection
-   * and growth/shrink logic.
-   * @param {World} world
-   * @param {number} dt
+   * Main update routine invoked once per substep by the World.
+   * Handles sensor evaluation, neural network inference, movement, food
+   * collection, and growth/shrink logic.
+   * @param world - World context for collisions and pellets.
+   * @param dt - Delta time in seconds.
+   * @param control - Optional external control input.
    */
   update(world: WorldLike, dt: number, control?: ControlInput): void {
     if (!this.alive) return;
@@ -517,7 +576,9 @@ export function pointSegmentDist2(
  * cells can then be queried during collision resolution.
  */
 export class SegmentGrid {
+  /** Spatial hash cell size in world units. */
   cellSize: number;
+  /** Map of cell keys to snake segment references. */
   map: Map<string, Array<{ s: Snake; i: number }>>;
 
   constructor() {
@@ -538,9 +599,9 @@ export class SegmentGrid {
     return cx + "," + cy;
   }
   /**
-   * Adds a segment of a snake into the appropriate cell.  The segment
-   * index must be >=1 so that it references a valid segment between
-   * points[idx-1] and points[idx].
+   * Add a segment of a snake into the appropriate cell.
+   * The segment index must be at least 1 so that it references a valid segment
+   * between points[idx-1] and points[idx].
    */
   addSegment(snake: Snake, idx: number): void {
     const p0 = snake.points[idx - 1];
@@ -559,8 +620,8 @@ export class SegmentGrid {
     arr.push({ s: snake, i: idx });
   }
   /**
-   * Populates the grid with segments from all alive snakes.
-   * @param {Array<Snake>} snakes
+   * Populate the grid with segments from all alive snakes.
+   * @param snakes - Snakes to insert into the spatial grid.
    */
   build(snakes: Snake[]): void {
     this.resetForCFG();
@@ -572,10 +633,10 @@ export class SegmentGrid {
     }
   }
   /**
-   * Looks up all segments in the cell (cx,cy).
-   * @param {number} cx
-   * @param {number} cy
-   * @returns {Array<{s: Snake, i: number}>|null}
+   * Look up all segments in the cell (cx,cy).
+   * @param cx - Cell x coordinate.
+   * @param cy - Cell y coordinate.
+   * @returns Segment list or null when empty.
    */
   query(cx: number, cy: number): Array<{ s: Snake; i: number }> | null {
     return this.map.get(this._key(cx, cy)) || null;

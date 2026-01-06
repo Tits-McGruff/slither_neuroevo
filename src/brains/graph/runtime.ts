@@ -4,6 +4,7 @@ import { DenseHead, GRU, LSTM, MLP, RRU } from '../ops.ts';
 import type { CompiledGraph, CompiledNode } from './compiler.ts';
 import type { GraphNodeType } from './schema.ts';
 
+/** Runtime representation of a compiled graph node. */
 interface RuntimeNode {
   id: string;
   type: GraphNodeType;
@@ -19,6 +20,11 @@ interface RuntimeNode {
   head?: DenseHead;
 }
 
+/**
+ * Build visualization layers for a runtime node.
+ * @param node - Runtime node to inspect.
+ * @returns Visualization layer list.
+ */
 function createVizLayers(node: RuntimeNode): VizLayer[] {
   if (node.mlp) {
     const layers: VizLayer[] = [];
@@ -46,6 +52,13 @@ function createVizLayers(node: RuntimeNode): VizLayer[] {
   return [];
 }
 
+/**
+ * Construct a runtime node from compiled metadata and weight buffer.
+ * @param node - Compiled node metadata.
+ * @param weights - Full weight buffer.
+ * @param inputRefs - Input buffers from upstream nodes.
+ * @returns Runtime node instance.
+ */
 function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: Float32Array[]): RuntimeNode {
   const slice = node.paramLength
     ? weights.subarray(node.paramOffset, node.paramOffset + node.paramLength)
@@ -182,14 +195,26 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
   }
 }
 
+/** Graph-based brain runtime for compiled specs. */
 export class GraphBrain implements Brain {
+  /** Compiled graph metadata used by this runtime. */
   compiled: CompiledGraph;
+  /** Weight buffer for all nodes. */
   weights: Float32Array;
+  /** Runtime nodes built from compiled metadata. */
   nodes: RuntimeNode[];
+  /** Flattened output buffer returned from forward passes. */
   output: Float32Array;
+  /** Input buffer for the input node. */
   inputBuffer: Float32Array;
+  /** Output references for each graph output port. */
   outputRefs: Float32Array[];
 
+  /**
+   * Create a graph brain runtime from a compiled spec and weights.
+   * @param compiled - Compiled graph metadata.
+   * @param weights - Weight buffer for all nodes.
+   */
   constructor(compiled: CompiledGraph, weights: Float32Array) {
     this.compiled = compiled;
     this.weights = weights;
@@ -226,6 +251,11 @@ export class GraphBrain implements Brain {
     });
   }
 
+  /**
+   * Run a forward pass through the graph.
+   * @param input - Input buffer to copy into the input node.
+   * @returns Output buffer.
+   */
   forward(input: Float32Array): Float32Array {
     if (input.length === this.inputBuffer.length) {
       this.inputBuffer.set(input);
@@ -242,14 +272,20 @@ export class GraphBrain implements Brain {
     return this.output;
   }
 
+  /** Reset all node state to the initial state. */
   reset(): void {
     for (const node of this.nodes) node.reset();
   }
 
+  /** Return the total parameter length for this graph. */
   paramLength(): number {
     return this.compiled.totalParams;
   }
 
+  /**
+   * Build visualization data for all nodes.
+   * @returns Visualization payload.
+   */
   getVizData(): VizData {
     const layers: VizLayer[] = [];
     for (const node of this.nodes) {

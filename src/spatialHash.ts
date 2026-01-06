@@ -1,25 +1,35 @@
-// spatialHash.ts
-// A flat, zero-allocation spatial hash grid for collision detection.
-// Uses TypedArrays for the linked list structure to avoid Garbage Collection.
+/** Flat, zero-allocation spatial hash grid for collision detection. */
 
+/** Spatial hash grid using typed arrays to avoid GC. */
 export class FlatSpatialHash<T extends { alive: boolean; points: Array<{ x: number; y: number }> }> {
+  /** Size of each spatial hash cell in world units. */
   cellSize: number;
+  /** Column count in the grid. */
   cols: number;
+  /** Row count in the grid. */
   rows: number;
+  /** Half column count used for coordinate offsetting. */
   halfCols: number;
+  /** Half row count used for coordinate offsetting. */
   halfRows: number;
+  /** Head indices for linked lists stored per cell. */
   head: Int32Array;
+  /** Next pointers for linked list nodes. */
   next: Int32Array;
+  /** Segment indices corresponding to each node. */
   indices: Int32Array;
+  /** Object references corresponding to each node. */
   objects: Array<T | undefined>;
+  /** Current number of stored nodes. */
   count: number;
+  /** Maximum number of nodes that can be stored. */
   capacity: number;
 
   /**
-   * @param {number} width World width (approx)
-   * @param {number} height World height (approx)
-   * @param {number} cellSize 
-   * @param {number} capacity Max number of segments to track
+   * @param width - Approximate world width.
+   * @param height - Approximate world height.
+   * @param cellSize - Spatial hash cell size.
+   * @param capacity - Max number of segments to track.
    */
   constructor(width: number, height: number, cellSize: number, capacity: number) {
     this.cellSize = cellSize;
@@ -41,6 +51,10 @@ export class FlatSpatialHash<T extends { alive: boolean; points: Array<{ x: numb
     this.capacity = capacity;
   }
 
+  /**
+   * Reset the grid and optionally update the cell size.
+   * @param cellSize - Optional new cell size.
+   */
   reset(cellSize?: number): void {
     if (cellSize) {
        // Re-dim if needed? For now assuming fixed world size, but dynamic cell size.
@@ -69,9 +83,9 @@ export class FlatSpatialHash<T extends { alive: boolean; points: Array<{ x: numb
   }
 
   /**
-   * Populates the grid with segments from all alive snakes.
-   * @param {Array<{alive: boolean, points: Array<{x: number, y: number}>}>} snakes
-   * @param {number} skipSegments
+   * Populate the grid with segments from all alive snakes.
+   * @param snakes - Snakes to insert into the grid.
+   * @param skipSegments - Number of head segments to skip.
    */
   build(snakes: T[], skipSegments = 0): void {
     this.reset();
@@ -90,6 +104,13 @@ export class FlatSpatialHash<T extends { alive: boolean; points: Array<{ x: numb
     }
   }
   
+  /**
+   * Add a segment midpoint to the spatial hash.
+   * @param x - Segment midpoint x coordinate.
+   * @param y - Segment midpoint y coordinate.
+   * @param snake - Snake reference for the segment.
+   * @param segIdx - Segment index on the snake.
+   */
   add(x: number, y: number, snake: T, segIdx: number): void {
     if (this.count >= this.capacity) return; // Full
 
@@ -110,10 +131,10 @@ export class FlatSpatialHash<T extends { alive: boolean; points: Array<{ x: numb
   }
 
   /**
-   * Queries specific cell.
-   * @param {number} x 
-   * @param {number} y 
-   * @param {Function} callback (snake, segIdx) => void
+   * Query the cell containing a world-space position.
+   * @param x - World X coordinate.
+   * @param y - World Y coordinate.
+   * @param callback - Callback invoked with each segment in the cell.
    */
   query(x: number, y: number, callback: (snake: T, segIdx: number) => void): void {
     const cx = Math.floor(x / this.cellSize) + this.halfCols;
@@ -138,10 +159,10 @@ export class FlatSpatialHash<T extends { alive: boolean; points: Array<{ x: numb
   }
 
   /**
-   * Queries by raw cell coordinates (integers).
-   * @param {number} rawCx 
-   * @param {number} rawCy 
-   * @param {Function} callback 
+   * Query by raw cell coordinates (integers).
+   * @param rawCx - Cell X coordinate relative to origin.
+   * @param rawCy - Cell Y coordinate relative to origin.
+   * @param callback - Callback invoked with each segment in the cell.
    */
   queryCell(rawCx: number, rawCy: number, callback: (snake: T, segIdx: number) => void): void {
     const cx = rawCx + this.halfCols;
