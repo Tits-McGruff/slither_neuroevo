@@ -25,7 +25,7 @@ interface UiDefaults {
  * @returns Absolute config path.
  */
 function resolveServerConfigPath(): string {
-  const configPath = process.env.SERVER_CONFIG ?? "server/config.toml";
+  const configPath = process.env["SERVER_CONFIG"] ?? "server/config.toml";
   return path.resolve(process.cwd(), configPath);
 }
 
