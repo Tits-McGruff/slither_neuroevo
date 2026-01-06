@@ -7,7 +7,7 @@
 
 import { CFG, resetCFGToDefaults } from './config.ts';
 import { setupSettingsUI, updateCFGFromUI } from './settings.ts';
-import { clamp, lerp, setByPath } from './utils.ts';
+import { lerp, setByPath } from './utils.ts';
 import { renderWorldStruct } from './render.ts';
 // import { World } from './world.ts'; // Logic moved to worker
 import { exportJsonToFile, exportToFile, importFromFile } from './storage.ts';
