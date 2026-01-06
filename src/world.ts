@@ -11,6 +11,9 @@ import { FlatSpatialHash } from './spatialHash.ts';
 import type { ArchDefinition } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData, PopulationExport } from './protocol/messages.ts';
 
+/** Starting id reserved for externally controlled snakes. */
+const EXTERNAL_SNAKE_ID_START = 100000;
+
 /** Optional settings overrides accepted by the World constructor. */
 interface WorldSettingsInput {
   snakeCount?: number;
@@ -176,7 +179,7 @@ export class World {
     // worldRadius * 2 = width.
     const w = this.settings.worldRadius * 2.5; 
     this._collGrid = new FlatSpatialHash(w, w, this.settings.collision.cellSize, 200000);
-    this._nextExternalSnakeId = 100000;
+    this._nextExternalSnakeId = EXTERNAL_SNAKE_ID_START;
     this._initPopulation();
     this._spawnAll();
     this._collGrid.build(this.snakes, CFG.collision.skipSegments);
@@ -731,10 +734,20 @@ removePellet(p: Pellet): void {
 
   /**
    * Spawns a new externally controlled snake with a fresh genome.
+   * Reuses dead external slots to avoid unbounded growth.
    */
   spawnExternalSnake(): Snake {
-    const id = this._nextExternalSnakeId++;
     const genome = Genome.random(this.arch);
+    const reusableIndex = this.snakes.findIndex(
+      (snake) => !snake.alive && snake.id >= EXTERNAL_SNAKE_ID_START
+    );
+    if (reusableIndex >= 0) {
+      const existingId = this.snakes[reusableIndex]!.id;
+      const snake = new Snake(existingId, genome, this.arch);
+      this.snakes[reusableIndex] = snake;
+      return snake;
+    }
+    const id = this._nextExternalSnakeId++;
     const snake = new Snake(id, genome, this.arch);
     this.snakes.push(snake);
     return snake;

@@ -248,8 +248,9 @@ export class SimServer {
     this.controllers.reassignDeadSnakes(() => this.world.spawnExternalSnake().id);
     this.handleGenerationEnd();
 
-    const frame = WorldSerializer.serialize(this.world);
-    if (now - this.lastFrameSentAt >= 1000 / this.uiFrameRateHz) {
+    const shouldBroadcastFrame = now - this.lastFrameSentAt >= 1000 / this.uiFrameRateHz;
+    if (shouldBroadcastFrame && this.wsHub.hasFrameRecipients()) {
+      const frame = WorldSerializer.serialize(this.world);
       this.wsHub.broadcastFrame(frame);
       this.lastFrameSentAt = now;
     }

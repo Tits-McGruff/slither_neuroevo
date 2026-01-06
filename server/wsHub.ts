@@ -102,6 +102,20 @@ export class WsHub {
   }
 
   /**
+   * Check whether any UI client is ready to receive frames.
+   * @returns True when at least one joined UI client can accept frames.
+   */
+  hasFrameRecipients(): boolean {
+    for (const state of this.connections.values()) {
+      if (state.clientType !== 'ui' || !state.joined) continue;
+      if (state.socket.readyState !== WebSocket.OPEN) continue;
+      if (state.socket.bufferedAmount > this.maxBufferedAmount) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Close and clear all active connections.
    */
   closeAll(): void {
