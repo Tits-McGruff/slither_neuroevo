@@ -13,7 +13,7 @@ export interface ServerConfig {
   uiHost: string;
   /** Port for the UI dev server bind. */
   uiPort: number;
-  /** Default WebSocket URL the UI should use when no override is provided. */
+  /** Optional default WebSocket URL for the UI when no override is provided. */
   publicWsUrl: string;
   tickRateHz: number;
   uiFrameRateHz: number;
@@ -32,7 +32,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   port: 5174,
   uiHost: '127.0.0.1',
   uiPort: 5173,
-  publicWsUrl: 'ws://localhost:5174',
+  publicWsUrl: '',
   tickRateHz: 60,
   uiFrameRateHz: 30,
   actionTimeoutTicks: 10,
@@ -160,11 +160,9 @@ export function normalizeConfig(
   }
   const uiPort = coerceInt('uiPort', input.uiPort, DEFAULT_CONFIG.uiPort, 1, 65535, warn);
   const rawPublicWsUrl = typeof input.publicWsUrl === 'string' ? input.publicWsUrl : '';
-  const publicWsUrl = rawPublicWsUrl.trim()
-    ? rawPublicWsUrl.trim()
-    : DEFAULT_CONFIG.publicWsUrl;
-  if (input.publicWsUrl !== undefined && !rawPublicWsUrl.trim()) {
-    warn?.(`publicWsUrl is invalid; using ${publicWsUrl}.`);
+  const publicWsUrl = rawPublicWsUrl.trim() || DEFAULT_CONFIG.publicWsUrl;
+  if (input.publicWsUrl !== undefined && typeof input.publicWsUrl !== 'string') {
+    warn?.('publicWsUrl is invalid; leaving unset.');
   }
   const tickRateHz = coerceInt(
     'tickRateHz',
@@ -272,7 +270,8 @@ function defaultConfigToml(): string {
   const base = stringifyToml(DEFAULT_CONFIG).trim();
   const seedHint = '# seed = 12345 # optional: fixed world seed\n';
   const publicWsHint =
-    '# publicWsUrl sets the UI default when no ?server= override is used.\n';
+    '# publicWsUrl overrides the UI default when no ?server= override is used.\n' +
+    '# Leave it blank to use the UI hostname + server port.\n';
   const uiHint = '# uiHost/uiPort control the Vite dev server bind.\n';
   return `# Slither Neuroevo server configuration (TOML)\n${seedHint}${publicWsHint}${uiHint}${base}\n`;
 }

@@ -31,10 +31,11 @@ UI defaults come from `server/config.toml`:
 
 - `host`/`port` bind the simulation server.
 - `uiHost`/`uiPort` bind the Vite dev server.
-- `publicWsUrl` sets the client default when no `?server=` override is used.
+- `publicWsUrl` optionally overrides the client default when no `?server=`
+  override is used. If empty, the client uses the UI hostname + server port.
 
-If you bind `host` to `0.0.0.0`, set `publicWsUrl` to
-`ws://<vm-ip>:5174` for remote clients.
+If the UI is on a different machine than the server, set `publicWsUrl` to
+`ws://<vm-ip>:5174`.
 
 ## Controls
 

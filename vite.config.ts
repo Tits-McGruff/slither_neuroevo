@@ -6,18 +6,28 @@ import { defineConfig } from "vite";
 
 /** Raw server TOML data used for UI defaults. */
 interface ServerTomlConfig {
+  /** Simulation server bind host from TOML. */
   host?: string;
+  /** Simulation server bind port from TOML. */
   port?: number;
+  /** UI dev server bind host from TOML. */
   uiHost?: string;
+  /** UI dev server bind port from TOML. */
   uiPort?: number;
+  /** Optional default WebSocket URL override from TOML. */
   publicWsUrl?: string;
 }
 
 /** Resolved UI defaults derived from the TOML config. */
 interface UiDefaults {
+  /** Resolved UI dev server host. */
   uiHost: string;
+  /** Resolved UI dev server port. */
   uiPort: number;
+  /** Optional WebSocket URL override to inject. */
   publicWsUrl: string;
+  /** Resolved simulation server port. */
+  serverPort: number;
 }
 
 /**
@@ -73,7 +83,6 @@ function coercePort(value: unknown, fallback: number): number {
  * @returns Resolved UI defaults.
  */
 function resolveUiDefaults(raw: ServerTomlConfig): UiDefaults {
-  const defaultServerHost = "127.0.0.1";
   const defaultServerPort = 5174;
   const defaultUiHost = "127.0.0.1";
   const defaultUiPort = 5173;
@@ -84,24 +93,17 @@ function resolveUiDefaults(raw: ServerTomlConfig): UiDefaults {
       : defaultUiHost;
   const uiPort = coercePort(raw.uiPort, defaultUiPort);
 
-  const serverHost =
-    typeof raw.host === "string" && raw.host.trim()
-      ? raw.host.trim()
-      : defaultServerHost;
-  const serverPort = coercePort(raw.port, defaultServerPort);
-
   const publicWsUrl =
     typeof raw.publicWsUrl === "string" && raw.publicWsUrl.trim()
       ? raw.publicWsUrl.trim()
       : "";
-  const clientHost =
-    serverHost === "0.0.0.0" || serverHost === "::" ? "localhost" : serverHost;
-  const resolvedPublicWsUrl = publicWsUrl || `ws://${clientHost}:${serverPort}`;
+  const serverPort = coercePort(raw.port, defaultServerPort);
 
   return {
     uiHost,
     uiPort,
-    publicWsUrl: resolvedPublicWsUrl
+    publicWsUrl,
+    serverPort
   };
 }
 
@@ -123,7 +125,8 @@ function buildViteConfig() {
       emptyOutDir: true
     },
     define: {
-      __SLITHER_DEFAULT_WS_URL__: JSON.stringify(defaults.publicWsUrl)
+      __SLITHER_DEFAULT_WS_URL__: JSON.stringify(defaults.publicWsUrl),
+      __SLITHER_SERVER_PORT__: JSON.stringify(defaults.serverPort)
     },
     server: {
       open: true,

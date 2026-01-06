@@ -2,6 +2,8 @@ import type { FitnessData, FitnessHistoryEntry, VizData } from '../protocol/mess
 
 /** Default WebSocket URL injected at build time. */
 declare const __SLITHER_DEFAULT_WS_URL__: string | undefined;
+/** Server port injected at build time. */
+declare const __SLITHER_SERVER_PORT__: number | undefined;
 
 /** Welcome message payload from the server. */
 export interface WelcomeMsg {
@@ -84,22 +86,50 @@ export interface WsClient {
 /** Build-time server URL from Vite when configured. */
 const INJECTED_SERVER_URL =
   typeof __SLITHER_DEFAULT_WS_URL__ === 'string' ? __SLITHER_DEFAULT_WS_URL__ : '';
-/** Default server URL used when none is configured. */
-export const DEFAULT_SERVER_URL =
-  INJECTED_SERVER_URL && INJECTED_SERVER_URL.trim()
-    ? INJECTED_SERVER_URL.trim()
-    : 'ws://localhost:5174';
+/** Default server URL used when no runtime host is available. */
+export const DEFAULT_SERVER_URL = 'ws://localhost:5174';
+
+/**
+ * Format a host for URL usage, adding brackets for IPv6 literals.
+ * @param host - Hostname or IP literal.
+ * @returns Host string safe for URL assembly.
+ */
+function formatHostForUrl(host: string): string {
+  if (!host) return host;
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+}
+
+/**
+ * Resolve the default server URL from injected config and runtime location.
+ * @returns Default WebSocket URL when no explicit override is provided.
+ */
+export function getDefaultServerUrl(): string {
+  const injected = INJECTED_SERVER_URL.trim();
+  if (injected) return injected;
+  const port =
+    typeof __SLITHER_SERVER_PORT__ === 'number' && Number.isFinite(__SLITHER_SERVER_PORT__)
+      ? __SLITHER_SERVER_PORT__
+      : 5174;
+  if (typeof window !== 'undefined' && window.location) {
+    const host = window.location.hostname || '';
+    if (host) {
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      return `${protocol}://${formatHostForUrl(host)}:${port}`;
+    }
+  }
+  return DEFAULT_SERVER_URL;
+}
 /** Handshake timeout in milliseconds before forcing reconnect. */
 const HANDSHAKE_TIMEOUT_MS = 1500;
 /** Local storage key for persisting the server URL. */
 const STORAGE_KEY = 'slither_server_url';
 
 /**
- * Resolve the server URL from query params, local storage, or a default.
+ * Resolve the server URL from query params, local storage, or runtime defaults.
  * @param defaultUrl - Fallback URL when none is provided.
  * @returns Resolved WebSocket URL.
  */
-export function resolveServerUrl(defaultUrl = DEFAULT_SERVER_URL): string {
+export function resolveServerUrl(defaultUrl = getDefaultServerUrl()): string {
   const search = typeof window !== 'undefined' && window.location ? window.location.search : '';
   const params = new URLSearchParams(search || '');
   const paramUrl = params.get('server');
