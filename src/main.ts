@@ -3579,6 +3579,23 @@ function resolveServerHttpBase(wsUrl: string): string | null {
 }
 
 /**
+ * Extract a human-readable error message from a failed fetch response.
+ * @param res - Failed fetch response.
+ * @returns Error message for UI display.
+ */
+async function readErrorMessage(res: Response): Promise<string> {
+  try {
+    const body = await res.json() as { message?: string } | null;
+    if (body?.message && typeof body.message === 'string') {
+      return body.message;
+    }
+  } catch {
+    // Fall back to status text when JSON parsing fails.
+  }
+  return res.statusText || `HTTP ${res.status}`;
+}
+
+/**
  * Export the latest server snapshot and HoF entries to a local file.
  */
 async function exportServerSnapshot(): Promise<void> {
@@ -3591,11 +3608,13 @@ async function exportServerSnapshot(): Promise<void> {
   try {
     const saveRes = await fetch(`${base}/api/save`, { method: 'POST' });
     if (!saveRes.ok) {
-      throw new Error(`snapshot save failed (${saveRes.status})`);
+      const message = await readErrorMessage(saveRes);
+      throw new Error(`snapshot save failed (${saveRes.status}): ${message}`);
     }
     const exportRes = await fetch(`${base}/api/export/latest`);
     if (!exportRes.ok) {
-      throw new Error(`snapshot export failed (${exportRes.status})`);
+      const message = await readErrorMessage(exportRes);
+      throw new Error(`snapshot export failed (${exportRes.status}): ${message}`);
     }
     const exportData = await exportRes.json() as { generation?: number; genomes?: unknown };
     if (!exportData || !Array.isArray(exportData.genomes)) {
