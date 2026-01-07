@@ -6,7 +6,7 @@ import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateGraph } from '../src/brains/graph/validate.ts';
 
 /** Maximum serialized snapshot size in bytes. */
-const MAX_SNAPSHOT_BYTES = 50 * 1024 * 1024;
+const MAX_SNAPSHOT_BYTES = 512 * 1024 * 1024;
 /** Upper bound on genome weight array length. */
 const MAX_GENOME_WEIGHTS = 2_000_000;
 /** Maximum serialized preset size in bytes. */
