@@ -23,6 +23,19 @@ import type { Persistence, PopulationSnapshotPayload } from './persistence.ts';
 import { WsHub } from './wsHub.ts';
 import type { VizData } from '../src/protocol/messages.ts';
 
+/** SQLite error code indicating the database or disk is full. */
+const SQLITE_FULL_CODE = 'SQLITE_FULL';
+
+/**
+ * Determine whether an error is a SQLite "full" error.
+ * @param err - Error thrown by persistence.
+ * @returns True when the error matches SQLITE_FULL.
+ */
+function isSqliteFullError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  return (err as { code?: string }).code === SQLITE_FULL_CODE;
+}
+
 /** Server-side simulation loop and WS broadcasting. */
 export class SimServer {
   /** World instance that owns simulation state. */
@@ -71,6 +84,8 @@ export class SimServer {
   private lastHistoryLen: number;
   /** Connection ids subscribed to viz streaming. */
   private vizConnections: Set<number>;
+  /** Reason persistence was disabled, if any. */
+  private persistenceDisabledReason: string | null = null;
 
   /**
    * Create a simulation server instance for a websocket hub.
@@ -305,10 +320,22 @@ export class SimServer {
   }
 
   /**
+   * Disable persistence after a non-recoverable storage failure.
+   * @param reason - Human-readable reason for disabling.
+   * @param err - Original error for logging.
+   */
+  private disablePersistence(reason: string, err: unknown): void {
+    if (this.persistenceDisabledReason) return;
+    this.persistenceDisabledReason = reason;
+    this.persistence = null;
+    console.warn(`[persistence] disabled (${reason})`, err);
+  }
+
+  /**
    * Handle end-of-generation persistence checkpoints.
    */
   private handleGenerationEnd(): void {
-    if (!this.persistence) return;
+    if (!this.persistence || this.persistenceDisabledReason) return;
     const currentGen = this.world.generation;
     if (currentGen === this.lastGeneration) return;
     this.lastGeneration = currentGen;
@@ -319,6 +346,10 @@ export class SimServer {
       try {
         this.persistence.saveHofEntry(hofEntry);
       } catch (err) {
+        if (isSqliteFullError(err)) {
+          this.disablePersistence('sqlite full during hall-of-fame save', err);
+          return;
+        }
         console.warn('[persistence] hof save failed', err);
       }
     }
@@ -329,6 +360,10 @@ export class SimServer {
       const snapshot = this.buildSnapshotPayload();
       this.persistence.saveSnapshot(snapshot);
     } catch (err) {
+      if (isSqliteFullError(err)) {
+        this.disablePersistence('sqlite full during snapshot save', err);
+        return;
+      }
       console.warn('[persistence] snapshot save failed', err);
     }
   }
