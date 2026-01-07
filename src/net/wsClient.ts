@@ -1,4 +1,4 @@
-import type { FitnessData, FitnessHistoryEntry, VizData } from '../protocol/messages.ts';
+import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../protocol/messages.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
 import type { CoreSettings, SettingsUpdate } from '../protocol/settings.ts';
 
@@ -29,6 +29,7 @@ export interface StatsMsg {
   fitnessData?: FitnessData;
   fitnessHistory?: FitnessHistoryEntry[];
   viz?: VizData;
+  hofEntry?: HallOfFameEntry;
 }
 
 /** Action message payload sent to the server. */

@@ -1,4 +1,4 @@
-import type { FitnessData, FitnessHistoryEntry, VizData } from '../src/protocol/messages.ts';
+import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../src/protocol/messages.ts';
 import type { CoreSettings, SettingsUpdate } from '../src/protocol/settings.ts';
 import { SETTINGS_PATHS } from '../src/protocol/settings.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
@@ -117,6 +117,7 @@ export interface StatsMsg {
   fitnessData?: FitnessData;
   fitnessHistory?: FitnessHistoryEntry[];
   viz?: VizData;
+  hofEntry?: HallOfFameEntry;
 }
 
 /** Server assignment for a newly controlled snake. */

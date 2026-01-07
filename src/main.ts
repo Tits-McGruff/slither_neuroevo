@@ -10,6 +10,8 @@ import { hof } from './hallOfFame.ts';
 import { BrainViz } from './BrainViz.ts';
 import { AdvancedCharts } from './chartUtils.ts';
 import { createWsClient, resolveServerUrl, storeServerUrl } from './net/wsClient.ts';
+import { inferGraphSizes } from './brains/graph/editor.ts';
+import type { GraphSizeState } from './brains/graph/editor.ts';
 import { validateGraph } from './brains/graph/validate.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
 import type { FrameStats, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
@@ -80,6 +82,10 @@ let connectionMode: ConnectionMode = 'connecting';
 let serverUrl = '';
 /** Backoff delay for reconnection attempts in ms. */
 let reconnectDelayMs = 1000;
+/** Last player nickname used for reconnecting control. */
+let lastPlayerName = '';
+/** Local storage key for the player nickname. */
+const PLAYER_NAME_KEY = 'slither_neuroevo_player_name';
 /** Timer id for reconnect scheduling. */
 let reconnectTimer: number | null = null;
 /** Timer id for worker fallback scheduling. */
@@ -110,10 +116,6 @@ const DIAGRAM_NODE_WIDTH = 140;
 const DIAGRAM_NODE_HEIGHT = 44;
 /** Per-node layout overrides for the graph diagram. */
 const graphLayoutOverrides = new Map<string, { x: number; y: number }>();
-/** Whether connect mode is active in the graph editor. */
-let graphConnectMode = false;
-/** Source node id for connect mode. */
-let graphConnectFromId: string | null = null;
 /** Selected node id in the graph editor. */
 let graphSelectedNodeId: string | null = null;
 /** Selected edge index in the graph editor. */
@@ -124,6 +126,16 @@ let graphSelectedOutputIndex: number | null = null;
 let graphDragState: { id: string; offsetX: number; offsetY: number } | null = null;
 /** Pointer position within the graph diagram. */
 let graphPointerPos: { x: number; y: number } | null = null;
+/** Active drag-to-connect state for the graph diagram. */
+let graphConnectDrag: { fromId: string; pointerId: number } | null = null;
+/** Current hover target during a connect drag. */
+let graphConnectHoverId: string | null = null;
+/** Live SVG path for rendering a connection drag. */
+let graphConnectLine: SVGPathElement | null = null;
+/** Cached bounds for diagram nodes used in hit testing. */
+const graphDiagramNodeRects = new Map<string, { x: number; y: number; width: number; height: number }>();
+/** Latest inferred graph size state for the editor. */
+let graphSizeState: GraphSizeState | null = null;
 /** Main canvas element. */
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 // HUD removed, using tab info panels instead
@@ -177,6 +189,12 @@ const graphNodes = document.getElementById('graphNodes') as HTMLElement | null;
 const graphEdges = document.getElementById('graphEdges') as HTMLElement | null;
 /** Graph output list container. */
 const graphOutputs = document.getElementById('graphOutputs') as HTMLElement | null;
+/** Select input for the simple output node picker. */
+const graphOutputSimpleNode = document.getElementById('graphOutputNode') as HTMLSelectElement | null;
+/** Checkbox toggle for split outputs in the simple output picker. */
+const graphOutputSimpleSplit = document.getElementById('graphOutputSplit') as HTMLInputElement | null;
+/** Hint element for simple output selection. */
+const graphOutputSimpleHint = document.getElementById('graphOutputHint') as HTMLElement | null;
 /** Button to add a graph node. */
 const graphNodeAdd = document.getElementById('graphNodeAdd') as HTMLButtonElement | null;
 /** Button to add a graph edge. */
@@ -205,6 +223,8 @@ const graphSpecCopy = document.getElementById('graphSpecCopy') as HTMLButtonElem
 const graphSpecExport = document.getElementById('graphSpecExport') as HTMLButtonElement | null;
 /** Status element for graph spec operations. */
 const graphSpecStatus = document.getElementById('graphSpecStatus') as HTMLElement | null;
+/** Status element for graph size inference warnings. */
+const graphSizeHint = document.getElementById('graphSizeHint') as HTMLElement | null;
 /** Wrapper for the SVG graph diagram. */
 const graphDiagramWrap = document.getElementById('graphDiagramWrap') as HTMLElement | null;
 /** SVG element for the graph diagram. */
@@ -215,8 +235,6 @@ const graphDiagramToggle = document.getElementById('graphDiagramToggle') as HTML
 const graphDiagramBackdrop = document.getElementById('graphDiagramBackdrop') as HTMLDivElement | null;
 /** Button to add a node from the diagram toolbar. */
 const graphDiagramAddNode = document.getElementById('graphDiagramAddNode') as HTMLButtonElement | null;
-/** Button to toggle connect mode in the diagram toolbar. */
-const graphDiagramConnect = document.getElementById('graphDiagramConnect') as HTMLButtonElement | null;
 /** Button to add an output from the diagram toolbar. */
 const graphDiagramAddOutput = document.getElementById('graphDiagramAddOutput') as HTMLButtonElement | null;
 /** Button to auto-layout the diagram. */
@@ -269,6 +287,8 @@ const settingsControls = document.getElementById('settingsControls') as HTMLElem
 const settingsTab = document.getElementById('tab-settings') as HTMLElement | null;
 /** Hint text for settings lock state. */
 const settingsLockHint = document.getElementById('settingsLockHint') as HTMLElement | null;
+/** Hint text for graph mode slider overrides. */
+const graphModeHint = document.getElementById('graphModeHint') as HTMLElement | null;
 
 /** Tab button elements for the control panel. */
 const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn');
@@ -282,6 +302,24 @@ const statsCanvas = document.getElementById('statsCanvas') as HTMLCanvasElement;
 const ctxViz = vizCanvas.getContext('2d')!;
 /** 2D context for the stats canvas. */
 const ctxStats = statsCanvas.getContext('2d')!;
+
+/**
+ * Load a previously used player nickname from localStorage.
+ */
+function loadSavedPlayerName(): void {
+  if (!joinName) return;
+  try {
+    const saved = localStorage.getItem(PLAYER_NAME_KEY);
+    if (saved && !joinName.value.trim()) {
+      lastPlayerName = saved;
+      joinName.value = saved;
+    } else if (saved) {
+      lastPlayerName = saved;
+    }
+  } catch {
+    // Ignore storage failures in non-browser environments.
+  }
+}
 
 /** Brain visualizer instance for the Viz tab. */
 const brainViz = new BrainViz(0, 0, vizCanvas.width, vizCanvas.height);
@@ -356,11 +394,18 @@ if (joinName) {
     }
   });
 }
+loadSavedPlayerName();
 if (joinPlay) {
   joinPlay.addEventListener('click', () => {
     if (!joinName) return;
     const name = joinName.value.trim();
     if (!name) return;
+    lastPlayerName = name;
+    try {
+      localStorage.setItem(PLAYER_NAME_KEY, name);
+    } catch {
+      // Ignore storage failures in non-browser environments.
+    }
     joinPending = true;
     setJoinStatus('Joining...');
     updateJoinControls();
@@ -370,13 +415,7 @@ if (joinPlay) {
 }
 if (joinSpectate) {
   joinSpectate.addEventListener('click', () => {
-    if (!wsClient?.isConnected()) return;
-    joinPending = false;
-    setJoinStatus('Spectating');
-    updateJoinControls();
-    wsClient.sendJoin('spectator');
-    wsClient.sendView({ mode: 'overview', viewW: cssW, viewH: cssH });
-    setJoinOverlayVisible(false);
+    enterSpectatorMode();
   });
 }
 setJoinOverlayVisible(true);
@@ -444,6 +483,24 @@ function collectSettingsUpdatesFromUI(): SettingsUpdate[] {
 }
 
 /**
+ * Apply graph mode styling to stack slider rows and hints.
+ * @param graphActive - Whether a custom graph spec is active.
+ */
+function applyGraphModeUiState(graphActive: boolean): void {
+  const sliders = [elLayers, elN1, elN2, elN3, elN4, elN5];
+  sliders.forEach(slider => {
+    const row = slider.closest('.row');
+    if (!row) return;
+    row.classList.toggle('graph-stack-disabled', graphActive);
+  });
+  if (graphModeHint) {
+    graphModeHint.textContent = graphActive
+      ? 'Custom graph active; stack sliders are ignored.'
+      : '';
+  }
+}
+
+/**
  * Synchronises the displayed numbers next to the core UI sliders and
  * disables or enables the neuron sliders based on the number of hidden
  * layers.
@@ -458,10 +515,15 @@ function refreshCoreUIState(): void {
   n4Val.textContent = elN4.value;
   n5Val.textContent = elN5.value;
   const L = parseInt(elLayers.value, 10);
-  elN2.disabled = L < 2;
-  elN3.disabled = L < 3;
-  elN4.disabled = L < 4;
-  elN5.disabled = L < 5;
+  const graphActive = !!customGraphSpec;
+  const disableAll = settingsLocked || graphActive;
+  elLayers.disabled = disableAll;
+  elN1.disabled = disableAll;
+  elN2.disabled = disableAll || L < 2;
+  elN3.disabled = disableAll || L < 3;
+  elN4.disabled = disableAll || L < 4;
+  elN5.disabled = disableAll || L < 5;
+  applyGraphModeUiState(graphActive);
   const applyOpacity = (el: HTMLInputElement) => {
     el.style.opacity = el.disabled ? '0.45' : '1';
   };
@@ -470,6 +532,7 @@ function refreshCoreUIState(): void {
   applyOpacity(elN3);
   applyOpacity(elN4);
   applyOpacity(elN5);
+  applyOpacity(elLayers);
 }
 
 // Build dynamic settings UI and initialise defaults
@@ -531,12 +594,6 @@ if (graphDiagramToggle) {
 if (graphDiagramBackdrop) {
   graphDiagramBackdrop.addEventListener('click', () => {
     setGraphDiagramFullscreen(false);
-  });
-}
-
-if (graphDiagramConnect) {
-  graphDiagramConnect.addEventListener('click', () => {
-    setGraphConnectMode(!graphConnectMode);
   });
 }
 
@@ -631,17 +688,28 @@ if (graphDiagram) {
       graphLayoutOverrides.set(graphDragState.id, { x, y });
       renderGraphDiagram(ensureGraphDraft());
     }
+    if (graphConnectDrag && point) {
+      updateGraphConnectDrag(point);
+    }
   });
-  graphDiagram.addEventListener('pointerup', () => {
+  graphDiagram.addEventListener('pointerup', (event) => {
+    const point = getSvgPoint(event);
+    if (graphConnectDrag) {
+      finishGraphConnectDrag(point);
+    }
     graphDragState = null;
   });
   graphDiagram.addEventListener('pointerleave', () => {
     graphDragState = null;
+    if (graphConnectDrag) {
+      clearGraphConnectDrag();
+    }
   });
-  graphDiagram.addEventListener('click', () => {
-    if (graphConnectMode) {
-      graphConnectFromId = null;
-      setGraphSpecStatus('Connect mode: select a start node.');
+  graphDiagram.addEventListener('click', (event) => {
+    const target = event.target as Element | null;
+    if (target && target !== graphDiagram) return;
+    if (graphConnectDrag) {
+      clearGraphConnectDrag();
     }
     setGraphSelection({});
   });
@@ -681,6 +749,18 @@ if (graphOutputAdd) {
     draft.outputs.push({ nodeId: ids[ids.length - 1]! });
     renderGraphEditor();
     setGraphSpecStatus('Output added. Apply graph to use it.');
+  });
+}
+
+if (graphOutputSimpleNode) {
+  graphOutputSimpleNode.addEventListener('change', () => {
+    applySimpleOutputSelection();
+  });
+}
+
+if (graphOutputSimpleSplit) {
+  graphOutputSimpleSplit.addEventListener('change', () => {
+    applySimpleOutputSelection();
   });
 }
 
@@ -882,6 +962,49 @@ function updateJoinControls(): void {
   if (joinSpectate) joinSpectate.disabled = !connected || joinPending;
 }
 
+/**
+ * Switch the current connection into spectator mode.
+ */
+function enterSpectatorMode(): void {
+  if (!wsClient?.isConnected()) return;
+  joinPending = false;
+  playerSnakeId = null;
+  playerSensorTick = 0;
+  playerSensorMeta = null;
+  pointerWorld = null;
+  boostHeld = false;
+  proxyWorld.viewMode = 'overview';
+  setJoinStatus('Spectating');
+  updateJoinControls();
+  wsClient.sendJoin('spectator');
+  wsClient.sendView({ mode: 'overview', viewW: cssW, viewH: cssH });
+  setJoinOverlayVisible(false);
+}
+
+/**
+ * Switch the current connection into player mode using the saved nickname.
+ */
+function enterPlayerMode(): void {
+  if (!wsClient?.isConnected()) return;
+  const fallbackName = 'player';
+  const name = joinName?.value.trim() || lastPlayerName || fallbackName;
+  if (joinName && !joinName.value.trim()) {
+    joinName.value = name;
+  }
+  lastPlayerName = name;
+  try {
+    localStorage.setItem(PLAYER_NAME_KEY, name);
+  } catch {
+    // Ignore storage failures in non-browser environments.
+  }
+  joinPending = true;
+  setJoinStatus('Joining...');
+  updateJoinControls();
+  proxyWorld.viewMode = 'follow';
+  wsClient.sendJoin('player', name);
+  wsClient.sendView({ mode: 'follow', viewW: cssW, viewH: cssH });
+}
+
 /** Saved graph preset summary from the server. */
 type SavedGraphPreset = { id: number; name: string; createdAt: number };
 /** Loaded graph preset including the graph spec. */
@@ -964,8 +1087,200 @@ function setGraphSpecStatus(text: string, isError = false): void {
   graphSpecStatus.textContent = text;
   graphSpecStatus.style.color = isError ? '#ff9b9b' : '';
   if (graphDiagram) {
+    updateGraphSizeState(ensureGraphDraft());
     renderGraphDiagram(ensureGraphDraft());
   }
+}
+
+/**
+ * Update inferred size state and surface sizing errors in the UI.
+ * @param spec - Graph spec to analyze.
+ * @returns Size inference state for the spec.
+ */
+function updateGraphSizeState(spec: GraphSpec): GraphSizeState {
+  const state = inferGraphSizes(spec);
+  graphSizeState = state;
+  if (graphSizeHint) {
+    if (!state.errors.length) {
+      graphSizeHint.textContent = '';
+      graphSizeHint.classList.remove('error');
+    } else {
+      const tail = state.errors.length > 1 ? ` (+${state.errors.length - 1} more)` : '';
+      graphSizeHint.textContent = `${state.errors[0]}${tail}`;
+      graphSizeHint.classList.add('error');
+    }
+  }
+  return state;
+}
+
+/**
+ * Apply inferred input sizes back into the draft spec.
+ * @param spec - Graph spec to update in-place.
+ * @param state - Size inference state for the spec.
+ */
+function applyGraphSizeInference(spec: GraphSpec, state: GraphSizeState): void {
+  spec.outputSize = CFG.brain.outSize;
+  spec.nodes.forEach(node => {
+    if (node.type === 'Input') {
+      node.outputSize = CFG.brain.inSize;
+      return;
+    }
+    if (node.type === 'Dense' || node.type === 'MLP' || node.type === 'GRU' || node.type === 'LSTM' || node.type === 'RRU') {
+      const inputSize = state.sizes.get(node.id)?.inputSize;
+      if (inputSize != null && Number.isFinite(inputSize) && inputSize > 0) {
+        node.inputSize = inputSize;
+      }
+    }
+  });
+}
+
+/**
+ * Normalize viz payloads that arrive from JSON by reconstructing activation arrays.
+ * @param viz - Incoming visualization payload.
+ * @returns Normalized visualization payload or null.
+ */
+function normalizeVizData(viz: VizData | null | undefined): VizData | null {
+  if (!viz) return null;
+  const layers = viz.layers.map(layer => {
+    const activations = layer.activations;
+    if (!activations) return layer;
+    if (Array.isArray(activations) || ArrayBuffer.isView(activations)) return layer;
+    const count = Math.max(0, layer.count);
+    const next = new Array<number>(count);
+    const source = activations as unknown as Record<string, number>;
+    for (let i = 0; i < count; i += 1) {
+      const raw = source[i] ?? 0;
+      next[i] = Number.isFinite(raw) ? raw : 0;
+    }
+    return { ...layer, activations: next };
+  });
+  return { ...viz, layers };
+}
+
+/** Simple output selector state derived from the graph spec. */
+type SimpleOutputState =
+  | { mode: 'simple'; nodeId: string; split: boolean }
+  | { mode: 'custom'; nodeId: string | null };
+
+/**
+ * Derive the simple output selector state from a graph spec.
+ * @param spec - Graph spec to inspect.
+ * @returns Simple output selection state.
+ */
+function resolveSimpleOutputState(spec: GraphSpec): SimpleOutputState {
+  if (spec.outputs.length === 1) {
+    const output = spec.outputs[0]!;
+    return { mode: 'simple', nodeId: output.nodeId, split: false };
+  }
+  if (spec.outputs.length === 2) {
+    const first = spec.outputs[0];
+    const second = spec.outputs[1];
+    if (first && second && first.nodeId === second.nodeId && (first.port ?? 0) === 0 && (second.port ?? 1) === 1) {
+      return { mode: 'simple', nodeId: first.nodeId, split: true };
+    }
+  }
+  const fallback = spec.outputs[0]?.nodeId ?? null;
+  return { mode: 'custom', nodeId: fallback };
+}
+
+/**
+ * Render the simple outputs UI based on the current spec and size state.
+ * @param spec - Graph spec to reflect in the UI.
+ * @param sizeState - Inferred size state for sizing hints.
+ */
+function renderSimpleOutputUi(spec: GraphSpec, sizeState: GraphSizeState): void {
+  if (!graphOutputSimpleNode || !graphOutputSimpleSplit) return;
+  const selectableNodes = spec.nodes.slice();
+  graphOutputSimpleNode.innerHTML = '';
+  if (!selectableNodes.length) {
+    graphOutputSimpleNode.disabled = true;
+    graphOutputSimpleSplit.disabled = true;
+    if (graphOutputSimpleHint) {
+      graphOutputSimpleHint.textContent = 'Add a node before selecting outputs.';
+      graphOutputSimpleHint.classList.remove('error');
+    }
+    return;
+  }
+  selectableNodes.forEach(node => {
+    const option = document.createElement('option');
+    option.value = node.id;
+    const sizes = sizeState.sizes.get(node.id)?.outputSizes;
+    const sizeLabel = sizes ? sizes.join('+') : '?';
+    option.textContent = `${node.id} (${sizeLabel})`;
+    graphOutputSimpleNode.appendChild(option);
+  });
+  const state = resolveSimpleOutputState(spec);
+  const hasNode = state.nodeId && selectableNodes.some(node => node.id === state.nodeId);
+  const fallbackId = hasNode ? (state.nodeId as string) : selectableNodes[0]?.id ?? '';
+  graphOutputSimpleNode.value = fallbackId;
+  graphOutputSimpleSplit.checked = state.mode === 'simple' && state.split;
+  graphOutputSimpleNode.disabled = !selectableNodes.length;
+  graphOutputSimpleSplit.disabled = !selectableNodes.length;
+  updateSimpleOutputHint(state, sizeState);
+}
+
+/**
+ * Update the simple output hint text based on current selection.
+ * @param state - Current simple output selector state.
+ * @param sizeState - Inferred size state for the graph.
+ */
+function updateSimpleOutputHint(state: SimpleOutputState, sizeState: GraphSizeState): void {
+  if (!graphOutputSimpleHint) return;
+  graphOutputSimpleHint.classList.remove('error');
+  if (state.mode === 'custom') {
+    graphOutputSimpleHint.textContent =
+      'Custom outputs active. Choosing a node below will replace outputs.';
+    return;
+  }
+  const sizes = sizeState.sizes.get(state.nodeId)?.outputSizes;
+  if (!sizes) {
+    graphOutputSimpleHint.textContent = 'Output sizes unresolved. Check wiring first.';
+    graphOutputSimpleHint.classList.add('error');
+    return;
+  }
+  if (!state.split) {
+    if (sizes.length !== 1) {
+      graphOutputSimpleHint.textContent = 'Selected node has multiple ports. Enable split or use advanced outputs.';
+      graphOutputSimpleHint.classList.add('error');
+      return;
+    }
+    if (sizes[0] !== CFG.brain.outSize) {
+      graphOutputSimpleHint.textContent = `Output size must be ${CFG.brain.outSize}.`;
+      graphOutputSimpleHint.classList.add('error');
+      return;
+    }
+    graphOutputSimpleHint.textContent = 'Outputs map to turn + boost.';
+    return;
+  }
+  if (sizes.length < 2) {
+    graphOutputSimpleHint.textContent = 'Split outputs require at least two ports.';
+    graphOutputSimpleHint.classList.add('error');
+    return;
+  }
+  const total = (sizes[0] ?? 0) + (sizes[1] ?? 0);
+  if (total !== CFG.brain.outSize) {
+    graphOutputSimpleHint.textContent = `Split ports 0+1 must sum to ${CFG.brain.outSize}.`;
+    graphOutputSimpleHint.classList.add('error');
+    return;
+  }
+  graphOutputSimpleHint.textContent = 'Port 0 feeds turn, port 1 feeds boost.';
+}
+
+/**
+ * Apply the simple output selector values to the current draft.
+ */
+function applySimpleOutputSelection(): void {
+  if (!graphOutputSimpleNode || !graphOutputSimpleSplit) return;
+  const draft = ensureGraphDraft();
+  const nodeId = graphOutputSimpleNode.value;
+  if (!nodeId) return;
+  if (graphOutputSimpleSplit.checked) {
+    draft.outputs = [{ nodeId, port: 0 }, { nodeId, port: 1 }];
+  } else {
+    draft.outputs = [{ nodeId }];
+  }
+  renderGraphEditor();
+  setGraphSpecStatus('Outputs updated. Apply graph to use it.');
 }
 
 /**
@@ -1012,6 +1327,7 @@ function applyGraphSpec(spec: GraphSpec, note = 'Graph applied.'): boolean {
   } catch {
     // Ignore storage failures.
   }
+  refreshCoreUIState();
   renderGraphEditor();
   setGraphSpecStatus(note);
   return true;
@@ -1407,38 +1723,122 @@ function getSvgPoint(evt: PointerEvent | MouseEvent): { x: number; y: number } |
 }
 
 /**
- * Enable or disable graph connect mode.
- * @param next - Whether connect mode is enabled.
+ * Find a graph node under a diagram pointer position.
+ * @param point - Pointer position in SVG coordinates.
+ * @param excludeId - Optional node id to exclude from hit testing.
+ * @returns Node id under the pointer or null.
  */
-function setGraphConnectMode(next: boolean): void {
-  graphConnectMode = next;
-  graphConnectFromId = null;
-  if (graphDiagramConnect) {
-    graphDiagramConnect.classList.toggle('active', next);
-    graphDiagramConnect.textContent = next ? 'Connecting' : 'Connect';
+function findGraphNodeAtPoint(point: { x: number; y: number }, excludeId?: string | null): string | null {
+  for (const [id, rect] of graphDiagramNodeRects.entries()) {
+    if (excludeId && id === excludeId) continue;
+    if (point.x < rect.x || point.x > rect.x + rect.width) continue;
+    if (point.y < rect.y || point.y > rect.y + rect.height) continue;
+    return id;
   }
-  setGraphSpecStatus(next ? 'Connect mode: click a start node.' : 'Connect mode off.');
+  return null;
 }
 
 /**
- * Handle node selection while in connect mode.
- * @param targetId - Target node id selected by the user.
+ * Update the highlighted target node during a connect drag.
+ * @param nextId - Node id to highlight or null to clear.
  */
-function handleDiagramConnect(targetId: string): void {
+function setGraphConnectHover(nextId: string | null): void {
+  if (graphConnectHoverId === nextId) return;
+  const clearHighlight = (id: string | null) => {
+    if (!id || !graphDiagram) return;
+    const group = graphDiagram.querySelector(`g[data-node-id="${id}"]`);
+    const rect = group?.querySelector('rect');
+    rect?.classList.remove('connect-target');
+  };
+  const applyHighlight = (id: string | null) => {
+    if (!id || !graphDiagram) return;
+    const group = graphDiagram.querySelector(`g[data-node-id="${id}"]`);
+    const rect = group?.querySelector('rect');
+    rect?.classList.add('connect-target');
+  };
+  clearHighlight(graphConnectHoverId);
+  graphConnectHoverId = nextId;
+  applyHighlight(graphConnectHoverId);
+}
+
+/**
+ * Update the live connection path during a connect drag.
+ * @param point - Pointer position in SVG coordinates.
+ * @param targetId - Optional target node id to snap to.
+ */
+function updateGraphConnectLine(point: { x: number; y: number } | null, targetId?: string | null): void {
+  if (!graphConnectLine || !graphConnectDrag || !point) return;
+  const fromRect = graphDiagramNodeRects.get(graphConnectDrag.fromId);
+  if (!fromRect) return;
+  const fromX = fromRect.x + fromRect.width;
+  const fromY = fromRect.y + fromRect.height / 2;
+  let toX = point.x;
+  let toY = point.y;
+  if (targetId) {
+    const targetRect = graphDiagramNodeRects.get(targetId);
+    if (targetRect) {
+      toX = targetRect.x;
+      toY = targetRect.y + targetRect.height / 2;
+    }
+  }
+  const curve = Math.max(20, (toX - fromX) * 0.35);
+  graphConnectLine.setAttribute('d', `M ${fromX} ${fromY} C ${fromX + curve} ${fromY} ${toX - curve} ${toY} ${toX} ${toY}`);
+  graphConnectLine.classList.add('visible');
+}
+
+/**
+ * Clear the live connection line and hover highlight.
+ */
+function clearGraphConnectDrag(): void {
+  if (graphConnectLine) {
+    graphConnectLine.classList.remove('visible');
+    graphConnectLine.removeAttribute('d');
+  }
+  setGraphConnectHover(null);
+  graphConnectDrag = null;
+}
+
+/**
+ * Begin a drag-to-connect interaction from a node handle.
+ * @param fromId - Node id where the drag originates.
+ * @param event - Pointer event initiating the drag.
+ */
+function beginGraphConnectDrag(fromId: string, event: PointerEvent): void {
+  if (!graphDiagram) return;
+  graphConnectDrag = { fromId, pointerId: event.pointerId };
+  graphDragState = null;
+  setGraphSelection({ nodeId: fromId });
+  const point = getSvgPoint(event);
+  if (point) {
+    updateGraphConnectLine(point);
+    setGraphConnectHover(findGraphNodeAtPoint(point, fromId));
+  }
+  graphDiagram.setPointerCapture?.(event.pointerId);
+}
+
+/**
+ * Update drag-to-connect state for pointer movement.
+ * @param point - Pointer position in SVG coordinates.
+ */
+function updateGraphConnectDrag(point: { x: number; y: number }): void {
+  if (!graphConnectDrag) return;
+  const targetId = findGraphNodeAtPoint(point, graphConnectDrag.fromId);
+  setGraphConnectHover(targetId);
+  updateGraphConnectLine(point, targetId);
+}
+
+/**
+ * Finish a drag-to-connect interaction and create an edge if valid.
+ * @param point - Pointer position in SVG coordinates, if available.
+ */
+function finishGraphConnectDrag(point: { x: number; y: number } | null): void {
+  if (!graphConnectDrag) return;
+  const fromId = graphConnectDrag.fromId;
+  const targetId = point ? findGraphNodeAtPoint(point, fromId) : graphConnectHoverId;
+  clearGraphConnectDrag();
+  if (!targetId || targetId === fromId) return;
   const spec = ensureGraphDraft();
-  if (!graphConnectFromId) {
-    graphConnectFromId = targetId;
-    setGraphSelection({ nodeId: targetId });
-    setGraphSpecStatus('Connect mode: select a target node.');
-    return;
-  }
-  if (graphConnectFromId === targetId) {
-    graphConnectFromId = null;
-    setGraphSpecStatus('Connect mode cancelled.');
-    return;
-  }
-  const created = addGraphEdge(graphConnectFromId, targetId, spec);
-  graphConnectFromId = null;
+  const created = addGraphEdge(fromId, targetId, spec);
   if (created != null) {
     setGraphSelection({ edgeIndex: created });
     setGraphSpecStatus('Edge added. Apply graph to use it.');
@@ -1505,9 +1905,12 @@ function addGraphEdge(fromId: string, toId: string, spec: GraphSpec): number | n
 function renderGraphDiagram(spec: GraphSpec): void {
   if (!graphDiagram) return;
   graphDiagram.innerHTML = '';
+  graphDiagramNodeRects.clear();
   if (!spec.nodes.length) return;
 
   const svgNs = 'http://www.w3.org/2000/svg';
+  const sizeState = graphSizeState ?? updateGraphSizeState(spec);
+  const nodeErrors = sizeState.nodeErrors;
   const nodeById = new Map<string, GraphNodeSpec>();
   spec.nodes.forEach(node => nodeById.set(node.id, node));
 
@@ -1649,13 +2052,17 @@ function renderGraphDiagram(spec: GraphSpec): void {
     const isSelected = edge.edgeIndex != null && edge.edgeIndex === graphSelectedEdgeIndex;
     path.setAttribute('class', isSelected ? 'graph-diagram-edge selected' : 'graph-diagram-edge');
     path.setAttribute('d', `M ${x1} ${y1} C ${x1 + curve} ${y1} ${x2 - curve} ${y2} ${x2} ${y2}`);
+    edgesGroup.appendChild(path);
     if (edge.edgeIndex != null) {
-      path.addEventListener('click', (event) => {
+      const hit = document.createElementNS(svgNs, 'path');
+      hit.setAttribute('class', 'graph-diagram-edge-hit');
+      hit.setAttribute('d', path.getAttribute('d') ?? '');
+      hit.addEventListener('click', (event) => {
         event.stopPropagation();
         setGraphSelection({ edgeIndex: edge.edgeIndex ?? null });
       });
+      edgesGroup.appendChild(hit);
     }
-    edgesGroup.appendChild(path);
 
     const addPortLabel = (value: number | undefined, x: number, y: number) => {
       if (value == null) return;
@@ -1670,6 +2077,10 @@ function renderGraphDiagram(spec: GraphSpec): void {
     addPortLabel(edge.fromPort, x1 + 6, y1 - 6);
     addPortLabel(edge.toPort, x2 - 18, y2 - 6);
   });
+  const connectPath = document.createElementNS(svgNs, 'path');
+  connectPath.setAttribute('class', 'graph-diagram-edge ghost');
+  graphConnectLine = connectPath;
+  edgesGroup.appendChild(connectPath);
   graphDiagram.appendChild(edgesGroup);
 
   const nodesGroup = document.createElementNS(svgNs, 'g');
@@ -1687,6 +2098,18 @@ function renderGraphDiagram(spec: GraphSpec): void {
       node.outputIndex != null
         ? graphSelectedOutputIndex === node.outputIndex
         : graphSelectedNodeId === node.id;
+    const isOutput = node.outputIndex != null || node.id.startsWith('__out-');
+    if (!isOutput) {
+      graphDiagramNodeRects.set(node.id, { x: pos.x, y: pos.y, width: nodeWidth, height: nodeHeight });
+    }
+    const sizeInfo = sizeState.sizes.get(node.id);
+    const hasError = !!nodeErrors.get(node.id)?.length;
+    const isPending =
+      !hasError &&
+      !isOutput &&
+      (node.type === 'Concat'
+        ? !sizeInfo?.outputSizes
+        : node.type !== 'Input' && sizeInfo?.inputSize == null);
     const rect = document.createElementNS(svgNs, 'rect');
     rect.setAttribute('x', String(pos.x));
     rect.setAttribute('y', String(pos.y));
@@ -1696,9 +2119,22 @@ function renderGraphDiagram(spec: GraphSpec): void {
     rect.setAttribute('height', String(nodeHeight));
     rect.setAttribute(
       'class',
-      `graph-diagram-node graph-diagram-${node.type.toLowerCase()}${isSelected ? ' selected' : ''}`
+      `graph-diagram-node graph-diagram-${node.type.toLowerCase()}${isSelected ? ' selected' : ''}${hasError ? ' error' : ''}${isPending ? ' pending' : ''}`
     );
     group.appendChild(rect);
+
+    if (!isOutput) {
+      const handle = document.createElementNS(svgNs, 'circle');
+      handle.setAttribute('class', 'graph-diagram-handle');
+      handle.setAttribute('cx', String(pos.x + nodeWidth));
+      handle.setAttribute('cy', String(pos.y + nodeHeight / 2));
+      handle.setAttribute('r', '6');
+      handle.addEventListener('pointerdown', (event) => {
+        event.stopPropagation();
+        beginGraphConnectDrag(node.id, event);
+      });
+      group.appendChild(handle);
+    }
 
     const text = document.createElementNS(svgNs, 'text');
     text.setAttribute('class', 'graph-diagram-label');
@@ -1719,7 +2155,7 @@ function renderGraphDiagram(spec: GraphSpec): void {
     group.addEventListener('pointerdown', (event) => {
       event.stopPropagation();
       if (event.button !== 0) return;
-      if (graphConnectMode || node.outputIndex != null || node.id.startsWith('__out-')) return;
+      if (node.outputIndex != null || node.id.startsWith('__out-')) return;
       const point = getSvgPoint(event);
       if (!point) return;
       const current = positions.get(node.id);
@@ -1729,7 +2165,7 @@ function renderGraphDiagram(spec: GraphSpec): void {
         offsetX: point.x - current.x,
         offsetY: point.y - current.y
       };
-      graphDiagram?.setPointerCapture?.(event.pointerId);
+      group.setPointerCapture?.(event.pointerId);
     });
 
     group.addEventListener('click', (event) => {
@@ -1738,16 +2174,15 @@ function renderGraphDiagram(spec: GraphSpec): void {
         setGraphSelection({ outputIndex: node.outputIndex });
         return;
       }
-      if (graphConnectMode) {
-        handleDiagramConnect(node.id);
-        return;
-      }
       setGraphSelection({ nodeId: node.id });
     });
 
     nodesGroup.appendChild(group);
   });
   graphDiagram.appendChild(nodesGroup);
+  if (graphConnectDrag && graphPointerPos) {
+    updateGraphConnectDrag(graphPointerPos);
+  }
 }
 
 /**
@@ -1757,6 +2192,7 @@ function renderGraphDiagram(spec: GraphSpec): void {
 function renderGraphInspector(spec: GraphSpec): void {
   if (!graphDiagramInspector) return;
   graphDiagramInspector.innerHTML = '';
+  const sizeState = graphSizeState ?? updateGraphSizeState(spec);
 
   const makeRow = (labelText: string, input: HTMLElement): HTMLDivElement => {
     const row = document.createElement('div');
@@ -1772,6 +2208,21 @@ function renderGraphInspector(spec: GraphSpec): void {
     const input = document.createElement('input');
     input.type = 'number';
     input.value = Number.isFinite(value) ? String(value) : '';
+    return input;
+  };
+
+  /**
+   * Build a read-only number input for inferred sizes.
+   * @param value - Value to show, or null to leave blank.
+   * @param placeholder - Placeholder text for unresolved sizes.
+   * @returns Disabled number input element.
+   */
+  const makeReadOnlyNumberInput = (value: number | null, placeholder = 'auto'): HTMLInputElement => {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = value != null && Number.isFinite(value) ? String(value) : '';
+    input.placeholder = placeholder;
+    input.disabled = true;
     return input;
   };
 
@@ -1839,7 +2290,6 @@ function renderGraphInspector(spec: GraphSpec): void {
         graphLayoutOverrides.set(nextId, override);
       }
       if (graphSelectedNodeId === oldId) graphSelectedNodeId = nextId;
-      if (graphConnectFromId === oldId) graphConnectFromId = nextId;
       renderGraphEditor();
       setGraphSpecStatus('Node id updated. Apply graph to use it.');
     });
@@ -1865,15 +2315,12 @@ function renderGraphInspector(spec: GraphSpec): void {
     });
     graphDiagramInspector.appendChild(makeRow('Type', typeSelect));
 
+    if (node.type === 'Input') {
+      graphDiagramInspector.appendChild(makeRow('Output', makeReadOnlyNumberInput(CFG.brain.inSize, 'fixed')));
+    }
     if (node.type === 'Dense' || node.type === 'MLP') {
-      const input = makeNumberInput(node.inputSize);
-      input.addEventListener('input', () => {
-        const next = Number(input.value);
-        if (!Number.isFinite(next)) return;
-        node.inputSize = next;
-        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
-      });
-      graphDiagramInspector.appendChild(makeRow('Input', input));
+      const inferred = sizeState.sizes.get(node.id)?.inputSize ?? null;
+      graphDiagramInspector.appendChild(makeRow('Input', makeReadOnlyNumberInput(inferred)));
 
       const output = makeNumberInput(node.outputSize);
       output.addEventListener('input', () => {
@@ -1895,14 +2342,8 @@ function renderGraphInspector(spec: GraphSpec): void {
       graphDiagramInspector.appendChild(makeRow('Hidden', hidden));
     }
     if (node.type === 'GRU' || node.type === 'LSTM' || node.type === 'RRU') {
-      const input = makeNumberInput(node.inputSize);
-      input.addEventListener('input', () => {
-        const next = Number(input.value);
-        if (!Number.isFinite(next)) return;
-        node.inputSize = next;
-        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
-      });
-      graphDiagramInspector.appendChild(makeRow('Input', input));
+      const inferred = sizeState.sizes.get(node.id)?.inputSize ?? null;
+      graphDiagramInspector.appendChild(makeRow('Input', makeReadOnlyNumberInput(inferred)));
 
       const hidden = makeNumberInput(node.hiddenSize);
       hidden.addEventListener('input', () => {
@@ -1924,6 +2365,10 @@ function renderGraphInspector(spec: GraphSpec): void {
         setGraphSpecStatus('Updated split sizes. Apply graph to use it.');
       });
       graphDiagramInspector.appendChild(makeRow('Outputs', sizes));
+    }
+    if (node.type === 'Concat') {
+      const outSize = sizeState.sizes.get(node.id)?.outputSizes?.[0] ?? null;
+      graphDiagramInspector.appendChild(makeRow('Output', makeReadOnlyNumberInput(outSize)));
     }
 
     addActions([
@@ -2089,6 +2534,11 @@ function renderGraphInspector(spec: GraphSpec): void {
 function renderGraphEditor(): void {
   if (!graphNodes || !graphEdges || !graphOutputs) return;
   const spec = ensureGraphDraft();
+  spec.nodes.forEach(node => {
+    if (node.type === 'Input') node.outputSize = CFG.brain.inSize;
+  });
+  const sizeState = updateGraphSizeState(spec);
+  applyGraphSizeInference(spec, sizeState);
   syncGraphSelection(spec);
   const nodeIds = spec.nodes.map(node => node.id);
 
@@ -2107,6 +2557,21 @@ function renderGraphEditor(): void {
     input.type = 'number';
     input.value = Number.isFinite(value) ? String(value) : '';
     if (min != null) input.min = String(min);
+    return input;
+  };
+
+  /**
+   * Build a read-only number input for inferred sizes.
+   * @param value - Value to show, or null to leave blank.
+   * @param placeholder - Placeholder when size is unresolved.
+   * @returns Disabled number input element.
+   */
+  const makeReadOnlyNumberInput = (value: number | null, placeholder = 'auto'): HTMLInputElement => {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = value != null && Number.isFinite(value) ? String(value) : '';
+    input.placeholder = placeholder;
+    input.disabled = true;
     return input;
   };
 
@@ -2153,7 +2618,6 @@ function renderGraphEditor(): void {
         graphLayoutOverrides.set(nextId, override);
       }
       if (graphSelectedNodeId === oldId) graphSelectedNodeId = nextId;
-      if (graphConnectFromId === oldId) graphConnectFromId = nextId;
       renderGraphEditor();
       setGraphSpecStatus('Node id updated. Apply graph to use it.');
     });
@@ -2185,14 +2649,8 @@ function renderGraphEditor(): void {
       row.appendChild(makeField('Output', out));
     }
     if (node.type === 'Dense' || node.type === 'MLP') {
-      const input = makeNumberInput(node.inputSize, 1);
-      input.addEventListener('input', () => {
-        const next = Number(input.value);
-        if (!Number.isFinite(next)) return;
-        node.inputSize = next;
-        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
-      });
-      row.appendChild(makeField('Input', input));
+      const inferred = sizeState.sizes.get(node.id)?.inputSize ?? null;
+      row.appendChild(makeField('Input', makeReadOnlyNumberInput(inferred)));
 
       const output = makeNumberInput(node.outputSize, 1);
       output.addEventListener('input', () => {
@@ -2215,14 +2673,8 @@ function renderGraphEditor(): void {
       row.appendChild(makeField('Hidden', hidden));
     }
     if (node.type === 'GRU' || node.type === 'LSTM' || node.type === 'RRU') {
-      const input = makeNumberInput(node.inputSize, 1);
-      input.addEventListener('input', () => {
-        const next = Number(input.value);
-        if (!Number.isFinite(next)) return;
-        node.inputSize = next;
-        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
-      });
-      row.appendChild(makeField('Input', input));
+      const inferred = sizeState.sizes.get(node.id)?.inputSize ?? null;
+      row.appendChild(makeField('Input', makeReadOnlyNumberInput(inferred)));
 
       const hidden = makeNumberInput(node.hiddenSize, 1);
       hidden.addEventListener('input', () => {
@@ -2246,6 +2698,10 @@ function renderGraphEditor(): void {
       });
       row.appendChild(makeField('Outputs', sizes));
     }
+    if (node.type === 'Concat') {
+      const outSize = sizeState.sizes.get(node.id)?.outputSizes?.[0] ?? null;
+      row.appendChild(makeField('Output', makeReadOnlyNumberInput(outSize)));
+    }
 
     if (node.type !== 'Input') {
       const remove = document.createElement('button');
@@ -2258,7 +2714,6 @@ function renderGraphEditor(): void {
         spec.outputs = spec.outputs.filter(out => out.nodeId !== removedId);
         graphLayoutOverrides.delete(removedId);
         if (graphSelectedNodeId === removedId) graphSelectedNodeId = null;
-        if (graphConnectFromId === removedId) graphConnectFromId = null;
         renderGraphEditor();
         setGraphSpecStatus('Node removed. Apply graph to use it.');
       });
@@ -2340,6 +2795,7 @@ function renderGraphEditor(): void {
     graphEdges.appendChild(row);
   });
 
+  renderSimpleOutputUi(spec, sizeState);
   graphOutputs.innerHTML = '';
   spec.outputs.forEach((output, index) => {
     const row = document.createElement('div');
@@ -2639,7 +3095,7 @@ function handleWorkerMessage(msg: WorkerToMainMessage): void {
         hof.add(msg.stats.hofEntry);
       }
       if (msg.stats.viz) {
-        currentVizData = msg.stats.viz;
+        currentVizData = normalizeVizData(msg.stats.viz);
       }
       return;
     }
@@ -2819,7 +3275,10 @@ wsClient = createWsClient({
       if (fitnessHistory.length > 120) fitnessHistory.shift();
     }
     if (msg.viz) {
-      currentVizData = msg.viz;
+      currentVizData = normalizeVizData(msg.viz);
+    }
+    if (msg.hofEntry) {
+      hof.add(msg.hofEntry);
     }
   },
   onAssign: (msg) => {
@@ -2912,7 +3371,17 @@ btnDefaults.addEventListener('click', () => {
 // Toggle view mode
 btnToggle.addEventListener('click', () => proxyWorld.toggleViewMode());
 window.addEventListener('keydown', e => {
-  if (e.code === 'KeyV') proxyWorld.toggleViewMode();
+  if (e.code === 'KeyV') {
+    if (connectionMode === 'server') {
+      if (isPlayerControlActive()) {
+        enterSpectatorMode();
+      } else {
+        enterPlayerMode();
+      }
+      return;
+    }
+    proxyWorld.toggleViewMode();
+  }
 });
 
 // ============== GOD MODE: Canvas Event Handlers ==============
@@ -3094,15 +3563,74 @@ canvas.addEventListener('mouseleave', () => {
   pointerWorld = null;
 });
 
+/**
+ * Resolve the HTTP base URL for server API requests from a WS URL.
+ * @param wsUrl - WebSocket URL used for the server connection.
+ * @returns HTTP base URL or null when parsing fails.
+ */
+function resolveServerHttpBase(wsUrl: string): string | null {
+  try {
+    const url = new URL(wsUrl);
+    const protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+    return `${protocol}//${url.host}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Export the latest server snapshot and HoF entries to a local file.
+ */
+async function exportServerSnapshot(): Promise<void> {
+  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+  if (!base) {
+    pendingExport = false;
+    alert('Export failed: invalid server URL.');
+    return;
+  }
+  try {
+    const saveRes = await fetch(`${base}/api/save`, { method: 'POST' });
+    if (!saveRes.ok) {
+      throw new Error(`snapshot save failed (${saveRes.status})`);
+    }
+    const exportRes = await fetch(`${base}/api/export/latest`);
+    if (!exportRes.ok) {
+      throw new Error(`snapshot export failed (${exportRes.status})`);
+    }
+    const exportData = await exportRes.json() as { generation?: number; genomes?: unknown };
+    if (!exportData || !Array.isArray(exportData.genomes)) {
+      throw new Error('invalid export payload from server.');
+    }
+    const payload = {
+      generation: exportData.generation || 1,
+      genomes: exportData.genomes,
+      hof: hof.getAll()
+    };
+    exportToFile(payload, `slither_neuroevo_gen${payload.generation}.json`);
+  } catch (err) {
+    console.error('Server export failed', err);
+    alert(`Export failed: ${(err as Error).message}`);
+  } finally {
+    pendingExport = false;
+  }
+}
+
 // Persistence UI Wiring
 /** Button that triggers exporting population and HoF data. */
 const btnExport = document.getElementById('btnExport') as HTMLButtonElement | null;
 if (btnExport) {
   btnExport.addEventListener('click', () => {
     if (pendingExport) return;
-    if (!worker) return;
     pendingExport = true;
-    worker.postMessage({ type: 'export' });
+    if (worker) {
+      worker.postMessage({ type: 'export' });
+      return;
+    }
+    if (wsClient && wsClient.isConnected()) {
+      void exportServerSnapshot();
+      return;
+    }
+    pendingExport = false;
   });
 }
 

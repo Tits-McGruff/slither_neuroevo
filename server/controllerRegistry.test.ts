@@ -100,7 +100,7 @@ describe('ControllerRegistry', () => {
     expect(action?.boost).toBe(0);
   });
 
-  it('returns neutral action after timeout and releases on extended timeout', () => {
+  it('holds the last action until control is explicitly released', () => {
     const { registry } = makeRegistry();
     registry.setTickId(1);
     const snakeId = registry.assignSnake(4, 'player');
@@ -117,10 +117,11 @@ describe('ControllerRegistry', () => {
     const fresh = registry.getAction(snakeId, 2);
     expect(fresh?.turn).toBe(0.2);
 
-    const neutral = registry.getAction(snakeId, 4);
-    expect(neutral).toEqual({ turn: 0, boost: 0 });
+    const stale = registry.getAction(snakeId, 4);
+    expect(stale).toEqual({ turn: 0.2, boost: 1 });
     expect(registry.isControlled(snakeId)).toBe(true);
 
+    registry.releaseSnake(4);
     const released = registry.getAction(snakeId, 6);
     expect(released).toBeNull();
     expect(registry.isControlled(snakeId)).toBe(false);

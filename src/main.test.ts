@@ -44,6 +44,7 @@ function makeCtx(): CanvasRenderingContext2D {
 type TestElement = {
   id: string;
   value: string;
+  checked?: boolean;
   textContent: string;
   innerHTML: string;
   style: Record<string, string>;
@@ -53,6 +54,7 @@ type TestElement = {
   appendChild: () => void;
   setAttribute: () => void;
   querySelectorAll: () => TestElement[];
+  closest: () => Element | null;
   getContext: () => CanvasRenderingContext2D;
   click: () => void;
 };
@@ -105,6 +107,7 @@ function makeElement(id: string, overrides: Record<string, unknown> = {}): TestE
   return {
     id,
     value: '',
+    checked: false,
     textContent: '',
     innerHTML: '',
     style: {},
@@ -114,6 +117,7 @@ function makeElement(id: string, overrides: Record<string, unknown> = {}): TestE
     appendChild() {},
     setAttribute() {},
     querySelectorAll: () => [],
+    closest: () => null,
     getContext: () => makeCtx(),
     click() {},
     ...overrides
@@ -144,6 +148,9 @@ describe('main.ts', () => {
       'graphNodes',
       'graphEdges',
       'graphOutputs',
+      'graphOutputNode',
+      'graphOutputSplit',
+      'graphOutputHint',
       'graphNodeAdd',
       'graphEdgeAdd',
       'graphOutputAdd',
@@ -157,6 +164,8 @@ describe('main.ts', () => {
       'graphSpecCopy',
       'graphSpecExport',
       'graphSpecStatus',
+      'graphModeHint',
+      'graphSizeHint',
       'snakesVal',
       'simSpeedVal',
       'layersVal',

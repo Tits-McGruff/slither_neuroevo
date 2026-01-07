@@ -370,9 +370,25 @@ canvas {
   stroke-width: 1.6px;
   fill: none;
 }
+.panel .graph-diagram-svg .graph-diagram-edge-hit {
+  stroke: rgba(0, 0, 0, 0);
+  stroke-width: 12px;
+  fill: none;
+  pointer-events: stroke;
+}
 .panel .graph-diagram-svg .graph-diagram-edge.selected {
   stroke: rgba(116, 223, 255, 0.9);
   stroke-width: 2.4px;
+}
+.panel .graph-diagram-svg .graph-diagram-edge.ghost {
+  stroke: rgba(125, 215, 255, 0.65);
+  stroke-width: 2px;
+  stroke-dasharray: 4 4;
+  opacity: 0;
+  pointer-events: none;
+}
+.panel .graph-diagram-svg .graph-diagram-edge.ghost.visible {
+  opacity: 1;
 }
 .panel .graph-diagram-svg .graph-diagram-port {
   fill: #c6d3f1;
@@ -386,6 +402,24 @@ canvas {
 .panel .graph-diagram-svg .graph-diagram-node.selected {
   stroke: rgba(116, 223, 255, 0.9);
   stroke-width: 2px;
+}
+.panel .graph-diagram-svg .graph-diagram-node.error {
+  stroke: rgba(255, 135, 135, 0.9);
+  stroke-width: 2px;
+}
+.panel .graph-diagram-svg .graph-diagram-node.pending {
+  stroke: rgba(255, 207, 118, 0.7);
+  stroke-dasharray: 4 3;
+}
+.panel .graph-diagram-svg .graph-diagram-node.connect-target {
+  stroke: rgba(116, 223, 255, 0.9);
+  stroke-width: 2px;
+}
+.panel .graph-diagram-svg .graph-diagram-handle {
+  fill: rgba(125, 215, 255, 0.8);
+  stroke: rgba(10, 14, 22, 0.85);
+  stroke-width: 1px;
+  cursor: crosshair;
 }
 .panel .graph-diagram-svg .graph-diagram-node.graph-diagram-input {
   fill: rgba(35, 78, 62, 0.9);
@@ -505,6 +539,12 @@ body.graph-diagram-open {
   color: #9fb0c8;
   margin-bottom: 6px;
 }
+.panel .graph-mode-hint {
+  color: #ffd48a;
+}
+.panel .graph-size-hint.error {
+  color: #ff9b9b;
+}
 .panel .graph-templates-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -513,6 +553,34 @@ body.graph-diagram-open {
 .panel .graph-section {
   display: grid;
   gap: 8px;
+}
+.panel .graph-output-simple {
+  display: grid;
+  gap: 8px;
+}
+.panel .graph-output-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #cbd6ea;
+}
+.panel .graph-output-hint.error {
+  color: #ff9b9b;
+}
+.panel .graph-output-advanced summary {
+  cursor: pointer;
+  color: #9fb0c8;
+}
+.panel .graph-output-advanced summary::marker {
+  color: #7dd7ff;
+}
+.panel .graph-output-advanced {
+  display: grid;
+  gap: 8px;
+}
+.panel .graph-stack-disabled {
+  opacity: 0.65;
 }
 .panel .graph-help {
   font-size: 12px;
@@ -547,6 +615,11 @@ body.graph-diagram-open {
 .panel .graph-field input[type="number"],
 .panel .graph-field select {
   width: 100%;
+}
+.panel .graph-field input:disabled,
+.panel .graph-field select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 .panel .graph-actions {
   display: grid;

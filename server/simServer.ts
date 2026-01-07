@@ -6,6 +6,7 @@ import { setByPath } from '../src/utils.ts';
 import { validateGraph } from '../src/brains/graph/validate.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import type { CoreSettings, SettingsUpdate } from '../src/protocol/settings.ts';
+import type { Snake } from '../src/snake.ts';
 import type { ServerConfig } from './config.ts';
 import type {
   ActionMsg,
@@ -170,7 +171,10 @@ export class SimServer {
    * @param name - Optional player name.
    */
   handleJoin(connId: number, mode: JoinMode, clientType: ClientType, name?: string): void {
-    if (mode !== 'player') return;
+    if (mode !== 'player') {
+      this.controllers.releaseSnake(connId);
+      return;
+    }
     if (!name || !name.trim()) {
       this.wsHub.sendJsonTo(connId, { type: 'error', message: 'name required for player mode' });
       return;
@@ -343,6 +347,21 @@ export class SimServer {
   }
 
   /**
+   * Select a snake for visualization, preferring AI-controlled snakes.
+   * @returns Snake to visualize or null when none available.
+   */
+  private pickVizSnake(): Snake | null {
+    const focus = this.world.focusSnake;
+    if (focus && focus.alive && !this.controllers.isControlled(focus.id)) return focus;
+    for (const snake of this.world.snakes) {
+      if (!snake.alive) continue;
+      if (this.controllers.isControlled(snake.id)) continue;
+      return snake;
+    }
+    return focus ?? null;
+  }
+
+  /**
    * Build the stats payload broadcast to clients.
    * @returns Stats message payload.
    */
@@ -377,8 +396,13 @@ export class SimServer {
       this.lastHistoryLen = this.world.fitnessHistory.length;
     }
     if (this.vizConnections.size > 0) {
-      const viz = buildVizData(this.world.focusSnake?.brain);
+      const vizTarget = this.pickVizSnake();
+      const viz = buildVizData(vizTarget?.brain);
       if (viz) stats.viz = viz;
+    }
+    if (this.world._lastHoFEntry) {
+      stats.hofEntry = this.world._lastHoFEntry;
+      this.world._lastHoFEntry = null;
     }
     return stats;
   }

@@ -170,17 +170,18 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 
 ## Brain graph editor
 
-The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM/RRU/Dense/Split/Concat, including splits and skip connections. Changes require **Apply graph** and then **Apply and reset**.
+The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM/RRU/Dense/Split/Concat, including splits and skip connections. Changes require **Apply graph** and then **Apply and reset**. When a custom graph is active, the stack sliders (hidden layers + neurons) are disabled and ignored.
 
 - **Templates**: Quick starting points (Linear MLP, MLP → GRU → MLP, Skip + concat, Split + parallel heads).
-- **Nodes**: Each node has an id and a type. Input is fixed to the sensor size. Dense/MLP use input/output sizes, GRU/LSTM/RRU use hidden size, Split uses a comma list of output sizes (must sum to its input size).
+- **Nodes**: Each node has an id and a type. Input is fixed to the sensor size. Dense/MLP/GRU/LSTM/RRU input sizes are inferred from wiring and shown read-only. Split uses a comma list of output sizes (must sum to its input size).
 - **Edges**: Connect nodes. `fromPort` picks an output on a multi-output node (Split). `toPort` sets input order for multi-input nodes (Concat). Ports are 0-based; leave blank for default ordering.
-- **Outputs**: Defines which node outputs become the final brain output. If the output comes from a Split, set `port`. The summed output size must equal 2 (turn + boost).
+- **Outputs (simple)**: Pick an output node and optionally **Split into 2 outputs**. A single node with size 2 drives turn + boost. A split uses port 0 → turn and port 1 → boost.
+- **Outputs (advanced)**: Expand **Advanced outputs** to map multiple output refs manually. The summed output size must equal 2 (turn + boost).
 - **Diagram**: Visualizes the current editor graph left → right. Use **Full screen** to bring it forward while editing.
 - **Diagram overlay**: Full screen dims the arena while keeping the right-side control panel visible.
 - **Diagram editing**:
   - **Select**: Click a node/edge/output to edit it in the inspector.
-  - **Connect**: Click **Connect**, then click a start node and a target node to add an edge (Split/Concat ports auto-assign).
+  - **Connect**: Drag from the small handle on a node to another node (Split/Concat ports auto-assign).
   - **Move**: Drag nodes to reposition the diagram (visual layout only).
   - **Toolbar**: **Add node**, **Add output**, **Delete**, **Auto layout** (clears manual positions), **Full screen**.
 - **Saved presets**: Enter a name and **Save preset** to store in the server database; in worker mode the list stays empty.

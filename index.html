@@ -97,6 +97,7 @@
         <div class="row">
           <label>Brain graph</label>
           <div class="meta">One layout editor for MLP/GRU/LSTM/RRU/Dense/Split/Concat. Requires reset.</div>
+          <div id="graphModeHint" class="meta graph-mode-hint"></div>
         </div>
 
         <div class="row graph-panel">
@@ -115,7 +116,6 @@
               <div class="graph-templates-title">Diagram</div>
               <div class="graph-diagram-actions">
                 <button id="graphDiagramAddNode" class="btn small" type="button">Add node</button>
-                <button id="graphDiagramConnect" class="btn small" type="button">Connect</button>
                 <button id="graphDiagramAddOutput" class="btn small" type="button">Add output</button>
                 <button id="graphDiagramAuto" class="btn small" type="button">Auto layout</button>
                 <button id="graphDiagramDelete" class="btn small" type="button">Delete</button>
@@ -125,6 +125,7 @@
             <svg id="graphDiagram" class="graph-diagram-svg" viewBox="0 0 800 360" role="img" aria-label="Brain graph diagram"></svg>
             <div id="graphDiagramInspector" class="graph-diagram-inspector"></div>
             <div class="meta">Flow is left → right. Outputs are shown at the far right.</div>
+            <div id="graphSizeHint" class="meta graph-size-hint"></div>
           </div>
 
           <div class="graph-section">
@@ -144,8 +145,22 @@
 
           <div class="graph-section">
             <div class="graph-section-title">Outputs</div>
-            <div id="graphOutputs" class="graph-list"></div>
-            <button id="graphOutputAdd" class="btn small">Add output</button>
+            <div class="graph-output-simple">
+              <div class="graph-field">
+                <label for="graphOutputNode">Output node</label>
+                <select id="graphOutputNode"></select>
+              </div>
+              <label class="graph-output-toggle">
+                <input id="graphOutputSplit" type="checkbox" />
+                Split into 2 outputs
+              </label>
+              <div id="graphOutputHint" class="meta graph-output-hint"></div>
+            </div>
+            <details class="graph-output-advanced">
+              <summary>Advanced outputs</summary>
+              <div id="graphOutputs" class="graph-list"></div>
+              <button id="graphOutputAdd" class="btn small">Add output</button>
+            </details>
           </div>
 
           <div class="graph-actions">

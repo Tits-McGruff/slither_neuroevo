@@ -233,27 +233,15 @@ export class ControllerRegistry {
   }
 
   /**
-   * Fetch the current action for a snake, handling timeouts and releases.
+   * Fetch the current action for a snake, holding the last input until release.
    * @param snakeId - Snake id to query.
-   * @param tickId - Current tick id.
+   * @param _tickId - Current tick id (unused when holding last input).
    * @returns Control input or null when control is released.
    */
-  getAction(snakeId: number, tickId: number): ControlInput | null {
+  getAction(snakeId: number, _tickId: number): ControlInput | null {
     const state = this.bySnake.get(snakeId);
     if (!state) return null;
-    const delta = tickId - state.lastServerTick;
-    if (!Number.isFinite(delta) || delta <= 0) {
-      return { turn: state.lastTurn, boost: state.lastBoost };
-    }
-    if (delta <= this.options.actionTimeoutTicks) {
-      return { turn: state.lastTurn, boost: state.lastBoost };
-    }
-    const releaseAfter = this.options.actionTimeoutTicks * 2;
-    if (delta > releaseAfter) {
-      this.releaseSnake(state.connId);
-      return null;
-    }
-    return { turn: 0, boost: 0 };
+    return { turn: state.lastTurn, boost: state.lastBoost };
   }
 
   /**
