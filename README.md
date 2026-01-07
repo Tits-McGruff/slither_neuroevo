@@ -15,6 +15,11 @@ Open the local URL printed by Vite (usually `http://localhost:5173`).
 
 Note: This project uses ES modules, so opening `index.html` directly in a file browser will not work.
 
+Convenience launchers (install deps, start the server, then start Vite):
+
+- Windows: `play.bat`
+- macOS/Linux: `play.sh` (auto-opens the browser only when `xdg-open` is available)
+
 ### Server mode (optional)
 
 Run the simulation server in a second terminal to enable multiplayer join/spectate and DB-backed graph presets.
@@ -27,6 +32,7 @@ npm run dev
 The UI will connect over WebSocket and show **SERVER** in the status pill. If the server is down, the app falls back to a local Web Worker.
 Server mode also enables DB-backed graph presets in the Brain graph panel.
 By default the client connects to `ws://localhost:5174`; use `?server=ws://host:port` to point at a different server.
+If the server handshake fails, the app falls back to worker mode after a short delay and keeps reconnecting in the background.
 UI defaults come from `server/config.toml`:
 
 - `host`/`port` bind the simulation server.
@@ -39,7 +45,7 @@ If the UI is on a different machine than the server, set `publicWsUrl` to
 
 ## Controls
 
-- `V`: Toggle camera mode between Overview and Follow.
+- `V`: In worker mode, toggle camera mode between Overview and Follow. In server mode, toggle between Play and Spectate.
 - Left click: Select a snake (God Mode selection).
 - Right click: Kill the selected snake (God Mode).
 - Left click + drag: Move a selected snake (God Mode).
@@ -53,8 +59,10 @@ If the UI is on a different machine than the server, set `publicWsUrl` to
 - Enter a nickname, then **Play** to spawn a player snake (server mode only).
 - **Spectate** starts the sim with no player control.
 - If the server is unavailable, the join overlay is hidden and the sim runs in worker mode.
-- When a server connection is established, the client auto-spectates in overview mode until you join.
+- When a server connection is established, the client auto-spectates and shows the join overlay.
+- **Spectate** switches the camera to overview; **Play** switches to follow after assignment.
 - Player control begins after the server sends an assignment; the overlay hides once assigned.
+- Your nickname is saved in browser storage and restored on reload.
 
 ## Understanding the brain (MLP vs GRU)
 
@@ -194,6 +202,12 @@ The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM
 
 - **Frame dt clamp**: Max time step per physics update (stability guard).
 
+## Import and export
+
+Population import/export lives in the Settings tab and writes a JSON file that includes the population, applied settings, the active graph spec, and Hall of Fame entries.
+In server mode, exports are pulled from a server snapshot; in worker mode, exports come from the local worker state.
+Imports reset the simulation to the file contents.
+
 ## Preset recipes (QA-friendly)
 
 ### Fast iteration
@@ -248,8 +262,8 @@ Use GRU for smoother, more deliberate behavior.
 
 - **Brain Visualizer**: Shows the focused snake’s network activations. If you don’t see anything, switch to follow mode or select a snake.
 - **Visualizer streaming**: Data is only requested while the Visualizer tab is active.
-- **Fitness Stats**: Shows min/avg/max over generations.
-- **Hall of Fame**: Lets you resurrect top genomes; imports/exports are stored in browser storage.
+- **Fitness Stats**: Switch between Fitness History (min/avg/max), Species Diversity, and Network Complexity.
+- **Hall of Fame**: Lets you resurrect top genomes; Hall of Fame entries are stored in browser storage and included in exports.
 
 ## Troubleshooting
 
