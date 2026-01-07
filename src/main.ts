@@ -5,7 +5,7 @@ import { setupSettingsUI, updateCFGFromUI } from './settings.ts';
 import { lerp, setByPath } from './utils.ts';
 import { renderWorldStruct } from './render.ts';
 // import { World } from './world.ts'; // Logic moved to worker
-import { exportJsonToFile, exportToFile, importFromFile } from './storage.ts';
+import { exportJsonToFile, exportToFile, importFromFile, type PopulationFilePayload } from './storage.ts';
 import { hof } from './hallOfFame.ts';
 import { BrainViz } from './BrainViz.ts';
 import { AdvancedCharts } from './chartUtils.ts';
@@ -80,6 +80,10 @@ let wsClient: ReturnType<typeof createWsClient> | null = null;
 let connectionMode: ConnectionMode = 'connecting';
 /** Current server URL used for connection attempts. */
 let serverUrl = '';
+/** Latest server config hash from the welcome message. */
+let serverCfgHash: string | null = null;
+/** Latest server world seed from the welcome message. */
+let serverWorldSeed: number | null = null;
 /** Backoff delay for reconnection attempts in ms. */
 let reconnectDelayMs = 1000;
 /** Last player nickname used for reconnecting control. */
@@ -3036,6 +3040,7 @@ function handleWorkerMessage(msg: WorkerToMainMessage): void {
       }
       const exportData = {
         generation: msg.data.generation || 1,
+        archKey: msg.data.archKey,
         genomes: msg.data.genomes,
         hof: hof.getAll()
       };
@@ -3197,6 +3202,8 @@ wsClient = createWsClient({
   onConnected: (info) => {
     storeServerUrl(serverUrl);
     reconnectDelayMs = 1000;
+    serverCfgHash = info.cfgHash;
+    serverWorldSeed = info.worldSeed;
     if (fallbackTimer !== null) {
       clearTimeout(fallbackTimer);
       fallbackTimer = null;
@@ -3220,6 +3227,8 @@ wsClient = createWsClient({
     } else {
       setConnectionStatus('connecting');
     }
+    serverCfgHash = null;
+    serverWorldSeed = null;
     playerSnakeId = null;
     playerSensorTick = 0;
     playerSensorMeta = null;
@@ -3596,6 +3605,62 @@ async function readErrorMessage(res: Response): Promise<string> {
 }
 
 /**
+ * Import a snapshot into the server and return the applied counts.
+ * @param data - Parsed population file payload.
+ * @returns Import result counts from the server.
+ */
+async function importServerSnapshot(data: PopulationFilePayload): Promise<{ used: number; total: number }> {
+  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+  if (!base) {
+    throw new Error('invalid server URL.');
+  }
+  const metadata = data as PopulationFilePayload & {
+    archKey?: unknown;
+    cfgHash?: unknown;
+    worldSeed?: unknown;
+  };
+  const archKey = typeof metadata.archKey === 'string' && metadata.archKey.trim()
+    ? metadata.archKey.trim()
+    : (data.genomes?.[0]?.archKey ?? '');
+  if (!archKey) {
+    throw new Error('missing archKey for server import.');
+  }
+  const cfgHash = typeof metadata.cfgHash === 'string' && metadata.cfgHash.trim()
+    ? metadata.cfgHash.trim()
+    : serverCfgHash;
+  if (!cfgHash) {
+    throw new Error('missing cfgHash for server import (export from server or reconnect).');
+  }
+  const seedFromFile = typeof metadata.worldSeed === 'number' ? metadata.worldSeed : NaN;
+  const worldSeed = Number.isFinite(seedFromFile) ? seedFromFile : serverWorldSeed;
+  if (!Number.isFinite(worldSeed ?? NaN)) {
+    throw new Error('missing worldSeed for server import (export from server or reconnect).');
+  }
+  const payload = {
+    generation: Number.isFinite(data.generation) ? data.generation : 1,
+    archKey,
+    genomes: data.genomes,
+    cfgHash,
+    worldSeed: worldSeed as number
+  };
+  const force = typeof serverCfgHash === 'string' && serverCfgHash.trim() && cfgHash !== serverCfgHash;
+  const res = await fetch(`${base}/api/import${force ? '?force=1' : ''}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const message = await readErrorMessage(res);
+    throw new Error(`server import failed (${res.status}): ${message}`);
+  }
+  const result = await res.json() as { ok?: boolean; used?: number; total?: number; message?: string };
+  if (!result?.ok) {
+    throw new Error(result?.message || 'server import failed');
+  }
+  return { used: result.used ?? 0, total: result.total ?? 0 };
+}
+
+/**
  * Export the latest server snapshot and HoF entries to a local file.
  */
 async function exportServerSnapshot(): Promise<void> {
@@ -3616,13 +3681,26 @@ async function exportServerSnapshot(): Promise<void> {
       const message = await readErrorMessage(exportRes);
       throw new Error(`snapshot export failed (${exportRes.status}): ${message}`);
     }
-    const exportData = await exportRes.json() as { generation?: number; genomes?: unknown };
+    const exportData = await exportRes.json() as {
+      generation?: number;
+      archKey?: string;
+      genomes?: unknown;
+      cfgHash?: string;
+      worldSeed?: number;
+    };
     if (!exportData || !Array.isArray(exportData.genomes)) {
       throw new Error('invalid export payload from server.');
     }
+    const archKey = typeof exportData.archKey === 'string' ? exportData.archKey : '';
+    if (!archKey) {
+      throw new Error('invalid export payload from server (missing archKey).');
+    }
     const payload = {
       generation: exportData.generation || 1,
+      archKey,
       genomes: exportData.genomes,
+      cfgHash: exportData.cfgHash,
+      worldSeed: exportData.worldSeed,
       hof: hof.getAll()
     };
     exportToFile(payload, `slither_neuroevo_gen${payload.generation}.json`);
@@ -3675,9 +3753,24 @@ if (btnImport && fileInput) {
       if (Array.isArray(data.hof)) {
         hof.replace(data.hof);
       }
-      localStorage.setItem('slither_neuroevo_pop', JSON.stringify({ generation: data.generation, genomes: data.genomes }));
-      if (worker) {
-        worker.postMessage({ type: 'import', data });
+      if (wsClient && wsClient.isConnected()) {
+        const result = await importServerSnapshot(data);
+        alert(`Import applied on server. Loaded ${result.used}/${result.total} genomes.`);
+        return;
+      }
+      if (!worker) {
+        throw new Error('No active simulation backend for import.');
+      }
+      let persistWarning = '';
+      try {
+        localStorage.setItem('slither_neuroevo_pop', JSON.stringify({ generation: data.generation, genomes: data.genomes }));
+      } catch (err) {
+        console.warn('Population persistence failed', err);
+        persistWarning = 'Import succeeded, but local storage quota was exceeded so it will not persist after reload.';
+      }
+      worker.postMessage({ type: 'import', data });
+      if (persistWarning) {
+        alert(persistWarning);
       }
     } catch (err) {
       console.error("Import failed", err);

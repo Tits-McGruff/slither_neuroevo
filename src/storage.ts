@@ -16,6 +16,12 @@ export interface PopulationStoragePayload {
 
 /** Payload stored in export files, optionally including HoF. */
 export interface PopulationFilePayload extends PopulationStoragePayload {
+  /** Optional architecture key for snapshot compatibility. */
+  archKey?: string;
+  /** Optional server configuration hash for snapshot imports. */
+  cfgHash?: string;
+  /** Optional world seed for snapshot imports. */
+  worldSeed?: number;
   hof?: HallOfFameEntry[];
 }
 
