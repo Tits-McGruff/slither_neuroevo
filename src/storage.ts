@@ -3,6 +3,8 @@
 // localStorage and file export/import.
 
 import { Genome } from './mlp.ts';
+import type { CoreSettings, SettingsUpdate } from './protocol/settings.ts';
+import type { GraphSpec } from './brains/graph/schema.ts';
 import type { GenomeJSON, HallOfFameEntry } from './protocol/messages.ts';
 
 /** Local storage key for population persistence. */
@@ -22,6 +24,12 @@ export interface PopulationFilePayload extends PopulationStoragePayload {
   cfgHash?: string;
   /** Optional world seed for snapshot imports. */
   worldSeed?: number;
+  /** Optional graph spec used to rebuild the brain on import. */
+  graphSpec?: GraphSpec | null;
+  /** Optional core settings captured during export. */
+  settings?: CoreSettings;
+  /** Optional settings updates captured during export. */
+  updates?: SettingsUpdate[];
   hof?: HallOfFameEntry[];
 }
 

@@ -52,7 +52,8 @@ type TestElement = {
   classList: DOMTokenList;
   addEventListener: () => void;
   appendChild: () => void;
-  setAttribute: () => void;
+  setAttribute: (name: string, value: string) => void;
+  getAttribute: (name: string) => string | null;
   querySelectorAll: () => TestElement[];
   closest: () => Element | null;
   getContext: () => CanvasRenderingContext2D;
@@ -104,6 +105,7 @@ function makeClassList(): DOMTokenList {
  * @returns Test element stub.
  */
 function makeElement(id: string, overrides: Record<string, unknown> = {}): TestElement {
+  const attributes = new Map<string, string>();
   return {
     id,
     value: '',
@@ -115,7 +117,12 @@ function makeElement(id: string, overrides: Record<string, unknown> = {}): TestE
     classList: makeClassList(),
     addEventListener() {},
     appendChild() {},
-    setAttribute() {},
+    setAttribute(name: string, value: string) {
+      attributes.set(name, String(value));
+    },
+    getAttribute(name: string) {
+      return attributes.get(name) ?? null;
+    },
     querySelectorAll: () => [],
     closest: () => null,
     getContext: () => makeCtx(),

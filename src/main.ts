@@ -15,7 +15,7 @@ import type { GraphSizeState } from './brains/graph/editor.ts';
 import { validateGraph } from './brains/graph/validate.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
 import type { FrameStats, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
-import type { SettingsUpdate } from './protocol/settings.ts';
+import type { CoreSettings, SettingsUpdate } from './protocol/settings.ts';
 
 /** Minimal world interface exposed to UI panels and HoF actions. */
 interface ProxyWorld {
@@ -84,6 +84,15 @@ let serverUrl = '';
 let serverCfgHash: string | null = null;
 /** Latest server world seed from the welcome message. */
 let serverWorldSeed: number | null = null;
+/** Latest tick id observed from server stats. */
+let lastServerTick = 0;
+/** Pending server reset promise used to sequence imports. */
+let pendingServerReset: {
+  priorTick: number;
+  resolve: () => void;
+  timeoutId: number;
+  promise: Promise<void>;
+} | null = null;
 /** Backoff delay for reconnection attempts in ms. */
 let reconnectDelayMs = 1000;
 /** Last player nickname used for reconnecting control. */
@@ -449,6 +458,38 @@ function readSettingsFromCoreUI(): {
     neurons4: parseInt(elN4.value, 10),
     neurons5: parseInt(elN5.value, 10)
   };
+}
+
+/**
+ * Apply core settings values to the UI sliders.
+ * @param settings - Partial core settings to apply to the UI.
+ */
+function applyCoreSettingsToUi(settings: Partial<CoreSettings>): void {
+  if (Number.isFinite(settings.snakeCount)) {
+    elSnakes.value = String(settings.snakeCount);
+  }
+  if (Number.isFinite(settings.simSpeed)) {
+    elSimSpeed.value = String(settings.simSpeed);
+  }
+  if (Number.isFinite(settings.hiddenLayers)) {
+    elLayers.value = String(settings.hiddenLayers);
+  }
+  if (Number.isFinite(settings.neurons1)) {
+    elN1.value = String(settings.neurons1);
+  }
+  if (Number.isFinite(settings.neurons2)) {
+    elN2.value = String(settings.neurons2);
+  }
+  if (Number.isFinite(settings.neurons3)) {
+    elN3.value = String(settings.neurons3);
+  }
+  if (Number.isFinite(settings.neurons4)) {
+    elN4.value = String(settings.neurons4);
+  }
+  if (Number.isFinite(settings.neurons5)) {
+    elN5.value = String(settings.neurons5);
+  }
+  refreshCoreUIState();
 }
 
 /**
@@ -1335,6 +1376,27 @@ function applyGraphSpec(spec: GraphSpec, note = 'Graph applied.'): boolean {
   renderGraphEditor();
   setGraphSpecStatus(note);
   return true;
+}
+
+/**
+ * Clear the applied custom graph spec and revert to the default stack graph.
+ * @param note - Status message to display after clearing.
+ */
+function clearCustomGraphSpec(note = 'Custom graph cleared.'): void {
+  customGraphSpec = null;
+  CFG.brain.graphSpec = null;
+  graphDraft = null;
+  if (graphSpecInput) {
+    graphSpecInput.value = JSON.stringify(buildLinearMlpTemplate(), null, 2);
+  }
+  try {
+    localStorage.removeItem(GRAPH_SPEC_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures.
+  }
+  refreshCoreUIState();
+  renderGraphEditor();
+  setGraphSpecStatus(note);
 }
 
 /**
@@ -3038,10 +3100,15 @@ function handleWorkerMessage(msg: WorkerToMainMessage): void {
         alert('Export failed: invalid payload from worker.');
         return;
       }
+      const settings = readSettingsFromCoreUI();
+      const updates = collectSettingsUpdatesFromUI();
       const exportData = {
         generation: msg.data.generation || 1,
         archKey: msg.data.archKey,
         genomes: msg.data.genomes,
+        graphSpec: customGraphSpec ?? null,
+        settings,
+        updates,
         hof: hof.getAll()
       };
       exportToFile(exportData, `slither_neuroevo_gen${exportData.generation}.json`);
@@ -3204,6 +3271,7 @@ wsClient = createWsClient({
     reconnectDelayMs = 1000;
     serverCfgHash = info.cfgHash;
     serverWorldSeed = info.worldSeed;
+    lastServerTick = 0;
     if (fallbackTimer !== null) {
       clearTimeout(fallbackTimer);
       fallbackTimer = null;
@@ -3229,6 +3297,8 @@ wsClient = createWsClient({
     }
     serverCfgHash = null;
     serverWorldSeed = null;
+    lastServerTick = 0;
+    resolvePendingServerReset();
     playerSnakeId = null;
     playerSensorTick = 0;
     playerSensorMeta = null;
@@ -3250,6 +3320,12 @@ wsClient = createWsClient({
     applyFrameBuffer(buffer);
   },
   onStats: (msg) => {
+    lastServerTick = msg.tick;
+    if (pendingServerReset) {
+      if (msg.tick < pendingServerReset.priorTick || msg.tick <= 1) {
+        resolvePendingServerReset();
+      }
+    }
     currentStats = { ...currentStats, gen: msg.gen, alive: msg.alive, fps: msg.fps };
     proxyWorld.generation = msg.gen;
     if (msg.fitnessHistory) {
@@ -3605,6 +3681,35 @@ async function readErrorMessage(res: Response): Promise<string> {
 }
 
 /**
+ * Resolve any pending server reset promise.
+ */
+function resolvePendingServerReset(): void {
+  if (!pendingServerReset) return;
+  clearTimeout(pendingServerReset.timeoutId);
+  const { resolve } = pendingServerReset;
+  pendingServerReset = null;
+  resolve();
+}
+
+/**
+ * Wait for the server to reset its tick counter after a reset request.
+ * @returns Promise resolved after observing the tick counter drop or timeout.
+ */
+function waitForServerReset(): Promise<void> {
+  if (pendingServerReset) return pendingServerReset.promise;
+  const priorTick = lastServerTick;
+  let resolve!: () => void;
+  const promise = new Promise<void>((res) => {
+    resolve = res;
+  });
+  const timeoutId = window.setTimeout(() => {
+    resolvePendingServerReset();
+  }, 2000);
+  pendingServerReset = { priorTick, resolve, timeoutId, promise };
+  return promise;
+}
+
+/**
  * Import a snapshot into the server and return the applied counts.
  * @param data - Parsed population file payload.
  * @returns Import result counts from the server.
@@ -3695,14 +3800,24 @@ async function exportServerSnapshot(): Promise<void> {
     if (!archKey) {
       throw new Error('invalid export payload from server (missing archKey).');
     }
-    const payload = {
+    const settings = readSettingsFromCoreUI();
+    const updates = collectSettingsUpdatesFromUI();
+    const payload: PopulationFilePayload = {
       generation: exportData.generation || 1,
       archKey,
       genomes: exportData.genomes,
-      cfgHash: exportData.cfgHash,
-      worldSeed: exportData.worldSeed,
+      graphSpec: customGraphSpec ?? null,
+      settings,
+      updates,
       hof: hof.getAll()
     };
+    if (typeof exportData.cfgHash === 'string' && exportData.cfgHash.trim()) {
+      payload.cfgHash = exportData.cfgHash;
+    }
+    const worldSeed = exportData.worldSeed;
+    if (typeof worldSeed === 'number' && Number.isFinite(worldSeed)) {
+      payload.worldSeed = worldSeed;
+    }
     exportToFile(payload, `slither_neuroevo_gen${payload.generation}.json`);
   } catch (err) {
     console.error('Server export failed', err);
@@ -3753,7 +3868,32 @@ if (btnImport && fileInput) {
       if (Array.isArray(data.hof)) {
         hof.replace(data.hof);
       }
+      const hasGraphSpecField = Object.prototype.hasOwnProperty.call(data, 'graphSpec');
+      const fileGraphSpec = hasGraphSpecField ? (data.graphSpec ?? null) : undefined;
+      const fileSettings = data.settings;
+      const fileUpdates = Array.isArray(data.updates) ? data.updates : null;
+      const shouldReset =
+        hasGraphSpecField ||
+        (fileSettings != null && typeof fileSettings === 'object') ||
+        (fileUpdates != null && fileUpdates.length > 0);
       if (wsClient && wsClient.isConnected()) {
+        if (shouldReset) {
+          if (fileGraphSpec && typeof fileGraphSpec === 'object') {
+            if (!applyGraphSpec(fileGraphSpec, 'Graph loaded from import.')) {
+              throw new Error('Import file graph spec is invalid.');
+            }
+          } else if (hasGraphSpecField && fileGraphSpec === null) {
+            clearCustomGraphSpec('Graph cleared from import.');
+          }
+          if (fileSettings && typeof fileSettings === 'object') {
+            applyCoreSettingsToUi(fileSettings);
+          }
+          const resetSettings = fileSettings ?? readSettingsFromCoreUI();
+          const resetUpdates = fileUpdates ?? collectSettingsUpdatesFromUI();
+          const resetGraphSpec = hasGraphSpecField ? (fileGraphSpec ?? null) : (customGraphSpec ?? null);
+          wsClient.sendReset(resetSettings, resetUpdates, resetGraphSpec);
+          await waitForServerReset();
+        }
         const result = await importServerSnapshot(data);
         alert(`Import applied on server. Loaded ${result.used}/${result.total} genomes.`);
         return;
@@ -3775,7 +3915,11 @@ if (btnImport && fileInput) {
     } catch (err) {
       console.error("Import failed", err);
       const error = err as Error;
-      alert("Failed to import file: " + error.message);
+      if (wsClient?.isConnected() && error.message.includes('no compatible genomes')) {
+        alert('Import failed: the file does not match the server brain. Re-export with the latest build (includes graph/settings metadata) or reset the server to the matching graph before importing.');
+      } else {
+        alert("Failed to import file: " + error.message);
+      }
     } finally {
       if (target) target.value = '';
     }
