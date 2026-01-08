@@ -8,6 +8,7 @@ export const SETTINGS_PATHS = [
   'baselineBots.count',
   'baselineBots.seed',
   'baselineBots.randomizeSeedPerGen',
+  'baselineBots.respawnDelay',
   'snakeBaseSpeed',
   'snakeBoostSpeed',
   'snakeTurnRate',
