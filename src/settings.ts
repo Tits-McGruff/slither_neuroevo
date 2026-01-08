@@ -43,6 +43,7 @@ const SETTING_SPECS: SettingSpec[] = [
   { group: "World and food", path: "growPerFood", label: "Growth per food", min: 0.1, max: 10.0, step: 0.1, decimals: 1, requiresReset: true },
 
   { group: "Baseline bots", path: "baselineBots.count", label: "Baseline bot count", min: 0, max: 120, step: 1, decimals: 0, requiresReset: true },
+  { group: "Baseline bots", path: "baselineBots.respawnDelay", label: "Respawn delay (sec)", min: 0.5, max: 10.0, step: 0.5, decimals: 1, requiresReset: false },
   { group: "Baseline bots", path: "baselineBots.randomizeSeedPerGen", label: "Randomize base seed per generation", requiresReset: true, type: "checkbox" },
   { group: "Baseline bots", path: "baselineBots.seed", label: "Baseline bot base seed", min: 0, max: 4294967295, step: 1, decimals: 0, requiresReset: true, type: "number", id: BASELINE_BOT_SEED_INPUT_ID, hint: "Seed must be a non-negative integer.", hintId: BASELINE_BOT_SEED_HINT_ID },
   { group: "Baseline bots", label: "Randomize base seed", type: "action", actionLabel: "Randomize seed", id: BASELINE_BOT_SEED_RANDOMIZE_ID },

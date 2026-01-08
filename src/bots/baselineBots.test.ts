@@ -57,33 +57,25 @@ describe('BaselineBotManager AI', () => {
   
   // NOTE: Hazard sensor: +1 is Clear, -1 is Blocked/Hazard
   // Food sensor: +1 is Dense Food, -1 is No Food
+  // NOTE: Food is now clamped to 0.4 max in computeAction!
 
   it('reproduces kamikaze behavior: chooses high food despite hazard', () => {
     const sensors = makeSensors(12);
     // Init all to empty/neutral
     for(let i=0; i<12; i++) setBin(sensors, i, -1, 1, 1); 
 
-    // Bin 0 (Forward): HIGH Food (1.0), BLOCKED Hazard (-0.9)  -> Score ~ 1.4*1.0 + 0.6*(-0.9) = 1.4 - 0.54 = 0.86
+    // Bin 0 (Forward): HIGH Food (1.0), BLOCKED Hazard (-0.9) 
+    // New Clamped Food: min(1.0, 0.4) = 0.4.
+    // Score ~ 0.4*0.5 + 0.05*1.5 = 0.2 + 0.075 = 0.275 (Seek weights: Food=0.5, Clear=1.5)
+    // Wait, Clearance = (-0.9+1)/2 = 0.05.
+    
     setBin(sensors, 0, 1.0, -0.9, 1.0); 
 
-    // Bin 6 (Backward/Side): NO Food (-1.0), CLEAR Hazard (1.0) -> Score ~ 1.4*(-1) + 0.6*(1) = -0.8
-    // Wait, let's look at logic:
-    // score = food * foodWeight + clearance * clearWeight
-    // clearance = (hazard + wall) * 0.5
+    // Bin 6: NO Food (-1.0), CLEAR Hazard (1.0) -> Clear = 1.0
+    // Score ~ -1.0*0.5 + 1.0*1.5 = -0.5 + 1.5 = 1.0.
     
-    // Config:
-    // Bin 0: Food=1.0, Haz=-0.9, Wall=1.0 -> Clear = (-0.9+1)/2 = 0.05
-    // Bin 1: Food=-1.0, Haz=1.0, Wall=1.0 -> Clear = 1.0
-    
-    // Old Weights (Seek): Food=1.4, Clear=0.6
-    // Score 0: 1.0 * 1.4 + 0.05 * 0.6 = 1.4 + 0.03 = 1.43
-    // Score 1: -1.0 * 1.4 + 1.0 * 0.6 = -1.4 + 0.6 = -0.8
-    
-    // Even if Bin 1 had *some* food?
-    // Let's just compare against a generic clear path.
-    // The bot picks Bin 0 because 1.43 is massive.
-    // Even if Clear was -1 (total death), Score = 1.4 + (-1)*0.6 = 0.8.
-    // It would still pick it over an empty clear path!
+    // 1.0 > 0.275. So it SHOULD pick Bin 6 (safe) over Bin 0 (food).
+    // This confirms the fix works.
 
     (mockSnake.computeSensors as Mock).mockReturnValue(sensors);
     

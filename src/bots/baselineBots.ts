@@ -301,7 +301,9 @@ export class BaselineBotManager {
     let bestClearIdx = 0;
     let worstClear = Infinity;
     for (let i = 0; i < bins; i++) {
-      const food = sensors[foodOffset + i] ?? -1;
+      const rawFood = sensors[foodOffset + i] ?? -1;
+      // Clamp food sensor to prevent overwhelming "lure" from high density
+      const food = Math.min(rawFood, 0.4);
       const hazard = sensors[hazardOffset + i] ?? -1;
       const wall = sensors[wallOffset + i] ?? -1;
       const clearance = (hazard + wall) * 0.5;
@@ -377,7 +379,9 @@ export class BaselineBotManager {
     const VETO_THRESHOLD = -0.5;
 
     for (let i = 0; i < bins; i++) {
-      const food = sensors[foodOffset + i] ?? -1;
+      const rawFood = sensors[foodOffset + i] ?? -1;
+      // Clamp food sensor to prevent overwhelming "lure" from high density
+      const food = Math.min(rawFood, 0.4);
       const hazard = sensors[hazardOffset + i] ?? -1;
       const wall = sensors[wallOffset + i] ?? -1;
       const clearance = (hazard + wall) * 0.5;
