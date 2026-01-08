@@ -1,11 +1,25 @@
 /** Entry point for the simulation UI, canvas, and client networking. */
 
 import { CFG, resetCFGToDefaults } from './config.ts';
-import { setupSettingsUI, updateCFGFromUI } from './settings.ts';
+import {
+  BASELINE_BOT_SEED_HINT_ID,
+  BASELINE_BOT_SEED_INPUT_ID,
+  BASELINE_BOT_SEED_RANDOMIZE_ID,
+  applyValuesToSlidersFromCFG,
+  setupSettingsUI,
+  updateCFGFromUI
+} from './settings.ts';
 import { lerp, setByPath } from './utils.ts';
 import { renderWorldStruct } from './render.ts';
 // import { World } from './world.ts'; // Logic moved to worker
-import { exportJsonToFile, exportToFile, importFromFile, type PopulationFilePayload } from './storage.ts';
+import {
+  exportJsonToFile,
+  exportToFile,
+  importFromFile,
+  loadBaselineBotSettings,
+  saveBaselineBotSettings,
+  type PopulationFilePayload
+} from './storage.ts';
 import { hof } from './hallOfFame.ts';
 import { BrainViz } from './BrainViz.ts';
 import { AdvancedCharts } from './chartUtils.ts';
@@ -15,6 +29,7 @@ import type { GraphSizeState } from './brains/graph/editor.ts';
 import { validateGraph } from './brains/graph/validate.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
 import type { FrameStats, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
+import { SETTINGS_PATHS } from './protocol/settings.ts';
 import type { CoreSettings, SettingsUpdate } from './protocol/settings.ts';
 
 /** Minimal world interface exposed to UI panels and HoF actions. */
@@ -119,6 +134,8 @@ let pointerWorld: { x: number; y: number } | null = null;
 let boostHeld = false;
 /** Local storage key for graph spec persistence. */
 const GRAPH_SPEC_STORAGE_KEY = 'slither_neuroevo_graph_spec';
+/** Set of valid settings update paths for import validation. */
+const SETTINGS_PATH_SET = new Set(SETTINGS_PATHS);
 /** Applied custom graph spec used for resets. */
 let customGraphSpec: GraphSpec | null = null;
 /** Current graph editor draft spec. */
@@ -280,6 +297,12 @@ const btnDefaults = document.getElementById('defaults') as HTMLButtonElement;
 const btnToggle = document.getElementById('toggle') as HTMLButtonElement;
 /** Settings tab container element. */
 const settingsContainer = document.getElementById('settingsContainer') as HTMLElement;
+/** Baseline bot seed input element (rebuilt with settings UI). */
+let baselineBotSeedInput: HTMLInputElement | null = null;
+/** Baseline bot seed validation hint element (rebuilt with settings UI). */
+let baselineBotSeedHint: HTMLElement | null = null;
+/** Baseline bot seed randomize button (rebuilt with settings UI). */
+let baselineBotSeedRandomize: HTMLButtonElement | null = null;
 /** Connection status badge element. */
 const connectionStatus = document.getElementById('connectionStatus') as HTMLElement | null;
 /** Join overlay element shown before player entry. */
@@ -461,6 +484,142 @@ function readSettingsFromCoreUI(): {
 }
 
 /**
+ * Parse a baseline bot seed from a raw input string.
+ * @param value - Raw input value.
+ * @returns Normalized seed value or null when invalid.
+ */
+function parseBaselineSeedValue(value: string): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return null;
+  return Math.max(0, parsed);
+}
+
+/**
+ * Toggle the baseline seed validation hint.
+ * @param visible - Whether to show the hint.
+ */
+function setBaselineSeedHintVisible(visible: boolean): void {
+  if (!baselineBotSeedHint) return;
+  baselineBotSeedHint.style.display = visible ? 'block' : 'none';
+  baselineBotSeedHint.classList.toggle('invalid', visible);
+}
+
+/**
+ * Update the baseline seed UI value label.
+ * @param seed - Seed value to display.
+ */
+function updateBaselineSeedLabel(seed: number): void {
+  const output = document.getElementById('val_baselineBots_seed');
+  if (output) output.textContent = String(seed);
+}
+
+/**
+ * Read baseline bot settings from CFG with basic clamping.
+ * @returns Normalized baseline bot settings.
+ */
+function readBaselineBotSettingsFromCfg(): {
+  count: number;
+  seed: number;
+  randomizeSeedPerGen: boolean;
+} {
+  const rawCount = CFG.baselineBots?.count ?? 0;
+  const rawSeed = CFG.baselineBots?.seed ?? 0;
+  const count = Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0;
+  const seed = Number.isFinite(rawSeed) ? Math.max(0, Math.floor(rawSeed)) : 0;
+  const randomizeSeedPerGen = Boolean(CFG.baselineBots?.randomizeSeedPerGen);
+  return { count, seed, randomizeSeedPerGen };
+}
+
+/**
+ * Persist baseline bot settings to localStorage.
+ */
+function persistBaselineBotSettings(): void {
+  const settings = readBaselineBotSettingsFromCfg();
+  saveBaselineBotSettings(settings);
+}
+
+/**
+ * Apply stored baseline bot settings to CFG before UI initialization.
+ */
+function applyStoredBaselineBotSettings(): void {
+  const stored = loadBaselineBotSettings();
+  if (!stored) return;
+  setByPath(CFG, 'baselineBots.count', stored.count);
+  setByPath(CFG, 'baselineBots.seed', stored.seed);
+  setByPath(CFG, 'baselineBots.randomizeSeedPerGen', stored.randomizeSeedPerGen);
+}
+
+/**
+ * Apply a baseline seed value to the UI and active settings.
+ * @param seed - Finite non-negative integer seed.
+ */
+function applyBaselineSeed(seed: number): void {
+  if (!Number.isFinite(seed) || !Number.isInteger(seed) || seed < 0) return;
+  setByPath(CFG, 'baselineBots.seed', seed);
+  if (baselineBotSeedInput) {
+    baselineBotSeedInput.value = String(seed);
+  }
+  updateBaselineSeedLabel(seed);
+  setBaselineSeedHintVisible(false);
+  persistBaselineBotSettings();
+  if (worker) {
+    worker.postMessage({
+      type: 'updateSettings',
+      updates: [{ path: 'baselineBots.seed', value: seed }]
+    });
+    return;
+  }
+  if (wsClient && wsClient.isConnected()) {
+    const settings = readSettingsFromCoreUI();
+    const updates = collectSettingsUpdatesFromUI();
+    wsClient.sendReset(settings, updates, customGraphSpec ?? null);
+  }
+}
+
+/**
+ * Generate a random baseline seed value.
+ * @returns New seed value.
+ */
+function randomizeBaselineSeed(): number {
+  return Math.floor(Math.random() * 0x100000000);
+}
+
+/**
+ * Refresh baseline bot control references after settings UI rebuild.
+ */
+function wireBaselineBotControls(): void {
+  baselineBotSeedInput = document.getElementById(BASELINE_BOT_SEED_INPUT_ID) as HTMLInputElement | null;
+  baselineBotSeedHint = document.getElementById(BASELINE_BOT_SEED_HINT_ID) as HTMLElement | null;
+  baselineBotSeedRandomize = document.getElementById(BASELINE_BOT_SEED_RANDOMIZE_ID) as HTMLButtonElement | null;
+  setBaselineSeedHintVisible(false);
+  if (baselineBotSeedInput) {
+    baselineBotSeedInput.addEventListener('input', () => {
+      const parsed = parseBaselineSeedValue(baselineBotSeedInput?.value ?? '');
+      setBaselineSeedHintVisible(parsed == null);
+    });
+    baselineBotSeedInput.addEventListener('blur', () => {
+      const parsed = parseBaselineSeedValue(baselineBotSeedInput?.value ?? '');
+      if (parsed == null) {
+        setBaselineSeedHintVisible(true);
+        const currentSeed = readBaselineBotSettingsFromCfg().seed;
+        updateBaselineSeedLabel(currentSeed);
+        if (baselineBotSeedInput) {
+          baselineBotSeedInput.value = String(currentSeed);
+        }
+        return;
+      }
+      applyBaselineSeed(parsed);
+    });
+  }
+  if (baselineBotSeedRandomize) {
+    baselineBotSeedRandomize.addEventListener('click', () => {
+      const seed = randomizeBaselineSeed();
+      applyBaselineSeed(seed);
+    });
+  }
+}
+
+/**
  * Apply core settings values to the UI sliders.
  * @param settings - Partial core settings to apply to the UI.
  */
@@ -493,6 +652,21 @@ function applyCoreSettingsToUi(settings: Partial<CoreSettings>): void {
 }
 
 /**
+ * Read a numeric value from a CFG-backed settings input.
+ * @param input - Input element to read.
+ * @returns Parsed numeric value or null when invalid.
+ */
+function readSettingsInputValue(input: HTMLInputElement): number | null {
+  if (input.type === "checkbox") return input.checked ? 1 : 0;
+  if (input.dataset['path'] === 'baselineBots.seed') {
+    return parseBaselineSeedValue(input.value);
+  }
+  const value = Number(input.value);
+  if (!Number.isFinite(value)) return null;
+  return value;
+}
+
+/**
  * Collect slider updates under a root element.
  * @param root - Root element containing settings inputs.
  * @returns List of settings updates.
@@ -501,7 +675,8 @@ function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
   const sliders = root.querySelectorAll<HTMLInputElement>('input[data-path]');
   const updates: SettingsUpdate[] = [];
   sliders.forEach(sl => {
-    const value = sl.type === "checkbox" ? (sl.checked ? 1 : 0) : Number(sl.value);
+    const value = readSettingsInputValue(sl);
+    if (value == null) return;
     updates.push({ path: sl.dataset['path']! as SettingsUpdate['path'], value });
   });
   return updates;
@@ -525,6 +700,44 @@ function resolveSettingsRoot(): HTMLElement {
  */
 function collectSettingsUpdatesFromUI(): SettingsUpdate[] {
   return collectSettingsUpdates(resolveSettingsRoot());
+}
+
+/**
+ * Validate and normalize imported settings updates.
+ * @param value - Raw updates payload from an import file.
+ * @returns Parsed updates array or null when absent.
+ * @throws Error when updates contain unknown paths or invalid values.
+ */
+function normalizeImportUpdates(value: unknown): SettingsUpdate[] | null {
+  if (!Array.isArray(value)) return null;
+  const normalized: SettingsUpdate[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      throw new Error('Invalid settings updates payload.');
+    }
+    const path = (entry as { path?: unknown }).path;
+    const updateValue = (entry as { value?: unknown }).value;
+    if (typeof path !== 'string' || !SETTINGS_PATH_SET.has(path as SettingsUpdate['path'])) {
+      throw new Error(`Unknown settings path in import: ${String(path)}`);
+    }
+    if (typeof updateValue !== 'number' || !Number.isFinite(updateValue)) {
+      throw new Error(`Invalid settings value for ${String(path)}`);
+    }
+    normalized.push({ path: path as SettingsUpdate['path'], value: updateValue });
+  }
+  return normalized;
+}
+
+/**
+ * Apply settings updates to CFG and sync the settings UI.
+ * @param updates - Settings updates to apply.
+ */
+function applySettingsUpdatesToUi(updates: SettingsUpdate[]): void {
+  updates.forEach(update => {
+    setByPath(CFG, update.path, update.value);
+  });
+  applyValuesToSlidersFromCFG(resolveSettingsRoot());
+  setBaselineSeedHintVisible(false);
 }
 
 /**
@@ -580,8 +793,11 @@ function refreshCoreUIState(): void {
   applyOpacity(elLayers);
 }
 
+// Restore baseline bot settings before rendering settings UI.
+applyStoredBaselineBotSettings();
 // Build dynamic settings UI and initialise defaults
 setupSettingsUI(settingsContainer, liveUpdateFromSlider);
+wireBaselineBotControls();
 // Set default values on core sliders (these match CFG_DEFAULT and original defaults)
 elSnakes.value = '55';
 elSimSpeed.value = '1.00';
@@ -3404,14 +3620,20 @@ if (typeof WebSocket === 'undefined') {
  * @param sliderEl - Slider input element to read.
  */
 function liveUpdateFromSlider(sliderEl: HTMLInputElement): void {
-  setByPath(CFG, sliderEl.dataset['path']!, Number(sliderEl.value));
+  const path = sliderEl.dataset['path']!;
+  const value = readSettingsInputValue(sliderEl);
+  if (value == null) return;
+  setByPath(CFG, path, value);
+  if (path.startsWith('baselineBots.')) {
+    persistBaselineBotSettings();
+  }
   if (!worker) return;
   worker.postMessage({ 
-      type: 'updateSettings', 
-      updates: [{
-        path: sliderEl.dataset['path']! as SettingsUpdate['path'],
-        value: Number(sliderEl.value)
-      }] 
+    type: 'updateSettings', 
+    updates: [{
+      path: path as SettingsUpdate['path'],
+      value
+    }] 
   });
 }
 
@@ -3434,12 +3656,14 @@ elN5.addEventListener('input', refreshCoreUIState);
 btnApply.addEventListener('click', () => {
   refreshCoreUIState();
   updateCFGFromUI(resolveSettingsRoot());
+  persistBaselineBotSettings();
   applyResetToSimulation(true);
 });
 // Restore defaults
 btnDefaults.addEventListener('click', () => {
   resetCFGToDefaults();
   setupSettingsUI(settingsContainer, liveUpdateFromSlider); // Re-apply defaults to dynamic UI
+  wireBaselineBotControls();
   elSnakes.value = '55';
   elSimSpeed.value = '1.00';
   elLayers.value = '2';
@@ -3451,6 +3675,7 @@ btnDefaults.addEventListener('click', () => {
   applyGraphSpec(buildLinearMlpTemplate(), 'Default graph applied.');
   refreshCoreUIState();
   applySettingsLock();
+  persistBaselineBotSettings();
   applyResetToSimulation(true);
 });
 // Toggle view mode
@@ -3871,23 +4096,29 @@ if (btnImport && fileInput) {
       const hasGraphSpecField = Object.prototype.hasOwnProperty.call(data, 'graphSpec');
       const fileGraphSpec = hasGraphSpecField ? (data.graphSpec ?? null) : undefined;
       const fileSettings = data.settings;
-      const fileUpdates = Array.isArray(data.updates) ? data.updates : null;
+      const fileUpdates = normalizeImportUpdates(data.updates);
       const shouldReset =
         hasGraphSpecField ||
         (fileSettings != null && typeof fileSettings === 'object') ||
         (fileUpdates != null && fileUpdates.length > 0);
+      if (shouldReset) {
+        if (fileGraphSpec && typeof fileGraphSpec === 'object') {
+          if (!applyGraphSpec(fileGraphSpec, 'Graph loaded from import.')) {
+            throw new Error('Import file graph spec is invalid.');
+          }
+        } else if (hasGraphSpecField && fileGraphSpec === null) {
+          clearCustomGraphSpec('Graph cleared from import.');
+        }
+        if (fileSettings && typeof fileSettings === 'object') {
+          applyCoreSettingsToUi(fileSettings);
+        }
+        if (fileUpdates && fileUpdates.length > 0) {
+          applySettingsUpdatesToUi(fileUpdates);
+        }
+        persistBaselineBotSettings();
+      }
       if (wsClient && wsClient.isConnected()) {
         if (shouldReset) {
-          if (fileGraphSpec && typeof fileGraphSpec === 'object') {
-            if (!applyGraphSpec(fileGraphSpec, 'Graph loaded from import.')) {
-              throw new Error('Import file graph spec is invalid.');
-            }
-          } else if (hasGraphSpecField && fileGraphSpec === null) {
-            clearCustomGraphSpec('Graph cleared from import.');
-          }
-          if (fileSettings && typeof fileSettings === 'object') {
-            applyCoreSettingsToUi(fileSettings);
-          }
           const resetSettings = fileSettings ?? readSettingsFromCoreUI();
           const resetUpdates = fileUpdates ?? collectSettingsUpdatesFromUI();
           const resetGraphSpec = hasGraphSpecField ? (fileGraphSpec ?? null) : (customGraphSpec ?? null);
@@ -3900,6 +4131,9 @@ if (btnImport && fileInput) {
       }
       if (!worker) {
         throw new Error('No active simulation backend for import.');
+      }
+      if (shouldReset) {
+        applyResetToSimulation(true);
       }
       let persistWarning = '';
       try {

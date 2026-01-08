@@ -15,7 +15,18 @@ describe(SUITE, () => {
       archKey: 'test-arch',
       genomes: [{ archKey: 'test-arch', weights: [0.1, 0.2] }],
       cfgHash: 'abc123',
-      worldSeed: 42
+      worldSeed: 42,
+      settings: {
+        snakeCount: 12,
+        simSpeed: 1,
+        hiddenLayers: 2,
+        neurons1: 16,
+        neurons2: 12,
+        neurons3: 8,
+        neurons4: 6,
+        neurons5: 4
+      },
+      updates: [{ path: 'baselineBots.count', value: 2 }]
     };
 
     const id = persistence.saveSnapshot(snapshot);
@@ -24,6 +35,8 @@ describe(SUITE, () => {
     const latest = persistence.loadLatestSnapshot();
     expect(latest?.generation).toBe(3);
     expect(latest?.cfgHash).toBe('abc123');
+    expect(latest?.settings?.snakeCount).toBe(12);
+    expect(latest?.updates?.[0]?.path).toBe('baselineBots.count');
 
     const tables = db
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
@@ -33,6 +46,13 @@ describe(SUITE, () => {
     expect(names).toContain('graph_presets');
     expect(names).toContain('population_snapshots');
     expect(names).toContain('players');
+
+    const columns = db
+      .prepare(`PRAGMA table_info(population_snapshots)`)
+      .all() as Array<{ name: string }>;
+    const columnNames = columns.map(col => col.name);
+    expect(columnNames).toContain('settings_json');
+    expect(columnNames).toContain('updates_json');
   });
 
   it('saves and loads graph presets', () => {

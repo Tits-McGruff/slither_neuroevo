@@ -114,6 +114,11 @@ sense: {
     // Initial bias for the RRU gate.
     rruInitGateBias: 0.1
   },
+  baselineBots: {
+    count: 0,
+    seed: 1,
+    randomizeSeedPerGen: false
+  },
   collision: {
     substepMaxDt: 0.018,
     skipSegments: 6,

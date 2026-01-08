@@ -9,7 +9,7 @@ import { createHttpHandler } from './httpApi.ts';
 import { createLogger } from './logger.ts';
 import { createPersistence, initDb } from './persistence.ts';
 import { SERIALIZER_VERSION, type SensorSpec, type WelcomeMsg } from './protocol.ts';
-import { SimServer } from './simServer.ts';
+import { SimServer, applySettingsUpdates, coerceCoreSettings } from './simServer.ts';
 import { WsHub } from './wsHub.ts';
 
 /** Minimal server handle returned by `startServer` for lifecycle management. */
@@ -59,10 +59,19 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     ? (config.seed as number)
     : Math.floor(Math.random() * 1e9);
   const sessionId = Math.random().toString(36).slice(2, 10);
+  const db = initDb(config.dbPath);
+  const persistence = createPersistence(db);
+  const latestSnapshot = persistence.loadLatestSnapshot();
+  const initialSettings = latestSnapshot?.settings
+    ? coerceCoreSettings(latestSnapshot.settings)
+    : {};
+  if (latestSnapshot?.updates) {
+    applySettingsUpdates(latestSnapshot.updates);
+  }
   // Hash config so clients can detect mismatched settings.
   const cfgHash = hashConfig(CFG);
   const sensorSpec = buildSensorSpec();
-  const sampleWorld = new World({});
+  const sampleWorld = new World(initialSettings);
   const frameByteLength = WorldSerializer.serialize(sampleWorld).byteLength;
   const welcome: WelcomeMsg = {
     type: 'welcome',
@@ -77,8 +86,6 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
 
   let simServer: SimServer | null = null;
   let wsHub: WsHub | null = null;
-  const db = initDb(config.dbPath);
-  const persistence = createPersistence(db);
 
   const httpHandler = createHttpHandler({
     getStatus: () => ({
@@ -98,7 +105,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   });
 
   wsHub = new WsHub(httpServer, welcome);
-  simServer = new SimServer(config, wsHub, persistence, cfgHash, worldSeed);
+  simServer = new SimServer(config, wsHub, persistence, cfgHash, worldSeed, initialSettings);
   wsHub.setHandlers({
     onJoin: (connId, msg, clientType) =>
       simServer?.handleJoin(connId, msg.mode, clientType, msg.name),

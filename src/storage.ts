@@ -9,11 +9,27 @@ import type { GenomeJSON, HallOfFameEntry } from './protocol/messages.ts';
 
 /** Local storage key for population persistence. */
 const STORAGE_KEY = 'slither_neuroevo_pop';
+/** Local storage key for baseline bot settings persistence. */
+const BASELINE_BOT_SETTINGS_KEY = 'slither_neuroevo_baseline_bot_settings';
+/** Schema version for baseline bot settings persistence. */
+const BASELINE_BOT_SETTINGS_VERSION = 1;
 
 /** Payload stored in localStorage for population persistence. */
 export interface PopulationStoragePayload {
   generation: number;
   genomes: GenomeJSON[];
+}
+
+/** Baseline bot settings persisted locally. */
+export interface BaselineBotSettings {
+  count: number;
+  seed: number;
+  randomizeSeedPerGen: boolean;
+}
+
+/** Baseline bot settings payload stored in localStorage. */
+interface BaselineBotSettingsPayload extends BaselineBotSettings {
+  version: number;
 }
 
 /** Payload stored in export files, optionally including HoF. */
@@ -79,6 +95,60 @@ export const Storage = {
         localStorage.removeItem(key);
     }
 };
+
+/**
+ * Normalize a baseline bot settings payload from localStorage.
+ * @param value - Raw payload to validate.
+ * @returns Normalized baseline bot settings or null when invalid.
+ */
+function normalizeBaselineBotSettingsPayload(value: unknown): BaselineBotSettings | null {
+  if (!value || typeof value !== 'object') return null;
+  const payload = value as Partial<BaselineBotSettingsPayload>;
+  if (payload.version !== BASELINE_BOT_SETTINGS_VERSION) return null;
+  const count = payload.count;
+  const seed = payload.seed;
+  if (typeof count !== 'number' || !Number.isFinite(count)) return null;
+  if (typeof seed !== 'number' || !Number.isFinite(seed)) return null;
+  if (typeof payload.randomizeSeedPerGen !== 'boolean') return null;
+  return {
+    count: Math.max(0, Math.floor(count)),
+    seed: Math.max(0, Math.floor(seed)),
+    randomizeSeedPerGen: payload.randomizeSeedPerGen
+  };
+}
+
+/**
+ * Persist baseline bot settings to localStorage.
+ * @param settings - Validated baseline bot settings to store.
+ * @returns True when saved, false on storage failure.
+ */
+export function saveBaselineBotSettings(settings: BaselineBotSettings): boolean {
+  const payload: BaselineBotSettingsPayload = {
+    ...settings,
+    version: BASELINE_BOT_SETTINGS_VERSION
+  };
+  const ok = Storage.save(BASELINE_BOT_SETTINGS_KEY, payload);
+  if (!ok) {
+    console.warn('Failed to save baseline bot settings to localStorage.');
+  }
+  return ok;
+}
+
+/**
+ * Load baseline bot settings from localStorage.
+ * @returns Stored baseline bot settings or null when unavailable or invalid.
+ */
+export function loadBaselineBotSettings(): BaselineBotSettings | null {
+  const raw = Storage.load(BASELINE_BOT_SETTINGS_KEY);
+  if (!raw) return null;
+  const normalized = normalizeBaselineBotSettingsPayload(raw);
+  if (!normalized) {
+    console.warn('Baseline bot settings payload invalid; clearing.');
+    Storage.remove(BASELINE_BOT_SETTINGS_KEY);
+    return null;
+  }
+  return normalized;
+}
 
 /**
  * Saves the current population and generation to localStorage.

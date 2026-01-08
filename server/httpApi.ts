@@ -3,6 +3,7 @@ import type { World } from '../src/world.ts';
 import type { PopulationImportData } from '../src/protocol/messages.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateSnapshotPayload, type Persistence, type PopulationSnapshotPayload } from './persistence.ts';
+import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 
 /** Hard limit for incoming request bodies to avoid memory pressure. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -264,9 +265,13 @@ function buildSnapshotPayload(
   worldSeed: number
 ): PopulationSnapshotPayload {
   const exportData = world.exportPopulation();
+  const settings = buildCoreSettingsSnapshot(world);
+  const updates = buildSettingsUpdatesSnapshot();
   return {
     ...exportData,
     cfgHash,
-    worldSeed
+    worldSeed,
+    settings,
+    updates
   };
 }

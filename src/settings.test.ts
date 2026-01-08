@@ -122,6 +122,42 @@ describe('settings.ts', () => {
     expect(CFG.collision.cellSize).toBe(123);
   });
 
+  it('applyValuesToSlidersFromCFG handles checkbox inputs', () => {
+    const original = CFG.baselineBots.randomizeSeedPerGen;
+    CFG.baselineBots.randomizeSeedPerGen = true;
+    const checkbox = {
+      dataset: { path: 'baselineBots.randomizeSeedPerGen' },
+      type: 'checkbox',
+      checked: false,
+      value: '0'
+    };
+    const output = { textContent: '' } as unknown as HTMLElement;
+    globalAny.document.getElementById = () => output;
+    const root = { querySelectorAll: () => [checkbox] };
+
+    applyValuesToSlidersFromCFG(root as unknown as HTMLElement);
+
+    expect(checkbox.checked).toBe(true);
+    expect(output.textContent).toBe('On');
+    CFG.baselineBots.randomizeSeedPerGen = original;
+  });
+
+  it('updateCFGFromUI ignores invalid baseline seed values', () => {
+    const original = CFG.baselineBots.seed;
+    CFG.baselineBots.seed = 7;
+    const input = {
+      dataset: { path: 'baselineBots.seed' },
+      type: 'number',
+      value: '2.5'
+    };
+    const root = { querySelectorAll: () => [input] };
+
+    updateCFGFromUI(root as unknown as HTMLElement);
+
+    expect(CFG.baselineBots.seed).toBe(7);
+    CFG.baselineBots.seed = original;
+  });
+
   it('hookSliderEvents triggers live updates for live sliders', () => {
     const handler = vi.fn();
     let stored: (() => void) | undefined;

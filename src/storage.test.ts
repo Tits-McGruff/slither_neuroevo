@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { Storage, savePopulation, loadPopulation } from './storage.ts';
+import {
+  Storage,
+  savePopulation,
+  loadPopulation,
+  loadBaselineBotSettings,
+  saveBaselineBotSettings
+} from './storage.ts';
 import { Genome, buildArch } from './mlp.ts';
 
 /** Test suite label for storage helpers. */
@@ -66,5 +72,25 @@ describe(SUITE, () => {
     expect(first).toBeDefined();
     if (!first) return;
     expect(first.weights.length).toBe(genome.weights.length);
+  });
+
+  it('saveBaselineBotSettings and loadBaselineBotSettings round-trip values', () => {
+    const settings = { count: 3, seed: 42, randomizeSeedPerGen: true };
+    expect(saveBaselineBotSettings(settings)).toBe(true);
+    expect(loadBaselineBotSettings()).toEqual(settings);
+  });
+
+  it('loadBaselineBotSettings clamps negative values and clears invalid payloads', () => {
+    const key = 'slither_neuroevo_baseline_bot_settings';
+    backing.set(key, JSON.stringify({
+      version: 1,
+      count: -4,
+      seed: -9,
+      randomizeSeedPerGen: false
+    }));
+    expect(loadBaselineBotSettings()).toEqual({ count: 0, seed: 0, randomizeSeedPerGen: false });
+    backing.set(key, JSON.stringify({ version: 0 }));
+    expect(loadBaselineBotSettings()).toBeNull();
+    expect(backing.has(key)).toBe(false);
   });
 });

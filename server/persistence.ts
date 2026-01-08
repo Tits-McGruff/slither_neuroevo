@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { HallOfFameEntry, PopulationExport } from '../src/protocol/messages.ts';
+import type { CoreSettings, SettingsUpdate } from '../src/protocol/settings.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateGraph } from '../src/brains/graph/validate.ts';
 
@@ -16,6 +17,8 @@ const MAX_PRESET_BYTES = 256 * 1024;
 export interface PopulationSnapshotPayload extends PopulationExport {
   cfgHash: string;
   worldSeed: number;
+  settings?: CoreSettings;
+  updates?: SettingsUpdate[];
 }
 
 /** Snapshot metadata returned by list endpoints. */
@@ -69,7 +72,9 @@ CREATE TABLE IF NOT EXISTS population_snapshots (
   id INTEGER PRIMARY KEY,
   created_at INTEGER,
   gen INTEGER,
-  payload_json TEXT
+  payload_json TEXT,
+  settings_json TEXT,
+  updates_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS players (
@@ -91,6 +96,54 @@ CREATE INDEX IF NOT EXISTS idx_graph_presets_name ON graph_presets(name);
 `;
 
 /**
+ * Ensure optional snapshot columns exist for settings persistence.
+ * @param db - Database handle to update.
+ */
+function ensureSnapshotColumns(db: DbType): void {
+  const rows = db.prepare(`PRAGMA table_info(population_snapshots)`).all() as Array<{ name: string }>;
+  const columns = new Set(rows.map(row => row.name));
+  if (!columns.has('settings_json')) {
+    db.exec(`ALTER TABLE population_snapshots ADD COLUMN settings_json TEXT`);
+  }
+  if (!columns.has('updates_json')) {
+    db.exec(`ALTER TABLE population_snapshots ADD COLUMN updates_json TEXT`);
+  }
+}
+
+/**
+ * Parse optional JSON from a nullable column string.
+ * @param raw - Raw JSON string or null.
+ * @returns Parsed value or null when missing or invalid.
+ */
+function parseOptionalJson<T>(raw: string | null | undefined): T | null {
+  if (!raw || typeof raw !== 'string') return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge optional settings columns into a snapshot payload.
+ * @param row - Row containing payload JSON and optional columns.
+ * @returns Parsed snapshot payload or null when missing.
+ */
+function parseSnapshotRow(row: {
+  payload_json?: string;
+  settings_json?: string | null;
+  updates_json?: string | null;
+} | undefined): PopulationSnapshotPayload | null {
+  if (!row?.payload_json) return null;
+  const payload = JSON.parse(row.payload_json) as PopulationSnapshotPayload;
+  const settings = parseOptionalJson<CoreSettings>(row.settings_json);
+  const updates = parseOptionalJson<SettingsUpdate[]>(row.updates_json);
+  if (settings) payload.settings = settings;
+  if (updates) payload.updates = updates;
+  return payload;
+}
+
+/**
  * Initialize the SQLite database and schema.
  * @param dbPath - Path to the sqlite database file.
  * @returns Database handle.
@@ -104,6 +157,7 @@ export function initDb(dbPath: string): DbType {
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.exec(SCHEMA_SQL);
+  ensureSnapshotColumns(db);
   return db;
 }
 
@@ -118,17 +172,17 @@ export function createPersistence(db: DbType): Persistence {
      VALUES (@created_at, @gen, @seed, @fitness, @points, @length, @genome_json)`
   );
   const insertSnapshot = db.prepare(
-    `INSERT INTO population_snapshots (created_at, gen, payload_json)
-     VALUES (@created_at, @gen, @payload_json)`
+    `INSERT INTO population_snapshots (created_at, gen, payload_json, settings_json, updates_json)
+     VALUES (@created_at, @gen, @payload_json, @settings_json, @updates_json)`
   );
   const latestSnapshot = db.prepare(
-    `SELECT payload_json FROM population_snapshots ORDER BY id DESC LIMIT 1`
+    `SELECT payload_json, settings_json, updates_json FROM population_snapshots ORDER BY id DESC LIMIT 1`
   );
   const listSnapshotStmt = db.prepare(
     `SELECT id, created_at, gen FROM population_snapshots ORDER BY id DESC LIMIT ?`
   );
   const exportSnapshotStmt = db.prepare(
-    `SELECT payload_json FROM population_snapshots WHERE id = ?`
+    `SELECT payload_json, settings_json, updates_json FROM population_snapshots WHERE id = ?`
   );
   const insertGraphPreset = db.prepare(
     `INSERT INTO graph_presets (created_at, name, spec_json)
@@ -164,19 +218,26 @@ export function createPersistence(db: DbType): Persistence {
     if (bytes > MAX_SNAPSHOT_BYTES) {
       throw new Error(`snapshot too large (${bytes} bytes)`);
     }
+    const settingsJson = payload.settings ? JSON.stringify(payload.settings) : null;
+    const updatesJson = payload.updates ? JSON.stringify(payload.updates) : null;
     const info = insertSnapshot.run({
       created_at: Date.now(),
       gen: payload.generation,
-      payload_json: json
+      payload_json: json,
+      settings_json: settingsJson,
+      updates_json: updatesJson
     });
     return Number(info.lastInsertRowid);
   };
 
   /** Load the latest population snapshot. */
   const loadLatestSnapshot = (): PopulationSnapshotPayload | null => {
-    const row = latestSnapshot.get() as { payload_json?: string } | undefined;
-    if (!row?.payload_json) return null;
-    return JSON.parse(row.payload_json) as PopulationSnapshotPayload;
+    const row = latestSnapshot.get() as {
+      payload_json?: string;
+      settings_json?: string | null;
+      updates_json?: string | null;
+    } | undefined;
+    return parseSnapshotRow(row);
   };
 
   /** List snapshot metadata in descending order. */
@@ -195,11 +256,16 @@ export function createPersistence(db: DbType): Persistence {
 
   /** Load a specific snapshot payload by id. */
   const exportSnapshot = (id: number): PopulationSnapshotPayload => {
-    const row = exportSnapshotStmt.get(id) as { payload_json?: string } | undefined;
-    if (!row?.payload_json) {
+    const row = exportSnapshotStmt.get(id) as {
+      payload_json?: string;
+      settings_json?: string | null;
+      updates_json?: string | null;
+    } | undefined;
+    const payload = parseSnapshotRow(row);
+    if (!payload) {
       throw new Error('snapshot not found');
     }
-    return JSON.parse(row.payload_json) as PopulationSnapshotPayload;
+    return payload;
   };
 
   /** Persist a graph preset and return its id. */

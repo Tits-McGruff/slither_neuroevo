@@ -248,7 +248,8 @@ canvas {
 }
 .panel select,
 .panel textarea,
-.panel input[type="text"] {
+.panel input[type="text"],
+.panel input[type="number"] {
   width: 100%;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -307,6 +308,9 @@ canvas {
 }
 .panel .meta {
   color: #aab3c5;
+}
+.panel .meta.invalid {
+  color: #f28c8c;
 }
 .panel .preset-row {
   display: flex;
@@ -742,6 +746,13 @@ summary {
 }
 .setting input[type="range"] {
   width: 100%;
+  margin-top: 6px;
+}
+.setting input[type="number"] {
+  width: 100%;
+  margin-top: 6px;
+}
+.setting input[type="checkbox"] {
   margin-top: 6px;
 }
 .pill {

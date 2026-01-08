@@ -7,17 +7,32 @@
 import { CFG } from './config.ts';
 import { getByPath, setByPath, fmtNumber } from './utils.ts';
 
-/** Slider specification describing a single CFG path control. */
+/** Supported input types for settings controls. */
+type SettingControlType = 'range' | 'number' | 'checkbox' | 'action';
+
+/** Settings specification describing a single CFG path control. */
 interface SettingSpec {
   group: string;
-  path: string;
+  path?: string;
   label: string;
-  min: number;
-  max: number;
-  step: number;
-  decimals: number;
-  requiresReset: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  decimals?: number;
+  requiresReset?: boolean;
+  type?: SettingControlType;
+  id?: string;
+  actionLabel?: string;
+  hint?: string;
+  hintId?: string;
 }
+
+/** Input id for the baseline bot seed control. */
+export const BASELINE_BOT_SEED_INPUT_ID = 'baselineBotSeed';
+/** Hint id for invalid baseline bot seed values. */
+export const BASELINE_BOT_SEED_HINT_ID = 'baselineBotSeedHint';
+/** Button id for randomizing the baseline bot seed. */
+export const BASELINE_BOT_SEED_RANDOMIZE_ID = 'baselineBotSeedRandomize';
 
 /** Slider specifications used to build the settings UI. */
 const SETTING_SPECS: SettingSpec[] = [
@@ -26,6 +41,11 @@ const SETTING_SPECS: SettingSpec[] = [
   { group: "World and food", path: "pelletSpawnPerSecond", label: "Pellet spawn per second", min: 5, max: 3500, step: 5, decimals: 0, requiresReset: true },
   { group: "World and food", path: "foodValue", label: "Food value per pellet", min: 0.1, max: 8.0, step: 0.1, decimals: 1, requiresReset: true },
   { group: "World and food", path: "growPerFood", label: "Growth per food", min: 0.1, max: 10.0, step: 0.1, decimals: 1, requiresReset: true },
+
+  { group: "Baseline bots", path: "baselineBots.count", label: "Baseline bot count", min: 0, max: 120, step: 1, decimals: 0, requiresReset: true },
+  { group: "Baseline bots", path: "baselineBots.randomizeSeedPerGen", label: "Randomize base seed per generation", requiresReset: true, type: "checkbox" },
+  { group: "Baseline bots", path: "baselineBots.seed", label: "Baseline bot base seed", min: 0, max: 4294967295, step: 1, decimals: 0, requiresReset: true, type: "number", id: BASELINE_BOT_SEED_INPUT_ID, hint: "Seed must be a non-negative integer.", hintId: BASELINE_BOT_SEED_HINT_ID },
+  { group: "Baseline bots", label: "Randomize base seed", type: "action", actionLabel: "Randomize seed", id: BASELINE_BOT_SEED_RANDOMIZE_ID },
 
   { group: "Snake physics", path: "snakeBaseSpeed", label: "Base speed", min: 30, max: 650, step: 5, decimals: 0, requiresReset: true },
   { group: "Snake physics", path: "snakeBoostSpeed", label: "Boost speed (used as relative multiplier)", min: 40, max: 1200, step: 5, decimals: 0, requiresReset: true },
@@ -98,6 +118,46 @@ const SETTING_SPECS: SettingSpec[] = [
 ];
 
 /**
+ * Resolve the control type for a spec, defaulting to range sliders.
+ * @param spec - Settings specification to inspect.
+ * @returns Resolved control type.
+ */
+function resolveSpecType(spec: SettingSpec): SettingControlType {
+  return spec.type ?? 'range';
+}
+
+/**
+ * Read a settings input value as a number.
+ * @param input - Input element to read.
+ * @returns Numeric value, or null when invalid.
+ */
+function readInputValue(input: HTMLInputElement): number | null {
+  if (input.type === 'checkbox') return input.checked ? 1 : 0;
+  const path = input.dataset['path'];
+  if (path === 'baselineBots.seed') {
+    const parsed = Number(input.value);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return null;
+    return Math.max(0, parsed);
+  }
+  const value = Number(input.value);
+  if (!Number.isFinite(value)) return null;
+  return value;
+}
+
+/**
+ * Format a settings value for display.
+ * @param input - Input element associated with the value.
+ * @param value - Numeric value to format.
+ * @returns Human-friendly formatted value string.
+ */
+function formatInputValue(input: HTMLInputElement, value: number): string {
+  if (input.type === 'checkbox') return value ? 'On' : 'Off';
+  const decimalsRaw = input.dataset['decimals'];
+  const decimals = decimalsRaw ? Number(decimalsRaw) : 0;
+  return fmtNumber(value, Number.isFinite(decimals) ? decimals : 0);
+}
+
+/**
  * Group the specifications by their group property into a map.
  * Used internally by buildSettingsUI to organize sliders into collapsible sections.
  * @returns Grouped setting specs keyed by group name.
@@ -130,6 +190,7 @@ export function buildSettingsUI(container: HTMLElement): void {
     const groupDiv = document.createElement("div");
     groupDiv.className = "group";
     for (const spec of specs) {
+      const type = resolveSpecType(spec);
       const wrap = document.createElement("div");
       wrap.className = "setting";
       const topline = document.createElement("div");
@@ -137,27 +198,60 @@ export function buildSettingsUI(container: HTMLElement): void {
       const name = document.createElement("div");
       name.className = "name";
       name.textContent = spec.label;
-      const value = document.createElement("div");
-      value.className = "value";
-      value.id = "val_" + spec.path.replaceAll(".", "_");
       topline.appendChild(name);
-      topline.appendChild(value);
-      const slider = document.createElement("input");
-      slider.type = "range";
-      slider.min = String(spec.min);
-      slider.max = String(spec.max);
-      slider.step = String(spec.step);
-      slider.dataset['path'] = spec.path;
-      slider.dataset['decimals'] = String(spec.decimals ?? 2);
-      slider.dataset['requiresReset'] = spec.requiresReset ? "1" : "0";
-      const foot = document.createElement("div");
-      foot.className = "foot";
-      foot.innerHTML = spec.requiresReset
-        ? `<span class="pill">reset</span> Applies on reset.`
-        : `<span class="pill">live</span> Applies immediately and also on reset.`;
+      if (type !== 'action') {
+        const value = document.createElement("div");
+        value.className = "value";
+        if (spec.path) {
+          value.id = "val_" + spec.path.replaceAll(".", "_");
+        }
+        topline.appendChild(value);
+      }
       wrap.appendChild(topline);
-      wrap.appendChild(slider);
-      wrap.appendChild(foot);
+
+      if (type === 'action') {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn small";
+        button.textContent = spec.actionLabel ?? spec.label;
+        if (spec.id) button.id = spec.id;
+        wrap.appendChild(button);
+      } else {
+        const input = document.createElement("input");
+        if (type === 'checkbox') {
+          input.type = "checkbox";
+        } else if (type === 'number') {
+          input.type = "number";
+        } else {
+          input.type = "range";
+        }
+        if (spec.min != null) input.min = String(spec.min);
+        if (spec.max != null) input.max = String(spec.max);
+        if (spec.step != null) input.step = String(spec.step);
+        if (spec.path) input.dataset['path'] = spec.path;
+        if (spec.decimals != null) input.dataset['decimals'] = String(spec.decimals);
+        if (spec.requiresReset != null) {
+          input.dataset['requiresReset'] = spec.requiresReset ? "1" : "0";
+        }
+        if (spec.id) input.id = spec.id;
+        wrap.appendChild(input);
+        if (spec.requiresReset != null) {
+          const foot = document.createElement("div");
+          foot.className = "foot";
+          foot.innerHTML = spec.requiresReset
+            ? `<span class="pill">reset</span> Applies on reset.`
+            : `<span class="pill">live</span> Applies immediately and also on reset.`;
+          wrap.appendChild(foot);
+        }
+      }
+
+      if (spec.hint) {
+        const hint = document.createElement("div");
+        hint.className = "meta";
+        hint.textContent = spec.hint;
+        if (spec.hintId) hint.id = spec.hintId;
+        wrap.appendChild(hint);
+      }
       groupDiv.appendChild(wrap);
     }
     det.appendChild(groupDiv);
@@ -166,19 +260,23 @@ export function buildSettingsUI(container: HTMLElement): void {
 }
 
 /**
- * Set all slider controls within the given root element to match CFG.
- * Also updates the displayed numeric values next to each slider.
- * @param root - Root element containing the sliders.
+ * Set all settings controls within the given root element to match CFG.
+ * Also updates the displayed numeric values next to each control.
+ * @param root - Root element containing the controls.
  */
 export function applyValuesToSlidersFromCFG(root: HTMLElement): void {
-  const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
-  sliders.forEach(sl => {
-    const path = sl.dataset['path']!;
-    const v = getByPath(CFG, path);
-    sl.value = String(v);
-    const decimals = parseInt(sl.dataset['decimals']!, 10);
+  const inputs = root.querySelectorAll<HTMLInputElement>('input[data-path]');
+  inputs.forEach(input => {
+    const path = input.dataset['path']!;
+    const rawValue = getByPath(CFG, path);
+    const numericValue = typeof rawValue === 'number' ? rawValue : (rawValue ? 1 : 0);
+    if (input.type === 'checkbox') {
+      input.checked = Boolean(rawValue);
+    } else {
+      input.value = String(numericValue);
+    }
     const out = document.getElementById("val_" + path.replaceAll(".", "_"));
-    if (out) out.textContent = fmtNumber(Number(sl.value), decimals);
+    if (out) out.textContent = formatInputValue(input, numericValue);
   });
 }
 
@@ -193,13 +291,17 @@ export function hookSliderEvents(
   root: HTMLElement,
   onLiveUpdate: (sliderEl: HTMLInputElement) => void
 ): void {
-  const sliders = root.querySelectorAll<HTMLInputElement>('input[type="range"][data-path]');
-  sliders.forEach(sl => {
-    sl.addEventListener("input", () => {
-      const decimals = parseInt(sl.dataset['decimals']!, 10);
-      const out = document.getElementById("val_" + sl.dataset['path']!.replaceAll(".", "_"));
-      if (out) out.textContent = fmtNumber(Number(sl.value), decimals);
-      if (sl.dataset['requiresReset'] === "0") onLiveUpdate(sl);
+  const inputs = root.querySelectorAll<HTMLInputElement>('input[data-path]');
+  inputs.forEach(input => {
+    input.addEventListener("input", () => {
+      const value = readInputValue(input);
+      if (value != null) {
+        const out = document.getElementById("val_" + input.dataset['path']!.replaceAll(".", "_"));
+        if (out) out.textContent = formatInputValue(input, value);
+      }
+      if (input.dataset['requiresReset'] === "0" && value != null) {
+        onLiveUpdate(input);
+      }
     });
   });
 }
@@ -214,7 +316,8 @@ export function updateCFGFromUI(root: HTMLElement): void {
   const inputs = root.querySelectorAll<HTMLInputElement>('input[data-path]');
   inputs.forEach(input => {
     const path = input.dataset['path']!;
-    const value = input.type === "checkbox" ? (input.checked ? 1 : 0) : Number(input.value);
+    const value = readInputValue(input);
+    if (value == null) return;
     setByPath(CFG, path, value);
   });
 }

@@ -20,6 +20,7 @@ import type {
 import type { PopulationImportData } from '../src/protocol/messages.ts';
 import { ControllerRegistry } from './controllerRegistry.ts';
 import type { Persistence, PopulationSnapshotPayload } from './persistence.ts';
+import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 import { WsHub } from './wsHub.ts';
 import type { VizData } from '../src/protocol/messages.ts';
 
@@ -94,18 +95,20 @@ export class SimServer {
    * @param persistence - Optional persistence interface.
    * @param cfgHash - Hash of the config used for snapshots.
    * @param worldSeed - Seed used for world initialization.
+   * @param initialSettings - Optional core settings snapshot.
    */
   constructor(
     config: ServerConfig,
     wsHub: WsHub,
     persistence?: Persistence,
     cfgHash = '',
-    worldSeed = 0
+    worldSeed = 0,
+    initialSettings: Partial<CoreSettings> = {}
   ) {
     this.wsHub = wsHub;
     this.tickRateHz = config.tickRateHz;
     this.uiFrameRateHz = config.uiFrameRateHz;
-    this.world = new World({});
+    this.world = new World(initialSettings);
     this.controllers = new ControllerRegistry(
       {
         actionTimeoutTicks: config.actionTimeoutTicks,
@@ -374,10 +377,14 @@ export class SimServer {
    */
   private buildSnapshotPayload(): PopulationSnapshotPayload {
     const exportData = this.world.exportPopulation();
+    const settings = buildCoreSettingsSnapshot(this.world);
+    const updates = buildSettingsUpdatesSnapshot();
     return {
       ...exportData,
       cfgHash: this.cfgHash,
-      worldSeed: this.worldSeed
+      worldSeed: this.worldSeed,
+      settings,
+      updates
     };
   }
 
@@ -476,7 +483,7 @@ function isFiniteNumber(value: unknown): value is number {
  * @param value - Raw settings payload.
  * @returns Sanitized core settings values.
  */
-function coerceCoreSettings(value: unknown): Partial<CoreSettings> {
+export function coerceCoreSettings(value: unknown): Partial<CoreSettings> {
   if (!isRecord(value)) return {};
   const output: Partial<CoreSettings> = {};
   const raw = value as Record<string, unknown>;
@@ -501,7 +508,7 @@ function coerceCoreSettings(value: unknown): Partial<CoreSettings> {
  * Apply settings updates to the global configuration.
  * @param updates - Settings updates to apply.
  */
-function applySettingsUpdates(updates: SettingsUpdate[] | undefined): void {
+export function applySettingsUpdates(updates: SettingsUpdate[] | undefined): void {
   if (!updates) return;
   updates.forEach((update) => {
     setByPath(CFG, update.path, update.value);
