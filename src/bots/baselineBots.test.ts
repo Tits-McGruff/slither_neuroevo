@@ -141,16 +141,19 @@ describe('BaselineBotManager AI', () => {
 
     // Make every bin vetoed: clearance < -0.5 everywhere.
     for (let i = 0; i < bins; i++) {
-      setBin(sensors, bins, i, -1, -1, -1);
+      setBin(sensors, bins, i, -1, -1, -1); // clearance = -1
     }
 
-    // Force seek state (prevents roam wander).
-    // This bin is still vetoed, but it ensures bestFood > 0.1.
+    // Force seek state (prevents roam wander)
     setBin(sensors, bins, 2, 0.2, -1, -1);
 
-    // Make one bin the least bad clearance among vetoed bins.
-    // clearance = (-0.6 + -0.6)/2 = -0.6 (still vetoed, but best).
-    setBin(sensors, bins, 7, -1, -0.6, -0.6);
+    // Pick a bin whose angle is within [-pi/2, pi/2] so turn does not saturate.
+    // Bin 3 angle = (3/12)*TAU = pi/2 -> turn = 1 (representable)
+    const bestClearIdx = 3;
+
+    // Make it the "least bad" clearance among vetoed bins:
+    // clearance = (-0.6 + -0.6)/2 = -0.6 (still vetoed, but best)
+    setBin(sensors, bins, bestClearIdx, -1, -0.6, -0.6);
 
     (mockSnake.computeSensors as Mock).mockReturnValue(sensors);
 
@@ -159,7 +162,12 @@ describe('BaselineBotManager AI', () => {
     const action = manager.getActionForSnake(100);
     expect(action).not.toBeNull();
 
-    const chosen = inferBinFromTurn(action!.turn, bins);
-    expect(chosen).toBe(7);
+    // Expected turn uses the same mapping as BaselineBotManager (and includes clamp).
+    const TAU = Math.PI * 2;
+    const rawAngle = (bestClearIdx / bins) * TAU;
+    const binAngle = rawAngle > Math.PI ? rawAngle - TAU : rawAngle;
+    const expectedTurn = Math.max(-1, Math.min(1, binAngle / (Math.PI / 2)));
+
+    expect(action!.turn).toBeCloseTo(expectedTurn, 6);
   });
 });
