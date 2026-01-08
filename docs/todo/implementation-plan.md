@@ -5,9 +5,18 @@
 - Clarified baselineBotIndex identity, deterministic seed derivation rules,
   and respawn semantics to avoid conflating snakeId with bot identity.
 - Resolved import/export consistency and stats-vs-frame-header semantics, with
-  explicit backward-compatibility notes.
+  mandatory totals fields (no backward-compatibility requirements).
 - Tightened skin flag equality/rollback expectations and expanded test/AC
   mappings and observability guidance.
+- Locked Stats panel totals to always show (no debug gating).
+- Observability updated to hybrid logging: warnings/errors always on, verbose
+  logs debug-gated.
+- Rollout gating updated: baseline bots still gated by count; skin=2 emission
+  not gated by bot count.
+- Locked implementation choices: NullBrain required, baselineBotIndex stored on
+  Snake, RNG helper in `src/rng.ts`, hash-based seed derivation required.
+- Locked persistence decisions: add localStorage and SQLite persistence for
+  baseline bot settings with explicit contract steps.
 
 Add state-machine baseline bots that run alongside the evolving population,
 controlled by deterministic seeds, visually distinct (metallic + robot eyes),
@@ -29,8 +38,9 @@ protocol symmetry described in AGENTS.md.
 - Baseline bot count adds to the existing NPC count (not a replacement).
 - Baseline bots use a stable baselineBotIndex (0..count-1) that is distinct
   from snakeId and remains stable across respawns.
-- Per-bot seed is derived from `(baseSeed, baselineBotIndex)`; generation is
-  included only when randomizeSeedPerGen is enabled.
+- Per-bot seed is derived via the `src/rng.ts` hash from
+  `(baseSeed, baselineBotIndex)`; generation is included only when
+  randomizeSeedPerGen is enabled.
 - Baseline bots are excluded from fitness, elite selection, HoF, and player
   assignment.
 - Baseline bots use external control only; NN inference is not executed for
@@ -77,14 +87,14 @@ protocol symmetry described in AGENTS.md.
   after the population in World.snakes. Rationale: preserves population order
   assumptions in World._endGeneration without expensive filters. Alternative:
   separate World for bots (rejected: complicates rendering and collisions).
-- DEC-002: Use external control for baseline bots and prevent NN inference
-  execution; optionally attach a NullBrain to avoid unnecessary allocations.
-  Rationale: satisfies “no NN brain in the background” and keeps hot paths
-  stable. Alternative: keep brain and rely on external control only (rejected
-  because it still builds NN weights per bot).
+- DEC-002 (superseded by DEC-007): Use external control for baseline bots and
+  prevent NN inference execution; attach a NullBrain to avoid unnecessary
+  allocations. Superseded to require NullBrain and lock identity
+  storage and RNG location choices. Migration impact: baseline bots must use
+  NullBrain and `baselineBotIndex` on `Snake`.
 - DEC-003 (superseded by DEC-005): Per-bot seed derived from base seed + bot id
-  (or hash), with optional per-generation random base seed re-roll. Superseded
-  to avoid conflating snakeId with bot identity and to formalize generation
+  (or hash), with per-generation random base seed re-roll. Superseded to avoid
+  conflating snakeId with bot identity and to formalize generation
   inclusion rules. Migration impact: update seed derivation to use
   baselineBotIndex and update tests that assumed snakeId-based derivation.
 - DEC-004: Extend skin flag values without changing buffer layout. Rationale:
@@ -100,6 +110,16 @@ protocol symmetry described in AGENTS.md.
   per-bot seed for the current generation. Rationale: deterministic replay per
   generation and stable behavior across death timing. Alternative: continue
   RNG stream across respawns (rejected: makes behavior depend on death timing).
+- DEC-007: Baseline bots must use a NullBrain (no NN weights built) and store
+  `baselineBotIndex` directly on `Snake`. RNG helpers live in `src/rng.ts`, and
+  seed derivation uses a required hash function (no simple addition).
+  Rationale: avoids NN compute, simplifies identity access, and isolates RNG
+  logic. Alternatives: external-only control without NullBrain, manager-side
+  mapping, or utility-housed RNG (rejected per F1–F4 choices).
+- DEC-008: Persist baseline bot settings in both localStorage and SQLite
+  snapshots using explicit schema changes. Rationale: bot settings survive
+  reloads and server restarts without relying solely on exports. Alternatives:
+  session-only settings or export-only persistence (rejected per G1–G2).
 
 ### Invariants
 
@@ -119,6 +139,10 @@ protocol symmetry described in AGENTS.md.
   RNG; a dedicated PRNG is used to avoid perturbing evolution randomness.
 - INV-009: Skin flag comparisons are strict (`skin === 1`/`skin === 2`) and
   unknown values fall back to default rendering.
+- INV-010: RNG helpers live in `src/rng.ts` and all baseline bot seed derivation
+  uses the hash function defined there (no simple addition).
+- INV-011: Baseline bot settings are persisted in localStorage under a dedicated
+  key and in SQLite snapshot columns, and are restored on startup/reset.
 
 ## Alternatives considered
 
@@ -155,25 +179,36 @@ Merge prerequisites by stage:
 - CFG additions: new baseline bot settings (count, seed, per-generation random
   seed toggle). Defaults keep behavior unchanged.
 - SettingsUpdate path union: add new paths for baseline bot controls and seed.
-- Export/import: baseline bot settings are carried in existing export payload
-  fields (`settings` and `updates`). Imports apply these fields when present
-  in both worker and server modes; missing fields default to CFG_DEFAULT.
-  Unknown fields are ignored (validated against the settings path union).
-- No new localStorage keys planned; `slither_neuroevo_pop` continues to store
-  genomes only, so baseline bot settings persist only via export/import or
-  current session CFG values.
+- Export/import: baseline bot settings are carried in export payload fields
+  (`settings` and `updates`). Imports apply these fields when present in both
+  worker and server modes; missing fields default to CFG_DEFAULT. Unknown
+  settings paths cause the import to fail with a clear error.
+- localStorage: add `slither_neuroevo_baseline_bot_settings` to persist bot
+  settings across reloads (separate from `slither_neuroevo_pop`).
+- SQLite: add snapshot columns to persist settings/updates with population
+  snapshots (see Stage 01 for schema details).
 - Stats payloads: add explicit population-only and total counts to avoid
-  confusion with frame header counts. Proposed fields:
+  confusion with frame header counts. Required fields:
   - `alive` = population-only alive count (existing UI label uses this).
   - `aliveTotal` = total alive count (population + baseline bots).
-  - `baselineBotsAlive`/`baselineBotsTotal` = bot-only counts (optional).
+  - `baselineBotsAlive`/`baselineBotsTotal` = bot-only counts.
   - Expand/migrate/contract: additive only; keep `alive` semantics unchanged
-    and treat totals as optional fields.
+    and require totals in worker + server emitters.
 - Frame buffer: skin flag domain expanded (0 default, 1 gold, 2 robot). Layout
   unchanged. Expand/migrate/contract plan:
   - Expand: update renderer and serializer to accept 2.
   - Migrate: start writing 2 for baseline bots after the renderer supports it.
   - Contract: not required; keep support for 0/1/2.
+- localStorage persistence (baseline bot settings):
+  - Expand: write `slither_neuroevo_baseline_bot_settings` on change.
+  - Migrate: read and apply on startup/reset; validate schema.
+  - Contract: remove any legacy in-memory-only path; treat invalid stored
+    values as errors and require user reset.
+- SQLite persistence (baseline bot settings):
+  - Expand: add snapshot columns and dual-write settings to both columns and
+    payload JSON.
+  - Migrate: read from columns first, fall back to payload JSON.
+  - Contract: stop reading settings from payload JSON (columns required).
 
 ## State machine designs
 
@@ -272,9 +307,10 @@ Transition table
   rejected with UI hints and logged at debug level.
 - Runtime errors: baseline bot controller exceptions are caught per tick and
   disable bot updates for that generation (recoverable on reset).
-- Protocol errors: unknown settings paths are ignored with a warning; no crash.
+- Protocol errors: unknown settings paths are treated as fatal for imports
+  (no partial apply); other protocol errors are rejected with a clear error.
 - Import errors: missing settings fields fall back to CFG_DEFAULT; invalid
-  fields are skipped without aborting the import.
+  settings paths fail the import.
 - Fatal errors: buffer layout mismatch detected in tests only (CI gate).
 
 ## Performance considerations
@@ -288,17 +324,18 @@ Transition table
 - No new secrets; seed values are non-sensitive numeric data.
 - Export/import files include bot settings; do not log file contents.
 - Avoid logging raw settings payloads at info level; use debug gating.
-- Prefer no new dependencies; if a PRNG helper is added, keep it local to
-  `src/` to avoid supply-chain risk.
+- Use a local PRNG helper in `src/rng.ts`; no new dependencies to avoid
+  supply-chain risk.
 
 ## Observability
 
-- Proposed log events (debug gated):
+- Error/warn logs are always emitted; verbose logs are debug-gated.
+- Proposed log events (debug-gated unless noted):
   - bot.seed.selected { baseSeed, generation, randomize }
   - bot.spawned { count, idRangeStart, idRangeEnd }
-  - bot.controller.error { snakeId, state, error }
   - bot.stats.filtered { excludedCount }
-- Debug toggle: CFG.debug.baselineBots (default false) or console flag.
+  - bot.controller.error { snakeId, state, error } (always on, warn/error)
+- Debug toggle: CFG.debug.baselineBots (default false).
 
 ## Debug playbook
 
@@ -313,13 +350,13 @@ Transition table
 ## Rollout plan
 
 - Merge-safe gating: baseline bots are enabled only when count > 0 (default 0).
-- Rollback: revert bot modules and config keys; older builds ignore unknown
-  settings fields in import JSON (core UI ignores unknown properties), and any
-  path-validation added in Stage 01 will drop unknown update paths. Buffer
-  skin flag value 2 falls back to default color in the current renderer
-  (checks `skin === 1`); if reverting to any renderer that treats non-zero as
-  gold, robots could appear gold. Mitigation: keep skin=2 emission gated
-  behind the updated renderer.
+- Skin flag behavior: `skin === 2` is not gated by bot count; it is emitted
+  whenever a snake is marked as robot/baseline, regardless of other settings.
+- Rollback: revert bot modules and config keys; no mixed-version compatibility
+  is required for this repo. Buffer skin flag value 2 falls back to default
+  color in the current renderer (checks `skin === 1`); if reverting to any
+  renderer that treats non-zero as gold, robots could appear gold. Mitigation:
+  keep `skin === 2` usage limited to baseline bots and HoF retains `skin === 1`.
 
 ## Acceptance criteria
 
@@ -337,4 +374,7 @@ Transition table
 - AC-006: Skin flag renders metallic robot bots with robot eyes; God Mode
   parsing remains correct.
 - AC-007: Import/export retains new bot settings when present; missing fields
-  default to CFG_DEFAULT and unknown fields are ignored without error.
+  default to CFG_DEFAULT and unknown settings paths fail the import with an
+  explicit error.
+- AC-008: Baseline bot settings persist across reloads (localStorage) and
+  server restarts (SQLite snapshots) with schema validation.

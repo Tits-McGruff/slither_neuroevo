@@ -140,8 +140,9 @@ Transition table
 
 ## L) Observability
 
-- Optional debug flag to show skin id on selection (God Mode) when enabled.
-- Debug log (gated): `render.skin.unknown { skinValue, snakeId }` when a skin
+- Error/warn logs are always emitted; verbose logs are debug-gated.
+- Debug-gated: show skin id on selection (God Mode).
+- Always-on warn: `render.skin.unknown { skinValue, snakeId }` when a skin
   value is not 0/1/2.
 
 ## Debug playbook
@@ -153,11 +154,13 @@ Transition table
 
 ## M) Rollout and rollback plan (merge-safe gating)
 
-- Gated by baseline bot count; skin flag 2 appears only when bots are active.
+- Skin flag 2 is emitted whenever a snake is marked as robot/baseline; it is
+  not gated by baseline bot count.
 - Rollback: if renderer reverts, serializer can keep emitting 2 without crash;
   robots will appear as default color with the current equality checks. If
   rolling back to a renderer that uses truthy checks, robots may appear gold;
-  mitigate by gating skin=2 emission behind renderer version.
+  mitigate by keeping `skin === 2` usage scoped to baseline bots and ensuring
+  HoF retains `skin === 1`.
 
 ## N) Testing plan
 

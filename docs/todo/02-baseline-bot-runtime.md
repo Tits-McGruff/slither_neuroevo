@@ -4,10 +4,12 @@
 
 - Introduced baselineBotIndex identity, deterministic seed derivation rules,
   and explicit respawn semantics.
-- Clarified stats vs frame header semantics and added explicit population-only
-  vs total counts in stats payloads.
+- Clarified stats vs frame header semantics and required population-only vs
+  total counts in stats payloads (no backward-compatibility requirements).
 - Expanded touch-point checklists and test mappings for determinism and
   respawn behavior.
+- Aligned data model notes with Stage 01 persistence decisions (settings are
+  persisted; runtime bot state remains ephemeral).
 
 ## A) Delta vs AGENTS.md
 
@@ -22,14 +24,15 @@
 
 ## B) Scope; non-goals; assumptions; constraints and invariants
 
-- Relevant decisions: DEC-001, DEC-002, DEC-003 (superseded), DEC-005, DEC-006.
+- Relevant decisions: DEC-001, DEC-002, DEC-003 (superseded), DEC-005, DEC-006,
+  DEC-007.
 - Relevant invariants: INV-002, INV-003, INV-004, INV-005, INV-006, INV-007,
-  INV-008.
+  INV-008, INV-010.
 - Scope: runtime bot control, RNG separation, spawn lifecycle, stats exclusion.
 - Non-goals: rendering changes, buffer format changes.
 - Assumptions: baselineBotIndex is stable and independent of snakeId; respawn
-  delay is fixed (constant) to avoid extra UI controls; bot spawn uses a
-  deterministic RNG stream to avoid consuming global randomness.
+  delay is fixed (constant) to avoid extra UI controls; bot spawn uses the
+  dedicated `src/rng.ts` PRNG to avoid consuming global randomness.
 
 ## C) Architecture overview (stage-local)
 
@@ -55,12 +58,12 @@
 - Update `ControllerRegistry` to exclude baseline bots from assignment by
   adding a `controllable` flag in the `getSnakes` dependency.
 - Ensure worker and server stats use population-only counts for fitness and
-  chart history while emitting total counts as optional fields to avoid
-  confusion with frame header totals.
+  chart history while emitting required total counts to avoid confusion with
+  frame header totals.
   - Rendering loops still use frame header `totalSnakes`/`aliveCount` (includes
     baseline bots); UI labels and charts use stats `alive` (population-only).
-  - Optionally surface `aliveTotal` in the Stats panel under a debug toggle to
-    prevent UI drift from baseline bot counts.
+  - Always surface `aliveTotal` and `baselineBotsAlive` in the Stats panel to
+    make totals explicit (no debug gating).
 
 ## D) Alternatives considered with tradeoffs
 
@@ -77,7 +80,8 @@
 - `src/world.ts`
 - `src/snake.ts`
 - `src/worker.ts`
-- `src/utils.ts` (seed hashing helper) or new `src/rng.ts`
+- New: `src/rng.ts` (seed hashing helper + PRNG)
+- New: `src/brains/nullBrain.ts` (NullBrain implementation)
 - `server/simServer.ts`
 - `server/controllerRegistry.ts`
 - `src/protocol/messages.ts` (stats payload types if alive counts change)
@@ -125,6 +129,24 @@ I/O contract for `deriveBotSeed`:
 - Inputs: finite numbers; `baselineBotIndex` must be in `[0, count)`.
 - Output: unsigned 32-bit integer seed; stable for identical inputs.
 - Errors: out-of-range indices return a clamped seed and emit debug log.
+
+### Planned new module: `src/brains/nullBrain.ts`
+
+```ts
+import type { Brain } from './types.ts';
+
+export class NullBrain implements Brain {
+  reset(): void;
+  forward(inputs: Float32Array): Float32Array;
+}
+```
+
+I/O contract for `NullBrain`:
+- `reset()` is a no-op.
+- `forward()` returns a cached zeroed `Float32Array` of size `CFG.brain.outSize`
+  and does not allocate per call.
+- Should never be called for baseline bots in steady state; if called, it does
+  not throw (keeps simulation stable).
 ```
 
 Usage example (illustrative):
@@ -154,8 +176,7 @@ Validation and error behavior:
 - New methods:
   - `_spawnBaselineBots(): void` (append bots after population)
   - `_resetBaselineBotsForGen(): void` (seed selection and manager reset)
-- Track `baselineBotIndex` on snakes (e.g., `snake.baselineBotIndex`) or in a
-  `Map<snakeId, baselineBotIndex>` to keep identity stable across respawns.
+- Track `baselineBotIndex` on `Snake` to keep identity stable across respawns.
 - Respawn policy: when a baseline bot dies, schedule a respawn after a fixed
   delay (e.g., 0.5s) and re-register the same baselineBotIndex with a fresh
   snake id from the baseline bot reserved range.
@@ -164,17 +185,17 @@ Validation and error behavior:
 
 ### Planned changes in `src/snake.ts`
 
-- Add a control mode or brain policy flag to avoid NN inference for baseline
-  bots. Example:
+- Add a control mode flag and install a NullBrain for baseline bots to avoid
+  NN inference and weight allocation.
 
 ```ts
 type ControlMode = 'neural' | 'external-only';
 ```
 
-- If using a NullBrain, define a minimal Brain that never allocates and never
-  runs forward.
-- Add an optional RNG parameter for spawn position/heading so baseline bots can
-  avoid consuming global `Math.random` and keep RNG separation intact.
+- Define a minimal NullBrain implementation that never allocates and never
+  runs forward (required for baseline bots).
+- Require an RNG parameter for baseline bot spawn position/heading so baseline
+  bots never consume global `Math.random`.
 
 ### Planned changes in `server/controllerRegistry.ts`
 
@@ -184,20 +205,18 @@ type ControlMode = 'neural' | 'external-only';
 
 ## F) Data model changes; data flow; migration strategy; backward compatibility
 
-- New runtime-only fields: `Snake.controlMode` (or `Snake.role`) and
-  `Snake.baselineBotIndex` (or a manager-side mapping).
-- No persistence schema changes; baseline bots are not exported.
-- Stats payload: keep `alive` as population-only and add optional fields
+- New runtime-only fields: `Snake.controlMode` and `Snake.baselineBotIndex`.
+- No additional persistence schema changes in this stage; baseline bot runtime
+  state (snakes/controllers) is not exported.
+- Stats payload: keep `alive` as population-only and add required fields
   `aliveTotal`, `baselineBotsAlive`, and `baselineBotsTotal` to surface totals.
-  Backward compatibility: older clients ignore new fields; new clients default
-  missing totals to population-only values.
 - Expand/migrate/contract for stats payload:
-  - Expand: add optional fields to worker + server stats emitters and protocol
+  - Expand: add required fields to worker + server stats emitters and protocol
     types while keeping `alive` semantics unchanged for existing UI.
-  - Migrate: update `src/main.ts` to prefer population-only fields and show
-    totals only when present.
-  - Contract: keep optional fields (no removal planned).
-- No DB or localStorage changes.
+  - Migrate: update `src/main.ts` to show totals unconditionally.
+  - Contract: keep fields (no removal planned).
+- Settings persistence is handled in Stage 01 (localStorage + SQLite); this
+  stage must not introduce new DB/localStorage keys.
 
 ## G) State machine design
 
@@ -266,8 +285,8 @@ Transition table
 - Stats payload changes (population vs total counts): update together:
   - `src/protocol/messages.ts` (FrameStats)
   - `server/protocol.ts` (StatsMsg)
-  - `server/simServer.ts` (emit fields)
-  - `src/worker.ts` (emit fields)
+  - `server/simServer.ts` (emit required fields)
+  - `src/worker.ts` (emit required fields)
   - `src/net/wsClient.ts` + `src/main.ts` (consume fields)
   - Tests: `src/worker.test.ts`, `server/protocol.test.ts`
 - No buffer or sensor changes in this stage.
@@ -294,13 +313,16 @@ Transition table
 
 ## L) Observability
 
-- Debug logs (gated):
+- Error/warn logs are always emitted; verbose logs are debug-gated.
+- Debug-gated logs:
   - `bot.spawned` { count, generation }
   - `bot.seed.selected` { baseSeed, generation, randomized }
   - `bot.stats.filtered` { excludedCount }
   - `bot.respawn` { baselineBotIndex, snakeId, delayMs }
-- Debug toggle: CFG.debug.baselineBots or a localStorage flag documented in
-  Stage 01.
+- Always-on warn/error logs:
+  - `bot.controller.error` { snakeId, state, error }
+  - `bot.respawn.failed` { baselineBotIndex, reason }
+- Debug toggle: CFG.debug.baselineBots.
 
 ## Debug playbook
 
@@ -342,20 +364,24 @@ Transition table
     (`it('external control bypasses brain forward')`).
   - Add test: snake spawn uses provided RNG when supplied (baseline bots)
     (`it('uses provided rng for spawn')`).
+- `src/brains/nullBrain.test.ts` (new file)
+  - Add test: `NullBrain.forward` returns a stable zeroed buffer of size
+    `CFG.brain.outSize` without allocating per call
+    (`it('NullBrain returns stable zero buffer')`).
 - `server/controllerRegistry.test.ts`
   - Add test: `pickAvailableSnake` ignores non-controllable baseline bots
     (`it('skips non-controllable snakes')`).
 - `src/worker.test.ts`
   - Add test: worker stats exclude baseline bots from `alive` and
-    `fitnessHistory` updates, and include `aliveTotal` when present
+    `fitnessHistory` updates, and include required total fields
     (`it('stats exclude baseline bots and include totals')`).
   - Add test: frame header `aliveCount` includes baseline bots while
     `stats.alive` excludes them
     (`it('frame header includes bots while stats do not')`).
 - `server/protocol.test.ts`
-  - Add test: StatsMsg accepts optional `aliveTotal`/`baselineBotsAlive`
-    fields without breaking validation
-    (`it('stats accepts optional total fields')`).
+  - Add test: StatsMsg requires `aliveTotal`/`baselineBotsAlive`/`baselineBotsTotal`
+    fields and rejects missing totals
+    (`it('stats requires total fields')`).
 - Validation commands:
   - `npm run test:unit`
   - `npm run test:integration`
@@ -365,11 +391,12 @@ Transition table
 - AC mapping:
   - AC-001 -> `src/world.test.ts` / `baseline bots append after population`.
   - AC-002 -> `src/snake.test.ts` / `external control bypasses brain` and
-    `src/world.test.ts` / `HoF ignores baseline bots`.
+    `src/world.test.ts` / `HoF ignores baseline bots` and
+    `src/brains/nullBrain.test.ts` / `NullBrain returns stable zero buffer`.
   - AC-003 -> `src/world.test.ts` / `deriveBotSeed includes generation only
     when enabled`.
   - AC-004 -> `src/worker.test.ts` / `stats exclude baseline bots` and
-    `server/protocol.test.ts` / `optional aliveTotal fields`.
+    `server/protocol.test.ts` / `stats requires total fields`.
   - AC-005 -> `server/controllerRegistry.test.ts` / `skip baseline bots`.
 
 ## O) Compatibility matrix

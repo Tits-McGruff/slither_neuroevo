@@ -6,6 +6,9 @@
   import flow with server-mode reset semantics.
 - Added debug playbook and tightened AC-007 test mappings with concrete test
   targets.
+- Added localStorage + SQLite persistence requirements and contract steps for
+  baseline bot settings.
+- Locked seed input UX to show an inline validation hint on invalid input.
 
 ## A) Delta vs AGENTS.md
 
@@ -20,10 +23,11 @@
 
 ## B) Scope; non-goals; assumptions; constraints and invariants
 
-- Relevant decisions: DEC-003, DEC-004.
-- Relevant invariants: INV-002, INV-003.
-- Scope: configuration schema, settings UI, seed control widgets, and import
-  application of baseline bot settings.
+- Relevant decisions: DEC-005, DEC-008.
+- Relevant invariants: INV-002, INV-003, INV-011.
+- Scope: configuration schema, settings UI, seed control widgets, import
+  application, and persistence (localStorage + SQLite) of baseline bot
+  settings.
 - Non-goals: bot runtime logic, spawn lifecycle, rendering changes.
 - Assumptions: count adds to NPCs; per-bot seeds derived later in runtime.
 
@@ -38,8 +42,8 @@
 - Extend `src/protocol/settings.ts` `SettingsUpdate['path']` union to include
   the new CFG paths and let `setByPath` apply them in worker/server.
 - Add a small path-validation helper in `src/main.ts` (or `src/settings.ts`)
-  that filters `settings`/`updates` imports to known `SettingsUpdate['path']`
-  values before applying them.
+  that validates `settings`/`updates` imports against known
+  `SettingsUpdate['path']` values and fails the import if unknown paths exist.
 - Wire up the seed randomize button in `src/main.ts` to update CFG and emit a
   `updateSettings` message for worker mode and `sendReset` updates for server
   mode.
@@ -49,6 +53,10 @@
 - Align worker-mode import behavior in `src/main.ts` to apply `data.settings`
   and `data.updates` before posting the import message, matching server-mode
   reset semantics.
+- Persist baseline bot settings in localStorage under a dedicated key and
+  hydrate them on startup before applying UI defaults.
+- Extend server snapshot payloads to store settings/updates for baseline bots
+  and restore them on server restart.
 
 ## D) Alternatives considered with tradeoffs
 
@@ -64,9 +72,14 @@
 - `src/settings.ts`
 - `src/protocol/settings.ts`
 - `src/main.ts`
+- `src/storage.ts`
 - `index.html`
 - `styles.css`
-- Tests: `src/settings.test.ts`, `src/main.test.ts`
+- `server/persistence.ts`
+- `server/httpApi.ts`
+- `server/simServer.ts`
+- Tests: `src/settings.test.ts`, `src/main.test.ts`,
+  `src/storage.test.ts`, `server/persistence.test.ts`
 
 ### Planned new helpers (signatures and contracts)
 
@@ -96,6 +109,17 @@ applyBaselineSeed(seed);
   - `baselineBots.seed` (numeric input, integer).
   - `baselineBots.randomizeSeedPerGen` (checkbox).
 
+`src/storage.ts`
+
+- `function saveBaselineBotSettings(settings: { count: number; seed: number; randomizeSeedPerGen: boolean }): boolean`
+  - Input: validated baseline bot settings.
+  - Output: true when saved; false on storage failure.
+  - Errors: log warning on storage failure; no throw.
+
+- `function loadBaselineBotSettings(): { count: number; seed: number; randomizeSeedPerGen: boolean } | null`
+  - Output: settings object when valid; null when missing or invalid.
+  - Errors: invalid schema triggers warning and clears storage key.
+
 ### Validation rules
 
 - Seed must be finite integer; negative values clamp to 0.
@@ -118,10 +142,23 @@ applyBaselineSeed(seed);
   - If `settings`/`updates` exist, apply them before import in both worker and
     server modes.
   - If fields are missing, defaults come from CFG_DEFAULT.
-  - Unknown settings paths are ignored (validated against the path union).
-- No new localStorage keys; `slither_neuroevo_pop` remains genome-only.
-- Backward compatibility: older builds ignore unknown settings fields in JSON;
-  newer builds accept older files with missing bot settings.
+  - Unknown settings paths cause the import to fail with an explicit error.
+- localStorage:
+  - New key `slither_neuroevo_baseline_bot_settings` stores
+    `{ count, seed, randomizeSeedPerGen, version: 1 }`.
+  - Invalid schema clears the key and fails loudly in logs.
+- SQLite:
+  - Add `settings_json` and `updates_json` columns to
+    `population_snapshots`.
+  - Store current settings/updates alongside `payload_json`.
+  - Restore settings/updates on server restart before world init.
+- Backward compatibility: not required; imports fail on unknown settings paths,
+  and older files with missing bot settings are accepted via defaults.
+- Expand/migrate/contract:
+  - Expand: add columns + start writing localStorage key and DB columns.
+  - Migrate: read localStorage + DB columns first, fall back to defaults.
+  - Contract: require localStorage key to be valid for persistence, and require
+    DB columns (stop reading settings from `payload_json`).
 
 ## G) State machine design
 
@@ -143,6 +180,41 @@ Transition table
 | blurSeedInput | Editing | Idle | valid seed | applyBaselineSeed | CFG updated |
 | clickRandomize | Idle | Randomizing | none | applyBaselineSeed | finite seed |
 | randomizeDone | Randomizing | Idle | none | none | value shown |
+
+### Local persistence load
+
+State table
+
+| State | Description | Invariants |
+| --- | --- | --- |
+| NoKey | No stored settings | CFG defaults applied |
+| KeyLoaded | Stored settings valid | CFG updated before UI defaults |
+| KeyInvalid | Stored settings invalid | key cleared, error logged |
+
+Transition table
+
+| Event | From | To | Guards | Side effects | Invariants enforced |
+| --- | --- | --- | --- | --- | --- |
+| readKey | NoKey | KeyLoaded | schema ok | apply settings | order preserved |
+| readKey | NoKey | KeyInvalid | schema invalid | clear key | error logged |
+| writeKey | any | KeyLoaded | save ok | persist settings | schema versioned |
+
+### Snapshot persistence (server)
+
+State table
+
+| State | Description | Invariants |
+| --- | --- | --- |
+| SnapshotBuild | Snapshot created | settings/updates attached |
+| SnapshotSaved | Snapshot stored | columns populated |
+| SnapshotLoad | Snapshot restored | settings applied before world init |
+
+Transition table
+
+| Event | From | To | Guards | Side effects | Invariants enforced |
+| --- | --- | --- | --- | --- | --- |
+| saveSnapshot | SnapshotBuild | SnapshotSaved | validation ok | write JSON columns | schema ok |
+| loadSnapshot | SnapshotSaved | SnapshotLoad | columns present | apply settings | order preserved |
 
 ### Import settings application (worker + server)
 
@@ -172,11 +244,13 @@ Transition table
 
 ## I) Error handling
 
-- Invalid seed input: ignore and revert to previous value; optionally show a
-  small inline hint.
+- Invalid seed input: ignore and revert to previous value; show a small inline
+  hint.
 - Missing DOM elements (tests): guard null checks to avoid runtime errors.
-- Import payloads with unknown settings paths: drop those entries and continue
-  import (no fatal errors).
+- Import payloads with unknown settings paths: fail the import and surface an
+  error (no partial apply).
+- localStorage schema mismatch: clear key and log warn (no partial apply).
+- SQLite column missing: fail startup with explicit error (no silent fallback).
 
 ## J) Performance considerations
 
@@ -188,9 +262,9 @@ Transition table
 
 ## L) Observability
 
-- Debug log (optional): `ui.botSeed.randomized { seed }` gated by a debug flag.
-- Debug toggle: CFG.debug.baselineBots (added in Stage 02) or a UI-only flag
-  for settings tracing.
+- Debug-gated log: `ui.botSeed.randomized { seed }`.
+- Errors/warnings (e.g., invalid seed input) are always logged at warn level.
+- Debug toggle: CFG.debug.baselineBots (added in Stage 02).
 
 ## Debug playbook
 
@@ -214,8 +288,12 @@ Transition table
 - Add `src/main.test.ts` import test: file with bot settings triggers a reset
   in worker mode before `import` is posted
   (`it('import applies bot settings before worker import')`).
-- Add negative test: unknown settings paths are ignored (path validation)
-  (`it('ignores unknown settings paths on import')`).
+- Add negative test: unknown settings paths fail import (path validation)
+  (`it('fails import on unknown settings paths')`).
+- Update `src/storage.test.ts` to cover localStorage round-trip for baseline
+  bot settings (`it('saves and loads baseline bot settings')`).
+- Update `server/persistence.test.ts` to assert settings_json/updates_json are
+  stored and restored (`it('stores snapshot settings columns')`).
 - Validation commands:
   - `npm run test:unit` (covers settings + main tests)
   - `npm test` (CI parity)
@@ -223,12 +301,15 @@ Transition table
     keep them green.
 - AC mapping:
   - AC-007 -> `src/main.test.ts` / `import applies bot settings before import`
-    and `src/settings.test.ts` / `updateCFGFromUI supports baselineBots paths`.
+    and `src/settings.test.ts` / `updateCFGFromUI supports baselineBots paths`
+    and `src/main.test.ts` / `fails import on unknown settings paths`.
+  - AC-008 -> `src/storage.test.ts` / `saves and loads baseline bot settings`
+    and `server/persistence.test.ts` / `stores snapshot settings columns`.
 
 ## O) Compatibility matrix
 
-- Server mode: changed, ok (new settings paths accepted; import applies them).
-- Worker fallback: changed, ok (new settings paths applied via updateSettings).
+- Server mode: changed, ok (new settings persisted in SQLite snapshots).
+- Worker fallback: changed, ok (new settings persisted in localStorage).
 - Join overlay: unchanged, ok.
 - Visualizer streaming: unchanged, ok.
 - Import/export: changed, ok (settings fields applied in worker + server
@@ -238,3 +319,5 @@ Transition table
 
 - Risk: seed input not wired to settings update path -> mitigated by tests in
   `src/settings.test.ts` and `src/main.test.ts`.
+- Risk: SQLite schema migration fails on existing db -> mitigated by explicit
+  column checks and persistence tests.
