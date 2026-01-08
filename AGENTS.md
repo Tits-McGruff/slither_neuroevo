@@ -28,11 +28,21 @@ The fast path relies on a strict binary format for world snapshots. `src/seriali
 
 ## Simulation core: World, Snake, sensors, and physics
 
-`src/world.ts` is the heart of the simulation. It builds the population based on the current settings (`buildArch` from `src/mlp.ts`), spawns snakes from genomes, manages pellets through a `PelletGrid` map, and orchestrates the per-tick update loop. Each `World.update()` scales the time step by `simSpeed`, clamps it against `CFG.dtClamp`, subdivides it according to `CFG.collision.substepMaxDt`, and then runs physics steps that spawn pellets, advance snakes, rebuild the collision grid, and resolve head-to-body collisions. Collisions are detected via `FlatSpatialHash` from `src/spatialHash.ts`, which stores segment midpoints in typed arrays to avoid per-frame allocations. When a collision is detected the victim dies, and kill points are awarded to the aggressor via `CFG.reward.pointsPerKill`.
+`src/world.ts` is the heart of the simulation. It builds the population based on the current settings (`buildArch` from `src/mlp.ts`), spawns snakes from genomes, manages pellets through a `PelletGrid` map, and orchestrates the per-tick update loop. Each `World.update()` scales the time step by `simSpeed`, clamps it against `CFG.dtClamp`, subdivides it according to `CFG.collision.substepMaxDt`, and then runs physics steps that spawn pellets, advance snakes, rebuild the collision grid, and resolve head-to-body collisions. Collisions are detected via `FlatSpatialHash` from `src/spatialHash.ts`, which stores segment midpoints in typed arrays to avoid per-frame allocations. When a collision is detected the victim dies, and kill points are awarded to the aggressor via `CFG.reward.pointsPerKill`. Ambient food spawning uses a "Fractal Food" algorithm (`_spawnAmbientPellet`), employing interference noise and rejection sampling to create filaments and voids, encouraging movement and strategy.
 
 The `Snake` class in `src/snake.ts` handles its own movement, boosting, feeding, and growth. It runs neural inference on a fixed controller timestep (`CFG.brain.controlDt`) so recurrent memory length stays stable even when physics substeps change, then converts outputs into turn and boost decisions. Boosting burns points and shrinks the snake while dropping pellets behind it (`CFG.boost`), and the death path (`Snake.die`) converts body mass into pellets based on `CFG.death` parameters. Movement uses the turn rate and speed penalties in `CFG`, clamps the snake within the world radius, updates segment positions to maintain spacing, then grows or shrinks towards `targetLen` while updating radius via a logarithmic length curve.
 
 Sensors are built in `src/sensors.ts` and must stay in sync with `CFG.brain.inSize`. The sensor vector length is `5 + 3 * bubbleBins`, where `bubbleBins` is `Math.max(8, floor(CFG.sense.bubbleBins))` (default 12), and the first five values are heading sin/cos, size fraction, boost margin, and a log-scaled points percentile. The remaining values are three radial histograms (food density, hazard clearance, and wall distance) computed in a 360-degree bubble around the head. Sensor scanning uses both the pellet grid and the collision grid with work caps (`CFG.sense.maxPelletChecks` and `CFG.sense.maxSegmentChecks`), so if you expand inputs you should update both `CFG.brain.inSize` and any downstream UI that expects a fixed sensor size.
+
+## Baseline Bot Strategies
+
+Baseline bots (`src/bots/baselineBots.ts`) are scripted entities that fill the arena. They now employ "Life Stage" strategies based on their length:
+
+- **Small (< 25)**: "Coward" mode. Prioritizes high clearance and clamps food attraction to avoid kamikaze deaths.
+- **Medium (25-80)**: "Hunter" mode. Actively intercepts nearby snakes and boosts to attack if safe.
+- **Large (> 80)**: "Bully" mode. Seeks high density to block paths and cause accidents.
+
+Bot respawning is controlled by `CFG.baselineBots.respawnDelay` (default 3.0s), ensuring a steady population without instant flooding.
 
 ## Neural controllers and evolution
 
@@ -87,7 +97,7 @@ Import/export is exposed in the Settings tab and uses the worker protocol in wor
 
 ## Recent additions and footguns
 
-- Fast-path visuals include speed/boost-based glow and boost trail particles in `renderWorldStruct`. The buffer contract is: header (6 floats), alive snakes (8 + 2*ptCount floats), then pellets (count + 5 floats: x, y, value, type, colorId). Update serializer, render, and tests together if this changes.
+- Fast-path visuals include speed/boost-based glow and boost trail particles in `renderWorldStruct`. The buffer contract is: header (6 floats), alive snakes (8 + 2\*ptCount floats), then pellets (count + 5 floats: x, y, value, type, colorId). Update serializer, render, and tests together if this changes.
 - Starfield/grid draw in the fast renderer; camera/zoom must come from the worker buffer (no main-thread overrides).
 - Fitness history now ships min/avg/max from the worker or server when it grows. Keep histories finite and capped when syncing to the UI.
 - `bestPointsThisGen` must be initialized before any sensor pass; NaNs here made first-generation snakes vanish. Preserve that initialization when refactoring world state or sensors.

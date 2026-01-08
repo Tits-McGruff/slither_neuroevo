@@ -225,6 +225,7 @@ describe(SUITE, () => {
     it('baselineBotIndex stays stable across respawn', () => {
         resetCFGToDefaults();
         CFG.baselineBots.count = 1;
+        CFG.baselineBots.respawnDelay = 0.5;
         try {
             const world = new World({ ...settings, snakeCount: 1 });
             const bot = world.baselineBots[0]!;
@@ -255,6 +256,7 @@ describe(SUITE, () => {
     it('respawns baseline bots within the delay', () => {
         resetCFGToDefaults();
         CFG.baselineBots.count = 1;
+        CFG.baselineBots.respawnDelay = 0.5;
         try {
             const world = new World({ ...settings, snakeCount: 1 });
             const bot = world.baselineBots[0]!;

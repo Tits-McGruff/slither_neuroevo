@@ -422,7 +422,7 @@ _initPellets(): void {
   this.pellets.length = 0;
   this.pelletGrid.resetForCFG();
   this._pelletSpawnAcc = 0;
-  while (this.pellets.length < CFG.pelletCountTarget) this.addPellet(randomPellet());
+  while (this.pellets.length < CFG.pelletCountTarget) this.addPellet(this._spawnAmbientPellet());
 }
 
 /**
@@ -523,7 +523,7 @@ removePellet(p: Pellet): void {
     this._pelletSpawnAcc += CFG.pelletSpawnPerSecond * dt;
     const spawnN = Math.min(deficit, Math.floor(this._pelletSpawnAcc));
     this._pelletSpawnAcc -= spawnN;
-    for (let i = 0; i < spawnN; i++) this.addPellet(randomPellet());
+    for (let i = 0; i < spawnN; i++) this.addPellet(this._spawnAmbientPellet());
     for (const sn of this.snakes) {
       if (!sn.alive) continue;
       const botAction = this.botManager.getActionForSnake(sn.id);
@@ -876,6 +876,50 @@ removePellet(p: Pellet): void {
     this.snakes.push(snake);
     return snake;
   }
+
+  /**
+   * Spawns an ambient pellet using fractal interference noise.
+   * Creates "filaments" and "voids" by rejection sampling a noise field.
+   */
+  _spawnAmbientPellet(): Pellet {
+    const r = CFG.worldRadius;
+    const t = this.generationTime * 0.05; // Slow drift
+    
+    // Attempt rejection sampling to find a "high density" spot
+    // Limit retries to prevent performance impact
+    for (let i = 0; i < 5; i++) {
+        // Random candidate in circle
+        const a = Math.random() * TAU;
+        const d = Math.sqrt(Math.random()) * r;
+        const x = Math.cos(a) * d;
+        const y = Math.sin(a) * d;
+
+        // Interference Noise Function
+        // Overlap sine waves of different frequencies and phases
+        // Scale inputs to make features reasonable size relative to world radius
+        const s1 = 0.003; // Large features
+        const s2 = 0.01;  // Medium features
+        const s3 = 0.03; // Small details
+
+        let noise = 0;
+        noise += Math.sin(x * s1 + t) * Math.cos(y * s1 - t);
+        noise += Math.sin(x * s2 - t*1.5) * Math.cos(y * s2 + t*1.5) * 0.5;
+        noise += Math.sin(x * s3 + t*2) * 0.25;
+
+        // Noise is roughly [-1.75, 1.75]. Map to [0, 1]
+        const norm = (noise + 1.75) / 3.5;
+        const prob = norm * norm * norm; // Contrast curve (cubed for sharper filaments)
+
+        if (Math.random() < prob) {
+            return new Pellet(x, y, CFG.foodValue, null, "ambient", 0);
+        }
+    }
+
+    // Fallback: Uniform random if rejection failed (fills voids slightly)
+    const a = Math.random() * TAU;
+    const d = Math.sqrt(Math.random()) * r;
+    return new Pellet(Math.cos(a) * d, Math.sin(a) * d, CFG.foodValue, null, "ambient", 0);
+  }
 }
 
 /**
@@ -1069,14 +1113,4 @@ function computeNetworkStats(population: Genome[]): { avgWeight: number; weightV
   const avgWeight = sumAbs / count;
   const weightVariance = Math.max(0, sumAbsSq / count - avgWeight * avgWeight);
   return { avgWeight, weightVariance };
-}
-
-/**
- * Create a random ambient pellet within the world radius.
- * @returns New pellet instance.
- */
-function randomPellet(): Pellet {
-  const a = Math.random() * TAU;
-  const r = Math.sqrt(Math.random()) * CFG.worldRadius;
-  return new Pellet(Math.cos(a) * r, Math.sin(a) * r, CFG.foodValue, null, "ambient", 0);
 }
