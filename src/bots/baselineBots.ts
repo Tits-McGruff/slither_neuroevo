@@ -12,7 +12,9 @@ export interface BaselineBotSettings {
   count: number;
   seed: number;
   randomizeSeedPerGen: boolean;
+  respawnDelay?: number;
 }
+
 
 /** Control output for a baseline bot. */
 export interface BotAction {
@@ -20,23 +22,20 @@ export interface BotAction {
   boost: number;
 }
 
-/** Fixed respawn delay in seconds for baseline bots. */
-const BASELINE_BOT_RESPAWN_DELAY = 0.5;
-
-/**
- * Normalize baseline bot settings to safe defaults.
- * @param settings - Raw settings payload.
- * @returns Normalized settings.
- */
 function normalizeSettings(settings: BaselineBotSettings): BaselineBotSettings {
   const count = Number.isFinite(settings.count) ? Math.max(0, Math.floor(settings.count)) : 0;
   const seed = Number.isFinite(settings.seed) ? Math.max(0, Math.floor(settings.seed)) : 0;
+  // Default 3.0 seconds to prevent horde
+  const respawnDelay = Number.isFinite(settings.respawnDelay) ? clamp(settings.respawnDelay!, 0.1, 60) : 3.0; 
   return {
     count,
     seed,
-    randomizeSeedPerGen: Boolean(settings.randomizeSeedPerGen)
+    randomizeSeedPerGen: Boolean(settings.randomizeSeedPerGen),
+    respawnDelay
   };
 }
+
+
 
 /**
  * Convert a bin index into a signed angle relative to heading.
@@ -202,7 +201,7 @@ export class BaselineBotManager {
     if (index < 0 || index >= this.settings.count) return;
     const timer = this.respawnTimers[index] ?? -1;
     if (timer < 0) {
-      this.respawnTimers[index] = BASELINE_BOT_RESPAWN_DELAY;
+      this.respawnTimers[index] = this.settings.respawnDelay!;
     }
   }
 
@@ -224,7 +223,7 @@ export class BaselineBotManager {
       if (!snake || !snake.alive) {
         const timer = this.respawnTimers[i] ?? -1;
         if (timer < 0) {
-          this.respawnTimers[i] = BASELINE_BOT_RESPAWN_DELAY;
+          this.respawnTimers[i] = this.settings.respawnDelay!;
         } else {
           const nextTimer = timer - dt;
           this.respawnTimers[i] = nextTimer;
@@ -235,7 +234,7 @@ export class BaselineBotManager {
               this.registerBot(i, respawned.id);
               this.respawnTimers[i] = -1;
             } else {
-              this.respawnTimers[i] = BASELINE_BOT_RESPAWN_DELAY;
+              this.respawnTimers[i] = this.settings.respawnDelay!;
             }
           }
         }
@@ -334,13 +333,21 @@ export class BaselineBotManager {
       }
     }
 
+    // Safety Trigger: Entering immediate avoidance
     if (state !== 'avoid' && worstClear < hazardTrigger) {
       state = 'avoid';
       stateTimer = 0.35 + (rng ? rng() : 0) * 0.35;
     } else if (state !== 'avoid' && state !== 'boost') {
       state = bestFood > foodTrigger ? 'seek' : 'roam';
+      
+      // Boost Logic:
+      // Only allowed if we have points AND the environment isn't too dangerous overall
       const boostOk = snake.pointsScore > CFG.boost.minPointsToBoost * 1.1;
-      if (boostOk && rng && rng() < boostChance) {
+      // "worstClear > -0.5" means no immediate major hazard nearby.
+      // We want to prevent boosting if there's significant danger around.
+      const environmentSafe = worstClear > -0.3; 
+      
+      if (boostOk && environmentSafe && rng && rng() < boostChance) {
         state = 'boost';
         stateTimer = 0.2 + rng() * 0.2;
       }
@@ -350,23 +357,38 @@ export class BaselineBotManager {
     this.botStateTimers[index] = stateTimer;
 
     let foodWeight = 0.5;
-    let clearWeight = 0.7;
+    let clearWeight = 0.8; // Increased base clearance weight
+    
     if (state === 'seek') {
-      foodWeight = 1.4;
-      clearWeight = 0.6;
+      // Significantly reduced food weight to prioritize survival.
+      // Previous: 1.4/0.6. New: 0.5/1.5.
+      foodWeight = 0.5; 
+      clearWeight = 1.5;
     } else if (state === 'avoid') {
-      foodWeight = 0.2;
-      clearWeight = 1.6;
+      foodWeight = 0.0; // Ignore food when avoiding
+      clearWeight = 2.0;
     }
 
     let bestScore = -Infinity;
     let targetIdx = bestClearIdx;
+    
+    // Veto threshold: if clearance is below this, the path is effectively blocked.
+    // Clearance range is [-1, 1]. 0 is neutral. -1 is death.
+    const VETO_THRESHOLD = -0.5;
+
     for (let i = 0; i < bins; i++) {
       const food = sensors[foodOffset + i] ?? -1;
       const hazard = sensors[hazardOffset + i] ?? -1;
       const wall = sensors[wallOffset + i] ?? -1;
       const clearance = (hazard + wall) * 0.5;
-      const score = food * foodWeight + clearance * clearWeight;
+      
+      let score = food * foodWeight + clearance * clearWeight;
+      
+      // Strict Veto
+      if (clearance < VETO_THRESHOLD) {
+        score -= 1000;
+      }
+
       if (score > bestScore) {
         bestScore = score;
         targetIdx = i;
@@ -386,7 +408,22 @@ export class BaselineBotManager {
     const wander = state === 'roam' ? this.botWanderAngles[index] ?? 0 : 0;
     const targetAngle = binIndexToAngle(targetIdx, bins) + wander;
     const turn = clamp(targetAngle / (Math.PI / 2), -1, 1);
-    const boost = state === 'boost' ? 1 : 0;
+    
+    // Boost Output Logic:
+    // If state is boost, we boost.
+    // If state is avoid, we can boost ONLY if the chosen direction is safe (escape!)
+    let boost = state === 'boost' ? 1 : 0;
+    if (state === 'avoid') {
+       // Check clearance of targetIdx
+       const tgtHazard = sensors[hazardOffset + targetIdx] ?? -1;
+       const tgtWall = sensors[wallOffset + targetIdx] ?? -1;
+       const tgtClear = (tgtHazard + tgtWall) * 0.5;
+       // If clear enough, boost to escape
+       if (tgtClear > 0.2) {
+           boost = 1;
+       }
+    }
+
     const action = this.botActions[index];
     if (action) {
       action.turn = turn;

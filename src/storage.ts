@@ -25,6 +25,7 @@ export interface BaselineBotSettings {
   count: number;
   seed: number;
   randomizeSeedPerGen: boolean;
+  respawnDelay?: number;
 }
 
 /** Baseline bot settings payload stored in localStorage. */
@@ -110,11 +111,18 @@ function normalizeBaselineBotSettingsPayload(value: unknown): BaselineBotSetting
   if (typeof count !== 'number' || !Number.isFinite(count)) return null;
   if (typeof seed !== 'number' || !Number.isFinite(seed)) return null;
   if (typeof payload.randomizeSeedPerGen !== 'boolean') return null;
-  return {
+  const respawnDelay = typeof payload.respawnDelay === 'number' && Number.isFinite(payload.respawnDelay)
+    ? payload.respawnDelay
+    : undefined;
+  const result: BaselineBotSettings = {
     count: Math.max(0, Math.floor(count)),
     seed: Math.max(0, Math.floor(seed)),
     randomizeSeedPerGen: payload.randomizeSeedPerGen
   };
+  if (respawnDelay !== undefined) {
+    result.respawnDelay = respawnDelay;
+  }
+  return result;
 }
 
 /**

@@ -117,7 +117,8 @@ sense: {
   baselineBots: {
     count: 0,
     seed: 1,
-    randomizeSeedPerGen: false
+    randomizeSeedPerGen: false,
+    respawnDelay: 3.0
   },
   collision: {
     substepMaxDt: 0.018,

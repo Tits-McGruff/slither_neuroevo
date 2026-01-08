@@ -521,13 +521,15 @@ function readBaselineBotSettingsFromCfg(): {
   count: number;
   seed: number;
   randomizeSeedPerGen: boolean;
+  respawnDelay: number;
 } {
   const rawCount = CFG.baselineBots?.count ?? 0;
   const rawSeed = CFG.baselineBots?.seed ?? 0;
   const count = Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0;
   const seed = Number.isFinite(rawSeed) ? Math.max(0, Math.floor(rawSeed)) : 0;
   const randomizeSeedPerGen = Boolean(CFG.baselineBots?.randomizeSeedPerGen);
-  return { count, seed, randomizeSeedPerGen };
+  const respawnDelay = CFG.baselineBots?.respawnDelay ?? 3.0;
+  return { count, seed, randomizeSeedPerGen, respawnDelay };
 }
 
 /**
@@ -547,6 +549,9 @@ function applyStoredBaselineBotSettings(): void {
   setByPath(CFG, 'baselineBots.count', stored.count);
   setByPath(CFG, 'baselineBots.seed', stored.seed);
   setByPath(CFG, 'baselineBots.randomizeSeedPerGen', stored.randomizeSeedPerGen);
+  if (stored.respawnDelay != null && Number.isFinite(stored.respawnDelay)) {
+    setByPath(CFG, 'baselineBots.respawnDelay', stored.respawnDelay);
+  }
 }
 
 /**
