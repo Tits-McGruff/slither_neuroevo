@@ -1,5 +1,14 @@
 # Stage 02: Baseline Bot Runtime and Stats Exclusion
 
+## Revision notes
+
+- Introduced baselineBotIndex identity, deterministic seed derivation rules,
+  and explicit respawn semantics.
+- Clarified stats vs frame header semantics and added explicit population-only
+  vs total counts in stats payloads.
+- Expanded touch-point checklists and test mappings for determinism and
+  respawn behavior.
+
 ## A) Delta vs AGENTS.md
 
 - Changes: add baseline bot controller module, spawn baseline bots after the
@@ -13,27 +22,45 @@
 
 ## B) Scope; non-goals; assumptions; constraints and invariants
 
-- Relevant decisions: DEC-001, DEC-002, DEC-003.
-- Relevant invariants: INV-002, INV-003, INV-004, INV-005.
+- Relevant decisions: DEC-001, DEC-002, DEC-003 (superseded), DEC-005, DEC-006.
+- Relevant invariants: INV-002, INV-003, INV-004, INV-005, INV-006, INV-007,
+  INV-008.
 - Scope: runtime bot control, RNG separation, spawn lifecycle, stats exclusion.
 - Non-goals: rendering changes, buffer format changes.
+- Assumptions: baselineBotIndex is stable and independent of snakeId; respawn
+  delay is fixed (constant) to avoid extra UI controls; bot spawn uses a
+  deterministic RNG stream to avoid consuming global randomness.
 
 ## C) Architecture overview (stage-local)
 
 - Introduce a baseline bot controller module (`src/bots/baselineBots.ts`) that
-  owns per-bot state machines, per-bot RNG, and action buffers.
+  owns per-bot state machines, baselineBotIndex identity, per-bot RNG streams,
+  and action buffers.
 - Extend `World` to:
   - Track baseline bot snakes separately (e.g., `baselineBots: Snake[]`).
   - Spawn baseline bots after `_spawnAll()` to keep population order.
+  - Assign baseline bot ids from a reserved range distinct from population and
+    external controller ids (new `BASELINE_BOT_ID_START` constant, set above
+    the HoF/random id range and `EXTERNAL_SNAKE_ID_START`).
+  - Derive per-bot seeds from `(baseSeed, baselineBotIndex)` and, when
+    `randomizeSeedPerGen` is enabled, from `(baseSeed, generation)` first.
+  - Seed formula: `genSeed = randomize ? hash(baseSeed, generation) : baseSeed;
+    botSeed = hash(genSeed, baselineBotIndex)`; respawns reset to `botSeed`.
   - Compute baseline bot actions once per tick and feed them to
     `Snake.update(world, dt, control)` to avoid NN inference.
+  - Respawn baseline bots deterministically after death using the same
+    baselineBotIndex and a reset state machine.
   - Exclude baseline bots from `bestPointsThisGen`, fitness computation,
     fitnessHistory aggregation, and HoF selection.
 - Update `ControllerRegistry` to exclude baseline bots from assignment by
   adding a `controllable` flag in the `getSnakes` dependency.
 - Ensure worker and server stats use population-only counts for fitness and
-  chart history; alive counts in UI should also reflect population-only unless
-  explicitly desired.
+  chart history while emitting total counts as optional fields to avoid
+  confusion with frame header totals.
+  - Rendering loops still use frame header `totalSnakes`/`aliveCount` (includes
+    baseline bots); UI labels and charts use stats `alive` (population-only).
+  - Optionally surface `aliveTotal` in the Stats panel under a debug toggle to
+    prevent UI drift from baseline bot counts.
 
 ## D) Alternatives considered with tradeoffs
 
@@ -50,6 +77,7 @@
 - `src/world.ts`
 - `src/snake.ts`
 - `src/worker.ts`
+- `src/utils.ts` (seed hashing helper) or new `src/rng.ts`
 - `server/simServer.ts`
 - `server/controllerRegistry.ts`
 - `src/protocol/messages.ts` (stats payload types if alive counts change)
@@ -78,22 +106,45 @@ export interface BotAction {
 export class BaselineBotManager {
   constructor(settings: BaselineBotSettings);
   resetForGeneration(gen: number): void;
-  attachBot(snakeId: number): void;
-  detachBot(snakeId: number): void;
+  registerBot(index: number, snakeId: number): void;
+  markDead(index: number): void;
   update(world: World, dt: number): void;
-  getAction(snakeId: number): BotAction | null;
+  getActionForSnake(snakeId: number): BotAction | null;
+  getActionByIndex(index: number): BotAction | null;
 }
+
+/** Deterministic seed derivation for baseline bots. */
+export function deriveBotSeed(
+  baseSeed: number,
+  generation: number,
+  baselineBotIndex: number,
+  randomizeSeedPerGen: boolean
+): number;
+
+I/O contract for `deriveBotSeed`:
+- Inputs: finite numbers; `baselineBotIndex` must be in `[0, count)`.
+- Output: unsigned 32-bit integer seed; stable for identical inputs.
+- Errors: out-of-range indices return a clamped seed and emit debug log.
 ```
 
 Usage example (illustrative):
 
 ```ts
 this.botManager.resetForGeneration(this.generation);
-this._spawnBaselineBots();
+this._spawnBaselineBots(); // assigns baselineBotIndex + snakeId
 this.botManager.update(this, stepDt);
-const action = this.botManager.getAction(sn.id);
+const action = this.botManager.getActionForSnake(sn.id);
 if (action) sn.update(this, dt, action);
 ```
+
+Validation and error behavior:
+
+- `BaselineBotManager` clamps `count` to `>= 0` and treats non-finite seeds as
+  `0`.
+- `deriveBotSeed` returns a 32-bit unsigned integer; invalid inputs are
+  normalized to 0 before hashing.
+- `registerBot` ignores duplicate baselineBotIndex values and logs a debug
+  warning; `markDead` is idempotent for already-dead bots.
 
 ### Planned changes in `src/world.ts`
 
@@ -103,6 +154,11 @@ if (action) sn.update(this, dt, action);
 - New methods:
   - `_spawnBaselineBots(): void` (append bots after population)
   - `_resetBaselineBotsForGen(): void` (seed selection and manager reset)
+- Track `baselineBotIndex` on snakes (e.g., `snake.baselineBotIndex`) or in a
+  `Map<snakeId, baselineBotIndex>` to keep identity stable across respawns.
+- Respawn policy: when a baseline bot dies, schedule a respawn after a fixed
+  delay (e.g., 0.5s) and re-register the same baselineBotIndex with a fresh
+  snake id from the baseline bot reserved range.
 - Update `_endGeneration()` to compute fitness using population-only snakes.
 - Update `update()` to compute `bestPointsThisGen` from population-only snakes.
 
@@ -117,6 +173,8 @@ type ControlMode = 'neural' | 'external-only';
 
 - If using a NullBrain, define a minimal Brain that never allocates and never
   runs forward.
+- Add an optional RNG parameter for spawn position/heading so baseline bots can
+  avoid consuming global `Math.random` and keep RNG separation intact.
 
 ### Planned changes in `server/controllerRegistry.ts`
 
@@ -126,11 +184,19 @@ type ControlMode = 'neural' | 'external-only';
 
 ## F) Data model changes; data flow; migration strategy; backward compatibility
 
-- New runtime-only fields: `Snake.controlMode` (or `Snake.role`).
+- New runtime-only fields: `Snake.controlMode` (or `Snake.role`) and
+  `Snake.baselineBotIndex` (or a manager-side mapping).
 - No persistence schema changes; baseline bots are not exported.
-- Stats payload: if `alive` becomes population-only, update the type and tests
-  to document this change; keep backward compatibility by defaulting to total
-  when field is missing in older payloads.
+- Stats payload: keep `alive` as population-only and add optional fields
+  `aliveTotal`, `baselineBotsAlive`, and `baselineBotsTotal` to surface totals.
+  Backward compatibility: older clients ignore new fields; new clients default
+  missing totals to population-only values.
+- Expand/migrate/contract for stats payload:
+  - Expand: add optional fields to worker + server stats emitters and protocol
+    types while keeping `alive` semantics unchanged for existing UI.
+  - Migrate: update `src/main.ts` to prefer population-only fields and show
+    totals only when present.
+  - Contract: keep optional fields (no removal planned).
 - No DB or localStorage changes.
 
 ## G) State machine design
@@ -163,15 +229,33 @@ State table
 
 | State | Description | Invariants |
 | --- | --- | --- |
-| baseSeedStatic | Base seed fixed | per-bot seed derived from base |
-| baseSeedRandomized | Base seed rolled per gen | seed uses bot RNG only |
+| baseSeedStatic | Base seed fixed | per-bot seed uses baselineBotIndex |
+| baseSeedRandomized | Base seed rolled per gen | per-bot seed uses generation |
 
 Transition table
 
 | Event | From | To | Guards | Side effects | Invariants enforced |
 | --- | --- | --- | --- | --- | --- |
-| genStart | any | baseSeedStatic | randomize off | keep seed | deterministic |
-| genStart | any | baseSeedRandomized | randomize on | roll seed | independent RNG |
+| genStart | any | baseSeedStatic | randomize off | genSeed = baseSeed | deterministic |
+| genStart | any | baseSeedRandomized | randomize on | genSeed = hash(baseSeed, gen) | independent RNG |
+
+### Baseline bot lifecycle and respawn
+
+State table
+
+| State | Description | Invariants |
+| --- | --- | --- |
+| alive | Bot snake active | baselineBotIndex stable |
+| deadPending | Bot died, awaiting respawn | RNG resets to per-gen seed on respawn |
+| respawning | New snake spawn | id assigned from bot id range |
+
+Transition table
+
+| Event | From | To | Guards | Side effects | Invariants enforced |
+| --- | --- | --- | --- | --- | --- |
+| botDied | alive | deadPending | death detected | start respawn timer | identity preserved |
+| respawnReady | deadPending | respawning | timer elapsed | spawn snake + register | deterministic spawn RNG |
+| respawned | respawning | alive | spawn complete | reset state machine | stable seed |
 
 ## H) Touch points checklist
 
@@ -179,6 +263,13 @@ Transition table
   consumed in worker; verify both ends still use `setByPath` with new keys.
 - Server controller assignment: update `server/controllerRegistry.ts` and
   `server/simServer.ts` getSnakes shape together.
+- Stats payload changes (population vs total counts): update together:
+  - `src/protocol/messages.ts` (FrameStats)
+  - `server/protocol.ts` (StatsMsg)
+  - `server/simServer.ts` (emit fields)
+  - `src/worker.ts` (emit fields)
+  - `src/net/wsClient.ts` + `src/main.ts` (consume fields)
+  - Tests: `src/worker.test.ts`, `server/protocol.test.ts`
 - No buffer or sensor changes in this stage.
 
 ## I) Error handling
@@ -186,6 +277,8 @@ Transition table
 - Bot controller exceptions: catch and disable bot updates for the current
   generation; log `bot.controller.error` with snakeId.
 - Invalid seed/count values: clamp to defaults in `BaselineBotManager`.
+- Respawn failures (no available id range): log and keep bot in deadPending
+  until next tick; do not crash the loop.
 
 ## J) Performance considerations
 
@@ -196,6 +289,8 @@ Transition table
 ## K) Security and privacy considerations
 
 - No new data at rest; avoid logging seeds at info level.
+- Avoid adding external RNG dependencies; implement PRNG locally to minimize
+  dependency risk.
 
 ## L) Observability
 
@@ -203,37 +298,79 @@ Transition table
   - `bot.spawned` { count, generation }
   - `bot.seed.selected` { baseSeed, generation, randomized }
   - `bot.stats.filtered` { excludedCount }
+  - `bot.respawn` { baselineBotIndex, snakeId, delayMs }
+- Debug toggle: CFG.debug.baselineBots or a localStorage flag documented in
+  Stage 01.
+
+## Debug playbook
+
+- Spawn + respawn: set bot count to 1, kill the bot via God Mode, and confirm
+  the respawn log and stable baselineBotIndex mapping.
+- Stats check: compare frame header `aliveCount` against stats `alive` and
+  `aliveTotal` to confirm population-only vs total semantics.
+- Determinism check: run two worker sessions with the same seed and confirm
+  bot motion matches for the same generation when randomize is disabled.
 
 ## M) Rollout and rollback plan (merge-safe gating)
 
 - Gating: baseline bots active only when `CFG.baselineBots.count > 0`.
 - Rollback: remove baseline bot manager and control flags; population order
   remains intact and stats revert to pre-bot behavior.
+- Compatibility: if rolling back server/worker code, new UI must tolerate
+  missing `aliveTotal`/`baselineBotsAlive` fields (defaults apply).
 
 ## N) Testing plan
 
 - `src/world.test.ts`
   - Add test: baseline bots append after population and do not affect
-    `population.length`.
-  - Add test: `bestPointsThisGen` computed from population-only snakes.
-  - Add test: `_endGeneration` ignores baseline bots for fitness and HoF.
+    `population.length` (`it('appends baseline bots after population')`).
+  - Add test: `bestPointsThisGen` computed from population-only snakes
+    (`it('excludes baseline bots from bestPointsThisGen')`).
+  - Add test: `_endGeneration` ignores baseline bots for fitness and HoF
+    (`it('excludes baseline bots from fitness and hof')`).
+  - Add test: baselineBotIndex stable across respawn and does not equal
+    snakeId; respawn resets controller state
+    (`it('baselineBotIndex stable across respawn')`).
+  - Add test: `deriveBotSeed` uses `(baseSeed, baselineBotIndex)` and includes
+    generation only when randomize is enabled
+    (`it('deriveBotSeed includes generation only when enabled')`).
+  - Add negative test: bot respawn does not stall (bot count returns to target
+    within the fixed delay)
+    (`it('respawns baseline bots within delay')`).
 - `src/snake.test.ts`
-  - Add test: external control path does not call brain.forward.
+  - Add test: external control path does not call brain.forward
+    (`it('external control bypasses brain forward')`).
+  - Add test: snake spawn uses provided RNG when supplied (baseline bots)
+    (`it('uses provided rng for spawn')`).
 - `server/controllerRegistry.test.ts`
-  - Add test: `pickAvailableSnake` ignores non-controllable baseline bots.
+  - Add test: `pickAvailableSnake` ignores non-controllable baseline bots
+    (`it('skips non-controllable snakes')`).
 - `src/worker.test.ts`
   - Add test: worker stats exclude baseline bots from `alive` and
-    `fitnessHistory` updates.
+    `fitnessHistory` updates, and include `aliveTotal` when present
+    (`it('stats exclude baseline bots and include totals')`).
+  - Add test: frame header `aliveCount` includes baseline bots while
+    `stats.alive` excludes them
+    (`it('frame header includes bots while stats do not')`).
+- `server/protocol.test.ts`
+  - Add test: StatsMsg accepts optional `aliveTotal`/`baselineBotsAlive`
+    fields without breaking validation
+    (`it('stats accepts optional total fields')`).
 - Validation commands:
   - `npm run test:unit`
   - `npm run test:integration`
   - `npm test`
+  - CI still runs `npm run build` and `npm run typecheck`; stage changes must
+    keep them green.
 - AC mapping:
-  - AC-001 -> `src/world.test.ts` population/bot count tests.
-  - AC-002 -> `src/snake.test.ts` external control test + HoF exclusion test.
-  - AC-003 -> `src/world.test.ts` seed derivation test.
-  - AC-004 -> `src/worker.test.ts` stats exclusion test.
-  - AC-005 -> `server/controllerRegistry.test.ts` controllable filter test.
+  - AC-001 -> `src/world.test.ts` / `baseline bots append after population`.
+  - AC-002 -> `src/snake.test.ts` / `external control bypasses brain` and
+    `src/world.test.ts` / `HoF ignores baseline bots`.
+  - AC-003 -> `src/world.test.ts` / `deriveBotSeed includes generation only
+    when enabled`.
+  - AC-004 -> `src/worker.test.ts` / `stats exclude baseline bots` and
+    `server/protocol.test.ts` / `optional aliveTotal fields`.
+  - AC-005 -> `server/controllerRegistry.test.ts` / `skip baseline bots`.
 
 ## O) Compatibility matrix
 
@@ -243,7 +380,8 @@ Transition table
   worker tests).
 - Join overlay: unchanged, ok.
 - Visualizer streaming: unchanged, ok.
-- Import/export: unchanged, ok (baseline bots not persisted).
+- Import/export: unchanged for runtime state; settings persistence is handled
+  in Stage 01 (bots still excluded from population export).
 
 ## P) Risk register
 

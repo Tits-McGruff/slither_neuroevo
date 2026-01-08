@@ -1,5 +1,12 @@
 # Stage 03: Rendering and Buffer Skin Flag for Robot Bots
 
+## Revision notes
+
+- Added explicit equality semantics for skin flag handling and a negative test
+  requirement for unknown skin values.
+- Tightened rollback notes to match current renderer behavior and added a
+  debug playbook.
+
 ## A) Delta vs AGENTS.md
 
 - Changes: extend skin flag domain to include a robot value, update
@@ -13,10 +20,12 @@
 ## B) Scope; non-goals; assumptions; constraints and invariants
 
 - Relevant decisions: DEC-004.
-- Relevant invariants: INV-001, INV-003.
+- Relevant invariants: INV-001, INV-003, INV-009.
 - Scope: serializer skin flag encoding, renderer color/eye styling, God Mode
   parsing alignment, and tests.
 - Non-goals: bot runtime logic, seed behavior, or stats aggregation.
+- Assumptions: skin flag remains numeric and is interpreted only via strict
+  equality checks; baseline bots emit skin=2 only after this stage lands.
 
 ## C) Architecture overview (stage-local)
 
@@ -28,6 +37,8 @@
   renderer.
 - Ensure `src/main.ts` God Mode parsing still reads `skin` at offset 2 and
   remains compatible with the expanded skin values.
+- Enforce strict equality checks (`skin === 1`, `skin === 2`) to avoid
+  truthiness bugs that could render robot skins as gold.
 
 ## D) Alternatives considered with tradeoffs
 
@@ -57,6 +68,7 @@
 
 - `getSnakeColor(id: number, skin: number): string`
   - Return metallic color when skin === 2.
+  - Use strict equality (`skin === 1`, `skin === 2`) to avoid truthiness bugs.
 - `drawSnakeStruct(...)`
   - If skin === 2, draw robot eyes (e.g., square pupils or glow) using
     new theme colors.
@@ -75,8 +87,10 @@ const eyeColor = meta.skin === 2 ? THEME.snakeRobotEye : THEME.snakeSelfEye;
   - Expand: update renderer to accept 2 before serializer emits it.
   - Migrate: serializer starts emitting 2 for baseline bots.
   - Contract: not applicable; keep support for 0/1/2.
-- Backward compatibility: older renderers will treat 2 as default color; no
-  crash expected.
+- Backward compatibility: the current renderer uses `skin === 1` checks, so
+  unknown values (including 2 on older builds) fall back to default colors. If
+  a legacy renderer used truthy checks, robots could appear gold; this stage
+  requires strict equality.
 
 ## G) State machine design
 
@@ -108,6 +122,7 @@ Transition table
 - Tests:
   - `src/serializer.test.ts` for skin flag values
   - `src/render.test.ts` for robot eye drawing calls
+  - `src/render.test.ts` negative test for unknown skin values
   - `src/main.test.ts` if parsing assumptions need updates
 
 ## I) Error handling
@@ -126,12 +141,23 @@ Transition table
 ## L) Observability
 
 - Optional debug flag to show skin id on selection (God Mode) when enabled.
+- Debug log (gated): `render.skin.unknown { skinValue, snakeId }` when a skin
+  value is not 0/1/2.
+
+## Debug playbook
+
+- Enable baseline bots and confirm robot skins render with metallic color and
+  robot eyes, while gold skins remain unchanged.
+- Force a snake to use an unknown skin value in a test harness and confirm the
+  renderer falls back to default colors (no gold).
 
 ## M) Rollout and rollback plan (merge-safe gating)
 
 - Gated by baseline bot count; skin flag 2 appears only when bots are active.
 - Rollback: if renderer reverts, serializer can keep emitting 2 without crash;
-  robots will appear as default color.
+  robots will appear as default color with the current equality checks. If
+  rolling back to a renderer that uses truthy checks, robots may appear gold;
+  mitigate by gating skin=2 emission behind renderer version.
 
 ## N) Testing plan
 
@@ -139,13 +165,18 @@ Transition table
   - Add test: serialize robot skin value 2 when snake role is baseline bot.
 - `src/render.test.ts`
   - Add test: robot skin triggers robot eye color/shape calls.
+  - Add test: unknown skin values do not map to gold and fall back to default.
 - `src/main.test.ts`
   - Update if needed to accept skin value 2 in selection parsing.
 - Validation commands:
   - `npm run test:unit`
   - `npm test`
+  - CI still runs `npm run build` and `npm run typecheck`; stage changes must
+    keep them green.
 - AC mapping:
-  - AC-006 -> serializer + render tests for skin 2 and robot eyes.
+  - AC-006 -> `src/serializer.test.ts` / `serializes robot skin value 2` and
+    `src/render.test.ts` / `robot skin draws robot eyes` +
+    `unknown skin falls back to default`.
 
 ## O) Compatibility matrix
 

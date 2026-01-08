@@ -1,5 +1,14 @@
 # Implementation Plan
 
+## Revision notes
+
+- Clarified baselineBotIndex identity, deterministic seed derivation rules,
+  and respawn semantics to avoid conflating snakeId with bot identity.
+- Resolved import/export consistency and stats-vs-frame-header semantics, with
+  explicit backward-compatibility notes.
+- Tightened skin flag equality/rollback expectations and expanded test/AC
+  mappings and observability guidance.
+
 Add state-machine baseline bots that run alongside the evolving population,
 controlled by deterministic seeds, visually distinct (metallic + robot eyes),
 and excluded from fitness/elite/HoF. The plan is split into mergeable stages
@@ -18,11 +27,16 @@ protocol symmetry described in AGENTS.md.
 ## Assumptions
 
 - Baseline bot count adds to the existing NPC count (not a replacement).
-- Per-bot seed = base seed + bot id (or a stable hash of those values).
+- Baseline bots use a stable baselineBotIndex (0..count-1) that is distinct
+  from snakeId and remains stable across respawns.
+- Per-bot seed is derived from `(baseSeed, baselineBotIndex)`; generation is
+  included only when randomizeSeedPerGen is enabled.
 - Baseline bots are excluded from fitness, elite selection, HoF, and player
   assignment.
 - Baseline bots use external control only; NN inference is not executed for
   them.
+- Baseline bots respawn deterministically after death using the same
+  baselineBotIndex and a reset state machine for the current generation.
 
 ## Constraints and invariants
 
@@ -43,6 +57,9 @@ protocol symmetry described in AGENTS.md.
 - World lifecycle (AGENTS.md “Simulation core”): spawn baseline bots after the
   population and exclude them from fitness and history aggregation; ensure
   bestPointsThisGen normalization does not incorporate baseline bots.
+- Stats semantics (AGENTS.md “Runtime architecture and data flow”): keep frame
+  header counts for rendering while emitting population-only counts in stats
+  payloads, with explicit total fields to avoid ambiguity.
 - Rendering contract (AGENTS.md “Binary frame format and rendering pipeline”):
   extend the skin flag domain to include a robot value, and update serializer,
   renderer, and main-thread buffer parsing together.
@@ -65,13 +82,24 @@ protocol symmetry described in AGENTS.md.
   Rationale: satisfies “no NN brain in the background” and keeps hot paths
   stable. Alternative: keep brain and rely on external control only (rejected
   because it still builds NN weights per bot).
-- DEC-003: Per-bot seed derived from base seed + bot id (or hash), with optional
-  per-generation random base seed re-roll. Rationale: deterministic behavior
-  per generation while allowing controlled variability. Alternative: global RNG
-  stream shared with world (rejected: perturbs evolution randomness).
+- DEC-003 (superseded by DEC-005): Per-bot seed derived from base seed + bot id
+  (or hash), with optional per-generation random base seed re-roll. Superseded
+  to avoid conflating snakeId with bot identity and to formalize generation
+  inclusion rules. Migration impact: update seed derivation to use
+  baselineBotIndex and update tests that assumed snakeId-based derivation.
 - DEC-004: Extend skin flag values without changing buffer layout. Rationale:
   minimal compatibility risk and no pointer math changes. Alternative: add new
   fields to buffer (rejected: larger contract change).
+- DEC-005: Introduce baselineBotIndex (0..count-1) as the stable bot identity
+  for seeding and state tracking; derive per-bot seed from
+  `(baseSeed, baselineBotIndex)` and include `generation` only when
+  `randomizeSeedPerGen` is enabled. Rationale: deterministic behavior without
+  tying identity to snakeId. Alternative: use snakeId mapping (rejected: id
+  reuse on respawn breaks determinism).
+- DEC-006: On respawn, reset the bot state machine and RNG stream to the
+  per-bot seed for the current generation. Rationale: deterministic replay per
+  generation and stable behavior across death timing. Alternative: continue
+  RNG stream across respawns (rejected: makes behavior depend on death timing).
 
 ### Invariants
 
@@ -82,6 +110,15 @@ protocol symmetry described in AGENTS.md.
 - INV-004: Controller timing uses fixed CFG.brain.controlDt semantics.
 - INV-005: Hot-loop allocations (World.update, sensors, serialization) remain
   bounded and avoid per-tick object churn.
+- INV-006: baselineBotIndex is stable across respawns and never derived from
+  snakeId; baseline bot ids use a reserved range distinct from player/external.
+- INV-007: Frame header `totalSnakes`/`aliveCount` reflect serialized snakes
+  (including baseline bots), while stats payloads expose population-only
+  metrics explicitly.
+- INV-008: Baseline bot spawning and decision-making do not consume global
+  RNG; a dedicated PRNG is used to avoid perturbing evolution randomness.
+- INV-009: Skin flag comparisons are strict (`skin === 1`/`skin === 2`) and
+  unknown values fall back to default rendering.
 
 ## Alternatives considered
 
@@ -95,7 +132,8 @@ protocol symmetry described in AGENTS.md.
 ## Dependencies and sequencing
 
 - Stage 01 (`docs/todo/01-baseline-bot-settings-ui.md`) provides config and UI
-  controls and expands settings update types. No runtime behavior changes.
+  controls, expands settings update types, and aligns import/export handling
+  for new settings. No runtime behavior changes.
 - Stage 02 (`docs/todo/02-baseline-bot-runtime.md`) adds baseline bot controller
   logic, spawn lifecycle, RNG separation, and stats exclusion. Depends on Stage
   01 settings keys and types.
@@ -103,13 +141,34 @@ protocol symmetry described in AGENTS.md.
   renderer changes, and God Mode parsing alignment. Depends on Stage 02 bot
   identity flags and Stage 01 settings.
 
+Merge prerequisites by stage:
+
+- Stage 01: no prerequisites.
+- Stage 02: requires Stage 01 (`docs/todo/01-baseline-bot-settings-ui.md`)
+  merged for settings paths and import behavior.
+- Stage 03: requires Stage 02 (`docs/todo/02-baseline-bot-runtime.md`) and
+  Stage 01 (`docs/todo/01-baseline-bot-settings-ui.md`) merged for bot identity
+  and settings gating.
+
 ## Data model changes overview
 
 - CFG additions: new baseline bot settings (count, seed, per-generation random
-  seed toggle, and optional enable flag). Defaults keep behavior unchanged.
+  seed toggle). Defaults keep behavior unchanged.
 - SettingsUpdate path union: add new paths for baseline bot controls and seed.
-- No new localStorage keys planned; seed values flow via settings updates and
-  export payloads only.
+- Export/import: baseline bot settings are carried in existing export payload
+  fields (`settings` and `updates`). Imports apply these fields when present
+  in both worker and server modes; missing fields default to CFG_DEFAULT.
+  Unknown fields are ignored (validated against the settings path union).
+- No new localStorage keys planned; `slither_neuroevo_pop` continues to store
+  genomes only, so baseline bot settings persist only via export/import or
+  current session CFG values.
+- Stats payloads: add explicit population-only and total counts to avoid
+  confusion with frame header counts. Proposed fields:
+  - `alive` = population-only alive count (existing UI label uses this).
+  - `aliveTotal` = total alive count (population + baseline bots).
+  - `baselineBotsAlive`/`baselineBotsTotal` = bot-only counts (optional).
+  - Expand/migrate/contract: additive only; keep `alive` semantics unchanged
+    and treat totals as optional fields.
 - Frame buffer: skin flag domain expanded (0 default, 1 gold, 2 robot). Layout
   unchanged. Expand/migrate/contract plan:
   - Expand: update renderer and serializer to accept 2.
@@ -128,6 +187,7 @@ State table
 | Server | WS connected, server streaming frames | Worker stopped; join overlay visible |
 | Worker | Worker active, local frames | Join overlay hidden; no WS control |
 | WorkerFallbackPending | WS not connected, fallback timer running | No duplicate worker start |
+| ReconnectPending | Backoff timer scheduled | Single reconnect timer active |
 
 Transition table
 
@@ -135,7 +195,8 @@ Transition table
 | --- | --- | --- | --- | --- | --- |
 | connect(url) | any | Connecting | wsClient available | schedule fallback | single fallback timer |
 | wsConnected | Connecting | Server | none | stop worker, reset stats | join overlay visible |
-| wsDisconnected | Server | Connecting or Worker | worker exists? | schedule fallback + reconnect | no double worker |
+| wsDisconnected | Server | ReconnectPending | none | schedule fallback + reconnect | no double worker |
+| reconnectTimer | ReconnectPending | Connecting | wsClient available | connect + backoff | single timer |
 | fallbackTimeout | Connecting | Worker | ws not connected | start worker | join overlay hidden |
 | manualStartWorker | any | Worker | worker not started | create worker | worker-only mode |
 
@@ -163,9 +224,10 @@ State table
 | State | Description | Invariants |
 | --- | --- | --- |
 | SeedPending | Generation start, seed selection pending | seed derivation uses bot RNG only |
-| SeedSet | Base seed selected | per-bot seed = base + bot id |
+| SeedSet | Base seed selected | per-bot seed uses baselineBotIndex |
 | BotsSpawned | Baseline bots appended to World.snakes | population order preserved |
 | Running | Bots controlled each tick | NN inference not executed for bots |
+| RespawnPending | Bot died, awaiting respawn | baselineBotIndex preserved |
 | GenEndPending | EndGeneration triggered | bots excluded from fitness |
 
 Transition table
@@ -175,6 +237,8 @@ Transition table
 | generationStart | SeedPending | SeedSet | randomize toggle on/off | choose base seed | no shared RNG |
 | spawnBots | SeedSet | BotsSpawned | count > 0 | append bots | population order |
 | tick | BotsSpawned | Running | none | compute bot actions | external control only |
+| botDied | Running | RespawnPending | death detected | mark respawn timer | identity preserved |
+| respawnReady | RespawnPending | Running | timer elapsed | respawn bot | deterministic seed |
 | endGeneration | Running | GenEndPending | generation end | exclude bots from fitness | stats accuracy |
 | resetWorld | any | SeedPending | reset triggered | clear bot state | no stale actions |
 
@@ -209,6 +273,8 @@ Transition table
 - Runtime errors: baseline bot controller exceptions are caught per tick and
   disable bot updates for that generation (recoverable on reset).
 - Protocol errors: unknown settings paths are ignored with a warning; no crash.
+- Import errors: missing settings fields fall back to CFG_DEFAULT; invalid
+  fields are skipped without aborting the import.
 - Fatal errors: buffer layout mismatch detected in tests only (CI gate).
 
 ## Performance considerations
@@ -222,6 +288,8 @@ Transition table
 - No new secrets; seed values are non-sensitive numeric data.
 - Export/import files include bot settings; do not log file contents.
 - Avoid logging raw settings payloads at info level; use debug gating.
+- Prefer no new dependencies; if a PRNG helper is added, keep it local to
+  `src/` to avoid supply-chain risk.
 
 ## Observability
 
@@ -232,12 +300,26 @@ Transition table
   - bot.stats.filtered { excludedCount }
 - Debug toggle: CFG.debug.baselineBots (default false) or console flag.
 
+## Debug playbook
+
+- Worker mode: set baseline bot count > 0, enable debug toggle, and confirm
+  `bot.spawned`/`bot.seed.selected` logs; verify `stats.alive` matches
+  population count while frame header `aliveCount` includes bots.
+- Server mode: start server + UI, enable bots, and confirm controller assigns
+  only player snakes (no bot ids) while bot logs appear server-side.
+- Determinism check: export a snapshot, reload, re-import, and verify bot
+  motion matches the same generation seed with randomize disabled.
+
 ## Rollout plan
 
 - Merge-safe gating: baseline bots are enabled only when count > 0 (default 0).
 - Rollback: revert bot modules and config keys; older builds ignore unknown
-  settings paths. Buffer skin flag value 2 is ignored by older renderers, so
-  rollback may show default colors but remains functional.
+  settings fields in import JSON (core UI ignores unknown properties), and any
+  path-validation added in Stage 01 will drop unknown update paths. Buffer
+  skin flag value 2 falls back to default color in the current renderer
+  (checks `skin === 1`); if reverting to any renderer that treats non-zero as
+  gold, robots could appear gold. Mitigation: keep skin=2 emission gated
+  behind the updated renderer.
 
 ## Acceptance criteria
 
@@ -246,10 +328,13 @@ Transition table
 - AC-002: Baseline bots never execute NN inference and never enter fitness,
   elite, or HoF selection.
 - AC-003: Bot RNG is independent from sim RNG; per-bot seed derives from base
-  seed + bot id; per-generation randomization toggle works.
-- AC-004: Stats/fitness history exclude baseline bots in worker and server.
+  seed + baselineBotIndex; generation is included only when the randomize
+  toggle is enabled.
+- AC-004: Stats/fitness history exclude baseline bots in worker and server and
+  explicitly expose population-only vs total counts.
 - AC-005: Baseline bots are never assigned to player controllers; join overlay
   behavior remains unchanged.
 - AC-006: Skin flag renders metallic robot bots with robot eyes; God Mode
   parsing remains correct.
-- AC-007: Import/export retains new bot settings without breaking older files.
+- AC-007: Import/export retains new bot settings when present; missing fields
+  default to CFG_DEFAULT and unknown fields are ignored without error.
