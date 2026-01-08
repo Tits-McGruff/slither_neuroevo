@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseClientMessage } from './protocol.ts';
+import type { StatsMsg } from './protocol.ts';
 
 /** Test suite label for server protocol validation. */
 const SUITE = 'server protocol';
@@ -64,5 +65,22 @@ describe(SUITE, () => {
       updates: [{ path: 'worldRadius', value: 3200 }]
     });
     expect(msg?.type).toBe('reset');
+  });
+
+  it('stats requires total fields', () => {
+    const stats: StatsMsg = {
+      type: 'stats',
+      tick: 1,
+      gen: 1,
+      alive: 2,
+      aliveTotal: 3,
+      baselineBotsAlive: 1,
+      baselineBotsTotal: 1,
+      fps: 60
+    };
+    expect(stats.aliveTotal).toBe(3);
+    // @ts-expect-error stats requires total fields
+    const _missingTotals: StatsMsg = { type: 'stats', tick: 1, gen: 1, alive: 2, fps: 60 };
+    expect(stats.type).toBe('stats');
   });
 });

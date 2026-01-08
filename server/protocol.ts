@@ -113,6 +113,9 @@ export interface StatsMsg {
   tick: number;
   gen: number;
   alive: number;
+  aliveTotal: number;
+  baselineBotsAlive: number;
+  baselineBotsTotal: number;
   fps: number;
   fitnessData?: FitnessData;
   fitnessHistory?: FitnessHistoryEntry[];

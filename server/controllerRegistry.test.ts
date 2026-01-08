@@ -8,8 +8,8 @@ describe('ControllerRegistry', () => {
    */
   const makeRegistry = () => {
     const snakes = [
-      { id: 1, alive: true },
-      { id: 2, alive: true }
+      { id: 1, alive: true, controllable: true },
+      { id: 2, alive: true, controllable: true }
     ];
     const sent: Array<{ connId: number; payload: unknown }> = [];
     const registry = new ControllerRegistry(
@@ -65,7 +65,7 @@ describe('ControllerRegistry', () => {
   });
 
   it('drops actions beyond maxActionsPerTick', () => {
-    const snakes = [{ id: 1, alive: true }];
+    const snakes = [{ id: 1, alive: true, controllable: true }];
     const registry = new ControllerRegistry(
       {
         actionTimeoutTicks: 2,
@@ -138,5 +138,26 @@ describe('ControllerRegistry', () => {
     expect(registry.isControlled(2)).toBe(true);
     const assigns = sent.filter(entry => (entry.payload as { type?: string }).type === 'assign');
     expect(assigns.length).toBe(2);
+  });
+
+  it('skips non-controllable snakes', () => {
+    const snakes = [
+      { id: 1, alive: true, controllable: false },
+      { id: 2, alive: true, controllable: true }
+    ];
+    const registry = new ControllerRegistry(
+      {
+        actionTimeoutTicks: 2,
+        maxActionsPerTick: 2,
+        maxActionsPerSecond: 100
+      },
+      {
+        getSnakes: () => snakes,
+        send: () => {}
+      }
+    );
+    registry.setTickId(1);
+    const snakeId = registry.assignSnake(5, 'player');
+    expect(snakeId).toBe(2);
   });
 });

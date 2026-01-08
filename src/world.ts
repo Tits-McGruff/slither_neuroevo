@@ -8,11 +8,16 @@ import type { ControlInput } from './snake.ts';
 import { randInt, clamp, lerp, TAU } from './utils.ts';
 import { hof } from './hallOfFame.ts';
 import { FlatSpatialHash } from './spatialHash.ts';
+import { BaselineBotManager } from './bots/baselineBots.ts';
+import { NullBrain } from './brains/nullBrain.ts';
 import type { ArchDefinition } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData, PopulationExport } from './protocol/messages.ts';
+import type { RandomSource } from './rng.ts';
 
 /** Starting id reserved for externally controlled snakes. */
 const EXTERNAL_SNAKE_ID_START = 100000;
+/** Starting id reserved for baseline bot snakes. */
+const BASELINE_BOT_ID_START = 200000;
 
 /** Optional settings overrides accepted by the World constructor. */
 interface WorldSettingsInput {
@@ -84,6 +89,10 @@ export class World {
   _pelletSpawnAcc: number;
   /** Active snake instances in the world. */
   snakes: Snake[];
+  /** Baseline bot snakes appended after the population. */
+  baselineBots: Snake[];
+  /** Manager for baseline bot state and actions. */
+  botManager: BaselineBotManager;
   /** Particle system used by the legacy renderer. */
   particles: ParticleSystem;
   /** Current generation index. */
@@ -120,6 +129,8 @@ export class World {
   _collGrid: FlatSpatialHash<Snake>;
   /** Next id to assign to externally controlled snakes. */
   _nextExternalSnakeId: number;
+  /** Next id to assign to baseline bot spawns. */
+  _nextBaselineBotId: number;
 
   /**
    * Create a new World instance with optional settings overrides.
@@ -152,6 +163,8 @@ export class World {
     this.pelletGrid = new PelletGrid();
     this._pelletSpawnAcc = 0;
     this.snakes = [];
+    this.baselineBots = [];
+    this.botManager = new BaselineBotManager(CFG.baselineBots);
     this.particles = new ParticleSystem(); // Initialize particle system
     this.generation = 1;
     this.generationTime = 0;
@@ -180,7 +193,9 @@ export class World {
     const w = this.settings.worldRadius * 2.5; 
     this._collGrid = new FlatSpatialHash(w, w, this.settings.collision.cellSize, 200000);
     this._nextExternalSnakeId = EXTERNAL_SNAKE_ID_START;
+    this._nextBaselineBotId = BASELINE_BOT_ID_START;
     this._initPopulation();
+    this._resetBaselineBotsForGen();
     this._spawnAll();
     this._collGrid.build(this.snakes, CFG.collision.skipSegments);
     this._initPellets();
@@ -210,6 +225,16 @@ export class World {
       this.cameraX = h.x;
       this.cameraY = h.y;
     }
+  }
+
+  /**
+   * Notify the world when a baseline bot dies.
+   * @param snake - Snake that died.
+   */
+  baselineBotDied(snake: Snake): void {
+    const idx = snake.baselineBotIndex;
+    if (idx == null) return;
+    this.botManager.markDead(idx);
   }
   /**
    * Chooses an alive snake at random.  Returns null if none.
@@ -289,6 +314,7 @@ export class World {
     this.fitnessHistory = [];
     this.particles = new ParticleSystem();
     this._initPellets();
+    this._resetBaselineBotsForGen();
     this._spawnAll();
     this._collGrid.build(this.snakes, CFG.collision.skipSegments);
     this._chooseInitialFocus();
@@ -304,6 +330,86 @@ export class World {
       if (!g) continue;
       this.snakes.push(new Snake(i + 1, g.clone(), this.arch));
     }
+    this._spawnBaselineBots();
+  }
+
+  /**
+   * Reset baseline bot manager state for the current generation.
+   */
+  _resetBaselineBotsForGen(): void {
+    this.botManager.resetForGeneration(this.generation);
+    this._nextBaselineBotId = BASELINE_BOT_ID_START;
+  }
+
+  /**
+   * Spawn baseline bots after the population snakes.
+   */
+  _spawnBaselineBots(): void {
+    this.baselineBots.length = 0;
+    const count = this.botManager.getCount();
+    if (count <= 0) return;
+    for (let i = 0; i < count; i++) {
+      const rng = this.botManager.prepareBotSpawn(i);
+      const snake = this._createBaselineSnake(i, rng);
+      if (!snake) {
+        console.warn('[baselineBots] bot.respawn.failed', {
+          baselineBotIndex: i,
+          reason: 'invalid id range'
+        });
+        continue;
+      }
+      this.baselineBots.push(snake);
+      this.snakes.push(snake);
+      this.botManager.registerBot(i, snake.id);
+    }
+  }
+
+  /**
+   * Build a baseline bot genome with zeroed weights.
+   * @returns Baseline genome instance.
+   */
+  _createBaselineGenome(): Genome {
+    const info = enrichArchInfo(this.arch);
+    const weights = new Float32Array(info.totalCount);
+    return new Genome(this.archKey, weights, this.arch.spec.type);
+  }
+
+  /**
+   * Create a baseline bot snake instance.
+   * @param index - Baseline bot index.
+   * @param rng - RNG for spawn position and heading.
+   * @returns Spawned snake or null when the id allocator is exhausted.
+   */
+  _createBaselineSnake(index: number, rng: RandomSource): Snake | null {
+    const nextId = this._nextBaselineBotId;
+    if (!Number.isSafeInteger(nextId) || nextId >= Number.MAX_SAFE_INTEGER) return null;
+    this._nextBaselineBotId = nextId + 1;
+    return new Snake(nextId, this._createBaselineGenome(), this.arch, {
+      rng,
+      brain: new NullBrain(),
+      controlMode: 'external-only',
+      baselineBotIndex: index
+    });
+  }
+
+  /**
+   * Respawn a baseline bot and reinsert it into the snake list.
+   * @param index - Baseline bot index.
+   * @param rng - RNG for spawn position and heading.
+   * @returns Spawned snake or null when respawn fails.
+   */
+  _respawnBaselineBot(index: number, rng: RandomSource): Snake | null {
+    const snake = this._createBaselineSnake(index, rng);
+    if (!snake) return null;
+    const slot = this.population.length + index;
+    if (slot < 0 || slot > this.snakes.length) return null;
+    if (slot === this.snakes.length) {
+      this.snakes.push(snake);
+    } else {
+      this.snakes[slot] = snake;
+    }
+    this.baselineBots[index] = snake;
+    return snake;
   }
   /**
    * Fills the world with pellets up to the configured target count.
@@ -367,6 +473,9 @@ removePellet(p: Pellet): void {
     this.generationTime += scaled;
     this.particles.update(scaled); // Update particles
     if (controllers) this._publishControllerSensors(controllers, controllerTick);
+    if (this.botManager.getCount() > 0) {
+      this.botManager.update(this, scaled, (index, rng) => this._respawnBaselineBot(index, rng));
+    }
     for (let s = 0; s < steps; s++) {
       this._stepPhysics(stepDt, controllers, controllerTick);
     }
@@ -374,8 +483,9 @@ removePellet(p: Pellet): void {
     this._updateCamera(viewW, viewH);
     let bestPts = -Infinity;
     let bestId = 0;
-    for (const sn of this.snakes) {
-      if (!sn.alive) continue;
+    for (let i = 0; i < this.population.length; i++) {
+      const sn = this.snakes[i];
+      if (!sn || !sn.alive) continue;
       if (sn.pointsScore > bestPts) {
         bestPts = sn.pointsScore;
         bestId = sn.id;
@@ -385,7 +495,11 @@ removePellet(p: Pellet): void {
     const prevBest = Number.isFinite(this.bestPointsThisGen) ? this.bestPointsThisGen : 0;
     this.bestPointsThisGen = Math.max(prevBest, bestPts > -Infinity ? bestPts : 0);
     if (bestId) this.bestPointsSnakeId = bestId;
-    const aliveCount = this.snakes.reduce((acc, sn) => acc + (sn.alive ? 1 : 0), 0);
+    let aliveCount = 0;
+    for (let i = 0; i < this.population.length; i++) {
+      const sn = this.snakes[i];
+      if (sn && sn.alive) aliveCount += 1;
+    }
     const early = aliveCount <= CFG.observer.earlyEndAliveThreshold && this.generationTime >= CFG.observer.earlyEndMinSeconds;
     if (this.generationTime >= CFG.generationSeconds || early) this._endGeneration();
   }
@@ -408,6 +522,11 @@ removePellet(p: Pellet): void {
     for (let i = 0; i < spawnN; i++) this.addPellet(randomPellet());
     for (const sn of this.snakes) {
       if (!sn.alive) continue;
+      const botAction = this.botManager.getActionForSnake(sn.id);
+      if (botAction) {
+        sn.update(this, dt, botAction);
+        continue;
+      }
       if (controllers && controllers.isControlled(sn.id)) {
         const control = controllers.getAction(sn.id, tickId);
         if (control) {
@@ -663,7 +782,7 @@ removePellet(p: Pellet): void {
     // Easier: find the snake with the best fitness.
     let bestS: Snake | null = null;
     let maxFit = -1;
-    for (const s of this.snakes) {
+    for (const s of populationSnakes) {
       const fit = s.fitness ?? -Infinity;
       if (fit > maxFit) {
         maxFit = fit;
@@ -708,6 +827,7 @@ removePellet(p: Pellet): void {
     this.bestPointsSnakeId = 0;
     this.particles = new ParticleSystem(); // Reset particles
     this._initPellets();
+    this._resetBaselineBotsForGen();
     this._spawnAll();
     this._collGrid.build(this.snakes, CFG.collision.skipSegments);
     this._chooseInitialFocus();
@@ -739,7 +859,7 @@ removePellet(p: Pellet): void {
   spawnExternalSnake(): Snake {
     const genome = Genome.random(this.arch);
     const reusableIndex = this.snakes.findIndex(
-      (snake) => !snake.alive && snake.id >= EXTERNAL_SNAKE_ID_START
+      (snake) => !snake.alive && snake.id >= EXTERNAL_SNAKE_ID_START && snake.baselineBotIndex == null
     );
     if (reusableIndex >= 0) {
       const existingId = this.snakes[reusableIndex]!.id;

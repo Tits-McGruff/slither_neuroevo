@@ -116,7 +116,12 @@ export class SimServer {
         maxActionsPerSecond: config.maxActionsPerSecond
       },
       {
-        getSnakes: () => this.world.snakes,
+        getSnakes: () =>
+          this.world.snakes.map((snake) => ({
+            id: snake.id,
+            alive: snake.alive,
+            controllable: snake.baselineBotIndex == null
+          })),
         send: (connId, payload) => this.wsHub.sendJsonTo(connId, payload)
       }
     );
@@ -408,23 +413,39 @@ export class SimServer {
    * @returns Stats message payload.
    */
   private buildStats(): StatsMsg {
-    const aliveSnakes = this.world.snakes.filter(snake => snake.alive);
+    const populationCount = this.world.population.length;
+    const baselineBotsTotal = this.world.baselineBots.length;
+    let alivePopulation = 0;
+    let aliveTotal = 0;
+    let baselineBotsAlive = 0;
     let maxFit = 0;
     let minFit = Infinity;
     let sumFit = 0;
-    aliveSnakes.forEach(snake => {
+    for (let i = 0; i < populationCount; i++) {
+      const snake = this.world.snakes[i];
+      if (!snake || !snake.alive) continue;
+      alivePopulation += 1;
       const fit = snake.pointsScore || 0;
       maxFit = Math.max(maxFit, fit);
       minFit = Math.min(minFit, fit);
       sumFit += fit;
-    });
+    }
+    for (const snake of this.world.snakes) {
+      if (snake.alive) aliveTotal += 1;
+    }
+    for (const bot of this.world.baselineBots) {
+      if (bot && bot.alive) baselineBotsAlive += 1;
+    }
     if (minFit === Infinity) minFit = 0;
-    const avgFit = aliveSnakes.length ? sumFit / aliveSnakes.length : 0;
+    const avgFit = alivePopulation ? sumFit / alivePopulation : 0;
     const stats: StatsMsg = {
       type: 'stats',
       tick: this.tickId,
       gen: this.world.generation,
-      alive: aliveSnakes.length,
+      alive: alivePopulation,
+      aliveTotal,
+      baselineBotsAlive,
+      baselineBotsTotal,
       fps: this.lastFps || this.tickRateHz,
       fitnessData: {
         gen: this.world.generation,

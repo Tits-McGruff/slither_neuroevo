@@ -8,6 +8,7 @@ import { clamp, hashColor, rand, lerp, angNorm, hypot, TAU } from './utils.ts';
 import { buildSensors } from './sensors.ts';
 import type { ArchDefinition, Genome } from './mlp.ts';
 import type { Brain } from './brains/types.ts';
+import type { RandomSource } from './rng.ts';
 
 /**
  * Simple data class representing a pellet at (x,y) with value v.
@@ -91,10 +92,28 @@ interface WorldLike {
   addPellet: (p: Pellet) => void;
   removePellet: (p: Pellet) => void;
   bestPointsThisGen: number;
+  baselineBotDied?: (snake: Snake) => void;
 }
 
 /** External control input for turn and boost values. */
 export type ControlInput = { turn: number; boost: number };
+
+/** Control modes supported by the snake update loop. */
+export type ControlMode = 'neural' | 'external-only';
+
+/** Optional parameters for spawning a snake. */
+export interface SnakeSpawnOptions {
+  /** RNG used for spawn position and heading. */
+  rng?: RandomSource;
+  /** Control mode for the snake. */
+  controlMode?: ControlMode;
+  /** Optional brain override for the snake. */
+  brain?: Brain;
+  /** Optional baseline bot index identifier. */
+  baselineBotIndex?: number | null;
+  /** Optional skin flag for rendering. */
+  skin?: number;
+}
 
 /**
  * Computes a snake’s radius as a function of its length using a
@@ -167,22 +186,30 @@ export class Snake {
   lastOutputs?: number[];
   /** Cached fitness value for reporting. */
   fitness?: number;
+  /** Control mode for this snake. */
+  controlMode: ControlMode;
+  /** Baseline bot identity index or null. */
+  baselineBotIndex: number | null;
+  /** Skin flag used for rendering. */
+  skin: number;
 
   /**
    * Create a new snake instance with a generated brain.
    * @param id - Unique snake id.
    * @param genome - Genome used to build the brain.
    * @param arch - Architecture definition for the brain.
+   * @param options - Optional spawn overrides.
    */
-  constructor(id: number, genome: Genome, arch: ArchDefinition) {
+  constructor(id: number, genome: Genome, arch: ArchDefinition, options: SnakeSpawnOptions = {}) {
     this.id = id;
     this.color = hashColor(id * 17 + 3);
     // Spawn at a random position and orientation within a fraction of the arena.
-    const a = Math.random() * TAU;
-    const r = Math.sqrt(Math.random()) * (CFG.worldRadius * 0.60);
+    const rng = options.rng ?? Math.random;
+    const a = rng() * TAU;
+    const r = Math.sqrt(rng()) * (CFG.worldRadius * 0.60);
     this.x = Math.cos(a) * r;
     this.y = Math.sin(a) * r;
-    this.dir = Math.random() * TAU;
+    this.dir = rng() * TAU;
     this.radius = CFG.snakeRadius;
     this.speed = CFG.snakeBaseSpeed;
     this.boost = 0;
@@ -195,9 +222,12 @@ export class Snake {
     this.points = [];
     this._initBody();
     this.genome = genome;
-    this.brain = genome.buildBrain(arch);
+    this.brain = options.brain ?? genome.buildBrain(arch);
     this.turnInput = 0;
     this.boostInput = 0;
+    this.controlMode = options.controlMode ?? 'neural';
+    this.baselineBotIndex = options.baselineBotIndex ?? null;
+    this.skin = options.skin ?? 0;
     this.updateRadiusFromLen();
   }
   /**
@@ -323,7 +353,11 @@ export class Snake {
         );
       }
     }
+    if (world.baselineBotDied) {
+      world.baselineBotDied(this);
+    }
   }
+
   /**
    * Compute the fitness score according to the configured reward weights.
    * @param pointsNorm - Normalized points score in [0,1].
@@ -414,7 +448,8 @@ export class Snake {
     if (!this.points.length) this.points.push({ x: this.x, y: this.y });
     this.age += dt;
     this.pointsScore += dt * CFG.reward.pointsPerSecondAlive;
-    const usingExternal = !!control;
+    const externalOnly = this.controlMode === 'external-only';
+    const usingExternal = externalOnly || !!control;
     if (usingExternal !== (this._lastControlExternal ?? false)) {
       this.brain.reset();
       this._ctrlAcc = 0;
@@ -422,8 +457,10 @@ export class Snake {
     }
     this._lastControlExternal = usingExternal;
     if (usingExternal) {
-      this.turnInput = clamp(control!.turn, -1, 1);
-      this.boostInput = clamp(control!.boost, 0, 1);
+      const turn = control?.turn ?? 0;
+      const boost = control?.boost ?? 0;
+      this.turnInput = clamp(turn, -1, 1);
+      this.boostInput = clamp(boost, 0, 1);
     } else {
       if (this._ctrlAcc == null) this._ctrlAcc = 0;
       const ctrlDt = Math.max(0.001, (CFG.brain && CFG.brain.controlDt) ? CFG.brain.controlDt : 1 / 60);

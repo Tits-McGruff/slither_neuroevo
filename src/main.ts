@@ -1131,7 +1131,14 @@ if (graphSpecExport) {
 /** Latest received frame buffer for rendering. */
 let currentFrameBuffer: Float32Array | null = null;
 /** Latest stats payload for UI panels. */
-let currentStats: FrameStats = { gen: 1, alive: 0, fps: 60 };
+let currentStats: FrameStats = {
+  gen: 1,
+  alive: 0,
+  aliveTotal: 0,
+  baselineBotsAlive: 0,
+  baselineBotsTotal: 0,
+  fps: 60
+};
 /** Fitness history displayed in charts. */
 let fitnessHistory: FitnessHistoryUiEntry[] = [];
 /** God mode log entries for the UI panel. */
@@ -3493,7 +3500,14 @@ wsClient = createWsClient({
       fallbackTimer = null;
     }
     if (worker) stopWorker();
-    currentStats = { gen: 1, alive: 0, fps: info.tickRate };
+    currentStats = {
+      gen: 1,
+      alive: 0,
+      aliveTotal: 0,
+      baselineBotsAlive: 0,
+      baselineBotsTotal: 0,
+      fps: info.tickRate
+    };
     currentVizData = null;
     setConnectionStatus('server');
     joinPending = false;
@@ -3542,7 +3556,18 @@ wsClient = createWsClient({
         resolvePendingServerReset();
       }
     }
-    currentStats = { ...currentStats, gen: msg.gen, alive: msg.alive, fps: msg.fps };
+    const aliveTotal = Number.isFinite(msg.aliveTotal) ? msg.aliveTotal : msg.alive;
+    const baselineBotsAlive = Number.isFinite(msg.baselineBotsAlive) ? msg.baselineBotsAlive : 0;
+    const baselineBotsTotal = Number.isFinite(msg.baselineBotsTotal) ? msg.baselineBotsTotal : 0;
+    currentStats = {
+      ...currentStats,
+      gen: msg.gen,
+      alive: msg.alive,
+      aliveTotal,
+      baselineBotsAlive,
+      baselineBotsTotal,
+      fps: msg.fps
+    };
     proxyWorld.generation = msg.gen;
     if (msg.fitnessHistory) {
       fitnessHistory.length = 0;
@@ -4194,10 +4219,21 @@ function frame(): void {
   // Updates UI overlay
   // ...
   
-  const stepInfo = `Gen: ${currentStats.gen}  Alive: ${currentStats.alive}  FPS: ${Math.round(currentStats.fps)}`;
-  const statsInfoHtml = 
+  const aliveTotal = Number.isFinite(currentStats.aliveTotal)
+    ? currentStats.aliveTotal
+    : currentStats.alive;
+  const baselineBotsAlive = Number.isFinite(currentStats.baselineBotsAlive)
+    ? currentStats.baselineBotsAlive
+    : 0;
+  const baselineBotsTotal = Number.isFinite(currentStats.baselineBotsTotal)
+    ? currentStats.baselineBotsTotal
+    : 0;
+  const stepInfo = `Gen: ${currentStats.gen}  Alive: ${currentStats.alive}  Total: ${aliveTotal}  Baseline: ${baselineBotsAlive}/${baselineBotsTotal}  FPS: ${Math.round(currentStats.fps)}`;
+  const statsInfoHtml =
     `<div class="stat-box"><span class="label">Generation</span><span class="val">${currentStats.gen}</span></div>` +
-    `<div class="stat-box"><span class="label">Alive</span><span class="val">${currentStats.alive}</span></div>` +
+    `<div class="stat-box"><span class="label">Alive (Pop)</span><span class="val">${currentStats.alive}</span></div>` +
+    `<div class="stat-box"><span class="label">Alive (Total)</span><span class="val">${aliveTotal}</span></div>` +
+    `<div class="stat-box"><span class="label">Baseline Bots</span><span class="val">${baselineBotsAlive}/${baselineBotsTotal}</span></div>` +
     `<div class="stat-box"><span class="label">Sim Speed</span><span class="val">${Math.round(currentStats.fps)} FPS</span></div>` +
     `<div class="note" style="margin-top: 10px; font-size: 11px;">${stepInfo}</div>`;
   

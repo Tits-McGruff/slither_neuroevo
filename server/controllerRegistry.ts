@@ -13,7 +13,7 @@ export interface ControllerRegistryOptions {
 
 /** Dependencies for controller registry state updates. */
 export interface ControllerRegistryDeps {
-  getSnakes: () => Array<{ id: number; alive: boolean }>;
+  getSnakes: () => Array<{ id: number; alive: boolean; controllable: boolean }>;
   send: (connId: number, payload: ServerMessage) => void;
 }
 
@@ -277,6 +277,7 @@ export class ControllerRegistry {
     const snakes = this.getSnakes();
     for (const snake of snakes) {
       if (!snake.alive) continue;
+      if (!snake.controllable) continue;
       if (this.bySnake.has(snake.id)) continue;
       return snake.id;
     }
@@ -291,6 +292,6 @@ export class ControllerRegistry {
   private isSnakeAssignable(snakeId: number): boolean {
     if (this.bySnake.has(snakeId)) return false;
     const snakes = this.getSnakes();
-    return snakes.some((snake) => snake.id === snakeId && snake.alive);
+    return snakes.some((snake) => snake.id === snakeId && snake.alive && snake.controllable);
   }
 }

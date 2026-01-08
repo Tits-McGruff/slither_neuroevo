@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { World } from './world.ts';
 import { Pellet } from './snake.ts';
 import { CFG, resetCFGToDefaults } from './config.ts';
+import { deriveBotSeed } from './bots/baselineBots.ts';
 
 /** Test suite label for world behaviors. */
 const SUITE = 'world.ts';
@@ -31,6 +32,24 @@ describe(SUITE, () => {
             simSpeed: 1
         };
     });
+
+    /**
+     * Advance the world with small steps until the first baseline bot is alive.
+     * @param world - World to advance.
+     * @param dt - Fixed delta time per update.
+     * @param maxTime - Maximum time to wait before giving up.
+     * @returns Accumulated time spent stepping.
+     */
+    function waitForBaselineRespawn(world: World, dt = 0.045, maxTime = 2): number {
+        let elapsed = 0;
+        while (elapsed < maxTime) {
+            const bot = world.baselineBots[0];
+            if (bot && bot.alive) break;
+            world.update(dt, 800, 600);
+            elapsed += dt;
+        }
+        return elapsed;
+    }
 
     it('World should initialize correctly', () => {
         const world = new World(settings);
@@ -144,6 +163,108 @@ describe(SUITE, () => {
             expect(Number.isFinite(entry.weightVariance)).toBe(true);
         } finally {
             CFG.pelletCountTarget = originalTarget;
+            resetCFGToDefaults();
+        }
+    });
+
+    it('appends baseline bots after population', () => {
+        resetCFGToDefaults();
+        CFG.baselineBots.count = 2;
+        CFG.baselineBots.seed = 5;
+        CFG.baselineBots.randomizeSeedPerGen = false;
+        try {
+            const world = new World({ ...settings, snakeCount: 3 });
+            expect(world.population.length).toBe(3);
+            expect(world.baselineBots.length).toBe(2);
+            expect(world.snakes.length).toBe(5);
+            expect(world.snakes[0]?.baselineBotIndex ?? null).toBeNull();
+            expect(world.snakes[1]?.baselineBotIndex ?? null).toBeNull();
+            expect(world.snakes[2]?.baselineBotIndex ?? null).toBeNull();
+            expect(world.snakes[3]?.baselineBotIndex).toBe(0);
+            expect(world.snakes[4]?.baselineBotIndex).toBe(1);
+        } finally {
+            resetCFGToDefaults();
+        }
+    });
+
+    it('excludes baseline bots from bestPointsThisGen', () => {
+        resetCFGToDefaults();
+        CFG.baselineBots.count = 1;
+        try {
+            const world = new World({ ...settings, snakeCount: 1 });
+            const popSnake = world.snakes[0]!;
+            const botSnake = world.baselineBots[0]!;
+            popSnake.pointsScore = 5;
+            botSnake.pointsScore = 50;
+            world.update(0, 800, 600);
+            expect(world.bestPointsThisGen).toBe(5);
+            expect(world.bestPointsSnakeId).toBe(popSnake.id);
+        } finally {
+            resetCFGToDefaults();
+        }
+    });
+
+    it('excludes baseline bots from fitness and hof', () => {
+        resetCFGToDefaults();
+        CFG.baselineBots.count = 1;
+        try {
+            const world = new World({ ...settings, snakeCount: 2 });
+            const baselineId = world.baselineBots[0]!.id;
+            world.baselineBots[0]!.pointsScore = 500;
+            world.snakes[0]!.pointsScore = 1;
+            world.snakes[1]!.pointsScore = 2;
+            world._endGeneration();
+            const hofEntry = world._lastHoFEntry;
+            expect(hofEntry).toBeTruthy();
+            expect(hofEntry?.seed).not.toBe(baselineId);
+        } finally {
+            resetCFGToDefaults();
+        }
+    });
+
+    it('baselineBotIndex stays stable across respawn', () => {
+        resetCFGToDefaults();
+        CFG.baselineBots.count = 1;
+        try {
+            const world = new World({ ...settings, snakeCount: 1 });
+            const bot = world.baselineBots[0]!;
+            const initialId = bot.id;
+            const initialIndex = bot.baselineBotIndex;
+            bot.die(world);
+            const elapsed = waitForBaselineRespawn(world);
+            const respawned = world.baselineBots[0]!;
+            expect(respawned.alive).toBe(true);
+            expect(respawned.baselineBotIndex).toBe(initialIndex);
+            expect(respawned.id).not.toBe(initialId);
+            expect(respawned.baselineBotIndex).not.toBe(respawned.id);
+            expect(elapsed).toBeGreaterThan(0);
+        } finally {
+            resetCFGToDefaults();
+        }
+    });
+
+    it('deriveBotSeed includes generation only when enabled', () => {
+        const seedA = deriveBotSeed(5, 1, 2, false);
+        const seedB = deriveBotSeed(5, 2, 2, false);
+        const seedC = deriveBotSeed(5, 1, 2, true);
+        const seedD = deriveBotSeed(5, 2, 2, true);
+        expect(seedA).toBe(seedB);
+        expect(seedC).not.toBe(seedD);
+    });
+
+    it('respawns baseline bots within the delay', () => {
+        resetCFGToDefaults();
+        CFG.baselineBots.count = 1;
+        try {
+            const world = new World({ ...settings, snakeCount: 1 });
+            const bot = world.baselineBots[0]!;
+            bot.die(world);
+            const elapsed = waitForBaselineRespawn(world);
+            const respawned = world.baselineBots[0]!;
+            expect(respawned.alive).toBe(true);
+            expect(elapsed).toBeGreaterThanOrEqual(0.45);
+            expect(elapsed).toBeLessThan(1.0);
+        } finally {
             resetCFGToDefaults();
         }
     });

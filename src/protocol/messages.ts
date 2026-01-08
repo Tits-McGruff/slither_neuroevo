@@ -101,6 +101,9 @@ export interface HallOfFameEntry {
 export interface FrameStats {
   gen: number;
   alive: number;
+  aliveTotal: number;
+  baselineBotsAlive: number;
+  baselineBotsTotal: number;
   fps: number;
   fitnessData?: FitnessData;
   fitnessHistory?: FitnessHistoryEntry[];

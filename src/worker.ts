@@ -191,6 +191,85 @@ const FIXED_DT = 1 / 60;
 let accumulator = 0;
 
 /**
+ * Build stats payload for the worker frame loop.
+ * @param world - Active world instance.
+ * @param dt - Delta time in seconds since last frame.
+ * @param historyLen - Last known fitness history length.
+ * @param vizEnabledFlag - Whether viz streaming is enabled.
+ * @param vizTickCounter - Current viz tick counter.
+ * @returns Stats payload and updated counters.
+ */
+export function buildWorkerStats(
+  world: World,
+  dt: number,
+  historyLen: number,
+  vizEnabledFlag: boolean,
+  vizTickCounter: number
+): { stats: FrameStats; historyLen: number; vizTick: number } {
+  const populationCount = world.population.length;
+  const baselineBotsTotal = world.baselineBots.length;
+  let alivePopulation = 0;
+  let aliveTotal = 0;
+  let baselineBotsAlive = 0;
+  let maxFit = 0;
+  let minFit = Infinity;
+  let sumFit = 0;
+  for (let i = 0; i < populationCount; i++) {
+    const s = world.snakes[i];
+    if (!s || !s.alive) continue;
+    alivePopulation += 1;
+    const fit = s.pointsScore || 0;
+    maxFit = Math.max(maxFit, fit);
+    minFit = Math.min(minFit, fit);
+    sumFit += fit;
+  }
+  for (const s of world.snakes) {
+    if (s.alive) aliveTotal += 1;
+  }
+  for (const bot of world.baselineBots) {
+    if (bot && bot.alive) baselineBotsAlive += 1;
+  }
+  if (minFit === Infinity) minFit = 0;
+  const avgFit = alivePopulation > 0 ? sumFit / alivePopulation : 0;
+  const stats: FrameStats = {
+    gen: world.generation,
+    alive: alivePopulation,
+    aliveTotal,
+    baselineBotsAlive,
+    baselineBotsTotal,
+    fps: 1 / dt,
+    fitnessData: {
+      gen: world.generation,
+      avgFitness: avgFit,
+      maxFitness: maxFit,
+      minFitness: minFit
+    }
+  };
+
+  let nextHistoryLen = historyLen;
+  if (world.fitnessHistory.length !== historyLen) {
+    stats.fitnessHistory = world.fitnessHistory.slice();
+    nextHistoryLen = world.fitnessHistory.length;
+  }
+
+  let nextVizTick = vizTickCounter;
+  if (vizEnabledFlag && world.focusSnake && world.focusSnake.brain) {
+    nextVizTick = (vizTickCounter + 1) % 6;
+    if (nextVizTick === 0) {
+      const viz = buildVizData(world.focusSnake.brain);
+      if (viz) stats.viz = viz;
+    }
+  }
+
+  if (world._lastHoFEntry) {
+    stats.hofEntry = world._lastHoFEntry;
+    world._lastHoFEntry = null;
+  }
+
+  return { stats, historyLen: nextHistoryLen, vizTick: nextVizTick };
+}
+
+/**
  * Run the fixed-step simulation loop and post frames to the main thread.
  * @param token - Loop token for cancellation.
  */
@@ -214,54 +293,11 @@ function loop(token: number): void {
       // Serialize and send
       const buffer = WorldSerializer.serialize(world);
       
-      // Calculate fitness stats for this generation
-      const aliveSnakes = world.snakes.filter(s => s.alive);
-      let maxFit = 0;
-      let minFit = Infinity;
-      let sumFit = 0;
-      
-      aliveSnakes.forEach((s) => {
-        // Calculate approximate fitness (we don't have exact formula here)
-        const fit = s.pointsScore || 0;
-        maxFit = Math.max(maxFit, fit);
-        minFit = Math.min(minFit, fit);
-        sumFit += fit;
-      });
-      
-      const avgFit = aliveSnakes.length > 0 ? sumFit / aliveSnakes.length : 0;
-      if (minFit === Infinity) minFit = 0;
-      
       // Send stats. Keep payload small per frame; full history is sent only on growth.
-      const stats: FrameStats = {
-          gen: world.generation,
-          alive: aliveSnakes.length,
-          fps: 1/dt, // Approx
-          fitnessData: {
-            gen: world.generation,
-            avgFitness: avgFit,
-            maxFitness: maxFit,
-            minFitness: minFit
-          }
-      };
-
-      // Ship full fitness history only when it grows; UI keeps a rolling buffer.
-      if (world.fitnessHistory.length !== lastHistoryLen) {
-        stats.fitnessHistory = world.fitnessHistory.slice();
-        lastHistoryLen = world.fitnessHistory.length;
-      }
-
-      if (vizEnabled && world.focusSnake && world.focusSnake.brain) {
-        vizTick = (vizTick + 1) % 6;
-        if (vizTick === 0) {
-          const viz = buildVizData(world.focusSnake.brain);
-          if (viz) stats.viz = viz;
-        }
-      }
-
-      if (world._lastHoFEntry) {
-        stats.hofEntry = world._lastHoFEntry;
-        world._lastHoFEntry = null;
-      }
+      const statsResult = buildWorkerStats(world, dt, lastHistoryLen, vizEnabled, vizTick);
+      const stats = statsResult.stats;
+      lastHistoryLen = statsResult.historyLen;
+      vizTick = statsResult.vizTick;
       
       // We transfer the buffer to avoid copy
       const transferBuffer =

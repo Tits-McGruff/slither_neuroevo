@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Snake, SegmentGrid, pointSegmentDist2 } from './snake.ts';
 import { Genome, buildArch } from './mlp.ts';
 import { CFG } from './config.ts';
+import { TAU } from './utils.ts';
 
 /** Test suite label for snake behaviors. */
 const SUITE = 'snake.ts';
@@ -99,6 +100,41 @@ describe(SUITE, () => {
         expect(forwardCalls).toBe(0);
         expect(snake.turnInput).toBe(1);
         expect(snake.boostInput).toBe(1);
+    });
+
+    it('uses external-only control mode without running the brain', () => {
+        const snake = new Snake(1, genome, arch, { controlMode: 'external-only' });
+        let forwardCalls = 0;
+        snake.brain.forward = () => {
+            forwardCalls += 1;
+            return new Float32Array([0.2, 0.8]);
+        };
+        const world: Parameters<Snake['update']>[0] = {
+            pellets: [],
+            particles: { spawnBurst: () => {}, spawnBoost: () => {} },
+            addPellet: () => {},
+            removePellet: () => {},
+            bestPointsThisGen: 1
+        };
+
+        snake.update(world, 1 / 60);
+
+        expect(forwardCalls).toBe(0);
+    });
+
+    it('uses the provided rng for spawn placement', () => {
+        let calls = 0;
+        const values = [0.25, 0.81, 0.5];
+        const rng = () => values[calls++] ?? 0;
+        const snake = new Snake(1, genome, arch, { rng });
+        const expectedA = values[0]! * TAU;
+        const expectedR = Math.sqrt(values[1]!) * (CFG.worldRadius * 0.60);
+        const expectedDir = values[2]! * TAU;
+
+        expect(calls).toBe(3);
+        expect(snake.x).toBeCloseTo(Math.cos(expectedA) * expectedR, 6);
+        expect(snake.y).toBeCloseTo(Math.sin(expectedA) * expectedR, 6);
+        expect(snake.dir).toBeCloseTo(expectedDir, 6);
     });
 
     it('resets the brain when control mode changes', () => {
