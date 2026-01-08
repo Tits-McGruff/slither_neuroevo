@@ -13,6 +13,7 @@ import { NullBrain } from './brains/nullBrain.ts';
 import type { ArchDefinition } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData, PopulationExport } from './protocol/messages.ts';
 import type { RandomSource } from './rng.ts';
+import { THEME } from './theme.ts';
 
 /** Starting id reserved for externally controlled snakes. */
 const EXTERNAL_SNAKE_ID_START = 100000;
@@ -384,12 +385,15 @@ export class World {
     const nextId = this._nextBaselineBotId;
     if (!Number.isSafeInteger(nextId) || nextId >= Number.MAX_SAFE_INTEGER) return null;
     this._nextBaselineBotId = nextId + 1;
-    return new Snake(nextId, this._createBaselineGenome(), this.arch, {
+    const snake = new Snake(nextId, this._createBaselineGenome(), this.arch, {
       rng,
       brain: new NullBrain(),
       controlMode: 'external-only',
-      baselineBotIndex: index
+      baselineBotIndex: index,
+      skin: 2,
     });
+    snake.color = THEME.snakeRobotBody;
+    return snake;
   }
 
   /**
@@ -841,7 +845,7 @@ removePellet(p: Pellet): void {
     const genome = Genome.fromJSON(genomeJSON);
     // Create a new snake with a high ID to avoid collision
     const id = 10000 + randInt(90000); 
-    const snake = new Snake(id, genome, this.arch);
+    const snake = new Snake(id, genome, this.arch, { skin: 1 });
     
     // Give it a distinct look (e.g. golden glow) if possible, or just standard
     snake.color = '#FFD700'; // Gold color to signify HoF status

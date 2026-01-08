@@ -127,4 +127,32 @@ describe(SUITE, () => {
     expect(buf[ptr++]).toBe(1);
     expect(buf[ptr++]).toBe(42);
   });
+  it('serializes explicit skin property (robot)', () => {
+    const world = {
+      generation: 1,
+      cameraX: 0,
+      cameraY: 0,
+      zoom: 1,
+      snakes: [
+        {
+          id: 99,
+          radius: 10,
+          x: 0,
+          y: 0,
+          dir: 0,
+          boost: 0,
+          alive: true,
+          points: [{ x: 0, y: 0 }],
+          skin: 2 // Robot
+        }
+      ],
+      pellets: []
+    };
+
+    const buf = WorldSerializer.serialize(world);
+    let ptr = FRAME_HEADER_FLOATS;
+    expect(buf[ptr++]).toBe(99);
+    expect(buf[ptr++]).toBe(10);
+    expect(buf[ptr++]).toBe(2); // Validates skin is 2
+  });
 });

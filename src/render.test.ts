@@ -136,4 +136,40 @@ describe('render.ts', () => {
       resetCFGToDefaults();
     }
   });
+  it('renders robot skin with correct colors', () => {
+    const buffer = new Float32Array([
+      1, 1, 1, 0, 0, 1, // Header
+      10, 5, 2, 0, 0, 0, 0, 1, 0, 0, // Snake: ID 10, Skin 2
+      0 // Pellets
+    ]);
+    const ctx = makeCtx();
+    const renderCtx = ctx as unknown as CanvasRenderingContext2D;
+    
+    // We need to import THEME to check colors, but we can check calls
+    renderWorldStruct(renderCtx, buffer, 800, 600, 1, 0, 0);
+    
+    const fillCalls = ctx.calls.filter(c => c[0] === 'fillStyle');
+    const shadowCalls = ctx.calls.filter(c => c[0] === 'shadowColor');
+    
+    // Check for robot eye color (red) and glow (cyan)
+    // Values from theme.ts: eye '#ff0000', glow '#00ffff'
+    expect(fillCalls.some(c => c[1] === '#ff0000')).toBe(true);
+    expect(shadowCalls.some(c => c[1] === '#00ffff')).toBe(true);
+  });
+
+  it('renders unknown skin as default (not gold)', () => {
+    const buffer = new Float32Array([
+      1, 1, 1, 0, 0, 1,
+      11, 5, 99, 0, 0, 0, 0, 1, 0, 0, // Snake: ID 11, Skin 99 (unknown)
+      0
+    ]);
+    const ctx = makeCtx();
+    const renderCtx = ctx as unknown as CanvasRenderingContext2D;
+    
+    renderWorldStruct(renderCtx, buffer, 800, 600, 1, 0, 0);
+    
+    const strokeCalls = ctx.calls.filter(c => c[0] === 'strokeStyle');
+    // Should NOT be gold (#FFD700)
+    expect(strokeCalls.some(c => c[1] === '#FFD700')).toBe(false);
+  });
 });

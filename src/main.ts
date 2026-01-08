@@ -3806,7 +3806,7 @@ canvas.addEventListener('click', (e) => {
       snakeId: snake.id,
       result: 'success'
     });
-    console.log('Selected snake #' + snake.id);
+    console.log(`Selected snake #${snake.id} (skin: ${snake.skin})`);
   } else {
     selectedSnake = null;
   }

@@ -143,6 +143,7 @@ function getRenderDt(): number {
  */
 function getSnakeColor(id: number, skin: number): string {
   if (skin === 1.0) return '#FFD700';
+  if (skin === 2.0) return THEME.snakeRobotBody;
   return hashColor(id * 17 + 3);
 }
 
@@ -414,12 +415,24 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
   const py = cos;
   const ex = hx + cos * eyeForward;
   const ey = hy + sin * eyeForward;
-  const eyeR = Math.max(1.2, s.radius * 0.18);
-  ctx.fillStyle = THEME.snakeSelfEye;
+  const eyeR = Math.max(1.2, s.radius * (s.skin === 2 ? 0.22 : 0.18));
+  
+  if (s.skin === 2) {
+    ctx.fillStyle = THEME.snakeRobotEye;
+    ctx.shadowColor = THEME.snakeRobotGlow;
+    ctx.shadowBlur = s.radius * 0.6;
+  } else {
+    ctx.fillStyle = THEME.snakeSelfEye;
+  }
+
   ctx.beginPath();
   ctx.arc(ex + px * eyeOffset, ey + py * eyeOffset, eyeR, 0, TAU);
   ctx.arc(ex - px * eyeOffset, ey - py * eyeOffset, eyeR, 0, TAU);
   ctx.fill();
+  
+  if (s.skin === 2) {
+      ctx.shadowBlur = 0;
+  }
 }
 
 /**

@@ -10,6 +10,7 @@ interface SerializablePoint {
 interface SerializableSnake {
   id: number;
   radius: number;
+  skin?: number;
   color?: string;
   x: number;
   y: number;
@@ -93,8 +94,10 @@ export class WorldSerializer {
       // Header: 8 floats
       buffer[ptr++] = s.id;
       buffer[ptr++] = s.radius;
-      // Color
-      buffer[ptr++] = s.color === '#FFD700' ? 1.0 : 0.0; 
+      // Skin flag: 0=default, 1=gold, 2=robot
+      // Prefer explicit skin property, fallback to legacy color check for gold.
+      const skinVal = s.skin !== undefined ? s.skin : (s.color === '#FFD700' ? 1.0 : 0.0);
+      buffer[ptr++] = skinVal; 
       buffer[ptr++] = s.x;
       buffer[ptr++] = s.y;
       buffer[ptr++] = s.dir;
