@@ -1,5 +1,5 @@
 import { CFG } from '../config.ts';
-import { clamp, TAU } from '../utils.ts';
+import { clamp, TAU, angNorm } from '../utils.ts';
 import { createRng, hashSeed, type RandomSource, toUint32 } from '../rng.ts';
 import type { Snake } from '../snake.ts';
 import type { World } from '../world.ts';
@@ -284,155 +284,386 @@ export class BaselineBotManager {
 
   /**
    * Compute a baseline bot action based on sensors and state.
-   * @param world - World instance for sensors.
-   * @param snake - Baseline bot snake instance.
-   * @param index - Baseline bot index.
-   * @param dt - Delta time in seconds for timers.
+   * Dispatches to specific strategies based on snake size.
    */
   private computeAction(world: World, snake: Snake, index: number, dt: number): void {
+    const len = snake.length();
+    // Life Stage Thresholds
+    // Small: < 25 (Survival Mode)
+    // Medium: 25 - 80 (Hunter Mode)
+    // Large: >= 80 (Crowd Control Mode)
+    
+    if (len < 25) {
+      this.computeActionSmall(world, snake, index, dt);
+    } else if (len < 80) {
+      this.computeActionMedium(world, snake, index, dt);
+    } else {
+      this.computeActionLarge(world, snake, index, dt);
+    }
+  }
+
+  /**
+   * Small Bot Strategy: "The Coward"
+   * Focus: Survival / Growing.
+   * - High clearance weight.
+   * - Clamped food weight (don't get overwhelmed).
+   * - Boost ONLY for escape.
+   */
+  private computeActionSmall(world: World, snake: Snake, index: number, dt: number): void {
     const sensors = snake.computeSensors(world);
     const bins = Math.floor((sensors.length - 5) / 3);
     const foodOffset = 5;
     const hazardOffset = foodOffset + bins;
     const wallOffset = hazardOffset + bins;
 
-    let bestFood = -Infinity;
-    let bestClear = -Infinity;
-    let bestClearIdx = 0;
-    let worstClear = Infinity;
-    for (let i = 0; i < bins; i++) {
-      const rawFood = sensors[foodOffset + i] ?? -1;
-      // Clamp food sensor to prevent overwhelming "lure" from high density
-      const food = Math.min(rawFood, 0.4);
-      const hazard = sensors[hazardOffset + i] ?? -1;
-      const wall = sensors[wallOffset + i] ?? -1;
-      const clearance = (hazard + wall) * 0.5;
-      if (food > bestFood) {
-        bestFood = food;
-      }
-      if (clearance > bestClear) {
-        bestClear = clearance;
-        bestClearIdx = i;
-      }
-      if (clearance < worstClear) {
-        worstClear = clearance;
-      }
-    }
-
+    // Weights: Prioritize Safety
+    let foodWeight = 0.5;
+    let clearWeight = 1.8; // Very high safety priority for small snakes
+    
     const rng = this.botRngs[index];
-    const foodTrigger = 0.1;
-    const hazardTrigger = -0.25;
-    const boostChance = 0.02;
+    this.updateState(index, dt, rng, sensors, bins, hazardOffset, wallOffset, snake);
 
     let state = this.botStates[index] ?? 'roam';
-    let stateTimer = this.botStateTimers[index] ?? 0;
 
-    if (state === 'avoid' || state === 'boost') {
-      stateTimer -= dt;
-      if (stateTimer <= 0) {
-        state = 'roam';
-        stateTimer = 0;
-      }
-    }
-
-    // Safety Trigger: Entering immediate avoidance
-    if (state !== 'avoid' && worstClear < hazardTrigger) {
-      state = 'avoid';
-      stateTimer = 0.35 + (rng ? rng() : 0) * 0.35;
-    } else if (state !== 'avoid' && state !== 'boost') {
-      state = bestFood > foodTrigger ? 'seek' : 'roam';
-      
-      // Boost Logic:
-      // Only allowed if we have points AND the environment isn't too dangerous overall
-      const boostOk = snake.pointsScore > CFG.boost.minPointsToBoost * 1.1;
-      // "worstClear > -0.5" means no immediate major hazard nearby.
-      // We want to prevent boosting if there's significant danger around.
-      const environmentSafe = worstClear > -0.3; 
-      
-      if (boostOk && environmentSafe && rng && rng() < boostChance) {
-        state = 'boost';
-        stateTimer = 0.2 + rng() * 0.2;
-      }
-    }
-
-    this.botStates[index] = state;
-    this.botStateTimers[index] = stateTimer;
-
-    let foodWeight = 0.5;
-    let clearWeight = 0.8; // Increased base clearance weight
-    
     if (state === 'seek') {
-      // Significantly reduced food weight to prioritize survival.
-      // Previous: 1.4/0.6. New: 0.5/1.5.
-      foodWeight = 0.5; 
-      clearWeight = 1.5;
+        foodWeight = 0.5;
+        clearWeight = 1.6;
     } else if (state === 'avoid') {
-      foodWeight = 0.0; // Ignore food when avoiding
-      clearWeight = 2.0;
+        foodWeight = 0.0;
+        clearWeight = 2.5; // Extreme avoidance
     }
 
-    let bestScore = -Infinity;
-    let targetIdx = bestClearIdx;
+    const { targetIdx } = this.evaluateBins(
+      sensors, bins, foodOffset, hazardOffset, wallOffset, 
+      foodWeight, clearWeight, 0.4 // Max food clamp
+    );
+
+    this.applyOutput(index, targetIdx, bins, dt, rng, state, sensors, hazardOffset, wallOffset, true);
+  }
+
+  /**
+   * Medium Bot Strategy: "The Hunter"
+   * Focus: Aggression / Intercept.
+   * - Seeks food but looks for targets.
+   * - If a vulnerable target is found, biases heading towards intercept.
+   * - Boosts allowed for attack.
+   */
+  private computeActionMedium(world: World, snake: Snake, index: number, dt: number): void {
+    const sensors = snake.computeSensors(world);
+    const bins = Math.floor((sensors.length - 5) / 3);
+    const foodOffset = 5;
+    const hazardOffset = foodOffset + bins;
+    const wallOffset = hazardOffset + bins;
+
+    // Weights: Balanced but aggressive
+    let foodWeight = 0.8; // More interested in food/growth than small bots
+    let clearWeight = 1.2; 
     
-    // Veto threshold: if clearance is below this, the path is effectively blocked.
-    // Clearance range is [-1, 1]. 0 is neutral. -1 is death.
-    const VETO_THRESHOLD = -0.5;
+    const rng = this.botRngs[index];
+    this.updateState(index, dt, rng, sensors, bins, hazardOffset, wallOffset, snake);
+    let state = this.botStates[index] ?? 'roam';
 
-    for (let i = 0; i < bins; i++) {
-      const rawFood = sensors[foodOffset + i] ?? -1;
-      // Clamp food sensor to prevent overwhelming "lure" from high density
-      const food = Math.min(rawFood, 0.4);
-      const hazard = sensors[hazardOffset + i] ?? -1;
-      const wall = sensors[wallOffset + i] ?? -1;
-      const clearance = (hazard + wall) * 0.5;
-      
-      let score = food * foodWeight + clearance * clearWeight;
-      
-      // Strict Veto
-      if (clearance < VETO_THRESHOLD) {
-        score -= 1000;
-      }
-
-      if (score > bestScore) {
-        bestScore = score;
-        targetIdx = i;
-      }
-    }
-
-    if (state === 'roam' && rng) {
-      let wanderTimer = this.botWanderTimers[index] ?? 0;
-      wanderTimer -= dt;
-      if (wanderTimer <= 0) {
-        this.botWanderAngles[index] = (rng() - 0.5) * 0.6;
-        wanderTimer = 0.6 + rng() * 1.4;
-      }
-      this.botWanderTimers[index] = wanderTimer;
-    }
-
-    const wander = state === 'roam' ? this.botWanderAngles[index] ?? 0 : 0;
-    const targetAngle = binIndexToAngle(targetIdx, bins) + wander;
-    const turn = clamp(targetAngle / (Math.PI / 2), -1, 1);
-    
-    // Boost Output Logic:
-    // If state is boost, we boost.
-    // If state is avoid, we can boost ONLY if the chosen direction is safe (escape!)
-    let boost = state === 'boost' ? 1 : 0;
     if (state === 'avoid') {
-       // Check clearance of targetIdx
-       const tgtHazard = sensors[hazardOffset + targetIdx] ?? -1;
-       const tgtWall = sensors[wallOffset + targetIdx] ?? -1;
-       const tgtClear = (tgtHazard + tgtWall) * 0.5;
-       // If clear enough, boost to escape
-       if (tgtClear > 0.2) {
-           boost = 1;
-       }
+        foodWeight = 0.0;
+        clearWeight = 2.0;
     }
 
-    const action = this.botActions[index];
-    if (action) {
-      action.turn = turn;
-      action.boost = boost;
+    // Hunter Logic: Find a target
+    let huntBiasAngle = 0;
+    let huntStrength = 0;
+    
+    // Only hunt if not avoiding and not already boosting to escape
+    if (state !== 'avoid') {
+        const myHead = snake.head();
+        const senseR = snake.radius * 25; // Roughly the sensor bubble
+        let bestTarget: Snake | null = null;
+        let minDistSq = Infinity;
+        
+        for (const other of world.snakes) {
+            if (!other.alive || other === snake) continue;
+            // Target smaller snakes or roughly equal? 
+            // Actually, mid-size bots often attack larger ones in Slither.io to eat their corpse.
+            // But let's stick to "vulnerable" or "close".
+            // Let's target ANY snake that is close enough to intercept.
+            const oh = other.head();
+            const dx = oh.x - myHead.x;
+            const dy = oh.y - myHead.y;
+            const d2 = dx*dx + dy*dy;
+            if (d2 < senseR*senseR && d2 < minDistSq) {
+                minDistSq = d2;
+                bestTarget = other;
+            }
+        }
+
+        if (bestTarget) {
+            // Simple intercept: Move towards current position (predictive is better but expensive)
+            const oh = bestTarget.head();
+            const angleTo = Math.atan2(oh.y - myHead.y, oh.x - myHead.x);
+            // Relative angle required
+            const relAngle = angNorm(angleTo - snake.dir);
+            huntBiasAngle = relAngle;
+            huntStrength = 0.8; // Strong pull towards target
+            state = 'seek'; // Force seek mode if hunting
+        }
     }
+
+    // Evaluate bins with Hunt Bias
+    // We add a "hunt bonus" to bins aligned with huntBiasAngle
+    const { targetIdx } = this.evaluateBins(
+      sensors, bins, foodOffset, hazardOffset, wallOffset, 
+      foodWeight, clearWeight, 0.6, // Higher food clamp
+      (binAngle) => {
+         if (huntStrength <= 0) return 0;
+         const diff = Math.abs(angNorm(binAngle - huntBiasAngle));
+         // Gaussian-ish width
+         return diff < 1.0 ? huntStrength * (1.0 - diff) : 0;
+      }
+    );
+
+    // Allow boost for hunting (if safe)
+    // If state is seek and we have a target (huntStrength > 0), allow boost
+    const canAttackBoost = huntStrength > 0 && state !== 'avoid';
+
+    this.applyOutput(index, targetIdx, bins, dt, rng, state, sensors, hazardOffset, wallOffset, false, canAttackBoost);
+  }
+
+  /**
+   * Large Bot Strategy: "The Bully"
+   * Focus: Crowd Control / Accidents.
+   * - Moves towards DENSITY (groups of snakes).
+   * - Blocking behavior (high clearance weight to create walls).
+   */
+  private computeActionLarge(world: World, snake: Snake, index: number, dt: number): void {
+    const sensors = snake.computeSensors(world);
+    const bins = Math.floor((sensors.length - 5) / 3);
+    const foodOffset = 5;
+    const hazardOffset = foodOffset + bins;
+    const wallOffset = hazardOffset + bins;
+
+    // Weights: Safety is paramount to maintain bulk, but we want to be near others
+    let foodWeight = 0.4; 
+    let clearWeight = 1.5;
+    
+    const rng = this.botRngs[index];
+    this.updateState(index, dt, rng, sensors, bins, hazardOffset, wallOffset, snake);
+    let state = this.botStates[index] ?? 'roam';
+
+    if (state === 'avoid') {
+        foodWeight = 0.0;
+        clearWeight = 2.5;
+    }
+
+    // Crowd Logic: Find center of mass of nearby snakes
+    let crowdBiasAngle = 0;
+    let crowdStrength = 0;
+
+    if (state !== 'avoid') {
+        const myHead = snake.head();
+        const senseR = snake.radius * 30; // Big view
+        let sumX = 0, sumY = 0, count = 0;
+        
+        for (const other of world.snakes) {
+            if (!other.alive || other === snake) continue;
+            const oh = other.head();
+            const dx = oh.x - myHead.x;
+            const dy = oh.y - myHead.y;
+            if (dx*dx + dy*dy < senseR*senseR) {
+                sumX += oh.x;
+                sumY += oh.y;
+                count++;
+            }
+        }
+
+        if (count > 0) {
+            const centerX = sumX / count;
+            const centerY = sumY / count;
+            const angleTo = Math.atan2(centerY - myHead.y, centerX - myHead.x);
+            crowdBiasAngle = angNorm(angleTo - snake.dir);
+            crowdStrength = 0.6; // Moderate pull towards crowds
+        }
+    }
+
+    const { targetIdx } = this.evaluateBins(
+      sensors, bins, foodOffset, hazardOffset, wallOffset, 
+      foodWeight, clearWeight, 0.4,
+      (binAngle) => {
+         if (crowdStrength <= 0) return 0;
+         const diff = Math.abs(angNorm(binAngle - crowdBiasAngle));
+         return diff < 1.0 ? crowdStrength * (1.0 - diff) : 0;
+      }
+    );
+
+    this.applyOutput(index, targetIdx, bins, dt, rng, state, sensors, hazardOffset, wallOffset, false, false);
+  }
+
+  // --- Helpers ---
+
+  /** Updates bot state (roam/seek/avoid/boost) based on immediate hazards and timers. */
+  private updateState(
+      index: number, dt: number, rng: RandomSource | undefined, 
+      sensors: Float32Array, bins: number, hazardOffset: number, wallOffset: number,
+      snake: Snake
+  ): void {
+      let state = this.botStates[index] ?? 'roam';
+      let stateTimer = this.botStateTimers[index] ?? 0;
+      
+      // Update Timers
+      if (state === 'avoid' || state === 'boost') {
+          stateTimer -= dt;
+          if (stateTimer <= 0) {
+              state = 'roam';
+              stateTimer = 0;
+          }
+      }
+
+      // Check Hazard
+      let worstClear = Infinity;
+      let bestFood = -Infinity;
+      const foodOffset = 5; // Fixed assumption
+
+      for(let i=0; i<bins; i++) {
+          const h = sensors[hazardOffset + i] ?? -1;
+          const w = sensors[wallOffset + i] ?? -1;
+          const cl = (h + w) * 0.5;
+          if (cl < worstClear) worstClear = cl;
+          
+          const f = sensors[foodOffset + i] ?? -1;
+          if (f > bestFood) bestFood = f;
+      }
+
+      const hazardTrigger = -0.25;
+      const foodTrigger = 0.1;
+      const boostChance = 0.02;
+
+      // Transitions
+      if (state !== 'avoid' && worstClear < hazardTrigger) {
+          state = 'avoid';
+          stateTimer = 0.35 + (rng ? rng() : 0) * 0.35;
+      } else if (state !== 'avoid' && state !== 'boost') {
+          // Default logic: Seek if food, else Roam
+          state = bestFood > foodTrigger ? 'seek' : 'roam';
+
+          // Random Boost Trigger
+          const boostOk = snake.pointsScore > CFG.boost.minPointsToBoost * 1.1;
+          const environmentSafe = worstClear > -0.3;
+          if (boostOk && environmentSafe && rng && rng() < boostChance) {
+              state = 'boost';
+              stateTimer = 0.2 + rng() * 0.2;
+          }
+      }
+
+      this.botStates[index] = state;
+      this.botStateTimers[index] = stateTimer;
+  }
+
+  /** Evaluates sensor bins and returns best target index. */
+  private evaluateBins(
+      sensors: Float32Array, bins: number, 
+      foodOffset: number, hazardOffset: number, wallOffset: number,
+      foodWeight: number, clearWeight: number, foodClamp: number,
+      biasFn?: (binAngle: number) => number
+  ): { targetIdx: number, bestScore: number } {
+      let bestScore = -Infinity;
+      let targetIdx = 0;
+      const VETO_THRESHOLD = -0.5;
+
+      // Find best bin just for fallback
+      let bestClearVal = -Infinity;
+      let bestClearIdx = 0;
+
+      for (let i = 0; i < bins; i++) {
+        const rawFood = sensors[foodOffset + i] ?? -1;
+        const food = Math.min(rawFood, foodClamp);
+        const hazard = sensors[hazardOffset + i] ?? -1;
+        const wall = sensors[wallOffset + i] ?? -1;
+        const clearance = (hazard + wall) * 0.5;
+        
+        if (clearance > bestClearVal) {
+            bestClearVal = clearance;
+            bestClearIdx = i;
+        }
+
+        let score = food * foodWeight + clearance * clearWeight;
+        
+        // Add Bias (Hunter/Crowd)
+        if (biasFn) {
+            const angle = binIndexToAngle(i, bins);
+            score += biasFn(angle);
+        }
+
+        // Strict Veto
+        if (clearance < VETO_THRESHOLD) {
+          score -= 1000;
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          targetIdx = i;
+        }
+      }
+      
+      // Fallback if all vetoed (rare but possible) or -Infinity
+      if (bestScore === -Infinity) targetIdx = bestClearIdx;
+
+      return { targetIdx, bestScore };
+  }
+
+  /** Computes final turn/boost output and writes to action buffer. */
+  private applyOutput(
+      index: number, targetIdx: number, bins: number, dt: number, rng: RandomSource | undefined,
+      state: BotState, sensors: Float32Array, hazardOffset: number, wallOffset: number,
+      strictBoost: boolean, attackBoost: boolean = false
+  ): void {
+      // Wander logic
+      if (state === 'roam' && rng) {
+        let wanderTimer = this.botWanderTimers[index] ?? 0;
+        wanderTimer -= dt;
+        if (wanderTimer <= 0) {
+          this.botWanderAngles[index] = (rng() - 0.5) * 0.6;
+          wanderTimer = 0.6 + rng() * 1.4;
+        }
+        this.botWanderTimers[index] = wanderTimer;
+      }
+  
+      const wander = state === 'roam' ? this.botWanderAngles[index] ?? 0 : 0;
+      const targetAngle = binIndexToAngle(targetIdx, bins) + wander;
+      const turn = clamp(targetAngle / (Math.PI / 2), -1, 1);
+      
+      let boost = state === 'boost' ? 1 : 0;
+      
+      // Escape Boost Logic (Avoid Mode)
+      if (state === 'avoid') {
+         const tgtHazard = sensors[hazardOffset + targetIdx] ?? -1;
+         const tgtWall = sensors[wallOffset + targetIdx] ?? -1;
+         const tgtClear = (tgtHazard + tgtWall) * 0.5;
+         if (tgtClear > 0.2) {
+             boost = 1;
+         } else {
+             boost = 0; // Don't boost if escape path is tight
+         }
+      }
+
+      // Attack Boost Logic (Hunter Mode)
+      if (attackBoost && state !== 'avoid') {
+          // Check safety of target dir
+          const tgtHazard = sensors[hazardOffset + targetIdx] ?? -1;
+          const tgtWall = sensors[wallOffset + targetIdx] ?? -1;
+          const tgtClear = (tgtHazard + tgtWall) * 0.5;
+          if (tgtClear > -0.1) { // Accept slight risk for kill
+              boost = 1; 
+          }
+      }
+
+      // Strict Boost prevention (Small/Coward Mode)
+      if (strictBoost && state !== 'avoid') {
+          boost = 0; // Never boost unless avoiding
+      }
+
+      const action = this.botActions[index];
+      if (action) {
+        action.turn = turn;
+        action.boost = boost;
+      }
   }
 
   /**

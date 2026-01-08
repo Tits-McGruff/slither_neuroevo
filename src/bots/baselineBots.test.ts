@@ -22,6 +22,7 @@ describe('BaselineBotManager AI', () => {
       alive: true,
       pointsScore: 1000,
       computeSensors: vi.fn(), 
+      length: vi.fn().mockReturnValue(20), // Small bot
       // minimal mocks
     } as unknown as Snake;
     
