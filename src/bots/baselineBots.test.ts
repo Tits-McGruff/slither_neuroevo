@@ -9,148 +9,157 @@ describe('BaselineBotManager AI', () => {
   let mockSnake: Snake;
 
   beforeEach(() => {
-    // Setup a default manager with 1 bot
     manager = new BaselineBotManager({ count: 1, seed: 123, randomizeSeedPerGen: false });
-    
+
     mockWorld = {
       baselineBots: [],
-      // minimal mock
+      snakes: []
     } as unknown as World;
 
     mockSnake = {
       id: 100,
       alive: true,
       pointsScore: 1000,
-      computeSensors: vi.fn(), 
-      length: vi.fn().mockReturnValue(20), // Small bot
-      // minimal mocks
+      radius: 10,
+      dir: 0,
+      head: vi.fn().mockReturnValue({ x: 0, y: 0 }),
+      computeSensors: vi.fn(),
+      length: vi.fn().mockReturnValue(20)
     } as unknown as Snake;
-    
-    // Inject the snake into the world and manager
+
     mockWorld.baselineBots[0] = mockSnake;
+    (mockWorld.snakes as unknown as Snake[]) = [mockSnake];
+
     manager.registerBot(0, 100);
-    // Force state to seek (since we want to test decision making when food is present)
-    // We can't easily force private state, but we can rely on update() logic
-    // or just assume default 'roam' -> 'seek' transition if food > 0.1
   });
 
-  // Helper to construct sensor array
-  // 5 global values + 3 * bins
-  // bins defaults to 12 in sensors.ts if not changed in CFG.
-  // We'll assume 12 bins.
+  /**
+   * Create a sensor array with the expected layout:
+   * - 5 global values
+   * - food[bins], hazard[bins], wall[bins]
+   */
   function makeSensors(bins = 12): Float32Array {
     return new Float32Array(5 + 3 * bins);
   }
 
-  // Indices for 12 bins: 
-  // Food: 5..16
-  // Hazard: 17..28
-  // Wall: 29..40
-  function setBin(sensors: Float32Array, binIdx: number, food: number, hazard: number, wall: number) {
-    const bins = 12;
-    // Food
+  /**
+   * Set a single bin in the sensor array.
+   *
+   * @param sensors - Sensor array.
+   * @param bins - Number of bins.
+   * @param binIdx - Bin index.
+   * @param food - Food value in [-1, 1].
+   * @param hazard - Hazard value in [-1, 1] (higher is safer).
+   * @param wall - Wall value in [-1, 1] (higher is safer).
+   */
+  function setBin(
+    sensors: Float32Array,
+    bins: number,
+    binIdx: number,
+    food: number,
+    hazard: number,
+    wall: number
+  ) {
     sensors[5 + binIdx] = food;
-    // Hazard
     sensors[5 + bins + binIdx] = hazard;
-    // Wall
     sensors[5 + 2 * bins + binIdx] = wall;
   }
-  
-  // NOTE: Hazard sensor: +1 is Clear, -1 is Blocked/Hazard
-  // Food sensor: +1 is Dense Food, -1 is No Food
-  // NOTE: Food is now clamped to 0.4 max in computeAction!
 
-  it('reproduces kamikaze behavior: chooses high food despite hazard', () => {
-    const sensors = makeSensors(12);
-    // Init all to empty/neutral
-    for(let i=0; i<12; i++) setBin(sensors, i, -1, 1, 1); 
+  /**
+   * Infer a chosen bin index from the action turn output.
+   *
+   * This works reliably when the bot is not roaming (roam adds wander noise).
+   *
+   * @param turn - Action turn in [-1, 1].
+   * @param bins - Number of bins.
+   */
+  function inferBinFromTurn(turn: number, bins: number): number {
+    const TAU = Math.PI * 2;
+    const targetAngle = turn * (Math.PI / 2);
+    const a = targetAngle < 0 ? targetAngle + TAU : targetAngle;
+    return Math.round((a / TAU) * bins) % bins;
+  }
 
-    // Bin 0 (Forward): HIGH Food (1.0), BLOCKED Hazard (-0.9) 
-    // New Clamped Food: min(1.0, 0.4) = 0.4.
-    // Score ~ 0.4*0.5 + 0.05*1.5 = 0.2 + 0.075 = 0.275 (Seek weights: Food=0.5, Clear=1.5)
-    // Wait, Clearance = (-0.9+1)/2 = 0.05.
-    
-    setBin(sensors, 0, 1.0, -0.9, 1.0); 
+  it('prefers safe clearance over clamped food (small bot in seek state)', () => {
+    const bins = 12;
+    const sensors = makeSensors(bins);
 
-    // Bin 6: NO Food (-1.0), CLEAR Hazard (1.0) -> Clear = 1.0
-    // Score ~ -1.0*0.5 + 1.0*1.5 = -0.5 + 1.5 = 1.0.
-    
-    // 1.0 > 0.275. So it SHOULD pick Bin 6 (safe) over Bin 0 (food).
-    // This confirms the fix works.
+    // Default: no food, fully clear.
+    for (let i = 0; i < bins; i++) setBin(sensors, bins, i, -1, 1, 1);
+
+    // Ensure seek state by placing at least one food value above the seek trigger.
+    setBin(sensors, bins, 2, 0.2, 1, 1);
+
+    // Forward bin: high food but poor clearance (still above avoid trigger).
+    // clearance = (-0.9 + 1.0) / 2 = 0.05
+    setBin(sensors, bins, 0, 1.0, -0.9, 1.0);
+
+    // A safe bin should be preferred over the risky forward bin.
+    setBin(sensors, bins, 6, -1.0, 1.0, 1.0);
 
     (mockSnake.computeSensors as Mock).mockReturnValue(sensors);
-    
-    // Run update
-    // We expect it to NOT avoid (unless worstClear < trigger)
-    // worstClear here is 0.05.
-    // trigger is -0.25.
-    // 0.05 > -0.25, so it doesn't trigger 'avoid' state override in the current logic.
-    // It stays in 'seek' or 'roam'.
-    // In seek, it picks max score.
-    
+
     manager.update(mockWorld, 0.1, vi.fn());
-    
+
     const action = manager.getActionForSnake(100);
     expect(action).not.toBeNull();
-    
-    // Bin 0 is angle 0.
-    // With new logic, it should avoid the hazard (Bin 0) and pick a clearer path (e.g. Bin 1 or side).
-    expect(Math.abs(action!.turn)).toBeGreaterThan(0.2);
-  });
-  
-  it('avoids hazard with new logic (veto)', () => {
-     // This test will fail until we implement the fix
-     const sensors = makeSensors(12);
-    // Init all to empty/neutral
-    for(let i=0; i<12; i++) setBin(sensors, i, -1, 1, 1); 
 
-    // Bin 0: HIGH Food (1.0), MODERATE Hazard (-0.6, just below veto threshold?) 
-    // Let's say Veto is -0.5. -0.6 should be vetoed.
-    setBin(sensors, 0, 1.0, -0.6, 1.0); 
-    
-    // Bin 1: NO Food (-1.0), CLEAR (1.0)
-    setBin(sensors, 1, -1.0, 1.0, 1.0);
+    const chosen = inferBinFromTurn(action!.turn, bins);
+    expect(chosen).not.toBe(0);
+  });
+
+  it('penalizes vetoed clearance bins even if food is high', () => {
+    const bins = 12;
+    const sensors = makeSensors(bins);
+
+    for (let i = 0; i < bins; i++) setBin(sensors, bins, i, -1, 1, 1);
+
+    // Force seek state.
+    setBin(sensors, bins, 2, 0.2, 1, 1);
+
+    // Veto is based on clearance = avg(hazard, wall).
+    // To guarantee veto: clearance < -0.5.
+    setBin(sensors, bins, 0, 1.0, -1.0, -1.0);
+
+    // A safe alternative.
+    setBin(sensors, bins, 1, -1.0, 1.0, 1.0);
 
     (mockSnake.computeSensors as Mock).mockReturnValue(sensors);
-    
+
     manager.update(mockWorld, 0.1, vi.fn());
+
     const action = manager.getActionForSnake(100);
-    
-    // Should NOT pick bin 0. Should pick bin 1 (or any clear one).
-    // Bin 1 angle is approx (1/12)*TAU = 0.52 rad.
-    // Turn value roughly 0.52 / (PI/2) = 0.33
-    
-    // If it picks bin 0, turn is ~0.
-    expect(Math.abs(action!.turn)).toBeGreaterThan(0.2);
+    expect(action).not.toBeNull();
+
+    const chosen = inferBinFromTurn(action!.turn, bins);
+    expect(chosen).not.toBe(0);
   });
 
-  it('prevents boosting when hazard is nearby', () => {
-    const sensors = makeSensors(12);
-    // Init all to clear
-    for(let i=0; i<12; i++) setBin(sensors, i, -1, 1, 1); 
-    
-    // Bin 0: Safe, Food. 
-    setBin(sensors, 0, 1.0, 1.0, 1.0);
-    
-    // Bin 5: Hazard (-0.8). Nearby but not in path.
-    // worstClear will be (-0.8+1)/2 = 0.1.
-    setBin(sensors, 5, -1.0, -0.8, 1.0);
-    
+  it('falls back to best clearance when all bins are vetoed', () => {
+    const bins = 12;
+    const sensors = makeSensors(bins);
+
+    // Make every bin vetoed: clearance < -0.5 everywhere.
+    for (let i = 0; i < bins; i++) {
+      setBin(sensors, bins, i, -1, -1, -1);
+    }
+
+    // Force seek state (prevents roam wander).
+    // This bin is still vetoed, but it ensures bestFood > 0.1.
+    setBin(sensors, bins, 2, 0.2, -1, -1);
+
+    // Make one bin the least bad clearance among vetoed bins.
+    // clearance = (-0.6 + -0.6)/2 = -0.6 (still vetoed, but best).
+    setBin(sensors, bins, 7, -1, -0.6, -0.6);
+
     (mockSnake.computeSensors as Mock).mockReturnValue(sensors);
-    
-    // Inject RNG that triggers boost (normally boostChance is 0.02)
-    // We can try to force it by monkey-patching or just relying on "worstClear should block it"
-    // Actually, the boost check is:
-    // if (state !== 'avoid' && state !== 'boost') { ... if (boostOk && ... ) state = 'boost' }
-    // We want to ensure it DOES NOT enter boost state if worstClear is suspicious.
-    
-    // To reliably test this without RNG, we might need to inspect the state or logic differently.
-    // Or we can rely on the property that we are ADDING a check: `&& worstClear > 0.5`.
-    
-    // Let's just create the scenario where it MIGHT boost, and verify strictly no boost in action.
-    // But action.boost comes from state='boost'.
-    
-    // Accessing private state is hard in strict TS unless we cast to any.
-    // Let's verify via action logic if possible, or skip strict unit testing of the RNG branch for now and focus on the Veto which is deterministic.
+
+    manager.update(mockWorld, 0.1, vi.fn());
+
+    const action = manager.getActionForSnake(100);
+    expect(action).not.toBeNull();
+
+    const chosen = inferBinFromTurn(action!.turn, bins);
+    expect(chosen).toBe(7);
   });
 });
