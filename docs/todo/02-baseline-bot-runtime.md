@@ -142,12 +142,12 @@ export class NullBrain implements Brain {
 ```
 
 I/O contract for `NullBrain`:
+
 - `reset()` is a no-op.
 - `forward()` returns a cached zeroed `Float32Array` of size `CFG.brain.outSize`
   and does not allocate per call.
 - Should never be called for baseline bots in steady state; if called, it does
   not throw (keeps simulation stable).
-```
 
 Usage example (illustrative):
 
