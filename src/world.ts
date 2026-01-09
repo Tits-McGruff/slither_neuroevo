@@ -133,6 +133,11 @@ export class World {
   /** Next id to assign to baseline bot spawns. */
   _nextBaselineBotId: number;
 
+  /** Access the active world radius from settings. */
+  get worldRadius(): number {
+    return this.settings.worldRadius;
+  }
+
   /**
    * Create a new World instance with optional settings overrides.
    * @param settings - World settings overrides from UI or worker.
@@ -185,13 +190,13 @@ export class World {
     this.focusSnake = null;
     this._focusCooldown = 0;
     this.viewMode = this.settings.observer.defaultViewMode || "overview";
-    this.zoom = 1.0; 
-    
+    this.zoom = 1.0;
+
     // Init physics
     // Estimate capacity: 50 snakes * 100 len = 5000 segments. 5000 * 500 len = 2.5m.
     // Let's allocate big. 200,000 capacity safe for now?
     // worldRadius * 2 = width.
-    const w = this.settings.worldRadius * 2.5; 
+    const w = this.settings.worldRadius * 2.5;
     this._collGrid = new FlatSpatialHash(w, w, this.settings.collision.cellSize, 200000);
     this._nextExternalSnakeId = EXTERNAL_SNAKE_ID_START;
     this._nextBaselineBotId = BASELINE_BOT_ID_START;
@@ -418,39 +423,39 @@ export class World {
   /**
    * Fills the world with pellets up to the configured target count.
    */
-_initPellets(): void {
-  this.pellets.length = 0;
-  this.pelletGrid.resetForCFG();
-  this._pelletSpawnAcc = 0;
-  while (this.pellets.length < CFG.pelletCountTarget) this.addPellet(this._spawnAmbientPellet());
-}
-
-/**
- * Adds a pellet to the world and to the pellet spatial hash.
- * @param p - Pellet to add.
- */
-addPellet(p: Pellet): void {
-  p._idx = this.pellets.length;
-  this.pellets.push(p);
-  this.pelletGrid.add(p);
-}
-
-/**
- * Removes a pellet from the world and from the pellet spatial hash.
- * @param p - Pellet to remove.
- */
-removePellet(p: Pellet): void {
-  if (!p) return;
-  this.pelletGrid.remove(p);
-  const idx = p._idx;
-  if (idx == null || idx < 0 || idx >= this.pellets.length) return;
-  const last = this.pellets.pop()!;
-  if (last !== p) {
-    this.pellets[idx] = last;
-    last._idx = idx;
+  _initPellets(): void {
+    this.pellets.length = 0;
+    this.pelletGrid.resetForCFG();
+    this._pelletSpawnAcc = 0;
+    while (this.pellets.length < CFG.pelletCountTarget) this.addPellet(this._spawnAmbientPellet());
   }
-  p._idx = -1;
-}
+
+  /**
+   * Adds a pellet to the world and to the pellet spatial hash.
+   * @param p - Pellet to add.
+   */
+  addPellet(p: Pellet): void {
+    p._idx = this.pellets.length;
+    this.pellets.push(p);
+    this.pelletGrid.add(p);
+  }
+
+  /**
+   * Removes a pellet from the world and from the pellet spatial hash.
+   * @param p - Pellet to remove.
+   */
+  removePellet(p: Pellet): void {
+    if (!p) return;
+    this.pelletGrid.remove(p);
+    const idx = p._idx;
+    if (idx == null || idx < 0 || idx >= this.pellets.length) return;
+    const last = this.pellets.pop()!;
+    if (last !== p) {
+      this.pellets[idx] = last;
+      last._idx = idx;
+    }
+    p._idx = -1;
+  }
 
   /**
    * Advances the simulation by dt seconds (scaled by simSpeed) and
@@ -548,7 +553,7 @@ removePellet(p: Pellet): void {
       const pts = s.points;
       // Add all segments
       for (let i = Math.max(1, skip); i < pts.length; i++) {
-        const p0 = pts[i-1];
+        const p0 = pts[i - 1];
         const p1 = pts[i];
         if (!p0 || !p1) continue;
         const mx = (p0.x + p1.x) * 0.5;
@@ -654,8 +659,12 @@ removePellet(p: Pellet): void {
       const effectiveR = CFG.worldRadius + CFG.observer.overviewExtraWorldMargin;
       const fit = Math.min(viewW, viewH) / (2 * effectiveR * CFG.observer.overviewPadding);
       const targetZoom = clamp(fit, 0.01, 2.0);
-      if (CFG.observer.snapZoomOutInOverview && this.zoom > targetZoom) this.zoom = targetZoom;
-      else this.zoom = lerp(this.zoom, targetZoom, CFG.observer.zoomLerpOverview);
+      // If zoom is at default 1.0 and we are in overview, snap to target immediately to avoid "zoom glide" on load
+      if (this.zoom === 1.0 || (CFG.observer.snapZoomOutInOverview && this.zoom > targetZoom)) {
+        this.zoom = targetZoom;
+      } else {
+        this.zoom = lerp(this.zoom, targetZoom, CFG.observer.zoomLerpOverview);
+      }
       return;
     }
     if (this.focusSnake && this.focusSnake.alive) {
@@ -690,24 +699,24 @@ removePellet(p: Pellet): void {
       let killedBy: Snake | null = null;
 
       const checkNeighbor = (otherS: Snake, idx: number) => {
-          if (collision) return; // Already found a collision for this snake
+        if (collision) return; // Already found a collision for this snake
 
-          if (otherS === s) return;
-          if (!otherS || !otherS.alive) return; // Guard against empty grid entries
+        if (otherS === s) return;
+        if (!otherS || !otherS.alive) return; // Guard against empty grid entries
 
-      const p = otherS.points;
-      if (idx >= p.length || idx <= 0) return; // Ensure valid segment indices
+        const p = otherS.points;
+        if (idx >= p.length || idx <= 0) return; // Ensure valid segment indices
 
-      const p0 = p[idx - 1];
-      const p1 = p[idx];
-      if (!p0 || !p1) return;
-      const dist2 = pointSegmentDist2(hx, hy, p0.x, p0.y, p1.x, p1.y);
-          // Effective radius
-          const thr = (s.radius + otherS.radius) * hitScale;
-          if (dist2 <= thr * thr) {
-             collision = true;
-             killedBy = otherS;
-          }
+        const p0 = p[idx - 1];
+        const p1 = p[idx];
+        if (!p0 || !p1) return;
+        const dist2 = pointSegmentDist2(hx, hy, p0.x, p0.y, p1.x, p1.y);
+        // Effective radius
+        const thr = (s.radius + otherS.radius) * hitScale;
+        if (dist2 <= thr * thr) {
+          collision = true;
+          killedBy = otherS;
+        }
       };
 
       // Query local and neighbor cells
@@ -758,7 +767,7 @@ removePellet(p: Pellet): void {
       if (fit > this.bestFitnessEver) this.bestFitnessEver = fit;
     }
     this.population.sort((a, b) => b.fitness - a.fitness);
-    
+
     // Record history
     const avgFit = this.population.reduce((sum, g) => sum + g.fitness, 0) / this.population.length;
     const minFit = this.population[this.population.length - 1]?.fitness ?? 0;
@@ -844,12 +853,12 @@ removePellet(p: Pellet): void {
   resurrect(genomeJSON: GenomeJSON): void {
     const genome = Genome.fromJSON(genomeJSON);
     // Create a new snake with a high ID to avoid collision
-    const id = 10000 + randInt(90000); 
+    const id = 10000 + randInt(90000);
     const snake = new Snake(id, genome, this.arch, { skin: 1 });
-    
+
     // Give it a distinct look (e.g. golden glow) if possible, or just standard
     snake.color = '#FFD700'; // Gold color to signify HoF status
-    
+
     this.snakes.push(snake);
     this.focusSnake = snake; // Auto-focus the resurrected snake
     this.viewMode = 'follow';
@@ -884,35 +893,35 @@ removePellet(p: Pellet): void {
   _spawnAmbientPellet(): Pellet {
     const r = CFG.worldRadius;
     const t = this.generationTime * 0.05; // Slow drift
-    
+
     // Attempt rejection sampling to find a "high density" spot
     // Limit retries to prevent performance impact
     for (let i = 0; i < 5; i++) {
-        // Random candidate in circle
-        const a = Math.random() * TAU;
-        const d = Math.sqrt(Math.random()) * r;
-        const x = Math.cos(a) * d;
-        const y = Math.sin(a) * d;
+      // Random candidate in circle
+      const a = Math.random() * TAU;
+      const d = Math.sqrt(Math.random()) * r;
+      const x = Math.cos(a) * d;
+      const y = Math.sin(a) * d;
 
-        // Interference Noise Function
-        // Overlap sine waves of different frequencies and phases
-        // Scale inputs to make features reasonable size relative to world radius
-        const s1 = 0.003; // Large features
-        const s2 = 0.01;  // Medium features
-        const s3 = 0.03; // Small details
+      // Interference Noise Function
+      // Overlap sine waves of different frequencies and phases
+      // Scale inputs to make features reasonable size relative to world radius
+      const s1 = 0.003; // Large features
+      const s2 = 0.01;  // Medium features
+      const s3 = 0.03; // Small details
 
-        let noise = 0;
-        noise += Math.sin(x * s1 + t) * Math.cos(y * s1 - t);
-        noise += Math.sin(x * s2 - t*1.5) * Math.cos(y * s2 + t*1.5) * 0.5;
-        noise += Math.sin(x * s3 + t*2) * 0.25;
+      let noise = 0;
+      noise += Math.sin(x * s1 + t) * Math.cos(y * s1 - t);
+      noise += Math.sin(x * s2 - t * 1.5) * Math.cos(y * s2 + t * 1.5) * 0.5;
+      noise += Math.sin(x * s3 + t * 2) * 0.25;
 
-        // Noise is roughly [-1.75, 1.75]. Map to [0, 1]
-        const norm = (noise + 1.75) / 3.5;
-        const prob = norm * norm * norm; // Contrast curve (cubed for sharper filaments)
+      // Noise is roughly [-1.75, 1.75]. Map to [0, 1]
+      const norm = (noise + 1.75) / 3.5;
+      const prob = norm * norm * norm; // Contrast curve (cubed for sharper filaments)
 
-        if (Math.random() < prob) {
-            return new Pellet(x, y, CFG.foodValue, null, "ambient", 0);
-        }
+      if (Math.random() < prob) {
+        return new Pellet(x, y, CFG.foodValue, null, "ambient", 0);
+      }
     }
 
     // Fallback: Uniform random if rejection failed (fills voids slightly)

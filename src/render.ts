@@ -295,7 +295,7 @@ export function drawGrid(
   viewH: number
 ): void {
   const step = 160;
-  
+
   // Lazy init the pattern once
   if (!bgPattern) {
     // Check for OffscreenCanvas support, fall back to simple canvas
@@ -307,7 +307,7 @@ export function drawGrid(
       bgCanvas.height = step;
     }
     const bx = bgCanvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
-    
+
     // Fill background (optional, but keep transparent for now)
     // Draw lines
     bx.strokeStyle = THEME.gridLine; // e.g. rgba(255,255,255,0.08)
@@ -320,7 +320,7 @@ export function drawGrid(
     bx.moveTo(0, 0);
     bx.lineTo(step, 0);
     bx.stroke();
-    
+
     // Create pattern from this tile
     bgPattern = ctx.createPattern(bgCanvas, 'repeat');
   }
@@ -334,7 +334,7 @@ export function drawGrid(
   // Ideally, we just fill the visible rect.
   // Use setTransform to draw in screen space? 
   // No, easier to draw in world space but large rect.
-  
+
   const halfWWorld = viewW / (2 * world.zoom);
   const halfHWorld = viewH / (2 * world.zoom);
   const left = world.cameraX - halfWWorld;
@@ -348,8 +348,8 @@ export function drawGrid(
   // So a fillRect of everything should align perfectly!
   // Just massive fill rect covering the view.
   // Add a bit of margin
-  ctx.fillRect(left - step, top - step, w + step*2, h + step*2);
-  
+  ctx.fillRect(left - step, top - step, w + step * 2, h + step * 2);
+
   ctx.restore();
 }
 
@@ -365,7 +365,7 @@ let bgCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, zoom: number): void {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  
+
   // Resolve Color
   // 0.0 = Default, 1.0 = Gold.
   const color = s.color || getSnakeColor(s.id, s.skin);
@@ -378,23 +378,23 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
   ctx.shadowBlur = s.radius * 1.6 * glowScale * boostGlow;
   ctx.shadowColor = color;
   ctx.strokeStyle = color;
-  
+
   const minPx = 2.1;
   const worldMin = minPx / Math.max(0.0001, zoom);
   ctx.lineWidth = Math.max(s.radius * 2 * (1 + speedGlow * 0.25), worldMin);
-  
+
   ctx.beginPath();
   const pts = s.pts;
   if (pts.length >= 2) {
-      const startX = pts[0] ?? s.x;
-      const startY = pts[1] ?? s.y;
-      ctx.moveTo(startX, startY);
-      for (let i = 2; i < pts.length; i+=2) {
-          const px = pts[i];
-          const py = pts[i + 1];
-          if (px === undefined || py === undefined) continue;
-          ctx.lineTo(px, py);
-      }
+    const startX = pts[0] ?? s.x;
+    const startY = pts[1] ?? s.y;
+    ctx.moveTo(startX, startY);
+    for (let i = 2; i < pts.length; i += 2) {
+      const px = pts[i];
+      const py = pts[i + 1];
+      if (px === undefined || py === undefined) continue;
+      ctx.lineTo(px, py);
+    }
   }
   ctx.stroke();
 
@@ -416,7 +416,7 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
   const ex = hx + cos * eyeForward;
   const ey = hy + sin * eyeForward;
   const eyeR = Math.max(1.2, s.radius * (s.skin === 2 ? 0.22 : 0.18));
-  
+
   if (s.skin === 2) {
     ctx.fillStyle = THEME.snakeRobotEye;
     ctx.shadowColor = THEME.snakeRobotGlow;
@@ -429,9 +429,9 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
   ctx.arc(ex + px * eyeOffset, ey + py * eyeOffset, eyeR, 0, TAU);
   ctx.arc(ex - px * eyeOffset, ey - py * eyeOffset, eyeR, 0, TAU);
   ctx.fill();
-  
+
   if (s.skin === 2) {
-      ctx.shadowBlur = 0;
+    ctx.shadowBlur = 0;
   }
 }
 
@@ -465,18 +465,18 @@ export function renderWorldStruct(
   ctx.clearRect(0, 0, viewW, viewH);
   ctx.save();
   ctx.translate(viewW / 2, viewH / 2);
-  // Header: Gen, TotalCount, AliveCount, CamX, CamY, Zoom
+  // Header: Gen, TotalCount, AliveCount, WorldRadius, CamX, CamY, Zoom
   let ptr = 0;
-  // Header: Gen, TotalCount, AliveCount, CamX, CamY, Zoom
   const gen = read(ptr++);
   const totalCount = read(ptr++);
   const aliveCount = read(ptr++) | 0;
+  const worldRadius = read(ptr++); // New
   const camX = read(ptr++);
   const camY = read(ptr++);
   const camZoom = read(ptr++);
   void gen;
   void totalCount;
-  
+
   const zoom = zoomOverride || camZoom || 1;
   const cX = camXOverride ?? camX ?? 0;
   const cY = camYOverride ?? camY ?? 0;
@@ -484,12 +484,19 @@ export function renderWorldStruct(
   ctx.scale(zoom, zoom);
   ctx.translate(-cX, -cY);
 
-  ptr = 6; // Skip header (3 original + 3 new)
-  
+  ptr = 7; // Skip header (7 floats)
+
   // Render starfield and grid (using efficient offscreen pattern)
   drawStarfield(ctx, { zoom, cameraX: cX, cameraY: cY }, viewW, viewH);
   drawGrid(ctx, { zoom, cameraX: cX, cameraY: cY }, viewW, viewH);
-  
+
+  // Arena boundary
+  ctx.strokeStyle = THEME.worldBorder;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, worldRadius, 0, TAU);
+  ctx.stroke();
+
   // Render Pellets FIRST (so snakes are on top)
   // But we need to skip snakes to find pellets?
   // We don't know snake byte size because point count varies.
@@ -502,10 +509,10 @@ export function renderWorldStruct(
   // Pass 1: Parse snakes, store in temp array, find Pellets start.
   // Pass 2: Draw Pellets.
   // Pass 3: Draw Snakes.
-  
+
   // Optimization: Render Pellets? Pellets are simple circles.
   // If we draw snakes first, pellets are hidden under them. Correct z-order is Pellets -> Snakes.
-  
+
   // We MUST scan snakes to find pellets.
   // Let's just scan and store pointers?
   const snakeMeta: SnakeMeta[] = [];
@@ -514,88 +521,88 @@ export function renderWorldStruct(
   // And loops 'world.snakes' but `if (!s.alive) continue;`.
   // So buffer ONLY contains alive snakes.
   // So we read 'AliveCount' blocks.
-  
+
   for (let i = 0; i < aliveCount; i++) {
-      const basePtr = ptr;
-      const id = read(ptr++);
-      const rad = read(ptr++);
-      const skin = read(ptr++);
-      const x = read(ptr++);
-      const y = read(ptr++);
-      const ang = read(ptr++);
-      const boost = read(ptr++);
-      const ptCount = read(ptr++) | 0; // Stored as float, but must be treated as an int for pointer math.
-      const pointsEnd = ptr + ptCount * 2;
-      if (pointsEnd > flt.length) break;
+    const basePtr = ptr;
+    const id = read(ptr++);
+    const rad = read(ptr++);
+    const skin = read(ptr++);
+    const x = read(ptr++);
+    const y = read(ptr++);
+    const ang = read(ptr++);
+    const boost = read(ptr++);
+    const ptCount = read(ptr++) | 0; // Stored as float, but must be treated as an int for pointer math.
+    const pointsEnd = ptr + ptCount * 2;
+    if (pointsEnd > flt.length) break;
 
-      const prev = snakeRenderCache.get(id);
-      let speed = 0;
-      if (prev) {
-        const dx = x - prev.x;
-        const dy = y - prev.y;
-        const inst = Math.hypot(dx, dy);
-        speed = prev.speed * 0.65 + inst * 0.35;
-      }
-      snakeRenderCache.set(id, { x, y, speed, seen: renderTick });
+    const prev = snakeRenderCache.get(id);
+    let speed = 0;
+    if (prev) {
+      const dx = x - prev.x;
+      const dy = y - prev.y;
+      const inst = Math.hypot(dx, dy);
+      speed = prev.speed * 0.65 + inst * 0.35;
+    }
+    snakeRenderCache.set(id, { x, y, speed, seen: renderTick });
 
-      snakeMeta.push({ basePtr, ptCount, id, rad, skin, x, y, ang, boost, speed });
-      ptr = pointsEnd;
+    snakeMeta.push({ basePtr, ptCount, id, rad, skin, x, y, ang, boost, speed });
+    ptr = pointsEnd;
   };
 
   for (const [id, data] of snakeRenderCache) {
     if (renderTick - data.seen > 120) snakeRenderCache.delete(id);
   }
-  
+
   // Now ptr is at Pellets Count
   const pelletCount = read(ptr++) | 0;
-  
+
   // Draw Pellets
   for (let i = 0; i < pelletCount; i++) {
-      if (ptr + 4 >= flt.length) break;
-      const px = read(ptr++);
-      const py = read(ptr++);
-      const pv = read(ptr++);
-      const type = read(ptr++);
-      const colorId = read(ptr++);
-      
-      // Draw pellet
-      // Can't use Pellet object.
-      // Inline drawing
-      let color: string | null = null;
-      let glow: string | null = null;
-      if (colorId > 0) {
-        color = hashColor(colorId * 17 + 3);
-        glow = color;
+    if (ptr + 4 >= flt.length) break;
+    const px = read(ptr++);
+    const py = read(ptr++);
+    const pv = read(ptr++);
+    const type = read(ptr++);
+    const colorId = read(ptr++);
+
+    // Draw pellet
+    // Can't use Pellet object.
+    // Inline drawing
+    let color: string | null = null;
+    let glow: string | null = null;
+    if (colorId > 0) {
+      color = hashColor(colorId * 17 + 3);
+      glow = color;
+    }
+
+    // Map Type to Color
+    // 0=Ambient, 1=CorpseBig, 2=CorpseSmall, 3=Boost
+    if (type === 0) {
+      if (!color) {
+        color = getPelletColor({ v: pv, kind: 'ambient' });
+        glow = getPelletGlow({ kind: 'ambient' });
       }
-      
-      // Map Type to Color
-      // 0=Ambient, 1=CorpseBig, 2=CorpseSmall, 3=Boost
-      if (type === 0) {
-           if (!color) {
-             color = getPelletColor({ v: pv, kind: 'ambient' });
-             glow = getPelletGlow({ kind: 'ambient' });
-           }
-      } else if (type === 1 || type === 2) {
-           if (!color) {
-             color = THEME.pelletCorpse;
-             glow = THEME.glowCorpse;
-           }
-      } else {
-           if (!color) {
-             color = THEME.pelletBoost;
-             glow = THEME.glowBoost;
-           }
+    } else if (type === 1 || type === 2) {
+      if (!color) {
+        color = THEME.pelletCorpse;
+        glow = THEME.glowCorpse;
       }
-      
-      const r = 2 + Math.sqrt(pv) * 2; // Approx radius logic
-      
-      ctx.fillStyle = color!;
-      ctx.shadowBlur = r * 1.5;
-      ctx.shadowColor = glow!;
-      ctx.beginPath();
-      ctx.arc(px, py, r, 0, TAU);
-      ctx.fill();
-      ctx.shadowBlur = 0;
+    } else {
+      if (!color) {
+        color = THEME.pelletBoost;
+        glow = THEME.glowBoost;
+      }
+    }
+
+    const r = 2 + Math.sqrt(pv) * 2; // Approx radius logic
+
+    ctx.fillStyle = color!;
+    ctx.shadowBlur = r * 1.5;
+    ctx.shadowColor = glow!;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, TAU);
+    ctx.fill();
+    ctx.shadowBlur = 0;
   }
 
   for (const meta of snakeMeta) {
@@ -609,38 +616,38 @@ export function renderWorldStruct(
     }
   }
   renderBoostParticles(ctx, dt);
-  
+
   // Draw Snakes
   for (const meta of snakeMeta) {
-      let p = meta.basePtr;
-      const id = read(p++);
-      const rad = read(p++);
-      const skin = read(p++);
-      const x = read(p++);
-      const y = read(p++);
-      const ang = read(p++);
-      const boost = read(p++);
-      const ptCount = read(p++) | 0;
-      
-      // Reconstruct points array wrapper
-      // We can't use subarray as points because it's [x,y,x,y].
-      // drawSnakeStruct expects [x,y,x,y] in 'pts' prop.
-      // We can pass the typed array subarray?
-      const pts = flt.subarray(p, p + ptCount * 2);
-      
-      const s: SnakeStruct = {
-          id,
-          radius: rad,
-          skin,
-          x,
-          y,
-          ang,
-          boost,
-          pts,
-          speed: meta.speed
-      };
-      
-      drawSnakeStruct(ctx, s, zoom);
+    let p = meta.basePtr;
+    const id = read(p++);
+    const rad = read(p++);
+    const skin = read(p++);
+    const x = read(p++);
+    const y = read(p++);
+    const ang = read(p++);
+    const boost = read(p++);
+    const ptCount = read(p++) | 0;
+
+    // Reconstruct points array wrapper
+    // We can't use subarray as points because it's [x,y,x,y].
+    // drawSnakeStruct expects [x,y,x,y] in 'pts' prop.
+    // We can pass the typed array subarray?
+    const pts = flt.subarray(p, p + ptCount * 2);
+
+    const s: SnakeStruct = {
+      id,
+      radius: rad,
+      skin,
+      x,
+      y,
+      ang,
+      boost,
+      pts,
+      speed: meta.speed
+    };
+
+    drawSnakeStruct(ctx, s, zoom);
   }
   ctx.restore();
 }
@@ -669,7 +676,7 @@ export function renderWorld(
 
   drawStarfield(ctx, world, viewW, viewH);
   drawGrid(ctx, world, viewW, viewH);
-  
+
   // Draw particles (before snakes/pellets or after? After usually looks better for additive, or before for transparency)
   // Let's draw before pellets so pellets are on top, or maybe particles on top?
   // Boost particles should be below snakes probably.
@@ -683,16 +690,16 @@ export function renderWorld(
     else if (kind === 'corpse_small') pr *= 1.10;
     else if (kind === 'corpse_big') pr *= 1.35;
     pr = clamp(pr, 1.1, 7.5);
-    
+
     // Glow for pellets
     ctx.shadowBlur = pr * 2.0;
     ctx.shadowColor = getPelletGlow(p);
-    
+
     ctx.fillStyle = getPelletColor(p);
     ctx.beginPath();
     ctx.arc(p.x, p.y, pr, 0, TAU);
     ctx.fill();
-    
+
     ctx.shadowBlur = 0; // Reset
   }
 

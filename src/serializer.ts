@@ -32,6 +32,7 @@ interface SerializablePellet {
 /** Minimal world shape for serialization. */
 interface SerializableWorld {
   generation: number;
+  worldRadius: number; // Added
   cameraX: number;
   cameraY: number;
   zoom: number;
@@ -53,7 +54,7 @@ export class WorldSerializer {
     void maxPointsPerSnake;
     void maxPellets;
   }
-  
+
   /**
    * Packs the world state for rendering.
    * @param world - World snapshot to serialize.
@@ -63,7 +64,7 @@ export class WorldSerializer {
     // 1. Calculate size
     let snakeFloats = 0;
     let aliveCount = 0;
-    
+
     for (const s of world.snakes) {
       if (s.alive) {
         aliveCount++;
@@ -72,37 +73,38 @@ export class WorldSerializer {
       }
     }
     const pelletFloats = 1 + world.pellets.length * 5; // count + x, y, val, type, colorId
-    
+
     // Total Bytes = (Headers + Snakes + Pellets) * 4
-    // Headers: Gen(1), TotalSnakes(1), AliveCount(1), CamX(1), CamY(1), CamZoom(1) = 6 floats
-    const totalBytes = (6 + snakeFloats + pelletFloats) * 4; 
+    // Headers: Gen(1), Total(1), Alive(1), Radius(1), CamX(1), CamY(1), CamZoom(1) = 7 floats
+    const totalBytes = (7 + snakeFloats + pelletFloats) * 4;
     const buffer = new Float32Array(totalBytes / 4);
     let ptr = 0;
-    
+
     // Global Header
     buffer[ptr++] = world.generation;
     buffer[ptr++] = world.snakes.length;
     buffer[ptr++] = aliveCount;
+    buffer[ptr++] = world.worldRadius; // New
     buffer[ptr++] = world.cameraX;
     buffer[ptr++] = world.cameraY;
     buffer[ptr++] = world.zoom;
-    
+
     // Snakes
     for (const s of world.snakes) {
       if (!s.alive) continue;
-      
+
       // Header: 8 floats
       buffer[ptr++] = s.id;
       buffer[ptr++] = s.radius;
       // Skin flag: 0=default, 1=gold, 2=robot
       // Prefer explicit skin property, fallback to legacy color check for gold.
       const skinVal = s.skin !== undefined ? s.skin : (s.color === '#FFD700' ? 1.0 : 0.0);
-      buffer[ptr++] = skinVal; 
+      buffer[ptr++] = skinVal;
       buffer[ptr++] = s.x;
       buffer[ptr++] = s.y;
       buffer[ptr++] = s.dir;
       buffer[ptr++] = s.boost ? 1.0 : 0.0;
-      
+
       const pts = s.points;
       buffer[ptr++] = pts.length; // Point Count
       for (let i = 0; i < pts.length; i++) {
@@ -111,7 +113,7 @@ export class WorldSerializer {
         buffer[ptr++] = pt ? pt.y : 0;
       }
     }
-    
+
     // Pellets
     buffer[ptr++] = world.pellets.length;
     for (let i = 0; i < world.pellets.length; i++) {
@@ -135,7 +137,7 @@ export class WorldSerializer {
       buffer[ptr++] = t;
       buffer[ptr++] = p.colorId || 0;
     }
-    
+
     return buffer;
   }
 }

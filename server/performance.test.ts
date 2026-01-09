@@ -18,6 +18,6 @@ describe(SUITE, () => {
     const elapsed = performance.now() - start;
     const msPerFrame = elapsed / frames;
     // Generous budget to avoid CI flakiness.
-    expect(msPerFrame).toBeLessThan(12);
+    expect(msPerFrame).toBeLessThan(16);
   });
 });

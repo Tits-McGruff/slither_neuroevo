@@ -9,6 +9,7 @@ describe(SUITE, () => {
   it('serializes header, snakes, and pellets into a flat buffer', () => {
     const world = {
       generation: 3,
+      worldRadius: 2400,
       cameraX: 12,
       cameraY: -8,
       zoom: 0.75,
@@ -58,6 +59,7 @@ describe(SUITE, () => {
     expect(buf[FRAME_HEADER_OFFSETS.generation]).toBe(3);
     expect(buf[FRAME_HEADER_OFFSETS.totalSnakes]).toBe(3);
     expect(buf[FRAME_HEADER_OFFSETS.aliveCount]).toBe(2);
+    expect(buf[FRAME_HEADER_OFFSETS.worldRadius]).toBe(2400);
     expect(buf[FRAME_HEADER_OFFSETS.cameraX]).toBe(12);
     expect(buf[FRAME_HEADER_OFFSETS.cameraY]).toBe(-8);
     expect(buf[FRAME_HEADER_OFFSETS.zoom]).toBe(0.75);
@@ -109,6 +111,7 @@ describe(SUITE, () => {
   it('serializes pellet colorId when provided', () => {
     const world = {
       generation: 1,
+      worldRadius: 2000,
       cameraX: 0,
       cameraY: 0,
       zoom: 1,
@@ -130,6 +133,7 @@ describe(SUITE, () => {
   it('serializes explicit skin property (robot)', () => {
     const world = {
       generation: 1,
+      worldRadius: 2000,
       cameraX: 0,
       cameraY: 0,
       zoom: 1,

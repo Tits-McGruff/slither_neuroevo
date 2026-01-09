@@ -3223,9 +3223,9 @@ type FrameSnakeSnapshot = { id: number; x: number; y: number; ptCount: number };
  * @returns Snapshot of the snake or null when none found.
  */
 function findSnakeInFrame(buffer: Float32Array, targetId: number | null): FrameSnakeSnapshot | null {
-  if (buffer.length < 6) return null;
+  if (buffer.length < 7) return null;
   const aliveCount = (buffer[2] ?? 0) | 0;
-  let ptr = 6;
+  let ptr = 7; // Header now 7 floats
   let first: FrameSnakeSnapshot | null = null;
   for (let i = 0; i < aliveCount; i++) {
     if (ptr + 7 >= buffer.length) break;
@@ -3521,7 +3521,7 @@ wsClient = createWsClient({
     setJoinOverlayVisible(true);
     setJoinStatus('Enter a nickname to play');
     updateJoinControls();
-    refreshSavedPresets().catch(() => {});
+    refreshSavedPresets().catch(() => { });
   },
   onDisconnected: () => {
     const hasWorker = !!worker;
@@ -3658,12 +3658,12 @@ function liveUpdateFromSlider(sliderEl: HTMLInputElement): void {
     persistBaselineBotSettings();
   }
   if (!worker) return;
-  worker.postMessage({ 
-    type: 'updateSettings', 
+  worker.postMessage({
+    type: 'updateSettings',
     updates: [{
       path: path as SettingsUpdate['path'],
       value
-    }] 
+    }]
   });
 }
 
@@ -3739,12 +3739,12 @@ function screenToWorld(screenX: number, screenY: number): { x: number; y: number
     camX = clientCamX;
     camY = clientCamY;
     zoom = clientZoom;
-  } else if (currentFrameBuffer && currentFrameBuffer.length >= 6) {
-    camX = currentFrameBuffer[3] ?? 0;
-    camY = currentFrameBuffer[4] ?? 0;
-    zoom = currentFrameBuffer[5] ?? 1;
+  } else if (currentFrameBuffer && currentFrameBuffer.length >= 7) {
+    camX = currentFrameBuffer[4] ?? 0;
+    camY = currentFrameBuffer[5] ?? 0;
+    zoom = currentFrameBuffer[6] ?? 1;
   }
-  
+
   const centerX = cssW / 2;
   const centerY = cssH / 2;
   const worldX = camX + (screenX - centerX) / zoom;
@@ -3761,14 +3761,14 @@ function screenToWorld(screenX: number, screenY: number): { x: number; y: number
  */
 function findSnakeNear(worldX: number, worldY: number, maxDist = 50): SelectedSnake | null {
   if (!currentFrameBuffer || currentFrameBuffer.length < 6) return null;
-  
+
   let ptr = 6; // Skip header
   const buffer = currentFrameBuffer;
   const read = (idx: number): number => buffer[idx] ?? 0;
   const aliveCount = read(2) | 0;
   let closestSnake = null;
   let closestDist = maxDist;
-  
+
   for (let i = 0; i < aliveCount; i++) {
     const ptCount = read(ptr + 7) | 0;
     const blockSize = 8 + ptCount * 2;
@@ -3778,16 +3778,16 @@ function findSnakeNear(worldX: number, worldY: number, maxDist = 50): SelectedSn
     const skin = read(ptr + 2);
     const x = read(ptr + 3);
     const y = read(ptr + 4);
-    
+
     const dist = Math.hypot(x - worldX, y - worldY);
     if (dist < closestDist && dist < radius + maxDist) {
       closestDist = dist;
       closestSnake = { id, x, y, radius, skin };
     }
-    
+
     ptr += blockSize;
   }
-  
+
   return closestSnake;
 }
 
@@ -3801,7 +3801,7 @@ canvas.addEventListener('click', (e) => {
   const screenX = e.clientX - rect.left;
   const screenY = e.clientY - rect.top;
   const world = screenToWorld(screenX, screenY);
-  
+
   const snake = findSnakeNear(world.x, world.y);
   if (snake) {
     selectedSnake = snake;
@@ -3821,12 +3821,12 @@ canvas.addEventListener('click', (e) => {
 canvas.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   if (isPlayerControlActive()) return;
-  
+
   const rect = canvas.getBoundingClientRect();
   const screenX = e.clientX - rect.left;
   const screenY = e.clientY - rect.top;
   const world = screenToWorld(screenX, screenY);
-  
+
   const snake = findSnakeNear(world.x, world.y);
   if (snake) {
     if (worker) {
@@ -3868,9 +3868,9 @@ canvas.addEventListener('mousemove', (e) => {
     const world = screenToWorld(screenX, screenY);
 
     if (worker) {
-      worker.postMessage({ 
-        type: 'godMode', 
-        action: 'move', 
+      worker.postMessage({
+        type: 'godMode',
+        action: 'move',
         snakeId: selectedSnake.id,
         x: world.x,
         y: world.y
@@ -4196,15 +4196,15 @@ if (btnImport && fileInput) {
 function frame(): void {
   // console.log("Frame loop running"); // Spammy
   if (currentFrameBuffer) {
-      if (connectionMode === 'server') {
-        updateClientCamera();
-        renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH, clientZoom, clientCamX, clientCamY);
-      } else {
-        // Camera/zoom come from the worker buffer; avoid local overrides here.
-        renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH);
-      }
+    if (connectionMode === 'server') {
+      updateClientCamera();
+      renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH, clientZoom, clientCamX, clientCamY);
+    } else {
+      // Camera/zoom come from the worker buffer; avoid local overrides here.
+      renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH);
+    }
   }
-  
+
   // Render active tab content
   if (activeTab === 'tab-viz') {
     ctxViz.clearRect(0, 0, vizCanvas.width, vizCanvas.height);
@@ -4220,10 +4220,10 @@ function frame(): void {
     // We can maintain history locally in proxyWorld?
     // proxyWorld needs specific structure for FitnessChart.
   }
-  
+
   // Updates UI overlay
   // ...
-  
+
   const aliveTotal = Number.isFinite(currentStats.aliveTotal)
     ? currentStats.aliveTotal
     : currentStats.alive;
@@ -4241,11 +4241,11 @@ function frame(): void {
     `<div class="stat-box"><span class="label">Baseline Bots</span><span class="val">${baselineBotsAlive}/${baselineBotsTotal}</span></div>` +
     `<div class="stat-box"><span class="label">Sim Speed</span><span class="val">${Math.round(currentStats.fps)} FPS</span></div>` +
     `<div class="note" style="margin-top: 10px; font-size: 11px;">${stepInfo}</div>`;
-  
+
   const statsEl = document.getElementById('statsInfo');
   if (statsEl && activeTab === 'tab-stats') {
     statsEl.innerHTML = statsInfoHtml;
-    
+
     // Render Advanced Charts
     if (statsCanvas) {
       statsCanvas.width = statsCanvas.clientWidth;
@@ -4259,7 +4259,7 @@ function frame(): void {
         AdvancedCharts.renderAverageFitness(ctxStats, fitnessHistory, statsCanvas.width, statsCanvas.height);
       }
     }
-    
+
     // Display God Mode Log
     const godModeLogEl = document.getElementById('godModeLog');
     if (godModeLogEl) {
@@ -4270,7 +4270,7 @@ function frame(): void {
       godModeLogEl.innerHTML = logHtml || '<div class="log-entry">No God Mode interactions yet</div>';
     }
   }
-  
+
   if (activeTab === 'tab-hof') {
     updateHoFTable(proxyWorld);
   }
@@ -4285,7 +4285,7 @@ function frame(): void {
 function updateHoFTable(world: ProxyWorld): void {
   const container = document.getElementById('hofTable');
   if (!container) return;
-  
+
   // Throttle updates?
   if (world.generation % 1 !== 0 && Math.random() > 0.1) return;
 
@@ -4299,7 +4299,7 @@ function updateHoFTable(world: ProxyWorld): void {
   list.forEach((entry: HallOfFameEntry, idx: number) => {
     html += `
       <div class="hof-item">
-        <span>#${idx+1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})</span>
+        <span>#${idx + 1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})</span>
         <button onclick="window.spawnHoF(${idx})">Spawn</button>
       </div>`;
   });
@@ -4307,7 +4307,7 @@ function updateHoFTable(world: ProxyWorld): void {
 }
 
 /** Expose global helper for HoF spawn buttons. */
-window.spawnHoF = function(idx) {
+window.spawnHoF = function (idx) {
   const list = hof.getAll();
   const entry = list[idx];
   if (entry && window.currentWorld) {
