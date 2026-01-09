@@ -256,9 +256,7 @@ async function handleRequest(
       return;
     }
 
-    body.hof.forEach((entry) => {
-      deps.persistence.saveHofEntry(entry);
-    });
+    deps.persistence.saveHofEntries(body.hof);
 
     sendJson(res, 200, { ok: true });
     return;

@@ -3322,7 +3322,7 @@ function applyResetToSimulation(resetCfg = true): void {
  * Handle messages arriving from the worker.
  * @param msg - Worker message payload.
  */
-function handleWorkerMessage(msg: WorkerToMainMessage): void {
+async function handleWorkerMessage(msg: WorkerToMainMessage): Promise<void> {
   switch (msg.type) {
     case 'exportResult': {
       pendingExport = false;
@@ -3339,7 +3339,7 @@ function handleWorkerMessage(msg: WorkerToMainMessage): void {
         graphSpec: customGraphSpec ?? null,
         settings,
         updates,
-        hof: hof.getAll()
+        hof: await hof.getAll()
       };
       exportToFile(exportData, `slither_neuroevo_gen${exportData.generation}.json`);
       return;
@@ -4108,7 +4108,7 @@ async function exportServerSnapshot(): Promise<void> {
       graphSpec: customGraphSpec ?? null,
       settings,
       updates,
-      hof: hof.getAll()
+      hof: await hof.getAll()
     };
     if (typeof exportData.cfgHash === 'string' && exportData.cfgHash.trim()) {
       payload.cfgHash = exportData.cfgHash;
@@ -4324,14 +4324,14 @@ function frame(): void {
  * Update the Hall of Fame table UI.
  * @param world - Proxy world providing current generation state.
  */
-function updateHoFTable(world: ProxyWorld): void {
+async function updateHoFTable(world: ProxyWorld): Promise<void> {
   const container = document.getElementById('hofTable');
   if (!container) return;
 
   // Throttle updates?
   if (world.generation % 1 !== 0 && Math.random() > 0.1) return;
 
-  const list = hof.getAll() as HallOfFameEntry[];
+  const list = await hof.getAll() as HallOfFameEntry[];
   if (!list.length) {
     container.innerHTML = '<div style="padding:10px; color:#aaa">No records yet.</div>';
     return;
@@ -4349,8 +4349,8 @@ function updateHoFTable(world: ProxyWorld): void {
 }
 
 /** Expose global helper for HoF spawn buttons. */
-window.spawnHoF = function (idx) {
-  const list = hof.getAll();
+window.spawnHoF = async function (idx) {
+  const list = await hof.getAll();
   const entry = list[idx];
   if (entry && window.currentWorld) {
     window.currentWorld.resurrect(entry.genome);

@@ -28,7 +28,7 @@ describe('hallOfFame.ts', () => {
     }
   });
 
-  it('adds entries sorted by fitness and trims to max', () => {
+  it('adds entries sorted by fitness and trims to max', async () => {
     const hof = new HallOfFame();
     hof.reset();
 
@@ -51,7 +51,7 @@ describe('hallOfFame.ts', () => {
     hof.add(makeEntry(2, 30));
     hof.add(makeEntry(3, 20));
 
-    const list = hof.getAll();
+    const list = await hof.getAll();
     expect(list.length).toBe(3);
     expect(list[0]).toBeDefined();
     expect(list[0]?.fitness).toBe(30);
@@ -72,8 +72,39 @@ describe('hallOfFame.ts', () => {
 
     const hof = new HallOfFame();
     await hof.load();
-    const list = hof.getAll();
-    expect(list.length).toBe(1);
+    const list = await hof.getAll();
     expect(list[0]?.fitness).toBe(99);
+  });
+
+  it('preserves entries added during async load initialization', async () => {
+    // Seed storage
+    const seed = [{
+      gen: 1,
+      fitness: 10,
+      seed: 1,
+      points: 0,
+      length: 0,
+      genome: { archKey: 'test', weights: [] }
+    }];
+    globalThis.localStorage.setItem('slither_neuroevo_hof', JSON.stringify(seed));
+
+    const hof = new HallOfFame();
+    const newEntry = {
+      gen: 2,
+      fitness: 20,
+      seed: 2,
+      points: 5,
+      length: 10,
+      genome: { archKey: 'test', weights: [] }
+    };
+
+    // Call add() immediately without awaiting constructor side-effect (though it doesn't return anything)
+    // In our new implementation, add() awaits initPromise internally.
+    await hof.add(newEntry);
+
+    const list = await hof.getAll();
+    expect(list.length).toBe(2);
+    expect(list[0]?.fitness).toBe(20); // Sorted descending
+    expect(list[1]?.fitness).toBe(10);
   });
 });

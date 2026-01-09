@@ -11,11 +11,13 @@ const MAX_HOF_ENTRIES = 50;
 export class HallOfFame {
   /** Ordered list of Hall of Fame entries. */
   entries: HallOfFameEntry[];
+  /** Promise tracking the initial load from persistence. */
+  private initPromise: Promise<void>;
 
   /** Create an empty Hall of Fame and load persisted entries. */
   constructor() {
     this.entries = [];
-    this.load();
+    this.initPromise = this.load();
   }
 
   /**
@@ -45,6 +47,7 @@ export class HallOfFame {
   }
 
   async add(snakeData: HallOfFameEntry): Promise<void> {
+    await this.initPromise;
     if (!snakeData || typeof snakeData.fitness === 'undefined') return;
 
     this.entries.push(snakeData);
@@ -63,7 +66,8 @@ export class HallOfFame {
   /**
    * Return a copy of the current entries.
    */
-  getAll(): HallOfFameEntry[] {
+  async getAll(): Promise<HallOfFameEntry[]> {
+    await this.initPromise;
     return [...this.entries];
   }
 
@@ -72,6 +76,7 @@ export class HallOfFame {
    * @param entries - New entries to store.
    */
   async replace(entries: HallOfFameEntry[]): Promise<void> {
+    await this.initPromise;
     if (!Array.isArray(entries)) return;
     this.entries = entries.filter((entry) => entry && typeof entry.fitness !== 'undefined');
     this.entries.sort((a, b) => (b.fitness || 0) - (a.fitness || 0));
@@ -83,6 +88,7 @@ export class HallOfFame {
    * Clear all history and persist the empty list.
    */
   async reset(): Promise<void> {
+    await this.initPromise;
     this.entries = [];
     await this.save();
   }
@@ -92,6 +98,7 @@ export class HallOfFame {
    * @param baseUrl - Server base URL.
    */
   async syncToServer(baseUrl: string): Promise<boolean> {
+    await this.initPromise;
     try {
       const resp = await fetch(`${baseUrl}/api/hof`, {
         method: 'POST',

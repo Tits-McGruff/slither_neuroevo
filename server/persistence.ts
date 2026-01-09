@@ -43,6 +43,7 @@ export interface GraphPresetPayload extends GraphPresetMeta {
 /** Persistence interface for snapshots, HoF entries, and graph presets. */
 export interface Persistence {
   saveHofEntry: (entry: HallOfFameEntry) => void;
+  saveHofEntries: (entries: HallOfFameEntry[]) => void;
   loadHofEntries: (limit: number) => HallOfFameEntry[];
   saveSnapshot: (payload: PopulationSnapshotPayload) => number;
   loadLatestSnapshot: () => PopulationSnapshotPayload | null;
@@ -66,7 +67,8 @@ CREATE TABLE IF NOT EXISTS hof_entries (
   fitness REAL,
   points REAL,
   length REAL,
-  genome_json TEXT
+  genome_json TEXT,
+  UNIQUE(gen, seed, fitness)
 );
 
 CREATE TABLE IF NOT EXISTS population_snapshots (
@@ -169,7 +171,7 @@ export function initDb(dbPath: string): DbType {
  */
 export function createPersistence(db: DbType): Persistence {
   const insertHof = db.prepare(
-    `INSERT INTO hof_entries (created_at, gen, seed, fitness, points, length, genome_json)
+    `INSERT OR IGNORE INTO hof_entries (created_at, gen, seed, fitness, points, length, genome_json)
      VALUES (@created_at, @gen, @seed, @fitness, @points, @length, @genome_json)`
   );
   const insertSnapshot = db.prepare(
@@ -213,6 +215,13 @@ export function createPersistence(db: DbType): Persistence {
       genome_json: JSON.stringify(entry.genome)
     });
   };
+
+  /** Persist multiple Hall of Fame entries in a transaction. */
+  const saveHofEntries = db.transaction((entries: HallOfFameEntry[]) => {
+    for (const entry of entries) {
+      saveHofEntry(entry);
+    }
+  });
 
   /** Load top Hall of Fame entries. */
   const loadHofEntries = (limit: number): HallOfFameEntry[] => {
@@ -350,6 +359,7 @@ export function createPersistence(db: DbType): Persistence {
 
   return {
     saveHofEntry,
+    saveHofEntries,
     loadHofEntries,
     saveSnapshot,
     loadLatestSnapshot,
