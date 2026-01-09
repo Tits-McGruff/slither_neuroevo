@@ -13,10 +13,10 @@ function parseJsonMessage(data: RawData): Record<string, unknown> | null {
     typeof data === 'string'
       ? data
       : Buffer.isBuffer(data)
-      ? data.toString('utf8')
-      : data instanceof ArrayBuffer
-      ? Buffer.from(data).toString('utf8')
-      : String(data ?? '');
+        ? data.toString('utf8')
+        : data instanceof ArrayBuffer
+          ? Buffer.from(data).toString('utf8')
+          : String(data ?? '');
   try {
     const parsed = JSON.parse(text) as unknown;
     if (!parsed || typeof parsed !== 'object') return null;
@@ -42,7 +42,7 @@ async function startServerWithGuard() {
     throw err;
   });
 
-  let cleanup = () => {};
+  let cleanup = () => { };
   const guard = new Promise<null>((resolve) => {
     const handler = (err: unknown) => {
       if (isEperm(err)) {
@@ -92,10 +92,10 @@ describe('server integration', () => {
               typeof data === 'string'
                 ? data
                 : Buffer.isBuffer(data)
-                ? data.toString('utf8')
-                : data instanceof ArrayBuffer
-                ? Buffer.from(data).toString('utf8')
-                : String(data ?? '');
+                  ? data.toString('utf8')
+                  : data instanceof ArrayBuffer
+                    ? Buffer.from(data).toString('utf8')
+                    : String(data ?? '');
             try {
               const msg = JSON.parse(text) as { type?: string };
               if (msg.type === 'welcome') seen.welcome = true;
@@ -152,25 +152,25 @@ describe('server integration', () => {
           if (isBinary) return;
           const msg = parseJsonMessage(data);
           if (!msg) return;
-          if (msg.type === 'welcome') {
-            const spec = msg.sensorSpec;
+          if (msg['type'] === 'welcome') {
+            const spec = msg['sensorSpec'];
             if (spec && typeof spec === 'object') {
-              sensorCount = typeof (spec as { sensorCount?: unknown }).sensorCount === 'number'
-                ? (spec as { sensorCount?: number }).sensorCount ?? 0
+              sensorCount = typeof (spec as { sensorCount?: unknown })['sensorCount'] === 'number'
+                ? (spec as { sensorCount?: number })['sensorCount'] ?? 0
                 : 0;
             }
           }
-          if (msg.type === 'assign') {
-            assignedId = typeof msg.snakeId === 'number' ? msg.snakeId : null;
+          if (msg['type'] === 'assign') {
+            assignedId = typeof msg['snakeId'] === 'number' ? msg['snakeId'] : null;
             return;
           }
-          if (msg.type === 'sensors') {
-            if (!assignedId || msg.snakeId !== assignedId) {
+          if (msg['type'] === 'sensors') {
+            if (!assignedId || msg['snakeId'] !== assignedId) {
               clearTimeout(timeout);
               reject(new Error('sensor snakeId mismatch'));
               return;
             }
-            if (sensorCount && Array.isArray(msg.sensors) && msg.sensors.length !== sensorCount) {
+            if (sensorCount && Array.isArray(msg['sensors']) && msg['sensors'].length !== sensorCount) {
               clearTimeout(timeout);
               reject(new Error('sensor length mismatch'));
               return;

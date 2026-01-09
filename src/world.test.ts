@@ -10,14 +10,14 @@ const SUITE = 'world.ts';
 describe(SUITE, () => {
     /** Baseline settings used to construct test worlds. */
     let settings: {
-      snakeCount: number;
-      hiddenLayers: number;
-      neurons1: number;
-      neurons2: number;
-      neurons3: number;
-      neurons4: number;
-      neurons5: number;
-      simSpeed: number;
+        snakeCount: number;
+        hiddenLayers: number;
+        neurons1: number;
+        neurons2: number;
+        neurons3: number;
+        neurons4: number;
+        neurons5: number;
+        simSpeed: number;
     };
 
     beforeEach(() => {
@@ -76,13 +76,13 @@ describe(SUITE, () => {
         const world = new World(settings);
         const p = new Pellet(10, 10, 1);
         world.addPellet(p);
-        
+
         let found = false;
         world.pelletGrid.forEachInRadius(10, 10, 5, (p2) => {
             if (p2 === p) found = true;
         });
         expect(found).toBe(true);
-        
+
         world.removePellet(p);
         found = false;
         world.pelletGrid.forEachInRadius(10, 10, 5, (p2) => {
@@ -95,9 +95,9 @@ describe(SUITE, () => {
         const world = new World(settings);
         const snake = world.snakes[0]!;
         const initialAge = snake.age;
-        
+
         world.update(0.1, 800, 600);
-        
+
         expect(snake.age).toBeGreaterThan(initialAge);
     });
 
@@ -105,11 +105,18 @@ describe(SUITE, () => {
         const world = new World(settings);
         const exportData = world.exportPopulation();
         exportData.generation = 5;
+        // Manually set some fitness values for determinism in this test
+        if (exportData.genomes[0]) exportData.genomes[0].fitness = 30;
+        if (exportData.genomes[1]) exportData.genomes[1].fitness = 20;
         const result = world.importPopulation(exportData);
         expect(result.ok).toBe(true);
         expect(world.generation).toBe(5);
         expect(world.snakes.length).toBe(settings.snakeCount);
         expect(world.fitnessHistory.length).toBe(0);
+        // Verify that the imported fitness values are reset to 0 in the new world
+        for (const g of world.population) {
+            expect(g.fitness).toBe(0);
+        }
     });
 
     it('keeps initial sensors and points finite after the first tick', () => {
@@ -196,6 +203,9 @@ describe(SUITE, () => {
             const botSnake = world.baselineBots[0]!;
             popSnake.pointsScore = 5;
             botSnake.pointsScore = 50;
+            // Move them far apart to avoid accidental collisions or kills
+            popSnake.x = -100; popSnake.y = -100;
+            botSnake.x = 100; botSnake.y = 100;
             world.update(0, 800, 600);
             expect(world.bestPointsThisGen).toBe(5);
             expect(world.bestPointsSnakeId).toBe(popSnake.id);

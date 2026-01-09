@@ -52,16 +52,14 @@ describe('hallOfFame.ts', () => {
     hof.add(makeEntry(3, 20));
 
     const list = hof.getAll();
+    expect(list.length).toBe(3);
     expect(list[0]).toBeDefined();
-    expect(list[1]).toBeDefined();
-    expect(list[2]).toBeDefined();
-    if (!list[0] || !list[1] || !list[2]) return;
-    expect(list[0].fitness).toBe(30);
-    expect(list[1].fitness).toBe(20);
-    expect(list[2].fitness).toBe(10);
+    expect(list[0]?.fitness).toBe(30);
+    expect(list[1]?.fitness).toBe(20);
+    expect(list[2]?.fitness).toBe(10);
   });
 
-  it('loads from localStorage when available', () => {
+  it('loads from localStorage when available', async () => {
     const seed = [{
       gen: 1,
       fitness: 99,
@@ -73,11 +71,9 @@ describe('hallOfFame.ts', () => {
     globalThis.localStorage.setItem('slither_neuroevo_hof', JSON.stringify(seed));
 
     const hof = new HallOfFame();
+    await hof.load();
     const list = hof.getAll();
     expect(list.length).toBe(1);
-    const first = list[0];
-    expect(first).toBeDefined();
-    if (!first) return;
-    expect(first.fitness).toBe(99);
+    expect(list[0]?.fitness).toBe(99);
   });
 });

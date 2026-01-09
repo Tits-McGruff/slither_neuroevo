@@ -13,10 +13,10 @@ function parseJsonMessage(data: RawData): Record<string, unknown> | null {
     typeof data === 'string'
       ? data
       : Buffer.isBuffer(data)
-      ? data.toString('utf8')
-      : data instanceof ArrayBuffer
-      ? Buffer.from(data).toString('utf8')
-      : String(data ?? '');
+        ? data.toString('utf8')
+        : data instanceof ArrayBuffer
+          ? Buffer.from(data).toString('utf8')
+          : String(data ?? '');
   try {
     const parsed = JSON.parse(text) as unknown;
     if (!parsed || typeof parsed !== 'object') return null;
@@ -42,7 +42,7 @@ async function startServerWithGuard() {
     throw err;
   });
 
-  let cleanup = () => {};
+  let cleanup = () => { };
   const guard = new Promise<null>((resolve) => {
     const handler = (err: unknown) => {
       if (isEperm(err)) {
@@ -81,7 +81,7 @@ describe('security: invalid WS payloads', () => {
           if (isBinary) return;
           const msg = parseJsonMessage(data);
           if (!msg) return;
-          if (msg.type === 'error') {
+          if (msg['type'] === 'error') {
             sawError = true;
             clearTimeout(timeout);
             resolve();
@@ -117,7 +117,7 @@ describe('security: invalid WS payloads', () => {
           if (isBinary) return;
           const msg = parseJsonMessage(data);
           if (!msg) return;
-          if (msg.type === 'error') {
+          if (msg['type'] === 'error') {
             sawError = true;
             clearTimeout(timeout);
             resolve();

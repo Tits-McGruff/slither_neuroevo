@@ -125,6 +125,16 @@ const idb = {
  * @returns Promise resolving to true on success.
  */
 export async function saveWithFallback(key: string, value: unknown): Promise<boolean> {
+  if (typeof localStorage === 'undefined') {
+    // If no localStorage, try IndexedDB directly if available
+    try {
+      if (typeof indexedDB === 'undefined') return false;
+      await idb.put(key, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   try {
     const json = JSON.stringify(value);
     localStorage.setItem(key, json);
@@ -155,12 +165,15 @@ export async function saveWithFallback(key: string, value: unknown): Promise<boo
  * @returns Promise resolving to parsed value or null.
  */
 export async function loadWithFallback(key: string): Promise<unknown | null> {
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw) return JSON.parse(raw);
-  } catch (err) {
-    console.warn(`Failed to read ${key} from localStorage, checking IndexedDB:`, err);
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) return JSON.parse(raw);
+    } catch (err) {
+      console.warn(`Failed to read ${key} from localStorage, checking IndexedDB:`, err);
+    }
   }
+  if (typeof indexedDB === 'undefined') return null;
   try {
     const data = await idb.get(key);
     // If data is a string (legacy/partial), try to parse it, but usually we put objects in IDB
@@ -202,6 +215,7 @@ export const Storage = {
    * @returns Parsed value or null when missing or invalid.
    */
   load(key: string): unknown | null {
+    if (typeof localStorage === 'undefined') return null;
     try {
       const json = localStorage.getItem(key);
       return json ? JSON.parse(json) : null;
@@ -221,20 +235,28 @@ export const Storage = {
    * @param key - Storage key to remove.
    */
   remove(key: string): void {
-    localStorage.removeItem(key);
-    void idb.remove(key).catch(() => { });
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(key);
+    }
+    if (typeof indexedDB !== 'undefined') {
+      void idb.remove(key).catch(() => { });
+    }
   },
 
   /**
    * Clears all slither-related data.
    */
   async clearAll(): Promise<void> {
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(BASELINE_BOT_SETTINGS_KEY);
-    localStorage.removeItem('slither_neuroevo_hof');
-    localStorage.removeItem('slither_neuroevo_graph_spec');
-    localStorage.removeItem('slither_server_url');
-    await idb.clear();
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(BASELINE_BOT_SETTINGS_KEY);
+      localStorage.removeItem('slither_neuroevo_hof');
+      localStorage.removeItem('slither_neuroevo_graph_spec');
+      localStorage.removeItem('slither_server_url');
+    }
+    if (typeof indexedDB !== 'undefined') {
+      await idb.clear();
+    }
   }
 };
 
