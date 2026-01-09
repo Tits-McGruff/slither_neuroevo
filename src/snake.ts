@@ -128,6 +128,20 @@ function computeSnakeRadiusByLen(len: number): number {
 }
 
 /**
+ * Computes a snake's turn rate (angular velocity) as a function of its length.
+ * Larger snakes turn slower, matching Slither.io physics where the turning
+ * circle expands more rapidly than girth.
+ */
+export function computeSnakeTurnRateByLen(len: number): number {
+  const denom = Math.max(1, CFG.snakeMaxLen - CFG.snakeStartLen);
+  const sn = clamp((len - CFG.snakeStartLen) / denom, 0, 1);
+  // Turn rate scales down by a factor of (1 + penalty * sn).
+  // At max length (sn=1), turn rate is base / (1 + snakeTurnPenalty).
+  const penalty = 1.0 + (CFG.snakeTurnPenalty ?? 1.5) * sn;
+  return CFG.snakeTurnRate / penalty;
+}
+
+/**
  * Represents an individual snake in the simulation.  Each snake has
  * position, direction, body segments, a brain and a genome from which
  * the brain is constructed.  Snakes manage their own growth, boosting
@@ -486,8 +500,8 @@ export class Snake {
     }
     this.boost = boostingNow;
     if (this.boost) {
-        // Emit boost particles
-        world.particles.spawnBoost(this.x, this.y, this.dir, this.color);
+      // Emit boost particles
+      world.particles.spawnBoost(this.x, this.y, this.dir, this.color);
     }
     const sn = this.sizeNorm();
     const baseNow = CFG.snakeBaseSpeed * (1 - CFG.snakeSizeSpeedPenalty * sn);
@@ -497,7 +511,8 @@ export class Snake {
     const boostNow = baseNow * (1 + Math.max(0, boostMultEff));
     const targetSpeed = this.boost ? boostNow : baseNow;
     this.speed = lerp(this.speed, targetSpeed, 1 - Math.exp(-dt * 6.5));
-    this.dir = angNorm(this.dir + this.turnInput * CFG.snakeTurnRate * dt);
+    const turnRate = computeSnakeTurnRateByLen(this.length());
+    this.dir = angNorm(this.dir + this.turnInput * turnRate * dt);
     this.x += Math.cos(this.dir) * this.speed * dt;
     this.y += Math.sin(this.dir) * this.speed * dt;
     const d = hypot(this.x, this.y);

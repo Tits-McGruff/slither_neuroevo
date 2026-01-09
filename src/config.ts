@@ -22,6 +22,8 @@ export const CFG_DEFAULT = {
   snakeMinLen: 8,
   snakeSizeSpeedPenalty: 0.18,
   snakeBoostSizePenalty: 0.28,
+  /** Multiplier for turn rate decay based on length. */
+  snakeTurnPenalty: 1.4,
   foodValue: 1.0,
   growPerFood: 1.0,
   generationSeconds: 55,
@@ -45,33 +47,33 @@ export const CFG_DEFAULT = {
     overviewExtraWorldMargin: 160
   },
   pelletGrid: {
-  // Spatial hash for pellets used by sensing and eating.
-  // Larger cells reduce bookkeeping, smaller cells reduce per-query scan.
-  cellSize: 120
-},
-sense: {
-  // 360° "bubble" sensing around the head.
-  // The bubble radius increases with snake length using the same zoom curve
-  // as the follow camera (larger snakes see farther).
-  bubbleBins: 12,
-  bubbleRadiusBase: 760,
-  bubbleRadiusMin: 420,
-  bubbleRadiusMax: 1700,
-  // Saturation constant for per-bin food accumulation.
-  bubbleFoodK: 4.0,
+    // Spatial hash for pellets used by sensing and eating.
+    // Larger cells reduce bookkeeping, smaller cells reduce per-query scan.
+    cellSize: 120
+  },
+  sense: {
+    // 360° "bubble" sensing around the head.
+    // The bubble radius increases with snake length using the same zoom curve
+    // as the follow camera (larger snakes see farther).
+    bubbleBins: 12,
+    bubbleRadiusBase: 760,
+    bubbleRadiusMin: 420,
+    bubbleRadiusMax: 1700,
+    // Saturation constant for per-bin food accumulation.
+    bubbleFoodK: 4.0,
 
-  // Caps on work per snake per tick when the local region is extremely dense.
-  // These apply to bubble food/hazard sensing.
-  maxPelletChecks: 900,
-  maxSegmentChecks: 2200,
+    // Caps on work per snake per tick when the local region is extremely dense.
+    // These apply to bubble food/hazard sensing.
+    maxPelletChecks: 900,
+    maxSegmentChecks: 2200,
 
-  // Legacy parameters retained for compatibility with older sensor code.
-  rayLen: 420,
-  coneOffset: 0.75,
-  coneHalfAngle: 0.42,
-  nearestPelletRadius: 900,
-  wallRayLen: 720
-},
+    // Legacy parameters retained for compatibility with older sensor code.
+    rayLen: 420,
+    coneOffset: 0.75,
+    coneHalfAngle: 0.42,
+    nearestPelletRadius: 900,
+    wallRayLen: 720
+  },
   // Brain configuration.
   // Input size is 5 + 3*bubbleBins as detailed in buildSensors.
   brain: {

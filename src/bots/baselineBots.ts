@@ -1,7 +1,7 @@
 import { CFG } from '../config.ts';
 import { clamp, TAU, angNorm } from '../utils.ts';
 import { createRng, hashSeed, type RandomSource, toUint32 } from '../rng.ts';
-import type { Snake } from '../snake.ts';
+import { Snake } from '../snake.ts';
 import type { World } from '../world.ts';
 
 /** Life stage threshold: Snakes below this length use the 'Small' survival strategy. */
@@ -482,12 +482,34 @@ export class BaselineBotManager {
 
       if (bestTarget) {
         const oh = bestTarget.head();
-        const angleTo = Math.atan2(oh.y - myHead.y, oh.x - myHead.x);
-        // Map the absolute world angle to a relative range [-PI, PI] for the scoring system.
-        huntBiasAngle = angNorm(angleTo - snake.dir);
+        const dx = oh.x - myHead.x;
+        const dy = oh.y - myHead.y;
+        const angleTo = Math.atan2(dy, dx);
 
-        const HUNT_INTENSITY = 0.8;
-        huntStrength = HUNT_INTENSITY;
+        // Size-based tactics:
+        // If we are significantly longer than the target, try to encircle.
+        // Otherwise, try to cut them off (aim ahead).
+        const ENCIRCLE_RATIO = 2.5;
+        const myLen = snake.length();
+        const otherLen = bestTarget.length();
+
+        if (myLen > otherLen * ENCIRCLE_RATIO && myLen > 50) {
+          // ENCIRCLE: Aim for a point that orbits the target.
+          // To "close in", we aim slightly towards the target from the tangent.
+          const orbitAngle = angleTo + Math.PI / 2; // tangent
+          const inwardBias = 0.4; // Aim 20-30 degrees inward to tighten the circle
+          const targetWorldAngle = orbitAngle - inwardBias;
+          huntBiasAngle = angNorm(targetWorldAngle - snake.dir);
+          huntStrength = 1.0;
+        } else {
+          // CUTOFF: Aim ahead of the target's current heading.
+          const leadFactor = 0.5;
+          const leadX = oh.x + Math.cos(bestTarget.dir) * bestTarget.speed * leadFactor;
+          const leadY = oh.y + Math.sin(bestTarget.dir) * bestTarget.speed * leadFactor;
+          const leadAngle = Math.atan2(leadY - myHead.y, leadX - myHead.x);
+          huntBiasAngle = angNorm(leadAngle - snake.dir);
+          huntStrength = 0.8;
+        }
         state = 'seek';
       }
     }
@@ -506,8 +528,8 @@ export class BaselineBotManager {
         if (huntStrength <= 0) return 0;
         const diff = Math.abs(angNorm(binAngle - huntBiasAngle));
         // Falloff the hunt bias as the bin angle diverges from the target angle.
-        const HUNTER_BIAS_FALLOFF_RAD = 1.0;
-        return diff < HUNTER_BIAS_FALLOFF_RAD ? huntStrength * (1.0 - diff) : 0;
+        const HUNTER_BIAS_FALLOFF_RAD = 1.2;
+        return diff < HUNTER_BIAS_FALLOFF_RAD ? huntStrength * (1.0 - diff / HUNTER_BIAS_FALLOFF_RAD) : 0;
       }
     );
 
@@ -732,6 +754,7 @@ export class BaselineBotManager {
     let anyNonVeto = false;
 
     for (let i = 0; i < bins; i++) {
+      const angle = binIndexToAngle(i, bins);
       const rawFood = sensors[foodOffset + i] ?? -1;
       const food = Math.min(rawFood, foodClamp);
       const hazard = sensors[hazardOffset + i] ?? -1;
@@ -746,8 +769,21 @@ export class BaselineBotManager {
       let score = food * foodWeight + clearance * clearWeight;
 
       if (biasFn) {
-        const angle = binIndexToAngle(i, bins);
         score += biasFn(angle);
+      }
+
+      // Turn Feasibility Penalty:
+      // If a target (implied by high food or bias) is at a sharp angle but very close,
+      // it might be inside our turning circle.
+      // We check if the 'clearance' suggests something is close and at an angle
+      // we can't easily hit.
+      // Note: This is an approximation since we don't know the exact distance of pellets here,
+      // but we can penalize extreme side-angles if the clearance is low.
+      if (Math.abs(angle) > Math.PI / 4 && clearance < 0.2) {
+        const sideRisk = (Math.abs(angle) - Math.PI / 4) / (Math.PI / 2);
+        const proximityRisk = clamp(1.0 - clearance, 0, 1);
+        // Penalty scale based on how much "outside" our turn radius we'd need to be
+        score -= sideRisk * proximityRisk * 50.0;
       }
 
       // Safety Veto (Safe Harbor Retreat):
