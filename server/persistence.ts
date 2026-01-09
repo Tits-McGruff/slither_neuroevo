@@ -43,6 +43,8 @@ export interface GraphPresetPayload extends GraphPresetMeta {
 /** Persistence interface for snapshots, HoF entries, and graph presets. */
 export interface Persistence {
   saveHofEntry: (entry: HallOfFameEntry) => void;
+  saveHofEntries: (entries: HallOfFameEntry[]) => void;
+  loadHofEntries: (limit: number) => HallOfFameEntry[];
   saveSnapshot: (payload: PopulationSnapshotPayload) => number;
   loadLatestSnapshot: () => PopulationSnapshotPayload | null;
   listSnapshots: (limit: number) => SnapshotMeta[];
@@ -65,7 +67,8 @@ CREATE TABLE IF NOT EXISTS hof_entries (
   fitness REAL,
   points REAL,
   length REAL,
-  genome_json TEXT
+  genome_json TEXT,
+  UNIQUE(gen, seed, fitness)
 );
 
 CREATE TABLE IF NOT EXISTS population_snapshots (
@@ -168,7 +171,7 @@ export function initDb(dbPath: string): DbType {
  */
 export function createPersistence(db: DbType): Persistence {
   const insertHof = db.prepare(
-    `INSERT INTO hof_entries (created_at, gen, seed, fitness, points, length, genome_json)
+    `INSERT OR IGNORE INTO hof_entries (created_at, gen, seed, fitness, points, length, genome_json)
      VALUES (@created_at, @gen, @seed, @fitness, @points, @length, @genome_json)`
   );
   const insertSnapshot = db.prepare(
@@ -194,6 +197,9 @@ export function createPersistence(db: DbType): Persistence {
   const loadGraphPresetStmt = db.prepare(
     `SELECT id, created_at, name, spec_json FROM graph_presets WHERE id = ?`
   );
+  const listHofStmt = db.prepare(
+    `SELECT gen, seed, fitness, points, length, genome_json FROM hof_entries ORDER BY fitness DESC LIMIT ?`
+  );
 
   /** Persist a Hall of Fame entry. */
   const saveHofEntry = (entry: HallOfFameEntry): void => {
@@ -208,6 +214,33 @@ export function createPersistence(db: DbType): Persistence {
       length: entry.length,
       genome_json: JSON.stringify(entry.genome)
     });
+  };
+
+  /** Persist multiple Hall of Fame entries in a transaction. */
+  const saveHofEntries = db.transaction((entries: HallOfFameEntry[]) => {
+    for (const entry of entries) {
+      saveHofEntry(entry);
+    }
+  });
+
+  /** Load top Hall of Fame entries. */
+  const loadHofEntries = (limit: number): HallOfFameEntry[] => {
+    const rows = listHofStmt.all(limit) as Array<{
+      gen: number;
+      seed: number;
+      fitness: number;
+      points: number;
+      length: number;
+      genome_json: string;
+    }>;
+    return rows.map(row => ({
+      gen: row.gen,
+      seed: row.seed,
+      fitness: row.fitness,
+      points: row.points,
+      length: row.length,
+      genome: JSON.parse(row.genome_json)
+    }));
   };
 
   /** Persist a population snapshot and return its id. */
@@ -326,6 +359,8 @@ export function createPersistence(db: DbType): Persistence {
 
   return {
     saveHofEntry,
+    saveHofEntries,
+    loadHofEntries,
     saveSnapshot,
     loadLatestSnapshot,
     listSnapshots,

@@ -847,7 +847,7 @@ export class World {
         length: bestS.length(),
         genome: bestG.toJSON() // Persist the genome data
       };
-      hof.add(hofEntry);
+      void hof.add(hofEntry);
       this._lastHoFEntry = hofEntry;
     }
 

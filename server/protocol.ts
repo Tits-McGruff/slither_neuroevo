@@ -273,7 +273,7 @@ function isCoreSettings(value: unknown): value is Partial<CoreSettings> {
 function isSettingsUpdate(value: unknown): value is SettingsUpdate {
   if (!isRecord(value)) return false;
   if (typeof value['path'] !== 'string') return false;
-  if (!SETTINGS_PATH_SET.has(value['path'])) return false;
+  if (!SETTINGS_PATH_SET.has(value['path'] as import('../src/protocol/settings.ts').SettingsPath)) return false;
   if (!isFiniteNumber(value['value'])) return false;
   return true;
 }

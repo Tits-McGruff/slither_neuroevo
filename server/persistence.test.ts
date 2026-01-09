@@ -76,4 +76,26 @@ describe(SUITE, () => {
     expect(loaded?.name).toBe('Unit test preset');
     expect(loaded?.spec).toEqual(spec);
   });
+
+  it('deduplicates HoF entries based on gen, seed, and fitness', () => {
+    const db = initDb(':memory:');
+    const persistence = createPersistence(db);
+    const entry = {
+      gen: 5,
+      seed: 123,
+      fitness: 100.5,
+      points: 10,
+      length: 50,
+      genome: { archKey: 'test', weights: [1, 2, 3] }
+    };
+
+    persistence.saveHofEntry(entry);
+    persistence.saveHofEntry(entry); // Duplicate
+    persistence.saveHofEntries([entry, entry]); // More duplicates in bulk
+
+    const list = persistence.loadHofEntries(10);
+    expect(list.length).toBe(1);
+    expect(list[0]?.gen).toBe(5);
+    expect(list[0]?.fitness).toBe(100.5);
+  });
 });

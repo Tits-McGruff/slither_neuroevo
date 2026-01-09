@@ -18,6 +18,7 @@ import {
   importFromFile,
   loadBaselineBotSettings,
   saveBaselineBotSettings,
+  savePopulationJSON,
   type PopulationFilePayload
 } from './storage.ts';
 import { hof } from './hallOfFame.ts';
@@ -3321,7 +3322,7 @@ function applyResetToSimulation(resetCfg = true): void {
  * Handle messages arriving from the worker.
  * @param msg - Worker message payload.
  */
-function handleWorkerMessage(msg: WorkerToMainMessage): void {
+async function handleWorkerMessage(msg: WorkerToMainMessage): Promise<void> {
   switch (msg.type) {
     case 'exportResult': {
       pendingExport = false;
@@ -3338,7 +3339,7 @@ function handleWorkerMessage(msg: WorkerToMainMessage): void {
         graphSpec: customGraphSpec ?? null,
         settings,
         updates,
-        hof: hof.getAll()
+        hof: await hof.getAll()
       };
       exportToFile(exportData, `slither_neuroevo_gen${exportData.generation}.json`);
       return;
@@ -3523,6 +3524,10 @@ wsClient = createWsClient({
     setJoinStatus('Enter a nickname to play');
     updateJoinControls();
     refreshSavedPresets().catch(() => { });
+    const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+    if (base) {
+      hof.loadFromServer(base).catch(err => console.warn('HoF load failed', err));
+    }
   },
   onDisconnected: () => {
     const hasWorker = !!worker;
@@ -3610,7 +3615,12 @@ wsClient = createWsClient({
       currentVizData = normalizeVizData(msg.viz);
     }
     if (msg.hofEntry) {
-      hof.add(msg.hofEntry);
+      void hof.add(msg.hofEntry).then(() => {
+        if (connectionMode === 'server') {
+          const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+          if (base) void hof.syncToServer(base);
+        }
+      });
     }
   },
   onAssign: (msg) => {
@@ -4099,7 +4109,7 @@ async function exportServerSnapshot(): Promise<void> {
       graphSpec: customGraphSpec ?? null,
       settings,
       updates,
-      hof: hof.getAll()
+      hof: await hof.getAll()
     };
     if (typeof exportData.cfgHash === 'string' && exportData.cfgHash.trim()) {
       payload.cfgHash = exportData.cfgHash;
@@ -4156,7 +4166,7 @@ if (btnImport && fileInput) {
         throw new Error('Invalid import file: missing genomes array.');
       }
       if (Array.isArray(data.hof)) {
-        hof.replace(data.hof);
+        await hof.replace(data.hof);
       }
       const hasGraphSpecField = Object.prototype.hasOwnProperty.call(data, 'graphSpec');
       const fileGraphSpec = hasGraphSpecField ? (data.graphSpec ?? null) : undefined;
@@ -4201,11 +4211,9 @@ if (btnImport && fileInput) {
         applyResetToSimulation(true);
       }
       let persistWarning = '';
-      try {
-        localStorage.setItem('slither_neuroevo_pop', JSON.stringify({ generation: data.generation, genomes: data.genomes }));
-      } catch (err) {
-        console.warn('Population persistence failed', err);
-        persistWarning = 'Import succeeded, but local storage quota was exceeded so it will not persist after reload.';
+      const ok = await savePopulationJSON(data.generation, data.genomes);
+      if (!ok) {
+        persistWarning = 'Import succeeded, but persistence failed (quota exceeded). It will not persist after reload.';
       }
       worker.postMessage({ type: 'import', data });
       if (persistWarning) {
@@ -4317,14 +4325,14 @@ function frame(): void {
  * Update the Hall of Fame table UI.
  * @param world - Proxy world providing current generation state.
  */
-function updateHoFTable(world: ProxyWorld): void {
+async function updateHoFTable(world: ProxyWorld): Promise<void> {
   const container = document.getElementById('hofTable');
   if (!container) return;
 
   // Throttle updates?
   if (world.generation % 1 !== 0 && Math.random() > 0.1) return;
 
-  const list = hof.getAll() as HallOfFameEntry[];
+  const list = await hof.getAll() as HallOfFameEntry[];
   if (!list.length) {
     container.innerHTML = '<div style="padding:10px; color:#aaa">No records yet.</div>';
     return;
@@ -4342,8 +4350,8 @@ function updateHoFTable(world: ProxyWorld): void {
 }
 
 /** Expose global helper for HoF spawn buttons. */
-window.spawnHoF = function (idx) {
-  const list = hof.getAll();
+window.spawnHoF = async function (idx) {
+  const list = await hof.getAll();
   const entry = list[idx];
   if (entry && window.currentWorld) {
     window.currentWorld.resurrect(entry.genome);
