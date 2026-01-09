@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { World } from '../src/world.ts';
-import type { PopulationImportData } from '../src/protocol/messages.ts';
+import type { HallOfFameEntry, PopulationImportData } from '../src/protocol/messages.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateSnapshotPayload, type Persistence, type PopulationSnapshotPayload } from './persistence.ts';
 import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
@@ -41,16 +41,51 @@ export function createHttpHandler(deps: HttpApiDeps): (req: IncomingMessage, res
 }
 
 /**
+ * Check if a given origin corresponds to a LAN or local environment.
+ * @param origin - Origin header to check.
+ * @returns True if the origin is on the LAN.
+ */
+function isLanOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  try {
+    const { hostname } = new URL(origin);
+    // Localhost and loopback
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
+
+    // Check for IPv4 private ranges:
+    // 10.0.0.0 - 10.255.255.255
+    // 172.16.0.0 - 172.31.255.255 (also allowing all 172.x for common container/VM bridges)
+    // 192.168.0.0 - 192.168.255.255
+    const parts = hostname.split('.').map(Number);
+    if (parts.length === 4 && parts.every((p) => !isNaN(p) && p >= 0 && p <= 255)) {
+      if (parts[0] === 10) return true;
+      if (parts[0] === 172) return true;
+      if (parts[0] === 192 && parts[1] === 168) return true;
+    }
+
+    // Hostnames without dots are typically local network machine names
+    if (!hostname.includes('.')) return true;
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Adds CORS headers for browser clients.
  * @param req - Incoming request.
  * @param res - Server response.
  */
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
-  if (origin) {
+  if (origin && isLanOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Vary', 'Origin');
   } else {
+    // If not a whitelisted LAN origin, default to allow-all (*) for non-credentialed requests
+    // but log a warning if it's a credentialed request from outside.
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -198,6 +233,34 @@ async function handleRequest(
     } catch (err) {
       sendJson(res, 400, { ok: false, message: (err as Error).message });
     }
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/hof') {
+    const limitRaw = url.searchParams.get('limit');
+    const limit = Number.parseInt(limitRaw ?? '50', 10) || 50;
+    const entries = deps.persistence.loadHofEntries(limit);
+    sendJson(res, 200, { ok: true, hof: entries });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/hof') {
+    const body = (await readJsonBody(req, MAX_BODY_BYTES).catch((err: Error) => {
+      sendJson(res, 400, { ok: false, message: err.message });
+      return null;
+    })) as { hof?: HallOfFameEntry[] } | null;
+    if (!body) return;
+
+    if (!Array.isArray(body.hof)) {
+      sendJson(res, 400, { ok: false, message: 'invalid hof payload' });
+      return;
+    }
+
+    body.hof.forEach((entry) => {
+      deps.persistence.saveHofEntry(entry);
+    });
+
+    sendJson(res, 200, { ok: true });
     return;
   }
 

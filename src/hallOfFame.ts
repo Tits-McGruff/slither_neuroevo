@@ -1,24 +1,11 @@
-/** Manages the Hall of Fame registry of top-performing snakes. */
-
 import type { HallOfFameEntry } from './protocol/messages.ts';
+import { saveWithFallback, loadWithFallback } from './storage.ts';
 
 /** Local storage key for Hall of Fame persistence. */
 const HOF_STORAGE_KEY = 'slither_neuroevo_hof';
 /** Maximum number of Hall of Fame entries to keep. */
 const MAX_HOF_ENTRIES = 50;
 
-/**
- * Resolve browser localStorage if available.
- * @returns Storage instance or null when unavailable.
- */
-function getStorage(): Storage | null {
-  if (typeof globalThis === 'undefined') return null;
-  try {
-    return globalThis.localStorage || null;
-  } catch {
-    return null;
-  }
-}
 
 /** Persistent Hall of Fame registry with localStorage backing. */
 export class HallOfFame {
@@ -32,15 +19,13 @@ export class HallOfFame {
   }
 
   /**
-   * Load entries from local storage.
+   * Load entries from local storage with IndexedDB fallback.
    */
-  load(): void {
-    const storage = getStorage();
-    if (!storage) return;
+  async load(): Promise<void> {
     try {
-      const raw = storage.getItem(HOF_STORAGE_KEY);
-      if (raw) {
-        this.entries = JSON.parse(raw) as HallOfFameEntry[];
+      const data = await loadWithFallback(HOF_STORAGE_KEY) as HallOfFameEntry[] | null;
+      if (data) {
+        this.entries = data.filter((entry) => entry && typeof entry.fitness === 'number');
       }
     } catch (err) {
       console.error('Failed to load HoF', err);
@@ -49,36 +34,30 @@ export class HallOfFame {
   }
 
   /**
-   * Save entries to local storage.
+   * Save entries to local storage with IndexedDB fallback.
    */
-  save(): void {
-    const storage = getStorage();
-    if (!storage) return;
+  async save(): Promise<void> {
     try {
-      storage.setItem(HOF_STORAGE_KEY, JSON.stringify(this.entries));
+      await saveWithFallback(HOF_STORAGE_KEY, this.entries);
     } catch (err) {
       console.error('Failed to save HoF', err);
     }
   }
 
-  /**
-   * Add a candidate entry and keep the top performers by fitness.
-   * @param snakeData - Hall of Fame entry to consider.
-   */
-  add(snakeData: HallOfFameEntry): void {
-    if (!snakeData || typeof snakeData.fitness !== 'number') return;
+  async add(snakeData: HallOfFameEntry): Promise<void> {
+    if (!snakeData || typeof snakeData.fitness === 'undefined') return;
 
     this.entries.push(snakeData);
-    
+
     // Sort descending by fitness
-    this.entries.sort((a, b) => b.fitness - a.fitness);
+    this.entries.sort((a, b) => (b.fitness || 0) - (a.fitness || 0));
 
     // Trim to max size
     if (this.entries.length > MAX_HOF_ENTRIES) {
       this.entries.length = MAX_HOF_ENTRIES;
     }
-    
-    this.save();
+
+    await this.save();
   }
 
   /**
@@ -92,20 +71,58 @@ export class HallOfFame {
    * Replace entries with a new set and persist them.
    * @param entries - New entries to store.
    */
-  replace(entries: HallOfFameEntry[]): void {
+  async replace(entries: HallOfFameEntry[]): Promise<void> {
     if (!Array.isArray(entries)) return;
-    this.entries = entries.filter((entry) => entry && typeof entry.fitness === 'number');
-    this.entries.sort((a, b) => b.fitness - a.fitness);
+    this.entries = entries.filter((entry) => entry && typeof entry.fitness !== 'undefined');
+    this.entries.sort((a, b) => (b.fitness || 0) - (a.fitness || 0));
     if (this.entries.length > MAX_HOF_ENTRIES) this.entries.length = MAX_HOF_ENTRIES;
-    this.save();
+    await this.save();
   }
 
   /**
    * Clear all history and persist the empty list.
    */
-  reset(): void {
+  async reset(): Promise<void> {
     this.entries = [];
-    this.save();
+    await this.save();
+  }
+
+  /**
+   * Sync Hall of Fame with the server if in server mode.
+   * @param baseUrl - Server base URL.
+   */
+  async syncToServer(baseUrl: string): Promise<boolean> {
+    try {
+      const resp = await fetch(`${baseUrl}/api/hof`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hof: this.entries })
+      });
+      return resp.ok;
+    } catch (err) {
+      console.warn('Failed to sync HoF to server', err);
+      return false;
+    }
+  }
+
+  /**
+   * Load Hall of Fame from the server if in server mode.
+   * @param baseUrl - Server base URL.
+   */
+  async loadFromServer(baseUrl: string): Promise<boolean> {
+    try {
+      const resp = await fetch(`${baseUrl}/api/hof`);
+      if (!resp.ok) return false;
+      const data = (await resp.json()) as { hof: HallOfFameEntry[] };
+      if (Array.isArray(data.hof)) {
+        await this.replace(data.hof);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.warn('Failed to load HoF from server', err);
+      return false;
+    }
   }
 }
 

@@ -43,6 +43,7 @@ export interface GraphPresetPayload extends GraphPresetMeta {
 /** Persistence interface for snapshots, HoF entries, and graph presets. */
 export interface Persistence {
   saveHofEntry: (entry: HallOfFameEntry) => void;
+  loadHofEntries: (limit: number) => HallOfFameEntry[];
   saveSnapshot: (payload: PopulationSnapshotPayload) => number;
   loadLatestSnapshot: () => PopulationSnapshotPayload | null;
   listSnapshots: (limit: number) => SnapshotMeta[];
@@ -194,6 +195,9 @@ export function createPersistence(db: DbType): Persistence {
   const loadGraphPresetStmt = db.prepare(
     `SELECT id, created_at, name, spec_json FROM graph_presets WHERE id = ?`
   );
+  const listHofStmt = db.prepare(
+    `SELECT gen, seed, fitness, points, length, genome_json FROM hof_entries ORDER BY fitness DESC LIMIT ?`
+  );
 
   /** Persist a Hall of Fame entry. */
   const saveHofEntry = (entry: HallOfFameEntry): void => {
@@ -208,6 +212,26 @@ export function createPersistence(db: DbType): Persistence {
       length: entry.length,
       genome_json: JSON.stringify(entry.genome)
     });
+  };
+
+  /** Load top Hall of Fame entries. */
+  const loadHofEntries = (limit: number): HallOfFameEntry[] => {
+    const rows = listHofStmt.all(limit) as Array<{
+      gen: number;
+      seed: number;
+      fitness: number;
+      points: number;
+      length: number;
+      genome_json: string;
+    }>;
+    return rows.map(row => ({
+      gen: row.gen,
+      seed: row.seed,
+      fitness: row.fitness,
+      points: row.points,
+      length: row.length,
+      genome: JSON.parse(row.genome_json)
+    }));
   };
 
   /** Persist a population snapshot and return its id. */
@@ -326,6 +350,7 @@ export function createPersistence(db: DbType): Persistence {
 
   return {
     saveHofEntry,
+    loadHofEntries,
     saveSnapshot,
     loadLatestSnapshot,
     listSnapshots,

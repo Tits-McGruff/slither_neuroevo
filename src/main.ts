@@ -18,6 +18,7 @@ import {
   importFromFile,
   loadBaselineBotSettings,
   saveBaselineBotSettings,
+  savePopulationJSON,
   type PopulationFilePayload
 } from './storage.ts';
 import { hof } from './hallOfFame.ts';
@@ -3523,6 +3524,10 @@ wsClient = createWsClient({
     setJoinStatus('Enter a nickname to play');
     updateJoinControls();
     refreshSavedPresets().catch(() => { });
+    const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+    if (base) {
+      hof.loadFromServer(base).catch(err => console.warn('HoF load failed', err));
+    }
   },
   onDisconnected: () => {
     const hasWorker = !!worker;
@@ -3610,7 +3615,11 @@ wsClient = createWsClient({
       currentVizData = normalizeVizData(msg.viz);
     }
     if (msg.hofEntry) {
-      hof.add(msg.hofEntry);
+      void hof.add(msg.hofEntry);
+      if (connectionMode === 'server') {
+        const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+        if (base) void hof.syncToServer(base);
+      }
     }
   },
   onAssign: (msg) => {
@@ -4156,7 +4165,7 @@ if (btnImport && fileInput) {
         throw new Error('Invalid import file: missing genomes array.');
       }
       if (Array.isArray(data.hof)) {
-        hof.replace(data.hof);
+        await hof.replace(data.hof);
       }
       const hasGraphSpecField = Object.prototype.hasOwnProperty.call(data, 'graphSpec');
       const fileGraphSpec = hasGraphSpecField ? (data.graphSpec ?? null) : undefined;
@@ -4201,11 +4210,9 @@ if (btnImport && fileInput) {
         applyResetToSimulation(true);
       }
       let persistWarning = '';
-      try {
-        localStorage.setItem('slither_neuroevo_pop', JSON.stringify({ generation: data.generation, genomes: data.genomes }));
-      } catch (err) {
-        console.warn('Population persistence failed', err);
-        persistWarning = 'Import succeeded, but local storage quota was exceeded so it will not persist after reload.';
+      const ok = await savePopulationJSON(data.generation, data.genomes);
+      if (!ok) {
+        persistWarning = 'Import succeeded, but persistence failed (quota exceeded). It will not persist after reload.';
       }
       worker.postMessage({ type: 'import', data });
       if (persistWarning) {

@@ -54,47 +54,188 @@ export interface PopulationFilePayload extends PopulationStoragePayload {
 type GenomeLike = Genome;
 
 /**
- * Generic Storage wrapper for localStorage.
+ * Simple IndexedDB wrapper for large data persistence fallback.
+ */
+const idb = {
+  db: null as IDBDatabase | null,
+  async open(): Promise<IDBDatabase> {
+    if (this.db) return this.db;
+    if (typeof indexedDB === 'undefined') throw new Error('IndexedDB not supported');
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('slither_neuroevo_db', 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains('kv')) {
+          db.createObjectStore('kv');
+        }
+      };
+      request.onsuccess = () => {
+        this.db = request.result;
+        resolve(this.db);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  },
+  async put(key: string, value: unknown): Promise<void> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite');
+      const store = tx.objectStore('kv');
+      const request = store.put(value, key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  },
+  async get(key: string): Promise<unknown | null> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readonly');
+      const store = tx.objectStore('kv');
+      const request = store.get(key);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  },
+  async remove(key: string): Promise<void> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite');
+      const store = tx.objectStore('kv');
+      const request = store.delete(key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  },
+  async clear(): Promise<void> {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite');
+      const store = tx.objectStore('kv');
+      const request = store.clear();
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+};
+
+/**
+ * Saves a value to local storage with automated IndexedDB fallback on quota errors.
+ * @param key - Storage key.
+ * @param value - Value to store.
+ * @returns Promise resolving to true on success.
+ */
+export async function saveWithFallback(key: string, value: unknown): Promise<boolean> {
+  try {
+    const json = JSON.stringify(value);
+    localStorage.setItem(key, json);
+    // If it succeeded in localStorage, remove it from IndexedDB to stay tidy
+    void idb.remove(key).catch(() => { });
+    return true;
+  } catch (err) {
+    if (err instanceof DOMException && (err.name === 'QuotaExceededError' || err.code === 22)) {
+      console.warn(`localStorage quota exceeded for ${key}; falling back to IndexedDB.`);
+      try {
+        await idb.put(key, value);
+        // Remove from localStorage if it happened to have a partial/old value
+        localStorage.removeItem(key);
+        return true;
+      } catch (idbErr) {
+        console.error(`IndexedDB fallback failed for ${key}:`, idbErr);
+        return false;
+      }
+    }
+    console.error(`Failed to save ${key}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Loads a value from local storage with IndexedDB fallback.
+ * @param key - Storage key.
+ * @returns Promise resolving to parsed value or null.
+ */
+export async function loadWithFallback(key: string): Promise<unknown | null> {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch (err) {
+    console.warn(`Failed to read ${key} from localStorage, checking IndexedDB:`, err);
+  }
+  try {
+    const data = await idb.get(key);
+    // If data is a string (legacy/partial), try to parse it, but usually we put objects in IDB
+    return data;
+  } catch (err) {
+    console.error(`Failed to read ${key} from IndexedDB:`, err);
+    return null;
+  }
+}
+
+/**
+ * Generic Storage wrapper for localStorage with optional async fallback.
  */
 export const Storage = {
-    /**
-     * Saves an item to localStorage.
-     * @param key - Storage key to write.
-     * @param value - Value to serialize and store.
-     */
-    save(key: string, value: unknown): boolean {
-        try {
-            const json = JSON.stringify(value);
-            localStorage.setItem(key, json);
-            return true;
-        } catch (e) {
-            console.error("Failed to save to localStorage:", e);
-            return false;
-        }
-    },
-
-    /**
-     * Loads an item from localStorage.
-     * @param key - Storage key to read.
-     * @returns Parsed value or null when missing or invalid.
-     */
-    load(key: string): unknown | null {
-        try {
-            const json = localStorage.getItem(key);
-            return json ? JSON.parse(json) : null;
-        } catch (e) {
-            console.error("Failed to load from localStorage:", e);
-            return null;
-        }
-    },
-
-    /**
-     * Removes an item from localStorage.
-     * @param key - Storage key to remove.
-     */
-    remove(key: string): void {
-        localStorage.removeItem(key);
+  /**
+   * Saves an item to localStorage.
+   * @param key - Storage key to write.
+   * @param value - Value to serialize and store.
+   */
+  save(key: string, value: unknown): boolean {
+    try {
+      const json = JSON.stringify(value);
+      localStorage.setItem(key, json);
+      return true;
+    } catch (e) {
+      console.error("Failed to save to localStorage:", e);
+      return false;
     }
+  },
+
+  /**
+   * Saves an item with async fallback to IndexedDB.
+   */
+  saveAsync: saveWithFallback,
+
+  /**
+   * Loads an item from localStorage.
+   * @param key - Storage key to read.
+   * @returns Parsed value or null when missing or invalid.
+   */
+  load(key: string): unknown | null {
+    try {
+      const json = localStorage.getItem(key);
+      return json ? JSON.parse(json) : null;
+    } catch (e) {
+      console.error("Failed to load from localStorage:", e);
+      return null;
+    }
+  },
+
+  /**
+   * Loads an item with async fallback from IndexedDB.
+   */
+  loadAsync: loadWithFallback,
+
+  /**
+   * Removes an item from storage.
+   * @param key - Storage key to remove.
+   */
+  remove(key: string): void {
+    localStorage.removeItem(key);
+    void idb.remove(key).catch(() => { });
+  },
+
+  /**
+   * Clears all slither-related data.
+   */
+  async clearAll(): Promise<void> {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(BASELINE_BOT_SETTINGS_KEY);
+    localStorage.removeItem('slither_neuroevo_hof');
+    localStorage.removeItem('slither_neuroevo_graph_spec');
+    localStorage.removeItem('slither_server_url');
+    await idb.clear();
+  }
 };
 
 /**
@@ -159,47 +300,50 @@ export function loadBaselineBotSettings(): BaselineBotSettings | null {
 }
 
 /**
- * Saves the current population and generation to localStorage.
+ * Saves a population provided as JSON objects.
  * @param generation - Current generation number.
- * @param population - Genome instances to persist.
+ * @param genomes - Genome serializations.
+ * @returns Promise resolving to true on success.
  */
-export function savePopulation(generation: number, population: GenomeLike[]): void {
-  try {
-    const data: PopulationStoragePayload = {
-      generation: generation,
-      genomes: population.map(g => g.toJSON())
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    console.log(`Saved generation ${generation} to local storage.`);
-  } catch (e) {
-    console.error("Failed to save to local storage", e);
-  }
+export async function savePopulationJSON(generation: number, genomes: GenomeJSON[]): Promise<boolean> {
+  const data: PopulationStoragePayload = { generation, genomes };
+  return await saveWithFallback(STORAGE_KEY, data);
 }
 
 /**
- * Loads the population from localStorage.
+ * Saves the current population and generation to localStorage with IndexedDB fallback.
+ * @param generation - Current generation number.
+ * @param population - Genome instances to persist.
+ */
+export async function savePopulation(generation: number, population: GenomeLike[]): Promise<boolean> {
+  const data: PopulationStoragePayload = {
+    generation: generation,
+    genomes: population.map(g => g.toJSON())
+  };
+  const ok = await saveWithFallback(STORAGE_KEY, data);
+  if (ok) {
+    console.log(`Saved generation ${generation} to storage.`);
+  }
+  return ok;
+}
+
+/**
+ * Loads the population from localStorage with IndexedDB fallback.
  * @param arch - Neural network architecture definition (unused today).
  * @returns Population payload or null when unavailable.
  */
-export function loadPopulation(
+export async function loadPopulation(
   arch: unknown
-): { generation: number; genomes: GenomeLike[] } | null {
-  try {
-    void arch;
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw) as PopulationStoragePayload;
-    if (!data.genomes || !Array.isArray(data.genomes)) return null;
+): Promise<{ generation: number; genomes: GenomeLike[] } | null> {
+  void arch;
+  const data = (await loadWithFallback(STORAGE_KEY)) as PopulationStoragePayload | null;
+  if (!data || !data.genomes || !Array.isArray(data.genomes)) return null;
 
-    const genomes = data.genomes.map((gData: GenomeJSON) => Genome.fromJSON(gData));
-    return {
-      generation: data.generation || 1,
-      genomes: genomes
-    };
-  } catch (e) {
-    console.error("Failed to load from local storage", e);
-    return null;
-  }
+  const genomes = data.genomes.map((gData: GenomeJSON) => Genome.fromJSON(gData));
+  return {
+    generation: data.generation || 1,
+    genomes: genomes
+  };
 }
 
 /**

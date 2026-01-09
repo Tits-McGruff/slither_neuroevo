@@ -48,7 +48,7 @@ describe(SUITE, () => {
     expect(Storage.load('key')).toBeNull();
   });
 
-  it('savePopulation and loadPopulation round-trip genomes', () => {
+  it('savePopulation and loadPopulation round-trip genomes', async () => {
     const settings = {
       hiddenLayers: 1,
       neurons1: 4,
@@ -61,8 +61,8 @@ describe(SUITE, () => {
     const genome = Genome.random(arch);
     genome.fitness = 42;
 
-    savePopulation(7, [genome]);
-    const loaded = loadPopulation(arch);
+    await savePopulation(7, [genome]);
+    const loaded = await loadPopulation(arch);
 
     expect(loaded).not.toBeNull();
     if (!loaded) return;
