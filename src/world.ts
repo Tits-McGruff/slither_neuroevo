@@ -133,7 +133,7 @@ export class World {
   /** Next id to assign to baseline bot spawns. */
   _nextBaselineBotId: number;
 
-  /** Access the active world radius from settings. */
+  /** Access the world radius from current settings. */
   get worldRadius(): number {
     return this.settings.worldRadius;
   }
@@ -645,39 +645,72 @@ export class World {
   }
   /**
    * Updates camera position and zoom based on view mode and focused snake.
+   * 
+   * This method manages three distinct UI states:
+   * 1. "Overview": Centers the world and scales zoom to fit the arena boundary (+ margin) within the viewport.
+   * 2. "Follow": Focuses on the head of a specific snake and adjusts zoom dynamically based on its length (zoom out as it grows).
+   * 3. "Idle/Fallback": Slowly drifts and centers when no valid focus is found.
+   * 
    * @param viewW - Viewport width in pixels.
    * @param viewH - Viewport height in pixels.
    */
   _updateCamera(viewW: number, viewH: number): void {
+    // Basic normalization for invalid viewport dimensions (e.g., initial load or worker state lag).
+    // We default to a square that comfortably fits the entire world.
     if (!Number.isFinite(viewW) || !Number.isFinite(viewH) || viewW <= 0 || viewH <= 0) {
-      viewW = CFG.worldRadius * 2;
-      viewH = CFG.worldRadius * 2;
+      const DEFAULT_NORMALIZED_DIM = CFG.worldRadius * 2;
+      viewW = DEFAULT_NORMALIZED_DIM;
+      viewH = DEFAULT_NORMALIZED_DIM;
     }
+
     if (this.viewMode === "overview") {
       this.cameraX = 0;
       this.cameraY = 0;
+
+      // The Overview fitting calculates a 'fit' scale factor that ensures the arena (CFG.worldRadius)
+      // plus an extra safety margin (overviewExtraWorldMargin) is fully visible.
+      // We standardize to the smallest dimension (min(viewW, viewH)) to ensure the arena 
+      // fits regardless of the window's aspect ratio.
+      // We also apply internal padding (overviewPadding) to prevent objects from touching edges.
       const effectiveR = CFG.worldRadius + CFG.observer.overviewExtraWorldMargin;
       const fit = Math.min(viewW, viewH) / (2 * effectiveR * CFG.observer.overviewPadding);
       const targetZoom = clamp(fit, 0.01, 2.0);
-      // If zoom is at default 1.0 and we are in overview, snap to target immediately to avoid "zoom glide" on load
+
+      // Snap zoom to target if it is at default (1.0) to avoid an unnecessary "zoom glide" 
+      // when the simulation first loads or when explicitly enabled via config.
       if (this.zoom === 1.0 || (CFG.observer.snapZoomOutInOverview && this.zoom > targetZoom)) {
         this.zoom = targetZoom;
       } else {
+        // Smoothly interpolate towards the target zoom to provide visual continuity.
         this.zoom = lerp(this.zoom, targetZoom, CFG.observer.zoomLerpOverview);
       }
       return;
     }
+
     if (this.focusSnake && this.focusSnake.alive) {
       const h = this.focusSnake.head();
       this.cameraX = h.x;
       this.cameraY = h.y;
+
+      // Follow Zoom Logic:
+      // Larger snakes require a wider FOV (lower zoom) to keep their perspective manageable.
+      // We map the snake's length to a zoom range [0.45, 1.12]. This "comfort corridor" 
+      // ensures that even at maximum length, the snake head and its immediate surroundings 
+      // remain clearly visible without the world feeling too small.
       const focusLen = this.focusSnake.length();
-      const targetZoom = clamp(1.15 - (focusLen / Math.max(1, CFG.snakeMaxLen)) * 0.55, 0.45, 1.12);
+      const MAX_ZOOM = 1.15;
+      const MIN_ZOOM = 0.45;
+      const ZOOM_RANGE = 0.55;
+      const targetZoom = clamp(MAX_ZOOM - (focusLen / Math.max(1, CFG.snakeMaxLen)) * ZOOM_RANGE, MIN_ZOOM, 1.12);
+
       this.zoom = lerp(this.zoom, targetZoom, CFG.observer.zoomLerpFollow);
     } else {
+      // Fallback: Return to center with a default zoom level when focus is lost.
       this.cameraX = 0;
       this.cameraY = 0;
-      this.zoom = lerp(this.zoom, 0.95, 0.05);
+      const FALLBACK_ZOOM = 0.95;
+      const FALLBACK_LERP = 0.05;
+      this.zoom = lerp(this.zoom, FALLBACK_ZOOM, FALLBACK_LERP);
     }
   }
   /**
@@ -887,44 +920,76 @@ export class World {
   }
 
   /**
-   * Spawns an ambient pellet using fractal interference noise.
-   * Creates "filaments" and "voids" by rejection sampling a noise field.
+   * Generates a new ambient pellet using a fractal noise rejection algorithm.
+   * 
+   * Performance & Distribution:
+   * This algorithm creates "Fractal Food" patterns where pellets form filaments and 
+   * clusters rather than a uniform distribution. This encourages organic movement 
+   * and strategic clustering behavior in the snakes.
+   * 
+   * Approach:
+   * 1. We use "Interference Noise" by summing overlapping sinusoidal waves of varying 
+   *    frequencies and phases. This creates complex patterns of "peaks" (filaments) 
+   *    and "valleys" (voids) without the overhead of Perlin noise.
+   * 2. Rejection Sampling: We pick a random spot and check the local noise density. 
+   *    Higher density spots are more likely to spawn pellets, concentrating food 
+   *    into strategic clusters that encourage movement and conflict.
+   * 3. Fallback: If several attempts fail to meet the density criteria, we spawn 
+   *    uniformly to ensure food density doesn't drop too low in "void" regions.
+   * 
+   * @returns A new Pellet instance.
    */
   _spawnAmbientPellet(): Pellet {
     const r = CFG.worldRadius;
-    const t = this.generationTime * 0.05; // Slow drift
+    const TIME_DRIFT_SCALE = 0.05;
+    const t = this.generationTime * TIME_DRIFT_SCALE;
 
-    // Attempt rejection sampling to find a "high density" spot
-    // Limit retries to prevent performance impact
-    for (let i = 0; i < 5; i++) {
-      // Random candidate in circle
+    // Frequencies (feature scales) for the noise layers.
+    const FREQ_LARGE = 0.003;  // Determines broad continent-sized clusters.
+    const FREQ_MEDIUM = 0.01;  // Determines regional nodes.
+    const FREQ_SMALL = 0.03;   // Adds fine-grained detail/roughness.
+
+    const NOISE_PEAK_RANGE = 1.75; // Theoretical max amplitude of the summed waves.
+    const NOISE_TOTAL_RANGE = NOISE_PEAK_RANGE * 2;
+
+    // Rejection Sampling Loop:
+    // We attempt to find a location that satisfies our noise-based density requirements.
+    const REJECTION_RETRIES = 5;
+
+    for (let i = 0; i < REJECTION_RETRIES; i++) {
+      // Phase 1: Pick a random candidate point within the circular world.
       const a = Math.random() * TAU;
       const d = Math.sqrt(Math.random()) * r;
       const x = Math.cos(a) * d;
       const y = Math.sin(a) * d;
 
-      // Interference Noise Function
-      // Overlap sine waves of different frequencies and phases
-      // Scale inputs to make features reasonable size relative to world radius
-      const s1 = 0.003; // Large features
-      const s2 = 0.01;  // Medium features
-      const s3 = 0.03; // Small details
-
+      // Phase 2: Interference Noise Generation
+      // We combine multiple sine layers with high-frequency interference to create 
+      // non-uniform filaments and voids without the overhead of Perlin noise.
       let noise = 0;
-      noise += Math.sin(x * s1 + t) * Math.cos(y * s1 - t);
-      noise += Math.sin(x * s2 - t * 1.5) * Math.cos(y * s2 + t * 1.5) * 0.5;
-      noise += Math.sin(x * s3 + t * 2) * 0.25;
+      // Layer 1: Large features
+      noise += Math.sin(x * FREQ_LARGE + t) * Math.cos(y * FREQ_LARGE - t);
+      // Layer 2: Medium features (scaled 0.5x amplitude)
+      noise += Math.sin(x * FREQ_MEDIUM - t * 1.5) * Math.cos(y * FREQ_MEDIUM + t * 1.5) * 0.5;
+      // Layer 3: Small details (scaled 0.25x amplitude)
+      noise += Math.sin(x * FREQ_SMALL + t * 2) * 0.25;
 
-      // Noise is roughly [-1.75, 1.75]. Map to [0, 1]
-      const norm = (noise + 1.75) / 3.5;
-      const prob = norm * norm * norm; // Contrast curve (cubed for sharper filaments)
+      // Phase 3: Density Mapping & Contrast Curve
+      // Map range [-1.75, 1.75] to normalized [0, 1].
+      const norm = (noise + NOISE_PEAK_RANGE) / NOISE_TOTAL_RANGE;
+      // Apply a contrast curve (cubed) to sharpen the filaments and widen the voids.
+      // This increases the probability of pellets spawning in high-noise regions.
+      const prob = norm * norm * norm;
 
       if (Math.random() < prob) {
         return new Pellet(x, y, CFG.foodValue, null, "ambient", 0);
       }
     }
 
-    // Fallback: Uniform random if rejection failed (fills voids slightly)
+    // Phase 4: Fallback Distribution
+    // If rejection sampling fails after all attempts, we spawn at a uniform random 
+    // position to maintain a "density floor" and prevent large voids from becoming 
+    // completely sterile.
     const a = Math.random() * TAU;
     const d = Math.sqrt(Math.random()) * r;
     return new Pellet(Math.cos(a) * d, Math.sin(a) * d, CFG.foodValue, null, "ambient", 0);

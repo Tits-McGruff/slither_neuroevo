@@ -9,3 +9,4 @@
 /data/*.db-wal
 /server/config.toml
 /mermaid
+/docs/api

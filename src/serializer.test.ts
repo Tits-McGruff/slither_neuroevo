@@ -147,7 +147,7 @@ describe(SUITE, () => {
           boost: 0,
           alive: true,
           points: [{ x: 0, y: 0 }],
-          skin: 2 // Robot
+          skin: 2
         }
       ],
       pellets: []
@@ -157,6 +157,6 @@ describe(SUITE, () => {
     let ptr = FRAME_HEADER_FLOATS;
     expect(buf[ptr++]).toBe(99);
     expect(buf[ptr++]).toBe(10);
-    expect(buf[ptr++]).toBe(2); // Validates skin is 2
+    expect(buf[ptr++]).toBe(2);
   });
 });

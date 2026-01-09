@@ -1,25 +1,48 @@
-/** Float offsets for the serialized frame header. */
+/**
+ * Float offsets for the serialized frame header. 
+ * These indices reference the starting positions in a Float32Array.
+ */
 export const FRAME_HEADER_OFFSETS = {
+  /** Current simulation generation index. */
   generation: 0,
+  /** Historical total count of snakes since simulation start. */
   totalSnakes: 1,
+  /** Number of currently active (alive) snakes in the world. */
   aliveCount: 2,
-  worldRadius: 3, // New
+  /** Absolute world radius, used by the renderer for arena boundary drawing. */
+  worldRadius: 3,
+  /** Normalized or camera-centered X coordinate. */
   cameraX: 4,
+  /** Normalized or camera-centered Y coordinate. */
   cameraY: 5,
+  /** Current viewport zoom scale (1.0 = 1:1). */
   zoom: 6
 } as const;
 
-/** Number of float entries in the frame header. */
+/** 
+ * Total number of float entries reserved for the frame header. 
+ * Serializers and parsers must skip this many elements to reach snake data.
+ */
 export const FRAME_HEADER_FLOATS = 7;
 
-/** Parsed header values for a serialized frame buffer. */
+/** 
+ * Parsed header values for a serialized frame buffer. 
+ * This structure represents the global state of a single simulation frame.
+ */
 export interface FrameHeader {
+  /** Current simulation generation. */
   generation: number;
+  /** Total snakes across history. */
   totalSnakes: number;
+  /** Count of snakes active in this frame. */
   aliveCount: number;
+  /** Radius of the circular world arena. */
   worldRadius: number;
+  /** Camera focus X position. */
   cameraX: number;
+  /** Camera focus Y position. */
   cameraY: number;
+  /** Camera zoom level. */
   zoom: number;
 }
 

@@ -1,0 +1,43 @@
+{
+    "$schema": "typedoc.org",
+    "entryPoints": [
+        "./src",
+        "./server"
+    ],
+    "entryPointStrategy": "expand",
+    "out": "./docs/api",
+    "cleanOutputDir": true,
+    "projectDocuments": [
+        "./docs/todo/*.md"
+    ],
+    "exclude": [
+        "**/*.test.ts",
+        "**/node_modules/**"
+    ],
+    "excludeExternals": true,
+    "excludePrivate": true,
+    "excludeInternal": true,
+    "skipErrorChecking": true,
+    "hideGenerator": true,
+    "searchInComments": true,
+    "name": "Slither Neuroevo API",
+    "intentionallyNotExported": [
+        "RuntimeNode",
+        "Particle",
+        "Point",
+        "FitnessHistoryEntry",
+        "PelletGrid",
+        "WorldSettings",
+        "HiddenSettings",
+        "CameraState",
+        "SnakeStruct",
+        "RenderWorld",
+        "WorldLike",
+        "SnakeLike",
+        "SerializableWorld",
+        "WorldSettingsInput",
+        "BrainCfg",
+        "RawConfigInput",
+        "Env"
+    ]
+}

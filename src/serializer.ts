@@ -1,5 +1,7 @@
 /** Helpers to pack world state into transferable buffers. */
 
+import { FRAME_HEADER_FLOATS } from './protocol/frame.ts';
+
 /** Minimal point shape used in serialized snakes. */
 interface SerializablePoint {
   x: number;
@@ -32,7 +34,7 @@ interface SerializablePellet {
 /** Minimal world shape for serialization. */
 interface SerializableWorld {
   generation: number;
-  worldRadius: number; // Added
+  worldRadius: number;
   cameraX: number;
   cameraY: number;
   zoom: number;
@@ -44,69 +46,87 @@ interface SerializableWorld {
 export class WorldSerializer {
   /**
    * Create a serializer with optional sizing hints.
-   * @param maxSnakes - Maximum snakes expected.
-   * @param maxPointsPerSnake - Maximum points per snake expected.
-   * @param maxPellets - Maximum pellets expected.
+   * Currently, these hints are reserved for future buffer pooling optimizations 
+   * to reduce Garbage Collection (GC) pressure in high-throughput simulation loops.
    */
   constructor(maxSnakes = 5000, maxPointsPerSnake = 1000, maxPellets = 50000) {
-    // Estimate buffer size
     void maxSnakes;
     void maxPointsPerSnake;
     void maxPellets;
   }
 
   /**
-   * Packs the world state for rendering.
+   * Packs the complete world state into a high-performance binary Float32Array.
+   * 
+   * Buffer Layout Contract v7:
+   * 1. Global Header (7 floats):
+   *    [gen, totalSnakes, aliveCount, worldRadius, cameraX, cameraY, zoom]
+   * 2. Snake Block (Variable length):
+   *    For each alive snake: 
+   *    [id, radius, skin, x, y, dir, boost, ptCount] (8 floats)
+   *    followed by [x, y] * ptCount.
+   * 3. Pellet Block (Variable length):
+   *    [pelletCount] (1 float)
+   *    followed by [x, y, value, type, colorId] * pelletCount (5 floats per pellet).
+   * 
    * @param world - World snapshot to serialize.
-   * @returns Float32Array buffer containing the serialized frame.
+   * @returns Float32Array buffer ready for transfer to main thread or persistence.
    */
   static serialize(world: SerializableWorld): Float32Array {
-    // 1. Calculate size
+    const SNAKE_HEADER_SIZE = 8;
+    const PELLET_BLOCK_SIZE = 5;
+
+    // Phase 1: Pre-calculate the total buffer size to perform a single allocation.
     let snakeFloats = 0;
     let aliveCount = 0;
 
     for (const s of world.snakes) {
       if (s.alive) {
         aliveCount++;
-        snakeFloats += 8; // ID, Rad, Skin, X, Y, Ang, Boost, PtCount
-        snakeFloats += s.points.length * 2; // px, py
+        // Header + 2 floats per point (X,Y).
+        snakeFloats += SNAKE_HEADER_SIZE + s.points.length * 2;
       }
     }
-    const pelletFloats = 1 + world.pellets.length * 5; // count + x, y, val, type, colorId
+    const pelletFloats = 1 + world.pellets.length * PELLET_BLOCK_SIZE;
 
-    // Total Bytes = (Headers + Snakes + Pellets) * 4
-    // Headers: Gen(1), Total(1), Alive(1), Radius(1), CamX(1), CamY(1), CamZoom(1) = 7 floats
-    const totalBytes = (7 + snakeFloats + pelletFloats) * 4;
-    const buffer = new Float32Array(totalBytes / 4);
+    const totalFloats = FRAME_HEADER_FLOATS + snakeFloats + pelletFloats;
+    const buffer = new Float32Array(totalFloats);
     let ptr = 0;
 
-    // Global Header
+    // Phase 2: Write Global Header (7 floats total)
+    // [gen, totalSnakes, aliveCount, worldRadius, cameraX, cameraY, zoom]
     buffer[ptr++] = world.generation;
     buffer[ptr++] = world.snakes.length;
     buffer[ptr++] = aliveCount;
-    buffer[ptr++] = world.worldRadius; // New
+    // worldRadius is serialized to allow the fast-path renderer to draw 
+    // arena boundaries without a direct reference to the world state.
+    buffer[ptr++] = world.worldRadius;
     buffer[ptr++] = world.cameraX;
     buffer[ptr++] = world.cameraY;
     buffer[ptr++] = world.zoom;
 
-    // Snakes
+    // Phase 3: Write Snake Data
     for (const s of world.snakes) {
       if (!s.alive) continue;
 
-      // Header: 8 floats
+      // Snake Header (8 floats): [id, radius, skin, x, y, dir, boost, ptCount]
       buffer[ptr++] = s.id;
       buffer[ptr++] = s.radius;
-      // Skin flag: 0=default, 1=gold, 2=robot
-      // Prefer explicit skin property, fallback to legacy color check for gold.
+
+      // Skin Logic:
+      // Binary protocol uses a float ID for skin: 0=Default, 1=Gold (Legacy), 2=Robot.
+      // We prioritize the modern 'skin' property but maintain backward compatibility 
+      // with the legacy hex color check for 'Gold'.
       const skinVal = s.skin !== undefined ? s.skin : (s.color === '#FFD700' ? 1.0 : 0.0);
       buffer[ptr++] = skinVal;
+
       buffer[ptr++] = s.x;
       buffer[ptr++] = s.y;
       buffer[ptr++] = s.dir;
       buffer[ptr++] = s.boost ? 1.0 : 0.0;
 
       const pts = s.points;
-      buffer[ptr++] = pts.length; // Point Count
+      buffer[ptr++] = pts.length;
       for (let i = 0; i < pts.length; i++) {
         const pt = pts[i];
         buffer[ptr++] = pt ? pt.x : 0;
@@ -114,27 +134,29 @@ export class WorldSerializer {
       }
     }
 
-    // Pellets
+    // Phase 4: Write Pellet Data
     buffer[ptr++] = world.pellets.length;
     for (let i = 0; i < world.pellets.length; i++) {
       const p = world.pellets[i];
       if (!p) {
-        buffer[ptr++] = 0;
-        buffer[ptr++] = 0;
-        buffer[ptr++] = 0;
-        buffer[ptr++] = 0;
-        buffer[ptr++] = 0;
+        // Null/undefined entries can occur in the pellet grid due to concurrent 
+        // deletions or lazy cell cleanup in the worker thread. 
+        // We skip them while maintaining pointer alignment for the reader.
+        ptr += PELLET_BLOCK_SIZE;
         continue;
       }
       buffer[ptr++] = p.x;
       buffer[ptr++] = p.y;
       buffer[ptr++] = p.v;
-      // Type mapping
-      let t = 0;
-      if (p.kind === 'corpse_big') t = 1;
-      else if (p.kind === 'corpse_small') t = 2;
-      else if (p.kind === 'boost') t = 3;
-      buffer[ptr++] = t;
+
+      // Pellet Type Mapping:
+      // 0=Ambient, 1=Corpse (Big), 2=Corpse (Small), 3=Boost.
+      let typeId = 0;
+      if (p.kind === 'corpse_big') typeId = 1;
+      else if (p.kind === 'corpse_small') typeId = 2;
+      else if (p.kind === 'boost') typeId = 3;
+
+      buffer[ptr++] = typeId;
       buffer[ptr++] = p.colorId || 0;
     }
 

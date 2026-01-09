@@ -23,6 +23,7 @@ import {
 import { hof } from './hallOfFame.ts';
 import { BrainViz } from './BrainViz.ts';
 import { AdvancedCharts } from './chartUtils.ts';
+import { FRAME_HEADER_FLOATS, FRAME_HEADER_OFFSETS } from './protocol/frame.ts';
 import { createWsClient, resolveServerUrl, storeServerUrl } from './net/wsClient.ts';
 import { inferGraphSizes } from './brains/graph/editor.ts';
 import type { GraphSizeState } from './brains/graph/editor.ts';
@@ -3223,9 +3224,9 @@ type FrameSnakeSnapshot = { id: number; x: number; y: number; ptCount: number };
  * @returns Snapshot of the snake or null when none found.
  */
 function findSnakeInFrame(buffer: Float32Array, targetId: number | null): FrameSnakeSnapshot | null {
-  if (buffer.length < 7) return null;
-  const aliveCount = (buffer[2] ?? 0) | 0;
-  let ptr = 7; // Header now 7 floats
+  if (buffer.length < FRAME_HEADER_FLOATS) return null;
+  const aliveCount = (buffer[FRAME_HEADER_OFFSETS.aliveCount] ?? 0) | 0;
+  let ptr = FRAME_HEADER_FLOATS;
   let first: FrameSnakeSnapshot | null = null;
   for (let i = 0; i < aliveCount; i++) {
     if (ptr + 7 >= buffer.length) break;
@@ -3727,59 +3728,93 @@ window.addEventListener('keydown', e => {
 // ============== GOD MODE: Canvas Event Handlers ==============
 
 /**
- * Convert screen coordinates to world coordinates.
- * @param screenX - Screen x coordinate in pixels.
- * @param screenY - Screen y coordinate in pixels.
- * @returns World coordinates.
+ * Converts screen-space coordinates (CSS pixels) into simulation world coordinates.
+ * 
+ * Transformation Logic:
+ * 1. Offset by viewport center: Map (0,0) at top-left to centered origin.
+ * 2. Scale by inverse zoom: Convert CSS pixels to world units.
+ * 3. Offset by camera position: Map centered local view to absolute world space.
+ * 
+ * @param screenX - Screen X in CSS pixels (relative to canvas).
+ * @param screenY - Screen Y in CSS pixels (relative to canvas).
+ * @returns Object containing absolute simulation world coordinates \{x, y\}.
  */
 function screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
-  // Get camera data from buffer if available
+  // Retrieve camera state from the current data source (Server stream or Local worker buffer).
   let camX = 0, camY = 0, zoom = 1;
   if (connectionMode === 'server') {
     camX = clientCamX;
     camY = clientCamY;
     zoom = clientZoom;
-  } else if (currentFrameBuffer && currentFrameBuffer.length >= 7) {
-    camX = currentFrameBuffer[4] ?? 0;
-    camY = currentFrameBuffer[5] ?? 0;
-    zoom = currentFrameBuffer[6] ?? 1;
+  } else if (currentFrameBuffer && currentFrameBuffer.length >= FRAME_HEADER_FLOATS) {
+    camX = currentFrameBuffer[FRAME_HEADER_OFFSETS.cameraX] ?? 0;
+    camY = currentFrameBuffer[FRAME_HEADER_OFFSETS.cameraY] ?? 0;
+    zoom = currentFrameBuffer[FRAME_HEADER_OFFSETS.zoom] ?? 1;
   }
 
   const centerX = cssW / 2;
   const centerY = cssH / 2;
+
+  // Inverse Transformation Formula: World = Camera + (Screen - Center) / Zoom
+  // This formula reverses the rendering transform to map a mouse click (screen space)
+  // back into simulation world coordinates.
   const worldX = camX + (screenX - centerX) / zoom;
   const worldY = camY + (screenY - centerY) / zoom;
   return { x: worldX, y: worldY };
 }
 
 /**
- * Find a snake near the given world coordinates.
- * @param worldX - World x coordinate.
- * @param worldY - World y coordinate.
- * @param maxDist - Maximum search distance in world units.
- * @returns Selected snake snapshot or null.
+ * Identifies the snake closest to a specific world coordinate within a search radius.
+ * 
+ * Scanning Algorithm:
+ * Because the binary frame buffer uses variable-length snake blocks (due to body points), 
+ * we must perform a linear scan. We skip over body data by reading the `ptCount` for each 
+ * snake to jump to the next block until we find the best match.
+ * 
+ * @param worldX - Focus X in simulation units.
+ * @param worldY - Focus Y in simulation units.
+ * @param maxDist - Maximum distance threshold for selection.
+ * @returns A snapshot of the closest snake's metadata or null if none found.
  */
 function findSnakeNear(worldX: number, worldY: number, maxDist = 50): SelectedSnake | null {
-  if (!currentFrameBuffer || currentFrameBuffer.length < 6) return null;
+  if (!currentFrameBuffer || currentFrameBuffer.length < FRAME_HEADER_FLOATS) return null;
 
-  let ptr = 6; // Skip header
   const buffer = currentFrameBuffer;
   const read = (idx: number): number => buffer[idx] ?? 0;
-  const aliveCount = read(2) | 0;
+
+  // Retrieve count of snakes from the header to bound the search.
+  const aliveCount = read(FRAME_HEADER_OFFSETS.aliveCount) | 0;
+
   let closestSnake = null;
   let closestDist = maxDist;
+  let ptr = FRAME_HEADER_FLOATS;
+
+  const SNAKE_STATEDATA_FLOATS = 8; // ID, Rad, Skin, X, Y, Ang, Boost, PtCount
+  const PT_COUNT_OFFSET = 7;
+  const RADIUS_OFFSET = 1;
+  const SKIN_OFFSET = 2;
+  const X_OFFSET = 3;
+  const Y_OFFSET = 4;
 
   for (let i = 0; i < aliveCount; i++) {
-    const ptCount = read(ptr + 7) | 0;
-    const blockSize = 8 + ptCount * 2;
+    const ptCount = read(ptr + PT_COUNT_OFFSET) | 0;
+
+    // Selection Jump Logic:
+    // Because snake body point counts vary, we calculate the total byte size of the snake block 
+    // [Header (8) + (ptCount * 2)] to jump the pointer precisely to the next entity.
+    const blockSize = SNAKE_STATEDATA_FLOATS + ptCount * 2;
+
     if (ptr + blockSize > buffer.length) break;
+
     const id = read(ptr);
-    const radius = read(ptr + 1);
-    const skin = read(ptr + 2);
-    const x = read(ptr + 3);
-    const y = read(ptr + 4);
+    const radius = read(ptr + RADIUS_OFFSET);
+    const skin = read(ptr + SKIN_OFFSET);
+    const x = read(ptr + X_OFFSET);
+    const y = read(ptr + Y_OFFSET);
 
     const dist = Math.hypot(x - worldX, y - worldY);
+    // Selection threshold includes the snake's actual physical radius to make 
+    // clicking on large snakes easier.
     if (dist < closestDist && dist < radius + maxDist) {
       closestDist = dist;
       closestSnake = { id, x, y, radius, skin };

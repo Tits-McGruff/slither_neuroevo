@@ -3,6 +3,7 @@
 import { TAU, clamp, hashColor } from './utils.ts';
 import { THEME, getPelletColor, getPelletGlow } from './theme.ts';
 import { CFG } from './config.ts';
+import { FRAME_HEADER_FLOATS } from './protocol/frame.ts';
 
 /** Camera state required by background drawing. */
 interface CameraState {
@@ -359,30 +360,52 @@ let bgPattern: CanvasPattern | null = null;
 let bgCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 
 /**
- * Render a single snake from serialized data.
- * Uses fields: id, radius, skin, x, y, ang, boost, pts.
+ * Renders a single snake entity using calculated local metadata.
+ * 
+ * Visual Features:
+ * 1. Adaptive Glow: Increases shadowBlur based on the snake's radius and current speed.
+ * 2. Speed-Dependent Width: Slightly thickens the snake body during high-speed motion.
+ * 3. Skin Variations: 
+ *    - Default/Gold: Uses secondary stroke colors.
+ *    - Robot (ID 2): Adds a specific cyan glow and red eyes.
+ * 4. Coordinate Stability: Uses worldMin to prevent lines from disappearing at extreme zoom levels.
+ * 
+ * @param ctx - Canvas 2D rendering context.
+ * @param s - Processed snake metadata (position, speed, body points).
+ * @param zoom - Current global viewport scale.
  */
 export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, zoom: number): void {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  // Resolve Color
-  // 0.0 = Default, 1.0 = Gold.
   const color = s.color || getSnakeColor(s.id, s.skin);
 
-  // Shadow/Glow
+  // Lighting & Glow Calculations:
+  // We amplify the shadow blur based on speed (speedGlow) and active boosting.
   const speed = Math.max(0, s.speed || 0);
-  const boostGlow = s.boost > 0.5 ? 1.35 : 1;
-  const speedGlow = clamp(speed / Math.max(6, s.radius * 1.6), 0, 1);
-  const glowScale = 1 + speedGlow * 0.9;
+  const BOOST_GLOW_MULTIPLIER = 1.35;
+  const boostGlow = s.boost > 0.5 ? BOOST_GLOW_MULTIPLIER : 1;
+
+  // Speed glow is normalized against a radius-dependent threshold.
+  const SPEED_GLOW_THRESHOLD = s.radius * 1.6;
+  const speedGlow = clamp(speed / Math.max(6, SPEED_GLOW_THRESHOLD), 0, 1);
+
+  const BASE_GLOW_SCALE = 1.0;
+  const MAX_SPEED_GLOW_BONUS = 0.9;
+  const glowScale = BASE_GLOW_SCALE + speedGlow * MAX_SPEED_GLOW_BONUS;
+
   ctx.shadowBlur = s.radius * 1.6 * glowScale * boostGlow;
   ctx.shadowColor = color;
   ctx.strokeStyle = color;
 
-  const minPx = 2.1;
-  const worldMin = minPx / Math.max(0.0001, zoom);
-  ctx.lineWidth = Math.max(s.radius * 2 * (1 + speedGlow * 0.25), worldMin);
+  // Scaling Safety:
+  // Ensure the snake remains visible as it zooms out by capping the minimum screen-pixel width.
+  const MIN_DISPLAY_PX = 2.1;
+  const worldMin = MIN_DISPLAY_PX / Math.max(0.0001, zoom);
+  const SPEED_WIDTH_BONUS = 0.25;
+  ctx.lineWidth = Math.max(s.radius * 2 * (1 + speedGlow * SPEED_WIDTH_BONUS), worldMin);
 
+  // Body Path Construction
   ctx.beginPath();
   const pts = s.pts;
   if (pts.length >= 2) {
@@ -398,29 +421,42 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
   }
   ctx.stroke();
 
-  // Head and eyes
+  // Head and Eye Rendering:
+  // The head is a circle slightly larger than the body radius.
+  const HEAD_SCALE = 1.05;
   const hx = pts.length >= 2 ? (pts[0] ?? s.x) : s.x;
   const hy = pts.length >= 2 ? (pts[1] ?? s.y) : s.y;
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.arc(hx, hy, s.radius * 1.05, 0, TAU);
+  ctx.arc(hx, hy, s.radius * HEAD_SCALE, 0, TAU);
   ctx.fill();
   ctx.shadowBlur = 0;
 
-  const eyeOffset = s.radius * 0.45;
-  const eyeForward = s.radius * 0.35;
+  // Eye Mapping:
+  // We position eyes relative to the head heading (s.ang).
+  const EYE_OFFSET_PCT = 0.45;
+  const EYE_FORWARD_PCT = 0.35;
+  const eyeOffset = s.radius * EYE_OFFSET_PCT;
+  const eyeForward = s.radius * EYE_FORWARD_PCT;
+
   const sin = Math.sin(s.ang);
   const cos = Math.cos(s.ang);
   const px = -sin;
   const py = cos;
   const ex = hx + cos * eyeForward;
   const ey = hy + sin * eyeForward;
-  const eyeR = Math.max(1.2, s.radius * (s.skin === 2 ? 0.22 : 0.18));
 
+  // Robot eyes are slightly larger/more intense.
+  const EYE_RAD_DEFAULT = 0.18;
+  const EYE_RAD_ROBOT = 0.22;
+  const eyeR = Math.max(1.2, s.radius * (s.skin === 2 ? EYE_RAD_ROBOT : EYE_RAD_DEFAULT));
+
+  // Skin ID 2 (Robot) uses distinct eye colors and adds a reactive glow.
   if (s.skin === 2) {
+    const ROBOT_GLOW_PCT = 0.6;
     ctx.fillStyle = THEME.snakeRobotEye;
     ctx.shadowColor = THEME.snakeRobotGlow;
-    ctx.shadowBlur = s.radius * 0.6;
+    ctx.shadowBlur = s.radius * ROBOT_GLOW_PCT;
   } else {
     ctx.fillStyle = THEME.snakeSelfEye;
   }
@@ -438,45 +474,69 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
 /**
  * Render the world state from a binary buffer.
  * @param ctx - Canvas 2D context to draw into.
- * @param flt - Serialized frame buffer data.
- * @param viewW - Viewport width in pixels.
- * @param viewH - Viewport height in pixels.
- * @param zoomOverride - Optional zoom override value.
- * @param camXOverride - Optional camera X override.
- * @param camYOverride - Optional camera Y override.
+ * Fast-path renderer that consumes a serialized binary buffer to draw the entire world.
+ * 
+ * Performance Strategy:
+ * 1. Minimize allocations: Uses a Float32Array and linear pointer scanning (`ptr`).
+ * 2. Coordinate Mapping: 
+ *    - Applies Device Pixel Ratio (DPR) to ensure crisp rendering on high-DPI screens.
+ *    - Translates the origin to the screen center (viewW/2, viewH/2).
+ *    - Scales by `zoom` and translates by `-cameraX, -cameraY` to move the world into view.
+ * 3. Z-Ordering (Painter's Algorithm):
+ *    - Background: Starfield and Grid.
+ *    - Arena: World boundary circle.
+ *    - Infrastructure: Pellets.
+ *    - Entities: Snakes (on top of food).
+ * 
+ * @param ctx - Canvas 2D rendering context.
+ * @param buffer - Flat Float32Array containing serialized frame data.
+ * @param viewW - Viewport width in CSS pixels.
+ * @param viewH - Viewport height in CSS pixels.
+ * @param zoomOverride - Optional manual zoom for debugging or UI overlays.
+ * @param camXOverride - Optional manual camera X.
+ * @param camYOverride - Optional manual camera Y.
  */
 export function renderWorldStruct(
   ctx: CanvasRenderingContext2D,
-  flt: Float32Array,
+  buffer: Float32Array,
   viewW: number,
   viewH: number,
   zoomOverride?: number,
   camXOverride?: number,
   camYOverride?: number
 ): void {
-  const read = (idx: number): number => flt[idx] ?? 0;
-  // Buffer layout contract: [gen, totalSnakes, aliveCount, camX, camY, zoom] then
-  // for each alive snake: [id, radius, skinFlag, x, y, ang, boost, ptCount, ...pts],
+  const read = (p: number) => buffer[p] ?? 0;
+
+  // Buffer layout contract: [gen, totalSnakes, aliveCount, r, camX, camY, zoom] 
+  // then for each alive snake: [id, radius, skinFlag, x, y, ang, boost, ptCount, ...pts], 
   // then pellets: [pelletCount, x, y, value, type, colorId] * pelletCount.
+
+  // Linear parsing state for the binary contract.
   const dt = getRenderDt();
   renderTick += 1;
+
+  // Handle High-DPI scaling.
   const dpr = ctx.getTransform().a || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, viewW, viewH);
+
+  // View Space Transformation:
+  // Move origin to center, then apply simulation scaling and world translation.
   ctx.save();
   ctx.translate(viewW / 2, viewH / 2);
-  // Header: Gen, TotalCount, AliveCount, WorldRadius, CamX, CamY, Zoom
+
   let ptr = 0;
   const gen = read(ptr++);
   const totalCount = read(ptr++);
   const aliveCount = read(ptr++) | 0;
-  const worldRadius = read(ptr++); // New
+  const worldRadius = read(ptr++);
   const camX = read(ptr++);
   const camY = read(ptr++);
   const camZoom = read(ptr++);
   void gen;
   void totalCount;
 
+  // Resolve final camera parameters.
   const zoom = zoomOverride || camZoom || 1;
   const cX = camXOverride ?? camX ?? 0;
   const cY = camYOverride ?? camY ?? 0;
@@ -484,43 +544,29 @@ export function renderWorldStruct(
   ctx.scale(zoom, zoom);
   ctx.translate(-cX, -cY);
 
-  ptr = 7; // Skip header (7 floats)
+  // Skip the fixed-size global header (7 floats) to reach entity data.
+  ptr = FRAME_HEADER_FLOATS;
 
-  // Render starfield and grid (using efficient offscreen pattern)
+  // Layer 1: Environment
   drawStarfield(ctx, { zoom, cameraX: cX, cameraY: cY }, viewW, viewH);
   drawGrid(ctx, { zoom, cameraX: cX, cameraY: cY }, viewW, viewH);
 
-  // Arena boundary
+  // Layer 2: World Boundaries
+  const ARENA_BORDER_WIDTH = 3;
   ctx.strokeStyle = THEME.worldBorder;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = ARENA_BORDER_WIDTH;
   ctx.beginPath();
   ctx.arc(0, 0, worldRadius, 0, TAU);
   ctx.stroke();
 
-  // Render Pellets FIRST (so snakes are on top)
-  // But we need to skip snakes to find pellets?
-  // We don't know snake byte size because point count varies.
-  // So we must parse linear.
-  // Logic: 
-  // We have a list of snakes. We can store them for drawing after pellets?
-  // Or just draw snakes first? Snakes on top is better.
-  // But efficient parsing is linear.
-  // Two passes?
-  // Pass 1: Parse snakes, store in temp array, find Pellets start.
-  // Pass 2: Draw Pellets.
-  // Pass 3: Draw Snakes.
-
-  // Optimization: Render Pellets? Pellets are simple circles.
-  // If we draw snakes first, pellets are hidden under them. Correct z-order is Pellets -> Snakes.
-
-  // We MUST scan snakes to find pellets.
-  // Let's just scan and store pointers?
+  // Layer 3: Entities (Pellets and Snakes)
+  // The buffer is ordered: [Header] -> [Snake 1] -> [Snake 2] ... -> [Snake N] -> [Pellet Count] -> [Pellets...]
+  //
+  // Z-Order Constraint (Painter's Algorithm): 
+  // We want pellets to be drawn *underneath* snakes for visual clarity.
+  // Because the buffer uses variable-length snake blocks (due to ptCount), we must perform 
+  // a metadata pre-pass to find the starting pointer for the pellet section.
   const snakeMeta: SnakeMeta[] = [];
-  // Loop 'total' times? No, Serializer loops 'world.snakes'.
-  // BUT Serializer writes 'AliveCount'.
-  // And loops 'world.snakes' but `if (!s.alive) continue;`.
-  // So buffer ONLY contains alive snakes.
-  // So we read 'AliveCount' blocks.
 
   for (let i = 0; i < aliveCount; i++) {
     const basePtr = ptr;
@@ -531,17 +577,24 @@ export function renderWorldStruct(
     const y = read(ptr++);
     const ang = read(ptr++);
     const boost = read(ptr++);
-    const ptCount = read(ptr++) | 0; // Stored as float, but must be treated as an int for pointer math.
-    const pointsEnd = ptr + ptCount * 2;
-    if (pointsEnd > flt.length) break;
 
+    // Body point count used for skipping and body drawing. 
+    const ptCount = read(ptr++) | 0;
+    const pointsEnd = ptr + ptCount * 2;
+    if (pointsEnd > buffer.length) break;
+
+    // Speed Calculation (Client-Side Interp):
+    // We compute an instantaneous speed from the displacement since the last frame 
+    // and smooth it to prevent jittery glow/particles.
     const prev = snakeRenderCache.get(id);
     let speed = 0;
     if (prev) {
       const dx = x - prev.x;
       const dy = y - prev.y;
       const inst = Math.hypot(dx, dy);
-      speed = prev.speed * 0.65 + inst * 0.35;
+      const SMOOTHING_FACTOR = 0.65;
+      const INST_FACTOR = 0.35;
+      speed = prev.speed * SMOOTHING_FACTOR + inst * INST_FACTOR;
     }
     snakeRenderCache.set(id, { x, y, speed, seen: renderTick });
 
@@ -549,16 +602,16 @@ export function renderWorldStruct(
     ptr = pointsEnd;
   };
 
+  // Cleanup the transient cache for snakes that haven't been seen in several seconds.
+  const CACHE_EXPIRY_TICKS = 120;
   for (const [id, data] of snakeRenderCache) {
-    if (renderTick - data.seen > 120) snakeRenderCache.delete(id);
+    if (renderTick - data.seen > CACHE_EXPIRY_TICKS) snakeRenderCache.delete(id);
   }
 
-  // Now ptr is at Pellets Count
-  const pelletCount = read(ptr++) | 0;
-
   // Draw Pellets
+  const pelletCount = read(ptr++) | 0;
   for (let i = 0; i < pelletCount; i++) {
-    if (ptr + 4 >= flt.length) break;
+    if (ptr + 4 >= buffer.length) break;
     const px = read(ptr++);
     const py = read(ptr++);
     const pv = read(ptr++);
@@ -594,7 +647,11 @@ export function renderWorldStruct(
       }
     }
 
-    const r = 2 + Math.sqrt(pv) * 2; // Approx radius logic
+    // Pellet size scaling: base size plus sqrt(value) to prevent huge food from 
+    // obscuring the screen while still indicating high energy density.
+    const BASE_PELLET_RAD = 2;
+    const PELLET_VALUE_SCALE = 2;
+    const r = BASE_PELLET_RAD + Math.sqrt(pv) * PELLET_VALUE_SCALE;
 
     ctx.fillStyle = color!;
     ctx.shadowBlur = r * 1.5;
@@ -605,11 +662,18 @@ export function renderWorldStruct(
     ctx.shadowBlur = 0;
   }
 
+  // Boost effects: Spawn particles behind snakes that are currently boosting.
   for (const meta of snakeMeta) {
     if (meta.boost > 0.5) {
-      const strength = clamp(meta.speed / Math.max(12, meta.rad * 2), 0, 1);
+      // Scale particle density and velocity based on normalized speed.
+      const BOOST_SPEED_THRESHOLD = Math.max(12, meta.rad * 2);
+      const strength = clamp(meta.speed / BOOST_SPEED_THRESHOLD, 0, 1);
       const color = getSnakeColor(meta.id, meta.skin);
-      const count = 1 + Math.floor(strength * 2);
+
+      const BASE_PARTICLE_COUNT = 1;
+      const MAX_PARTICLE_BONUS = 2;
+      const count = BASE_PARTICLE_COUNT + Math.floor(strength * MAX_PARTICLE_BONUS);
+
       for (let k = 0; k < count; k++) {
         spawnBoostParticle(meta.x, meta.y, meta.ang, color, strength);
       }
@@ -629,11 +693,9 @@ export function renderWorldStruct(
     const boost = read(p++);
     const ptCount = read(p++) | 0;
 
-    // Reconstruct points array wrapper
-    // We can't use subarray as points because it's [x,y,x,y].
-    // drawSnakeStruct expects [x,y,x,y] in 'pts' prop.
-    // We can pass the typed array subarray?
-    const pts = flt.subarray(p, p + ptCount * 2);
+    // Reconstruct the points array from the shared buffer.
+    // We use a subarray to avoid copying the body data while keeping drawSnakeStruct fast.
+    const pts = buffer.subarray(p, p + ptCount * 2);
 
     const s: SnakeStruct = {
       id,
@@ -647,6 +709,7 @@ export function renderWorldStruct(
       speed: meta.speed
     };
 
+    // Draw the calculated snake block.
     drawSnakeStruct(ctx, s, zoom);
   }
   ctx.restore();

@@ -4,6 +4,26 @@ import { createRng, hashSeed, type RandomSource, toUint32 } from '../rng.ts';
 import type { Snake } from '../snake.ts';
 import type { World } from '../world.ts';
 
+/** Life stage threshold: Snakes below this length use the 'Small' survival strategy. */
+const STRATEGY_THRESHOLD_MEDIUM = 25;
+/** Life stage threshold: Snakes above this length use the 'Large' crowd strategy. */
+const STRATEGY_THRESHOLD_LARGE = 80;
+
+/** Bin evaluation penalty for directions with dangerous clearance (hazards/walls). */
+const VETO_PENALTY = 1000;
+/** Clearance threshold below which a direction is considered for veto. */
+const VETO_THRESHOLD = -0.5;
+/** Angle wander scale in radians for roaming. */
+const WANDER_ANGLE_SCALE = 0.6;
+/** Roam-to-Seek food activation threshold. */
+const FOOD_TRIGGER_THRESHOLD = 0.1;
+/** Minimum clearance to consider the environment 'safe' for random boosting. */
+const ENV_SAFE_THRESHOLD = -0.3;
+/** Seconds to remain in the 'avoid' state after a hazard trigger. */
+const AVOID_DURATION_BASE = 0.35;
+/** Chance per frame to trigger a random curiosity boost. */
+const BOOST_CHANCE_PER_FRAME = 0.02;
+
 /**
  * Controller states used by baseline bots.
  */
@@ -321,19 +341,28 @@ export class BaselineBotManager {
   }
 
   /**
-   * Compute a baseline bot action based on sensors and state.
-   *
-   * Strategy is selected based on snake length:
-   * - Small: survival/growth focus.
-   * - Medium: opportunistic hunting.
-   * - Large: crowd pressure and position control.
+   * Dispatches the bot's movement logic to a specific behavioral strategy 
+   * based on its current length (Life Stage).
+   * 
+   * Strategy Archetypes:
+   * 1. "Coward" (Small, length \< 25): Growth and extreme caution. 
+   *    High bias towards fleeing (clearWeight: 1.8). Rarely boosts unless escaping.
+   * 2. "Hunter" (Medium, length 25 - 79): Aggressive mass acquisition. 
+   *    Targets nearby snake heads for interception and uses attacking boosts.
+   * 3. "Bully" (Large, length \>= 80): Strategic dominance. 
+   *    Uses mass to circle or crowd opponents, minimizing risk with low food priority.
+   * 
+   * @param world - Current simulation world.
+   * @param snake - Bot's snake instance.
+   * @param index - Bot's index in the manager.
+   * @param dt - Frame delta time.
    */
   private computeAction(world: World, snake: Snake, index: number, dt: number): void {
     const len = snake.length();
 
-    if (len < 25) {
+    if (len < STRATEGY_THRESHOLD_MEDIUM) {
       this.computeActionSmall(world, snake, index, dt);
-    } else if (len < 80) {
+    } else if (len < STRATEGY_THRESHOLD_LARGE) {
       this.computeActionMedium(world, snake, index, dt);
     } else {
       this.computeActionLarge(world, snake, index, dt);
@@ -341,11 +370,12 @@ export class BaselineBotManager {
   }
 
   /**
-   * Small strategy: survival / growth.
-   *
-   * - Strong preference for clearance.
-   * - Food contribution is clamped to reduce risky chasing.
-   * - Boost is only used for escape.
+   * Small Strategy Logic: Extreme Survival & Growth.
+   * 
+   * Priorities:
+   * 1. Avoidance: Uses a high `clearWeight` (1.8) to steer clear of all snakes/walls.
+   * 2. Safety: Clamps food rewards to 0.4 to prevent chasing pellets into tight spaces.
+   * 3. Conservation: Boost is only allowed if the bot is in an explicit 'avoid' state.
    */
   private computeActionSmall(world: World, snake: Snake, index: number, dt: number): void {
     const sensors = snake.computeSensors(world);
@@ -355,6 +385,7 @@ export class BaselineBotManager {
     const hazardOffset = foodOffset + bins;
     const wallOffset = hazardOffset + bins;
 
+    // Default weights for 'roam' state.
     let foodWeight = 0.5;
     let clearWeight = 1.8;
 
@@ -371,6 +402,7 @@ export class BaselineBotManager {
       clearWeight = 2.5;
     }
 
+    const FOOD_CLAMP_SMALL = 0.4;
     const { targetIdx } = this.evaluateBins(
       sensors,
       bins,
@@ -379,7 +411,7 @@ export class BaselineBotManager {
       wallOffset,
       foodWeight,
       clearWeight,
-      0.4
+      FOOD_CLAMP_SMALL
     );
 
     this.applyOutput(
@@ -392,16 +424,18 @@ export class BaselineBotManager {
       sensors,
       hazardOffset,
       wallOffset,
-      true
+      true // small bots only boost for escape
     );
   }
 
   /**
-   * Medium strategy: opportunistic hunting.
-   *
-   * - Balances food and clearance.
-   * - Adds an intercept bias toward nearby snakes.
-   * - Boost may be used when attacking, subject to safety checks.
+   * Medium Strategy Logic: Opportunistic Hunting.
+   * 
+   * Priorities:
+   * 1. Interception: Periodically scans for nearby snakes and biases movement 
+   *    towards a predicted intercept course.
+   * 2. Aggression: Uses slightly higher `foodWeight` (0.8) and allows attacking boosts.
+   * 3. Safety: Subject to the same `VETO_THRESHOLD` as all strategies.
    */
   private computeActionMedium(world: World, snake: Snake, index: number, dt: number): void {
     const sensors = snake.computeSensors(world);
@@ -429,7 +463,8 @@ export class BaselineBotManager {
 
     if (state !== 'avoid') {
       const myHead = snake.head();
-      const senseR = snake.radius * 25;
+      const SENSE_RADIUS_MULTIPLIER = 25;
+      const senseR = snake.radius * SENSE_RADIUS_MULTIPLIER;
       let bestTarget: Snake | null = null;
       let minDistSq = Infinity;
 
@@ -448,12 +483,16 @@ export class BaselineBotManager {
       if (bestTarget) {
         const oh = bestTarget.head();
         const angleTo = Math.atan2(oh.y - myHead.y, oh.x - myHead.x);
+        // Map the absolute world angle to a relative range [-PI, PI] for the scoring system.
         huntBiasAngle = angNorm(angleTo - snake.dir);
-        huntStrength = 0.8;
+
+        const HUNT_INTENSITY = 0.8;
+        huntStrength = HUNT_INTENSITY;
         state = 'seek';
       }
     }
 
+    const FOOD_CLAMP_MEDIUM = 0.6;
     const { targetIdx } = this.evaluateBins(
       sensors,
       bins,
@@ -462,11 +501,13 @@ export class BaselineBotManager {
       wallOffset,
       foodWeight,
       clearWeight,
-      0.6,
+      FOOD_CLAMP_MEDIUM,
       (binAngle) => {
         if (huntStrength <= 0) return 0;
         const diff = Math.abs(angNorm(binAngle - huntBiasAngle));
-        return diff < 1.0 ? huntStrength * (1.0 - diff) : 0;
+        // Falloff the hunt bias as the bin angle diverges from the target angle.
+        const HUNTER_BIAS_FALLOFF_RAD = 1.0;
+        return diff < HUNTER_BIAS_FALLOFF_RAD ? huntStrength * (1.0 - diff) : 0;
       }
     );
 
@@ -488,11 +529,14 @@ export class BaselineBotManager {
   }
 
   /**
-   * Large strategy: crowd pressure.
-   *
-   * - Keeps high clearance preference to protect mass.
-   * - Adds a mild bias toward the center of nearby snake density.
-   * - Avoid mode overrides with maximum safety preference.
+   * Large Strategy Logic: Crowd Pressure & Space Control.
+   * 
+   * Priorities:
+   * 1. Crowd Density: Calculates the centroid of all nearby snakes and biases 
+   *    movement towards that center to maximize area coverage and potential blocks.
+   * 2. Mass Protection: High `clearWeight` (1.5) and low `foodWeight` (0.4) to 
+   *    minimize risk of tail-biting or accidental collisions.
+   * 3. Stability: Boost is heavily restricted to prevent erratic maneuvers.
    */
   private computeActionLarge(world: World, snake: Snake, index: number, dt: number): void {
     const sensors = snake.computeSensors(world);
@@ -520,7 +564,8 @@ export class BaselineBotManager {
 
     if (state !== 'avoid') {
       const myHead = snake.head();
-      const senseR = snake.radius * 30;
+      const SENSE_RADIUS_MULTIPLIER = 30;
+      const senseR = snake.radius * SENSE_RADIUS_MULTIPLIER;
       let sumX = 0;
       let sumY = 0;
       let count = 0;
@@ -542,10 +587,13 @@ export class BaselineBotManager {
         const centerY = sumY / count;
         const angleTo = Math.atan2(centerY - myHead.y, centerX - myHead.x);
         crowdBiasAngle = angNorm(angleTo - snake.dir);
-        crowdStrength = 0.6;
+
+        const CROWD_PUSH_INTENSITY = 0.6;
+        crowdStrength = CROWD_PUSH_INTENSITY;
       }
     }
 
+    const FOOD_CLAMP_LARGE = 0.4;
     const { targetIdx } = this.evaluateBins(
       sensors,
       bins,
@@ -554,11 +602,13 @@ export class BaselineBotManager {
       wallOffset,
       foodWeight,
       clearWeight,
-      0.4,
+      FOOD_CLAMP_LARGE,
       (binAngle) => {
         if (crowdStrength <= 0) return 0;
         const diff = Math.abs(angNorm(binAngle - crowdBiasAngle));
-        return diff < 1.0 ? crowdStrength * (1.0 - diff) : 0;
+        // Large snakes use a regional bias to slowly "herd" others.
+        const CROWD_BIAS_FALLOFF_RAD = 1.0;
+        return diff < CROWD_BIAS_FALLOFF_RAD ? crowdStrength * (1.0 - diff) : 0;
       }
     );
 
@@ -616,24 +666,25 @@ export class BaselineBotManager {
     }
 
     const hazardTrigger = -0.25;
-    const foodTrigger = 0.1;
-    const boostChance = 0.02;
 
     // Enter avoid immediately when boxed-in risk is detected.
     if (state !== 'avoid' && worstClear < hazardTrigger) {
       state = 'avoid';
-      stateTimer = 0.35 + (rng ? rng() : 0) * 0.35;
+      stateTimer = AVOID_DURATION_BASE + (rng ? rng() : 0) * AVOID_DURATION_BASE;
     } else if (state !== 'avoid' && state !== 'boost') {
       // Seek food when present, otherwise roam.
-      state = bestFood > foodTrigger ? 'seek' : 'roam';
+      state = bestFood > FOOD_TRIGGER_THRESHOLD ? 'seek' : 'roam';
 
       // Random short boosts (not used by small bots due to output policy).
-      const boostOk = snake.pointsScore > CFG.boost.minPointsToBoost * 1.1;
-      const environmentSafe = worstClear > -0.3;
+      // We require a 10% safety margin over the global minimum to prevent starving the snake.
+      const BOOST_SCORE_MARGIN = 1.1;
+      const boostOk = snake.pointsScore > CFG.boost.minPointsToBoost * BOOST_SCORE_MARGIN;
+      const environmentSafe = worstClear > ENV_SAFE_THRESHOLD;
 
-      if (boostOk && environmentSafe && rng && rng() < boostChance) {
+      if (boostOk && environmentSafe && rng && rng() < BOOST_CHANCE_PER_FRAME) {
         state = 'boost';
-        stateTimer = 0.2 + rng() * 0.2;
+        const BOOST_DURATION_BASE = 0.2;
+        stateTimer = BOOST_DURATION_BASE + rng() * BOOST_DURATION_BASE;
       }
     }
 
@@ -674,9 +725,6 @@ export class BaselineBotManager {
     let bestScore = -Infinity;
     let targetIdx = 0;
 
-    const VETO_THRESHOLD = -0.5;
-
-    // Track best clearance for fallback behavior.
     let bestClearVal = -Infinity;
     let bestClearIdx = 0;
 
@@ -702,8 +750,12 @@ export class BaselineBotManager {
         score += biasFn(angle);
       }
 
+      // Safety Veto (Safe Harbor Retreat):
+      // If the clearance in this direction is dangerously low, we heavily penalize 
+      // the score to ensure the bot prioritizes survival (fleeing toward "safe harbor") 
+      // even if high-reward food or prey is present in the hazard zone.
       if (clearance < VETO_THRESHOLD) {
-        score -= 1000;
+        score -= VETO_PENALTY;
       } else {
         anyNonVeto = true;
       }
@@ -755,8 +807,10 @@ export class BaselineBotManager {
       let wanderTimer = this.botWanderTimers[index] ?? 0;
       wanderTimer -= dt;
       if (wanderTimer <= 0) {
-        this.botWanderAngles[index] = (rng() - 0.5) * 0.6;
-        wanderTimer = 0.6 + rng() * 1.4;
+        this.botWanderAngles[index] = (rng() - 0.5) * WANDER_ANGLE_SCALE;
+        const WANDER_DURATION_BASE = 0.6;
+        const WANDER_DURATION_VAR = 1.4;
+        wanderTimer = WANDER_DURATION_BASE + rng() * WANDER_DURATION_VAR;
       }
       this.botWanderTimers[index] = wanderTimer;
     }
@@ -767,12 +821,12 @@ export class BaselineBotManager {
 
     let boost = state === 'boost' ? 1 : 0;
 
-    // Escape boost: only boost when the chosen direction has enough clearance.
     if (state === 'avoid') {
       const tgtHazard = sensors[hazardOffset + targetIdx] ?? -1;
       const tgtWall = sensors[wallOffset + targetIdx] ?? -1;
       const tgtClear = (tgtHazard + tgtWall) * 0.5;
-      boost = tgtClear > 0.2 ? 1 : 0;
+      const ESCAPE_BOOST_CLEARANCE = 0.2;
+      boost = tgtClear > ESCAPE_BOOST_CLEARANCE ? 1 : 0;
     }
 
     // Attack boost: allow some risk when actively hunting, but do not boost into a tight path.
@@ -780,7 +834,8 @@ export class BaselineBotManager {
       const tgtHazard = sensors[hazardOffset + targetIdx] ?? -1;
       const tgtWall = sensors[wallOffset + targetIdx] ?? -1;
       const tgtClear = (tgtHazard + tgtWall) * 0.5;
-      if (tgtClear > -0.1) boost = 1;
+      const ATTACK_BOOST_MAX_RISK = -0.1;
+      if (tgtClear > ATTACK_BOOST_MAX_RISK) boost = 1;
     }
 
     // Strict boost policy prevents boost outside avoid (used for small bots).
