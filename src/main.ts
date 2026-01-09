@@ -3615,11 +3615,12 @@ wsClient = createWsClient({
       currentVizData = normalizeVizData(msg.viz);
     }
     if (msg.hofEntry) {
-      void hof.add(msg.hofEntry);
-      if (connectionMode === 'server') {
-        const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
-        if (base) void hof.syncToServer(base);
-      }
+      void hof.add(msg.hofEntry).then(() => {
+        if (connectionMode === 'server') {
+          const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+          if (base) void hof.syncToServer(base);
+        }
+      });
     }
   },
   onAssign: (msg) => {
