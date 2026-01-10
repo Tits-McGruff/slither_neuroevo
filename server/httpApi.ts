@@ -4,6 +4,7 @@ import type { HallOfFameEntry, PopulationImportData } from '../src/protocol/mess
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateSnapshotPayload, type Persistence, type PopulationSnapshotPayload } from './persistence.ts';
 import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
+import type { Logger } from './logger.ts';
 
 /** Hard limit for incoming request bodies to avoid memory pressure. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -27,6 +28,8 @@ export interface HttpApiDeps {
   cfgHash: string;
   /** Seed used to initialize the world. */
   worldSeed: number;
+  /** Optional logger for error reporting. */
+  logger?: Logger | undefined;
 }
 
 /**
@@ -85,11 +88,11 @@ function applyCors(req: IncomingMessage, res: ServerResponse): void {
     res.setHeader('Vary', 'Origin');
   } else {
     // If not a whitelisted LAN origin, default to allow-all (*) for non-credentialed requests
-    // but log a warning if it's a credentialed request from outside.
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+  res.setHeader('Access-Control-Max-Age', '86400');
 }
 
 /**
@@ -103,12 +106,35 @@ async function handleRequest(
   res: ServerResponse,
   deps: HttpApiDeps
 ): Promise<void> {
-  applyCors(req, res);
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 204;
-    res.end();
-    return;
+  try {
+    applyCors(req, res);
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+    await routeRequest(req, res, deps);
+  } catch (err) {
+    const message = (err as Error).message || 'internal server error';
+    deps.logger?.error('http', `Request error: ${message}`);
+    // If headers haven't been sent yet, we can send a 500.
+    if (!res.headersSent) {
+      applyCors(req, res); // Ensure CORS headers are present even on error path
+      sendJson(res, 500, { ok: false, message });
+    } else {
+      res.end();
+    }
   }
+}
+
+/**
+ * Routes incoming HTTP requests to handlers (internal implementation).
+ */
+async function routeRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  deps: HttpApiDeps
+): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost');
   if (req.method === 'GET' && url.pathname === '/health') {
     const status = deps.getStatus();

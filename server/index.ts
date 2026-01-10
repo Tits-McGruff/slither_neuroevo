@@ -11,6 +11,7 @@ import { createPersistence, initDb } from './persistence.ts';
 import { SERIALIZER_VERSION, type SensorSpec, type WelcomeMsg } from './protocol.ts';
 import { SimServer, applySettingsUpdates, coerceCoreSettings } from './simServer.ts';
 import { WsHub } from './wsHub.ts';
+import type { Logger } from './logger.ts';
 
 /** Minimal server handle returned by `startServer` for lifecycle management. */
 export interface RunningServer {
@@ -53,7 +54,7 @@ function buildSensorSpec(): SensorSpec {
  * @param config - Normalized server configuration.
  * @returns Running server handle with close method.
  */
-export async function startServer(config: ServerConfig): Promise<RunningServer> {
+export async function startServer(config: ServerConfig, logger?: Logger): Promise<RunningServer> {
   resetCFGToDefaults();
   const worldSeed = Number.isFinite(config.seed)
     ? (config.seed as number)
@@ -97,7 +98,8 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       simServer?.importPopulation(data) ?? { ok: false, reason: 'world not ready' },
     persistence,
     cfgHash,
-    worldSeed
+    worldSeed,
+    logger
   });
 
   const httpServer = createServer((req, res) => {
@@ -159,7 +161,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
 export async function main(): Promise<void> {
   const config = parseConfig(process.argv.slice(2), process.env);
   const logger = createLogger(config.logLevel);
-  const server = await startServer(config);
+  const server = await startServer(config, logger);
   logger.info('server', `listening on :${server.port}`);
 
   let closing = false;
