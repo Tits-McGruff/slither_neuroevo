@@ -81,7 +81,9 @@ export class WsHub {
     this.maxBufferedAmount = options.maxBufferedAmount ?? DEFAULT_MAX_BUFFERED_BYTES;
     this.wss = new WebSocketServer({
       server: httpServer,
-      maxPayload: this.maxMessageBytes
+      maxPayload: this.maxMessageBytes,
+      // Enable per-message compression to reduce bandwidth usage for large frames.
+      perMessageDeflate: true
     });
     this.welcomeJson = JSON.stringify(welcome);
     this.handlers = handlers ?? null;
@@ -157,15 +159,25 @@ export class WsHub {
   }
 
   /**
-   * Send a JSON payload to a specific client by connection id.
+   * Send a payload to a specific client by connection id.
+   * When given a binary buffer, sends it as a binary WebSocket message.
+   * Otherwise, serializes the payload as JSON.
    * @param connId - Connection id to target.
-   * @param payload - Server message to send.
+   * @param payload - Server message or binary buffer to send.
    */
-  sendJsonTo(connId: number, payload: ServerMessage): void {
+  sendJsonTo(connId: number, payload: ServerMessage | ArrayBuffer | ArrayBufferView): void {
     const state = this.connections.get(connId);
     if (!state || !state.joined) return;
     if (state.socket.readyState !== WebSocket.OPEN) return;
     if (state.socket.bufferedAmount > this.maxBufferedAmount) return;
+    // Send binary payloads directly without JSON encoding.
+    if (
+      payload instanceof ArrayBuffer ||
+      ArrayBuffer.isView(payload)
+    ) {
+      state.socket.send(payload, { binary: true });
+      return;
+    }
     state.socket.send(JSON.stringify(payload));
   }
 

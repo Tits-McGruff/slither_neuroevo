@@ -1,5 +1,5 @@
 import type { ControlInput } from '../src/snake.ts';
-import type { ActionMsg, AssignMsg, SensorsMsg, ServerMessage } from './protocol.ts';
+import type { ActionMsg, AssignMsg, ServerMessage } from './protocol.ts';
 
 /** Supported controller types for a snake. */
 export type ControllerType = 'player' | 'bot';
@@ -259,14 +259,41 @@ export class ControllerRegistry {
   ): void {
     const state = this.bySnake.get(snakeId);
     if (!state) return;
-    const msg: SensorsMsg = {
+    /**
+     * For bandwidth efficiency, encode the sensor packet as a binary Float32Array.
+     * Layout: [tick, snakeId, ...sensors, meta.x, meta.y, meta.dir]. The tick and
+     * snakeId are encoded as floats at the beginning. The next `sensorCount`
+     * elements are the sensor values. The final three elements are the metadata
+     * (x, y, dir). This allows clients to recover the tick, snake id, sensor
+     * values and metadata while using the known sensor count from the welcome
+     * message.
+     */
+    const sensorCount = sensors.length;
+    // total floats: tick + snakeId + sensors + 3 meta
+    const payload = new Float32Array(sensorCount + 5);
+    payload[0] = tickId;
+    payload[1] = snakeId;
+    payload.set(sensors, 2);
+    payload[2 + sensorCount] = meta.x;
+    payload[2 + sensorCount + 1] = meta.y;
+    payload[2 + sensorCount + 2] = meta.dir;
+    // Send the typed array as a binary payload. The `send` function is
+    // intentionally typed to accept `ServerMessage`, but our WsHub implementation
+    // will detect ArrayBuffers or ArrayBufferViews and send them in binary.
+    // Cast to `unknown` to satisfy TypeScript without altering the generic
+    // `ServerMessage` definition.
+    this.send(state.connId, payload as unknown as ServerMessage);
+    // Also send a JSON sensors message for backwards compatibility. Tests and legacy
+    // clients still expect a JSON payload. This duplicates the sensors but
+    // maintains compatibility while allowing newer clients to use binary.
+    const jsonMsg = {
       type: 'sensors',
       tick: tickId,
       snakeId,
       sensors: Array.from(sensors),
       meta
     };
-    this.send(state.connId, msg);
+    this.send(state.connId, jsonMsg as unknown as ServerMessage);
   }
 
   /**
