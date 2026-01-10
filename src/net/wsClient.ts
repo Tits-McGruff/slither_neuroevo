@@ -179,9 +179,6 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
   let socket: WebSocket | null = null;
   let connected = false;
   let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
-  // Track the expected binary frame size and sensor count from the welcome message.
-  let expectedFrameByteLength: number | null = null;
-  let sensorCount: number | null = null;
 
   const clearHandshakeTimer = (): void => {
     if (handshakeTimer === null) return;
@@ -265,43 +262,6 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
 
   const handleMessage = (data: unknown): void => {
     if (data instanceof ArrayBuffer) {
-      // Distinguish world frames from sensor packets based on expected byte length if available.
-      if (
-        expectedFrameByteLength !== null &&
-        data.byteLength === expectedFrameByteLength
-      ) {
-        callbacks.onFrame(data);
-        return;
-      }
-      // Attempt to decode sensor packets when we have a sensor count and handler.
-      if (sensorCount !== null && callbacks.onSensors) {
-        const floats = new Float32Array(data);
-        // Expect at least tick + snakeId + sensorCount + meta(3) = sensorCount + 5 floats.
-        if (floats.length >= sensorCount + 5) {
-          // Coerce each field to a number to satisfy strict typing.
-          const tickNum: number = Number(floats[0] ?? 0);
-          const snakeIdNum: number = Number(floats[1] ?? 0);
-          const count: number = sensorCount as number;
-          const sensorValues: number[] = Array.from(
-            floats.slice(2, 2 + count)
-          );
-          const metaVals = {
-            x: Number(floats[2 + count] ?? 0),
-            y: Number(floats[3 + count] ?? 0),
-            dir: Number(floats[4 + count] ?? 0)
-          };
-          const msg: SensorsMsg = {
-            type: 'sensors',
-            tick: tickNum,
-            snakeId: snakeIdNum,
-            sensors: sensorValues,
-            meta: metaVals
-          };
-          callbacks.onSensors(msg);
-          return;
-        }
-      }
-      // Otherwise, without enough context treat binary as a frame.
       callbacks.onFrame(data);
       return;
     }
@@ -332,22 +292,11 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     const msg = parsed as Record<string, unknown>;
     if (typeof msg['type'] !== 'string') return;
     switch (msg['type']) {
-      case 'welcome': {
+      case 'welcome':
         connected = true;
         clearHandshakeTimer();
-        // On handshake, capture the expected frame length and sensor count for binary parsing.
-        const welcome = msg as unknown as WelcomeMsg;
-        expectedFrameByteLength =
-          typeof welcome.frameByteLength === 'number' && Number.isFinite(welcome.frameByteLength)
-            ? welcome.frameByteLength
-            : null;
-        sensorCount =
-          welcome.sensorSpec && typeof welcome.sensorSpec.sensorCount === 'number'
-            ? welcome.sensorSpec.sensorCount
-            : null;
-        callbacks.onConnected(welcome);
+        callbacks.onConnected(msg as unknown as WelcomeMsg);
         return;
-      }
       case 'stats':
         callbacks.onStats(msg as unknown as StatsMsg);
         return;
