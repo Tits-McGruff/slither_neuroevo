@@ -39,7 +39,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   maxActionsPerTick: 1,
   maxActionsPerSecond: 120,
   dbPath: './data/slither.db',
-  checkpointEveryGenerations: 1,
+  checkpointEveryGenerations: 0,
   logLevel: 'info'
 };
 
