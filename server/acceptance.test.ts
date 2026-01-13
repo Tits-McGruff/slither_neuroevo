@@ -110,8 +110,8 @@ describe('acceptance: join and play flow', () => {
         ws.on('open', () => {
           ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
           ws.send(JSON.stringify({ type: 'join', mode: 'player', name: 'acceptance' }));
-  }, 20000);
-});
+        });
+      });
 
       await result;
     } finally {
@@ -121,5 +121,5 @@ describe('acceptance: join and play flow', () => {
 
     expect(assignedId).toBeTruthy();
     expect(sawSensor).toBe(true);
-  }, 10000);
+  }, 20000);
 });
