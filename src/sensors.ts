@@ -4,6 +4,11 @@
 // (food, threats, obstacles) and encode it into a fixed length array.
 
 import { CFG } from './config.ts';
+import {
+  getSensorLayout,
+  type SensorLayout,
+  type SensorLayoutVersion
+} from './protocol/sensors.ts';
 import { clamp, angNorm, TAU } from './utils.ts';
 
 /** Minimal pellet shape used by sensor sampling. */
@@ -21,9 +26,15 @@ interface SnakePoint {
 
 /** Snake interface required for sensor calculations. */
 interface SnakeLike {
+  /** Unique snake identifier. */
+  id: number;
   x: number;
   y: number;
   dir: number;
+  /** Current speed in world units per second. */
+  speed: number;
+  /** Boost state flag as numeric value. */
+  boost: number;
   pointsScore: number;
   points: SnakePoint[];
   radius: number;
@@ -42,6 +53,7 @@ interface SegmentRef {
 interface WorldLike {
   pellets: PelletLike[];
   bestPointsThisGen: number;
+  snakes?: SnakeLike[];
   pelletGrid?: { map?: Map<string, PelletLike[]>; cellSize?: number };
   _collGrid?: { map?: Map<string, unknown>; cellSize?: number; query?: (cx: number, cy: number) => SegmentRef[] | null };
 }
@@ -213,6 +225,95 @@ function _angleToBin(relAngle: number, bins: number): number {
   return clamp(idx, 0, bins - 1);
 }
 
+/** Default v2 near radius base in world units. */
+const DEFAULT_R_NEAR_BASE = 520;
+/** Default v2 near radius scale in world units. */
+const DEFAULT_R_NEAR_SCALE = 260;
+/** Default v2 near radius minimum in world units. */
+const DEFAULT_R_NEAR_MIN = 420;
+/** Default v2 near radius maximum in world units. */
+const DEFAULT_R_NEAR_MAX = 1100;
+/** Default v2 far radius base in world units. */
+const DEFAULT_R_FAR_BASE = 1200;
+/** Default v2 far radius scale in world units. */
+const DEFAULT_R_FAR_SCALE = 520;
+/** Default v2 far radius minimum in world units. */
+const DEFAULT_R_FAR_MIN = 900;
+/** Default v2 far radius maximum in world units. */
+const DEFAULT_R_FAR_MAX = 2400;
+/** Default v2 food saturation constant. */
+const DEFAULT_FOOD_K = 4.0;
+
+/**
+ * Normalize a v2 sense parameter to a finite number with fallback.
+ * @param value - Candidate value to validate.
+ * @param fallback - Fallback used when value is not finite.
+ * @param key - Optional key name for debug output.
+ * @returns Validated numeric value.
+ */
+function readSenseNumber(value: unknown, fallback: number, key?: string): number {
+  if (Number.isFinite(value)) return value as number;
+  if (value !== undefined && key) {
+    console.warn('[sensors.v2.invalid_config]', { key, value });
+  }
+  return fallback;
+}
+
+/**
+ * Map a relative angle to a centered histogram bin index.
+ * @param relAngle - Relative angle in radians.
+ * @param bins - Total number of bins.
+ * @returns Bin index.
+ */
+export function angleToCenteredBin(relAngle: number, bins: number): number {
+  let u = (relAngle + Math.PI) / TAU;
+  u = (u + 0.5 / bins) % 1;
+  const idx = Math.floor(u * bins);
+  return clamp(idx, 0, bins - 1);
+}
+
+/**
+ * Convert a centered bin index to its representative relative angle.
+ * @param index - Bin index.
+ * @param bins - Total number of bins.
+ * @returns Relative angle in radians.
+ */
+function centeredBinToAngle(index: number, bins: number): number {
+  return -Math.PI + (index / bins) * TAU;
+}
+
+/**
+ * Compute the near/far sensing radii for v2 sensors.
+ * @param sizeNorm - Snake size normalization in [0, 1].
+ * @returns Near and far sensing radii in world units.
+ */
+export function computeSensorRadii(sizeNorm: number): { rNear: number; rFar: number } {
+  const safeSize = clamp(Number.isFinite(sizeNorm) ? sizeNorm : 0, 0, 1);
+  const sense = CFG.sense ?? {};
+  const rNearBase = readSenseNumber(sense.rNearBase, DEFAULT_R_NEAR_BASE, 'sense.rNearBase');
+  const rNearScale = readSenseNumber(sense.rNearScale, DEFAULT_R_NEAR_SCALE, 'sense.rNearScale');
+  const rNearMin = Math.max(1, readSenseNumber(sense.rNearMin, DEFAULT_R_NEAR_MIN, 'sense.rNearMin'));
+  const rNearMax = Math.max(rNearMin, readSenseNumber(sense.rNearMax, DEFAULT_R_NEAR_MAX, 'sense.rNearMax'));
+  const rFarBase = readSenseNumber(sense.rFarBase, DEFAULT_R_FAR_BASE, 'sense.rFarBase');
+  const rFarScale = readSenseNumber(sense.rFarScale, DEFAULT_R_FAR_SCALE, 'sense.rFarScale');
+  const rFarMin = Math.max(1, readSenseNumber(sense.rFarMin, DEFAULT_R_FAR_MIN, 'sense.rFarMin'));
+  const rFarMax = Math.max(rFarMin, readSenseNumber(sense.rFarMax, DEFAULT_R_FAR_MAX, 'sense.rFarMax'));
+
+  const rNear = clamp(rNearBase + rNearScale * safeSize, rNearMin, rNearMax);
+  let rFar = clamp(rFarBase + rFarScale * safeSize, rFarMin, rFarMax);
+  if (rFar < rNear + 1) rFar = rNear + 1;
+  return { rNear, rFar };
+}
+
+/**
+ * Normalize a clearance or distance ratio into [-1, 1].
+ * @param ratio - Ratio in [0, 1].
+ * @returns Normalized value in [-1, 1].
+ */
+function ratioToBipolar(ratio: number): number {
+  return clamp(ratio, 0, 1) * 2 - 1;
+}
+
 /**
  * Computes a 360° food density histogram around the head.
  * Returns values in [-1,1] where -1 means "no food" and +1 means "very dense".
@@ -221,6 +322,29 @@ function _angleToBin(relAngle: number, bins: number): number {
 let _scratchFood = new Float32Array(0);
 /** Scratch buffer for hazard bin accumulation. */
 let _scratchHaz = new Float32Array(0);
+/** Scratch buffer for head pressure bin accumulation. */
+let _scratchHead = new Float32Array(0);
+/** Cached sensor layout metadata for the active layout. */
+let _cachedLayout: SensorLayout | null = null;
+/** Cached bin count for the active layout metadata. */
+let _cachedLayoutBins = -1;
+/** Cached layout version for the active layout metadata. */
+let _cachedLayoutVersion: SensorLayoutVersion | null = null;
+
+/**
+ * Resolve the cached sensor layout for the current config.
+ * @returns Cached layout metadata.
+ */
+function getActiveLayout(): SensorLayout {
+  const bins = Math.max(8, Math.floor(CFG.sense?.bubbleBins ?? 16));
+  const layoutVersion = (CFG.sense?.layoutVersion ?? 'v2') as SensorLayoutVersion;
+  if (!_cachedLayout || _cachedLayoutBins !== bins || _cachedLayoutVersion !== layoutVersion) {
+    _cachedLayout = getSensorLayout(bins, layoutVersion);
+    _cachedLayoutBins = _cachedLayout.bins;
+    _cachedLayoutVersion = _cachedLayout.layoutVersion;
+  }
+  return _cachedLayout;
+}
 
 /**
  * Ensure scratch buffers are sized for the given bin count.
@@ -229,6 +353,7 @@ let _scratchHaz = new Float32Array(0);
 function _ensureScratch(bins: number): void {
   if (_scratchFood.length !== bins) _scratchFood = new Float32Array(bins);
   if (_scratchHaz.length !== bins) _scratchHaz = new Float32Array(bins);
+  if (_scratchHead.length !== bins) _scratchHead = new Float32Array(bins);
 }
 
 function _fillFoodBubbleBins(
@@ -339,6 +464,188 @@ function _fillWallBubbleBins(
 }
 
 /**
+ * Compute a v2 food density histogram using centered binning.
+ * @param world - World state providing pellets.
+ * @param snake - Snake to compute sensors for.
+ * @param bins - Number of bins.
+ * @param rFar - Far sensing radius.
+ * @param ins - Sensor output buffer.
+ * @param insOffset - Offset into the output buffer.
+ */
+function _fillFoodBinsV2(
+  world: WorldLike,
+  snake: SnakeLike,
+  bins: number,
+  rFar: number,
+  ins: Float32Array,
+  insOffset: number
+): void {
+  _ensureScratch(bins);
+  for (let i = 0; i < bins; i++) _scratchFood[i] = 0;
+
+  const sx = snake.x;
+  const sy = snake.y;
+  const baseV = Math.max(1e-6, CFG.foodValue);
+  const rFar2 = rFar * rFar;
+
+  _forEachNearbyPellet(world, sx, sy, rFar, p => {
+    const dx = p.x - sx;
+    const dy = p.y - sy;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= 1e-6 || d2 > rFar2) return;
+    const d = Math.sqrt(d2);
+    const ang = Math.atan2(dy, dx);
+    const rel = angNorm(ang - snake.dir);
+    const b = angleToCenteredBin(rel, bins);
+    const wDist = 1 - d / rFar;
+    const wVal = clamp(p.v / baseV, 0, 6.0);
+    const prev = _scratchFood[b] ?? 0;
+    _scratchFood[b] = prev + wDist * wVal;
+  });
+
+  const K = Math.max(0.1, readSenseNumber(CFG.sense?.foodKBase, DEFAULT_FOOD_K, 'sense.foodKBase'));
+  for (let i = 0; i < bins; i++) {
+    const s = _scratchFood[i] ?? 0;
+    const frac = s / (s + K);
+    ins[insOffset + i] = ratioToBipolar(frac);
+  }
+}
+
+/**
+ * Compute a v2 hazard clearance histogram using centered binning.
+ * @param world - World state providing collision segments.
+ * @param snake - Snake to compute sensors for.
+ * @param bins - Number of bins.
+ * @param rNear - Near sensing radius.
+ * @param ins - Sensor output buffer.
+ * @param insOffset - Offset into the output buffer.
+ */
+function _fillHazardBinsV2(
+  world: WorldLike,
+  snake: SnakeLike,
+  bins: number,
+  rNear: number,
+  ins: Float32Array,
+  insOffset: number
+): void {
+  _ensureScratch(bins);
+  for (let i = 0; i < bins; i++) _scratchHaz[i] = rNear;
+
+  const sx = snake.x;
+  const sy = snake.y;
+
+  _forEachNearbySegment(world, sx, sy, rNear, ref => {
+    const other = ref.s;
+    if (!other || !other.alive || other === snake) return;
+    const i = ref.i;
+    const pts = other.points;
+    if (!pts || i <= 0 || i >= pts.length) return;
+    const a = pts[i - 1];
+    const b = pts[i];
+    if (!a || !b) return;
+    const c = _closestPointOnSegment(sx, sy, a.x, a.y, b.x, b.y);
+    const d2 = c.d2;
+    const thr = (snake.radius + other.radius) * CFG.collision.hitScale;
+    const maxDist = rNear + thr;
+    if (d2 > maxDist * maxDist) return;
+    const dist = Math.sqrt(d2);
+    const clear = Math.max(0, dist - thr);
+    if (clear > rNear) return;
+    const ang = Math.atan2(c.qy - sy, c.qx - sx);
+    const rel = angNorm(ang - snake.dir);
+    const bi = angleToCenteredBin(rel, bins);
+    const current = _scratchHaz[bi] ?? rNear;
+    if (clear < current) _scratchHaz[bi] = clear;
+  });
+
+  for (let i = 0; i < bins; i++) {
+    const haz = _scratchHaz[i] ?? rNear;
+    const ratio = haz / rNear;
+    ins[insOffset + i] = ratioToBipolar(ratio);
+  }
+}
+
+/**
+ * Compute a v2 wall clearance histogram using centered binning.
+ * @param snake - Snake to compute sensors for.
+ * @param bins - Number of bins.
+ * @param rNear - Near sensing radius.
+ * @param ins - Sensor output buffer.
+ * @param insOffset - Offset into the output buffer.
+ */
+function _fillWallBinsV2(
+  snake: SnakeLike,
+  bins: number,
+  rNear: number,
+  ins: Float32Array,
+  insOffset: number
+): void {
+  const sx = snake.x;
+  const sy = snake.y;
+  const R = CFG.worldRadius;
+  const distToCenter = Math.hypot(sx, sy);
+  if (distToCenter > R) {
+    console.warn('[sensors.v2.out_of_bounds]', { x: sx, y: sy, worldRadius: R });
+  }
+
+  for (let i = 0; i < bins; i++) {
+    const theta = snake.dir + centeredBinToAngle(i, bins);
+    let t = _distToWallAlongRay(sx, sy, theta, R);
+    if (!Number.isFinite(t) || t <= 0) t = 0;
+    const clear = clamp(t - snake.radius, 0, rNear);
+    ins[insOffset + i] = ratioToBipolar(clear / rNear);
+  }
+}
+
+/**
+ * Compute a v2 head pressure histogram using centered binning.
+ * @param world - World state providing snakes.
+ * @param snake - Snake to compute sensors for.
+ * @param bins - Number of bins.
+ * @param rNear - Near sensing radius.
+ * @param ins - Sensor output buffer.
+ * @param insOffset - Offset into the output buffer.
+ */
+function _fillHeadBinsV2(
+  world: WorldLike,
+  snake: SnakeLike,
+  bins: number,
+  rNear: number,
+  ins: Float32Array,
+  insOffset: number
+): void {
+  _ensureScratch(bins);
+  for (let i = 0; i < bins; i++) _scratchHead[i] = rNear;
+
+  const sx = snake.x;
+  const sy = snake.y;
+  const snakes = world.snakes ?? [];
+
+  for (const other of snakes) {
+    if (!other || !other.alive || other === snake || other.id === snake.id) continue;
+    const head = other.points[0];
+    if (!head) continue;
+    const dx = head.x - sx;
+    const dy = head.y - sy;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > rNear * rNear) continue;
+    const dist = Math.sqrt(d2);
+    const thr = (snake.radius + other.radius) * CFG.collision.hitScale;
+    const clear = Math.max(0, dist - thr);
+    const ang = Math.atan2(dy, dx);
+    const rel = angNorm(ang - snake.dir);
+    const bi = angleToCenteredBin(rel, bins);
+    const current = _scratchHead[bi] ?? rNear;
+    if (clear < current) _scratchHead[bi] = clear;
+  }
+
+  for (let i = 0; i < bins; i++) {
+    const headClear = _scratchHead[i] ?? rNear;
+    ins[insOffset + i] = ratioToBipolar(headClear / rNear);
+  }
+}
+
+/**
  * Build the full sensor vector. If out is provided, fills it in-place to avoid
  * per-tick allocations.
  * @param world - World state providing pellets and collision data.
@@ -350,18 +657,17 @@ export function buildSensors(
   snake: SnakeLike,
   out: Float32Array | null = null
 ): Float32Array {
-  const bins = Math.max(8, Math.floor(CFG.sense?.bubbleBins ?? 12));
-  const expected = 5 + 3 * bins;
-  const ins = out && out.length === expected ? out : new Float32Array(expected);
-
-  const r = _bubbleRadiusForSnake(snake);
+  const layout = getActiveLayout();
+  const bins = layout.bins;
+  const ins = out && out.length === layout.inputSize ? out : new Float32Array(layout.inputSize);
 
   // 0-1: heading sin/cos
   ins[0] = Math.sin(snake.dir);
   ins[1] = Math.cos(snake.dir);
 
   // 2: size fraction [-1,1]
-  ins[2] = clamp(snake.sizeNorm() * 2 - 1, -1, 1);
+  const sizeNorm = snake.sizeNorm();
+  ins[2] = clamp(sizeNorm * 2 - 1, -1, 1);
 
   // 3: boost margin relative to minimum points to boost
   const minBoostPts = CFG.boost.minPointsToBoost;
@@ -373,14 +679,32 @@ export function buildSensors(
   const logFrac = Math.log(1 + snake.pointsScore) / Math.log(1 + bestPts);
   ins[4] = clamp(logFrac * 2 - 1, -1, 1);
 
-  // 5..: 360° food / hazard / wall bubbles (relative to heading)
-  const foodOff = 5;
-  const hazOff = foodOff + bins;
-  const wallOff = hazOff + bins;
+  const foodOff = layout.offsets.food;
+  const hazOff = layout.offsets.hazard;
+  const wallOff = layout.offsets.wall;
 
-  _fillFoodBubbleBins(world, snake, bins, r, ins, foodOff);
-  _fillHazardBubbleBins(world, snake, bins, r, ins, hazOff);
-  _fillWallBubbleBins(snake, bins, r, ins, wallOff);
+  if (layout.layoutVersion === 'v2') {
+    const speedRatio = Number.isFinite(snake.speed)
+      ? snake.speed / Math.max(1e-6, CFG.snakeBoostSpeed)
+      : 0;
+    ins[5] = ratioToBipolar(speedRatio);
+    const boostRatio = Number.isFinite(snake.boost) ? snake.boost : 0;
+    ins[6] = ratioToBipolar(clamp(boostRatio, 0, 1));
+
+    const { rNear, rFar } = computeSensorRadii(sizeNorm);
+    _fillFoodBinsV2(world, snake, bins, rFar, ins, foodOff);
+    _fillHazardBinsV2(world, snake, bins, rNear, ins, hazOff);
+    _fillWallBinsV2(snake, bins, rNear, ins, wallOff);
+
+    if (layout.offsets.head != null) {
+      _fillHeadBinsV2(world, snake, bins, rNear, ins, layout.offsets.head);
+    }
+  } else {
+    const r = _bubbleRadiusForSnake(snake);
+    _fillFoodBubbleBins(world, snake, bins, r, ins, foodOff);
+    _fillHazardBubbleBins(world, snake, bins, r, ins, hazOff);
+    _fillWallBubbleBins(snake, bins, r, ins, wallOff);
+  }
 
   return ins;
 }

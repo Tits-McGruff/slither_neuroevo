@@ -1,4 +1,5 @@
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../src/protocol/messages.ts';
+import type { SensorSpec as SensorSpecBase } from '../src/protocol/sensors.ts';
 import type { CoreSettings, SettingsUpdate } from '../src/protocol/settings.ts';
 import { SETTINGS_PATHS } from '../src/protocol/settings.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
@@ -90,10 +91,7 @@ export type ClientMessage =
   | ResetMsg;
 
 /** Sensor metadata describing the array order and size. */
-export interface SensorSpec {
-  sensorCount: number;
-  order: string[];
-}
+export type SensorSpec = SensorSpecBase;
 
 /** Initial server welcome payload. */
 export interface WelcomeMsg {

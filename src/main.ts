@@ -1,6 +1,6 @@
 /** Entry point for the simulation UI, canvas, and client networking. */
 
-import { CFG, resetCFGToDefaults } from './config.ts';
+import { CFG, resetCFGToDefaults, syncBrainInputSize } from './config.ts';
 import {
   BASELINE_BOT_SEED_HINT_ID,
   BASELINE_BOT_SEED_INPUT_ID,
@@ -31,7 +31,7 @@ import type { GraphSizeState } from './brains/graph/editor.ts';
 import { validateGraph } from './brains/graph/validate.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
 import type { FrameStats, GenomeJSON, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
-import { SETTINGS_PATHS } from './protocol/settings.ts';
+import { SETTINGS_PATHS, coerceSettingsUpdateValue } from './protocol/settings.ts';
 import type { CoreSettings, SettingsUpdate } from './protocol/settings.ts';
 
 /** Minimal world interface exposed to UI panels and HoF actions. */
@@ -743,8 +743,10 @@ function normalizeImportUpdates(value: unknown): SettingsUpdate[] | null {
  */
 function applySettingsUpdatesToUi(updates: SettingsUpdate[]): void {
   updates.forEach(update => {
-    setByPath(CFG, update.path, update.value);
+    const coerced = coerceSettingsUpdateValue(update.path, update.value);
+    setByPath(CFG, update.path, coerced);
   });
+  syncBrainInputSize();
   applyValuesToSlidersFromCFG(resolveSettingsRoot());
   setBaselineSeedHintVisible(false);
 }
@@ -1573,6 +1575,36 @@ function setGraphDraft(spec: GraphSpec, note = ''): void {
   graphDraft = cloneGraphSpec(spec);
   renderGraphEditor();
   if (note) setGraphSpecStatus(note);
+}
+
+/**
+ * Resolve the input size encoded by a graph spec's Input node.
+ * @param spec - Graph spec to inspect.
+ * @returns Input node output size or null if invalid/missing.
+ */
+function getGraphSpecInputSize(spec: GraphSpec): number | null {
+  const inputNodes = spec.nodes.filter(node => node.type === 'Input');
+  if (inputNodes.length !== 1) return null;
+  const size = inputNodes[0]?.outputSize;
+  return Number.isFinite(size) ? (size as number) : null;
+}
+
+/**
+ * Throw when a graph spec input size does not match the current CFG input size.
+ * @param spec - Graph spec to validate.
+ * @param context - Context label for the error message.
+ */
+function assertGraphSpecInputSizeMatches(spec: GraphSpec, context: string): void {
+  const inputSize = getGraphSpecInputSize(spec);
+  if (inputSize == null) {
+    throw new Error(`${context} must include exactly one Input node.`);
+  }
+  if (inputSize !== CFG.brain.inSize) {
+    throw new Error(
+      `${context} input size mismatch (expected ${CFG.brain.inSize}, got ${inputSize}). ` +
+      'If this file was exported from an older build, clear localStorage or delete data/slither.db and retry.'
+    );
+  }
 }
 
 /**
@@ -3326,6 +3358,7 @@ function initWorker(resetCfg = true): void {
   if (!worker) return;
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdatesFromUI();
+  const graphSpec = resolveGraphSpecForReset();
   worker.postMessage({
     type: 'init',
     settings,
@@ -3333,8 +3366,26 @@ function initWorker(resetCfg = true): void {
     resetCfg,
     viewW: cssW,
     viewH: cssH,
-    graphSpec: customGraphSpec
+    graphSpec
   });
+}
+
+/**
+ * Validate the applied graph spec against the active sensor input size.
+ * @returns Valid graph spec or null if cleared.
+ */
+function resolveGraphSpecForReset(): GraphSpec | null {
+  if (!customGraphSpec) return null;
+  const inputSize = getGraphSpecInputSize(customGraphSpec);
+  if (inputSize == null || inputSize !== CFG.brain.inSize) {
+    console.warn('[sensors.layout.reset_fallback]', {
+      expected: CFG.brain.inSize,
+      actual: inputSize ?? null
+    });
+    clearCustomGraphSpec('Custom graph cleared due to input size mismatch.');
+    return null;
+  }
+  return customGraphSpec;
 }
 
 /**
@@ -3345,7 +3396,8 @@ function applyResetToSimulation(resetCfg = true): void {
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdatesFromUI();
   if (wsClient && wsClient.isConnected()) {
-    wsClient.sendReset(settings, updates, customGraphSpec ?? null);
+    const graphSpec = resolveGraphSpecForReset();
+    wsClient.sendReset(settings, updates, graphSpec);
     return;
   }
   initWorker(resetCfg);
@@ -3379,7 +3431,15 @@ async function handleWorkerMessage(msg: WorkerToMainMessage): Promise<void> {
     }
     case 'importResult': {
       if (!msg.ok) {
-        alert(`Import failed: ${msg.reason || 'unknown error'}`);
+        const reason = msg.reason || 'unknown error';
+        if (reason.includes('no compatible genomes')) {
+          alert(
+            'Import failed: no compatible genomes (input size mismatch). ' +
+            'Clear localStorage and delete data/slither.db, then re-export from a matching build/layout.'
+          );
+        } else {
+          alert(`Import failed: ${reason}`);
+        }
       } else {
         const used = msg.used || 0;
         const total = msg.total || 0;
@@ -4212,18 +4272,23 @@ if (btnImport && fileInput) {
         (fileSettings != null && typeof fileSettings === 'object') ||
         (fileUpdates != null && fileUpdates.length > 0);
       if (shouldReset) {
-        if (fileGraphSpec && typeof fileGraphSpec === 'object') {
-          if (!applyGraphSpec(fileGraphSpec, 'Graph loaded from import.')) {
-            throw new Error('Import file graph spec is invalid.');
-          }
-        } else if (hasGraphSpecField && fileGraphSpec === null) {
-          clearCustomGraphSpec('Graph cleared from import.');
-        }
         if (fileSettings && typeof fileSettings === 'object') {
           applyCoreSettingsToUi(fileSettings);
         }
         if (fileUpdates && fileUpdates.length > 0) {
           applySettingsUpdatesToUi(fileUpdates);
+        }
+        if (hasGraphSpecField) {
+          if (fileGraphSpec && typeof fileGraphSpec === 'object') {
+            assertGraphSpecInputSizeMatches(fileGraphSpec, 'Import graph spec');
+            if (!applyGraphSpec(fileGraphSpec, 'Graph loaded from import.')) {
+              throw new Error('Import file graph spec is invalid.');
+            }
+          } else if (fileGraphSpec === null) {
+            clearCustomGraphSpec('Graph cleared from import.');
+          }
+        } else {
+          resolveGraphSpecForReset();
         }
         persistBaselineBotSettings();
       }
@@ -4231,7 +4296,7 @@ if (btnImport && fileInput) {
         if (shouldReset) {
           const resetSettings = fileSettings ?? readSettingsFromCoreUI();
           const resetUpdates = fileUpdates ?? collectSettingsUpdatesFromUI();
-          const resetGraphSpec = hasGraphSpecField ? (fileGraphSpec ?? null) : (customGraphSpec ?? null);
+          const resetGraphSpec = resolveGraphSpecForReset();
           wsClient.sendReset(resetSettings, resetUpdates, resetGraphSpec);
           await waitForServerReset();
         }

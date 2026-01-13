@@ -2,6 +2,7 @@
 // Default configuration values and mutable configuration state for the simulation.
 
 import { deepClone } from './utils.ts';
+import { getSensorLayout, type SensorLayout, type SensorLayoutVersion } from './protocol/sensors.ts';
 import type { GraphSpec } from './brains/graph/schema.ts';
 
 /** Default configuration values for the simulation and UI sliders. */
@@ -75,12 +76,25 @@ export const CFG_DEFAULT = {
     // 360° "bubble" sensing around the head.
     // The bubble radius increases with snake length using the same zoom curve
     // as the follow camera (larger snakes see farther).
-    bubbleBins: 12,
+    layoutVersion: 'v2' as SensorLayoutVersion,
+    bubbleBins: 16,
     bubbleRadiusBase: 760,
     bubbleRadiusMin: 420,
     bubbleRadiusMax: 1700,
     // Saturation constant for per-bin food accumulation.
     bubbleFoodK: 4.0,
+    // V2 sensing radii (near/far) and food saturation controls.
+    rNearBase: 520,
+    rNearScale: 260,
+    rNearMin: 420,
+    rNearMax: 1100,
+    rFarBase: 1200,
+    rFarScale: 520,
+    rFarMin: 900,
+    rFarMax: 2400,
+    foodKBase: 4.0,
+    // Enable sensor debug logging when true.
+    debug: false,
 
     // Caps on work per snake per tick when the local region is extremely dense.
     // These apply to bubble food/hazard sensing.
@@ -95,9 +109,9 @@ export const CFG_DEFAULT = {
     wallRayLen: 720
   },
   // Brain configuration.
-  // Input size is 5 + 3*bubbleBins as detailed in buildSensors.
+  // Input size is derived from the active sensor layout.
   brain: {
-    inSize: 41,
+    inSize: getSensorLayout(16, 'v2').inputSize,
     outSize: 2,
 
     // Recurrent memory.
@@ -189,9 +203,38 @@ export const CFG_DEFAULT = {
 /** Mutable configuration object, cloned from CFG_DEFAULT on reset. */
 export let CFG = deepClone(CFG_DEFAULT);
 
+/** Track whether the default v2 layout log has been emitted. */
+let didLogDefaultV2Layout = false;
+
 /**
  * Resets the global configuration to its default values.
  */
 export function resetCFGToDefaults(): void {
   CFG = deepClone(CFG_DEFAULT);
+  syncBrainInputSize();
+}
+
+/**
+ * Emit a one-time log when the default v2 layout is active.
+ * @param layout - Active sensor layout metadata.
+ */
+function logDefaultV2LayoutOnce(layout: SensorLayout): void {
+  if (didLogDefaultV2Layout) return;
+  if (layout.layoutVersion !== 'v2') return;
+  console.info('[sensors.layout.default_v2_enabled]', {
+    bins: layout.bins,
+    inputSize: layout.inputSize
+  });
+  didLogDefaultV2Layout = true;
+}
+
+/**
+ * Align the brain input size with the active sensor layout.
+ */
+export function syncBrainInputSize(): void {
+  const sense = CFG.sense ?? {};
+  const layoutVersion: SensorLayoutVersion = sense.layoutVersion ?? 'v2';
+  const layout = getSensorLayout(sense.bubbleBins ?? 16, layoutVersion);
+  CFG.brain.inSize = layout.inputSize;
+  logDefaultV2LayoutOnce(layout);
 }

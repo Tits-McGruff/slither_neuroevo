@@ -4,7 +4,8 @@
 // rather, it populates a provided container element with controls defined
 // by SETTING_SPECS and synchronises their values with the global CFG.
 
-import { CFG } from './config.ts';
+import { CFG, syncBrainInputSize } from './config.ts';
+import { coerceSettingsUpdateValue, type SettingsPath } from './protocol/settings.ts';
 import { getByPath, setByPath, fmtNumber } from './utils.ts';
 
 /** Supported input types for settings controls. */
@@ -51,6 +52,21 @@ const SETTING_SPECS: SettingSpec[] = [
   { group: "World and food", path: "foodSpawn.freqMedium", label: "Filament scale (medium)", min: 0.0015, max: 0.0100, step: 0.0001, decimals: 4, requiresReset: false },
   { group: "World and food", path: "foodSpawn.freqSmall", label: "Filament scale (small)", min: 0.0025, max: 0.0200, step: 0.0002, decimals: 4, requiresReset: false },
   { group: "World and food", path: "foodSpawn.dustStrength", label: "Filament speckle strength", min: 0.0, max: 1.0, step: 0.05, decimals: 2, requiresReset: false },
+
+  { group: "Sensors", path: "sense.layoutVersion", label: "Use v2 sensor layout", requiresReset: true, type: "checkbox", hint: "Switching layouts changes input size and requires a reset." },
+  { group: "Sensors", path: "sense.bubbleBins", label: "Sensor bins", min: 8, max: 32, step: 1, decimals: 0, requiresReset: true },
+  { group: "Sensors", path: "sense.rNearBase", label: "Near radius base", min: 200, max: 900, step: 10, decimals: 0, requiresReset: false },
+  { group: "Sensors", path: "sense.rNearScale", label: "Near radius scale", min: 0, max: 600, step: 10, decimals: 0, requiresReset: false },
+  { group: "Sensors", path: "sense.rNearMin", label: "Near radius min", min: 150, max: 900, step: 10, decimals: 0, requiresReset: false },
+  { group: "Sensors", path: "sense.rNearMax", label: "Near radius max", min: 200, max: 1200, step: 10, decimals: 0, requiresReset: false },
+  { group: "Sensors", path: "sense.rFarBase", label: "Far radius base", min: 400, max: 2000, step: 20, decimals: 0, requiresReset: false },
+  { group: "Sensors", path: "sense.rFarScale", label: "Far radius scale", min: 0, max: 1200, step: 20, decimals: 0, requiresReset: false },
+  { group: "Sensors", path: "sense.rFarMin", label: "Far radius min", min: 400, max: 2200, step: 20, decimals: 0, requiresReset: false },
+  { group: "Sensors", path: "sense.rFarMax", label: "Far radius max", min: 600, max: 3000, step: 20, decimals: 0, requiresReset: false },
+  { group: "Sensors", path: "sense.foodKBase", label: "Food saturation K", min: 0.5, max: 12.0, step: 0.1, decimals: 1, requiresReset: false },
+  { group: "Sensors", path: "sense.maxPelletChecks", label: "Max pellet checks", min: 100, max: 3000, step: 50, decimals: 0, requiresReset: false },
+  { group: "Sensors", path: "sense.maxSegmentChecks", label: "Max segment checks", min: 200, max: 4000, step: 50, decimals: 0, requiresReset: false },
+  { group: "Sensors", path: "sense.debug", label: "Sensors debug logs", requiresReset: false, type: "checkbox", hint: "Enable sensor debug logging." },
 
   { group: "Baseline bots", path: "baselineBots.count", label: "Baseline bot count", min: 0, max: 120, step: 1, decimals: 0, requiresReset: true },
   { group: "Baseline bots", path: "baselineBots.respawnDelay", label: "Respawn delay (sec)", min: 0.5, max: 60.0, step: 0.5, decimals: 1, requiresReset: false },
@@ -280,8 +296,16 @@ export function applyValuesToSlidersFromCFG(root: HTMLElement): void {
   inputs.forEach(input => {
     const path = input.dataset['path']!;
     const rawValue = getByPath(CFG, path);
-    const numericValue = typeof rawValue === 'number' ? rawValue : (rawValue ? 1 : 0);
-    if (input.type === 'checkbox') {
+    let numericValue = typeof rawValue === 'number' ? rawValue : (rawValue ? 1 : 0);
+    if (path === 'sense.layoutVersion') {
+      const isV2 = rawValue === 'v2' || rawValue === 1;
+      numericValue = isV2 ? 1 : 0;
+      if (input.type === 'checkbox') {
+        input.checked = isV2;
+      } else {
+        input.value = String(numericValue);
+      }
+    } else if (input.type === 'checkbox') {
       input.checked = Boolean(rawValue);
     } else {
       input.value = String(numericValue);
@@ -329,8 +353,10 @@ export function updateCFGFromUI(root: HTMLElement): void {
     const path = input.dataset['path']!;
     const value = readInputValue(input);
     if (value == null) return;
-    setByPath(CFG, path, value);
+    const coerced = coerceSettingsUpdateValue(path as SettingsPath, value);
+    setByPath(CFG, path, coerced);
   });
+  syncBrainInputSize();
 }
 
 /**

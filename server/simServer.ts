@@ -1,11 +1,11 @@
 import { performance } from 'node:perf_hooks';
-import { CFG, resetCFGToDefaults } from '../src/config.ts';
+import { CFG, resetCFGToDefaults, syncBrainInputSize } from '../src/config.ts';
 import { World } from '../src/world.ts';
 import { WorldSerializer } from '../src/serializer.ts';
 import { setByPath } from '../src/utils.ts';
 import { validateGraph } from '../src/brains/graph/validate.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
-import type { CoreSettings, SettingsUpdate } from '../src/protocol/settings.ts';
+import { coerceSettingsUpdateValue, type CoreSettings, type SettingsUpdate } from '../src/protocol/settings.ts';
 import type { Snake } from '../src/snake.ts';
 import type { ServerConfig } from './config.ts';
 import type {
@@ -532,8 +532,10 @@ export function coerceCoreSettings(value: unknown): Partial<CoreSettings> {
 export function applySettingsUpdates(updates: SettingsUpdate[] | undefined): void {
   if (!updates) return;
   updates.forEach((update) => {
-    setByPath(CFG, update.path, update.value);
+    const coerced = coerceSettingsUpdateValue(update.path, update.value);
+    setByPath(CFG, update.path, coerced);
   });
+  syncBrainInputSize();
 }
 
 /**
@@ -548,6 +550,18 @@ function applyGraphSpecOverride(
   if (spec === undefined) return;
   if (spec === null) {
     CFG.brain.graphSpec = null;
+    return;
+  }
+  const inputNodes = spec.nodes.filter(node => node.type === 'Input');
+  if (inputNodes.length !== 1) {
+    CFG.brain.graphSpec = null;
+    onError?.('graph must include exactly one Input node');
+    return;
+  }
+  const inputNode = inputNodes[0]!;
+  if (inputNode.outputSize !== CFG.brain.inSize) {
+    CFG.brain.graphSpec = null;
+    onError?.(`input size mismatch (expected ${CFG.brain.inSize})`);
     return;
   }
   const result = validateGraph(spec);

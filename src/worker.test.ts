@@ -34,11 +34,17 @@ describe('worker.ts', () => {
     handler({
       data: {
         type: 'updateSettings',
-        updates: [{ path: 'collision.cellSize', value: 123 }]
+        updates: [
+          { path: 'collision.cellSize', value: 123 },
+          { path: 'sense.maxPelletChecks', value: 750 },
+          { path: 'sense.layoutVersion', value: 1 }
+        ]
       }
     } as MessageEvent);
 
     expect(CFG.collision.cellSize).toBe(123);
+    expect(CFG.sense.maxPelletChecks).toBe(750);
+    expect(CFG.sense.layoutVersion).toBe('v2');
   });
 
   it('stats exclude baseline bots and include totals', async () => {

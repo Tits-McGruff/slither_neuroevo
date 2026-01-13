@@ -67,6 +67,42 @@ describe(SUITE, () => {
     expect(msg?.type).toBe('reset');
   });
 
+  it('accepts sensor settings updates in reset payloads', () => {
+    const msg = parseClientMessage({
+      type: 'reset',
+      settings: {
+        snakeCount: 80,
+        simSpeed: 1.25,
+        hiddenLayers: 2,
+        neurons1: 64,
+        neurons2: 64,
+        neurons3: 64,
+        neurons4: 48,
+        neurons5: 32
+      },
+      updates: [{ path: 'sense.bubbleBins', value: 12 }]
+    });
+    expect(msg?.type).toBe('reset');
+  });
+
+  it('rejects reset updates with unknown settings paths', () => {
+    const msg = parseClientMessage({
+      type: 'reset',
+      settings: {
+        snakeCount: 80,
+        simSpeed: 1.25,
+        hiddenLayers: 2,
+        neurons1: 64,
+        neurons2: 64,
+        neurons3: 64,
+        neurons4: 48,
+        neurons5: 32
+      },
+      updates: [{ path: 'sense.unknownField', value: 12 }]
+    });
+    expect(msg).toBeNull();
+  });
+
   it('stats requires total fields', () => {
     const stats: StatsMsg = {
       type: 'stats',

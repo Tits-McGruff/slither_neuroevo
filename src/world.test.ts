@@ -149,6 +149,26 @@ describe(SUITE, () => {
         }
     });
 
+    it('keeps sensors finite after reset with v2 layout', () => {
+        resetCFGToDefaults();
+        const originalTarget = CFG.pelletCountTarget;
+        CFG.pelletCountTarget = 150;
+        try {
+            expect(CFG.sense.layoutVersion).toBe('v2');
+            const world = new World({ ...settings, snakeCount: 4 });
+            world.update(1 / 30, 800, 600);
+            for (const s of world.snakes) {
+                if (!s.alive) continue;
+                if (!s.lastSensors) continue;
+                const allFinite = s.lastSensors.every(Number.isFinite);
+                expect(allFinite).toBe(true);
+            }
+        } finally {
+            CFG.pelletCountTarget = originalTarget;
+            resetCFGToDefaults();
+        }
+    });
+
     it('records min/avg/best fitness into history at generation end', () => {
         resetCFGToDefaults();
         const originalTarget = CFG.pelletCountTarget;

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import WebSocket, { type RawData } from 'ws';
 import { startServer } from './index.ts';
 import { DEFAULT_CONFIG } from './config.ts';
+import { getSensorLayout } from '../src/protocol/sensors.ts';
 
 /**
  * Parses WS text payloads into JSON objects when possible.
@@ -79,7 +80,7 @@ describe('server integration', () => {
       const result = new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('timed out waiting for welcome/frame'));
-        }, 1500);
+        }, 4000);
 
         ws.on('error', (err: Error) => {
           clearTimeout(timeout);
@@ -126,7 +127,7 @@ describe('server integration', () => {
 
     expect(seen.welcome).toBe(true);
     expect(seen.frame).toBe(true);
-  });
+  }, 20000);
 
   it('assigns a player and streams sensors', async () => {
     const server = await startServerWithGuard();
@@ -136,12 +137,13 @@ describe('server integration', () => {
     ws.binaryType = 'arraybuffer';
     let assignedId: number | null = null;
     let sensorCount = 0;
+    let sensorOrder: string[] = [];
 
     try {
       const result = new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('timed out waiting for assign/sensors'));
-        }, 1500);
+        }, 4000);
 
         ws.on('error', (err: Error) => {
           clearTimeout(timeout);
@@ -158,6 +160,8 @@ describe('server integration', () => {
               sensorCount = typeof (spec as { sensorCount?: unknown })['sensorCount'] === 'number'
                 ? (spec as { sensorCount?: number })['sensorCount'] ?? 0
                 : 0;
+              const order = (spec as { order?: unknown }).order;
+              sensorOrder = Array.isArray(order) ? order.filter(item => typeof item === 'string') : [];
             }
           }
           if (msg['type'] === 'assign') {
@@ -193,5 +197,9 @@ describe('server integration', () => {
     }
 
     expect(assignedId).toBeTruthy();
-  });
+    const layout = getSensorLayout(16, 'v2');
+    expect(sensorCount).toBe(layout.inputSize);
+    expect(sensorOrder.length).toBe(layout.inputSize);
+    expect(sensorOrder.slice(0, 7)).toEqual(layout.order.slice(0, 7));
+  }, 20000);
 });

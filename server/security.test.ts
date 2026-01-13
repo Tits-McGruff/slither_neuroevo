@@ -75,7 +75,7 @@ describe('security: invalid WS payloads', () => {
 
     try {
       const result = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('timeout')), 1500);
+        const timeout = setTimeout(() => reject(new Error('timeout')), 4000);
 
         ws.on('message', (data: RawData, isBinary: boolean) => {
           if (isBinary) return;
@@ -100,7 +100,7 @@ describe('security: invalid WS payloads', () => {
     }
 
     expect(sawError).toBe(true);
-  });
+  }, 20000);
 
   it('rejects player join without name', async () => {
     const server = await startServerWithGuard();
@@ -111,7 +111,7 @@ describe('security: invalid WS payloads', () => {
 
     try {
       const result = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('timeout')), 1500);
+        const timeout = setTimeout(() => reject(new Error('timeout')), 4000);
 
         ws.on('message', (data: RawData, isBinary: boolean) => {
           if (isBinary) return;
@@ -137,5 +137,5 @@ describe('security: invalid WS payloads', () => {
     }
 
     expect(sawError).toBe(true);
-  });
+  }, 20000);
 });

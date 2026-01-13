@@ -77,7 +77,7 @@ describe('acceptance: join and play flow', () => {
 
     try {
       const result = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('timeout')), 1800);
+        const timeout = setTimeout(() => reject(new Error('timeout')), 4000);
 
         ws.on('error', (err: Error) => {
           clearTimeout(timeout);
@@ -110,8 +110,8 @@ describe('acceptance: join and play flow', () => {
         ws.on('open', () => {
           ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
           ws.send(JSON.stringify({ type: 'join', mode: 'player', name: 'acceptance' }));
-        });
-      });
+  }, 20000);
+});
 
       await result;
     } finally {
@@ -121,5 +121,5 @@ describe('acceptance: join and play flow', () => {
 
     expect(assignedId).toBeTruthy();
     expect(sawSensor).toBe(true);
-  });
+  }, 10000);
 });

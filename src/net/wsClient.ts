@@ -1,5 +1,6 @@
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../protocol/messages.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
+import type { SensorSpec } from '../protocol/sensors.ts';
 import type { CoreSettings, SettingsUpdate } from '../protocol/settings.ts';
 
 /** Default WebSocket URL injected at build time. */
@@ -14,7 +15,7 @@ export interface WelcomeMsg {
   tickRate: number;
   worldSeed: number;
   cfgHash: string;
-  sensorSpec: { sensorCount: number; order: string[] };
+  sensorSpec: SensorSpec;
   serializerVersion: number;
   frameByteLength: number;
 }
