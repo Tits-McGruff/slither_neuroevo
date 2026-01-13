@@ -141,6 +141,8 @@ export class GRU {
   _z: Float32Array;
   /** Scratch buffer for reset gate. */
   _r: Float32Array;
+  /** Scratch buffer for the previous hidden state. */
+  _hPrev: Float32Array;
 
   /**
    * Create a GRU instance with optional weights.
@@ -174,6 +176,7 @@ export class GRU {
     this.h = new Float32Array(hiddenSize);
     this._z = new Float32Array(hiddenSize);
     this._r = new Float32Array(hiddenSize);
+    this._hPrev = new Float32Array(hiddenSize);
   }
 
   /** Reset the hidden state to zero. */
@@ -201,6 +204,9 @@ export class GRU {
     const br = bz + H;
     const bh = br + H;
 
+    this._hPrev.set(this.h);
+    const hPrev = this._hPrev;
+
     for (let j = 0; j < H; j++) {
       let sumZ = 0;
       let sumR = 0;
@@ -214,7 +220,7 @@ export class GRU {
       const uzRow = Uz + j * H;
       const urRow = Ur + j * H;
       for (let k = 0; k < H; k++) {
-        const hk = this.h[k] ?? 0;
+        const hk = hPrev[k] ?? 0;
         sumZ += (this.w[uzRow + k] ?? 0) * hk;
         sumR += (this.w[urRow + k] ?? 0) * hk;
       }
@@ -231,13 +237,13 @@ export class GRU {
       const uhRow = Uh + j * H;
       for (let k = 0; k < H; k++) {
         const rVal = this._r[k] ?? 0;
-        const hVal = this.h[k] ?? 0;
+        const hVal = hPrev[k] ?? 0;
         sumH += (this.w[uhRow + k] ?? 0) * (rVal * hVal);
       }
       sumH += this.w[bh + j] ?? 0;
       const hTilde = Math.tanh(sumH);
       const z = this._z[j] ?? 0;
-      const prevH = this.h[j] ?? 0;
+      const prevH = hPrev[j] ?? 0;
       this.h[j] = (1 - z) * prevH + z * hTilde;
     }
     return this.h;
@@ -258,6 +264,10 @@ export class LSTM {
   h: Float32Array;
   /** Current cell state. */
   c: Float32Array;
+  /** Scratch buffer for the previous hidden state. */
+  _hPrev: Float32Array;
+  /** Scratch buffer for the previous cell state. */
+  _cPrev: Float32Array;
 
   /**
    * Create an LSTM instance with optional weights.
@@ -286,6 +296,8 @@ export class LSTM {
     }
     this.h = new Float32Array(hiddenSize);
     this.c = new Float32Array(hiddenSize);
+    this._hPrev = new Float32Array(hiddenSize);
+    this._cPrev = new Float32Array(hiddenSize);
   }
 
   /** Reset the hidden and cell state to zero. */
@@ -317,6 +329,11 @@ export class LSTM {
     const bo = bf + H;
     const bg = bo + H;
 
+    this._hPrev.set(this.h);
+    this._cPrev.set(this.c);
+    const hPrev = this._hPrev;
+    const cPrev = this._cPrev;
+
     for (let j = 0; j < H; j++) {
       let sumI = 0;
       let sumF = 0;
@@ -338,7 +355,7 @@ export class LSTM {
       const uoRow = Uo + j * H;
       const ugRow = Ug + j * H;
       for (let k = 0; k < H; k++) {
-        const hk = this.h[k] ?? 0;
+        const hk = hPrev[k] ?? 0;
         sumI += (this.w[uiRow + k] ?? 0) * hk;
         sumF += (this.w[ufRow + k] ?? 0) * hk;
         sumO += (this.w[uoRow + k] ?? 0) * hk;
@@ -352,7 +369,7 @@ export class LSTM {
       const fGate = sigmoid(sumF);
       const oGate = sigmoid(sumO);
       const gGate = Math.tanh(sumG);
-      const nextC = fGate * (this.c[j] ?? 0) + iGate * gGate;
+      const nextC = fGate * (cPrev[j] ?? 0) + iGate * gGate;
       this.c[j] = nextC;
       this.h[j] = oGate * Math.tanh(nextC);
     }
@@ -372,6 +389,8 @@ export class RRU {
   w: Float32Array;
   /** Current hidden state. */
   h: Float32Array;
+  /** Scratch buffer for the previous hidden state. */
+  _hPrev: Float32Array;
 
   /**
    * Create an RRU instance with optional weights.
@@ -397,6 +416,7 @@ export class RRU {
       for (let j = 0; j < H; j++) this.w[idx++] = initGateBias + (Math.random() * 2 - 1) * 0.10; // br
     }
     this.h = new Float32Array(hiddenSize);
+    this._hPrev = new Float32Array(hiddenSize);
   }
 
   /** Reset the hidden state to zero. */
@@ -421,6 +441,9 @@ export class RRU {
     const bc = Ur + Usz;
     const br = bc + H;
 
+    this._hPrev.set(this.h);
+    const hPrev = this._hPrev;
+
     for (let j = 0; j < H; j++) {
       let sumC = 0;
       let sumR = 0;
@@ -434,7 +457,7 @@ export class RRU {
       const ucRow = Uc + j * H;
       const urRow = Ur + j * H;
       for (let k = 0; k < H; k++) {
-        const hk = this.h[k] ?? 0;
+        const hk = hPrev[k] ?? 0;
         sumC += (this.w[ucRow + k] ?? 0) * hk;
         sumR += (this.w[urRow + k] ?? 0) * hk;
       }
@@ -442,7 +465,7 @@ export class RRU {
       sumR += this.w[br + j] ?? 0;
       const cand = Math.tanh(sumC);
       const gate = sigmoid(sumR);
-      const prev = this.h[j] ?? 0;
+      const prev = hPrev[j] ?? 0;
       this.h[j] = (1 - gate) * prev + gate * cand;
     }
     return this.h;
