@@ -10,6 +10,7 @@ import type {
   ResetMsg,
   ViewMsg,
   VizMsg,
+  SensorSpec,
   ServerMessage,
   StatsMsg,
   WelcomeMsg
@@ -57,6 +58,8 @@ export class WsHub {
   private nextId = 1;
   /** Cached JSON payload for welcome messages. */
   private welcomeJson: string;
+  /** Cached welcome payload for new connections. */
+  private welcome: WelcomeMsg;
   /** Maximum accepted message size in bytes. */
   private maxMessageBytes: number;
   /** Maximum buffered outbound bytes per socket. */
@@ -83,6 +86,7 @@ export class WsHub {
       server: httpServer,
       maxPayload: this.maxMessageBytes
     });
+    this.welcome = welcome;
     this.welcomeJson = JSON.stringify(welcome);
     this.handlers = handlers ?? null;
     this.wss.on('connection', (socket) => this.handleConnection(socket));
@@ -94,6 +98,15 @@ export class WsHub {
    */
   setHandlers(handlers: WsHubHandlers): void {
     this.handlers = handlers;
+  }
+
+  /**
+   * Update the cached sensor spec used for future handshake messages.
+   * @param sensorSpec - Updated sensor spec payload.
+   */
+  updateSensorSpec(sensorSpec: SensorSpec): void {
+    this.welcome = { ...this.welcome, sensorSpec };
+    this.welcomeJson = JSON.stringify(this.welcome);
   }
 
   /**

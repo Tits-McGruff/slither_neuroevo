@@ -23,6 +23,7 @@ import type { Persistence, PopulationSnapshotPayload } from './persistence.ts';
 import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 import { WsHub } from './wsHub.ts';
 import type { VizData } from '../src/protocol/messages.ts';
+import { buildSensorSpec } from './sensorSpec.ts';
 
 /** SQLite error code indicating the database or disk is full. */
 const SQLITE_FULL_CODE = 'SQLITE_FULL';
@@ -260,6 +261,7 @@ export class SimServer {
     applyGraphSpecOverride(msg.graphSpec, (reason) => {
       this.wsHub.sendJsonTo(connId, { type: 'error', message: `reset failed: ${reason}` });
     });
+    this.wsHub.updateSensorSpec(buildSensorSpec());
 
     this.world = new World(settings);
     this.tickId = 0;

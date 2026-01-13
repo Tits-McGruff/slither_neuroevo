@@ -8,27 +8,17 @@ import { hashConfig } from './hash.ts';
 import { createHttpHandler } from './httpApi.ts';
 import { createLogger } from './logger.ts';
 import { createPersistence, initDb } from './persistence.ts';
-import { SERIALIZER_VERSION, type SensorSpec, type WelcomeMsg } from './protocol.ts';
-import { getSensorLayout, getSensorSpec } from '../src/protocol/sensors.ts';
+import { SERIALIZER_VERSION, type WelcomeMsg } from './protocol.ts';
 import { SimServer, applySettingsUpdates, coerceCoreSettings } from './simServer.ts';
 import { WsHub } from './wsHub.ts';
 import type { Logger } from './logger.ts';
+import { buildSensorSpec } from './sensorSpec.ts';
 
 /** Minimal server handle returned by `startServer` for lifecycle management. */
 export interface RunningServer {
   port: number;
   wsUrl: string;
   close: () => Promise<void>;
-}
-
-/**
- * Build the sensor specification sent to clients during handshake.
- * @returns Sensor spec containing order and count.
- */
-function buildSensorSpec(): SensorSpec {
-  const layoutVersion = CFG.sense?.layoutVersion ?? 'v2';
-  const layout = getSensorLayout(CFG.sense?.bubbleBins ?? 16, layoutVersion);
-  return getSensorSpec(layout);
 }
 
 /**
