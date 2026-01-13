@@ -53,7 +53,7 @@ const SETTING_SPECS: SettingSpec[] = [
   { group: "World and food", path: "foodSpawn.dustStrength", label: "Filament speckle strength", min: 0.0, max: 1.0, step: 0.05, decimals: 2, requiresReset: false },
 
   { group: "Baseline bots", path: "baselineBots.count", label: "Baseline bot count", min: 0, max: 120, step: 1, decimals: 0, requiresReset: true },
-  { group: "Baseline bots", path: "baselineBots.respawnDelay", label: "Respawn delay (sec)", min: 0.5, max: 10.0, step: 0.5, decimals: 1, requiresReset: false },
+  { group: "Baseline bots", path: "baselineBots.respawnDelay", label: "Respawn delay (sec)", min: 0.5, max: 60.0, step: 0.5, decimals: 1, requiresReset: false },
   { group: "Baseline bots", path: "baselineBots.randomizeSeedPerGen", label: "Randomize base seed per generation", requiresReset: true, type: "checkbox" },
   { group: "Baseline bots", path: "baselineBots.seed", label: "Baseline bot base seed", min: 0, max: 4294967295, step: 1, decimals: 0, requiresReset: true, type: "number", id: BASELINE_BOT_SEED_INPUT_ID, hint: "Seed must be a non-negative integer.", hintId: BASELINE_BOT_SEED_HINT_ID },
   { group: "Baseline bots", label: "Randomize base seed", type: "action", actionLabel: "Randomize seed", id: BASELINE_BOT_SEED_RANDOMIZE_ID },
@@ -69,7 +69,7 @@ const SETTING_SPECS: SettingSpec[] = [
 
   { group: "Snake physics", path: "snakeSpacing", label: "Segment spacing", min: 3.0, max: 20.0, step: 0.1, decimals: 1, requiresReset: true },
   { group: "Snake physics", path: "snakeStartLen", label: "Start length", min: 5, max: 140, step: 1, decimals: 0, requiresReset: true },
-  { group: "Snake physics", path: "snakeMaxLen", label: "Max length", min: 60, max: 2800, step: 10, decimals: 0, requiresReset: true },
+  { group: "Snake physics", path: "snakeMaxLen", label: "Max length", min: 60, max: 100000, step: 10, decimals: 0, requiresReset: true },
   { group: "Snake physics", path: "snakeMinLen", label: "Min length", min: 4, max: 80, step: 1, decimals: 0, requiresReset: true },
 
   { group: "Snake physics", path: "snakeSizeSpeedPenalty", label: "Size speed penalty", min: 0.0, max: 0.70, step: 0.01, decimals: 2, requiresReset: false },
@@ -88,7 +88,7 @@ const SETTING_SPECS: SettingSpec[] = [
   { group: "Collision", path: "collision.cellSize", label: "Collision grid cell size", min: 20, max: 200, step: 1, decimals: 0, requiresReset: false },
   { group: "Collision", path: "collision.neighborRange", label: "Collision neighbor range", min: 1, max: 3, step: 1, decimals: 0, requiresReset: false },
 
-  { group: "Evolution", path: "generationSeconds", label: "Generation duration seconds", min: 8, max: 240, step: 1, decimals: 0, requiresReset: true },
+  { group: "Evolution", path: "generationSeconds", label: "Generation duration seconds", min: 8, max: 480, step: 1, decimals: 0, requiresReset: true },
   { group: "Evolution", path: "eliteFrac", label: "Elite fraction", min: 0.01, max: 0.50, step: 0.01, decimals: 2, requiresReset: true },
   { group: "Evolution", path: "mutationRate", label: "Mutation rate", min: 0.0, max: 0.50, step: 0.005, decimals: 3, requiresReset: true },
   { group: "Evolution", path: "mutationStd", label: "Mutation std", min: 0.0, max: 2.50, step: 0.05, decimals: 2, requiresReset: true },
@@ -109,7 +109,7 @@ const SETTING_SPECS: SettingSpec[] = [
 
   { group: "Rewards", path: "reward.fitnessSurvivalPerSecond", label: "Fitness survival per second", min: 0.0, max: 10.0, step: 0.05, decimals: 2, requiresReset: false },
   { group: "Rewards", path: "reward.fitnessFood", label: "Fitness per food", min: 0.0, max: 80.0, step: 0.5, decimals: 1, requiresReset: false },
-  { group: "Rewards", path: "reward.fitnessLengthPerSegment", label: "Fitness per grown segment", min: 0.0, max: 20.0, step: 0.05, decimals: 2, requiresReset: false },
+  { group: "Rewards", path: "reward.fitnessLengthPerSegment", label: "Fitness per grown segment", min: 0.0, max: 100.0, step: 0.05, decimals: 2, requiresReset: false },
   { group: "Rewards", path: "reward.fitnessKill", label: "Fitness per kill", min: 0.0, max: 400.0, step: 1, decimals: 0, requiresReset: false },
   { group: "Rewards", path: "reward.fitnessPointsNorm", label: "Fitness points normalization weight", min: 0.0, max: 300.0, step: 1, decimals: 0, requiresReset: false },
   { group: "Rewards", path: "reward.fitnessTopPointsBonus", label: "Fitness top points bonus", min: 0.0, max: 600.0, step: 1, decimals: 0, requiresReset: false },

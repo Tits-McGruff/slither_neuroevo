@@ -6,20 +6,20 @@ import type { GraphSpec } from './brains/graph/schema.ts';
 
 /** Default configuration values for the simulation and UI sliders. */
 export const CFG_DEFAULT = {
-  worldRadius: 2400,
-  pelletCountTarget: 2400,
+  worldRadius: 3500,
+  pelletCountTarget: 3500,
   pelletSpawnPerSecond: 170,
   snakeBaseSpeed: 165,
-  snakeBoostSpeed: 260,
+  snakeBoostSpeed: 500,
   snakeTurnRate: 3.2,
   snakeRadius: 9,
   snakeRadiusMax: 18,
   snakeThicknessScale: 2.9,
   snakeThicknessLogDiv: 30,
   snakeSpacing: 7.5,
-  snakeStartLen: 22,
-  snakeMaxLen: 560,
-  snakeMinLen: 8,
+  snakeStartLen: 5,
+  snakeMaxLen: 10000,
+  snakeMinLen: 4,
   snakeSizeSpeedPenalty: 0.18,
   snakeBoostSizePenalty: 0.28,
   /** Multiplier for turn rate decay based on length. */
@@ -46,7 +46,7 @@ export const CFG_DEFAULT = {
     // Speckle strength added to the web.
     dustStrength: 0.35
   },
-  generationSeconds: 55,
+  generationSeconds: 240,
   eliteFrac: 0.12,
   // With larger input vectors and higher-capacity brains, defaults that were
   // reasonable for tiny networks become overly destructive. These are tuned
@@ -127,7 +127,7 @@ export const CFG_DEFAULT = {
 
     // GRU crossover is block-structured; 0 means inherit the entire GRU block
     // from one parent, 1 means unit-wise row crossover.
-    gruCrossoverMode: 0,
+    gruCrossoverMode: 1,
 
     // Initial bias for the GRU update gate. More negative means longer default memory.
     gruInitUpdateBias: -0.7,
@@ -137,14 +137,14 @@ export const CFG_DEFAULT = {
     rruInitGateBias: 0.1
   },
   baselineBots: {
-    count: 0,
+    count: 10,
     seed: 1,
     randomizeSeedPerGen: false,
-    respawnDelay: 3.0
+    respawnDelay: 20.0
   },
   collision: {
-    substepMaxDt: 0.018,
-    skipSegments: 6,
+    substepMaxDt: 0.006,
+    skipSegments: 0,
     hitScale: 0.82,
     cellSize: 70,
     neighborRange: 1
@@ -158,15 +158,15 @@ export const CFG_DEFAULT = {
     pelletJitter: 10
   },
   reward: {
-    pointsPerFood: 2.0,
-    pointsPerKill: 45.0,
+    pointsPerFood: 20.0,
+    pointsPerKill: 400.0,
     pointsPerSecondAlive: 0.60,
     fitnessSurvivalPerSecond: 0.70,
-    fitnessFood: 7.5,
-    fitnessLengthPerSegment: 1.25,
-    fitnessKill: 55.0,
+    fitnessFood: 80.0,
+    fitnessLengthPerSegment: 100.0,
+    fitnessKill: 400.0,
     fitnessPointsNorm: 42.0,
-    fitnessTopPointsBonus: 65.0
+    fitnessTopPointsBonus: 600.0
   },
   // Death-to-pellets conversion tuned to resemble slither.io: smaller snakes
   // recycle a higher fraction of their mass; very large snakes recycle less.
@@ -183,7 +183,7 @@ export const CFG_DEFAULT = {
     maxPellets: 420,
     useSnakeColor: true
   },
-  dtClamp: 0.045
+  dtClamp: 0.01
 };
 
 /** Mutable configuration object, cloned from CFG_DEFAULT on reset. */
