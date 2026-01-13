@@ -98,6 +98,16 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 - **Pellet spawn per second**: Refill rate when pellets are eaten or removed.
 - **Food value per pellet**: How much points and growth one pellet provides.
 - **Growth per food**: How many body segments a pellet adds.
+- **Edge food falloff**: Toggles the radial fade so ambient food density tapers toward the arena edge.
+- **Edge fade start**: Where the edge fade begins (fraction of radius; gentle early, sharper near the wall).
+- **Edge fade sharpness**: Controls how quickly the fade steepens near the wall.
+- **Filament contrast**: Boosts filament/void separation (higher = thinner filaments, larger voids).
+- **Filament warp scale**: Strength of the domain warp that twists the web (fraction of radius).
+- **Filament warp frequency**: Controls how tight the warp ripples are.
+- **Filament scale (large)**: Size of the largest filament structures.
+- **Filament scale (medium)**: Size of mid-scale web structures.
+- **Filament scale (small)**: Size of fine filament detail.
+- **Filament speckle strength**: Extra dust-like speckle blended into the filaments.
 
 ### Snake physics
 

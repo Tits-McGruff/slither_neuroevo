@@ -115,6 +115,12 @@ export interface SnakeSpawnOptions {
   skin?: number;
 }
 
+/** Optional overrides for death side effects. */
+export interface SnakeDeathOptions {
+  /** Whether to drop corpse pellets after death. */
+  dropPellets?: boolean;
+}
+
 /**
  * Computes a snake’s radius as a function of its length using a
  * logarithmic growth curve.  The radius increases slowly with length
@@ -284,13 +290,21 @@ export class Snake {
     this.radius = computeSnakeRadiusByLen(this.length());
   }
   /**
-   * Kill the snake and drop pellets behind it. Only applies once.
+   * Kill the snake and optionally drop pellets behind it. Only applies once.
    * @param world - World context for pellet spawning.
+   * @param options - Optional overrides for death side effects.
    */
-  die(world: WorldLike): void {
+  die(world: WorldLike, options?: SnakeDeathOptions): void {
     if (!this.alive) return;
     this.alive = false;
     world.particles.spawnBurst(this.x, this.y, this.color, 25, 3.0);
+    const dropPellets = options?.dropPellets !== false;
+    if (!dropPellets) {
+      if (world.baselineBotDied) {
+        world.baselineBotDied(this);
+      }
+      return;
+    }
     // Approximate slither.io style remains: larger, brighter pellets along the
     // corpse, with lossy mass recycling for very large snakes.
     const len = this.length();
@@ -516,12 +530,9 @@ export class Snake {
     this.x += Math.cos(this.dir) * this.speed * dt;
     this.y += Math.sin(this.dir) * this.speed * dt;
     const d = hypot(this.x, this.y);
-    if (d > CFG.worldRadius) {
-      const angToCenter = Math.atan2(-this.y, -this.x);
-      const delta = angNorm(angToCenter - this.dir);
-      this.dir = angNorm(this.dir + clamp(delta, -1.0, 1.0) * dt * 4.0);
-      this.x = (this.x / d) * CFG.worldRadius;
-      this.y = (this.y / d) * CFG.worldRadius;
+    if (d + this.radius >= CFG.worldRadius) {
+      this.die(world, { dropPellets: false });
+      return;
     }
     const head = this.points[0];
     if (head) {

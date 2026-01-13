@@ -26,6 +26,26 @@ export const CFG_DEFAULT = {
   snakeTurnPenalty: 1.4,
   foodValue: 1.0,
   growPerFood: 1.0,
+  foodSpawn: {
+    // Toggle the radial falloff used by ambient pellet spawning.
+    edgeFalloffEnabled: true,
+    // Radius fraction where edge fade begins (gentle -> sharp falloff).
+    edgeFadeStart: 0.35,
+    // Exponent applied after smoothstep to sharpen the edge fade.
+    edgeFadePower: 2.6,
+    // Contrast exponent for ridged filaments (higher = thinner filaments).
+    filamentPower: 4.2,
+    // Domain warp frequency for twisting the filaments.
+    warpFreq: 0.0013,
+    // Domain warp scale as a fraction of world radius.
+    warpScale: 0.08,
+    // Filament feature scales.
+    freqLarge: 0.0026,
+    freqMedium: 0.0042,
+    freqSmall: 0.0068,
+    // Speckle strength added to the web.
+    dustStrength: 0.35
+  },
   generationSeconds: 55,
   eliteFrac: 0.12,
   // With larger input vectors and higher-capacity brains, defaults that were

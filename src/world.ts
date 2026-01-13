@@ -943,20 +943,30 @@ export class World {
    */
   _spawnAmbientPellet(): Pellet {
     const r = CFG.worldRadius;
-    const TIME_DRIFT_SCALE = 0.05;
+    const TIME_DRIFT_SCALE = 0.04;
     const t = this.generationTime * TIME_DRIFT_SCALE;
 
-    // Frequencies (feature scales) for the noise layers.
-    const FREQ_LARGE = 0.003;  // Determines broad continent-sized clusters.
-    const FREQ_MEDIUM = 0.01;  // Determines regional nodes.
-    const FREQ_SMALL = 0.03;   // Adds fine-grained detail/roughness.
+    const foodCfg = CFG.foodSpawn ?? {};
+    // Domain warp to keep filaments from aligning to a rigid grid.
+    const WARP_FREQ = Math.max(0, foodCfg.warpFreq ?? 0.0013);
+    const WARP_SCALE = Math.max(0, (foodCfg.warpScale ?? 0.08) * r);
 
-    const NOISE_PEAK_RANGE = 1.75; // Theoretical max amplitude of the summed waves.
-    const NOISE_TOTAL_RANGE = NOISE_PEAK_RANGE * 2;
+    // Filament noise frequencies (feature scales).
+    const FREQ_LARGE = Math.max(0, foodCfg.freqLarge ?? 0.0026);
+    const FREQ_MEDIUM = Math.max(0, foodCfg.freqMedium ?? 0.0042);
+    const FREQ_SMALL = Math.max(0, foodCfg.freqSmall ?? 0.0068);
 
     // Rejection Sampling Loop:
     // We attempt to find a location that satisfies our noise-based density requirements.
-    const REJECTION_RETRIES = 5;
+    const REJECTION_RETRIES = 8;
+    const FILAMENT_POWER = Math.max(0.1, foodCfg.filamentPower ?? 4.2);
+    const DUST_STRENGTH = clamp(foodCfg.dustStrength ?? 0.35, 0, 1);
+    const EDGE_FADE_START = clamp(foodCfg.edgeFadeStart ?? 0.35, 0, 0.95);
+    const EDGE_FADE_POWER = Math.max(0.1, foodCfg.edgeFadePower ?? 2.6);
+    const edgeFalloffEnabled = foodCfg.edgeFalloffEnabled ?? true;
+    let bestProb = -1;
+    let bestX = 0;
+    let bestY = 0;
 
     for (let i = 0; i < REJECTION_RETRIES; i++) {
       // Phase 1: Pick a random candidate point within the circular world.
@@ -965,23 +975,43 @@ export class World {
       const x = Math.cos(a) * d;
       const y = Math.sin(a) * d;
 
-      // Phase 2: Interference Noise Generation
-      // We combine multiple sine layers with high-frequency interference to create 
-      // non-uniform filaments and voids without the overhead of Perlin noise.
-      let noise = 0;
-      // Layer 1: Large features
-      noise += Math.sin(x * FREQ_LARGE + t) * Math.cos(y * FREQ_LARGE - t);
-      // Layer 2: Medium features (scaled 0.5x amplitude)
-      noise += Math.sin(x * FREQ_MEDIUM - t * 1.5) * Math.cos(y * FREQ_MEDIUM + t * 1.5) * 0.5;
-      // Layer 3: Small details (scaled 0.25x amplitude)
-      noise += Math.sin(x * FREQ_SMALL + t * 2) * 0.25;
+      // Phase 2: Domain warp + ridged interference for filament bands.
+      const warpX = Math.sin(y * WARP_FREQ + t * 0.7) * WARP_SCALE
+        + Math.cos(x * WARP_FREQ * 1.25 - t * 0.4) * (WARP_SCALE * 0.6);
+      const warpY = Math.cos(x * WARP_FREQ - t * 0.5) * WARP_SCALE
+        + Math.sin(y * WARP_FREQ * 1.1 + t * 0.8) * (WARP_SCALE * 0.6);
+      const xw = x + warpX;
+      const yw = y + warpY;
 
-      // Phase 3: Density Mapping & Contrast Curve
-      // Map range [-1.75, 1.75] to normalized [0, 1].
-      const norm = (noise + NOISE_PEAK_RANGE) / NOISE_TOTAL_RANGE;
-      // Apply a contrast curve (cubed) to sharpen the filaments and widen the voids.
-      // This increases the probability of pellets spawning in high-noise regions.
-      const prob = norm * norm * norm;
+      const n1 = Math.sin((xw + yw) * FREQ_LARGE + t)
+        + Math.cos((xw - yw) * FREQ_LARGE - t * 0.7);
+      const n2 = Math.sin(xw * FREQ_MEDIUM - t * 1.1)
+        + Math.cos(yw * FREQ_MEDIUM + t * 0.9);
+      const n3 = Math.sin(xw * FREQ_SMALL + t * 1.6)
+        * Math.cos(yw * FREQ_SMALL - t * 1.3);
+
+      const ridgeA = clamp(1 - Math.abs(n1) / 2, 0, 1);
+      const ridgeB = clamp(1 - Math.abs(n2) / 2, 0, 1);
+      const ridgeC = clamp(1 - Math.abs(n3), 0, 1);
+
+      const webA = Math.pow(ridgeA, FILAMENT_POWER);
+      const webB = Math.pow(ridgeB, FILAMENT_POWER * 0.95);
+      const dust = Math.pow(ridgeC, 2.2) * DUST_STRENGTH;
+      let prob = clamp(Math.max(webA, webB) + dust, 0, 1);
+
+      if (edgeFalloffEnabled) {
+        const edgeT = d / r;
+        const edgeRamp = clamp((edgeT - EDGE_FADE_START) / (1 - EDGE_FADE_START), 0, 1);
+        const edgeSmooth = edgeRamp * edgeRamp * (3 - 2 * edgeRamp);
+        const edgeFalloff = clamp(1 - Math.pow(edgeSmooth, EDGE_FADE_POWER), 0, 1);
+        prob *= edgeFalloff;
+      }
+
+      if (prob > bestProb) {
+        bestProb = prob;
+        bestX = x;
+        bestY = y;
+      }
 
       if (Math.random() < prob) {
         return new Pellet(x, y, CFG.foodValue, null, "ambient", 0);
@@ -989,12 +1019,9 @@ export class World {
     }
 
     // Phase 4: Fallback Distribution
-    // If rejection sampling fails after all attempts, we spawn at a uniform random 
-    // position to maintain a "density floor" and prevent large voids from becoming 
-    // completely sterile.
-    const a = Math.random() * TAU;
-    const d = Math.sqrt(Math.random()) * r;
-    return new Pellet(Math.cos(a) * d, Math.sin(a) * d, CFG.foodValue, null, "ambient", 0);
+    // If rejection sampling fails after all attempts, pick the best candidate
+    // to keep the voids expansive while still guaranteeing a pellet.
+    return new Pellet(bestX, bestY, CFG.foodValue, null, "ambient", 0);
   }
 }
 

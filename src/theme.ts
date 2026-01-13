@@ -4,7 +4,7 @@
 export const THEME = {
   // Background/Grid
   gridLine: "rgba(255,255,255,0.04)",
-  worldBorder: "rgba(255,255,255,0.08)",
+  worldBorder: "rgba(185,20,20,0.85)",
 
   // Snake
   snakeSelfEye: "rgba(0,0,0,0.55)",
