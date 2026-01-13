@@ -220,6 +220,8 @@ describe(SUITE, () => {
     it('excludes baseline bots from bestPointsThisGen', () => {
         resetCFGToDefaults();
         CFG.baselineBots.count = 1;
+        const originalTarget = CFG.pelletCountTarget;
+        CFG.pelletCountTarget = 0;
         try {
             const world = new World({ ...settings, snakeCount: 1 });
             const popSnake = world.snakes[0]!;
@@ -233,6 +235,7 @@ describe(SUITE, () => {
             expect(world.bestPointsThisGen).toBe(5);
             expect(world.bestPointsSnakeId).toBe(popSnake.id);
         } finally {
+            CFG.pelletCountTarget = originalTarget;
             resetCFGToDefaults();
         }
     });
