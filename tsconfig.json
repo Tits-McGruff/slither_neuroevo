@@ -1,11 +1,10 @@
 {
   "compilerOptions": {
-    "target": "ES2021",
+    "target": "esnext",
     "lib": [
-      "ES2021",
+      "esnext",
       "DOM",
-      "DOM.Iterable",
-      "ES2022.Error"
+      "DOM.Iterable"
     ],
     "module": "ESNext",
     "moduleResolution": "Bundler",

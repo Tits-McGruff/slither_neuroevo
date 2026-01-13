@@ -42,18 +42,21 @@ describe(SUITE, () => {
      */
     function waitForBaselineRespawn(world: World, dt = 0.045, maxTime = 2): number {
         let elapsed = 0;
+        const maxStep = Math.max(0.004, CFG.dtClamp);
         while (elapsed < maxTime) {
             const bot = world.baselineBots[0];
             if (bot && bot.alive) break;
             world.update(dt, 800, 600);
-            elapsed += dt;
+            const scaled = Math.min(Math.max(dt * world.simSpeed, 0), maxStep);
+            elapsed += scaled;
         }
         return elapsed;
     }
 
     it('World should initialize correctly', () => {
         const world = new World(settings);
-        expect(world.snakes.length).toBe(2);
+        expect(world.population.length).toBe(settings.snakeCount);
+        expect(world.snakes.length).toBe(settings.snakeCount + world.baselineBots.length);
         expect(world.generation).toBe(1);
         expect(world.pellets.length).toBeGreaterThan(0);
     });
@@ -111,7 +114,7 @@ describe(SUITE, () => {
         const result = world.importPopulation(exportData);
         expect(result.ok).toBe(true);
         expect(world.generation).toBe(5);
-        expect(world.snakes.length).toBe(settings.snakeCount);
+        expect(world.snakes.length).toBe(settings.snakeCount + world.baselineBots.length);
         expect(world.fitnessHistory.length).toBe(0);
         // Verify that the imported fitness values are reset to 0 in the new world
         for (const g of world.population) {
