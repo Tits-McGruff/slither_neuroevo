@@ -8,45 +8,17 @@ import { hashConfig } from './hash.ts';
 import { createHttpHandler } from './httpApi.ts';
 import { createLogger } from './logger.ts';
 import { createPersistence, initDb } from './persistence.ts';
-import { SERIALIZER_VERSION, type SensorSpec, type WelcomeMsg } from './protocol.ts';
+import { SERIALIZER_VERSION, type WelcomeMsg } from './protocol.ts';
 import { SimServer, applySettingsUpdates, coerceCoreSettings } from './simServer.ts';
 import { WsHub } from './wsHub.ts';
 import type { Logger } from './logger.ts';
+import { buildSensorSpec } from './sensorSpec.ts';
 
 /** Minimal server handle returned by `startServer` for lifecycle management. */
 export interface RunningServer {
   port: number;
   wsUrl: string;
   close: () => Promise<void>;
-}
-
-/**
- * Build the sensor specification sent to clients during handshake.
- * @returns Sensor spec containing order and count.
- */
-function buildSensorSpec(): SensorSpec {
-  const bins = Math.max(8, Math.floor(CFG.sense?.bubbleBins ?? 12));
-  const order: string[] = [
-    'heading_sin',
-    'heading_cos',
-    'size_norm',
-    'boost_margin',
-    'points_pct'
-  ];
-  for (let i = 0; i < bins; i++) order.push(`food_${i}`);
-  for (let i = 0; i < bins; i++) order.push(`hazard_${i}`);
-  for (let i = 0; i < bins; i++) order.push(`wall_${i}`);
-  if (order.length !== CFG.brain.inSize) {
-    // Ensure the sensor order matches the configured input size.
-    if (order.length > CFG.brain.inSize) {
-      order.length = CFG.brain.inSize;
-    } else {
-      for (let i = order.length; i < CFG.brain.inSize; i++) {
-        order.push(`extra_${i}`);
-      }
-    }
-  }
-  return { sensorCount: order.length, order };
 }
 
 /**

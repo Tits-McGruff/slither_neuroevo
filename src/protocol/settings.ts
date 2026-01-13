@@ -15,6 +15,20 @@ export const SETTINGS_PATHS = [
   'foodSpawn.freqMedium',
   'foodSpawn.freqSmall',
   'foodSpawn.dustStrength',
+  'sense.layoutVersion',
+  'sense.bubbleBins',
+  'sense.rNearBase',
+  'sense.rNearScale',
+  'sense.rNearMin',
+  'sense.rNearMax',
+  'sense.rFarBase',
+  'sense.rFarScale',
+  'sense.rFarMin',
+  'sense.rFarMax',
+  'sense.foodKBase',
+  'sense.maxPelletChecks',
+  'sense.maxSegmentChecks',
+  'sense.debug',
   'baselineBots.count',
   'baselineBots.seed',
   'baselineBots.randomizeSeedPerGen',
@@ -89,6 +103,19 @@ export type SettingsPath = (typeof SETTINGS_PATHS)[number];
 export interface SettingsUpdate {
   path: SettingsPath;
   value: number;
+}
+
+/**
+ * Coerce a numeric settings update value into the CFG-compatible representation.
+ * @param path - Settings path being updated.
+ * @param value - Numeric value from the UI or import payload.
+ * @returns Coerced value for writing into CFG.
+ */
+export function coerceSettingsUpdateValue(path: SettingsPath, value: number): number | string {
+  if (path === 'sense.layoutVersion') {
+    return value >= 1 ? 'v2' : 'legacy';
+  }
+  return value;
 }
 
 /** Core UI settings that are controlled outside of CFG. */

@@ -1,7 +1,8 @@
 /** Runs physics and neural simulation in a dedicated worker thread. */
 
 import { World } from './world.ts';
-import { CFG, resetCFGToDefaults } from './config.ts';
+import { CFG, resetCFGToDefaults, syncBrainInputSize } from './config.ts';
+import { coerceSettingsUpdateValue, type SettingsUpdate } from './protocol/settings.ts';
 import { WorldSerializer } from './serializer.ts';
 import { setByPath } from './utils.ts';
 import { validateGraph } from './brains/graph/validate.ts';
@@ -47,19 +48,33 @@ workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
       if (msg.resetCfg !== false) resetCFGToDefaults();
       // Apply initial settings if any
       if (msg.updates) {
-        msg.updates.forEach(u => setByPath(CFG, u.path, u.value));
+        msg.updates.forEach(u => {
+          const coerced = coerceSettingsUpdateValue(u.path as SettingsUpdate['path'], u.value);
+          setByPath(CFG, u.path, coerced);
+        });
       }
+      syncBrainInputSize();
       if ('stackOrder' in msg && Array.isArray(msg.stackOrder)) {
         CFG.brain.stackOrder = msg.stackOrder.slice();
       }
       if ('graphSpec' in msg) {
         if (msg.graphSpec) {
-          const result = validateGraph(msg.graphSpec);
-          if (result.ok) {
-            CFG.brain.graphSpec = msg.graphSpec;
-          } else {
+          const inputNodes = msg.graphSpec.nodes.filter(node => node.type === 'Input');
+          const inputNode = inputNodes.length === 1 ? inputNodes[0] : null;
+          if (!inputNode || inputNode.outputSize !== CFG.brain.inSize) {
             CFG.brain.graphSpec = null;
-            console.warn('[Worker] Invalid graph spec ignored:', result.reason);
+            console.warn('[Worker] Graph spec input size mismatch; ignoring.', {
+              expected: CFG.brain.inSize,
+              actual: inputNode?.outputSize ?? null
+            });
+          } else {
+            const result = validateGraph(msg.graphSpec);
+            if (result.ok) {
+              CFG.brain.graphSpec = msg.graphSpec;
+            } else {
+              CFG.brain.graphSpec = null;
+              console.warn('[Worker] Invalid graph spec ignored:', result.reason);
+            }
           }
         } else {
           CFG.brain.graphSpec = null;
@@ -98,7 +113,11 @@ workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
     case 'updateSettings':
       // msg.updates = [{path, value}, ...]
       if (msg.updates) {
-        msg.updates.forEach(u => setByPath(CFG, u.path, u.value));
+        msg.updates.forEach(u => {
+          const coerced = coerceSettingsUpdateValue(u.path as SettingsUpdate['path'], u.value);
+          setByPath(CFG, u.path, coerced);
+        });
+        syncBrainInputSize();
       }
       break;
 

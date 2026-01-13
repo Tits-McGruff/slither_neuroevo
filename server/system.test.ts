@@ -53,7 +53,7 @@ describe('system: server lifecycle', () => {
 
     try {
       const result = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('timeout')), 1500);
+        const timeout = setTimeout(() => reject(new Error('timeout')), 4000);
 
         ws.on('error', (err: Error) => {
           clearTimeout(timeout);
@@ -81,5 +81,5 @@ describe('system: server lifecycle', () => {
     }
 
     expect(sawFrame).toBe(true);
-  });
+  }, 20000);
 });

@@ -1,14 +1,23 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { BaselineBotManager } from './baselineBots.ts';
+import { getSensorLayout } from '../protocol/sensors.ts';
+import { CFG } from '../config.ts';
 import type { World } from '../world.ts';
 import type { Snake } from '../snake.ts';
 
 describe('BaselineBotManager AI', () => {
+  /** Snapshot of default sensor bin count for cleanup. */
+  const originalBins = CFG.sense.bubbleBins;
+  /** Snapshot of default sensor layout version for cleanup. */
+  const originalLayoutVersion = CFG.sense.layoutVersion;
+
   let manager: BaselineBotManager;
   let mockWorld: World;
   let mockSnake: Snake;
 
   beforeEach(() => {
+    CFG.sense.bubbleBins = 12;
+    CFG.sense.layoutVersion = 'v2';
     manager = new BaselineBotManager({ count: 1, seed: 123, randomizeSeedPerGen: false });
 
     mockWorld = {
@@ -33,13 +42,19 @@ describe('BaselineBotManager AI', () => {
     manager.registerBot(0, 100);
   });
 
+  afterEach(() => {
+    CFG.sense.bubbleBins = originalBins;
+    CFG.sense.layoutVersion = originalLayoutVersion;
+  });
+
   /**
    * Create a sensor array with the expected layout:
    * - 5 global values
    * - food[bins], hazard[bins], wall[bins]
    */
   function makeSensors(bins = 12): Float32Array {
-    return new Float32Array(5 + 3 * bins);
+    const layout = getSensorLayout(bins, 'v2');
+    return new Float32Array(layout.inputSize);
   }
 
   /**
@@ -60,9 +75,10 @@ describe('BaselineBotManager AI', () => {
     hazard: number,
     wall: number
   ) {
-    sensors[5 + binIdx] = food;
-    sensors[5 + bins + binIdx] = hazard;
-    sensors[5 + 2 * bins + binIdx] = wall;
+    const layout = getSensorLayout(bins, 'v2');
+    sensors[layout.offsets.food + binIdx] = food;
+    sensors[layout.offsets.hazard + binIdx] = hazard;
+    sensors[layout.offsets.wall + binIdx] = wall;
   }
 
   /**

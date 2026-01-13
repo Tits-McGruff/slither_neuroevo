@@ -90,6 +90,47 @@ describe('settings.ts', () => {
     expect(container.children.length).toBeGreaterThan(0);
   });
 
+  /**
+   * Recursively collect inputs with data-path attributes.
+   * @param root - Root element to traverse.
+   * @returns List of matching input elements.
+   */
+  function collectInputs(root: FakeElement): FakeElement[] {
+    const matches: FakeElement[] = [];
+    const stack: FakeElement[] = [root];
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+      if (node.dataset && node.dataset['path']) {
+        matches.push(node);
+      }
+      for (const child of node.children) {
+        stack.push(child);
+      }
+    }
+    return matches;
+  }
+
+  it('buildSettingsUI includes sensor controls and reset flags', () => {
+    const container = new FakeElement('div');
+    buildSettingsUI(container as unknown as HTMLElement);
+    const inputs = collectInputs(container);
+    const paths = inputs.map(input => input.dataset['path']).filter(Boolean);
+
+    expect(paths).toContain('sense.layoutVersion');
+    expect(paths).toContain('sense.bubbleBins');
+    expect(paths).toContain('sense.rNearBase');
+    expect(paths).toContain('sense.foodKBase');
+    expect(paths).toContain('sense.maxPelletChecks');
+    expect(paths).toContain('sense.debug');
+
+    const layoutInput = inputs.find(input => input.dataset['path'] === 'sense.layoutVersion');
+    const binsInput = inputs.find(input => input.dataset['path'] === 'sense.bubbleBins');
+
+    expect(layoutInput?.dataset['requiresReset']).toBe('1');
+    expect(binsInput?.dataset['requiresReset']).toBe('1');
+    expect(layoutInput?.type).toBe('checkbox');
+  });
+
   it('applyValuesToSlidersFromCFG updates slider values and labels', () => {
     const original = CFG.boost.minPointsToBoost;
     CFG.boost.minPointsToBoost = 7.5;

@@ -1,6 +1,7 @@
 import { CFG } from '../config.ts';
 import { clamp, TAU, angNorm } from '../utils.ts';
 import { createRng, hashSeed, type RandomSource, toUint32 } from '../rng.ts';
+import { getSensorLayout, type SensorLayout, type SensorLayoutVersion } from '../protocol/sensors.ts';
 import { Snake } from '../snake.ts';
 import type { World } from '../world.ts';
 
@@ -136,6 +137,12 @@ export class BaselineBotManager {
   private respawnTimers: number[];
   /** Whether bot updates are disabled for the current generation. */
   private controllerDisabled: boolean;
+  /** Cached sensor layout used to interpret sensor buffers. */
+  private sensorLayout: SensorLayout;
+  /** Cached sensor layout bin count for change detection. */
+  private sensorLayoutBins: number;
+  /** Cached sensor layout version for change detection. */
+  private sensorLayoutVersion: SensorLayoutVersion;
 
   /**
    * Create a baseline bot manager.
@@ -155,6 +162,9 @@ export class BaselineBotManager {
     this.snakeIdToIndex = new Map();
     this.respawnTimers = [];
     this.controllerDisabled = false;
+    this.sensorLayoutVersion = (CFG.sense?.layoutVersion ?? 'v2') as SensorLayoutVersion;
+    this.sensorLayout = getSensorLayout(CFG.sense?.bubbleBins ?? 16, this.sensorLayoutVersion);
+    this.sensorLayoutBins = this.sensorLayout.bins;
 
     this.resetForGeneration(1);
   }
@@ -178,6 +188,7 @@ export class BaselineBotManager {
 
     this.snakeIdToIndex.clear();
     this.controllerDisabled = false;
+    this.refreshSensorLayout();
 
     for (let i = 0; i < count; i++) {
       const seed = deriveBotSeed(
@@ -196,6 +207,18 @@ export class BaselineBotManager {
       this.botSnakeIds[i] = -1;
       this.respawnTimers[i] = -1;
     }
+  }
+
+  /**
+   * Refresh the cached sensor layout if the configured bin count has changed.
+   */
+  private refreshSensorLayout(): void {
+    const bins = Math.max(8, Math.floor(CFG.sense?.bubbleBins ?? 16));
+    const layoutVersion = (CFG.sense?.layoutVersion ?? 'v2') as SensorLayoutVersion;
+    if (bins === this.sensorLayoutBins && layoutVersion === this.sensorLayoutVersion) return;
+    this.sensorLayoutVersion = layoutVersion;
+    this.sensorLayout = getSensorLayout(bins, layoutVersion);
+    this.sensorLayoutBins = this.sensorLayout.bins;
   }
 
   /**
@@ -264,6 +287,7 @@ export class BaselineBotManager {
   update(world: World, dt: number, respawn: (index: number, rng: RandomSource) => Snake | null): void {
     const count = this.settings.count;
     if (count <= 0) return;
+    this.refreshSensorLayout();
 
     if (this.controllerDisabled) {
       this.zeroActions();
@@ -379,11 +403,11 @@ export class BaselineBotManager {
    */
   private computeActionSmall(world: World, snake: Snake, index: number, dt: number): void {
     const sensors = snake.computeSensors(world);
-    const bins = Math.floor((sensors.length - 5) / 3);
-
-    const foodOffset = 5;
-    const hazardOffset = foodOffset + bins;
-    const wallOffset = hazardOffset + bins;
+    const layout = this.sensorLayout;
+    const bins = layout.bins;
+    const foodOffset = layout.offsets.food;
+    const hazardOffset = layout.offsets.hazard;
+    const wallOffset = layout.offsets.wall;
 
     // Default weights for 'roam' state.
     let foodWeight = 0.5;
@@ -439,11 +463,11 @@ export class BaselineBotManager {
    */
   private computeActionMedium(world: World, snake: Snake, index: number, dt: number): void {
     const sensors = snake.computeSensors(world);
-    const bins = Math.floor((sensors.length - 5) / 3);
-
-    const foodOffset = 5;
-    const hazardOffset = foodOffset + bins;
-    const wallOffset = hazardOffset + bins;
+    const layout = this.sensorLayout;
+    const bins = layout.bins;
+    const foodOffset = layout.offsets.food;
+    const hazardOffset = layout.offsets.hazard;
+    const wallOffset = layout.offsets.wall;
 
     let foodWeight = 0.8;
     let clearWeight = 1.2;
@@ -562,11 +586,11 @@ export class BaselineBotManager {
    */
   private computeActionLarge(world: World, snake: Snake, index: number, dt: number): void {
     const sensors = snake.computeSensors(world);
-    const bins = Math.floor((sensors.length - 5) / 3);
-
-    const foodOffset = 5;
-    const hazardOffset = foodOffset + bins;
-    const wallOffset = hazardOffset + bins;
+    const layout = this.sensorLayout;
+    const bins = layout.bins;
+    const foodOffset = layout.offsets.food;
+    const hazardOffset = layout.offsets.hazard;
+    const wallOffset = layout.offsets.wall;
 
     let foodWeight = 0.4;
     let clearWeight = 1.5;
