@@ -30,7 +30,7 @@ import { inferGraphSizes } from './brains/graph/editor.ts';
 import type { GraphSizeState } from './brains/graph/editor.ts';
 import { validateGraph } from './brains/graph/validate.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
-import type { FrameStats, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
+import type { FrameStats, GenomeJSON, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
 import { SETTINGS_PATHS } from './protocol/settings.ts';
 import type { CoreSettings, SettingsUpdate } from './protocol/settings.ts';
 
@@ -45,7 +45,7 @@ interface ProxyWorld {
   viewMode: string;
   fitnessHistory: FitnessHistoryUiEntry[];
   toggleViewMode: () => void;
-  resurrect: (genome: unknown) => void;
+  resurrect: (genome: GenomeJSON) => Promise<number | null>;
 }
 
 /** UI-friendly fitness history entry used by charts. */
@@ -126,6 +126,8 @@ let settingsLocked = true;
 let joinPending = false;
 /** Current player snake id when controlling. */
 let playerSnakeId: number | null = null;
+/** Snake id to follow when spectating in server mode. */
+let spectatorFollowSnakeId: number | null = null;
 /** Tick id of the most recent player sensor packet. */
 let playerSensorTick = 0;
 /** Latest player sensor metadata for UI overlays. */
@@ -1187,9 +1189,13 @@ const proxyWorld: ProxyWorld = {
       proxyWorld.viewMode = proxyWorld.viewMode === 'overview' ? 'follow' : 'overview';
     }
   },
-  resurrect: (genome: unknown) => {
-    if (!worker) return;
-    worker.postMessage({ type: 'resurrect', genome });
+  resurrect: async (genome: GenomeJSON) => {
+    if (worker) {
+      worker.postMessage({ type: 'resurrect', genome });
+      return null;
+    }
+    if (!wsClient || !wsClient.isConnected()) return null;
+    return resurrectOnServer(genome);
   }
 };
 window.currentWorld = proxyWorld; // For HoF
@@ -3268,7 +3274,8 @@ function updateClientCamera(): void {
     return;
   }
 
-  const focus = findSnakeInFrame(frame, playerSnakeId);
+  const targetId = isPlayerControlActive() ? playerSnakeId : spectatorFollowSnakeId;
+  const focus = findSnakeInFrame(frame, targetId);
   if (focus) {
     clientCamX = focus.x;
     clientCamY = focus.y;
@@ -3283,6 +3290,32 @@ function updateClientCamera(): void {
   proxyWorld.cameraX = clientCamX;
   proxyWorld.cameraY = clientCamY;
   proxyWorld.zoom = clientZoom;
+}
+
+/**
+ * Ask the server to resurrect a Hall of Fame genome.
+ * @param genome - Serialized genome to spawn on the server.
+ * @returns Spawned snake id or null when spawning fails.
+ */
+async function resurrectOnServer(genome: GenomeJSON): Promise<number | null> {
+  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+  if (!base) return null;
+  const res = await fetch(`${base}/api/resurrect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ genome })
+  });
+  if (!res.ok) {
+    const message = await readErrorMessage(res);
+    console.warn(`HoF spawn failed (${res.status}): ${message}`);
+    return null;
+  }
+  const payload = await res.json() as { ok?: boolean; snakeId?: number; message?: string };
+  if (!payload?.ok) {
+    console.warn(payload?.message || 'HoF spawn failed');
+    return null;
+  }
+  return Number.isFinite(payload.snakeId) ? payload.snakeId ?? null : null;
 }
 
 /**
@@ -3502,6 +3535,7 @@ wsClient = createWsClient({
     serverCfgHash = info.cfgHash;
     serverWorldSeed = info.worldSeed;
     lastServerTick = 0;
+    spectatorFollowSnakeId = null;
     if (fallbackTimer !== null) {
       clearTimeout(fallbackTimer);
       fallbackTimer = null;
@@ -3541,6 +3575,7 @@ wsClient = createWsClient({
     lastServerTick = 0;
     resolvePendingServerReset();
     playerSnakeId = null;
+    spectatorFollowSnakeId = null;
     playerSensorTick = 0;
     playerSensorMeta = null;
     pointerWorld = null;
@@ -4354,7 +4389,11 @@ window.spawnHoF = async function (idx) {
   const list = await hof.getAll();
   const entry = list[idx];
   if (entry && window.currentWorld) {
-    window.currentWorld.resurrect(entry.genome);
+    const spawnedId = await window.currentWorld.resurrect(entry.genome);
+    if (spawnedId != null && connectionMode === 'server') {
+      spectatorFollowSnakeId = spawnedId;
+      proxyWorld.viewMode = 'follow';
+    }
     // Switch to visualizer?
     // Actually resurrect sets viewMode to follow, so we just need to ensure correct tab?
     // Let's auto-switch tab too.

@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { World } from '../src/world.ts';
-import type { HallOfFameEntry, PopulationImportData } from '../src/protocol/messages.ts';
+import type { GenomeJSON, HallOfFameEntry, PopulationImportData } from '../src/protocol/messages.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateSnapshotPayload, type Persistence, type PopulationSnapshotPayload } from './persistence.ts';
 import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
@@ -8,6 +8,8 @@ import type { Logger } from './logger.ts';
 
 /** Hard limit for incoming request bodies to avoid memory pressure. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
+/** Upper bound on genome weight array length for resurrect requests. */
+const MAX_RESURRECT_WEIGHTS = 2_000_000;
 
 /** Dependencies injected into the HTTP API handler. */
 export interface HttpApiDeps {
@@ -128,6 +130,48 @@ async function handleRequest(
 }
 
 /**
+ * Check whether a value is a plain object.
+ * @param value - Value to inspect.
+ * @returns True when value is a non-null object.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Check whether a value is a finite number.
+ * @param value - Value to inspect.
+ * @returns True when value is a finite number.
+ */
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/**
+ * Validate a genome JSON payload for resurrect requests.
+ * @param value - Raw genome payload.
+ * @returns True when the payload matches the expected genome shape.
+ */
+function isGenomeJson(value: unknown): value is GenomeJSON {
+  if (!isRecord(value)) return false;
+  const archKey = value['archKey'];
+  if (typeof archKey !== 'string' || !archKey.trim()) return false;
+  const weights = value['weights'];
+  if (!Array.isArray(weights)) return false;
+  if (weights.length > MAX_RESURRECT_WEIGHTS) return false;
+  for (const w of weights) {
+    if (!isFiniteNumber(w)) return false;
+  }
+  if ('brainType' in value && value['brainType'] !== undefined && typeof value['brainType'] !== 'string') {
+    return false;
+  }
+  if ('fitness' in value && value['fitness'] !== undefined && !isFiniteNumber(value['fitness'])) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Routes incoming HTTP requests to handlers (internal implementation).
  */
 async function routeRequest(
@@ -201,6 +245,31 @@ async function routeRequest(
       return;
     }
     sendJson(res, 200, { ok: true, used: result.used ?? 0, total: result.total ?? 0 });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/resurrect') {
+    const world = deps.getWorld();
+    if (!world) {
+      sendJson(res, 503, { ok: false, message: 'world not ready' });
+      return;
+    }
+    const body = await readJsonBody(req, MAX_BODY_BYTES).catch((err: Error) => {
+      sendJson(res, 400, { ok: false, message: err.message });
+      return null;
+    });
+    if (!body) return;
+    const payload = isRecord(body) && 'genome' in body ? (body as { genome?: unknown }).genome : body;
+    if (!isGenomeJson(payload)) {
+      sendJson(res, 400, { ok: false, message: 'invalid genome payload' });
+      return;
+    }
+    try {
+      const snakeId = world.resurrect(payload);
+      sendJson(res, 200, { ok: true, snakeId });
+    } catch (err) {
+      sendJson(res, 400, { ok: false, message: (err as Error).message });
+    }
     return;
   }
 

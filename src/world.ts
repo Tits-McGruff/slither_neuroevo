@@ -882,8 +882,9 @@ export class World {
   /**
    * Spawns a snake from a saved genome immediately into the world.
    * @param genomeJSON - Serialized genome to resurrect.
+   * @returns Newly spawned snake id.
    */
-  resurrect(genomeJSON: GenomeJSON): void {
+  resurrect(genomeJSON: GenomeJSON): number {
     const genome = Genome.fromJSON(genomeJSON);
     // Create a new snake with a high ID to avoid collision
     const id = 10000 + randInt(90000);
@@ -896,6 +897,7 @@ export class World {
     this.focusSnake = snake; // Auto-focus the resurrected snake
     this.viewMode = 'follow';
     this.zoom = 1.0;
+    return id;
   }
 
   /**
