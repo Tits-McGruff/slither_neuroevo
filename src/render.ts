@@ -80,8 +80,8 @@ interface RenderSnake {
   dir: number;
   turnInput?: number;
   boostInput?: number;
-  lastSensors?: number[];
-  lastOutputs?: number[];
+  lastSensors?: Float32Array | number[];
+  lastOutputs?: Float32Array | number[];
 }
 
 /** World shape for legacy renderer. */

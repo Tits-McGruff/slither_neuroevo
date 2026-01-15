@@ -4,6 +4,7 @@ import { World } from './world.ts';
 import { CFG, resetCFGToDefaults, syncBrainInputSize } from './config.ts';
 import { coerceSettingsUpdateValue, type SettingsUpdate } from './protocol/settings.ts';
 import { WorldSerializer } from './serializer.ts';
+import { loadSimdKernels } from './brains/wasmBridge.ts';
 import { setByPath } from './utils.ts';
 import { validateGraph } from './brains/graph/validate.ts';
 import type {
@@ -41,7 +42,7 @@ let lastHistoryLen = 0;
 let pendingImport: PopulationImportData | null = null;
 
 /** Handle incoming messages from the main thread. */
-workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
+workerScope.onmessage = async function(e: MessageEvent<MainToWorkerMessage>) {
   const msg = e.data;
   switch (msg.type) {
     case 'init':
@@ -54,6 +55,7 @@ workerScope.onmessage = function(e: MessageEvent<MainToWorkerMessage>) {
         });
       }
       syncBrainInputSize();
+      await loadSimdKernels();
       if ('stackOrder' in msg && Array.isArray(msg.stackOrder)) {
         CFG.brain.stackOrder = msg.stackOrder.slice();
       }

@@ -1,13 +1,17 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import { Snake, SegmentGrid, pointSegmentDist2 } from './snake.ts';
 import { Genome, buildArch } from './mlp.ts';
 import { CFG } from './config.ts';
 import { TAU } from './utils.ts';
+import { loadSimdKernels } from './brains/wasmBridge.ts';
 
 /** Test suite label for snake behaviors. */
 const SUITE = 'snake.ts';
 
 describe(SUITE, () => {
+    beforeAll(async () => {
+        await loadSimdKernels();
+    });
     /** Architecture used to build test genomes. */
     let arch: ReturnType<typeof buildArch>;
     /** Genome used to spawn snakes in tests. */

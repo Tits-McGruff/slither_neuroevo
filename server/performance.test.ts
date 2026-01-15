@@ -1,13 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { performance } from 'node:perf_hooks';
 import { World } from '../src/world.ts';
 import { WorldSerializer } from '../src/serializer.ts';
 import { CFG, resetCFGToDefaults, syncBrainInputSize } from '../src/config.ts';
+import { loadSimdKernels } from '../src/brains/wasmBridge.ts';
 
 /** Test suite label for server performance checks. */
 const SUITE = 'performance: world tick + serialize';
 
 describe(SUITE, () => {
+  beforeAll(async () => {
+    await loadSimdKernels();
+  });
+
   it('ticks 60 frames under a reasonable budget', () => {
     resetCFGToDefaults();
     const originalBaselineBots = CFG.baselineBots.count;

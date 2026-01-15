@@ -1,6 +1,7 @@
 import type { VizData, VizLayer } from '../../protocol/messages.ts';
 import type { Brain } from '../types.ts';
 import { DenseHead, GRU, LSTM, MLP, RRU } from '../ops.ts';
+import { requireDenseKernel, requireMlpKernel } from '../wasmBridge.ts';
 import type { CompiledGraph, CompiledNode } from './compiler.ts';
 import type { GraphNodeType } from './schema.ts';
 
@@ -14,6 +15,8 @@ interface RuntimeNode {
   forward: () => void;
   reset: () => void;
   mlp?: MLP;
+  /** Packed layer sizes used by SIMD MLP kernels. */
+  mlpLayerSizes?: Int32Array;
   gru?: GRU;
   lstm?: LSTM;
   rru?: RRU;
@@ -121,7 +124,17 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
         inputRefs,
         head,
         forward: () => {
-          head.forward(inputRefs[0]!);
+          const kernel = requireDenseKernel();
+          kernel.forwardBatch(
+            head.w,
+            inputRefs[0]!,
+            head._out,
+            head.inSize,
+            head.outSize,
+            1,
+            head.inSize,
+            head.outSize
+          );
         },
         reset: () => {}
       };
@@ -130,14 +143,25 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
       const sizes = [node.inputSize, ...(node.hiddenSizes ?? []), node.outputSize];
       const mlp = new MLP(sizes, slice);
       const output = mlp._bufs[mlp._bufs.length - 1] ?? new Float32Array(0);
+      const mlpLayerSizes = new Int32Array(mlp.layerSizes);
       return {
         id: node.id,
         type: node.type,
         output,
         inputRefs,
         mlp,
+        mlpLayerSizes,
         forward: () => {
-          mlp.forward(inputRefs[0]!);
+          const kernel = requireMlpKernel();
+          kernel.forwardBatch(
+            mlp.w,
+            mlpLayerSizes,
+            inputRefs[0]!,
+            output,
+            1,
+            sizes[0] ?? 0,
+            output.length
+          );
         },
         reset: () => {}
       };

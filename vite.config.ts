@@ -178,6 +178,7 @@ function buildViteConfig() {
       outDir: "dist",
       emptyOutDir: true
     },
+    assetsInclude: ["**/*.wasm"],
     define: {
       __SLITHER_DEFAULT_WS_URL__: JSON.stringify(defaults.publicWsUrl),
       __SLITHER_SERVER_PORT__: JSON.stringify(defaults.serverPort)

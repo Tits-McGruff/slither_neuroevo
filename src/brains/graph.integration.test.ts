@@ -1,12 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { compileGraph } from './graph/compiler.ts';
 import { GraphBrain } from './graph/runtime.ts';
 import type { GraphSpec } from './graph/schema.ts';
+import { loadSimdKernels } from './wasmBridge.ts';
 
 /** Test suite label for graph brain integration. */
 const SUITE = 'graph brain (integration)';
 
 describe(SUITE, () => {
+  beforeAll(async () => {
+    await loadSimdKernels();
+  });
+
   it('runs a simple graph forward pass', () => {
     const spec: GraphSpec = {
       type: 'graph',

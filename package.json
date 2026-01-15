@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:wasm": "node scripts/build-wasm.mjs",
     "preview": "vite preview",
+    "pretest": "npm run build:wasm",
     "test": "vitest run",
     "test:unit": "tsx scripts/run-tests.ts unit",
     "test:integration": "tsx scripts/run-tests.ts integration",
