@@ -110,6 +110,8 @@ export interface StatsMsg {
   type: 'stats';
   tick: number;
   gen: number;
+  generationTime: number;
+  generationSeconds: number;
   alive: number;
   aliveTotal: number;
   baselineBotsAlive: number;

@@ -100,6 +100,8 @@ export interface HallOfFameEntry {
 /** Stats emitted alongside frame buffers. */
 export interface FrameStats {
   gen: number;
+  generationTime: number;
+  generationSeconds: number;
   alive: number;
   aliveTotal: number;
   baselineBotsAlive: number;

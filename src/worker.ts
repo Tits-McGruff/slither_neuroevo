@@ -252,6 +252,8 @@ export function buildWorkerStats(
   const avgFit = alivePopulation > 0 ? sumFit / alivePopulation : 0;
   const stats: FrameStats = {
     gen: world.generation,
+    generationTime: world.generationTime,
+    generationSeconds: CFG.generationSeconds,
     alive: alivePopulation,
     aliveTotal,
     baselineBotsAlive,

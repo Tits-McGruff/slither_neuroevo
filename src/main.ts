@@ -309,6 +309,8 @@ let baselineBotSeedHint: HTMLElement | null = null;
 let baselineBotSeedRandomize: HTMLButtonElement | null = null;
 /** Connection status badge element. */
 const connectionStatus = document.getElementById('connectionStatus') as HTMLElement | null;
+/** Generation timer HUD element. */
+const genTimer = document.getElementById('genTimer') as HTMLElement | null;
 /** Join overlay element shown before player entry. */
 const joinOverlay = document.getElementById('joinOverlay') as HTMLElement | null;
 /** Join overlay name input. */
@@ -1144,6 +1146,8 @@ let currentFrameBuffer: Float32Array | null = null;
 /** Latest stats payload for UI panels. */
 let currentStats: FrameStats = {
   gen: 1,
+  generationTime: 0,
+  generationSeconds: CFG.generationSeconds,
   alive: 0,
   aliveTotal: 0,
   baselineBotsAlive: 0,
@@ -1232,6 +1236,18 @@ function setJoinOverlayVisible(visible: boolean): void {
 function setJoinStatus(text: string): void {
   if (!joinStatus) return;
   joinStatus.textContent = text;
+}
+
+/**
+ * Format the generation timer string for display.
+ * @param elapsed - Elapsed seconds in the current generation.
+ * @param duration - Total generation duration in seconds.
+ * @returns Display string in `elapsed/total` format.
+ */
+function formatGenTimer(elapsed: number, duration: number): string {
+  const safeElapsed = Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0;
+  const safeDuration = Number.isFinite(duration) ? Math.max(0, duration) : 0;
+  return `${safeElapsed.toFixed(2)}/${safeDuration.toFixed(2)}`;
 }
 
 /**
@@ -3603,6 +3619,8 @@ wsClient = createWsClient({
     if (worker) stopWorker();
     currentStats = {
       gen: 1,
+      generationTime: 0,
+      generationSeconds: CFG.generationSeconds,
       alive: 0,
       aliveTotal: 0,
       baselineBotsAlive: 0,
@@ -3668,6 +3686,8 @@ wsClient = createWsClient({
     currentStats = {
       ...currentStats,
       gen: msg.gen,
+      generationTime: msg.generationTime,
+      generationSeconds: msg.generationSeconds,
       alive: msg.alive,
       aliveTotal,
       baselineBotsAlive,
@@ -4366,6 +4386,13 @@ function frame(): void {
 
   // Updates UI overlay
   // ...
+  if (genTimer) {
+    const elapsed = currentStats.generationTime;
+    const duration = Number.isFinite(currentStats.generationSeconds)
+      ? currentStats.generationSeconds
+      : CFG.generationSeconds;
+    genTimer.textContent = formatGenTimer(elapsed, duration);
+  }
 
   const aliveTotal = Number.isFinite(currentStats.aliveTotal)
     ? currentStats.aliveTotal

@@ -444,6 +444,8 @@ export class SimServer {
       type: 'stats',
       tick: this.tickId,
       gen: this.world.generation,
+      generationTime: this.world.generationTime,
+      generationSeconds: CFG.generationSeconds,
       alive: alivePopulation,
       aliveTotal,
       baselineBotsAlive,

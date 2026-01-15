@@ -108,6 +108,8 @@ describe(SUITE, () => {
       type: 'stats',
       tick: 1,
       gen: 1,
+      generationTime: 12,
+      generationSeconds: 240,
       alive: 2,
       aliveTotal: 3,
       baselineBotsAlive: 1,
@@ -116,7 +118,15 @@ describe(SUITE, () => {
     };
     expect(stats.aliveTotal).toBe(3);
     // @ts-expect-error stats requires total fields
-    const _missingTotals: StatsMsg = { type: 'stats', tick: 1, gen: 1, alive: 2, fps: 60 };
+    const _missingTotals: StatsMsg = {
+      type: 'stats',
+      tick: 1,
+      gen: 1,
+      generationTime: 12,
+      generationSeconds: 240,
+      alive: 2,
+      fps: 60
+    };
     expect(stats.type).toBe('stats');
   });
 });
