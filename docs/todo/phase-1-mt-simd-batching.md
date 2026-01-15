@@ -127,16 +127,20 @@ World.update
 
 - `inputStride = CFG.brain.inSize`
 - `outputStride = CFG.brain.outSize` (turn + boost)
+- `sensorsCount = sensorsBatch.count`
+- `inferenceCount = inferenceSubset.count`
 - `batchIndices`: list of snake indices in the world population
-- `inputs`: `Float32Array(batchCount * inputStride)`
-- `outputs`: `Float32Array(batchCount * outputStride)`
+- `inputs`: `Float32Array(sensorsCount * inputStride)`
+- `outputs`: `Float32Array(sensorsCount * outputStride)`
+- `inferenceSubset`: list of sensors-batch positions to run inference on,
+  writing outputs back at those positions in `outputs`.
 
 Index mapping:
 
 ```text
-inputs[batchIndex * inputStride + i] = sensor[i]
-outputs[batchIndex * outputStride + 0] = turn
-outputs[batchIndex * outputStride + 1] = boost
+inputs[sensorsIndex * inputStride + i] = sensor[i]
+outputs[sensorsIndex * outputStride + 0] = turn
+outputs[sensorsIndex * outputStride + 1] = boost
 ```
 
 ## Control gating semantics
@@ -146,6 +150,8 @@ outputs[batchIndex * outputStride + 1] = boost
   from the batch and keeps its previous action.
 - External control bypasses inference but still participates in the sensor
   batch for controller publishing.
+  Inference subset references sensors-batch positions; do not create per-tick
+  packed inference buffers, and applyControlBatch uses sensors-batch indexing.
 
 Example split (illustrative):
 

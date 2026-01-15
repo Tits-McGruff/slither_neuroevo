@@ -182,7 +182,9 @@ World.update
 Sensors are computed for a sensors batch (all snakes that need sensors for any
 consumer). Inference runs only on the inference subset; external control
 snakes bypass inference but still use the shared sensor batch snapshot for
-publishing.
+publishing. Inputs (and any shared outputs buffer) are sized to the sensors
+batch count; the inference subset is expressed as positions into that sensors
+batch, not as separately packed buffers.
 
 ## Data model changes overview
 
