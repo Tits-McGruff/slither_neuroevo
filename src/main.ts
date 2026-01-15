@@ -439,20 +439,8 @@ if (joinName) {
 loadSavedPlayerName();
 if (joinPlay) {
   joinPlay.addEventListener('click', () => {
-    if (!joinName) return;
-    const name = joinName.value.trim();
-    if (!name) return;
-    lastPlayerName = name;
-    try {
-      localStorage.setItem(PLAYER_NAME_KEY, name);
-    } catch {
-      // Ignore storage failures in non-browser environments.
-    }
-    joinPending = true;
-    setJoinStatus('Joining...');
-    updateJoinControls();
-    wsClient?.sendJoin('player', name);
-    wsClient?.sendView({ mode: 'follow', viewW: cssW, viewH: cssH });
+    if (!joinName || !joinName.value.trim()) return;
+    enterPlayerMode();
   });
 }
 if (joinSpectate) {
