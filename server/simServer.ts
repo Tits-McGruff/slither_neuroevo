@@ -6,6 +6,7 @@ import { setByPath } from '../src/utils.ts';
 import { validateGraph } from '../src/brains/graph/validate.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { coerceSettingsUpdateValue, type CoreSettings, type SettingsUpdate } from '../src/protocol/settings.ts';
+import { SimProfiler, formatSimProfilerReport } from '../src/profiling.ts';
 import type { Snake } from '../src/snake.ts';
 import type { ServerConfig } from './config.ts';
 import type {
@@ -27,6 +28,10 @@ import { buildSensorSpec } from './sensorSpec.ts';
 
 /** SQLite error code indicating the database or disk is full. */
 const SQLITE_FULL_CODE = 'SQLITE_FULL';
+/** Environment variable that enables server profiling output. */
+const PROFILE_ENV_VAR = 'SLITHER_PROFILE';
+/** Interval in milliseconds between profiling reports. */
+const PROFILE_REPORT_INTERVAL_MS = 1000;
 
 /**
  * Determine whether an error is a SQLite "full" error.
@@ -88,6 +93,8 @@ export class SimServer {
   private vizConnections: Set<number>;
   /** Reason persistence was disabled, if any. */
   private persistenceDisabledReason: string | null = null;
+  /** Optional profiler for per-tick timing breakdowns. */
+  private profiler: SimProfiler | null = null;
 
   /**
    * Create a simulation server instance for a websocket hub.
@@ -110,6 +117,10 @@ export class SimServer {
     this.tickRateHz = config.tickRateHz;
     this.uiFrameRateHz = config.uiFrameRateHz;
     this.world = new World(initialSettings);
+    if (process.env[PROFILE_ENV_VAR] === '1') {
+      this.profiler = new SimProfiler({ reportIntervalMs: PROFILE_REPORT_INTERVAL_MS });
+      this.world.profiler = this.profiler;
+    }
     this.controllers = new ControllerRegistry(
       {
         actionTimeoutTicks: config.actionTimeoutTicks,
@@ -264,6 +275,7 @@ export class SimServer {
     this.wsHub.updateSensorSpec(buildSensorSpec());
 
     this.world = new World(settings);
+    if (this.profiler) this.world.profiler = this.profiler;
     this.tickId = 0;
     this.lastTickAt = 0;
     this.lastFrameSentAt = 0;
@@ -314,6 +326,8 @@ export class SimServer {
 
     const dt = 1 / this.tickRateHz;
     this.world.update(dt, this.viewW, this.viewH, this.controllers, this.tickId);
+    const report = this.profiler?.reportIfDue(now);
+    if (report) console.log(formatSimProfilerReport(report));
     this.controllers.reassignDeadSnakes(() => this.world.spawnExternalSnake().id);
     this.handleGenerationEnd();
 

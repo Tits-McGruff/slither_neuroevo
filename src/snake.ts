@@ -8,6 +8,7 @@ import { clamp, hashColor, rand, lerp, angNorm, hypot, TAU } from './utils.ts';
 import { buildSensors } from './sensors.ts';
 import type { ArchDefinition, Genome } from './mlp.ts';
 import type { Brain } from './brains/types.ts';
+import type { SimProfiler } from './profiling.ts';
 import type { RandomSource } from './rng.ts';
 
 /**
@@ -93,6 +94,8 @@ interface WorldLike {
   removePellet: (p: Pellet) => void;
   bestPointsThisGen: number;
   baselineBotDied?: (snake: Snake) => void;
+  /** Optional profiler for timing breakdowns. */
+  profiler?: SimProfiler;
 }
 
 /** External control input for turn and boost values. */
@@ -490,6 +493,7 @@ export class Snake {
       this.turnInput = clamp(turn, -1, 1);
       this.boostInput = clamp(boost, 0, 1);
     } else {
+      const profiler = world.profiler;
       if (this._ctrlAcc == null) this._ctrlAcc = 0;
       const ctrlDt = Math.max(0.001, (CFG.brain && CFG.brain.controlDt) ? CFG.brain.controlDt : 1 / 60);
       this._ctrlAcc += dt;
@@ -497,9 +501,23 @@ export class Snake {
       // collision substepping can change dt, so this keeps "memory" stable.
       if (!this._hasAct || this._ctrlAcc >= ctrlDt) {
         this._ctrlAcc = this._ctrlAcc % ctrlDt;
-        const sensors = this.computeSensors(world, this._sensorBuf);
+        let sensors: Float32Array;
+        if (profiler) {
+          const start = profiler.now();
+          sensors = this.computeSensors(world, this._sensorBuf);
+          profiler.recordSensors(profiler.now() - start);
+        } else {
+          sensors = this.computeSensors(world, this._sensorBuf);
+        }
         this.lastSensors = Array.from(sensors);
-        const out = this.brain.forward(sensors);
+        let out: Float32Array;
+        if (profiler) {
+          const start = profiler.now();
+          out = this.brain.forward(sensors);
+          profiler.recordBrain(profiler.now() - start);
+        } else {
+          out = this.brain.forward(sensors);
+        }
         this.lastOutputs = Array.from(out);
         this.turnInput = clamp(out[0] ?? 0, -1, 1);
         this.boostInput = clamp(out[1] ?? 0, -1, 1);

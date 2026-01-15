@@ -10,6 +10,7 @@ import { hof } from './hallOfFame.ts';
 import { FlatSpatialHash } from './spatialHash.ts';
 import { BaselineBotManager } from './bots/baselineBots.ts';
 import { NullBrain } from './brains/nullBrain.ts';
+import type { SimProfiler } from './profiling.ts';
 import type { ArchDefinition } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData, PopulationExport } from './protocol/messages.ts';
 import type { RandomSource } from './rng.ts';
@@ -132,6 +133,8 @@ export class World {
   _nextExternalSnakeId: number;
   /** Next id to assign to baseline bot spawns. */
   _nextBaselineBotId: number;
+  /** Optional profiler for timing breakdowns. */
+  profiler?: SimProfiler;
 
   /** Access the world radius from current settings. */
   get worldRadius(): number {
@@ -473,6 +476,8 @@ export class World {
     controllers?: ControllerRegistryLike,
     tickId?: number
   ): void {
+    const profiler = this.profiler;
+    profiler?.beginTick();
     const rawScaled = dt * this.simSpeed;
     const scaled = clamp(rawScaled, 0, Math.max(0.004, CFG.dtClamp));
     const maxStep = clamp(CFG.collision.substepMaxDt, 0.004, 0.08);
@@ -511,6 +516,7 @@ export class World {
     }
     const early = aliveCount <= CFG.observer.earlyEndAliveThreshold && this.generationTime >= CFG.observer.earlyEndMinSeconds;
     if (this.generationTime >= CFG.generationSeconds || early) this._endGeneration();
+    profiler?.endTick();
   }
   /**
    * Performs a single substep of physics: spawn pellets, update snakes
@@ -570,10 +576,18 @@ export class World {
    * of each tick so clients see a consistent snapshot.
    */
   _publishControllerSensors(controllers: ControllerRegistryLike, tickId: number): void {
+    const profiler = this.profiler;
     for (const sn of this.snakes) {
       if (!sn.alive) continue;
       if (!controllers.isControlled(sn.id)) continue;
-      const sensors = sn.computeSensors(this);
+      let sensors: Float32Array;
+      if (profiler) {
+        const start = profiler.now();
+        sensors = sn.computeSensors(this);
+        profiler.recordSensors(profiler.now() - start);
+      } else {
+        sensors = sn.computeSensors(this);
+      }
       controllers.publishSensors(sn.id, tickId, sensors, { x: sn.x, y: sn.y, dir: sn.dir });
     }
   }
