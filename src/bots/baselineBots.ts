@@ -795,9 +795,11 @@ export class BaselineBotManager {
     biasFn?: (binAngle: number) => number
   ): { targetIdx: number; bestScore: number } {
     let bestScore = -Infinity;
+    let bestAngle = Infinity;
     let targetIdx = 0;
 
     let bestClearVal = -Infinity;
+    let bestClearAngle = Infinity;
     let bestClearIdx = 0;
 
     // Track whether any bin is not vetoed.
@@ -811,9 +813,15 @@ export class BaselineBotManager {
       const wall = sensors[wallOffset + i] ?? -1;
       const clearance = (hazard + wall) * 0.5;
 
-      if (clearance > bestClearVal) {
+      if (clearance > bestClearVal + 1e-6) {
         bestClearVal = clearance;
         bestClearIdx = i;
+        bestClearAngle = angle;
+      } else if (Math.abs(clearance - bestClearVal) <= 1e-6) {
+        if (Math.abs(angle) < Math.abs(bestClearAngle)) {
+          bestClearIdx = i;
+          bestClearAngle = angle;
+        }
       }
 
       let score = food * foodWeight + clearance * clearWeight;
@@ -846,9 +854,15 @@ export class BaselineBotManager {
         anyNonVeto = true;
       }
 
-      if (score > bestScore) {
+      if (score > bestScore + 1e-6) {
         bestScore = score;
         targetIdx = i;
+        bestAngle = angle;
+      } else if (Math.abs(score - bestScore) <= 1e-6) {
+        if (Math.abs(angle) < Math.abs(bestAngle)) {
+          targetIdx = i;
+          bestAngle = angle;
+        }
       }
     }
 
