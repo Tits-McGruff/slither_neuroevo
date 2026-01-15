@@ -5,7 +5,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
-OUT_DIR="$REPO_ROOT/mermaid"
+OUT_DIR="$REPO_ROOT/docs/mermaid"
 MADGE_JSON="$OUT_DIR/madge.json"
 MERMAID_MMD="$OUT_DIR/deps.mmd"
 MERMAID_MD="$OUT_DIR/DEPENDENCIES.md"

@@ -1,48 +1,32 @@
 @echo off
-cd /d "%~dp0"
 setlocal
 
-echo ========================================
-echo Slither Neuroevolution Launcher
-echo ========================================
+:: --------------------------------------------------------------------
+:: play.bat
+:: --------------------------------------------------------------------
+:: Windows entrypoint for starting Slither Neuroevolution.
+::
+:: Why this file exists:
+:: - Many Windows users will double click a .bat, but a .ps1 is easier to run
+::   incorrectly (right click, "Run with PowerShell") without required args.
+:: - This .bat keeps the user-facing entrypoint simple and consistent.
+::
+:: What it does:
+:: - Changes directory to the repository root (this file's directory).
+:: - Invokes the real launcher logic in scripts\slither.ps1 with --play.
+::
+:: Output, PID files, logs:
+:: - server.pid / dev.pid are written in the repo root
+:: - server.log / dev.log are written in the repo root
+:: --------------------------------------------------------------------
 
-:: 1. Check if Node.js is installed
-node -v >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [ERROR] Node.js is not installed or not in your PATH.
-    echo Please download and install it from https://nodejs.org/
-    pause
-    exit /b 1
-)
+:: Ensure we run from the repo root, even if invoked from another directory.
+cd /d "%~dp0" || exit /b 1
 
-:: 2. Check if node_modules exists, install if missing
-if not exist "node_modules" (
-    echo.
-    echo [FIRST RUN] Dependencies not found. Installing now...
-    echo.
-    call npm install
-    if %errorlevel% neq 0 (
-        echo.
-        echo [ERROR] Failed to install dependencies.
-        pause
-        exit /b 1
-    )
-    echo.
-    echo [SUCCESS] Dependencies installed!
-)
+:: Call the PowerShell launcher in "play" mode.
+:: -NoProfile avoids user profile side effects,
+:: -ExecutionPolicy Bypass avoids local policy blocks for this single invocation.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\slither.ps1" --play
 
-:: 3. Start the simulation server in a separate window
-echo.
-echo Starting Simulation Server...
-echo.
-start "Slither Server" cmd /c npm run server
-
-:: 4. Run the development server and open browser
-echo.
-echo Starting Simulation...
-echo Your browser should open automatically.
-echo.
-call npm run dev -- --open --force
-
-:: Pause only if the server crashes unexpectedly
-pause
+:: Propagate the PowerShell exit code back to the caller.
+exit /b %errorlevel%
