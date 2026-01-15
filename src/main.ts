@@ -1193,6 +1193,11 @@ const proxyWorld: ProxyWorld = {
     }
     if (wsClient && wsClient.isConnected()) {
       proxyWorld.viewMode = proxyWorld.viewMode === 'overview' ? 'follow' : 'overview';
+      wsClient.sendView({
+        mode: proxyWorld.viewMode === 'overview' ? 'overview' : 'follow',
+        viewW: cssW,
+        viewH: cssH
+      });
     }
   },
   resurrect: async (genome: GenomeJSON) => {
@@ -3838,14 +3843,6 @@ btnDefaults.addEventListener('click', () => {
 btnToggle.addEventListener('click', () => proxyWorld.toggleViewMode());
 window.addEventListener('keydown', e => {
   if (e.code === 'KeyV') {
-    if (connectionMode === 'server') {
-      if (isPlayerControlActive()) {
-        enterSpectatorMode();
-      } else {
-        enterPlayerMode();
-      }
-      return;
-    }
     proxyWorld.toggleViewMode();
   }
 });
