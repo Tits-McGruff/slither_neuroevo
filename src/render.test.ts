@@ -3,7 +3,6 @@ import { renderWorldStruct } from './render.ts';
 import { WorldSerializer } from './serializer.ts';
 import { World } from './world.ts';
 import { CFG, resetCFGToDefaults } from './config.ts';
-import { loadSimdKernels } from './brains/wasmBridge.ts';
 
 /** Recorded canvas call for asserting drawing behavior. */
 type CallRecord = [string, ...unknown[]];
@@ -74,10 +73,9 @@ class StubOffscreenCanvas {
 }
 
 describe('render.ts', () => {
-  beforeAll(async () => {
+  beforeAll(() => {
     const globalShim = globalThis as unknown as { OffscreenCanvas?: typeof StubOffscreenCanvas };
     globalShim.OffscreenCanvas = StubOffscreenCanvas;
-    await loadSimdKernels();
   });
 
   it('renders a serialized buffer without throwing', () => {

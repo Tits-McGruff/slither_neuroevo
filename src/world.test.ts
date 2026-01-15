@@ -1,17 +1,13 @@
-import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { World } from './world.ts';
 import { Pellet } from './snake.ts';
 import { CFG, resetCFGToDefaults } from './config.ts';
 import { deriveBotSeed } from './bots/baselineBots.ts';
-import { loadSimdKernels } from './brains/wasmBridge.ts';
 
 /** Test suite label for world behaviors. */
 const SUITE = 'world.ts';
 
 describe(SUITE, () => {
-    beforeAll(async () => {
-        await loadSimdKernels();
-    });
     /** Baseline settings used to construct test worlds. */
     let settings: {
         snakeCount: number;

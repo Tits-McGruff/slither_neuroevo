@@ -1,16 +1,11 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { buildArch, Genome } from './mlp.ts';
 import { CFG } from './config.ts';
-import { loadSimdKernels } from './brains/wasmBridge.ts';
 
 /** Test suite label for stacked brain regression coverage. */
 const SUITE = 'regression: stacked brains';
 
 describe(SUITE, () => {
-  beforeAll(async () => {
-    await loadSimdKernels();
-  });
-
   it('produces deterministic outputs for fixed weights', () => {
     const settings = {
       hiddenLayers: 1,

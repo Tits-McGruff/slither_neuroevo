@@ -51,6 +51,45 @@ function ensureCargo() {
 }
 
 /**
+ * Ensure the wasm target is installed via rustup.
+ */
+function ensureWasmTarget() {
+  const rustup = spawnSync('rustup', ['--version'], { stdio: 'ignore' });
+  if (rustup.error) {
+    if (rustup.error.code === 'EPERM' || rustup.error.code === 'EACCES') {
+      console.warn('rustup unavailable in this environment; skipping target validation.');
+      return;
+    }
+    console.error('rustup not found. Install rustup to manage wasm targets.');
+    process.exit(EXIT_FAILURE);
+  }
+  const list = spawnSync('rustup', ['target', 'list', '--installed'], {
+    encoding: 'utf8'
+  });
+  if (list.error) {
+    if (list.error.code === 'EPERM' || list.error.code === 'EACCES') {
+      console.warn('rustup target query blocked; skipping target validation.');
+      return;
+    }
+    console.error(list.error.message);
+    process.exit(EXIT_FAILURE);
+  }
+  const installed = list.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (installed.includes(WASM_TARGET)) return;
+  const add = spawnSync('rustup', ['target', 'add', WASM_TARGET], { stdio: 'inherit' });
+  if (add.error) {
+    console.error(add.error.message);
+    process.exit(EXIT_FAILURE);
+  }
+  if (add.status !== 0) {
+    process.exit(add.status ?? EXIT_FAILURE);
+  }
+}
+
+/**
  * Resolve the output wasm artifact path.
  * @returns {string} Absolute path to the wasm artifact.
  */
@@ -67,6 +106,7 @@ function main() {
     process.exit(EXIT_FAILURE);
   }
   ensureCargo();
+  ensureWasmTarget();
   run('cargo', ['build', '--release', '--target', WASM_TARGET], WASM_CRATE_DIR);
   const artifactPath = resolveArtifactPath();
   if (!existsSync(artifactPath)) {

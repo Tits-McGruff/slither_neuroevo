@@ -36,7 +36,46 @@ interface SimdWasmExports {
     layerCount: number,
     batchCount: number,
     inputStride: number,
-    outputStride: number
+    outputStride: number,
+    scratchPtr: number,
+    scratchLen: number
+  ) => void;
+  /** GRU step kernel export. */
+  gru_step: (
+    weightsPtr: number,
+    inputPtr: number,
+    hPtr: number,
+    zPtr: number,
+    rPtr: number,
+    hPrevPtr: number,
+    inSize: number,
+    hiddenSize: number,
+    batchCount: number,
+    inputStride: number
+  ) => void;
+  /** LSTM step kernel export. */
+  lstm_step: (
+    weightsPtr: number,
+    inputPtr: number,
+    hPtr: number,
+    cPtr: number,
+    hPrevPtr: number,
+    cPrevPtr: number,
+    inSize: number,
+    hiddenSize: number,
+    batchCount: number,
+    inputStride: number
+  ) => void;
+  /** RRU step kernel export. */
+  rru_step: (
+    weightsPtr: number,
+    inputPtr: number,
+    hPtr: number,
+    hPrevPtr: number,
+    inSize: number,
+    hiddenSize: number,
+    batchCount: number,
+    inputStride: number
   ) => void;
   /** Optional heap base global for JS-side allocation. */
   __heap_base?: WebAssembly.Global;
@@ -102,12 +141,101 @@ export interface MlpKernel {
   ) => void;
 }
 
+/** GRU kernel interface exposed by the WASM bridge. */
+export interface GruKernel {
+  /**
+   * Execute a batched GRU step.
+   * @param weights - Packed weight buffer.
+   * @param inputs - Packed input buffer.
+   * @param h - Hidden state buffer (updated in-place).
+   * @param z - Update gate scratch buffer.
+   * @param r - Reset gate scratch buffer.
+   * @param hPrev - Previous hidden state scratch buffer.
+   * @param inSize - Input size per batch entry.
+   * @param hiddenSize - Hidden size per batch entry.
+   * @param count - Number of batch entries.
+   * @param inputStride - Stride between batch inputs.
+   */
+  stepBatch: (
+    weights: Float32Array,
+    inputs: Float32Array,
+    h: Float32Array,
+    z: Float32Array,
+    r: Float32Array,
+    hPrev: Float32Array,
+    inSize: number,
+    hiddenSize: number,
+    count: number,
+    inputStride: number
+  ) => void;
+}
+
+/** LSTM kernel interface exposed by the WASM bridge. */
+export interface LstmKernel {
+  /**
+   * Execute a batched LSTM step.
+   * @param weights - Packed weight buffer.
+   * @param inputs - Packed input buffer.
+   * @param h - Hidden state buffer (updated in-place).
+   * @param c - Cell state buffer (updated in-place).
+   * @param hPrev - Previous hidden state scratch buffer.
+   * @param cPrev - Previous cell state scratch buffer.
+   * @param inSize - Input size per batch entry.
+   * @param hiddenSize - Hidden size per batch entry.
+   * @param count - Number of batch entries.
+   * @param inputStride - Stride between batch inputs.
+   */
+  stepBatch: (
+    weights: Float32Array,
+    inputs: Float32Array,
+    h: Float32Array,
+    c: Float32Array,
+    hPrev: Float32Array,
+    cPrev: Float32Array,
+    inSize: number,
+    hiddenSize: number,
+    count: number,
+    inputStride: number
+  ) => void;
+}
+
+/** RRU kernel interface exposed by the WASM bridge. */
+export interface RruKernel {
+  /**
+   * Execute a batched RRU step.
+   * @param weights - Packed weight buffer.
+   * @param inputs - Packed input buffer.
+   * @param h - Hidden state buffer (updated in-place).
+   * @param hPrev - Previous hidden state scratch buffer.
+   * @param inSize - Input size per batch entry.
+   * @param hiddenSize - Hidden size per batch entry.
+   * @param count - Number of batch entries.
+   * @param inputStride - Stride between batch inputs.
+   */
+  stepBatch: (
+    weights: Float32Array,
+    inputs: Float32Array,
+    h: Float32Array,
+    hPrev: Float32Array,
+    inSize: number,
+    hiddenSize: number,
+    count: number,
+    inputStride: number
+  ) => void;
+}
+
 /** Current SIMD kernel availability state. */
 let simdStatus: SimdKernelStatus = 'unavailable';
 /** Cached dense kernel when SIMD is ready. */
 let denseKernel: DenseKernel | null = null;
 /** Cached MLP kernel when SIMD is ready. */
 let mlpKernel: MlpKernel | null = null;
+/** Cached GRU kernel when SIMD is ready. */
+let gruKernel: GruKernel | null = null;
+/** Cached LSTM kernel when SIMD is ready. */
+let lstmKernel: LstmKernel | null = null;
+/** Cached RRU kernel when SIMD is ready. */
+let rruKernel: RruKernel | null = null;
 /** Whether a SIMD failure has been logged. */
 let didLogSimdFailure = false;
 /** Shared load promise for concurrent kernel loading. */
@@ -167,6 +295,15 @@ async function instantiateSimdWasm(): Promise<SimdWasmExports> {
   }
   if (typeof exports.mlp_forward !== 'function') {
     throw new Error('mlp_forward export missing');
+  }
+  if (typeof exports.gru_step !== 'function') {
+    throw new Error('gru_step export missing');
+  }
+  if (typeof exports.lstm_step !== 'function') {
+    throw new Error('lstm_step export missing');
+  }
+  if (typeof exports.rru_step !== 'function') {
+    throw new Error('rru_step export missing');
   }
   return exports as SimdWasmExports;
 }
@@ -339,17 +476,28 @@ function buildMlpKernel(exports: SimdWasmExports, heap: WasmAllocator): MlpKerne
       const inputCount = safeCount * safeInputStride;
       const outputCount = safeCount * safeOutputStride;
       const layerCount = Math.max(0, Math.floor(layerSizes.length));
+      let maxSize = 0;
+      for (let i = 0; i < layerCount; i++) {
+        const size = layerSizes[i] ?? 0;
+        if (size > maxSize) maxSize = size;
+      }
       if (inputs.length < inputCount) {
         throw new Error('mlp_forward input buffer too small');
       }
       if (outputs.length < outputCount) {
         throw new Error('mlp_forward output buffer too small');
       }
+      if (layerCount < 2 || maxSize <= 0) {
+        outputs.fill(0, 0, outputCount);
+        return;
+      }
       heap.reset();
       const weightsPtr = heap.alloc(weights.length * BYTES_PER_F32);
       const layerSizesPtr = heap.alloc(layerCount * BYTES_PER_I32);
       const inputPtr = heap.alloc(inputCount * BYTES_PER_F32);
       const outputPtr = heap.alloc(outputCount * BYTES_PER_F32);
+      const scratchLen = maxSize * 2;
+      const scratchPtr = heap.alloc(scratchLen * BYTES_PER_F32);
       writeFloat32(exports.memory, weightsPtr, weights);
       writeInt32(exports.memory, layerSizesPtr, layerSizes);
       writeFloat32(exports.memory, inputPtr, inputs.subarray(0, inputCount));
@@ -363,7 +511,9 @@ function buildMlpKernel(exports: SimdWasmExports, heap: WasmAllocator): MlpKerne
         layerCount,
         safeCount,
         safeInputStride,
-        safeOutputStride
+        safeOutputStride,
+        scratchPtr,
+        scratchLen
       );
       readFloat32(exports.memory, outputPtr, outputs, outputCount);
       const outSize = Math.max(0, layerSizes[layerCount - 1] ?? 0);
@@ -380,8 +530,201 @@ function buildMlpKernel(exports: SimdWasmExports, heap: WasmAllocator): MlpKerne
 }
 
 /**
+ * Build a GRU kernel adapter from wasm exports.
+ * @param exports - WASM exports.
+ * @param heap - Shared wasm allocator.
+ * @returns GRU kernel adapter.
+ */
+function buildGruKernel(exports: SimdWasmExports, heap: WasmAllocator): GruKernel {
+  return {
+    stepBatch: (
+      weights,
+      inputs,
+      h,
+      z,
+      r,
+      hPrev,
+      inSize,
+      hiddenSize,
+      count,
+      inputStride
+    ) => {
+      const safeCount = Math.max(0, Math.floor(count));
+      const safeInSize = Math.max(0, Math.floor(inSize));
+      const safeHidden = Math.max(0, Math.floor(hiddenSize));
+      const safeInputStride = Math.max(0, Math.floor(inputStride));
+      if (safeCount === 0 || safeInSize === 0 || safeHidden === 0) return;
+      const inputCount = safeCount * safeInputStride;
+      const stateCount = safeCount * safeHidden;
+      if (inputs.length < inputCount) {
+        throw new Error('gru_step input buffer too small');
+      }
+      if (h.length < stateCount) {
+        throw new Error('gru_step hidden buffer too small');
+      }
+      if (z.length < stateCount || r.length < stateCount || hPrev.length < stateCount) {
+        throw new Error('gru_step scratch buffer too small');
+      }
+      heap.reset();
+      const weightsPtr = heap.alloc(weights.length * BYTES_PER_F32);
+      const inputPtr = heap.alloc(inputCount * BYTES_PER_F32);
+      const hPtr = heap.alloc(stateCount * BYTES_PER_F32);
+      const zPtr = heap.alloc(stateCount * BYTES_PER_F32);
+      const rPtr = heap.alloc(stateCount * BYTES_PER_F32);
+      const hPrevPtr = heap.alloc(stateCount * BYTES_PER_F32);
+      writeFloat32(exports.memory, weightsPtr, weights);
+      writeFloat32(exports.memory, inputPtr, inputs.subarray(0, inputCount));
+      writeFloat32(exports.memory, hPtr, h.subarray(0, stateCount));
+      writeFloat32(exports.memory, zPtr, z.subarray(0, stateCount));
+      writeFloat32(exports.memory, rPtr, r.subarray(0, stateCount));
+      writeFloat32(exports.memory, hPrevPtr, hPrev.subarray(0, stateCount));
+      exports.gru_step(
+        weightsPtr,
+        inputPtr,
+        hPtr,
+        zPtr,
+        rPtr,
+        hPrevPtr,
+        safeInSize,
+        safeHidden,
+        safeCount,
+        safeInputStride
+      );
+      readFloat32(exports.memory, hPtr, h, stateCount);
+      readFloat32(exports.memory, zPtr, z, stateCount);
+      readFloat32(exports.memory, rPtr, r, stateCount);
+      readFloat32(exports.memory, hPrevPtr, hPrev, stateCount);
+    }
+  };
+}
+
+/**
+ * Build an LSTM kernel adapter from wasm exports.
+ * @param exports - WASM exports.
+ * @param heap - Shared wasm allocator.
+ * @returns LSTM kernel adapter.
+ */
+function buildLstmKernel(exports: SimdWasmExports, heap: WasmAllocator): LstmKernel {
+  return {
+    stepBatch: (
+      weights,
+      inputs,
+      h,
+      c,
+      hPrev,
+      cPrev,
+      inSize,
+      hiddenSize,
+      count,
+      inputStride
+    ) => {
+      const safeCount = Math.max(0, Math.floor(count));
+      const safeInSize = Math.max(0, Math.floor(inSize));
+      const safeHidden = Math.max(0, Math.floor(hiddenSize));
+      const safeInputStride = Math.max(0, Math.floor(inputStride));
+      if (safeCount === 0 || safeInSize === 0 || safeHidden === 0) return;
+      const inputCount = safeCount * safeInputStride;
+      const stateCount = safeCount * safeHidden;
+      if (inputs.length < inputCount) {
+        throw new Error('lstm_step input buffer too small');
+      }
+      if (h.length < stateCount || c.length < stateCount) {
+        throw new Error('lstm_step state buffer too small');
+      }
+      if (hPrev.length < stateCount || cPrev.length < stateCount) {
+        throw new Error('lstm_step scratch buffer too small');
+      }
+      heap.reset();
+      const weightsPtr = heap.alloc(weights.length * BYTES_PER_F32);
+      const inputPtr = heap.alloc(inputCount * BYTES_PER_F32);
+      const hPtr = heap.alloc(stateCount * BYTES_PER_F32);
+      const cPtr = heap.alloc(stateCount * BYTES_PER_F32);
+      const hPrevPtr = heap.alloc(stateCount * BYTES_PER_F32);
+      const cPrevPtr = heap.alloc(stateCount * BYTES_PER_F32);
+      writeFloat32(exports.memory, weightsPtr, weights);
+      writeFloat32(exports.memory, inputPtr, inputs.subarray(0, inputCount));
+      writeFloat32(exports.memory, hPtr, h.subarray(0, stateCount));
+      writeFloat32(exports.memory, cPtr, c.subarray(0, stateCount));
+      writeFloat32(exports.memory, hPrevPtr, hPrev.subarray(0, stateCount));
+      writeFloat32(exports.memory, cPrevPtr, cPrev.subarray(0, stateCount));
+      exports.lstm_step(
+        weightsPtr,
+        inputPtr,
+        hPtr,
+        cPtr,
+        hPrevPtr,
+        cPrevPtr,
+        safeInSize,
+        safeHidden,
+        safeCount,
+        safeInputStride
+      );
+      readFloat32(exports.memory, hPtr, h, stateCount);
+      readFloat32(exports.memory, cPtr, c, stateCount);
+      readFloat32(exports.memory, hPrevPtr, hPrev, stateCount);
+      readFloat32(exports.memory, cPrevPtr, cPrev, stateCount);
+    }
+  };
+}
+
+/**
+ * Build an RRU kernel adapter from wasm exports.
+ * @param exports - WASM exports.
+ * @param heap - Shared wasm allocator.
+ * @returns RRU kernel adapter.
+ */
+function buildRruKernel(exports: SimdWasmExports, heap: WasmAllocator): RruKernel {
+  return {
+    stepBatch: (
+      weights,
+      inputs,
+      h,
+      hPrev,
+      inSize,
+      hiddenSize,
+      count,
+      inputStride
+    ) => {
+      const safeCount = Math.max(0, Math.floor(count));
+      const safeInSize = Math.max(0, Math.floor(inSize));
+      const safeHidden = Math.max(0, Math.floor(hiddenSize));
+      const safeInputStride = Math.max(0, Math.floor(inputStride));
+      if (safeCount === 0 || safeInSize === 0 || safeHidden === 0) return;
+      const inputCount = safeCount * safeInputStride;
+      const stateCount = safeCount * safeHidden;
+      if (inputs.length < inputCount) {
+        throw new Error('rru_step input buffer too small');
+      }
+      if (h.length < stateCount || hPrev.length < stateCount) {
+        throw new Error('rru_step state buffer too small');
+      }
+      heap.reset();
+      const weightsPtr = heap.alloc(weights.length * BYTES_PER_F32);
+      const inputPtr = heap.alloc(inputCount * BYTES_PER_F32);
+      const hPtr = heap.alloc(stateCount * BYTES_PER_F32);
+      const hPrevPtr = heap.alloc(stateCount * BYTES_PER_F32);
+      writeFloat32(exports.memory, weightsPtr, weights);
+      writeFloat32(exports.memory, inputPtr, inputs.subarray(0, inputCount));
+      writeFloat32(exports.memory, hPtr, h.subarray(0, stateCount));
+      writeFloat32(exports.memory, hPrevPtr, hPrev.subarray(0, stateCount));
+      exports.rru_step(
+        weightsPtr,
+        inputPtr,
+        hPtr,
+        hPrevPtr,
+        safeInSize,
+        safeHidden,
+        safeCount,
+        safeInputStride
+      );
+      readFloat32(exports.memory, hPtr, h, stateCount);
+      readFloat32(exports.memory, hPrevPtr, hPrev, stateCount);
+    }
+  };
+}
+
+/**
  * Load SIMD kernels when available.
- * This is a placeholder until wasm assets are integrated.
  */
 export async function loadSimdKernels(): Promise<void> {
   if (simdStatus === 'ready') return;
@@ -393,12 +736,18 @@ export async function loadSimdKernels(): Promise<void> {
       const heap = createWasmAllocator(exports);
       denseKernel = buildDenseKernel(exports, heap);
       mlpKernel = buildMlpKernel(exports, heap);
+      gruKernel = buildGruKernel(exports, heap);
+      lstmKernel = buildLstmKernel(exports, heap);
+      rruKernel = buildRruKernel(exports, heap);
       simdStatus = 'ready';
       didLogSimdFailure = false;
     } catch (err) {
       simdStatus = 'failed';
       denseKernel = null;
       mlpKernel = null;
+      gruKernel = null;
+      lstmKernel = null;
+      rruKernel = null;
       const message = err instanceof Error ? err.message : String(err);
       if (!didLogSimdFailure) {
         console.warn('[simd] load failed', { reason: message });
@@ -437,6 +786,30 @@ export function getMlpKernel(): MlpKernel | null {
 }
 
 /**
+ * Return the loaded GRU kernel, if any.
+ * @returns GRU kernel or null when unavailable.
+ */
+export function getGruKernel(): GruKernel | null {
+  return gruKernel;
+}
+
+/**
+ * Return the loaded LSTM kernel, if any.
+ * @returns LSTM kernel or null when unavailable.
+ */
+export function getLstmKernel(): LstmKernel | null {
+  return lstmKernel;
+}
+
+/**
+ * Return the loaded RRU kernel, if any.
+ * @returns RRU kernel or null when unavailable.
+ */
+export function getRruKernel(): RruKernel | null {
+  return rruKernel;
+}
+
+/**
  * Return the loaded dense kernel or throw if unavailable.
  * @returns Dense kernel instance.
  */
@@ -456,4 +829,37 @@ export function requireMlpKernel(): MlpKernel {
     throw new Error('SIMD MLP kernel unavailable; call loadSimdKernels() first.');
   }
   return mlpKernel;
+}
+
+/**
+ * Return the loaded GRU kernel or throw if unavailable.
+ * @returns GRU kernel instance.
+ */
+export function requireGruKernel(): GruKernel {
+  if (!gruKernel) {
+    throw new Error('SIMD GRU kernel unavailable; call loadSimdKernels() first.');
+  }
+  return gruKernel;
+}
+
+/**
+ * Return the loaded LSTM kernel or throw if unavailable.
+ * @returns LSTM kernel instance.
+ */
+export function requireLstmKernel(): LstmKernel {
+  if (!lstmKernel) {
+    throw new Error('SIMD LSTM kernel unavailable; call loadSimdKernels() first.');
+  }
+  return lstmKernel;
+}
+
+/**
+ * Return the loaded RRU kernel or throw if unavailable.
+ * @returns RRU kernel instance.
+ */
+export function requireRruKernel(): RruKernel {
+  if (!rruKernel) {
+    throw new Error('SIMD RRU kernel unavailable; call loadSimdKernels() first.');
+  }
+  return rruKernel;
 }

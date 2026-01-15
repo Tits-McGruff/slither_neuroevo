@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, beforeAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { CFG, resetCFGToDefaults } from './config.ts';
 import { World } from './world.ts';
 import { WorldSerializer } from './serializer.ts';
-import { loadSimdKernels } from './brains/wasmBridge.ts';
 
 describe('worker.ts', () => {
   /** Minimal worker scope stub for message handling tests. */
@@ -13,10 +12,6 @@ describe('worker.ts', () => {
   /** Global shim for worker self assignment. */
   const globalAny = globalThis as Record<string, unknown> & { self?: unknown };
   let originalSelf: unknown;
-
-  beforeAll(async () => {
-    await loadSimdKernels();
-  });
 
   beforeEach(() => {
     originalSelf = globalAny.self;

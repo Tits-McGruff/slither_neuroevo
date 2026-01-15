@@ -1,6 +1,7 @@
 /** Low-level neural network primitives and parameter layouts used by brains. */
 
 import { clamp } from '../utils.ts';
+import { requireGruKernel, requireLstmKernel, requireRruKernel } from './wasmBridge.ts';
 
 /**
  * Sigmoid activation function.
@@ -241,6 +242,28 @@ export class GRU {
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    const kernel = requireGruKernel();
+    kernel.stepBatch(
+      this.w,
+      x,
+      this.h,
+      this._z,
+      this._r,
+      this._hPrev,
+      this.inSize,
+      this.hiddenSize,
+      1,
+      this.inSize
+    );
+    return this.h;
+  }
+
+  /**
+   * Advance the GRU by one timestep using the reference JS path.
+   * @param x - Input vector.
+   * @returns Updated hidden state.
+   */
+  stepReference(x: Float32Array): Float32Array {
     const I = this.inSize;
     const H = this.hiddenSize;
     const Wsz = H * I;
@@ -363,6 +386,28 @@ export class LSTM {
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    const kernel = requireLstmKernel();
+    kernel.stepBatch(
+      this.w,
+      x,
+      this.h,
+      this.c,
+      this._hPrev,
+      this._cPrev,
+      this.inSize,
+      this.hiddenSize,
+      1,
+      this.inSize
+    );
+    return this.h;
+  }
+
+  /**
+   * Advance the LSTM by one timestep using the reference JS path.
+   * @param x - Input vector.
+   * @returns Updated hidden state.
+   */
+  stepReference(x: Float32Array): Float32Array {
     const I = this.inSize;
     const H = this.hiddenSize;
     const Wsz = H * I;
@@ -481,6 +526,26 @@ export class RRU {
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    const kernel = requireRruKernel();
+    kernel.stepBatch(
+      this.w,
+      x,
+      this.h,
+      this._hPrev,
+      this.inSize,
+      this.hiddenSize,
+      1,
+      this.inSize
+    );
+    return this.h;
+  }
+
+  /**
+   * Advance the RRU by one timestep using the reference JS path.
+   * @param x - Input vector.
+   * @returns Updated hidden state.
+   */
+  stepReference(x: Float32Array): Float32Array {
     const I = this.inSize;
     const H = this.hiddenSize;
     const Wsz = H * I;

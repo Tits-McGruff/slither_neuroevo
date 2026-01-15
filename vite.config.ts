@@ -179,6 +179,9 @@ function buildViteConfig() {
       emptyOutDir: true
     },
     assetsInclude: ["**/*.wasm"],
+    test: {
+      setupFiles: ["src/test/vitest.setup.ts"]
+    },
     define: {
       __SLITHER_DEFAULT_WS_URL__: JSON.stringify(defaults.publicWsUrl),
       __SLITHER_SERVER_PORT__: JSON.stringify(defaults.serverPort)
