@@ -80,9 +80,13 @@ function normalizeSettings(settings: BaselineBotSettings): BaselineBotSettings {
  *
  * @param index - Bin index.
  * @param bins - Total number of bins.
+ * @param layoutVersion - Sensor layout version that produced the bins.
  * @returns Relative angle in radians within [-pi, pi].
  */
-function binIndexToAngle(index: number, bins: number): number {
+function binIndexToAngle(index: number, bins: number, layoutVersion: SensorLayoutVersion): number {
+  if (layoutVersion === 'v2') {
+    return -Math.PI + (index / bins) * TAU;
+  }
   const ang = (index / bins) * TAU;
   return ang > Math.PI ? ang - TAU : ang;
 }
@@ -408,6 +412,7 @@ export class BaselineBotManager {
     const foodOffset = layout.offsets.food;
     const hazardOffset = layout.offsets.hazard;
     const wallOffset = layout.offsets.wall;
+    const layoutVersion = layout.layoutVersion;
 
     // Default weights for 'roam' state.
     let foodWeight = 0.5;
@@ -435,13 +440,15 @@ export class BaselineBotManager {
       wallOffset,
       foodWeight,
       clearWeight,
-      FOOD_CLAMP_SMALL
+      FOOD_CLAMP_SMALL,
+      layoutVersion
     );
 
     this.applyOutput(
       index,
       targetIdx,
       bins,
+      layoutVersion,
       dt,
       rng,
       state,
@@ -468,6 +475,7 @@ export class BaselineBotManager {
     const foodOffset = layout.offsets.food;
     const hazardOffset = layout.offsets.hazard;
     const wallOffset = layout.offsets.wall;
+    const layoutVersion = layout.layoutVersion;
 
     let foodWeight = 0.8;
     let clearWeight = 1.2;
@@ -548,6 +556,7 @@ export class BaselineBotManager {
       foodWeight,
       clearWeight,
       FOOD_CLAMP_MEDIUM,
+      layoutVersion,
       (binAngle) => {
         if (huntStrength <= 0) return 0;
         const diff = Math.abs(angNorm(binAngle - huntBiasAngle));
@@ -563,6 +572,7 @@ export class BaselineBotManager {
       index,
       targetIdx,
       bins,
+      layoutVersion,
       dt,
       rng,
       state,
@@ -591,6 +601,7 @@ export class BaselineBotManager {
     const foodOffset = layout.offsets.food;
     const hazardOffset = layout.offsets.hazard;
     const wallOffset = layout.offsets.wall;
+    const layoutVersion = layout.layoutVersion;
 
     let foodWeight = 0.4;
     let clearWeight = 1.5;
@@ -649,6 +660,7 @@ export class BaselineBotManager {
       foodWeight,
       clearWeight,
       FOOD_CLAMP_LARGE,
+      layoutVersion,
       (binAngle) => {
         if (crowdStrength <= 0) return 0;
         const diff = Math.abs(angNorm(binAngle - crowdBiasAngle));
@@ -658,7 +670,20 @@ export class BaselineBotManager {
       }
     );
 
-    this.applyOutput(index, targetIdx, bins, dt, rng, state, sensors, hazardOffset, wallOffset, false, false);
+    this.applyOutput(
+      index,
+      targetIdx,
+      bins,
+      layoutVersion,
+      dt,
+      rng,
+      state,
+      sensors,
+      hazardOffset,
+      wallOffset,
+      false,
+      false
+    );
   }
 
   /**
@@ -766,6 +791,7 @@ export class BaselineBotManager {
     foodWeight: number,
     clearWeight: number,
     foodClamp: number,
+    layoutVersion: SensorLayoutVersion,
     biasFn?: (binAngle: number) => number
   ): { targetIdx: number; bestScore: number } {
     let bestScore = -Infinity;
@@ -778,7 +804,7 @@ export class BaselineBotManager {
     let anyNonVeto = false;
 
     for (let i = 0; i < bins; i++) {
-      const angle = binIndexToAngle(i, bins);
+      const angle = binIndexToAngle(i, bins, layoutVersion);
       const rawFood = sensors[foodOffset + i] ?? -1;
       const food = Math.min(rawFood, foodClamp);
       const hazard = sensors[hazardOffset + i] ?? -1;
@@ -853,6 +879,7 @@ export class BaselineBotManager {
     index: number,
     targetIdx: number,
     bins: number,
+    layoutVersion: SensorLayoutVersion,
     dt: number,
     rng: RandomSource | undefined,
     state: BotState,
@@ -876,7 +903,7 @@ export class BaselineBotManager {
     }
 
     const wander = state === 'roam' ? this.botWanderAngles[index] ?? 0 : 0;
-    const targetAngle = binIndexToAngle(targetIdx, bins) + wander;
+    const targetAngle = binIndexToAngle(targetIdx, bins, layoutVersion) + wander;
     const turn = clamp(targetAngle / (Math.PI / 2), -1, 1);
 
     let boost = state === 'boost' ? 1 : 0;

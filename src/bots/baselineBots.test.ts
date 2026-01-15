@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { BaselineBotManager } from './baselineBots.ts';
 import { getSensorLayout } from '../protocol/sensors.ts';
+import { angleToCenteredBin } from '../sensors.ts';
 import { CFG } from '../config.ts';
 import type { World } from '../world.ts';
 import type { Snake } from '../snake.ts';
@@ -90,10 +91,9 @@ describe('BaselineBotManager AI', () => {
    * @param bins - Number of bins.
    */
   function inferBinFromTurn(turn: number, bins: number): number {
-    const TAU = Math.PI * 2;
-    const targetAngle = turn * (Math.PI / 2);
-    const a = targetAngle < 0 ? targetAngle + TAU : targetAngle;
-    return Math.round((a / TAU) * bins) % bins;
+    const clamped = Math.max(-1, Math.min(1, turn));
+    const targetAngle = clamped * (Math.PI / 2);
+    return angleToCenteredBin(targetAngle, bins);
   }
 
   it('prefers safe clearance over clamped food (small bot in seek state)', () => {
@@ -164,7 +164,6 @@ describe('BaselineBotManager AI', () => {
     setBin(sensors, bins, 2, 0.2, -1, -1);
 
     // Pick a bin whose angle is within [-pi/2, pi/2] so turn does not saturate.
-    // Bin 3 angle = (3/12)*TAU = pi/2 -> turn = 1 (representable)
     const bestClearIdx = 3;
 
     // Make it the "least bad" clearance among vetoed bins:
@@ -180,8 +179,7 @@ describe('BaselineBotManager AI', () => {
 
     // Expected turn uses the same mapping as BaselineBotManager (and includes clamp).
     const TAU = Math.PI * 2;
-    const rawAngle = (bestClearIdx / bins) * TAU;
-    const binAngle = rawAngle > Math.PI ? rawAngle - TAU : rawAngle;
+    const binAngle = -Math.PI + (bestClearIdx / bins) * TAU;
     const expectedTurn = Math.max(-1, Math.min(1, binAngle / (Math.PI / 2)));
 
     expect(action!.turn).toBeCloseTo(expectedTurn, 6);
