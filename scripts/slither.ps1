@@ -1,11 +1,31 @@
+# scripts\slither.ps1
 param(
+  # Starts the simulation server and UI dev server detached, writes PID files and logs into the repo root,
+  # and prints connection URLs derived from server\config.toml plus current machine IPs.
   [switch]$play,
+
+  # Stops the detached services robustly; it uses PID files as a fast path, but also discovers actual
+  # listener PIDs by port, applies a repo-path safety guard, and verifies ports are no longer served.
   [switch]$shutdown
 )
 
 $ErrorActionPreference = "Stop"
 
-# The PS1 lives in .\scripts; repo root is its parent directory.
+# ---------------------------------------------------------------------------
+# Directory layout assumptions
+# ---------------------------------------------------------------------------
+# This script lives in .\scripts\slither.ps1, but the project "root" is one folder up.
+# We intentionally run everything from the repo root so paths match the POSIX scripts:
+#
+# RepoRoot\
+#   package.json
+#   server\config.toml
+#   server.pid / dev.pid
+#   server.log / dev.log
+# scripts\
+#   slither.ps1
+# ---------------------------------------------------------------------------
+
 $ScriptsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot   = Split-Path -Parent $ScriptsDir
 Set-Location $RepoRoot
@@ -13,12 +33,20 @@ Set-Location $RepoRoot
 # ============================================================
 # Output helpers
 # ============================================================
+# Keep output consistent and grep-friendly:
+# - [INFO] for expected actions
+# - [ERROR] for failures
+# ============================================================
 
-function Write-Info($msg) { Write-Host ("[INFO] " + $msg) }
-function Write-Err($msg)  { Write-Host ("[ERROR] " + $msg) }
+function Write-Info([string]$msg) { Write-Host ("[INFO] " + $msg) }
+function Write-Err([string]$msg)  { Write-Host ("[ERROR] " + $msg) }
 
 # ============================================================
 # Command availability
+# ============================================================
+# We depend on:
+# - node / npm to run and to check dependency sanity
+# - Windows tools and cmdlets for process and port introspection
 # ============================================================
 
 function Require-Command([string]$name, [string]$hint) {
@@ -29,8 +57,16 @@ function Require-Command([string]$name, [string]$hint) {
 }
 
 # ============================================================
-# Minimal TOML reader for just the fields we care about
-# Works even if node_modules is broken (important for shutdown).
+# Minimal TOML reader for required fields
+# ============================================================
+# Shutdown must work even if node_modules is missing or broken, so we do not require a TOML library.
+# We parse the specific keys we care about:
+#   host, port, uiHost, uiPort, publicWsUrl
+#
+# This parser:
+# - ignores blank lines and lines starting with '#'
+# - strips trailing comments after '#', assuming values don't contain '#'
+# - supports quoted strings and bare integers
 # ============================================================
 
 function Read-ConfigToml {
@@ -51,7 +87,6 @@ function Read-ConfigToml {
     if (-not $line) { continue }
     if ($line.StartsWith("#")) { continue }
 
-    # Strip trailing comments, assuming config values don't contain '#'
     $hash = $line.IndexOf("#")
     if ($hash -ge 0) { $line = $line.Substring(0, $hash).Trim() }
     if (-not $line) { continue }
@@ -60,7 +95,6 @@ function Read-ConfigToml {
       $k = $Matches[1]
       $v = $Matches[2].Trim()
 
-      # Strings are quoted
       if ($v -match '^"(.*)"$') { $val = $Matches[1] } else { $val = $v }
 
       switch ($k) {
@@ -77,7 +111,13 @@ function Read-ConfigToml {
 }
 
 # ============================================================
-# IP enumeration (Windows-native)
+# IPv4 address enumeration (non-loopback)
+# ============================================================
+# When config uses 0.0.0.0 (bind all interfaces), clients still connect to a real address.
+# We therefore enumerate all current non-loopback IPv4 addresses to print "Network" URLs.
+#
+# We prioritize RFC1918 ranges first so LAN-friendly addresses appear early:
+# - 10.0.0.0/8, then 192.168.0.0/16, then 172.16.0.0/12
 # ============================================================
 
 function Get-NonLoopbackIPv4 {
@@ -119,7 +159,13 @@ function Get-NonLoopbackIPv4 {
 }
 
 # ============================================================
-# Node dependency install policy (matches play.sh)
+# Dependency install policy (mirrors play.sh)
+# ============================================================
+# We install if:
+# - node_modules is missing, OR
+# - a known runtime dependency is not resolvable (smol-toml)
+#
+# Use npm ci when package-lock.json exists, otherwise npm install.
 # ============================================================
 
 function Ensure-Dependencies {
@@ -163,7 +209,7 @@ function Ensure-Dependencies {
 }
 
 # ============================================================
-# PID/log helpers (repo root)
+# PID and log helpers (repo root)
 # ============================================================
 
 function Read-PidFile([string]$file) {
@@ -176,9 +222,9 @@ function Read-PidFile([string]$file) {
   return $null
 }
 
-function Write-PidFile([string]$file, [int]$pid) {
+function Write-PidFile([string]$file, [int]$procId) {
   $path = Join-Path $RepoRoot $file
-  Set-Content -Path $path -Value $pid -NoNewline
+  Set-Content -Path $path -Value $procId -NoNewline
 }
 
 function Remove-PidFiles {
@@ -187,13 +233,42 @@ function Remove-PidFiles {
   }
 }
 
-function Process-Exists([int]$pid) {
-  try { return [bool](Get-Process -Id $pid -ErrorAction Stop) } catch { return $false }
+function Process-Exists([int]$procId) {
+  try { return [bool](Get-Process -Id $procId -ErrorAction Stop) } catch { return $false }
 }
 
 # ============================================================
 # Detached start (Windows semantics)
 # ============================================================
+# We start npm detached and redirect output to logs.
+# We also implement duplicate avoidance by checking pid files first.
+#
+# Important nuance:
+# npm can spawn a child process (node/vite/tsx) that becomes the real listener.
+# The PID returned by Start-Process may be a wrapper, so we later correct pid files
+# by looking up the process that owns the listening port.
+#
+# Windows PowerShell 5.1 limitation:
+# Start-Process does not allow RedirectStandardOutput and RedirectStandardError to be the same file.
+# To keep the single-log-file behavior (like `> log 2>&1` in POSIX), we start cmd.exe and let cmd
+# perform the combined redirection, which works on all supported Windows builds.
+# ============================================================
+
+function Join-CmdArgs([string[]]$args) {
+  # Convert an argv array into a cmd.exe-safe string.
+  # We quote arguments containing spaces or special characters so they survive cmd's parsing.
+  $out = @()
+  foreach ($a in $args) {
+    if ($null -eq $a) { continue }
+    if ($a -match '[\s"&|<>^()]') {
+      $escaped = $a -replace '"','\"'
+      $out += '"' + $escaped + '"'
+    } else {
+      $out += $a
+    }
+  }
+  return ($out -join ' ')
+}
 
 function Start-Detached(
   [string]$name,
@@ -216,11 +291,21 @@ function Start-Detached(
   Write-Host "Starting $name (detached)..."
   Write-Host ""
 
-  $p = Start-Process -FilePath "npm" -ArgumentList $npmArgs -WorkingDirectory $RepoRoot `
-        -RedirectStandardOutput $logPath -RedirectStandardError $logPath -WindowStyle Hidden -PassThru
+  # Original intent was:
+  #   Start-Process npm ... -RedirectStandardOutput $logPath -RedirectStandardError $logPath
+  # But PS 5.1 rejects same-file redirects.
+  #
+  # Equivalent of: npm <args...> > logPath 2>&1
+  # Using cmd.exe to do the redirection keeps one combined log file.
+  $npmArgString = Join-CmdArgs $npmArgs
+  $cmdLine = "npm $npmArgString > ""$logPath"" 2>&1"
+
+  $p = Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", $cmdLine) -WorkingDirectory $RepoRoot `
+        -WindowStyle Hidden -PassThru
 
   Write-PidFile $pidFile $p.Id
 
+  # Fail fast if it dies immediately (missing deps, port in use, etc).
   $ok = $false
   for ($i=0; $i -lt 20; $i++) {
     if (Process-Exists $p.Id) { $ok = $true; break }
@@ -238,6 +323,9 @@ function Start-Detached(
 
 # ============================================================
 # Listener discovery by port (Windows-native)
+# ============================================================
+# This is the key reliability trick:
+# Rather than trusting pid files, ask the OS which process owns the listening socket.
 # ============================================================
 
 function Listener-PidsOnPort([int]$port) {
@@ -257,12 +345,16 @@ function Listener-PidsOnPort([int]$port) {
 }
 
 # ============================================================
-# Repo guard (repo root path)
+# Repo guard
+# ============================================================
+# When killing by port, do not kill unrelated software.
+# Guard rule:
+# - process command line must contain the repo root path
 # ============================================================
 
-function Pid-BelongsToRepo([int]$pid) {
+function Pid-BelongsToRepo([int]$procId) {
   try {
-    $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $pid) -ErrorAction Stop
+    $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $procId) -ErrorAction Stop
     if (-not $p) { return $false }
     if (-not $p.CommandLine) { return $false }
     return ($p.CommandLine -like ("*" + $RepoRoot + "*"))
@@ -274,29 +366,33 @@ function Pid-BelongsToRepo([int]$pid) {
 # ============================================================
 # Stop process tree (Windows semantics)
 # ============================================================
+# Use taskkill /T to terminate a process and its children.
+# Force kill if it does not exit quickly.
+# ============================================================
 
-function Stop-PidTree([string]$name, [int]$pid) {
-  if (-not (Process-Exists $pid)) { return $true }
+function Stop-PidTree([string]$name, [int]$procId) {
+  if (-not (Process-Exists $procId)) { return $true }
 
-  if (-not (Pid-BelongsToRepo $pid)) {
-    Write-Info "$name: PID $pid does not look like it belongs to $RepoRoot, skipping."
+  if (-not (Pid-BelongsToRepo $procId)) {
+    # Critical parser fix: ${name} is required because "$name:" is invalid in PS.
+    Write-Info ("${name}: PID ${procId} does not look like it belongs to $RepoRoot, skipping.")
     return $false
   }
 
-  Write-Info "Stopping $name PID $pid..."
-  & taskkill /PID $pid /T *> $null
+  Write-Info "Stopping $name PID $procId..."
+  & taskkill /PID $procId /T *> $null
 
   $stopped = $false
   for ($i=0; $i -lt 5; $i++) {
-    if (-not (Process-Exists $pid)) { $stopped = $true; break }
+    if (-not (Process-Exists $procId)) { $stopped = $true; break }
     Start-Sleep -Seconds 1
   }
 
   if (-not $stopped) {
     Write-Info "$name did not exit, sending force kill..."
-    & taskkill /F /PID $pid /T *> $null
+    & taskkill /F /PID $procId /T *> $null
     for ($i=0; $i -lt 5; $i++) {
-      if (-not (Process-Exists $pid)) { $stopped = $true; break }
+      if (-not (Process-Exists $procId)) { $stopped = $true; break }
       Start-Sleep -Seconds 1
     }
   }
@@ -305,13 +401,18 @@ function Stop-PidTree([string]$name, [int]$pid) {
     Write-Info "$name stopped."
     return $true
   } else {
-    Write-Err "$name PID $pid is still running."
+    Write-Err "$name PID $procId is still running."
     return $false
   }
 }
 
 # ============================================================
-# Optional: derive ports from logs (helps if config differs from reality)
+# Optional: derive ports from logs
+# ============================================================
+# This is a fallback to handle cases where the real runtime port differs from config,
+# for example if Vite auto-incremented its port because the configured one was busy.
+#
+# It is not authoritative; all kills are still protected by the repo guard.
 # ============================================================
 
 function Get-PortsFromLogs {
@@ -380,7 +481,7 @@ function Print-ConnectionDetails($cfg) {
 }
 
 # ============================================================
-# PLAY
+# PLAY mode
 # ============================================================
 
 function Do-Play {
@@ -402,7 +503,8 @@ function Do-Play {
   Write-Host ("[OK] Vite dev server running     PID: {0}   Log: dev.log" -f $devPid)
   Write-Host ""
 
-  # Rewrite pid files to actual listener PIDs when possible, reduces wrapper-PID mismatch.
+  # Rewrite PID files to the actual listener processes, if ports are listening.
+  # This reduces wrapper PID issues where the Start-Process PID is not the long-lived server.
   $uiListener = Listener-PidsOnPort $cfg.uiPort | Select-Object -First 1
   if ($uiListener) { Write-PidFile "dev.pid" $uiListener }
 
@@ -413,7 +515,7 @@ function Do-Play {
 }
 
 # ============================================================
-# SHUTDOWN
+# SHUTDOWN mode
 # ============================================================
 
 function Do-Shutdown {
@@ -423,14 +525,14 @@ function Do-Shutdown {
 
   $cfg = Read-ConfigToml
 
-  # Step 1: best-effort stop pidfile targets
+  # Step 1: best-effort stop pidfile targets (fast path)
   $serverPid = Read-PidFile "server.pid"
   if ($serverPid) { Stop-PidTree "Simulation Server (pidfile)" $serverPid | Out-Null }
 
   $devPid = Read-PidFile "dev.pid"
   if ($devPid) { Stop-PidTree "Vite Dev Server (pidfile)" $devPid | Out-Null }
 
-  # Step 2: stop real listeners by config ports plus log-derived ports
+  # Step 2: stop real listeners on relevant ports (config ports plus ports seen in logs)
   $ports = @($cfg.uiPort, $cfg.port) + (Get-PortsFromLogs)
   $ports = $ports | Where-Object { $_ -is [int] -and $_ -gt 0 } | Sort-Object -Unique
 
@@ -439,21 +541,21 @@ function Do-Shutdown {
   $listenerPids = $listenerPids | Sort-Object -Unique
 
   $guarded = @()
-  foreach ($pid in $listenerPids) {
-    if (Pid-BelongsToRepo $pid) { $guarded += $pid }
+  foreach ($procId in $listenerPids) {
+    if (Pid-BelongsToRepo $procId) { $guarded += $procId }
   }
   $guarded = $guarded | Sort-Object -Unique
 
   if ($guarded.Count -gt 0) {
     Write-Info ("Detected listener processes on ports {0}, stopping them..." -f ($ports -join ","))
-    foreach ($pid in $guarded) { Stop-PidTree "Listener" $pid | Out-Null }
+    foreach ($procId in $guarded) { Stop-PidTree "Listener" $procId | Out-Null }
   }
 
-  # Step 3: verify nothing repo-owned still listens on those ports
+  # Step 3: verify no repo-owned listener remains, only then delete pid files
   $left = @()
   foreach ($pt in $ports) {
-    foreach ($pid in (Listener-PidsOnPort $pt)) {
-      if (Pid-BelongsToRepo $pid) { $left += $pid }
+    foreach ($procId in (Listener-PidsOnPort $pt)) {
+      if (Pid-BelongsToRepo $procId) { $left += $procId }
     }
   }
   $left = $left | Sort-Object -Unique
@@ -470,6 +572,9 @@ function Do-Shutdown {
 
 # ============================================================
 # Entry
+# ============================================================
+# Require explicit mode; the .bat wrappers provide these switches.
+# This prevents accidental runs of the PS1 without arguments.
 # ============================================================
 
 if ($play)     { Do-Play; exit 0 }
