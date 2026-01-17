@@ -1,7 +1,7 @@
 import type { VizData, VizLayer } from '../../protocol/messages.ts';
 import type { Brain } from '../types.ts';
 import { DenseHead, GRU, LSTM, MLP, RRU } from '../ops.ts';
-import { requireDenseKernel, requireMlpKernel } from '../wasmBridge.ts';
+import { isSimdAvailable, requireDenseKernel, requireMlpKernel } from '../wasmBridge.ts';
 import type { CompiledGraph, CompiledNode } from './compiler.ts';
 import type { GraphNodeType } from './schema.ts';
 
@@ -67,6 +67,8 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
   const getSlice = (w: Float32Array) =>
     node.paramLength ? w.subarray(node.paramOffset, node.paramOffset + node.paramLength) : new Float32Array(0);
   const slice = getSlice(weights);
+  const useSimd = isSimdAvailable();
+
   switch (node.type) {
     case 'Input': {
       const output = new Float32Array(node.outputSize);
@@ -127,19 +129,23 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
         output: head._out,
         inputRefs,
         head,
-        forward: () => {
-          const kernel = requireDenseKernel();
-          kernel.forwardBatch(
-            head.w,
-            inputRefs[0]!,
-            head._out,
-            head.inSize,
-            head.outSize,
-            1,
-            head.inSize,
-            head.outSize
-          );
-        },
+        forward: useSimd
+          ? () => {
+            const kernel = requireDenseKernel();
+            kernel.forwardBatch(
+              head.w,
+              inputRefs[0]!,
+              head._out,
+              head.inSize,
+              head.outSize,
+              1,
+              head.inSize,
+              head.outSize
+            );
+          }
+          : () => {
+            head.forward(inputRefs[0]!);
+          },
         reset: () => { },
         bindWeights: (w) => {
           head.w = getSlice(w);
@@ -158,18 +164,27 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
         inputRefs,
         mlp,
         mlpLayerSizes,
-        forward: () => {
-          const kernel = requireMlpKernel();
-          kernel.forwardBatch(
-            mlp.w,
-            mlpLayerSizes,
-            inputRefs[0]!,
-            output,
-            1,
-            sizes[0] ?? 0,
-            output.length
-          );
-        },
+        forward: useSimd
+          ? () => {
+            const kernel = requireMlpKernel();
+            kernel.forwardBatch(
+              mlp.w,
+              mlpLayerSizes,
+              inputRefs[0]!,
+              output,
+              1,
+              sizes[0] ?? 0,
+              output.length
+            );
+          }
+          : () => {
+            // Copy JS result to output
+            // MLP.forward returns a buffer, does it reuse?
+            // MLP.forward returns 'cur' which is one of _bufs.
+            // 'output' is initialized to the last of _bufs.
+            // So mlp.forward returns the same buffer 'output' references? yes.
+            mlp.forward(inputRefs[0]!);
+          },
         reset: () => { },
         bindWeights: (w) => {
           mlp.w = getSlice(w);
@@ -184,9 +199,13 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
         output: gru.h,
         inputRefs,
         gru,
-        forward: () => {
-          gru.step(inputRefs[0]!);
-        },
+        forward: useSimd
+          ? () => {
+            gru.step(inputRefs[0]!);
+          }
+          : () => {
+            gru.stepReference(inputRefs[0]!);
+          },
         reset: () => {
           gru.reset();
         },
@@ -203,9 +222,13 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
         output: lstm.h,
         inputRefs,
         lstm,
-        forward: () => {
-          lstm.step(inputRefs[0]!);
-        },
+        forward: useSimd
+          ? () => {
+            lstm.step(inputRefs[0]!);
+          }
+          : () => {
+            lstm.stepReference(inputRefs[0]!);
+          },
         reset: () => {
           lstm.reset();
         },
@@ -222,9 +245,13 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
         output: rru.h,
         inputRefs,
         rru,
-        forward: () => {
-          rru.step(inputRefs[0]!);
-        },
+        forward: useSimd
+          ? () => {
+            rru.step(inputRefs[0]!);
+          }
+          : () => {
+            rru.stepReference(inputRefs[0]!);
+          },
         reset: () => {
           rru.reset();
         },

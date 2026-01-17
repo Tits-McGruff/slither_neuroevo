@@ -56,7 +56,11 @@ workerScope.onmessage = async function (e: MessageEvent<MainToWorkerMessage>) {
         });
       }
       syncBrainInputSize();
-      await loadSimdKernels();
+      try {
+        await loadSimdKernels();
+      } catch (err) {
+        console.warn('[Worker] SIMD load failed, falling back to JS:', err);
+      }
       if ('stackOrder' in msg && Array.isArray(msg.stackOrder)) {
         CFG.brain.stackOrder = msg.stackOrder.slice();
       }
@@ -98,6 +102,10 @@ workerScope.onmessage = async function (e: MessageEvent<MainToWorkerMessage>) {
       world = new World(msg.settings || {});
       if (msg.viewW) viewW = msg.viewW;
       if (msg.viewH) viewH = msg.viewH;
+
+      // Initial weights sync for MT inference (fixes zero-weight bug)
+      if (world) workerPool.syncWeights(world.population);
+
       // We need to "load" the imported brains if persistence was used?
       // Handled via separate 'import' message or 'init' payload.
       if (msg.population) {
