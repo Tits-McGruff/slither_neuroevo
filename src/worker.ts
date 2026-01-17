@@ -96,10 +96,13 @@ workerScope.onmessage = async function (e: MessageEvent<MainToWorkerMessage>) {
       // We can defer initPool until after population import?
       // OR init with current settings.
       // Let's init with a derived key.
-      const poolKey = CFG.brain.graphSpec ? 'graph' : 'mlp';
-      await workerPool.initPool(poolKey);
-
       world = new World(msg.settings || {});
+
+      // Init pool using authoritative spec from world (ensures default stack works)
+      if (world) {
+        await workerPool.initPool('graph', world.arch.spec);
+      }
+
       if (msg.viewW) viewW = msg.viewW;
       if (msg.viewH) viewH = msg.viewH;
 

@@ -74,7 +74,7 @@ export class WorkerPool {
      * Initialize the worker pool if supported.
      * @param specKey - Architecture key to validate/load kernels.
      */
-    async initPool(specKey: string): Promise<void> {
+    async initPool(specKey: string, graphSpec?: GraphSpec | null): Promise<void> {
         // 1. Check capabilities
         const hasIsolation = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
         const hasSAB = typeof SharedArrayBuffer !== 'undefined';
@@ -127,12 +127,13 @@ export class WorkerPool {
                 promises.push(
                     new Promise<void>((resolve, reject) => {
                         const onMsg = (e: MessageEvent<InferWorkerResponse>) => {
-                            if (e.data.type === 'ready') {
+                            const data = e.data;
+                            if (data.type === 'ready') {
                                 w.removeEventListener('message', onMsg);
                                 resolve();
-                            } else if (e.data.type === 'error') {
+                            } else if (data.type === 'error') {
                                 w.removeEventListener('message', onMsg);
-                                reject(new Error(e.data.message));
+                                reject(new Error(data.message));
                             }
                         };
                         w.addEventListener('message', onMsg);
@@ -141,7 +142,7 @@ export class WorkerPool {
                         const initMsg: InferWorkerInitMessage = {
                             type: 'init',
                             specKey,
-                            graphSpec: CFG.brain.graphSpec, // Pass full spec
+                            graphSpec: graphSpec || CFG.brain.graphSpec, // Use provided spec or global fallback
                             inputStride: CFG.brain.inSize,
                             outputStride: CFG.brain.outSize,
                             workerIndex: i,
@@ -277,10 +278,16 @@ export class WorkerPool {
 
             promises.push(new Promise<void>((resolve, reject) => {
                 const onMsg = (e: MessageEvent<InferWorkerResponse>) => {
-                    if (e.data.type === 'done') {
+                    const data = e.data;
+                    if (data.type === 'done' || data.type === 'error') {
                         w.removeEventListener('message', onMsg);
-                        if (e.data.error) reject(new Error(e.data.error));
-                        else resolve();
+                        if (data.type === 'error') {
+                            reject(new Error(data.message));
+                        } else if (data.error) {
+                            reject(new Error(data.error));
+                        } else {
+                            resolve();
+                        }
                     }
                 };
                 w.addEventListener('message', onMsg);
