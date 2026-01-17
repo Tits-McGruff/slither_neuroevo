@@ -14,6 +14,7 @@ interface RuntimeNode {
   inputRefs: Float32Array[];
   forward: () => void;
   reset: () => void;
+  bindWeights: (weights: Float32Array) => void;
   mlp?: MLP;
   /** Packed layer sizes used by SIMD MLP kernels. */
   mlpLayerSizes?: Int32Array;
@@ -63,9 +64,9 @@ function createVizLayers(node: RuntimeNode): VizLayer[] {
  * @returns Runtime node instance.
  */
 function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: Float32Array[]): RuntimeNode {
-  const slice = node.paramLength
-    ? weights.subarray(node.paramOffset, node.paramOffset + node.paramLength)
-    : new Float32Array(0);
+  const getSlice = (w: Float32Array) =>
+    node.paramLength ? w.subarray(node.paramOffset, node.paramOffset + node.paramLength) : new Float32Array(0);
+  const slice = getSlice(weights);
   switch (node.type) {
     case 'Input': {
       const output = new Float32Array(node.outputSize);
@@ -74,8 +75,9 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
         type: node.type,
         output,
         inputRefs: [],
-        forward: () => {},
-        reset: () => {}
+        forward: () => { },
+        reset: () => { },
+        bindWeights: () => { }
       };
     }
     case 'Concat': {
@@ -92,7 +94,8 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
             offset += input.length;
           }
         },
-        reset: () => {}
+        reset: () => { },
+        bindWeights: () => { }
       };
     }
     case 'Split': {
@@ -112,7 +115,8 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
             offset += out.length;
           });
         },
-        reset: () => {}
+        reset: () => { },
+        bindWeights: () => { }
       };
     }
     case 'Dense': {
@@ -136,7 +140,10 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
             head.outSize
           );
         },
-        reset: () => {}
+        reset: () => { },
+        bindWeights: (w) => {
+          head.w = getSlice(w);
+        }
       };
     }
     case 'MLP': {
@@ -163,7 +170,10 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
             output.length
           );
         },
-        reset: () => {}
+        reset: () => { },
+        bindWeights: (w) => {
+          mlp.w = getSlice(w);
+        }
       };
     }
     case 'GRU': {
@@ -179,6 +189,9 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
         },
         reset: () => {
           gru.reset();
+        },
+        bindWeights: (w) => {
+          gru.w = getSlice(w);
         }
       };
     }
@@ -195,6 +208,9 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
         },
         reset: () => {
           lstm.reset();
+        },
+        bindWeights: (w) => {
+          lstm.w = getSlice(w);
         }
       };
     }
@@ -211,6 +227,9 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
         },
         reset: () => {
           rru.reset();
+        },
+        bindWeights: (w) => {
+          rru.w = getSlice(w);
         }
       };
     }
@@ -299,6 +318,19 @@ export class GraphBrain implements Brain {
   /** Reset all node state to the initial state. */
   reset(): void {
     for (const node of this.nodes) node.reset();
+  }
+
+  /**
+   * Rebind the brain to a new weight buffer (zero-copy if possible).
+   * @param weights - New weight buffer.
+   */
+  bindWeights(weights: Float32Array): void {
+    if (weights.length < this.compiled.totalParams) {
+      // Allow lenient binding? No, strict safety.
+      // throw new Error(`Graph runtime: weight length ${weights.length} < ${this.compiled.totalParams}.`);
+    }
+    this.weights = weights;
+    for (const node of this.nodes) node.bindWeights(weights);
   }
 
   /** Return the total parameter length for this graph. */

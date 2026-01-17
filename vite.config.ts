@@ -72,8 +72,8 @@ function coercePort(value: unknown, fallback: number): number {
     typeof value === "number"
       ? Math.trunc(value)
       : typeof value === "string"
-      ? Number.parseInt(value, 10)
-      : Number.NaN;
+        ? Number.parseInt(value, 10)
+        : Number.NaN;
   if (!Number.isFinite(parsed)) return fallback;
   if (parsed < 1 || parsed > 65535) return fallback;
   return parsed;
@@ -164,6 +164,12 @@ function buildViteConfig() {
     host: string;
     port: number;
     hmr?: { host: string };
+    headers?: Record<string, string>;
+  };
+
+  serverConfig.headers = {
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Embedder-Policy': 'require-corp'
   };
 
   if (defaults.hmrHost) {

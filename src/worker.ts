@@ -14,6 +14,7 @@ import type {
   VizData,
   WorkerToMainMessage
 } from './protocol/messages.ts';
+import { workerPool } from './workerPool.ts';
 
 /** Minimal worker scope typing for postMessage and onmessage. */
 type WorkerScope = {
@@ -42,10 +43,10 @@ let lastHistoryLen = 0;
 let pendingImport: PopulationImportData | null = null;
 
 /** Handle incoming messages from the main thread. */
-workerScope.onmessage = async function(e: MessageEvent<MainToWorkerMessage>) {
+workerScope.onmessage = async function (e: MessageEvent<MainToWorkerMessage>) {
   const msg = e.data;
   switch (msg.type) {
-    case 'init':
+    case 'init': {
       if (msg.resetCfg !== false) resetCFGToDefaults();
       // Apply initial settings if any
       if (msg.updates) {
@@ -82,6 +83,18 @@ workerScope.onmessage = async function(e: MessageEvent<MainToWorkerMessage>) {
           CFG.brain.graphSpec = null;
         }
       }
+      // Note: syncWeights will be called later.
+      // We wait for pool init but don't block heavily? 
+      // Actually pool init is async. We should await it?
+      // "await workerPool.initPool"
+      // But we need to know the specKey. 
+      // Let's assume current logic uses 'archKey' from import or default.
+      // We can defer initPool until after population import?
+      // OR init with current settings.
+      // Let's init with a derived key.
+      const poolKey = CFG.brain.graphSpec ? 'graph' : 'mlp';
+      await workerPool.initPool(poolKey);
+
       world = new World(msg.settings || {});
       if (msg.viewW) viewW = msg.viewW;
       if (msg.viewH) viewH = msg.viewH;
@@ -97,12 +110,17 @@ workerScope.onmessage = async function(e: MessageEvent<MainToWorkerMessage>) {
         const result = world.importPopulation(importPayload);
         if (!result.ok) {
           console.warn('[Worker] Failed to import population during init:', result.reason);
+        } else {
+          // Sync weights to pool
+          workerPool.syncWeights(world.population);
         }
       }
       if (pendingImport) {
         const result = world.importPopulation(pendingImport);
         if (!result.ok) {
           console.warn('[Worker] Failed to apply pending import:', result.reason);
+        } else {
+          workerPool.syncWeights(world.population);
         }
         pendingImport = null;
       }
@@ -111,6 +129,7 @@ workerScope.onmessage = async function(e: MessageEvent<MainToWorkerMessage>) {
       loopToken += 1;
       loop(loopToken);
       break;
+    }
 
     case 'updateSettings':
       // msg.updates = [{path, value}, ...]
@@ -141,11 +160,11 @@ workerScope.onmessage = async function(e: MessageEvent<MainToWorkerMessage>) {
     case 'viz':
       vizEnabled = !!msg.enabled;
       break;
-      
+
     case 'resurrect':
-        if(world) world.resurrect(msg.genome);
-        break;
-        
+      if (world) world.resurrect(msg.genome);
+      break;
+
     case 'import':
       if (!msg.data) break;
       if (!world) {
@@ -154,7 +173,7 @@ workerScope.onmessage = async function(e: MessageEvent<MainToWorkerMessage>) {
       }
       {
         const result = world.importPopulation(msg.data);
-      workerScope.postMessage({
+        workerScope.postMessage({
           type: 'importResult',
           ok: result.ok,
           reason: result.reason || null,
@@ -162,6 +181,9 @@ workerScope.onmessage = async function(e: MessageEvent<MainToWorkerMessage>) {
           used: result.used || 0,
           total: result.total || 0
         });
+        if (result.ok && world) {
+          workerPool.syncWeights(world.population);
+        }
       }
       break;
 
@@ -169,11 +191,11 @@ workerScope.onmessage = async function(e: MessageEvent<MainToWorkerMessage>) {
       if (!world) break;
       workerScope.postMessage({ type: 'exportResult', data: world.exportPopulation() });
       break;
-        
+
     case 'godMode':
       // God Mode interactions: kill, move, etc.
       if (!world) break;
-      
+
       if (msg.action === 'kill') {
         // Find snake by ID and kill it
         const snake = world.snakes.find(s => s.id === msg.snakeId);
@@ -296,41 +318,47 @@ export function buildWorkerStats(
  * Run the fixed-step simulation loop and post frames to the main thread.
  * @param token - Loop token for cancellation.
  */
-function loop(token: number): void {
+async function loop(token: number): Promise<void> {
   if (token !== loopToken) return;
   const now = performance.now();
   let dt = (now - lastTime) / 1000;
   lastTime = now;
-  
+
   // Cap dt to avoid Spiral of Death
   if (dt > 0.2) dt = 0.2;
-  
+
   if (world) {
-      accumulator += dt;
-      // Fixed time step update
-      while (accumulator >= FIXED_DT) {
-         world.update(FIXED_DT, viewW, viewH);
-         accumulator -= FIXED_DT;
+    accumulator += dt;
+    // Fixed time step update
+    while (accumulator >= FIXED_DT) {
+      if (workerPool.status === 'ready') {
+        // Parallel inference
+        await world.updateAsync(FIXED_DT, viewW, viewH, undefined, undefined, workerPool);
+      } else {
+        // Legacy serial/SIMD path
+        world.update(FIXED_DT, viewW, viewH);
       }
-      
-      // Serialize and send
-      const buffer = WorldSerializer.serialize(world);
-      
-      // Send stats. Keep payload small per frame; full history is sent only on growth.
-      const statsResult = buildWorkerStats(world, dt, lastHistoryLen, vizEnabled, vizTick);
-      const stats = statsResult.stats;
-      lastHistoryLen = statsResult.historyLen;
-      vizTick = statsResult.vizTick;
-      
-      // We transfer the buffer to avoid copy
-      const transferBuffer =
-        buffer.buffer instanceof ArrayBuffer ? buffer.buffer : buffer.slice().buffer;
-      workerScope.postMessage(
-        { type: 'frame', buffer: transferBuffer, stats },
-        [transferBuffer]
-      );
+      accumulator -= FIXED_DT;
+    }
+
+    // Serialize and send
+    const buffer = WorldSerializer.serialize(world);
+
+    // Send stats. Keep payload small per frame; full history is sent only on growth.
+    const statsResult = buildWorkerStats(world, dt, lastHistoryLen, vizEnabled, vizTick);
+    const stats = statsResult.stats;
+    lastHistoryLen = statsResult.historyLen;
+    vizTick = statsResult.vizTick;
+
+    // We transfer the buffer to avoid copy
+    const transferBuffer =
+      buffer.buffer instanceof ArrayBuffer ? buffer.buffer : buffer.slice().buffer;
+    workerScope.postMessage(
+      { type: 'frame', buffer: transferBuffer, stats },
+      [transferBuffer]
+    );
   }
-  
+
   // Schedule next loop
   // internal loop in worker? setTimeout(0) or requestAnimationFrame?
   // Workers don't have rAF (usually). setTimeout(16) is best effort.

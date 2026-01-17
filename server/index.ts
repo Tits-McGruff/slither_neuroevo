@@ -77,6 +77,8 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
   });
 
   const httpServer = createServer((req, res) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
     httpHandler(req, res);
   });
 

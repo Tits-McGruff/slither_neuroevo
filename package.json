@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Neuroevolution Slither Simulation",
   "main": "src/main.ts",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -26,6 +27,9 @@
     "test:security": "tsx scripts/run-tests.ts security",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
+    "lint:rust": "cargo clippy --manifest-path wasm/Cargo.toml --target wasm32-unknown-unknown -- -D warnings",
+    "format:rust": "cargo fmt --manifest-path wasm/Cargo.toml -- --check",
+    "test:rust": "cargo test --manifest-path wasm/Cargo.toml --target wasm32-unknown-unknown --no-run",
     "server": "tsx server/index.ts",
     "server:dev": "tsx watch server/index.ts",
     "build:docs": "typedoc"
