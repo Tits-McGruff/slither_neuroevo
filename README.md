@@ -2,9 +2,23 @@
 
 A browser-based neuroevolution sandbox inspired by Slither.io. Populations of snakes evolve neural networks, learn to seek food, avoid hazards, and compete across generations. This README is written for users and QA testers who want to run the sim, understand the UI, and explore behavior.
 
+## Key Features
+
+- **High-Performance Core**: Custom Rust/WASM SIMD kernels for neural inference.
+- **Multi-Threaded**: Browser worker pool utilizes all CPU cores for parallel inference (300+ snakes at 60 FPS).
+- **Deep Evolution**: Supports MLP, GRU, LSTM, and RRU architectures with complex genetic operators.
+- **Robust Persistence**: SQLite-backed server mode capable of saving/loading massive generations.
+
+This README is written for users and QA testers who want to run the sim, understand the UI, and explore behavior.
+
 ## Quick start
 
-You need Node.js installed.
+### Prerequisites
+
+- **Node.js**: v20+ (LTS recommended)
+- **Rust**: Required for compiling the WASM acceleration layer. Install via [rustup.rs](https://rustup.rs).
+
+### Running
 
 ```bash
 npm install
