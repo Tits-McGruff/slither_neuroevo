@@ -1,6 +1,7 @@
 /** Low-level neural network primitives and parameter layouts used by brains. */
 
 import { clamp } from '../utils.ts';
+import { requireGruKernel, requireLstmKernel, requireRruKernel } from './wasmBridge.ts';
 
 /**
  * Sigmoid activation function.
@@ -123,6 +124,57 @@ export class MLP {
     }
     return cur;
   }
+
+  /**
+   * Run a batched forward pass through the network.
+   * @param inputs - Packed input buffer.
+   * @param outputs - Packed output buffer.
+   * @param count - Number of batch entries.
+   * @param inputStride - Stride between batch inputs.
+   * @param outputStride - Stride between batch outputs.
+   */
+  forwardBatch(
+    inputs: Float32Array,
+    outputs: Float32Array,
+    count: number,
+    inputStride: number,
+    outputStride: number
+  ): void {
+    const layerCount = this.layerSizes.length;
+    if (layerCount < 2) return;
+    const outSize = this.layerSizes[layerCount - 1] ?? 0;
+    const outLimit = Math.min(outSize, outputStride);
+    for (let b = 0; b < count; b++) {
+      let wi = 0;
+      let cur: Float32Array | null = null;
+      const inputBase = b * inputStride;
+      for (let l = 0; l < layerCount - 1; l++) {
+        const ins = this.layerSizes[l]!;
+        const outs = this.layerSizes[l + 1]!;
+        const next = this._bufs[l]!;
+        for (let o = 0; o < outs; o++) {
+          let sum = 0;
+          if (l === 0) {
+            for (let i = 0; i < ins; i++) {
+              sum += (this.w[wi++] ?? 0) * (inputs[inputBase + i] ?? 0);
+            }
+          } else {
+            const curBuf = cur!;
+            for (let i = 0; i < ins; i++) {
+              sum += (this.w[wi++] ?? 0) * (curBuf[i] ?? 0);
+            }
+          }
+          sum += this.w[wi++] ?? 0;
+          next[o] = Math.tanh(sum);
+        }
+        cur = next;
+      }
+      if (!cur) continue;
+      const outBase = b * outputStride;
+      for (let i = 0; i < outLimit; i++) outputs[outBase + i] = cur[i] ?? 0;
+      for (let i = outLimit; i < outputStride; i++) outputs[outBase + i] = 0;
+    }
+  }
 }
 
 /** Gated recurrent unit implementation with configurable bias init. */
@@ -190,6 +242,28 @@ export class GRU {
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    const kernel = requireGruKernel();
+    kernel.stepBatch(
+      this.w,
+      x,
+      this.h,
+      this._z,
+      this._r,
+      this._hPrev,
+      this.inSize,
+      this.hiddenSize,
+      1,
+      this.inSize
+    );
+    return this.h;
+  }
+
+  /**
+   * Advance the GRU by one timestep using the reference JS path.
+   * @param x - Input vector.
+   * @returns Updated hidden state.
+   */
+  stepReference(x: Float32Array): Float32Array {
     const I = this.inSize;
     const H = this.hiddenSize;
     const Wsz = H * I;
@@ -312,6 +386,28 @@ export class LSTM {
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    const kernel = requireLstmKernel();
+    kernel.stepBatch(
+      this.w,
+      x,
+      this.h,
+      this.c,
+      this._hPrev,
+      this._cPrev,
+      this.inSize,
+      this.hiddenSize,
+      1,
+      this.inSize
+    );
+    return this.h;
+  }
+
+  /**
+   * Advance the LSTM by one timestep using the reference JS path.
+   * @param x - Input vector.
+   * @returns Updated hidden state.
+   */
+  stepReference(x: Float32Array): Float32Array {
     const I = this.inSize;
     const H = this.hiddenSize;
     const Wsz = H * I;
@@ -430,6 +526,26 @@ export class RRU {
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    const kernel = requireRruKernel();
+    kernel.stepBatch(
+      this.w,
+      x,
+      this.h,
+      this._hPrev,
+      this.inSize,
+      this.hiddenSize,
+      1,
+      this.inSize
+    );
+    return this.h;
+  }
+
+  /**
+   * Advance the RRU by one timestep using the reference JS path.
+   * @param x - Input vector.
+   * @returns Updated hidden state.
+   */
+  stepReference(x: Float32Array): Float32Array {
     const I = this.inSize;
     const H = this.hiddenSize;
     const Wsz = H * I;
@@ -516,5 +632,37 @@ export class DenseHead {
       this._out[o] = Math.tanh(sum);
     }
     return this._out;
+  }
+
+  /**
+   * Run a batched forward pass through the dense head.
+   * @param inputs - Packed input buffer.
+   * @param outputs - Packed output buffer.
+   * @param count - Number of batch entries.
+   * @param inputStride - Stride between batch inputs.
+   * @param outputStride - Stride between batch outputs.
+   */
+  forwardBatch(
+    inputs: Float32Array,
+    outputs: Float32Array,
+    count: number,
+    inputStride: number,
+    outputStride: number
+  ): void {
+    const outLimit = Math.min(this.outSize, outputStride);
+    for (let b = 0; b < count; b++) {
+      let idx = 0;
+      const baseIn = b * inputStride;
+      const baseOut = b * outputStride;
+      for (let o = 0; o < this.outSize; o++) {
+        let sum = 0;
+        for (let i = 0; i < this.inSize; i++) {
+          sum += (this.w[idx++] ?? 0) * (inputs[baseIn + i] ?? 0);
+        }
+        sum += this.w[idx++] ?? 0;
+        if (o < outLimit) outputs[baseOut + o] = Math.tanh(sum);
+      }
+      for (let i = outLimit; i < outputStride; i++) outputs[baseOut + i] = 0;
+    }
   }
 }

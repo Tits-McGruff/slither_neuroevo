@@ -26,7 +26,7 @@ setlocal
 cd /d "%~dp0" || exit /b 1
 
 :: Call the PowerShell launcher in "shutdown" mode.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\slither.ps1" --shutdown
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\slither.ps1" -shutdown
 
 :: Propagate the PowerShell exit code back to the caller.
 exit /b %errorlevel%

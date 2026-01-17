@@ -23,6 +23,10 @@ export interface ServerConfig {
   dbPath: string;
   checkpointEveryGenerations: number;
   logLevel: LogLevel;
+  /** Enable server-side MT inference. */
+  mtEnabled: boolean;
+  /** Requested worker count (0 for auto). */
+  mtWorkers: number;
   seed?: number;
 }
 
@@ -40,7 +44,9 @@ export const DEFAULT_CONFIG: ServerConfig = {
   maxActionsPerSecond: 120,
   dbPath: './data/slither.db',
   checkpointEveryGenerations: 0,
-  logLevel: 'info'
+  logLevel: 'info',
+  mtEnabled: false,
+  mtWorkers: 0
 };
 
 /** Shape of a process environment map. */
@@ -77,6 +83,20 @@ function parseIntValue(raw: string | undefined): number | undefined {
 }
 
 /**
+ * Parse a boolean from a string value.
+ * @param raw - Raw string to parse.
+ * @returns Parsed boolean or undefined when invalid.
+ */
+function parseBoolValue(raw: string | undefined): boolean | undefined {
+  if (raw == null) return undefined;
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return undefined;
+}
+
+/**
  * Resolve a CLI argument value for a flag, supporting `--flag value` and `--flag=value`.
  * @param argv - Argument vector to scan.
  * @param flag - Flag name to match (e.g. `--port`).
@@ -95,6 +115,16 @@ function getArgValue(argv: string[], flag: string): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Check if a CLI flag is present in the argument list.
+ * @param argv - Argument vector to scan.
+ * @param flag - Flag name to match.
+ * @returns True when the flag exists in argv.
+ */
+function hasArgFlag(argv: string[], flag: string): boolean {
+  return argv.includes(flag);
 }
 
 /**
@@ -243,6 +273,20 @@ export function normalizeConfig(
     }
   }
 
+  let mtEnabled = DEFAULT_CONFIG.mtEnabled;
+  if (input.mtEnabled !== undefined) {
+    if (typeof input.mtEnabled === 'boolean') {
+      mtEnabled = input.mtEnabled;
+    } else if (typeof input.mtEnabled === 'string') {
+      const parsed = parseBoolValue(input.mtEnabled);
+      if (parsed !== undefined) mtEnabled = parsed;
+      else warn?.('mtEnabled is invalid; using false.');
+    } else {
+      warn?.('mtEnabled is invalid; using false.');
+    }
+  }
+  const mtWorkers = coerceInt('mtWorkers', input.mtWorkers, DEFAULT_CONFIG.mtWorkers, 0, 128, warn);
+
   const output: ServerConfig = {
     host,
     port,
@@ -256,7 +300,9 @@ export function normalizeConfig(
     maxActionsPerSecond,
     dbPath,
     checkpointEveryGenerations,
-    logLevel
+    logLevel,
+    mtEnabled,
+    mtWorkers
   };
   if (seed !== undefined) output.seed = seed;
   return output;
@@ -325,7 +371,9 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     dbPath: data['dbPath'],
     checkpointEveryGenerations: data['checkpointEveryGenerations'],
     logLevel: data['logLevel'],
-    seed: data['seed']
+    seed: data['seed'],
+    mtEnabled: data['mtEnabled'],
+    mtWorkers: data['mtWorkers']
   };
 }
 
@@ -402,5 +450,12 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
   const seed =
     parseIntValue(getArgValue(argv, '--seed')) ?? parseIntValue(env['WORLD_SEED']);
   if (seed !== undefined) input.seed = seed;
+  const mtRaw = getArgValue(argv, '--mt') ?? env['MT_ENABLED'];
+  const mtFlag = mtRaw ?? (hasArgFlag(argv, '--mt') ? 'true' : undefined);
+  const mtEnabled = parseBoolValue(mtFlag);
+  if (mtEnabled !== undefined) input.mtEnabled = mtEnabled;
+  const mtWorkers =
+    parseIntValue(getArgValue(argv, '--mt-workers')) ?? parseIntValue(env['MT_WORKERS']);
+  if (mtWorkers !== undefined) input.mtWorkers = mtWorkers;
   return normalizeConfig(input, warn);
 }

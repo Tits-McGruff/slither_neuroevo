@@ -2,6 +2,8 @@
 .vscode/
 dist/
 node_modules/
+wasm/target/
+src/brains/wasm/*.wasm
 
 markdown-rules/
 docs/feedback-from-outside-llms/

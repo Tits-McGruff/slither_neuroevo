@@ -5,10 +5,12 @@ import { WorldSerializer } from '../src/serializer.ts';
 import { setByPath } from '../src/utils.ts';
 import { validateGraph } from '../src/brains/graph/validate.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
+import { enrichArchInfo } from '../src/mlp.ts';
 import { coerceSettingsUpdateValue, type CoreSettings, type SettingsUpdate } from '../src/protocol/settings.ts';
 import { SimProfiler, formatSimProfilerReport } from '../src/profiling.ts';
 import type { Snake } from '../src/snake.ts';
 import type { ServerConfig } from './config.ts';
+import { BrainPool } from './brainPool.ts';
 import type {
   ActionMsg,
   ClientType,
@@ -95,6 +97,16 @@ export class SimServer {
   private persistenceDisabledReason: string | null = null;
   /** Optional profiler for per-tick timing breakdowns. */
   private profiler: SimProfiler | null = null;
+  /** Optional worker pool for multi-threaded inference. */
+  private brainPool: BrainPool | null = null;
+  /** Whether server-side MT inference is enabled. */
+  private mtEnabled: boolean;
+  /** Requested worker count for the MT pool. */
+  private mtWorkerCount: number;
+  /** Last generation synchronized with the MT pool. */
+  private mtGeneration: number;
+  /** Whether MT inference ran on the last tick. */
+  private mtActive = false;
 
   /**
    * Create a simulation server instance for a websocket hub.
@@ -147,6 +159,9 @@ export class SimServer {
     this.lastHofGenSaved = 0;
     this.lastHistoryLen = this.world.fitnessHistory.length;
     this.vizConnections = new Set();
+    this.mtEnabled = config.mtEnabled === true;
+    this.mtWorkerCount = config.mtWorkers ?? 0;
+    this.mtGeneration = this.world.generation;
   }
 
   /** Start the server tick loop. */
@@ -154,7 +169,7 @@ export class SimServer {
     if (this.running) return;
     this.running = true;
     this.nextTickAt = performance.now();
-    this.loop();
+    void this.loop();
   }
 
   /** Stop the server tick loop. */
@@ -162,6 +177,10 @@ export class SimServer {
     this.running = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    if (this.brainPool) {
+      void this.brainPool.shutdown();
+      this.brainPool = null;
+    }
   }
 
   /**
@@ -195,6 +214,7 @@ export class SimServer {
     this.lastGeneration = this.world.generation;
     this.lastHofGenSaved = 0;
     this.lastHistoryLen = this.world.fitnessHistory.length;
+    this.invalidateBrainPool();
     return result;
   }
 
@@ -288,6 +308,7 @@ export class SimServer {
     this.lastHistoryLen = this.world.fitnessHistory.length;
     this.controllers.setTickId(this.tickId);
     this.controllers.reassignDeadSnakes(() => this.world.spawnExternalSnake().id);
+    this.invalidateBrainPool();
   }
 
   /**
@@ -299,23 +320,109 @@ export class SimServer {
     this.vizConnections.delete(connId);
   }
 
+  /**
+   * Mark the MT pool as invalid and schedule a rebuild.
+   */
+  private invalidateBrainPool(): void {
+    this.mtGeneration = this.world.generation;
+    if (this.brainPool) {
+      void this.brainPool.shutdown();
+      this.brainPool = null;
+    }
+  }
+
+  /**
+   * Build a packed weight buffer for the current population.
+   * @param paramCount - Parameter count per brain.
+   * @returns Packed weight buffer for all population slots.
+   */
+  private buildPopulationWeights(paramCount: number): Float32Array {
+    const population = this.world.population;
+    const total = Math.max(0, population.length) * paramCount;
+    const weights = new Float32Array(total);
+    for (let i = 0; i < population.length; i++) {
+      const genome = population[i];
+      if (!genome) continue;
+      weights.set(genome.weights, i * paramCount);
+    }
+    return weights;
+  }
+
+  /**
+   * Ensure the MT pool is initialized for the current world state.
+   * @returns Ready brain pool or null when MT is disabled/unavailable.
+   */
+  private async ensureBrainPool(): Promise<BrainPool | null> {
+    if (!this.mtEnabled) return null;
+    const populationCount = this.world.population.length;
+    if (populationCount <= 0) return null;
+    const archInfo = enrichArchInfo(this.world.arch);
+    const paramCount = archInfo.totalCount;
+    const specKey = this.world.archKey;
+    const inputStride = Math.max(0, Math.floor(CFG.brain.inSize));
+    const outputStride = Math.max(0, Math.floor(CFG.brain.outSize));
+
+    let pool = this.brainPool;
+    const needsInit =
+      !pool ||
+      pool.specKey !== specKey ||
+      pool.populationCount !== populationCount ||
+      pool.paramCount !== paramCount;
+
+    if (needsInit) {
+      pool = new BrainPool(this.mtWorkerCount);
+      const weights = this.buildPopulationWeights(paramCount);
+      await pool.init({
+        spec: archInfo.spec,
+        specKey,
+        populationCount,
+        paramCount,
+        inputStride,
+        outputStride,
+        maxBatch: populationCount,
+        weights
+      });
+      this.brainPool = pool;
+      this.mtGeneration = this.world.generation;
+      return pool;
+    }
+
+    if (!pool) return null;
+
+    if (this.mtGeneration !== this.world.generation) {
+      const weights = this.buildPopulationWeights(paramCount);
+      pool.updateWeights(weights);
+      await pool.resetBrains();
+      this.mtGeneration = this.world.generation;
+    }
+
+    return pool;
+  }
+
   /** Main timer loop for scheduling ticks. */
-  private loop(): void {
+  private async loop(): Promise<void> {
     if (!this.running) return;
     const now = performance.now();
     if (now >= this.nextTickAt) {
-      this.tick(now);
+      try {
+        await this.tick(now);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn('[simServer] tick failed', { reason: message });
+      }
       this.nextTickAt += 1000 / this.tickRateHz;
     }
-    const delay = Math.max(0, this.nextTickAt - now);
-    this.timer = setTimeout(() => this.loop(), delay);
+    const delay = Math.max(0, this.nextTickAt - performance.now());
+    this.timer = setTimeout(() => {
+      void this.loop();
+    }, delay);
   }
 
   /**
    * Run a single server tick and broadcast frames/stats as needed.
    * @param now - Current high-resolution timestamp.
    */
-  private tick(now: number): void {
+  private async tick(now: number): Promise<void> {
     this.tickId += 1;
     this.controllers.setTickId(this.tickId);
     if (this.lastTickAt > 0) {
@@ -325,7 +432,24 @@ export class SimServer {
     this.lastTickAt = now;
 
     const dt = 1 / this.tickRateHz;
-    this.world.update(dt, this.viewW, this.viewH, this.controllers, this.tickId);
+    this.mtActive = false;
+    let batchRunner: BrainPool | null = null;
+    if (this.mtEnabled) {
+      try {
+        batchRunner = await this.ensureBrainPool();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn('[mt.pool.failed]', { reason: message });
+        this.mtEnabled = false;
+        batchRunner = null;
+      }
+    }
+    if (batchRunner) {
+      this.mtActive = CFG.brain.batchEnabled !== false;
+      await this.world.updateAsync(dt, this.viewW, this.viewH, this.controllers, this.tickId, batchRunner);
+    } else {
+      this.world.update(dt, this.viewW, this.viewH, this.controllers, this.tickId);
+    }
     const report = this.profiler?.reportIfDue(now);
     if (report) console.log(formatSimProfilerReport(report));
     this.controllers.reassignDeadSnakes(() => this.world.spawnExternalSnake().id);
@@ -476,7 +600,7 @@ export class SimServer {
       stats.fitnessHistory = this.world.fitnessHistory.slice();
       this.lastHistoryLen = this.world.fitnessHistory.length;
     }
-    if (this.vizConnections.size > 0) {
+    if (this.vizConnections.size > 0 && !this.mtActive) {
       const vizTarget = this.pickVizSnake();
       const viz = buildVizData(vizTarget?.brain);
       if (viz) stats.viz = viz;

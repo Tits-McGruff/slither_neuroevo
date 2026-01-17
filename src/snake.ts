@@ -197,6 +197,8 @@ export class Snake {
   boostInput: number;
   /** Scratch buffer for sensor values. */
   _sensorBuf?: Float32Array;
+  /** Scratch buffer for last output values. */
+  _outputBuf?: Float32Array;
   /** Accumulator for control update timing. */
   _ctrlAcc?: number;
   /** Flag indicating control action availability. */
@@ -204,9 +206,9 @@ export class Snake {
   /** Whether the last control input was external. */
   _lastControlExternal?: boolean;
   /** Cached last sensor vector for debug UI. */
-  lastSensors?: number[];
+  lastSensors?: Float32Array;
   /** Cached last output vector for debug UI. */
-  lastOutputs?: number[];
+  lastOutputs?: Float32Array;
   /** Cached fitness value for reporting. */
   fitness?: number;
   /** Control mode for this snake. */
@@ -455,6 +457,15 @@ export class Snake {
     return spend;
   }
   /**
+   * Prepare per-step bookkeeping before control evaluation.
+   * @param dt - Delta time in seconds.
+   */
+  prepareForStep(dt: number): void {
+    if (!this.points.length) this.points.push({ x: this.x, y: this.y });
+    this.age += dt;
+    this.pointsScore += dt * CFG.reward.pointsPerSecondAlive;
+  }
+  /**
    * Computes sensors into the provided buffer (or the internal buffer)
    * without mutating snake state beyond the sensor scratch space.
    */
@@ -467,63 +478,68 @@ export class Snake {
     return buildSensors(world, this, this._sensorBuf);
   }
   /**
-   * Main update routine invoked once per substep by the World.
-   * Handles sensor evaluation, neural network inference, movement, food
-   * collection, and growth/shrink logic.
-   * @param world - World context for collisions and pellets.
-   * @param dt - Delta time in seconds.
-   * @param control - Optional external control input.
+   * Sync control state when switching between external and neural inputs.
+   * @param usingExternal - Whether external control is active.
    */
-  update(world: WorldLike, dt: number, control?: ControlInput): void {
-    if (!this.alive) return;
-    if (!this.points.length) this.points.push({ x: this.x, y: this.y });
-    this.age += dt;
-    this.pointsScore += dt * CFG.reward.pointsPerSecondAlive;
-    const externalOnly = this.controlMode === 'external-only';
-    const usingExternal = externalOnly || !!control;
+  private _syncControlSource(usingExternal: boolean): void {
     if (usingExternal !== (this._lastControlExternal ?? false)) {
       this.brain.reset();
       this._ctrlAcc = 0;
       this._hasAct = 0;
     }
     this._lastControlExternal = usingExternal;
-    if (usingExternal) {
-      const turn = control?.turn ?? 0;
-      const boost = control?.boost ?? 0;
-      this.turnInput = clamp(turn, -1, 1);
-      this.boostInput = clamp(boost, 0, 1);
-    } else {
-      const profiler = world.profiler;
-      if (this._ctrlAcc == null) this._ctrlAcc = 0;
-      const ctrlDt = Math.max(0.001, (CFG.brain && CFG.brain.controlDt) ? CFG.brain.controlDt : 1 / 60);
-      this._ctrlAcc += dt;
-      // Only evaluate the brain on a fixed controller step. Movement and
-      // collision substepping can change dt, so this keeps "memory" stable.
-      if (!this._hasAct || this._ctrlAcc >= ctrlDt) {
-        this._ctrlAcc = this._ctrlAcc % ctrlDt;
-        let sensors: Float32Array;
-        if (profiler) {
-          const start = profiler.now();
-          sensors = this.computeSensors(world, this._sensorBuf);
-          profiler.recordSensors(profiler.now() - start);
-        } else {
-          sensors = this.computeSensors(world, this._sensorBuf);
-        }
-        this.lastSensors = Array.from(sensors);
-        let out: Float32Array;
-        if (profiler) {
-          const start = profiler.now();
-          out = this.brain.forward(sensors);
-          profiler.recordBrain(profiler.now() - start);
-        } else {
-          out = this.brain.forward(sensors);
-        }
-        this.lastOutputs = Array.from(out);
-        this.turnInput = clamp(out[0] ?? 0, -1, 1);
-        this.boostInput = clamp(out[1] ?? 0, -1, 1);
-        this._hasAct = 1;
-      }
+  }
+  /**
+   * Apply external control inputs (player or bot) to the snake.
+   * @param control - External control input.
+   */
+  applyExternalControl(control?: ControlInput): void {
+    this._syncControlSource(true);
+    const turn = control?.turn ?? 0;
+    const boost = control?.boost ?? 0;
+    this.turnInput = clamp(turn, -1, 1);
+    this.boostInput = clamp(boost, 0, 1);
+  }
+  /**
+   * Update the control accumulator and report whether inference is needed.
+   * @param dt - Delta time in seconds.
+   * @returns True when a new brain output should be computed.
+   */
+  needsControlUpdate(dt: number): boolean {
+    this._syncControlSource(false);
+    if (this._ctrlAcc == null) this._ctrlAcc = 0;
+    const ctrlDt = Math.max(0.001, (CFG.brain && CFG.brain.controlDt) ? CFG.brain.controlDt : 1 / 60);
+    this._ctrlAcc += dt;
+    if (!this._hasAct || this._ctrlAcc >= ctrlDt) {
+      this._ctrlAcc = this._ctrlAcc % ctrlDt;
+      return true;
     }
+    return false;
+  }
+  /**
+   * Apply raw brain outputs to control inputs.
+   * @param turn - Raw turn output.
+   * @param boost - Raw boost output.
+   */
+  applyBrainOutput(turn: number, boost: number): void {
+    const outSize = Math.max(1, Math.floor(CFG.brain.outSize));
+    if (!this._outputBuf || this._outputBuf.length !== outSize) {
+      this._outputBuf = new Float32Array(outSize);
+    }
+    this._outputBuf[0] = turn;
+    if (outSize > 1) this._outputBuf[1] = boost;
+    this.lastOutputs = this._outputBuf;
+    this.turnInput = clamp(turn, -1, 1);
+    this.boostInput = clamp(boost, -1, 1);
+    this._hasAct = 1;
+  }
+  /**
+   * Advance movement, boosting, feeding, and growth using current inputs.
+   * @param world - World context for collisions and pellets.
+   * @param dt - Delta time in seconds.
+   */
+  advance(world: WorldLike, dt: number): void {
+    if (!this.alive) return;
     const boostWanted = this.boostInput > 0.35;
     let boostingNow = 0;
     if (boostWanted) {
@@ -617,6 +633,44 @@ export class Snake {
     const desired = Math.floor(clamp(this.targetLen, CFG.snakeMinLen, CFG.snakeMaxLen));
     while (this.points.length > desired) this.points.pop();
     this.updateRadiusFromLen();
+  }
+  /**
+   * Main update routine invoked once per substep by the World.
+   * Handles sensor evaluation, neural network inference, movement, food
+   * collection, and growth/shrink logic.
+   * @param world - World context for collisions and pellets.
+   * @param dt - Delta time in seconds.
+   * @param control - Optional external control input.
+   */
+  update(world: WorldLike, dt: number, control?: ControlInput): void {
+    if (!this.alive) return;
+    this.prepareForStep(dt);
+    const externalOnly = this.controlMode === 'external-only';
+    const usingExternal = externalOnly || !!control;
+    if (usingExternal) {
+      this.applyExternalControl(control);
+    } else if (this.needsControlUpdate(dt)) {
+      const profiler = world.profiler;
+      let sensors: Float32Array;
+      if (profiler) {
+        const start = profiler.now();
+        sensors = this.computeSensors(world, this._sensorBuf);
+        profiler.recordSensors(profiler.now() - start);
+      } else {
+        sensors = this.computeSensors(world, this._sensorBuf);
+      }
+      this.lastSensors = sensors;
+      let out: Float32Array;
+      if (profiler) {
+        const start = profiler.now();
+        out = this.brain.forward(sensors);
+        profiler.recordBrain(profiler.now() - start);
+      } else {
+        out = this.brain.forward(sensors);
+      }
+      this.applyBrainOutput(out[0] ?? 0, out[1] ?? 0);
+    }
+    this.advance(world, dt);
   }
 }
 

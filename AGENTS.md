@@ -20,6 +20,18 @@ Server URLs resolve from `?server=ws://...`, then the `slither_server_url` local
 
 Worker mode runs the same loop inside `src/worker.ts` and posts a transferable buffer back to the main thread each iteration. The worker message protocol is explicit: `init` rebuilds a world (and can reset `CFG`), `updateSettings` applies `path/value` updates to `CFG`, `action` handles view/sim speed toggles, `resize` updates the viewport, `viz` toggles streaming, `resurrect` injects a saved genome, `import`/`export` drive population transfer, and `godMode` handles kill/move actions. `init` can include `graphSpec`, `population`, `generation`, and `stackOrder` to override the brain layout and state. Worker responses include `frame` (buffer + stats), `exportResult`, and `importResult`. When adding new messages or fields, update both ends (`src/main.ts` and `src/worker.ts`) and keep tests or parsing code in sync. Shared worker message and settings types live in `src/protocol/messages.ts` and `src/protocol/settings.ts`.
 
+### Multi-threaded inference pool
+
+To overcome the single-threaded bottleneck of JavaScript, the simulation now employs a parallel inference engine (`src/workerPool.ts`) that distributes neural network forward passes across multiple dedicated worker threads (`src/worker/inferWorker.ts`). This system is designed for zero-copy synchronization using `SharedArrayBuffer` and `Atomics`.
+
+1. **Initialization**: On startup, `src/workerPool.ts` spawns `navigator.hardwareConcurrency - 1` workers. It allocates three primary shared buffers:
+    * **Inputs**: A flat f32 buffer storing sensor data for all agents.
+    * **Outputs**: A flat f32 buffer where workers write turn/boost decisions.
+    * **Weights**: A large buffer storing the optimized network weights for the entire population.
+2. **Dispatch**: During the game loop, the main simulation worker writes sensor data to the Shared Input Buffer. It then dispatches batches of agents to the worker pool by writing atomic flags. Workers wake up, read their assigned slice of inputs, execute the WASM inference kernels, and write directly to the Shared Output Buffer.
+3. **Synchronization**: The main thread waits (via `Atomics.wait` or a spin-lock fallback) for all workers to signal completion before proceeding to apply the control outputs. This ensures deterministic lock-step execution.
+4. **Fallback**: If the environment lacks `SharedArrayBuffer` support (e.g., due to missing `Cross-Origin-Opener-Policy: same-origin` headers), the pool detects this capability failure and gracefully disables itself. The simulation then reverts to the legacy single-threaded JS/SIMD loop (`BatchInferenceRunner`), ensuring the application remains functional on restrictive hosts.
+
 ## Binary frame format and rendering pipeline
 
 The fast path relies on a strict binary format for world snapshots. `src/serializer.ts` writes a `Float32Array` with a 7-float header (`generation`, `totalSnakes`, `aliveCount`, `worldRadius`, `cameraX`, `cameraY`, `zoom`), followed by a compact per-snake block and then the pellet block. Only alive snakes are serialized, and each snake starts with 8 floats (id, radius, skin flag, x, y, dir, boost flag, point count) followed by `pointCount * 2` floats for the body points. The pellet section starts with `pelletCount`, then repeats `(x, y, value, type, colorId)` where type is `0 ambient`, `1 corpse_big`, `2 corpse_small`, `3 boost`. Frame offsets and read helpers are centralized in `src/protocol/frame.ts`. The renderer uses this buffer to drive speed-based glow and boost trails, so pointer math must remain exact. Server and worker modes share this exact buffer layout.
@@ -38,9 +50,9 @@ Sensors are built in `src/sensors.ts` and must stay in sync with `CFG.brain.inSi
 
 Baseline bots (`src/bots/baselineBots.ts`) are scripted entities that fill the arena. They now employ "Life Stage" strategies based on their length:
 
-- **Small (< 25)**: "Coward" mode. Prioritizes high clearance and clamps food attraction to avoid kamikaze deaths.
-- **Medium (25-80)**: "Hunter" mode. Actively intercepts nearby snakes and boosts to attack if safe.
-- **Large (> 80)**: "Bully" mode. Seeks high density to block paths and cause accidents.
+* **Small (< 25)**: "Coward" mode. Prioritizes high clearance and clamps food attraction to avoid kamikaze deaths.
+* **Medium (25-80)**: "Hunter" mode. Actively intercepts nearby snakes and boosts to attack if safe.
+* **Large (> 80)**: "Bully" mode. Seeks high density to block paths and cause accidents.
 
 Bot respawning is controlled by `CFG.baselineBots.respawnDelay` (default 3.0s), ensuring a steady population without instant flooding.
 
@@ -84,26 +96,58 @@ Persistence utilities are in `src/storage.ts`, which provides a small `Storage` 
 
 Import/export is exposed in the Settings tab and uses the worker protocol in worker mode or the server HTTP endpoints in server mode. `src/main.ts` requests an export payload from the worker, adds HoF data, and downloads a JSON file; in server mode it posts `/api/save` then fetches `/api/export/latest` before downloading. Imports validate the JSON, update the Hall of Fame store, persist population JSON in localStorage, and send the genomes to the worker for an in-place reset; in server mode it posts `/api/import`. Server-side persistence (`server/persistence.ts`) stores population snapshots plus graph presets in SQLite (`data/slither.db`); `server/httpApi.ts` exposes `/api/save`, `/api/export/latest`, `/api/import`, `/api/graph-presets` (list/save), and `/api/graph-presets/:id` (load) for DB-backed workflows, while export still writes JSON to the client file system. Diagram layout overrides are not persisted.
 
+### Scalable server persistence (Chunked blob format)
+
+Previous versions of the server stored population snapshots as a single massive JSON string in SQLite. As population sizes and neural complexity grew, this approach hit the V8 engine's hard string length limit (approximately 512MB), causing the server to crash when saving Generation 100+ with 300 snakes.
+
+To resolve this, the persistence layer (`server/persistence.ts`) now employs a **Chunked Binary Serialization** strategy:
+
+1. **Genome Stripping**: When a snapshot is saved, the massive `genomes` array is removed from the metadata payload. The lightweight metadata (stats, settings, hall of fame) is saved as normal JSON in the `payload_json` column.
+2. **Binary Serialization**: The genomes are handed off to `src/persistence/chunked.ts`, which serializes them into a compact binary format. This format is broken into 512MB chunks (if necessary) to respect Node buffer limits.
+3. **Compression**: The binary chunks are compressed using Gzip (via Node's `zlib`).
+4. **Blob Storage**: The resulting compressed buffer is stored in a dedicated `genomes_blob` BLOB column in the `population_snapshots` table.
+
+This architecture ensures that the application can scale to thousands of complex agents without memory crashes. When loading a snapshot (`loadLatestSnapshot`), the server strictly reverses this process: reading the blob, gunzipping, parsing the binary chunks, and re-attaching the genomes to the JSON payload before passing it to the simulation controller. Existing database migrations (`ensureSnapshotColumns`) handle the schema update automatically.
+
+## Rust & WASM Toolchain
+
+The high-performance numerics are backed by a Rust crate located in `wasm/`. This crate compiles to a WebAssembly module that exposes SIMD-accelerated kernels (`dense_forward`, `lstm_step`, etc.) to the JavaScript runtime.
+
+**Build Pipeline**:
+The build process is automated via `scripts/build-wasm.mjs`. Use `npm run build` to invoke the pipeline, which:
+
+1. Calls `cargo build --target wasm32-unknown-unknown --release`.
+2. Optimizes the output binary using `wasm-opt` (if available) or internal shrinking flags.
+3. Copies the resulting `.wasm` file to the `public/` directory for Vite consumption.
+
+**Safety Invariants**:
+Because the WASM module operates on raw pointers passed from JavaScript (`SharedArrayBuffer` views), memory safety is manual and critical.
+
+* **Unsafe Blocks**: All raw pointer arithmetic in `lib.rs` is wrapped in explicit `unsafe {}` blocks. Every such block MUST be accompanied by a `/// # Safety` documentation comment explaining the contract (e.g., "Pointers must be valid for `len` elements").
+* **Slice Copying**: Manual `for` loops that copy data byte-by-byte are banned. Use `slice.copy_from_slice()` instead, as it compiles to efficient `memcpy` intrinsics and allows the Rust compiler to elide bounds checks where possible.
+* **Linting**: The CI pipeline enforces `cargo clippy` and `cargo fmt`. You can run these locally with `npm run lint:rust` and `npm run format:rust`.
+* **Testing**: `npm run test:rust` acts as a compile-check for the WASM target (via `--no-run`), while `npm test` runs the actual behavioral integration tests (`server/mtParity.test.ts`) using the verified binary.
+
 ## Utilities and configuration
 
 `src/config.ts` owns the full configuration surface in `CFG_DEFAULT`, and `resetCFGToDefaults()` rebuilds `CFG` by deep-cloning via JSON. This means new config entries should remain JSON-serializable and should be added to both `CFG_DEFAULT` and the UI slider specs if you want them exposed. `src/utils.ts` provides common math helpers, random utilities, and the color hashing used for snake skins. These helpers are used in hot loops, so prefer reusing them rather than introducing extra per-frame allocations.
 
 ## Documentation expectations
 
-- `README.md` is for users and QA: explain sliders, brain types, presets, and troubleshooting. Keep dev architecture and testing details out of README.
-- `AGENTS.md` is the dev reference: include system architecture, buffer contracts, and regression pitfalls.
-- Slider names and meanings in README should mirror `src/settings.ts` and `src/config.ts`. If you change a slider label or path, update docs accordingly.
-- Add TSDoc-style documentation for every function, class, class field, and module-level variable (including tests and server/util scripts), plus inline comments for behavior not covered by the docblocks. Linting is configured in `eslint.config.cjs` and enforced via `npm run lint`.
+* `README.md` is for users and QA: explain sliders, brain types, presets, and troubleshooting. Keep dev architecture and testing details out of README.
+* `AGENTS.md` is the dev reference: include system architecture, buffer contracts, and regression pitfalls.
+* Slider names and meanings in README should mirror `src/settings.ts` and `src/config.ts`. If you change a slider label or path, update docs accordingly.
+* Add TSDoc-style documentation for every function, class, class field, and module-level variable (including tests and server/util scripts), plus inline comments for behavior not covered by the docblocks. Linting is configured in `eslint.config.cjs` and enforced via `npm run lint`.
 
 ## Recent additions and footguns
 
-- Fast-path visuals include speed/boost-based glow and boost trail particles in `renderWorldStruct`. The buffer contract is: header (7 floats), alive snakes (8 + 2\*ptCount floats), then pellets (count + 5 floats: x, y, value, type, colorId). Update serializer, render, and tests together if this changes.
-- Starfield/grid draw in the fast renderer; camera/zoom must come from the worker buffer (no main-thread overrides).
-- Fitness history now ships min/avg/max from the worker or server when it grows. Keep histories finite and capped when syncing to the UI.
-- `bestPointsThisGen` must be initialized before any sensor pass; NaNs here made first-generation snakes vanish. Preserve that initialization when refactoring world state or sensors.
-- Graph editor ports are 0-based; Split output sizes must sum to the input size, and total output size must match `CFG.brain.outSize` (turn+boost). Diagram layout overrides are UI-only.
-- `data/slither.db` is local server state and should not be committed; it will exceed GitHub size limits if tracked.
-- `better-sqlite3` is a native dependency; Windows installs need C++ build tools and a Windows SDK.
+* Fast-path visuals include speed/boost-based glow and boost trail particles in `renderWorldStruct`. The buffer contract is: header (7 floats), alive snakes (8 + 2\*ptCount floats), then pellets (count + 5 floats: x, y, value, type, colorId). Update serializer, render, and tests together if this changes.
+* Starfield/grid draw in the fast renderer; camera/zoom must come from the worker buffer (no main-thread overrides).
+* Fitness history now ships min/avg/max from the worker or server when it grows. Keep histories finite and capped when syncing to the UI.
+* `bestPointsThisGen` must be initialized before any sensor pass; NaNs here made first-generation snakes vanish. Preserve that initialization when refactoring world state or sensors.
+* Graph editor ports are 0-based; Split output sizes must sum to the input size, and total output size must match `CFG.brain.outSize` (turn+boost). Diagram layout overrides are UI-only.
+* `data/slither.db` is local server state and should not be committed; it will exceed GitHub size limits if tracked.
+* `better-sqlite3` is a native dependency; Windows installs need C++ build tools and a Windows SDK.
 
 ## Tests and verification
 
@@ -131,10 +175,10 @@ If any section here feels unclear or you want deeper coverage (for example, the 
 
 ## TypeScript policy (in-progress conversion)
 
-- Keep runtime behavior and performance identical; types must not alter logic or hot-loop allocations.
-- Use strict typechecking (`tsconfig.json` with `noEmit`) and convert files in dependency order; server overrides live in `server/tsconfig.json`.
-- Prefer shared protocol types under `src/protocol/` for worker/main message contracts.
+* Keep runtime behavior and performance identical; types must not alter logic or hot-loop allocations.
+* Use strict typechecking (`tsconfig.json` with `noEmit`) and convert files in dependency order; server overrides live in `server/tsconfig.json`.
+* Prefer shared protocol types under `src/protocol/` for worker/main message contracts.
 
 ## Markdown policy
 
-- When writing markdown follow the style and formatting rules in markdown-rules/rules.md
+* When writing markdown follow the style and formatting rules in markdown-rules/rules.md

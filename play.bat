@@ -1,3 +1,4 @@
+play.bat:
 @echo off
 setlocal
 
@@ -7,8 +8,9 @@ setlocal
 :: Windows entrypoint for starting Slither Neuroevolution.
 ::
 :: Why this file exists:
-:: - Many Windows users will double click a .bat, but a .ps1 is easier to run
-::   incorrectly (right click, "Run with PowerShell") without required args.
+:: - Many Windows users will double click a .bat, a .ps1 is easier to 
+::   maintain  but easier to use incorrectly (right click, 
+::   "Run with PowerShell") without required args.
 :: - This .bat keeps the user-facing entrypoint simple and consistent.
 ::
 :: What it does:
@@ -26,7 +28,7 @@ cd /d "%~dp0" || exit /b 1
 :: Call the PowerShell launcher in "play" mode.
 :: -NoProfile avoids user profile side effects,
 :: -ExecutionPolicy Bypass avoids local policy blocks for this single invocation.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\slither.ps1" --play
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\slither.ps1" -play
 
 :: Propagate the PowerShell exit code back to the caller.
 exit /b %errorlevel%

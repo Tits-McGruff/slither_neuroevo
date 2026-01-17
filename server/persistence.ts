@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import Database from 'better-sqlite3';
-import type { HallOfFameEntry, PopulationExport } from '../src/protocol/messages.ts';
+import type { HallOfFameEntry, PopulationExport, GenomeJSON } from '../src/protocol/messages.ts';
 import type { CoreSettings, SettingsUpdate } from '../src/protocol/settings.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateGraph } from '../src/brains/graph/validate.ts';
@@ -77,7 +78,8 @@ CREATE TABLE IF NOT EXISTS population_snapshots (
   gen INTEGER,
   payload_json TEXT,
   settings_json TEXT,
-  updates_json TEXT
+  updates_json TEXT,
+  genomes_blob BLOB
 );
 
 CREATE TABLE IF NOT EXISTS players (
@@ -111,6 +113,43 @@ function ensureSnapshotColumns(db: DbType): void {
   if (!columns.has('updates_json')) {
     db.exec(`ALTER TABLE population_snapshots ADD COLUMN updates_json TEXT`);
   }
+  if (!columns.has('genomes_blob')) {
+    db.exec(`ALTER TABLE population_snapshots ADD COLUMN genomes_blob BLOB`);
+  }
+}
+
+/**
+ * Serialize genomes into a gzipped binary blob to avoid V8 string limits.
+ * Format: [Length (4 bytes) + JSON String Bytes] repeated, Gzipped.
+ */
+function serializeGenomes(genomes: unknown[]): Buffer {
+  const chunks: Buffer[] = [];
+  for (const g of genomes) {
+    const json = JSON.stringify(g);
+    const buf = Buffer.from(json, 'utf8');
+    const len = Buffer.alloc(4);
+    len.writeUInt32LE(buf.length, 0);
+    chunks.push(len, buf);
+  }
+  const combined = Buffer.concat(chunks);
+  return zlib.gzipSync(combined);
+}
+
+/**
+ * Deserialize genomes from a gzipped binary blob.
+ */
+function deserializeGenomes(blob: Buffer): unknown[] {
+  const decompressed = zlib.gunzipSync(blob);
+  const genomes: unknown[] = [];
+  let offset = 0;
+  while (offset < decompressed.length) {
+    const len = decompressed.readUInt32LE(offset);
+    offset += 4;
+    const json = decompressed.toString('utf8', offset, offset + len);
+    genomes.push(JSON.parse(json));
+    offset += len;
+  }
+  return genomes;
 }
 
 /**
@@ -136,9 +175,24 @@ function parseSnapshotRow(row: {
   payload_json?: string;
   settings_json?: string | null;
   updates_json?: string | null;
+  genomes_blob?: Buffer | null;
 } | undefined): PopulationSnapshotPayload | null {
   if (!row?.payload_json) return null;
+
   const payload = JSON.parse(row.payload_json) as PopulationSnapshotPayload;
+
+  // Rehydrate genomes from blob if present
+  if (row.genomes_blob) {
+    try {
+      const genomes = deserializeGenomes(row.genomes_blob);
+      payload.genomes = genomes as GenomeJSON[];
+    } catch (err) {
+      console.warn('[persistence] failed to deserialize genomes blob', err);
+      // Fallback: If payload.genomes is empty/missing, this snapshot is broken.
+      // But we return what we have.
+    }
+  }
+
   const settings = parseOptionalJson<CoreSettings>(row.settings_json);
   const updates = parseOptionalJson<SettingsUpdate[]>(row.updates_json);
   if (settings) payload.settings = settings;
@@ -175,17 +229,17 @@ export function createPersistence(db: DbType): Persistence {
      VALUES (@created_at, @gen, @seed, @fitness, @points, @length, @genome_json)`
   );
   const insertSnapshot = db.prepare(
-    `INSERT INTO population_snapshots (created_at, gen, payload_json, settings_json, updates_json)
-     VALUES (@created_at, @gen, @payload_json, @settings_json, @updates_json)`
+    `INSERT INTO population_snapshots (created_at, gen, payload_json, settings_json, updates_json, genomes_blob)
+     VALUES (@created_at, @gen, @payload_json, @settings_json, @updates_json, @genomes_blob)`
   );
   const latestSnapshot = db.prepare(
-    `SELECT payload_json, settings_json, updates_json FROM population_snapshots ORDER BY id DESC LIMIT 1`
+    `SELECT payload_json, settings_json, updates_json, genomes_blob FROM population_snapshots ORDER BY id DESC LIMIT 1`
   );
   const listSnapshotStmt = db.prepare(
     `SELECT id, created_at, gen FROM population_snapshots ORDER BY id DESC LIMIT ?`
   );
   const exportSnapshotStmt = db.prepare(
-    `SELECT payload_json, settings_json, updates_json FROM population_snapshots WHERE id = ?`
+    `SELECT payload_json, settings_json, updates_json, genomes_blob FROM population_snapshots WHERE id = ?`
   );
   const insertGraphPreset = db.prepare(
     `INSERT INTO graph_presets (created_at, name, spec_json)
@@ -246,19 +300,30 @@ export function createPersistence(db: DbType): Persistence {
   /** Persist a population snapshot and return its id. */
   const saveSnapshot = (payload: PopulationSnapshotPayload): number => {
     validateSnapshotPayload(payload);
-    const json = JSON.stringify(payload);
+
+    // 1. Strip genomes from main payload to avoid string limit
+    const genomes = payload.genomes;
+    const strippedPayload = { ...payload, genomes: [] }; // Empty array placeholder
+
+    const json = JSON.stringify(strippedPayload);
     const bytes = Buffer.byteLength(json, 'utf8');
     if (bytes > MAX_SNAPSHOT_BYTES) {
-      throw new Error(`snapshot too large (${bytes} bytes)`);
+      throw new Error(`snapshot metadata too large (${bytes} bytes)`);
     }
+
+    // 2. Serialize genomes to blob
+    const genomesBlob = serializeGenomes(genomes);
+
     const settingsJson = payload.settings ? JSON.stringify(payload.settings) : null;
     const updatesJson = payload.updates ? JSON.stringify(payload.updates) : null;
+
     const info = insertSnapshot.run({
       created_at: Date.now(),
       gen: payload.generation,
       payload_json: json,
       settings_json: settingsJson,
-      updates_json: updatesJson
+      updates_json: updatesJson,
+      genomes_blob: genomesBlob
     });
     return Number(info.lastInsertRowid);
   };
@@ -269,6 +334,7 @@ export function createPersistence(db: DbType): Persistence {
       payload_json?: string;
       settings_json?: string | null;
       updates_json?: string | null;
+      genomes_blob?: Buffer | null;
     } | undefined;
     return parseSnapshotRow(row);
   };
@@ -293,6 +359,7 @@ export function createPersistence(db: DbType): Persistence {
       payload_json?: string;
       settings_json?: string | null;
       updates_json?: string | null;
+      genomes_blob?: Buffer | null;
     } | undefined;
     const payload = parseSnapshotRow(row);
     if (!payload) {

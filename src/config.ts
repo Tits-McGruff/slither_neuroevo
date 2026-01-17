@@ -113,7 +113,8 @@ export const CFG_DEFAULT = {
   brain: {
     inSize: getSensorLayout(16, 'v2').inputSize,
     outSize: 2,
-
+    // Enable batched control evaluation when true.
+    batchEnabled: true,
     // Recurrent memory.
     // Stackable memory units sit after the MLP feature extractor.
     useMlp: true,
