@@ -3,16 +3,23 @@
 export declare class World {
   tickId: number
   constructor(settings: WorldSettings)
+  step(): void
   getSettings(): WorldSettings
   getSnakes(): Array<Snake>
   getPellets(): Array<Pellet>
-  step(): void
 }
 
 export interface Brain {
   weights: Array<number>
   inputSize: number
   layerSizes: Array<number>
+  /**
+   * Flattened layer types: 0=Dense, 1=Gru, 2=Lstm, 3=Rru.
+   * Matches the stack order.
+   */
+  layerTypes: Array<number>
+  /** Recurrent state buffer (flattened) */
+  state: Array<number>
 }
 
 export interface Pellet {
@@ -30,6 +37,12 @@ export interface Snake {
   alive: boolean
   pointsScore: number
   brain: Brain
+  speed: number
+  radius: number
+  targetLen: number
+  boost: number
+  turnInput: number
+  points: Array<Vector2>
 }
 
 export interface Vector2 {

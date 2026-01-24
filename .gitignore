@@ -2,8 +2,10 @@
 .vscode/
 dist/
 node_modules/
-wasm/target/
-src/brains/wasm/*.wasm
+native/target/
+native/*.node
+native/index.js
+native/index.d.ts
 
 markdown-rules/
 docs/feedback-from-outside-llms/

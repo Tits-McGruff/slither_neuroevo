@@ -5,7 +5,7 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 ## Key Features
 
 - **High-Performance Core**: Unified `SimCore` engine ensures consistent physics and neural logic.
-- **Custom Numerics**: High-performance Rust/WASM SIMD kernels for accelerated neural inference.
+- **Native Rust Engine**: High-performance Native SIMD backend via N-API (`slither-native`) for maximum server throughput.
 - **Multi-Threaded Inference**: Multi-core brain pool (`IBrainPool`) utilizes all server CPU cores for parallel inference (300+ snakes at 60 FPS).
 - **Deep Evolution**: Supports MLP, GRU, LSTM, and RRU architectures with complex genetic operators and a modular graph editor.
 - **Robust Persistence**: SQLite-backed server mode capable of saving/loading massive generations with chunked binary serialization.
@@ -15,7 +15,7 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 ### Prerequisites
 
 - **Node.js**: v20+ (LTS recommended)
-- **Rust**: Required for compiling the WASM acceleration layer. Install via [rustup.rs](https://rustup.rs).
+- **Rust**: Required for compiling the native acceleration layer. Install via [rustup.rs](https://rustup.rs).
 
 ### Running
 
