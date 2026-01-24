@@ -156,6 +156,10 @@ export class WebBrainPool extends BaseBrainPool {
             if (chunk <= 0) break;
 
             const w = this.workers[i];
+            if (!w) {
+                start += chunk;
+                continue;
+            }
             const currentStart = start;
             start += chunk;
 
