@@ -4,12 +4,11 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 
 ## Key Features
 
-- **High-Performance Core**: Custom Rust/WASM SIMD kernels for neural inference.
-- **Multi-Threaded**: Browser worker pool utilizes all CPU cores for parallel inference (300+ snakes at 60 FPS).
-- **Deep Evolution**: Supports MLP, GRU, LSTM, and RRU architectures with complex genetic operators.
-- **Robust Persistence**: SQLite-backed server mode capable of saving/loading massive generations.
-
-This README is written for users and QA testers who want to run the sim, understand the UI, and explore behavior.
+- **High-Performance Core**: Unified `SimCore` engine ensures consistent physics and neural logic across Server and Browser.
+- **Custom Numerics**: High-performance Rust/WASM SIMD kernels for accelerated neural inference.
+- **Multi-Threaded Inference**: Platform-agnostic brain pool (`IBrainPool`) utilizes all CPU cores for parallel inference (300+ snakes at 60 FPS) in both Node and Web Workers.
+- **Deep Evolution**: Supports MLP, GRU, LSTM, and RRU architectures with complex genetic operators and a modular graph editor.
+- **Robust Persistence**: SQLite-backed server mode capable of saving/loading massive generations with chunked binary serialization.
 
 ## Quick start
 
@@ -36,17 +35,16 @@ Convenience launchers (install deps, start the server, then start Vite):
 
 ### Server mode (optional)
 
-Run the simulation server in a second terminal to enable multiplayer join/spectate and DB-backed graph presets.
+Run the simulation server in a second terminal to enable multiplayer join/spectate and DB-backed graph presets. This mode uses the same `SimCore` engine as the local fallback, guaranteeing logic parity.
 
 ```bash
 npm run server
 npm run dev
 ```
 
-The UI will connect over WebSocket and show **SERVER** in the status pill. If the server is down, the app falls back to a local Web Worker.
-Server mode also enables DB-backed graph presets in the Brain graph panel.
+The UI will connect over WebSocket and show **SERVER** in the status pill. If the server is down, the app automatically fails over to a local Web Worker (`LocalSim`), which resumes progress using the exact same simulation core logic.
 By default the client connects to `ws://localhost:5174`; use `?server=ws://host:port` to point at a different server.
-If the server handshake fails, the app falls back to worker mode after a short delay and keeps reconnecting in the background.
+If the server handshake fails, the app falls back to local mode after a short delay and keeps reconnecting in the background.
 UI defaults come from `server/config.toml`:
 
 - `host`/`port` bind the simulation server.

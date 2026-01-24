@@ -1,7 +1,6 @@
 import { performance } from 'node:perf_hooks';
 import { CFG, resetCFGToDefaults, syncBrainInputSize } from '../src/config.ts';
 import { World } from '../src/world.ts';
-import { WorldSerializer } from '../src/serializer.ts';
 import { setByPath } from '../src/utils.ts';
 import { validateGraph } from '../src/brains/graph/validate.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
@@ -10,7 +9,8 @@ import { coerceSettingsUpdateValue, type CoreSettings, type SettingsUpdate } fro
 import { SimProfiler, formatSimProfilerReport } from '../src/profiling.ts';
 import type { Snake } from '../src/snake.ts';
 import type { ServerConfig } from './config.ts';
-import { BrainPool } from './brainPool.ts';
+import { NodeBrainPool } from '../src/sim/NodeBrainPool.ts';
+import { SimCore } from '../src/sim/SimCore.ts';
 import type {
   ActionMsg,
   ClientType,
@@ -25,7 +25,6 @@ import { ControllerRegistry } from './controllerRegistry.ts';
 import type { Persistence, PopulationSnapshotPayload } from './persistence.ts';
 import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 import { WsHub } from './wsHub.ts';
-import type { VizData } from '../src/protocol/messages.ts';
 import { buildSensorSpec } from './sensorSpec.ts';
 
 /** SQLite error code indicating the database or disk is full. */
@@ -47,16 +46,19 @@ function isSqliteFullError(err: unknown): boolean {
 
 /** Server-side simulation loop and WS broadcasting. */
 export class SimServer {
-  /** World instance that owns simulation state. */
-  private world: World;
+  /** Unified simulation core. */
+  private core: SimCore;
+
   /** WebSocket hub for broadcasting frames and stats. */
   private wsHub: WsHub;
   /** Simulation tick rate in hertz. */
   private tickRateHz: number;
   /** UI frame broadcast rate in hertz. */
   private uiFrameRateHz: number;
-  /** Current simulation tick id. */
-  private tickId = 0;
+
+  // Removed tickId, it is now in core.
+  // Removed accumulator related fields, SimCore handles it.
+
   /** Timestamp of the last sent frame in ms. */
   private lastFrameSentAt = 0;
   /** Timestamp of the last stats message in ms. */
@@ -67,14 +69,10 @@ export class SimServer {
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** Target time for the next tick in ms. */
   private nextTickAt = 0;
+
   /** Timestamp for the previous tick in ms. */
   private lastTickAt = 0;
-  /** Last computed simulation FPS. */
-  private lastFps = 0;
-  /** Current view width used for serialization. */
-  private viewW: number;
-  /** Current view height used for serialization. */
-  private viewH: number;
+
   /** Controller registry for player and bot assignments. */
   private controllers: ControllerRegistry;
   /** Persistence adapter for snapshots and HoF. */
@@ -89,8 +87,7 @@ export class SimServer {
   private lastGeneration: number;
   /** Last generation recorded for HoF save. */
   private lastHofGenSaved: number;
-  /** Last seen fitness history length. */
-  private lastHistoryLen: number;
+
   /** Connection ids subscribed to viz streaming. */
   private vizConnections: Set<number>;
   /** Reason persistence was disabled, if any. */
@@ -98,15 +95,13 @@ export class SimServer {
   /** Optional profiler for per-tick timing breakdowns. */
   private profiler: SimProfiler | null = null;
   /** Optional worker pool for multi-threaded inference. */
-  private brainPool: BrainPool | null = null;
+  private brainPool: NodeBrainPool | null = null;
   /** Whether server-side MT inference is enabled. */
   private mtEnabled: boolean;
   /** Requested worker count for the MT pool. */
   private mtWorkerCount: number;
   /** Last generation synchronized with the MT pool. */
   private mtGeneration: number;
-  /** Whether MT inference ran on the last tick. */
-  private mtActive = false;
 
   /**
    * Create a simulation server instance for a websocket hub.
@@ -128,11 +123,19 @@ export class SimServer {
     this.wsHub = wsHub;
     this.tickRateHz = config.tickRateHz;
     this.uiFrameRateHz = config.uiFrameRateHz;
-    this.world = new World(initialSettings);
+
+    // Initialize Unified Core
+    this.core = new SimCore({
+      settings: initialSettings,
+      tickRateHz: this.tickRateHz,
+      worldSeed: worldSeed
+    });
+
     if (process.env[PROFILE_ENV_VAR] === '1') {
       this.profiler = new SimProfiler({ reportIntervalMs: PROFILE_REPORT_INTERVAL_MS });
-      this.world.profiler = this.profiler;
+      this.core.world.profiler = this.profiler;
     }
+
     this.controllers = new ControllerRegistry(
       {
         actionTimeoutTicks: config.actionTimeoutTicks,
@@ -141,7 +144,7 @@ export class SimServer {
       },
       {
         getSnakes: () =>
-          this.world.snakes.map((snake) => ({
+          this.core.world.snakes.map((snake) => ({
             id: snake.id,
             alive: snake.alive,
             controllable: snake.baselineBotIndex == null
@@ -149,19 +152,17 @@ export class SimServer {
         send: (connId, payload) => this.wsHub.sendJsonTo(connId, payload)
       }
     );
-    this.viewW = CFG.worldRadius * 2;
-    this.viewH = CFG.worldRadius * 2;
+
     this.persistence = persistence ?? null;
     this.cfgHash = cfgHash;
     this.worldSeed = worldSeed;
     this.checkpointEveryGenerations = Math.max(0, config.checkpointEveryGenerations);
-    this.lastGeneration = this.world.generation;
+    this.lastGeneration = this.core.world.generation;
     this.lastHofGenSaved = 0;
-    this.lastHistoryLen = this.world.fitnessHistory.length;
     this.vizConnections = new Set();
     this.mtEnabled = config.mtEnabled === true;
     this.mtWorkerCount = config.mtWorkers ?? 0;
-    this.mtGeneration = this.world.generation;
+    this.mtGeneration = this.core.world.generation;
   }
 
   /** Start the server tick loop. */
@@ -188,7 +189,7 @@ export class SimServer {
    * @returns Tick id.
    */
   getTickId(): number {
-    return this.tickId;
+    return this.core.tickId;
   }
 
   /**
@@ -196,7 +197,7 @@ export class SimServer {
    * @returns World instance.
    */
   getWorld(): World {
-    return this.world;
+    return this.core.world;
   }
 
   /**
@@ -210,10 +211,9 @@ export class SimServer {
     used?: number;
     total?: number;
   } {
-    const result = this.world.importPopulation(data);
-    this.lastGeneration = this.world.generation;
+    const result = this.core.world.importPopulation(data);
+    this.lastGeneration = this.core.world.generation;
     this.lastHofGenSaved = 0;
-    this.lastHistoryLen = this.world.fitnessHistory.length;
     this.invalidateBrainPool();
     return result;
   }
@@ -237,13 +237,13 @@ export class SimServer {
     const controller = clientType === 'bot' ? 'bot' : 'player';
     const existingId = this.controllers.getAssignedSnakeId(connId);
     if (existingId != null) {
-      const existingSnake = this.world.snakes.find(snake => snake.id === existingId);
+      const existingSnake = this.core.world.snakes.find(snake => snake.id === existingId);
       if (existingSnake && existingSnake.alive) {
         this.controllers.assignSnake(connId, controller, existingId);
         return;
       }
     }
-    const spawned = this.world.spawnExternalSnake();
+    const spawned = this.core.world.spawnExternalSnake();
     const snakeId = this.controllers.assignSnake(connId, controller, spawned.id);
     if (snakeId == null) {
       spawned.alive = false;
@@ -294,20 +294,19 @@ export class SimServer {
     });
     this.wsHub.updateSensorSpec(buildSensorSpec());
 
-    this.world = new World(settings);
-    if (this.profiler) this.world.profiler = this.profiler;
-    this.tickId = 0;
-    this.lastTickAt = 0;
+    // Reset Core
+    this.core.reset(settings);
+    // Profiler Re-attach
+    if (this.profiler) this.core.world.profiler = this.profiler;
+
     this.lastFrameSentAt = 0;
     this.lastStatsSentAt = 0;
-    this.lastFps = 0;
-    this.viewW = CFG.worldRadius * 2;
-    this.viewH = CFG.worldRadius * 2;
-    this.lastGeneration = this.world.generation;
+    this.core.viewW = CFG.worldRadius * 2;
+    this.core.viewH = CFG.worldRadius * 2;
+    this.lastGeneration = this.core.world.generation;
     this.lastHofGenSaved = 0;
-    this.lastHistoryLen = this.world.fitnessHistory.length;
-    this.controllers.setTickId(this.tickId);
-    this.controllers.reassignDeadSnakes(() => this.world.spawnExternalSnake().id);
+    this.controllers.setTickId(this.core.tickId);
+    this.controllers.reassignDeadSnakes(() => this.core.world.spawnExternalSnake().id);
     this.invalidateBrainPool();
   }
 
@@ -324,76 +323,46 @@ export class SimServer {
    * Mark the MT pool as invalid and schedule a rebuild.
    */
   private invalidateBrainPool(): void {
-    this.mtGeneration = this.world.generation;
+    this.mtGeneration = this.core.world.generation;
     if (this.brainPool) {
       void this.brainPool.shutdown();
       this.brainPool = null;
+      this.core.brainPool = null;
     }
   }
 
-  /**
-   * Build a packed weight buffer for the current population.
-   * @param paramCount - Parameter count per brain.
-   * @returns Packed weight buffer for all population slots.
-   */
-  private buildPopulationWeights(paramCount: number): Float32Array {
-    const population = this.world.population;
-    const total = Math.max(0, population.length) * paramCount;
-    const weights = new Float32Array(total);
-    for (let i = 0; i < population.length; i++) {
-      const genome = population[i];
-      if (!genome) continue;
-      weights.set(genome.weights, i * paramCount);
-    }
-    return weights;
-  }
 
   /**
    * Ensure the MT pool is initialized for the current world state.
    * @returns Ready brain pool or null when MT is disabled/unavailable.
    */
-  private async ensureBrainPool(): Promise<BrainPool | null> {
+  private async ensureBrainPool(): Promise<NodeBrainPool | null> {
     if (!this.mtEnabled) return null;
-    const populationCount = this.world.population.length;
+    const populationCount = this.core.world.population.length;
     if (populationCount <= 0) return null;
-    const archInfo = enrichArchInfo(this.world.arch);
-    const paramCount = archInfo.totalCount;
-    const specKey = this.world.archKey;
-    const inputStride = Math.max(0, Math.floor(CFG.brain.inSize));
-    const outputStride = Math.max(0, Math.floor(CFG.brain.outSize));
+    const archInfo = enrichArchInfo(this.core.world.arch);
+    const specKey = this.core.world.archKey;
 
     let pool = this.brainPool;
-    const needsInit =
-      !pool ||
-      pool.specKey !== specKey ||
-      pool.populationCount !== populationCount ||
-      pool.paramCount !== paramCount;
 
-    if (needsInit) {
-      pool = new BrainPool(this.mtWorkerCount);
-      const weights = this.buildPopulationWeights(paramCount);
+    if (!pool) {
+      pool = new NodeBrainPool(this.mtWorkerCount);
       await pool.init({
-        spec: archInfo.spec,
         specKey,
-        populationCount,
-        paramCount,
-        inputStride,
-        outputStride,
-        maxBatch: populationCount,
-        weights
+        graphSpec: archInfo.spec,
+        populationCount
       });
+
       this.brainPool = pool;
-      this.mtGeneration = this.world.generation;
+      this.core.brainPool = pool;
+      this.mtGeneration = this.core.world.generation;
+      pool.syncWeights(this.core.world.population);
       return pool;
     }
 
-    if (!pool) return null;
-
-    if (this.mtGeneration !== this.world.generation) {
-      const weights = this.buildPopulationWeights(paramCount);
-      pool.updateWeights(weights);
-      await pool.resetBrains();
-      this.mtGeneration = this.world.generation;
+    if (this.mtGeneration !== this.core.world.generation) {
+      pool.syncWeights(this.core.world.population);
+      this.mtGeneration = this.core.world.generation;
     }
 
     return pool;
@@ -423,41 +392,40 @@ export class SimServer {
    * @param now - Current high-resolution timestamp.
    */
   private async tick(now: number): Promise<void> {
-    this.tickId += 1;
-    this.controllers.setTickId(this.tickId);
-    if (this.lastTickAt > 0) {
-      const dt = (now - this.lastTickAt) / 1000;
-      if (dt > 0) this.lastFps = 1 / dt;
-    }
-    this.lastTickAt = now;
-
-    const dt = 1 / this.tickRateHz;
-    this.mtActive = false;
-    let batchRunner: BrainPool | null = null;
+    // 1. Ensure Pool
     if (this.mtEnabled) {
       try {
-        batchRunner = await this.ensureBrainPool();
+        await this.ensureBrainPool();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.warn('[mt.pool.failed]', { reason: message });
         this.mtEnabled = false;
-        batchRunner = null;
+        this.brainPool = null;
+        this.core.brainPool = null;
       }
     }
-    if (batchRunner) {
-      this.mtActive = CFG.brain.batchEnabled !== false;
-      await this.world.updateAsync(dt, this.viewW, this.viewH, this.controllers, this.tickId, batchRunner);
-    } else {
-      this.world.update(dt, this.viewW, this.viewH, this.controllers, this.tickId);
+
+    // 2. Core Update
+    let dt = 1 / this.tickRateHz;
+    if (this.lastTickAt > 0) {
+      dt = (now - this.lastTickAt) / 1000;
     }
+    this.lastTickAt = now;
+
+    await this.core.update(dt, this.controllers);
+
+    // Sync Tick ID
+    this.controllers.setTickId(this.core.tickId);
+
     const report = this.profiler?.reportIfDue(now);
     if (report) console.log(formatSimProfilerReport(report));
-    this.controllers.reassignDeadSnakes(() => this.world.spawnExternalSnake().id);
+
+    this.controllers.reassignDeadSnakes(() => this.core.world.spawnExternalSnake().id);
     this.handleGenerationEnd();
 
     const shouldBroadcastFrame = now - this.lastFrameSentAt >= 1000 / this.uiFrameRateHz;
     if (shouldBroadcastFrame && this.wsHub.hasFrameRecipients()) {
-      const frame = WorldSerializer.serialize(this.world);
+      const frame = this.core.serialize();
       this.wsHub.broadcastFrame(frame);
       this.lastFrameSentAt = now;
     }
@@ -484,11 +452,11 @@ export class SimServer {
    */
   private handleGenerationEnd(): void {
     if (!this.persistence || this.persistenceDisabledReason) return;
-    const currentGen = this.world.generation;
+    const currentGen = this.core.world.generation;
     if (currentGen === this.lastGeneration) return;
     this.lastGeneration = currentGen;
 
-    const hofEntry = this.world._lastHoFEntry;
+    const hofEntry = this.core.world._lastHoFEntry;
     if (hofEntry && hofEntry.gen !== this.lastHofGenSaved) {
       this.lastHofGenSaved = hofEntry.gen;
       try {
@@ -521,8 +489,8 @@ export class SimServer {
    * @returns Snapshot payload.
    */
   private buildSnapshotPayload(): PopulationSnapshotPayload {
-    const exportData = this.world.exportPopulation();
-    const settings = buildCoreSettingsSnapshot(this.world);
+    const exportData = this.core.world.exportPopulation();
+    const settings = buildCoreSettingsSnapshot(this.core.world);
     const updates = buildSettingsUpdatesSnapshot();
     return {
       ...exportData,
@@ -534,93 +502,42 @@ export class SimServer {
   }
 
   /**
+   * Build the stats payload broadcast to clients.
+   * @returns Stats message payload.
+   */
+  private buildStats(): StatsMsg {
+    // Determine if we should include viz data
+    const includeViz = this.vizConnections.size > 0;
+
+    if (includeViz) {
+      this.core.onVizSnakePick = () => this.pickVizSnake();
+    } else {
+      this.core.onVizSnakePick = null;
+    }
+
+    const coreStats = this.core.buildStats(includeViz);
+
+    const statsMsg: StatsMsg = {
+      type: 'stats',
+      ...coreStats
+    };
+    return statsMsg;
+  }
+
+  /**
    * Select a snake for visualization, preferring AI-controlled snakes.
    * @returns Snake to visualize or null when none available.
    */
   private pickVizSnake(): Snake | null {
-    const focus = this.world.focusSnake;
+    const focus = this.core.world.focusSnake;
     if (focus && focus.alive && !this.controllers.isControlled(focus.id)) return focus;
-    for (const snake of this.world.snakes) {
+    for (const snake of this.core.world.snakes) {
       if (!snake.alive) continue;
       if (this.controllers.isControlled(snake.id)) continue;
       return snake;
     }
     return focus ?? null;
   }
-
-  /**
-   * Build the stats payload broadcast to clients.
-   * @returns Stats message payload.
-   */
-  private buildStats(): StatsMsg {
-    const populationCount = this.world.population.length;
-    const baselineBotsTotal = this.world.baselineBots.length;
-    let alivePopulation = 0;
-    let aliveTotal = 0;
-    let baselineBotsAlive = 0;
-    let maxFit = 0;
-    let minFit = Infinity;
-    let sumFit = 0;
-    for (let i = 0; i < populationCount; i++) {
-      const snake = this.world.snakes[i];
-      if (!snake || !snake.alive) continue;
-      alivePopulation += 1;
-      const fit = snake.pointsScore || 0;
-      maxFit = Math.max(maxFit, fit);
-      minFit = Math.min(minFit, fit);
-      sumFit += fit;
-    }
-    for (const snake of this.world.snakes) {
-      if (snake.alive) aliveTotal += 1;
-    }
-    for (const bot of this.world.baselineBots) {
-      if (bot && bot.alive) baselineBotsAlive += 1;
-    }
-    if (minFit === Infinity) minFit = 0;
-    const avgFit = alivePopulation ? sumFit / alivePopulation : 0;
-    const stats: StatsMsg = {
-      type: 'stats',
-      tick: this.tickId,
-      gen: this.world.generation,
-      generationTime: this.world.generationTime,
-      generationSeconds: CFG.generationSeconds,
-      alive: alivePopulation,
-      aliveTotal,
-      baselineBotsAlive,
-      baselineBotsTotal,
-      fps: this.lastFps || this.tickRateHz,
-      fitnessData: {
-        gen: this.world.generation,
-        avgFitness: avgFit,
-        maxFitness: maxFit,
-        minFitness: minFit
-      }
-    };
-    if (this.world.fitnessHistory.length !== this.lastHistoryLen) {
-      stats.fitnessHistory = this.world.fitnessHistory.slice();
-      this.lastHistoryLen = this.world.fitnessHistory.length;
-    }
-    if (this.vizConnections.size > 0 && !this.mtActive) {
-      const vizTarget = this.pickVizSnake();
-      const viz = buildVizData(vizTarget?.brain);
-      if (viz) stats.viz = viz;
-    }
-    if (this.world._lastHoFEntry) {
-      stats.hofEntry = this.world._lastHoFEntry;
-      this.world._lastHoFEntry = null;
-    }
-    return stats;
-  }
-}
-
-/**
- * Build visualization payloads from a brain instance if supported.
- * @param brain - Brain instance or null.
- * @returns Visualization payload or null.
- */
-function buildVizData(brain: { getVizData?: () => VizData } | null | undefined): VizData | null {
-  if (!brain || typeof brain.getVizData !== 'function') return null;
-  return brain.getVizData();
 }
 
 /**

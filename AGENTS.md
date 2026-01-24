@@ -8,29 +8,35 @@ At the top level, `package.json` and `package-lock.json` define the Node toolcha
 
 ## Runtime architecture and data flow
 
-The runtime has two modes: a Node server that owns the `World` and streams frames over WebSocket, and a local Web Worker fallback when the server is unavailable. `src/main.ts` owns the DOM, canvas sizing, tab switching, settings sliders, and rendering. It connects to the server with `src/net/wsClient.ts` (see `server/protocol.ts` for message shapes) and falls back to a worker via `new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })` if the WS connection fails.
+The runtime has been unified under a shared **Simulation Core** (`src/sim/SimCore.ts`), ensuring that both the Node.js server and the local browser fallback execute the exact same physics and neural logic. There are two primary deployment modes: a Node server (`SimServer`) that streams frames over WebSocket, and a local Web Worker fallback (`LocalSim`) when the server is unavailable. `src/main.ts` owns the DOM, canvas sizing, tab switching, settings sliders, and rendering. It connects to the server with `src/net/wsClient.ts` (see `server/protocol.ts` for message shapes) and falls back to a worker via `new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })` if the WS connection fails.
 
-Server mode is implemented in `server/index.ts` + `server/simServer.ts` + `server/wsHub.ts`, with player/session routing in `server/controllerRegistry.ts` and the HTTP API in `server/httpApi.ts`. The server runs the fixed-step loop, serializes frames with `WorldSerializer`, and sends a binary buffer plus stats messages. Clients send `hello`, `join`, `ping`, `action`, `view` (viewport + follow/overview toggle), `viz` (visualizer streaming), and `reset` messages; the server replies with `welcome`, `stats`, `assign`, `sensors`, `error`, and the raw frame buffer. Player control relies on per-snake sensor messages and tick-aligned actions; when a controlled snake dies, the controller registry spawns a fresh external snake and emits a new `assign`.
+### Server Mode (`SimServer`)
 
-On a successful server connection, the client auto-joins as a spectator, enables Visualizer streaming when the tab is active, and shows the join overlay until the user submits a nickname. Overview view is requested when the user explicitly spectates or toggles view mode.
+Implemented in `server/index.ts` + `server/simServer.ts` + `server/wsHub.ts`, with player/session routing in `server/controllerRegistry.ts` and the HTTP API in `server/httpApi.ts`. The server wraps a `SimCore` instance, which runs the fixed-step physics loop and serializes frames with `WorldSerializer`. The server layer focuses on WebSocket Broadcasting (`WsHub`), Persistence logic, and the Network Protocol. Clients send `hello`, `join`, `ping`, `action`, `view` (viewport + follow/overview toggle), `viz` (visualizer streaming), and `reset` messages; the server replies with `welcome`, `stats`, `assign`, `sensors`, `error`, and the raw frame buffer. Player control relies on per-snake sensor messages and tick-aligned actions; when a controlled snake dies, the controller registry spawns a fresh external snake and emits a new `assign`.
 
-If the server handshake fails, a 2-second fallback starts the worker, hides the join overlay, and keeps reconnection attempts running in the background.
+### Local Mode (`LocalSim`)
 
-Server URLs resolve from `?server=ws://...`, then the `slither_server_url` localStorage key, then the build-time defaults injected by `vite.config.ts` (from `server/config.toml` or `SERVER_CONFIG`), and finally the runtime hostname + injected server port fallback (default `ws://localhost:5174`).
+When the server is unavailable or "Offline Mode" is active, simulation logic runs within `src/worker.ts`, which now delegates to a `LocalSim` class. This class is a high-level wrapper around the same `SimCore` engine used by the server, ensuring absolute logic parity. The worker posts a transferable binary buffer back to the main thread each iteration. The worker message protocol remains explicit: `init` builds the local simulation, `updateSettings` applies updates to `CFG`, `action` handles view/sim speed toggles, `resize` updates the viewport, `viz` toggles streaming, `resurrect` injects a saved genome, `import`/`export` drive population transfer, and `godMode` handles kill/move actions. Worker responses include `frame` (buffer + stats), `exportResult`, and `importResult`. Shared worker message and settings types live in `src/protocol/messages.ts` and `src/protocol/settings.ts`.
 
-Worker mode runs the same loop inside `src/worker.ts` and posts a transferable buffer back to the main thread each iteration. The worker message protocol is explicit: `init` rebuilds a world (and can reset `CFG`), `updateSettings` applies `path/value` updates to `CFG`, `action` handles view/sim speed toggles, `resize` updates the viewport, `viz` toggles streaming, `resurrect` injects a saved genome, `import`/`export` drive population transfer, and `godMode` handles kill/move actions. `init` can include `graphSpec`, `population`, `generation`, and `stackOrder` to override the brain layout and state. Worker responses include `frame` (buffer + stats), `exportResult`, and `importResult`. When adding new messages or fields, update both ends (`src/main.ts` and `src/worker.ts`) and keep tests or parsing code in sync. Shared worker message and settings types live in `src/protocol/messages.ts` and `src/protocol/settings.ts`.
+On a successful server connection, the client auto-joins as a spectator and enables Visualizer streaming when the tab is active. If the server handshake fails, a 2-second fallback starts the worker and hides the join overlay while keeping reconnection attempts running in the background.
 
-### Multi-threaded inference pool
+Server URLs resolve from `?server=ws://...`, then the `slither_server_url` localStorage key, then the build-time defaults injected by `vite.config.ts`, and finally the runtime hostname + injected server port fallback (default `ws://localhost:5174`).
 
-To overcome the single-threaded bottleneck of JavaScript, the simulation now employs a parallel inference engine (`src/workerPool.ts`) that distributes neural network forward passes across multiple dedicated worker threads (`src/worker/inferWorker.ts`). This system is designed for zero-copy synchronization using `SharedArrayBuffer` and `Atomics`.
+### Platform-Agnostic Brain Pools
 
-1. **Initialization**: On startup, `src/workerPool.ts` spawns `navigator.hardwareConcurrency - 1` workers. It allocates three primary shared buffers:
-    * **Inputs**: A flat f32 buffer storing sensor data for all agents.
-    * **Outputs**: A flat f32 buffer where workers write turn/boost decisions.
-    * **Weights**: A large buffer storing the optimized network weights for the entire population.
-2. **Dispatch**: During the game loop, the main simulation worker writes sensor data to the Shared Input Buffer. It then dispatches batches of agents to the worker pool by writing atomic flags. Workers wake up, read their assigned slice of inputs, execute the WASM inference kernels, and write directly to the Shared Output Buffer.
-3. **Synchronization**: The main thread waits (via `Atomics.wait` or a spin-lock fallback) for all workers to signal completion before proceeding to apply the control outputs. This ensures deterministic lock-step execution.
-4. **Fallback**: If the environment lacks `SharedArrayBuffer` support (e.g., due to missing `Cross-Origin-Opener-Policy: same-origin` headers), the pool detects this capability failure and gracefully disables itself. The simulation then reverts to the legacy single-threaded JS/SIMD loop (`BatchInferenceRunner`), ensuring the application remains functional on restrictive hosts.
+To overcome the single-threaded bottleneck of JavaScript, the simulation employs a parallel inference engine abstracted by the `IBrainPool` interface. Common logic for `SharedArrayBuffer` (SAB) management and batch dispatch is centralized in `src/sim/BaseBrainPool.ts`, with specialized implementations for each platform:
+
+1. **Initialization**: On startup, the appropriate pool implementation is created.
+   - **`WebBrainPool.ts`**: Spawns `navigator.hardwareConcurrency - 1` browser Web Workers.
+   - **`NodeBrainPool.ts`**: Spawns server-side `node:worker_threads`.
+2. **Shared Memory**: The base class allocates four primary shared buffers:
+    - **Inputs**: A flat f32 buffer storing sensor data for all agents.
+    - **Outputs**: A flat f32 buffer where workers write turn/boost decisions.
+    - **Weights**: A large buffer storing the optimized network weights for the entire population.
+    - **Indices**: Uint32 indices mapping active snakes to their respective weight/input slots.
+3. **Dispatch**: During the simulation loop, `SimCore` writes sensor data to the Shared Input Buffer via the World instance. It then dispatches batches of agents to the brain pool. Workers (`src/worker/inferWorker.ts`) wake up, read their assigned slice of inputs, execute the acceleration kernels, and write directly to the Shared Output Buffer.
+4. **Synchronization**: The engine waits for all workers to signal completion (using `Atomics.wait` or comparable logic) before applying the control outputs. This ensures deterministic lock-step execution across both Node and Browser.
+5. **Fallback**: If the environment lacks SAB support (e.g., restricted browser headers), the pool detects this and gracefully disables itself. The simulation then reverts to the single-threaded JS/SIMD loop (`BatchInferenceRunner`).
 
 ## Binary frame format and rendering pipeline
 
@@ -38,9 +44,11 @@ The fast path relies on a strict binary format for world snapshots. `src/seriali
 
 `src/render.ts` (`renderWorldStruct`) parses this buffer linearly to draw the grid, pellets, then snakes, and `src/main.ts` also parses it to support God Mode selection. Any layout change must be reflected in `src/serializer.ts`, `src/render.ts`, and the parsing logic in `src/main.ts` (for selection and camera), or you will get corrupted rendering and interactions. When you need to extend what the UI can see, prefer adding fields to the buffer rather than reintroducing heavy object cloning on the worker boundary.
 
-## Simulation core: World, Snake, sensors, and physics
+## Simulation core: SimCore, World, and physics
 
-`src/world.ts` is the heart of the simulation. It builds the population based on the current settings (`buildArch` from `src/mlp.ts`), spawns snakes from genomes, manages pellets through a `PelletGrid` map, and orchestrates the per-tick update loop. Each `World.update()` scales the time step by `simSpeed`, clamps it against `CFG.dtClamp`, subdivides it according to `CFG.collision.substepMaxDt`, and then runs physics steps that spawn pellets, advance snakes, rebuild the collision grid, and resolve head-to-body collisions. Collisions are detected via `FlatSpatialHash` from `src/spatialHash.ts`, which stores segment midpoints in typed arrays to avoid per-frame allocations. When a collision is detected the victim dies, and kill points are awarded to the aggressor via `CFG.reward.pointsPerKill`. Ambient food spawning uses a "Fractal Food" algorithm (`_spawnAmbientPellet`), employing interference noise and rejection sampling to create filaments and voids, encouraging movement and strategy.
+The simulation core has been consolidated into `src/sim/SimCore.ts`, which acts as the platform-agnostic engine orchestrating the `World` and parallel `IBrainPool`. `SimCore` manages the fixed-timestep simulation loop using a high-resolution accumulator, ensuring that physics updates occur at a consistent 60Hz regardless of visual frame rate. It is also the definitive source for unified statistics generation, replacing previous separate implementations in the worker and server. Both `SimServer` and `LocalSim` (via the worker) use `SimCore.serialize()` to generate the authoritative binary frame buffers sent to the UI.
+
+`src/world.ts` remains the fundamental model for the simulation state. It builds the population based on current settings, spawns snakes, manages pellets through a `PelletGrid` map, and executes sub-steps for movement and collision. Each `World.update()` scales its delta-time by `simSpeed`, clamps it against `CFG.dtClamp`, and subdivides it according to `CFG.collision.substepMaxDt`. Physics steps encompass pellet spawning, snake advancement, collision grid rebuilding, and resolution of head-to-body impacts. Collisions are detected via `FlatSpatialHash` from `src/spatialHash.ts`, which stores segment midpoints in typed arrays to minimize allocations. Ambient food spawning uses a "Fractal Food" algorithm (`_spawnAmbientPellet`), employing interference noise and rejection sampling to create strategically significant filaments and voids.
 
 The `Snake` class in `src/snake.ts` handles its own movement, boosting, feeding, and growth. It runs neural inference on a fixed controller timestep (`CFG.brain.controlDt`) so recurrent memory length stays stable even when physics substeps change, then converts outputs into turn and boost decisions. Boosting burns points and shrinks the snake while dropping pellets behind it (`CFG.boost`), and the death path (`Snake.die`) converts body mass into pellets based on `CFG.death` parameters. Movement uses the turn rate and speed penalties in `CFG`, clamps the snake within the world radius, updates segment positions to maintain spacing, then grows or shrinks towards `targetLen` while updating radius via a logarithmic length curve.
 
@@ -50,9 +58,9 @@ Sensors are built in `src/sensors.ts` and must stay in sync with `CFG.brain.inSi
 
 Baseline bots (`src/bots/baselineBots.ts`) are scripted entities that fill the arena. They now employ "Life Stage" strategies based on their length:
 
-* **Small (< 25)**: "Coward" mode. Prioritizes high clearance and clamps food attraction to avoid kamikaze deaths.
-* **Medium (25-80)**: "Hunter" mode. Actively intercepts nearby snakes and boosts to attack if safe.
-* **Large (> 80)**: "Bully" mode. Seeks high density to block paths and cause accidents.
+- **Small (< 25)**: "Coward" mode. Prioritizes high clearance and clamps food attraction to avoid kamikaze deaths.
+- **Medium (25-80)**: "Hunter" mode. Actively intercepts nearby snakes and boosts to attack if safe.
+- **Large (> 80)**: "Bully" mode. Seeks high density to block paths and cause accidents.
 
 Bot respawning is controlled by `CFG.baselineBots.respawnDelay` (default 3.0s), ensuring a steady population without instant flooding.
 
@@ -123,10 +131,10 @@ The build process is automated via `scripts/build-wasm.mjs`. Use `npm run build`
 **Safety Invariants**:
 Because the WASM module operates on raw pointers passed from JavaScript (`SharedArrayBuffer` views), memory safety is manual and critical.
 
-* **Unsafe Blocks**: All raw pointer arithmetic in `lib.rs` is wrapped in explicit `unsafe {}` blocks. Every such block MUST be accompanied by a `/// # Safety` documentation comment explaining the contract (e.g., "Pointers must be valid for `len` elements").
-* **Slice Copying**: Manual `for` loops that copy data byte-by-byte are banned. Use `slice.copy_from_slice()` instead, as it compiles to efficient `memcpy` intrinsics and allows the Rust compiler to elide bounds checks where possible.
-* **Linting**: The CI pipeline enforces `cargo clippy` and `cargo fmt`. You can run these locally with `npm run lint:rust` and `npm run format:rust`.
-* **Testing**: `npm run test:rust` acts as a compile-check for the WASM target (via `--no-run`), while `npm test` runs the actual behavioral integration tests (`server/mtParity.test.ts`) using the verified binary.
+- **Unsafe Blocks**: All raw pointer arithmetic in `lib.rs` is wrapped in explicit `unsafe {}` blocks. Every such block MUST be accompanied by a `/// # Safety` documentation comment explaining the contract (e.g., "Pointers must be valid for `len` elements").
+- **Slice Copying**: Manual `for` loops that copy data byte-by-byte are banned. Use `slice.copy_from_slice()` instead, as it compiles to efficient `memcpy` intrinsics and allows the Rust compiler to elide bounds checks where possible.
+- **Linting**: The CI pipeline enforces `cargo clippy` and `cargo fmt`. You can run these locally with `npm run lint:rust` and `npm run format:rust`.
+- **Testing**: `npm run test:rust` acts as a compile-check for the WASM target (via `--no-run`), while `npm test` runs the actual behavioral integration tests (`server/mtParity.test.ts`) using the verified binary.
 
 ## Utilities and configuration
 
@@ -134,20 +142,20 @@ Because the WASM module operates on raw pointers passed from JavaScript (`Shared
 
 ## Documentation expectations
 
-* `README.md` is for users and QA: explain sliders, brain types, presets, and troubleshooting. Keep dev architecture and testing details out of README.
-* `AGENTS.md` is the dev reference: include system architecture, buffer contracts, and regression pitfalls.
-* Slider names and meanings in README should mirror `src/settings.ts` and `src/config.ts`. If you change a slider label or path, update docs accordingly.
-* Add TSDoc-style documentation for every function, class, class field, and module-level variable (including tests and server/util scripts), plus inline comments for behavior not covered by the docblocks. Linting is configured in `eslint.config.cjs` and enforced via `npm run lint`.
+- `README.md` is for users and QA: explain sliders, brain types, presets, and troubleshooting. Keep dev architecture and testing details out of README.
+- `AGENTS.md` is the dev reference: include system architecture, buffer contracts, and regression pitfalls.
+- Slider names and meanings in README should mirror `src/settings.ts` and `src/config.ts`. If you change a slider label or path, update docs accordingly.
+- Add TSDoc-style documentation for every function, class, class field, and module-level variable (including tests and server/util scripts), plus inline comments for behavior not covered by the docblocks. Linting is configured in `eslint.config.cjs` and enforced via `npm run lint`.
 
 ## Recent additions and footguns
 
-* Fast-path visuals include speed/boost-based glow and boost trail particles in `renderWorldStruct`. The buffer contract is: header (7 floats), alive snakes (8 + 2\*ptCount floats), then pellets (count + 5 floats: x, y, value, type, colorId). Update serializer, render, and tests together if this changes.
-* Starfield/grid draw in the fast renderer; camera/zoom must come from the worker buffer (no main-thread overrides).
-* Fitness history now ships min/avg/max from the worker or server when it grows. Keep histories finite and capped when syncing to the UI.
-* `bestPointsThisGen` must be initialized before any sensor pass; NaNs here made first-generation snakes vanish. Preserve that initialization when refactoring world state or sensors.
-* Graph editor ports are 0-based; Split output sizes must sum to the input size, and total output size must match `CFG.brain.outSize` (turn+boost). Diagram layout overrides are UI-only.
-* `data/slither.db` is local server state and should not be committed; it will exceed GitHub size limits if tracked.
-* `better-sqlite3` is a native dependency; Windows installs need C++ build tools and a Windows SDK.
+- Fast-path visuals include speed/boost-based glow and boost trail particles in `renderWorldStruct`. The buffer contract is: header (7 floats), alive snakes (8 + 2\*ptCount floats), then pellets (count + 5 floats: x, y, value, type, colorId). Update serializer, render, and tests together if this changes.
+- Starfield/grid draw in the fast renderer; camera/zoom must come from the worker buffer (no main-thread overrides).
+- Fitness history now ships min/avg/max from the worker or server when it grows. Keep histories finite and capped when syncing to the UI.
+- `bestPointsThisGen` must be initialized before any sensor pass; NaNs here made first-generation snakes vanish. Preserve that initialization when refactoring world state or sensors.
+- Graph editor ports are 0-based; Split output sizes must sum to the input size, and total output size must match `CFG.brain.outSize` (turn+boost). Diagram layout overrides are UI-only.
+- `data/slither.db` is local server state and should not be committed; it will exceed GitHub size limits if tracked.
+- `better-sqlite3` is a native dependency; Windows installs need C++ build tools and a Windows SDK.
 
 ## Tests and verification
 
@@ -175,10 +183,10 @@ If any section here feels unclear or you want deeper coverage (for example, the 
 
 ## TypeScript policy (in-progress conversion)
 
-* Keep runtime behavior and performance identical; types must not alter logic or hot-loop allocations.
-* Use strict typechecking (`tsconfig.json` with `noEmit`) and convert files in dependency order; server overrides live in `server/tsconfig.json`.
-* Prefer shared protocol types under `src/protocol/` for worker/main message contracts.
+- Keep runtime behavior and performance identical; types must not alter logic or hot-loop allocations.
+- Use strict typechecking (`tsconfig.json` with `noEmit`) and convert files in dependency order; server overrides live in `server/tsconfig.json`.
+- Prefer shared protocol types under `src/protocol/` for worker/main message contracts.
 
 ## Markdown policy
 
-* When writing markdown follow the style and formatting rules in markdown-rules/rules.md
+- When writing markdown follow the style and formatting rules in markdown-rules/rules.md

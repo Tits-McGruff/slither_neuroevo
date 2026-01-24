@@ -235,10 +235,10 @@ export class ControllerRegistry {
   /**
    * Fetch the current action for a snake, holding the last input until release.
    * @param snakeId - Snake id to query.
-   * @param _tickId - Current tick id (unused when holding last input).
+   * @param _tickId - Optional tick id.
    * @returns Control input or null when control is released.
    */
-  getAction(snakeId: number, _tickId: number): ControlInput | null {
+  getAction(snakeId: number, _tickId?: number): ControlInput | null {
     const state = this.bySnake.get(snakeId);
     if (!state) return null;
     return { turn: state.lastTurn, boost: state.lastBoost };
