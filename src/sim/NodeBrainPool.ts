@@ -8,45 +8,13 @@
 import os from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { BaseBrainPool, type BrainPoolInitOptions } from './BaseBrainPool.ts';
-import type { GraphSpec } from '../brains/graph/schema.ts';
+import { CFG } from '../config.ts';
+import type {
+    InferWorkerResponse,
+    WorkerInitMessage,
+    WorkerInferMessage
+} from './poolProtocol.ts';
 
-// We need to define the message types locally or import them if shared.
-// For now, let's redefine locally to match the expected protocol of the unified worker.
-// Ideally, the Worker script should be capable of handling both WebWorker and Node Worker messages.
-// Currently `src/worker/inferWorker.ts` is designed for WebWorkers (postMessage).
-// Node.js workers share a similar API but `import 'worker_threads'` parentPort vs self.
-
-// TODO: The worker script `src/worker/inferWorker.ts` needs to be "universal" or we need a Node adapter.
-// existing `server/brainPool.ts` spawns `inferWorker.ts` via tsx/esm?
-// Yes: execArgv: ['--import', 'tsx/esm']
-
-interface WorkerInitMessage {
-    type: 'init';
-    specKey: string;
-    graphSpec: GraphSpec | null;
-    inputStride: number;
-    outputStride: number;
-    buffers: {
-        inputs: SharedArrayBuffer;
-        outputs: SharedArrayBuffer;
-        weights: SharedArrayBuffer;
-        indices: SharedArrayBuffer;
-        sync?: SharedArrayBuffer; // Optional if unused
-    };
-    workerIndex: number;
-}
-
-interface WorkerInferMessage {
-    type: 'infer';
-    batchStart: number;
-    batchCount: number;
-}
-
-
-type WorkerMessage =
-    | { type: 'ready' }
-    | { type: 'done'; error?: string }
-    | { type: 'error'; message: string };
 
 export class NodeBrainPool extends BaseBrainPool {
     private workers: Worker[] = [];
@@ -89,14 +57,13 @@ export class NodeBrainPool extends BaseBrainPool {
             this.workers.push(w);
 
             promises.push(new Promise<void>((resolve, reject) => {
-                const onMsg = (msg: unknown) => {
-                    const data = msg as WorkerMessage;
-                    if (data.type === 'ready') {
+                const onMsg = (msg: InferWorkerResponse) => {
+                    if (msg.type === 'ready') {
                         w.off('message', onMsg);
                         resolve();
-                    } else if (data.type === 'error') {
+                    } else if (msg.type === 'error') {
                         w.off('message', onMsg);
-                        reject(new Error(data.message));
+                        reject(new Error(msg.message));
                     }
                 };
                 w.on('message', onMsg);
@@ -109,11 +76,8 @@ export class NodeBrainPool extends BaseBrainPool {
                     type: 'init',
                     specKey: this.specKey,
                     graphSpec: options.graphSpec || null,
-                    inputStride: 100, // FIXME: fetch from CFG? SimCore should probably pass this?
-                    // Actually BaseBrainPool relies on CFG for allocation, so we can use CFG here too?
-                    // Or options should include strides.
-                    // Let's use CFG for now as per BaseBrainPool.
-                    outputStride: 0, // Placeholder, see below
+                    inputStride: CFG.brain.inSize,
+                    outputStride: CFG.brain.outSize,
                     workerIndex: i,
                     buffers: buffers
                 };
@@ -195,11 +159,10 @@ export class NodeBrainPool extends BaseBrainPool {
             start += chunk;
 
             promises.push(new Promise<void>((resolve, reject) => {
-                const onMsg = (msg: unknown) => {
-                    const data = msg as WorkerMessage;
-                    if (data.type === 'done' || data.type === 'error') {
+                const onMsg = (msg: InferWorkerResponse) => {
+                    if (msg.type === 'done' || msg.type === 'error') {
                         w.off('message', onMsg);
-                        if (data.type === 'error') reject(new Error(data.message));
+                        if (msg.type === 'error') reject(new Error(msg.message));
                         else resolve();
                     }
                 };

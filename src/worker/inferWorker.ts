@@ -3,8 +3,9 @@
  * Executes batched neural network kernels on shared memory.
  */
 
+import { parentPort } from 'node:worker_threads';
 import { loadSimdKernels } from '../brains/wasmBridge.ts';
-import type { InferWorkerMessage, InferWorkerResponse } from '../workerPool.ts';
+import type { InferWorkerMessage, InferWorkerResponse } from '../sim/poolProtocol.ts';
 import { compileGraph } from '../brains/graph/compiler.ts';
 import { GraphBrain } from '../brains/graph/runtime.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
@@ -15,24 +16,16 @@ let outputStride = 0;
 let inputs: Float32Array | null = null;
 let outputs: Float32Array | null = null;
 let weights: Float32Array | null = null;
-let indices: Uint32Array | null = null; // Added
-// let sync: Int32Array | null = null; // Unused
+let indices: Uint32Array | null = null;
 
 let brain: GraphBrain | null = null;
 let paramCount = 0;
 
-// Minimal scope definition to satisfy TS if lib.webworker is missing
-interface WorkerScope {
-    postMessage(message: unknown, transfer?: Transferable[]): void;
-    onmessage: ((this: WorkerScope, ev: MessageEvent) => void) | null;
-    close(): void;
+if (!parentPort) {
+    throw new Error('This script must be run as a worker thread');
 }
 
-const scope = self as unknown as WorkerScope;
-
-scope.onmessage = async (e: MessageEvent<InferWorkerMessage>) => {
-    const msg = e.data;
-
+parentPort.on('message', async (msg: InferWorkerMessage) => {
     try {
         switch (msg.type) {
             case 'init': {
@@ -46,8 +39,7 @@ scope.onmessage = async (e: MessageEvent<InferWorkerMessage>) => {
                 inputs = new Float32Array(msg.buffers.inputs);
                 outputs = new Float32Array(msg.buffers.outputs);
                 weights = new Float32Array(msg.buffers.weights);
-                indices = new Uint32Array(msg.buffers.indices); // Added
-                // sync = new Int32Array(msg.buffers.sync);
+                indices = new Uint32Array(msg.buffers.indices);
 
                 // 3. Compile GraphBrain template
                 if (msg.graphSpec) {
@@ -63,7 +55,7 @@ scope.onmessage = async (e: MessageEvent<InferWorkerMessage>) => {
                     console.warn('[InferWorker] No graphSpec provided in init. Inference will fail.');
                 }
 
-                scope.postMessage({ type: 'ready' } as InferWorkerResponse);
+                parentPort!.postMessage({ type: 'ready' } as InferWorkerResponse);
                 break;
             }
 
@@ -98,17 +90,16 @@ scope.onmessage = async (e: MessageEvent<InferWorkerMessage>) => {
                 }
 
                 // Notify completion
-                scope.postMessage({ type: 'done' } as InferWorkerResponse);
+                parentPort!.postMessage({ type: 'done' } as InferWorkerResponse);
                 break;
             }
 
             case 'shutdown':
-                scope.close();
-                break;
+                process.exit(0);
         }
     } catch (err: unknown) {
         console.error('[InferWorker] Error:', err);
-        const msg = err instanceof Error ? err.message : String(err);
-        scope.postMessage({ type: 'error', message: msg } as InferWorkerResponse);
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        parentPort!.postMessage({ type: 'error', message: errorMsg } as InferWorkerResponse);
     }
-};
+});

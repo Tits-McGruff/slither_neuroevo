@@ -1,0 +1,70 @@
+
+[1m[46m RUN [49m[22m [36mv4.0.16 [39m[90mC:/Users/jlow8/projects/slither_neuroevo[39m
+
+[90mstdout[2m | server/mtParity.test.ts[2m > [22m[2mserver MT parity[2m > [22m[2mmatches JS batch outputs over deterministic ticks
+[22m[39m[mtParity] SIMD Available: [33mtrue[39m
+[sensors.layout.default_v2_enabled] { bins: [33m16[39m, inputSize: [33m71[39m }
+
+[90mstdout[2m | server/mtParity.test.ts[2m > [22m[2mserver MT parity[2m > [22m[2mmatches JS batch outputs over deterministic ticks
+[22m[39m[NodeBrainPool] Spawning 1 workers...
+
+[90mstdout[2m | server/mtParity.test.ts[2m > [22m[2mserver MT parity[2m > [22m[2mmatches JS batch outputs over deterministic ticks
+[22m[39m[NodeBrainPool] Ready.
+
+[90mstdout[2m | server/mtParity.test.ts[2m > [22m[2mserver MT parity[2m > [22m[2mmatches JS batch outputs over deterministic ticks
+[22m[39m[mtParity] Tick 0 MT: [
+                    [33m1[39m,                  [33m6[39m,                  [33m6[39m,
+                 [33m3500[39m,                  [33m0[39m,                  [33m0[39m,
+   [33m0.8693492412567139[39m,                  [33m1[39m,                  [33m9[39m,
+                    [33m0[39m, [33m-950.8184204101562[39m, [33m223.31015014648438[39m,
+    [33m1.855697512626648[39m,                  [33m0[39m,                  [33m5[39m,
+   [33m-950.8184204101562[39m, [33m223.31015014648438[39m, [33m-948.7089233398438[39m,
+   [33m216.11293029785156[39m, [33m-946.5991821289062[39m, [33m208.91578674316406[39m,
+   [33m-944.4893798828125[39m, [33m201.71864318847656[39m,  [33m-942.379638671875[39m,
+   [33m194.52149963378906[39m,                  [33m2[39m,                  [33m9[39m,
+                    [33m0[39m, [33m15.361515045166016[39m, [33m1488.0362548828125[39m,
+  [33m-3.0180258750915527[39m,                  [33m0[39m,                  [33m5[39m,
+   [33m15.361515045166016[39m, [33m1488.0362548828125[39m,   [33m22.8184757232666[39m,
+    [33m1488.838623046875[39m, [33m30.277334213256836[39m,     [33m1489.623046875[39m,
+     [33m37.7364387512207[39m
+]
+[mtParity] Tick 0 JS: [
+                    [33m1[39m,                  [33m6[39m,                  [33m6[39m,
+                 [33m3500[39m,                  [33m0[39m,                  [33m0[39m,
+   [33m0.8693492412567139[39m,                  [33m1[39m,                  [33m9[39m,
+                    [33m0[39m, [33m-950.8184204101562[39m, [33m223.31015014648438[39m,
+    [33m1.855697512626648[39m,                  [33m0[39m,                  [33m5[39m,
+   [33m-950.8184204101562[39m, [33m223.31015014648438[39m, [33m-948.7089233398438[39m,
+   [33m216.11293029785156[39m, [33m-946.5991821289062[39m, [33m208.91578674316406[39m,
+   [33m-944.4893798828125[39m, [33m201.71864318847656[39m,  [33m-942.379638671875[39m,
+   [33m194.52149963378906[39m,                  [33m2[39m,                  [33m9[39m,
+                    [33m0[39m,  [33m15.36193561553955[39m, [33m1488.0328369140625[39m,
+  [33m-3.0152275562286377[39m,                  [33m0[39m,                  [33m5[39m,
+    [33m15.36193561553955[39m, [33m1488.0328369140625[39m, [33m22.818571090698242[39m,
+    [33m1488.838134765625[39m, [33m30.277389526367188[39m,     [33m1489.623046875[39m,
+   [33m37.736488342285156[39m
+]
+
+ [31mΓ¥»[39m server/mtParity.test.ts [2m([22m[2m1 test[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 176[2mms[22m[39m
+[31m     [31m├ù[31m matches JS batch outputs over deterministic ticks[39m[32m 171[2mms[22m[39m
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Tests 1 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  server/mtParity.test.ts > server MT parity > matches JS batch outputs over deterministic ticks
+Error: [mt parity] tick=1 index=29 mt=1487.80908203125 js=1487.7965087890625 diff=0.012573
+ Γ¥» server/mtParity.test.ts:322:17
+    320|             ? `length mt=${mtFrame.length} js=${jsFrame.length}`
+    321|             : `diff=${mismatch.diff.toFixed(6)}`;
+    322|           throw new Error(
+       |                 ^
+    323|             `[mt parity] tick=${t} index=${mismatch.index} mt=${mismatΓÇª
+    324|           );
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[1/1]ΓÄ»
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m   Start at [22m 17:25:09
+[2m   Duration [22m 811ms[2m (transform 331ms, setup 66ms, import 373ms, tests 176ms, environment 0ms)[22m
+

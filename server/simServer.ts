@@ -102,6 +102,8 @@ export class SimServer {
   private mtWorkerCount: number;
   /** Last generation synchronized with the MT pool. */
   private mtGeneration: number;
+  /** Whether multi-threading was active on the last tick. */
+  public mtActive = false;
 
   /**
    * Create a simulation server instance for a websocket hub.
@@ -393,9 +395,11 @@ export class SimServer {
    */
   private async tick(now: number): Promise<void> {
     // 1. Ensure Pool
+    this.mtActive = false;
     if (this.mtEnabled) {
       try {
-        await this.ensureBrainPool();
+        const pool = await this.ensureBrainPool();
+        if (pool) this.mtActive = true;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.warn('[mt.pool.failed]', { reason: message });

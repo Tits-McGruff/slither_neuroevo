@@ -4,9 +4,9 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 
 ## Key Features
 
-- **High-Performance Core**: Unified `SimCore` engine ensures consistent physics and neural logic across Server and Browser.
+- **High-Performance Core**: Unified `SimCore` engine ensures consistent physics and neural logic.
 - **Custom Numerics**: High-performance Rust/WASM SIMD kernels for accelerated neural inference.
-- **Multi-Threaded Inference**: Platform-agnostic brain pool (`IBrainPool`) utilizes all CPU cores for parallel inference (300+ snakes at 60 FPS) in both Node and Web Workers.
+- **Multi-Threaded Inference**: Multi-core brain pool (`IBrainPool`) utilizes all server CPU cores for parallel inference (300+ snakes at 60 FPS).
 - **Deep Evolution**: Supports MLP, GRU, LSTM, and RRU architectures with complex genetic operators and a modular graph editor.
 - **Robust Persistence**: SQLite-backed server mode capable of saving/loading massive generations with chunked binary serialization.
 
@@ -19,8 +19,11 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 
 ### Running
 
+The simulation runs in a server-authoritative mode. You must start the simulation server and the Vite dev server separately (or use the convenience launchers).
+
 ```bash
 npm install
+npm run server
 npm run dev
 ```
 
@@ -33,18 +36,11 @@ Convenience launchers (install deps, start the server, then start Vite):
 - Windows: `play.bat`
 - macOS/Linux: `play.sh` (auto-opens the browser only when `xdg-open` is available)
 
-### Server mode (optional)
+### Architecture
 
-Run the simulation server in a second terminal to enable multiplayer join/spectate and DB-backed graph presets. This mode uses the same `SimCore` engine as the local fallback, guaranteeing logic parity.
-
-```bash
-npm run server
-npm run dev
-```
-
-The UI will connect over WebSocket and show **SERVER** in the status pill. If the server is down, the app automatically fails over to a local Web Worker (`LocalSim`), which resumes progress using the exact same simulation core logic.
+This application uses a pure client-server model. The simulation runs exclusively on the Node.js server to enable multiplayer interactions and backend persistence. The UI will connect over WebSocket and show **SERVER** in the status pill.
 By default the client connects to `ws://localhost:5174`; use `?server=ws://host:port` to point at a different server.
-If the server handshake fails, the app falls back to local mode after a short delay and keeps reconnecting in the background.
+If the server connection is lost, the app will attempt to reconnect in the background.
 UI defaults come from `server/config.toml`:
 
 - `host`/`port` bind the simulation server.

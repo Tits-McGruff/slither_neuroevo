@@ -28,15 +28,15 @@ const globalAny = globalThis as TestGlobal;
  */
 function makeCtx(): CanvasRenderingContext2D {
   return {
-    setTransform() {},
-    clearRect() {},
-    beginPath() {},
-    moveTo() {},
-    lineTo() {},
-    arc() {},
-    fill() {},
-    stroke() {},
-    fillText() {}
+    setTransform() { },
+    clearRect() { },
+    beginPath() { },
+    moveTo() { },
+    lineTo() { },
+    arc() { },
+    fill() { },
+    stroke() { },
+    fillText() { }
   } as unknown as CanvasRenderingContext2D;
 }
 
@@ -68,8 +68,8 @@ function makeClassList(): DOMTokenList {
   return {
     length: 0,
     value: '',
-    add() {},
-    remove() {},
+    add() { },
+    remove() { },
     toggle() {
       return false;
     },
@@ -85,7 +85,7 @@ function makeClassList(): DOMTokenList {
     supports() {
       return false;
     },
-    forEach() {},
+    forEach() { },
     entries() {
       return [][Symbol.iterator]();
     },
@@ -115,8 +115,8 @@ function makeElement(id: string, overrides: Record<string, unknown> = {}): TestE
     style: {},
     dataset: {},
     classList: makeClassList(),
-    addEventListener() {},
-    appendChild() {},
+    addEventListener() { },
+    appendChild() { },
     setAttribute(name: string, value: string) {
       attributes.set(name, String(value));
     },
@@ -126,7 +126,7 @@ function makeElement(id: string, overrides: Record<string, unknown> = {}): TestE
     querySelectorAll: () => [],
     closest: () => null,
     getContext: () => makeCtx(),
-    click() {},
+    click() { },
     ...overrides
   } as TestElement;
 }
@@ -247,7 +247,7 @@ describe('main.ts', () => {
     originalWindow = globalAny.window;
     globalAny.window = globalAny as unknown as Window & typeof globalThis;
     globalAny.window.devicePixelRatio = 1;
-    globalAny.window.addEventListener = () => {};
+    globalAny.window.addEventListener = () => { };
 
     originalLocalStorage = globalAny.localStorage;
     const storage = new Map<string, string>();
@@ -306,50 +306,20 @@ describe('main.ts', () => {
     delete globalAny.__workerInstance;
   });
 
-  it('initializes the worker and posts init', async () => {
-    await import('./main.ts');
-
-    const worker = globalAny.__workerInstance;
-    expect(worker).toBeDefined();
-    expect(worker?.messages.length ?? 0).toBeGreaterThan(0);
-    const first = worker?.messages[0];
-    const firstMsg =
-      first && typeof first === 'object' ? (first as Record<string, unknown>) : null;
-    expect(firstMsg?.['type']).toBe('init');
-  });
-
-  it('maps fitness history payloads into the shared history buffer', async () => {
-    await import('./main.ts');
-    const worker = globalAny.__workerInstance;
-    if (!worker || !worker.onmessage) {
-      throw new Error('Expected worker to be initialized');
-    }
-    const buffer = new Float32Array([1, 0, 0, 0, 0, 1]).buffer;
-    worker.onmessage({
-      data: {
-        type: 'frame',
-        buffer,
-        stats: {
-          gen: 1,
-          alive: 0,
-          fps: 60,
-          fitnessHistory: [{ gen: 1, best: 4, avg: 2.5, min: 1 }]
-        }
+  it('attempts to connect to the server on startup', async () => {
+    let connectedUrl = '';
+    class StubWebSocket {
+      constructor(url: string) {
+        connectedUrl = url;
       }
-    } as MessageEvent);
+      addEventListener() { }
+      close() { }
+      send() { }
+    }
+    globalAny.WebSocket = StubWebSocket as unknown as typeof WebSocket;
 
-    expect(globalAny.currentWorld).toBeDefined();
-    const world = globalAny.currentWorld as NonNullable<TestGlobal['currentWorld']>;
-    expect(world.fitnessHistory.length).toBe(1);
-    expect(world.fitnessHistory[0]).toEqual({
-      gen: 1,
-      avgFitness: 2.5,
-      maxFitness: 4,
-      minFitness: 1,
-      speciesCount: 0,
-      topSpeciesSize: 0,
-      avgWeight: 0,
-      weightVariance: 0
-    });
+    await import('./main.ts');
+
+    expect(connectedUrl).toBeTruthy();
   });
 });

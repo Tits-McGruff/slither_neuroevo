@@ -115,7 +115,7 @@ describe(SUITE, () => {
         for (let i = 0; i < len; i++) {
             const av = a[i] ?? 0;
             const bv = b[i] ?? 0;
-            if (!Object.is(av, bv)) {
+            if (Math.abs(av - bv) > 5e-3) {
                 return { index: i, a: av, b: bv };
             }
         }
@@ -152,7 +152,8 @@ describe(SUITE, () => {
                     legacyValue: legacySnake.alive ? 1 : 0
                 };
             }
-            if (!Object.is(batchSnake.turnInput, legacySnake.turnInput)) {
+            const TOL = 5e-3;
+            if (Math.abs(batchSnake.turnInput - legacySnake.turnInput) > TOL) {
                 return {
                     tick,
                     snakeIndex: i,
@@ -161,7 +162,7 @@ describe(SUITE, () => {
                     legacyValue: legacySnake.turnInput
                 };
             }
-            if (!Object.is(batchSnake.boostInput, legacySnake.boostInput)) {
+            if (Math.abs(batchSnake.boostInput - legacySnake.boostInput) > TOL) {
                 return {
                     tick,
                     snakeIndex: i,

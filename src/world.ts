@@ -747,37 +747,43 @@ export class World {
     const spawnN = Math.min(deficit, Math.floor(this._pelletSpawnAcc));
     this._pelletSpawnAcc -= spawnN;
     for (let i = 0; i < spawnN; i++) this.addPellet(this._spawnAmbientPellet());
-    const batch = this._buildControlBatch();
-    const inputStride = batch.inputStride;
-    const outputStride = batch.outputStride;
+    this._ensureControlScratchCapacity(this.snakes.length);
+    const pendingSource = this._pendingControlSource;
+    const pendingTurn = this._pendingControlTurn;
+    const pendingBoost = this._pendingControlBoost;
     const profiler = this.profiler;
+
     for (let i = 0; i < this.snakes.length; i++) {
       const sn = this.snakes[i];
+      pendingSource[i] = 0;
       if (!sn || !sn.alive) continue;
       sn.prepareForStep(dt);
+
       const botAction = this.botManager.getActionForSnake(sn.id);
       if (botAction) {
-        sn.applyExternalControl(botAction);
-        sn.advance(this, dt);
+        pendingSource[i] = 1;
+        pendingTurn[i] = botAction.turn ?? 0;
+        pendingBoost[i] = botAction.boost ?? 0;
         continue;
       }
       if (controllers && controllers.isControlled(sn.id)) {
         const control = controllers.getAction(sn.id, tickId);
         if (control) {
-          sn.applyExternalControl(control);
-          sn.advance(this, dt);
+          pendingSource[i] = 1;
+          pendingTurn[i] = control.turn ?? 0;
+          pendingBoost[i] = control.boost ?? 0;
           continue;
         }
       }
       const externalOnly = sn.controlMode === 'external-only';
       if (externalOnly) {
-        sn.applyExternalControl(undefined);
-        sn.advance(this, dt);
+        pendingSource[i] = 1;
+        pendingTurn[i] = 0;
+        pendingBoost[i] = 0;
         continue;
       }
+
       if (sn.needsControlUpdate(dt)) {
-        const batchIndex = batch.count++;
-        batch.indices[batchIndex] = i;
         let sensors: Float32Array;
         if (profiler) {
           const start = profiler.now();
@@ -786,7 +792,6 @@ export class World {
         } else {
           sensors = sn.computeSensors(this);
         }
-        batch.inputs.set(sensors, batchIndex * inputStride);
         sn.lastSensors = sensors;
         let out: Float32Array;
         if (profiler) {
@@ -796,12 +801,20 @@ export class World {
         } else {
           out = sn.brain.forward(sensors);
         }
-        const base = batchIndex * outputStride;
-        const turn = out[0] ?? 0;
-        const boost = out[1] ?? 0;
-        batch.outputs[base] = turn;
-        if (outputStride > 1) batch.outputs[base + 1] = boost;
-        sn.applyBrainOutput(turn, boost);
+        pendingSource[i] = 2;
+        pendingTurn[i] = out[0] ?? 0;
+        pendingBoost[i] = out[1] ?? 0;
+      }
+    }
+
+    for (let i = 0; i < this.snakes.length; i++) {
+      const sn = this.snakes[i];
+      if (!sn || !sn.alive) continue;
+      const source = pendingSource[i] ?? 0;
+      if (source === 1) {
+        sn.applyExternalControl({ turn: pendingTurn[i] ?? 0, boost: pendingBoost[i] ?? 0 });
+      } else if (source === 2) {
+        sn.applyBrainOutput(pendingTurn[i] ?? 0, pendingBoost[i] ?? 0);
       }
       sn.advance(this, dt);
     }
