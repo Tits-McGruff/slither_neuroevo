@@ -23,3 +23,5 @@ serve.log
 
 server.pid
 dev.pid
+
+test_output.txt
