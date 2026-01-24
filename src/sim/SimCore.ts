@@ -88,9 +88,7 @@ export class SimCore {
 
   constructor(options: SimCoreOptions = {}) {
     // 1. Initialize Settings
-    // Note: Caller is responsible for calling resetCFGToDefaults() if they want a fresh state,
-    // but we can enforce it here if we want strict isolation. 
-    // For now, we assume the environment (global CFG) is set up or we pass settings to World.
+    // The world is initialized with the provided settings.
 
     // 2. Create World
     this.world = new World(options.settings || {});
@@ -125,11 +123,7 @@ export class SimCore {
 
       // Execute one physics step
       if (this.brainPool && this.batchEnabled) {
-        // Pass the pool to World for parallel inference
-        // Note: controllerProvider logic is messy in legacy code.
-        // World.updateAsync signature: 
-        // (dt, viewW, viewH, controllers, tickId, batchRunner)
-        // We need to adhere to World's existing API for now.
+        // Use parallel batch inference if available.
         await this.world.updateAsync(
           this.fixedDt,
           this.viewW,

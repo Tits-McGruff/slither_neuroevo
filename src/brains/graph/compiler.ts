@@ -27,6 +27,16 @@ export interface CompiledNode {
   inputs: GraphInputRef[];
 }
 
+/** Metadata for recurrent node state isolation. */
+export interface RecurrentNodeInfo {
+  /** Index of the node in the compiled nodes array. */
+  nodeIndex: number;
+  /** Size of the hidden state (number of floats). */
+  hiddenSize: number;
+  /** Node type (GRU, LSTM, RRU). */
+  type: 'GRU' | 'LSTM' | 'RRU';
+}
+
 /** Compiled graph containing topological order and parameter metadata. */
 export interface CompiledGraph {
   key: string;
@@ -36,6 +46,10 @@ export interface CompiledGraph {
   totalParams: number;
   outputSize: number;
   outputs: GraphOutputRef[];
+  /** Recurrent nodes discovered during compilation. */
+  recurrentNodes: RecurrentNodeInfo[];
+  /** Total floats needed for all recurrent states of one brain. */
+  totalStateSize: number;
 }
 
 /**
@@ -300,6 +314,20 @@ export function compileGraph(spec: GraphSpec): CompiledGraph {
     throw new Error(`Graph: output size mismatch (expected ${spec.outputSize}, got ${totalOutput}).`);
   }
 
+  const recurrentNodes: RecurrentNodeInfo[] = [];
+  let totalStateSize = 0;
+  compiledNodes.forEach((node, idx) => {
+    if (node.type === 'GRU' || node.type === 'LSTM' || node.type === 'RRU') {
+      recurrentNodes.push({
+        nodeIndex: idx,
+        hiddenSize: node.hiddenSize!,
+        type: node.type
+      });
+      totalStateSize += node.hiddenSize!;
+      if (node.type === 'LSTM') totalStateSize += node.hiddenSize!; // LSTM has cell state too
+    }
+  });
+
   return {
     key: graphKey(spec),
     spec,
@@ -307,6 +335,8 @@ export function compileGraph(spec: GraphSpec): CompiledGraph {
     order,
     totalParams: paramOffset,
     outputSize: totalOutput,
-    outputs: spec.outputs
+    outputs: spec.outputs,
+    recurrentNodes,
+    totalStateSize
   };
 }

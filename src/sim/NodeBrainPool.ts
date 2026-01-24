@@ -8,7 +8,6 @@
 import os from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { BaseBrainPool, type BrainPoolInitOptions } from './BaseBrainPool.ts';
-import { CFG } from '../config.ts';
 import type {
     InferWorkerResponse,
     WorkerInitMessage,
@@ -25,6 +24,9 @@ export class NodeBrainPool extends BaseBrainPool {
 
     async init(options: BrainPoolInitOptions): Promise<void> {
         this.specKey = options.specKey;
+        this.paramCount = options.paramCount;
+        this.inputStride = options.inputStride;
+        this.outputStride = options.outputStride;
         this.status = 'starting';
 
         // 1. Resolve worker count
@@ -34,17 +36,15 @@ export class NodeBrainPool extends BaseBrainPool {
         const workerCount = Math.min(count, maxWorkers);
 
         // 2. Allocate buffers
-        // Heuristic: Pre-allocate for provided population count or default 20k
-        const capacity = Math.max(options.populationCount || 20000, 20000);
-        const buffers = this.allocateBuffers(capacity);
+        // Sane dynamic capacity: max(popCount * 1.25, 256)
+        const capacity = Math.max(Math.ceil(options.populationCount * 1.25), 256);
+        const stateSize = options.stateSize || 0;
+        const buffers = this.allocateBuffers(capacity, this.paramCount, this.inputStride, this.outputStride, stateSize);
 
-        console.log(`[NodeBrainPool] Spawning ${workerCount} workers...`);
+        console.log(`[NodeBrainPool] Spawning ${workerCount} workers (capacity=${capacity})...`);
 
-        // 3. Spawn Workers
-        // We point to the same worker script as the browser.
-        // Node requires special handling for TS execution (handled by execArgv in constructor or here)
-        // Path logic might be tricky from `src/sim` vs `server`.
-        // `import.meta.url` in `src/sim` -> `../worker/inferWorker.ts`
+        // 3. Resolve Worker Script Path
+        // We use a relative path from this module to the worker script.
         const workerUrl = new URL('../worker/inferWorker.ts', import.meta.url);
 
         const promises: Promise<void>[] = [];
@@ -76,24 +76,13 @@ export class NodeBrainPool extends BaseBrainPool {
                     type: 'init',
                     specKey: this.specKey,
                     graphSpec: options.graphSpec || null,
-                    inputStride: CFG.brain.inSize,
-                    outputStride: CFG.brain.outSize,
+                    inputStride: this.inputStride,
+                    outputStride: this.outputStride,
                     workerIndex: i,
                     buffers: buffers
                 };
-                // Re-read CFG or rely on SimCore passing strides? 
-                // BaseBrainPool uses CFG.brain.inSize.
-                // We should probably explicitly pass strides in options.
-                // But IBrainPool signature is fixed.
-                // BaseBrainPool imports CFG. Let's start with that.
-
-                // Oops, in strict TS `BaseBrainPool` uses `CFG.brain.inSize` but `init` doesn't take strides.
-                // For now, I'll access CFG (imported above via BaseBrainPool logic, or re-import).
-                // I'll re-import to be safe or just assume BaseBrainPool logic holds valid defaults.
-
-                // Wait, I can't access `CFG` if I don't import it.
-                // But `BaseBrainPool` implementation uses `CFG`.
-                // I'll import CFG here too.
+                // Post the initialization message to the worker. 
+                // We pass the current brain configuration and shared buffers.
 
                 w.postMessage(initMsg);
             }));

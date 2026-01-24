@@ -6,7 +6,7 @@ import type { CompiledGraph, CompiledNode } from './compiler.ts';
 import type { GraphNodeType } from './schema.ts';
 
 /** Runtime representation of a compiled graph node. */
-interface RuntimeNode {
+export interface RuntimeNode {
   id: string;
   type: GraphNodeType;
   output: Float32Array;

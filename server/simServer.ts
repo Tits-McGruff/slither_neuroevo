@@ -11,6 +11,7 @@ import type { Snake } from '../src/snake.ts';
 import type { ServerConfig } from './config.ts';
 import { NodeBrainPool } from '../src/sim/NodeBrainPool.ts';
 import { SimCore } from '../src/sim/SimCore.ts';
+import { compileGraph } from '../src/brains/graph/compiler.ts';
 import type {
   ActionMsg,
   ClientType,
@@ -26,6 +27,7 @@ import type { Persistence, PopulationSnapshotPayload } from './persistence.ts';
 import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 import { WsHub } from './wsHub.ts';
 import { buildSensorSpec } from './sensorSpec.ts';
+import { NativeBackend } from './native-backend.ts';
 
 /** SQLite error code indicating the database or disk is full. */
 const SQLITE_FULL_CODE = 'SQLITE_FULL';
@@ -133,6 +135,15 @@ export class SimServer {
       worldSeed: worldSeed
     });
 
+    // Initialize Native Backend
+    try {
+      const native = new NativeBackend(this.core.world);
+      this.core.world.setBackend(native);
+      console.log('[NativeBackend] Initialized and attached.');
+    } catch (err) {
+      console.error('[NativeBackend] Failed to initialize:', err);
+    }
+
     if (process.env[PROFILE_ENV_VAR] === '1') {
       this.profiler = new SimProfiler({ reportIntervalMs: PROFILE_REPORT_INTERVAL_MS });
       this.core.world.profiler = this.profiler;
@@ -140,7 +151,6 @@ export class SimServer {
 
     this.controllers = new ControllerRegistry(
       {
-        actionTimeoutTicks: config.actionTimeoutTicks,
         maxActionsPerTick: config.maxActionsPerTick,
         maxActionsPerSecond: config.maxActionsPerSecond
       },
@@ -165,11 +175,49 @@ export class SimServer {
     this.mtEnabled = config.mtEnabled === true;
     this.mtWorkerCount = config.mtWorkers ?? 0;
     this.mtGeneration = this.core.world.generation;
+    this.lastTickAt = performance.now();
+  }
+
+  /** 
+   * Explicitly initialize the Multi-threaded pool without starting the simulation loop.
+   * This is used by deterministic tests to enable MT support before manually driving ticks.
+   */
+  async initMT(): Promise<void> {
+    if (!this.mtEnabled) return;
+    if (this.brainPool && this.brainPool.status === 'ready') return;
+
+    if (!this.brainPool) {
+      const world = this.core.world;
+      const specKey = world.archKey;
+      this.brainPool = new NodeBrainPool(this.mtWorkerCount);
+      const info = enrichArchInfo(world.arch);
+
+      // Input size is the output of the first node (Input node) in the compiled spec
+      const inputSize = info.compiled.nodes[0]?.outputSize || 0;
+
+      // Start initialization
+      await this.brainPool.init({
+        specKey,
+        graphSpec: world.arch.spec,
+        populationCount: world.population.length,
+        paramCount: info.totalCount,
+        inputStride: inputSize,
+        outputStride: info.compiled.outputSize
+      });
+      // CRITICAL: Point core to the new pool
+      this.core.brainPool = this.brainPool;
+    }
   }
 
   /** Start the server tick loop. */
-  start(): void {
+  async start(): Promise<void> {
     if (this.running) return;
+
+    // 1. Initialize MT if enabled
+    if (this.mtEnabled) {
+      await this.initMT();
+    }
+
     this.running = true;
     this.nextTickAt = performance.now();
     void this.loop();
@@ -335,31 +383,49 @@ export class SimServer {
 
 
   /**
-   * Ensure the MT pool is initialized for the current world state.
+   * Ensure the MT pool is initialized and consistent with the current world state.
+   * Re-initializes the pool if architecture or population constraints change.
    * @returns Ready brain pool or null when MT is disabled/unavailable.
    */
   private async ensureBrainPool(): Promise<NodeBrainPool | null> {
     if (!this.mtEnabled) return null;
     const populationCount = this.core.world.population.length;
     if (populationCount <= 0) return null;
+
     const archInfo = enrichArchInfo(this.core.world.arch);
     const specKey = this.core.world.archKey;
+    const compiled = compileGraph(archInfo.spec);
+    const actualParamCount = compiled.totalParams;
+    const inStride = CFG.brain.inSize;
+    const outStride = CFG.brain.outSize;
 
     let pool = this.brainPool;
 
-    if (!pool) {
+    // Verify pool identity
+    const identityMatch = pool &&
+      pool.specKey === specKey &&
+      pool.paramCount === actualParamCount &&
+      pool.inputStride === inStride &&
+      pool.outputStride === outStride;
+
+    if (!pool || !identityMatch) {
+      if (pool) {
+        console.log('[SimServer] Re-initializing brain pool due to spec change');
+        await pool.shutdown();
+      }
       pool = new NodeBrainPool(this.mtWorkerCount);
       await pool.init({
         specKey,
         graphSpec: archInfo.spec,
-        populationCount
+        populationCount,
+        paramCount: actualParamCount,
+        inputStride: inStride,
+        outputStride: outStride
       });
 
       this.brainPool = pool;
       this.core.brainPool = pool;
-      this.mtGeneration = this.core.world.generation;
-      pool.syncWeights(this.core.world.population);
-      return pool;
+      this.mtGeneration = -1; // Force weight sync
     }
 
     if (this.mtGeneration !== this.core.world.generation) {
@@ -409,7 +475,10 @@ export class SimServer {
       }
     }
 
-    // 2. Core Update
+    // 2. Sync Controllers to current core state
+    this.controllers.setTickId(this.core.tickId);
+
+    // 3. Core Update
     let dt = 1 / this.tickRateHz;
     if (this.lastTickAt > 0) {
       dt = (now - this.lastTickAt) / 1000;
@@ -417,9 +486,6 @@ export class SimServer {
     this.lastTickAt = now;
 
     await this.core.update(dt, this.controllers);
-
-    // Sync Tick ID
-    this.controllers.setTickId(this.core.tickId);
 
     const report = this.profiler?.reportIfDue(now);
     if (report) console.log(formatSimProfilerReport(report));
@@ -510,8 +576,9 @@ export class SimServer {
    * @returns Stats message payload.
    */
   private buildStats(): StatsMsg {
-    // Determine if we should include viz data
-    const includeViz = this.vizConnections.size > 0;
+    // Determine if we should include viz data. 
+    // We suppress viz if MT is active because main-thread brain activations are stale.
+    const includeViz = this.vizConnections.size > 0 && !this.mtActive;
 
     if (includeViz) {
       this.core.onVizSnakePick = () => this.pickVizSnake();

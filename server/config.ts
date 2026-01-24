@@ -17,7 +17,6 @@ export interface ServerConfig {
   publicWsUrl: string;
   tickRateHz: number;
   uiFrameRateHz: number;
-  actionTimeoutTicks: number;
   maxActionsPerTick: number;
   maxActionsPerSecond: number;
   dbPath: string;
@@ -39,7 +38,6 @@ export const DEFAULT_CONFIG: ServerConfig = {
   publicWsUrl: '',
   tickRateHz: 60,
   uiFrameRateHz: 30,
-  actionTimeoutTicks: 10,
   maxActionsPerTick: 1,
   maxActionsPerSecond: 120,
   dbPath: './data/slither.db',
@@ -215,14 +213,6 @@ export function normalizeConfig(
     warn?.('uiFrameRateHz exceeded tickRateHz; clamping to tickRateHz.');
     uiFrameRateHz = tickRateHz;
   }
-  const actionTimeoutTicks = coerceInt(
-    'actionTimeoutTicks',
-    input.actionTimeoutTicks,
-    DEFAULT_CONFIG.actionTimeoutTicks,
-    1,
-    600,
-    warn
-  );
   const maxActionsPerTick = coerceInt(
     'maxActionsPerTick',
     input.maxActionsPerTick,
@@ -295,7 +285,6 @@ export function normalizeConfig(
     publicWsUrl,
     tickRateHz,
     uiFrameRateHz,
-    actionTimeoutTicks,
     maxActionsPerTick,
     maxActionsPerSecond,
     dbPath,
@@ -365,7 +354,6 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     publicWsUrl: data['publicWsUrl'],
     tickRateHz: data['tickRateHz'],
     uiFrameRateHz: data['uiFrameRateHz'],
-    actionTimeoutTicks: data['actionTimeoutTicks'],
     maxActionsPerTick: data['maxActionsPerTick'],
     maxActionsPerSecond: data['maxActionsPerSecond'],
     dbPath: data['dbPath'],
@@ -425,10 +413,6 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
   const uiRate =
     parseIntValue(getArgValue(argv, '--ui-rate')) ?? parseIntValue(env['UI_RATE']);
   if (uiRate !== undefined) input.uiFrameRateHz = uiRate;
-  const actionTimeout =
-    parseIntValue(getArgValue(argv, '--action-timeout')) ??
-    parseIntValue(env['ACTION_TIMEOUT_TICKS']);
-  if (actionTimeout !== undefined) input.actionTimeoutTicks = actionTimeout;
   const maxActionsPerTick =
     parseIntValue(getArgValue(argv, '--actions-per-tick')) ??
     parseIntValue(env['ACTIONS_PER_TICK']);

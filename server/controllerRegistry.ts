@@ -6,7 +6,6 @@ export type ControllerType = 'player' | 'bot';
 
 /** Rate limits and timeouts for controller actions. */
 export interface ControllerRegistryOptions {
-  actionTimeoutTicks: number;
   maxActionsPerTick: number;
   maxActionsPerSecond: number;
 }

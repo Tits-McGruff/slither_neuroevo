@@ -17,6 +17,7 @@ export interface WorkerInitMessage {
         outputs: SharedArrayBuffer;
         weights: SharedArrayBuffer;
         indices: SharedArrayBuffer;
+        states?: SharedArrayBuffer;
         sync?: SharedArrayBuffer;
     };
     /** Index of the worker in the pool. */

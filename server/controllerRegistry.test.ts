@@ -14,7 +14,6 @@ describe('ControllerRegistry', () => {
     const sent: Array<{ connId: number; payload: unknown }> = [];
     const registry = new ControllerRegistry(
       {
-        actionTimeoutTicks: 2,
         maxActionsPerTick: 2,
         maxActionsPerSecond: 100
       },
@@ -68,13 +67,12 @@ describe('ControllerRegistry', () => {
     const snakes = [{ id: 1, alive: true, controllable: true }];
     const registry = new ControllerRegistry(
       {
-        actionTimeoutTicks: 2,
         maxActionsPerTick: 1,
         maxActionsPerSecond: 100
       },
       {
         getSnakes: () => snakes,
-        send: () => {}
+        send: () => { }
       }
     );
     registry.setTickId(5);
@@ -147,13 +145,12 @@ describe('ControllerRegistry', () => {
     ];
     const registry = new ControllerRegistry(
       {
-        actionTimeoutTicks: 2,
         maxActionsPerTick: 2,
         maxActionsPerSecond: 100
       },
       {
         getSnakes: () => snakes,
-        send: () => {}
+        send: () => { }
       }
     );
     registry.setTickId(1);

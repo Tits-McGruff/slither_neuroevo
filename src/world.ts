@@ -115,8 +115,18 @@ export interface ControllerRegistryLike {
   ) => void;
 }
 
+/** Interface for pluggable physics engines (e.g. Native Rust adapter). */
+export interface PhysicsBackend {
+  /** Perform a single physics step. */
+  step(dt: number): void;
+  /** Sync backend state to the JS World instance. */
+  syncTo(world: World): void;
+}
+
 /** Main simulation world containing population state, pellets, and snakes. */
 export class World {
+  /** Optional native physics backend. */
+  backend: PhysicsBackend | null = null;
   /** Normalized settings for the world instance. */
   settings: WorldSettings;
   /** Neural network architecture definition for the population. */
@@ -153,6 +163,8 @@ export class World {
   bestPointsSnakeId: number;
   /** Last Hall of Fame entry emitted by the world. */
   _lastHoFEntry: HallOfFameEntry | null;
+  /** Current simulation tick id. */
+  tickId: number = 0;
   /** Simulation speed multiplier. */
   simSpeed: number;
   /** Camera X coordinate for rendering. */
@@ -273,6 +285,14 @@ export class World {
     this._initPellets();
     this._chooseInitialFocus();
   }
+  /**
+   * Set the physics backend to use.
+   * @param backend - Physics backend instance.
+   */
+  setBackend(backend: PhysicsBackend): void {
+    this.backend = backend;
+  }
+
   /**
    * Immediately adjusts the simulation speed.  Also stores the new
    * value back into the settings object.
@@ -738,6 +758,12 @@ export class World {
     controllers?: ControllerRegistryLike,
     tickId = 0
   ): void {
+    if (this.backend) {
+      this.backend.step(dt);
+      this.backend.syncTo(this);
+      return;
+    }
+
     if (!this._shouldUseBatchControl()) {
       this._stepPhysicsLegacy(dt, controllers, tickId);
       return;

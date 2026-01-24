@@ -307,7 +307,9 @@ export class GRU {
     for (let j = 0; j < H; j++) {
       let sumH = 0;
       const whRow = Wh + j * I;
-      for (let i = 0; i < I; i++) sumH += (this.w[whRow + i] ?? 0) * (x[i] ?? 0);
+      for (let i = 0; i < I; i++) {
+        sumH += (this.w[whRow + i] ?? 0) * (x[i] ?? 0);
+      }
       const uhRow = Uh + j * H;
       for (let k = 0; k < H; k++) {
         const rVal = this._r[k] ?? 0;
