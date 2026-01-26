@@ -4,7 +4,6 @@
  */
 
 import { parentPort } from 'node:worker_threads';
-import { loadSimdKernels } from '../brains/wasmBridge.ts';
 import type { InferWorkerMessage, InferWorkerResponse } from '../sim/poolProtocol.ts';
 import { compileGraph } from '../brains/graph/compiler.ts';
 import { GraphBrain, type RuntimeNode } from '../brains/graph/runtime.ts';
@@ -33,8 +32,7 @@ parentPort.on('message', async (msg: InferWorkerMessage) => {
     try {
         switch (msg.type) {
             case 'init': {
-                // 1. Load kernels
-                await loadSimdKernels();
+                // 1. SIMD kernels are disabled in server-only mode.
 
                 // 2. Setup buffers
                 inputStride = msg.inputStride;

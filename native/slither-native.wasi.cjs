@@ -109,3 +109,8 @@ const { instance: __napiInstance, module: __wasiModule, napiModule: __napiModule
 })
 module.exports = __napiModule.exports
 module.exports.World = __napiModule.exports.World
+module.exports.denseForwardNative = __napiModule.exports.denseForwardNative
+module.exports.gruStepNative = __napiModule.exports.gruStepNative
+module.exports.lstmStepNative = __napiModule.exports.lstmStepNative
+module.exports.mlpForwardNative = __napiModule.exports.mlpForwardNative
+module.exports.rruStepNative = __napiModule.exports.rruStepNative

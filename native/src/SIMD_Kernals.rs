@@ -1,7 +1,15 @@
 //! WASM kernels for Dense, MLP, and recurrent forward passes.
 
-use core::arch::wasm32::*;
 use core::mem;
+
+#[cfg(target_arch = "x86_64")]
+use core::arch::x86_64::*;
+
+#[cfg(not(target_arch = "x86_64"))]
+compile_error!("Native SIMD kernels require x86_64 (SSE). No scalar fallback is enabled.");
+
+use napi::bindgen_prelude::{Float32Array, Int32Array};
+use napi_derive::napi;
 
 /// Convert signed sizes into non-negative `usize` values.
 fn to_usize(value: i32) -> usize {
@@ -21,25 +29,23 @@ fn to_usize(value: i32) -> usize {
 #[inline]
 unsafe fn dense_dot(weights_ptr: *const f32, input_ptr: *const f32, in_size: usize) -> f32 {
     let mut i = 0usize;
-    let mut sum = f32x4_splat(0.0);
-    // Safety: Caller guarantees pointers are valid for in_size
-    unsafe {
+    let mut total = unsafe {
+        let mut sum = _mm_setzero_ps();
         while i + 4 <= in_size {
-            let w = v128_load(weights_ptr.add(i) as *const v128);
-            let x = v128_load(input_ptr.add(i) as *const v128);
-            sum = f32x4_add(sum, f32x4_mul(w, x));
+            let w = _mm_loadu_ps(weights_ptr.add(i));
+            let x = _mm_loadu_ps(input_ptr.add(i));
+            sum = _mm_add_ps(sum, _mm_mul_ps(w, x));
             i += 4;
         }
-        let mut total = f32x4_extract_lane::<0>(sum)
-            + f32x4_extract_lane::<1>(sum)
-            + f32x4_extract_lane::<2>(sum)
-            + f32x4_extract_lane::<3>(sum);
-        while i < in_size {
-            total += *weights_ptr.add(i) * *input_ptr.add(i);
-            i += 1;
-        }
-        total
+        let mut buf = [0.0_f32; 4];
+        _mm_storeu_ps(buf.as_mut_ptr(), sum);
+        buf[0] + buf[1] + buf[2] + buf[3]
+    };
+    while i < in_size {
+        total += *weights_ptr.add(i) * *input_ptr.add(i);
+        i += 1;
     }
+    total
 }
 
 /// Compute a SIMD-accelerated dot product with two inputs multiplied together.
@@ -55,27 +61,25 @@ unsafe fn dense_dot_mul(
     len: usize,
 ) -> f32 {
     let mut i = 0usize;
-    let mut sum = f32x4_splat(0.0);
-    // Safety: Caller guarantees pointers are valid for len
-    unsafe {
+    let mut total = unsafe {
+        let mut sum = _mm_setzero_ps();
         while i + 4 <= len {
-            let w = v128_load(weights_ptr.add(i) as *const v128);
-            let a = v128_load(a_ptr.add(i) as *const v128);
-            let b = v128_load(b_ptr.add(i) as *const v128);
-            let ab = f32x4_mul(a, b);
-            sum = f32x4_add(sum, f32x4_mul(w, ab));
+            let w = _mm_loadu_ps(weights_ptr.add(i));
+            let a = _mm_loadu_ps(a_ptr.add(i));
+            let b = _mm_loadu_ps(b_ptr.add(i));
+            let ab = _mm_mul_ps(a, b);
+            sum = _mm_add_ps(sum, _mm_mul_ps(w, ab));
             i += 4;
         }
-        let mut total = f32x4_extract_lane::<0>(sum)
-            + f32x4_extract_lane::<1>(sum)
-            + f32x4_extract_lane::<2>(sum)
-            + f32x4_extract_lane::<3>(sum);
-        while i < len {
-            total += *weights_ptr.add(i) * (*a_ptr.add(i) * *b_ptr.add(i));
-            i += 1;
-        }
-        total
+        let mut buf = [0.0_f32; 4];
+        _mm_storeu_ps(buf.as_mut_ptr(), sum);
+        buf[0] + buf[1] + buf[2] + buf[3]
+    };
+    while i < len {
+        total += *weights_ptr.add(i) * (*a_ptr.add(i) * *b_ptr.add(i));
+        i += 1;
     }
+    total
 }
 
 /// Sigmoid activation function.
@@ -511,5 +515,165 @@ pub unsafe extern "C" fn rru_step(
                 *h_ptr.add(state_base + j) = (1.0 - gate) * prev + gate * cand;
             }
         }
+    }
+}
+
+#[napi(js_name = "dense_forward_native")]
+pub fn dense_forward_native(
+    weights: Float32Array,
+    inputs: Float32Array,
+    mut outputs: Float32Array,
+    in_size: i32,
+    out_size: i32,
+    batch_count: i32,
+    input_stride: i32,
+    output_stride: i32,
+) {
+    let weights = weights.as_ref();
+    let inputs = inputs.as_ref();
+    let outputs = unsafe { outputs.as_mut() };
+    unsafe {
+        dense_forward(
+            weights.as_ptr(),
+            inputs.as_ptr(),
+            outputs.as_mut_ptr(),
+            in_size,
+            out_size,
+            batch_count,
+            input_stride,
+            output_stride,
+        );
+    }
+}
+
+#[napi(js_name = "mlp_forward_native")]
+pub fn mlp_forward_native(
+    weights: Float32Array,
+    layer_sizes: Int32Array,
+    inputs: Float32Array,
+    mut outputs: Float32Array,
+    layer_count: i32,
+    batch_count: i32,
+    input_stride: i32,
+    output_stride: i32,
+    mut scratch: Float32Array,
+) {
+    let weights = weights.as_ref();
+    let layer_sizes = layer_sizes.as_ref();
+    let inputs = inputs.as_ref();
+    let outputs = unsafe { outputs.as_mut() };
+    let scratch = unsafe { scratch.as_mut() };
+    unsafe {
+        mlp_forward(
+            weights.as_ptr(),
+            layer_sizes.as_ptr(),
+            inputs.as_ptr(),
+            outputs.as_mut_ptr(),
+            layer_count,
+            batch_count,
+            input_stride,
+            output_stride,
+            scratch.as_mut_ptr(),
+            scratch.len() as i32,
+        );
+    }
+}
+
+#[napi(js_name = "gru_step_native")]
+pub fn gru_step_native(
+    weights: Float32Array,
+    inputs: Float32Array,
+    mut h: Float32Array,
+    mut z: Float32Array,
+    mut r: Float32Array,
+    mut h_prev: Float32Array,
+    in_size: i32,
+    hidden_size: i32,
+    batch_count: i32,
+    input_stride: i32,
+) {
+    let weights = weights.as_ref();
+    let inputs = inputs.as_ref();
+    let h = unsafe { h.as_mut() };
+    let z = unsafe { z.as_mut() };
+    let r = unsafe { r.as_mut() };
+    let h_prev = unsafe { h_prev.as_mut() };
+    unsafe {
+        gru_step(
+            weights.as_ptr(),
+            inputs.as_ptr(),
+            h.as_mut_ptr(),
+            z.as_mut_ptr(),
+            r.as_mut_ptr(),
+            h_prev.as_mut_ptr(),
+            in_size,
+            hidden_size,
+            batch_count,
+            input_stride,
+        );
+    }
+}
+
+#[napi(js_name = "lstm_step_native")]
+pub fn lstm_step_native(
+    weights: Float32Array,
+    inputs: Float32Array,
+    mut h: Float32Array,
+    mut c: Float32Array,
+    mut h_prev: Float32Array,
+    mut c_prev: Float32Array,
+    in_size: i32,
+    hidden_size: i32,
+    batch_count: i32,
+    input_stride: i32,
+) {
+    let weights = weights.as_ref();
+    let inputs = inputs.as_ref();
+    let h = unsafe { h.as_mut() };
+    let c = unsafe { c.as_mut() };
+    let h_prev = unsafe { h_prev.as_mut() };
+    let c_prev = unsafe { c_prev.as_mut() };
+    unsafe {
+        lstm_step(
+            weights.as_ptr(),
+            inputs.as_ptr(),
+            h.as_mut_ptr(),
+            c.as_mut_ptr(),
+            h_prev.as_mut_ptr(),
+            c_prev.as_mut_ptr(),
+            in_size,
+            hidden_size,
+            batch_count,
+            input_stride,
+        );
+    }
+}
+
+#[napi(js_name = "rru_step_native")]
+pub fn rru_step_native(
+    weights: Float32Array,
+    inputs: Float32Array,
+    mut h: Float32Array,
+    mut h_prev: Float32Array,
+    in_size: i32,
+    hidden_size: i32,
+    batch_count: i32,
+    input_stride: i32,
+) {
+    let weights = weights.as_ref();
+    let inputs = inputs.as_ref();
+    let h = unsafe { h.as_mut() };
+    let h_prev = unsafe { h_prev.as_mut() };
+    unsafe {
+        rru_step(
+            weights.as_ptr(),
+            inputs.as_ptr(),
+            h.as_mut_ptr(),
+            h_prev.as_mut_ptr(),
+            in_size,
+            hidden_size,
+            batch_count,
+            input_stride,
+        );
     }
 }

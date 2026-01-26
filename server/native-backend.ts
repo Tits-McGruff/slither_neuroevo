@@ -16,7 +16,22 @@ export class NativeBackend {
             worldRadius: CFG.worldRadius,
             snakeCount: jsWorld.settings.snakeCount,
             pelletCount: CFG.pelletCountTarget,
-            tickRate: 60 // Default placeholder
+            tickRate: 60, // Default placeholder
+            hiddenLayers: jsWorld.settings.hiddenLayers,
+            neurons1: jsWorld.settings.neurons1,
+            neurons2: jsWorld.settings.neurons2,
+            neurons3: jsWorld.settings.neurons3,
+            neurons4: jsWorld.settings.neurons4,
+            neurons5: jsWorld.settings.neurons5,
+            useMlp: CFG.brain.useMlp !== false && CFG.brain.useMlp !== 0,
+            stackGru: CFG.brain.stack?.gru ?? 0,
+            stackLstm: CFG.brain.stack?.lstm ?? 0,
+            stackRru: CFG.brain.stack?.rru ?? 0,
+            gruHidden: CFG.brain.gruHidden ?? 16,
+            lstmHidden: CFG.brain.lstmHidden ?? 16,
+            rruHidden: CFG.brain.rruHidden ?? 16,
+            pelletSpawnPerSecond: CFG.pelletSpawnPerSecond ?? 0,
+            controlDt: CFG.brain.controlDt ?? (1 / 60)
         };
 
         this.native = new NativeWorld(settings);

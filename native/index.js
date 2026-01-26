@@ -577,3 +577,8 @@ if (!nativeBinding) {
 
 module.exports = nativeBinding
 module.exports.World = nativeBinding.World
+module.exports.denseForwardNative = nativeBinding.denseForwardNative
+module.exports.gruStepNative = nativeBinding.gruStepNative
+module.exports.lstmStepNative = nativeBinding.lstmStepNative
+module.exports.mlpForwardNative = nativeBinding.mlpForwardNative
+module.exports.rruStepNative = nativeBinding.rruStepNative

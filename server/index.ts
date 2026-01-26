@@ -3,7 +3,6 @@ import { pathToFileURL } from 'node:url';
 import { CFG, resetCFGToDefaults } from '../src/config.ts';
 import { World } from '../src/world.ts';
 import { WorldSerializer } from '../src/serializer.ts';
-import { loadSimdKernels } from '../src/brains/wasmBridge.ts';
 import { parseConfig, type ServerConfig } from './config.ts';
 import { hashConfig } from './hash.ts';
 import { createHttpHandler } from './httpApi.ts';
@@ -42,7 +41,6 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
   if (latestSnapshot?.updates) {
     applySettingsUpdates(latestSnapshot.updates);
   }
-  await loadSimdKernels();
   // Hash config so clients can detect mismatched settings.
   const cfgHash = hashConfig(CFG);
   const sensorSpec = buildSensorSpec();

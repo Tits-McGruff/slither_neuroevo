@@ -24,10 +24,22 @@ To ensure compatibility with the existing Node.js parent process and the subsequ
 
 - **INV-001 (Precision + Storage)**: Match JS semantics: weights/state/IO buffers are `Float32Array` in TS, so native storage MUST be `f32`. Computation uses `f64` only where JS uses `Number`, then results are explicitly truncated to `f32` at the same write points as the TS implementation (layer outputs, recurrent state, and batch outputs). Do not silently upgrade buffers to `f64`.
 - **INV-002 (Memory Strategy)**: The high-frequency simulation loop (backend `step`) must satisfy a "Zero-Allocation Guarantee". All vectors, scratch buffers, and hash maps must be pre-allocated during the constructor phase. Per-tick heap allocations (`Box`, `Vec::new`) are strictly prohibited to prevent GC-like pauses and ensure consistent frame times.
+  - **Allowed allocation boundary**: allocations are permitted only in constructor, explicit reset paths, and explicit config-change reconfigure paths that are never called from the per-substep loop.
 - **INV-003 (Byte Stride Alignment)**: The weight buffer passed from Node.js is a flat `Float32Array`. The Rust engine must interpret this buffer using offset-based slicing that matches the `enrichArchInfo` layout in `mlp.ts` exactly. Any off-by-one error in weight indexing will result in "brain-dead" agents.
 - **INV-004 (Coordinate Space)**: The world origin `(0,0)` is the center of the circular arena. Positive Y is "Down" and positive X is "Right". Heading `0` is eastward, with positive rotations going clockwise (following the standard DOM/Canvas coordinate model).
 - **INV-005 (Sensor Layout)**: Sensor input sizing and offsets must match `getSensorLayout(bins, layoutVersion)` with `bins = max(8, floor(CFG.sense.bubbleBins ?? 16))` and `layoutVersion = CFG.sense.layoutVersion ?? 'v2'`.
 - **INV-006 (FP Flags)**: Disable fast-math and contraction for parity builds. Do not allow reassociation or FMA unless the JS reference does.
+- **INV-007 (Grid Epoch Ordering)**: Sensors that query the collision grid must use the grid built at the end of the previous substep; collision resolution must use the grid rebuilt after physics advance for the current substep. Backend init and any hard reset must build an initial grid from current positions before the first control evaluation.
+- **INV-008 (Iteration Ordering)**: Snake update order, pellet scan order, and segment insertion order into the grid must match TS iteration order. Do not introduce sorting, hashing iteration, or parallelism in any step that affects control, sensing, spawning, feeding, or collisions.
+
+```toml
+# .cargo/config.toml (parity profile guidance)
+[build]
+rustflags = [
+  "-C", "target-feature=-fma",
+  "-C", "llvm-args=-fp-contract=off",
+]
+```
 
 ## 3. Module Specification: `native/src/math.rs`
 
@@ -35,7 +47,7 @@ This module provides the primitive mathematical operations. Although simple, the
 
 - **`sigmoid(x: f64) -> f64`**: Must implement the standard logistic function `1 / (1 + exp(-x))`. We will use `f64::exp()` for parity with `Math.exp`.
 - **`tanh(x: f64) -> f64`**: Must use `f64::tanh()` for parity with `Math.tanh`.
-- **`ang_norm(a: f64) -> f64`**: A critical utility that wraps an angle into the range `[-PI, PI]`. It must handle multiple rotations and negative angles correctly to prevent "spinning" artifacts in the AI's heading sensors.
+- **`ang_norm(a: f64) -> f64`**: A critical utility that wraps an angle into the range `[-PI, PI]`. It must handle multiple rotations and negative angles correctly to prevent "spinning" artifacts in the AI's heading sensors. Port the exact TS function body (`src/utils.ts`), do not substitute a mathematically equivalent form unless tests confirm identical outputs across representative inputs.
 - **`lerp(a: f64, b: f64, t: f64) -> f64`**: Standard linear interpolation `a + t * (b - a)`. Used for speed transitions and camera smoothing.
 - **`clamp(x: f64, min: f64, max: f64) -> f64`**: Standard clamp.
 
@@ -47,14 +59,35 @@ fn sigmoid(x: f64) -> f64 {
 
 #[inline(always)]
 fn ang_norm(a: f64) -> f64 {
-  let mut x = a % std::f64::consts::TAU;
-  if x < -std::f64::consts::PI {
-    x += std::f64::consts::TAU;
-  }
-  if x > std::f64::consts::PI {
+  let mut x = a;
+  while x > std::f64::consts::PI {
     x -= std::f64::consts::TAU;
   }
+  while x < -std::f64::consts::PI {
+    x += std::f64::consts::TAU;
+  }
   x
+}
+```
+
+```rs
+#[test]
+fn ang_norm_large_values_match_ts() {
+  let cases = [
+    0.0,
+    std::f64::consts::PI,
+    -std::f64::consts::PI,
+    std::f64::consts::PI + 1e-6,
+    -std::f64::consts::PI - 1e-6,
+    3.0 * std::f64::consts::PI,
+    -3.0 * std::f64::consts::PI,
+    1.0e9,
+    -1.0e9,
+  ];
+  for &a in &cases {
+    let got = ang_norm(a);
+    assert!(got >= -std::f64::consts::PI && got <= std::f64::consts::PI);
+  }
 }
 ```
 
@@ -135,15 +168,16 @@ This is the "Brain's Interface" to the world. A sensor mismatch of even 1% can c
     Honor `CFG.sense.maxPelletChecks` and `CFG.sense.maxSegmentChecks` caps when iterating pellets/segments (same defaults and guards as `sensors.ts`).
 - **`Hazard Bins`**:
     Query the collision grid for segments within `rNear`. Compute the minimum clearance per bin and normalize with `ratio = clamp(clearance / rNear, 0, 1)` as in `sensors.ts`. This uses segment distance, snake radii, and `CFG.collision.hitScale`.
+    - Exclude segments belonging to the same snake id (self), mirroring `sensors.ts`.
 - **`Head Pressure (v2)`**:
     When `layout.offsets.head` exists, compute head-only clearance bins using `rNear` and the head-vs-head logic from `sensors.ts`.
 - **`Speed + Boost Scalars (v2)`**:
-    When `layoutVersion === 'v2'`, write speed and boost ratios at indices 5 and 6 using `ratioToBipolar` and the same normalizations as `buildSensors`.
+    When `layoutVersion === 'v2'`, write speed and boost ratios using the layout contract. For the current v2 layout, these are indices 5 and 6; add a construction-time assertion that the layout matches those indices, or use layout-provided offsets if the layout surface changes.
 - **`Legacy Layout`**:
     If `layoutVersion !== 'v2'`, use the legacy bubble radius (`_bubbleRadiusForSnake`) and the legacy food/hazard/wall bin fillers from `sensors.ts`.
 
 ```rs
-// v2 scalar slots (indices 5, 6)
+// v2 scalar slots (indices 5, 6 in current layout)
 let speed_ratio = if snake.speed.is_finite() {
   snake.speed / cfg.snake_boost_speed.max(1e-6)
 } else {
@@ -155,8 +189,15 @@ ins[6] = ratio_to_bipolar(boost_ratio);
 ```
 
 ```rs
+// Construction-time layout contract assertion (v2 scalars).
+assert_eq!(layout.layout_version, LayoutVersion::V2);
+assert_eq!(layout.scalar_speed_index, 5);
+assert_eq!(layout.scalar_boost_index, 6);
+```
+
+```rs
 // Sensor layout resolution + radii (no allocations).
-let bins = cfg.sense.bubble_bins.max(8);
+let bins = (cfg.sense.bubble_bins.floor() as i32).max(8);
 let layout = get_sensor_layout(bins, cfg.sense.layout_version);
 let size_norm = snake.size_norm();
 let (r_near, r_far) = compute_sensor_radii(size_norm, cfg);
@@ -192,6 +233,7 @@ for i in 0..bins {
 // Hazard bins (v2) – centered binning + clearance normalization.
 scratch_haz.fill(r_near);
 for seg in nearby_segments.iter().take(max_segment_checks) {
+  if seg.ent_id == snake.id { continue; }
   let (qx, qy, d2) = closest_point_on_segment(sx, sy, seg.ax, seg.ay, seg.bx, seg.by);
   let thr = (snake.radius + seg.other_radius) * cfg.collision.hit_scale;
   let max_dist = r_near + thr;
@@ -512,7 +554,7 @@ cd native && cargo test --all-features
 ### Phase 3: Geometry & Brains
 
 - [ ] Implement `native/src/spatial_hash.rs`
-  - [ ] `head`, `next`, `entities`, `segments` buffer allocation.
+  - [ ] `head`, `next`, `ent`, `seg` buffer allocation.
   - [ ] `insert` (offset mapping, cell floor parity).
   - [ ] `query_cell` (Linked-list traversal parity).
 - [ ] Implement `native/src/brain.rs`
@@ -536,11 +578,12 @@ cd native && cargo test --all-features
 
 ### Phase 5: Verification Suite (`tests.rs`)
 
-- [ ] `test_math_parity` (Sigmoid/Tanh/AngNorm)
+- [ ] `test_math_parity` (Sigmoid/Tanh/AngNorm incl. large-magnitude angles)
 - [ ] `test_kernel_parity` (DenseHead/MLP batch vs single-sample parity)
 - [ ] `test_hash_parity` (Insertion/Query coordination)
 - [ ] `test_sensor_parity` (Centered bin mapping + wall/hazard/head checks)
 - [ ] `test_physics_parity` (Speed lerp + boundary death path)
+- [ ] `test_no_alloc_in_step` (Allocator instrumentation or capacity-stability sentinel)
 
 ### Phase 6: Integration & Sync
 

@@ -162,7 +162,7 @@ export class SimCore {
 
   /**
    * Build a statistics object for the current frame.
-   * This unifies the logic from server/simServer.ts and src/worker.ts
+   * This is the single source of truth for server-side stats.
    *
    * @param includeViz - Whether to include brain visualization data.
    */

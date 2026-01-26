@@ -1,7 +1,7 @@
 /** Low-level neural network primitives and parameter layouts used by brains. */
 
 import { clamp } from '../utils.ts';
-import { requireGruKernel, requireLstmKernel, requireRruKernel } from './wasmBridge.ts';
+import { isSimdAvailable, requireGruKernel, requireLstmKernel, requireRruKernel } from './wasmBridge.ts';
 
 /**
  * Sigmoid activation function.
@@ -238,10 +238,14 @@ export class GRU {
 
   /**
    * Advance the GRU by one timestep.
+   * Uses SIMD kernels when available, otherwise falls back to the reference path.
    * @param x - Input vector.
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    if (!isSimdAvailable()) {
+      return this.stepReference(x);
+    }
     const kernel = requireGruKernel();
     kernel.stepBatch(
       this.w,
@@ -384,10 +388,14 @@ export class LSTM {
 
   /**
    * Advance the LSTM by one timestep.
+   * Uses SIMD kernels when available, otherwise falls back to the reference path.
    * @param x - Input vector.
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    if (!isSimdAvailable()) {
+      return this.stepReference(x);
+    }
     const kernel = requireLstmKernel();
     kernel.stepBatch(
       this.w,
@@ -524,10 +532,14 @@ export class RRU {
 
   /**
    * Advance the RRU by one timestep.
+   * Uses SIMD kernels when available, otherwise falls back to the reference path.
    * @param x - Input vector.
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    if (!isSimdAvailable()) {
+      return this.stepReference(x);
+    }
     const kernel = requireRruKernel();
     kernel.stepBatch(
       this.w,

@@ -8,7 +8,7 @@ At the top level, `package.json` and `package-lock.json` define the Node toolcha
 
 ## Runtime architecture and data flow
 
-The runtime is built around a server-authoritative architecture. The **Simulation Server** (`SimServer`) runs the core physics and neural logic using the shared **Simulation Core** (`src/sim/SimCore.ts`). `src/main.ts` owns the DOM, canvas sizing, tab switching, settings sliders, and rendering. It connects to the server with `src/net/wsClient.ts` (see `server/protocol.ts` for message shapes).
+The runtime is built around a server-authoritative architecture. The **Simulation Server** (`SimServer`) runs the core physics and neural logic using the shared **Simulation Core** (`src/sim/SimCore.ts`). `src/main.ts` owns the DOM, canvas sizing, tab switching, settings sliders, and rendering. It connects to the server with `src/net/wsClient.ts` (see `server/protocol.ts` for message shapes). The browser no longer runs a local worker simulation; it is a thin client that renders server frames.
 
 ### Server Mode (`SimServer`)
 
@@ -35,7 +35,7 @@ To overcome the single-threaded bottleneck of JavaScript, the simulation employs
 
 ## Binary frame format and rendering pipeline
 
-The fast path relies on a strict binary format for world snapshots. `src/serializer.ts` writes a `Float32Array` with a 7-float header (`generation`, `totalSnakes`, `aliveCount`, `worldRadius`, `cameraX`, `cameraY`, `zoom`), followed by a compact per-snake block and then the pellet block. Only alive snakes are serialized, and each snake starts with 8 floats (id, radius, skin flag, x, y, dir, boost flag, point count) followed by `pointCount * 2` floats for the body points. The pellet section starts with `pelletCount`, then repeats `(x, y, value, type, colorId)` where type is `0 ambient`, `1 corpse_big`, `2 corpse_small`, `3 boost`. Frame offsets and read helpers are centralized in `src/protocol/frame.ts`. The renderer uses this buffer to drive speed-based glow and boost trails, so pointer math must remain exact. Server and worker modes share this exact buffer layout.
+The fast path relies on a strict binary format for world snapshots. `src/serializer.ts` writes a `Float32Array` with a 7-float header (`generation`, `totalSnakes`, `aliveCount`, `worldRadius`, `cameraX`, `cameraY`, `zoom`), followed by a compact per-snake block and then the pellet block. Only alive snakes are serialized, and each snake starts with 8 floats (id, radius, skin flag, x, y, dir, boost flag, point count) followed by `pointCount * 2` floats for the body points. The pellet section starts with `pelletCount`, then repeats `(x, y, value, type, colorId)` where type is `0 ambient`, `1 corpse_big`, `2 corpse_small`, `3 boost`. Frame offsets and read helpers are centralized in `src/protocol/frame.ts`. The renderer uses this buffer to drive speed-based glow and boost trails, so pointer math must remain exact. Server frames use this exact buffer layout.
 
 `src/render.ts` (`renderWorldStruct`) parses this buffer linearly to draw the grid, pellets, then snakes, and `src/main.ts` also parses it to support God Mode selection. Any layout change must be reflected in `src/serializer.ts`, `src/render.ts`, and the parsing logic in `src/main.ts` (for selection and camera), or you will get corrupted rendering and interactions. When you need to extend what the UI can see, prefer adding fields to the buffer rather than reintroducing heavy object cloning on the worker boundary.
 
@@ -67,15 +67,15 @@ Evolution happens in `World._endGeneration()`, which computes fitness via `Snake
 
 ## Rendering, theme, and particles
 
-Rendering is split into a fast path and a legacy path. The serialized-buffer path (`renderWorldStruct` in `src/render.ts`) draws from the binary frame buffer produced by either the server or the worker, uses `THEME` and `getPelletColor`/`getPelletGlow` from `src/theme.ts`, assigns snake colors with `hashColor` in `src/utils.ts` unless the gold skin flag is set, and adds speed/boost-based glow plus boost trails. The legacy path (`renderWorld`) draws directly from a `World` instance and includes extra overlays and particle rendering, which is useful for debugging but is not the default in worker or server mode.
+Rendering is split into a fast path and a legacy path. The serialized-buffer path (`renderWorldStruct` in `src/render.ts`) draws from the binary frame buffer produced by the server, uses `THEME` and `getPelletColor`/`getPelletGlow` from `src/theme.ts`, assigns snake colors with `hashColor` in `src/utils.ts` unless the gold skin flag is set, and adds speed/boost-based glow plus boost trails. The legacy path (`renderWorld`) draws directly from a `World` instance and includes extra overlays and particle rendering, which is useful for debugging but is not the default path.
 
 `src/particles.ts` implements a pooled particle system with additive blending and is updated inside `World.update()` and rendered inside `renderWorld`. Those particles are not serialized into the worker buffer; the fast path instead uses lightweight render-side boost trails driven by the serialized boost flag and speed estimate. `src/theme.ts` is the single source of truth for palette and glow colors, so keep visual changes centralized there rather than scattering hard-coded colors across the renderer.
 
 ## UI, settings, and visualization panels
 
-`index.html` defines the tabbed control panel (Settings, Visualizer, Stats, Hall of Fame) plus the God Mode log panel and the join overlay. `styles.css` implements the panel layout, sliders, tab buttons, the join overlay, and simple entry transitions. `src/main.ts` wires these DOM elements to the worker or server connection, holds a `currentFrameBuffer`, and uses a `proxyWorld` to expose minimal world-like methods (`toggleViewMode`, `resurrect`) to the UI and Hall of Fame code. The God Mode interactions (click to select, right-click to kill, drag to move) depend on parsing the buffer and converting screen coordinates to world coordinates using the camera values embedded in the frame header. The Settings lock hides `#settingsControls` to keep sliders out of reach, and the join overlay requires a nickname before player control is enabled.
+`index.html` defines the tabbed control panel (Settings, Visualizer, Stats, Hall of Fame) plus the God Mode log panel and the join overlay. `styles.css` implements the panel layout, sliders, tab buttons, the join overlay, and simple entry transitions. `src/main.ts` wires these DOM elements to the server connection, holds a `currentFrameBuffer`, and uses a `proxyWorld` to expose minimal world-like methods (`toggleViewMode`, `resurrect`) to the UI and Hall of Fame code. The God Mode interactions (click to select, right-click to kill, drag to move) depend on parsing the buffer and converting screen coordinates to world coordinates using the camera values embedded in the frame header. The Settings lock hides `#settingsControls` to keep sliders out of reach, and the join overlay requires a nickname before player control is enabled.
 
-The settings system is in `src/settings.ts`, which constructs grouped sliders from `SETTING_SPECS` and uses `data-path` attributes to map slider values into `CFG` via `setByPath` from `src/utils.ts`. Sliders marked `requiresReset` only apply on world reset; live sliders call back to `src/main.ts`, which posts incremental updates to the worker. The top-level core sliders (snake count, sim speed, layer counts, neuron sizes) are wired directly in `src/main.ts` and must stay aligned with `buildArch()` in `src/mlp.ts` and defaults in `src/config.ts`. Brain layouts are edited via the unified graph editor in the Settings tab (nodes/edges/outputs + templates), with optional JSON import/export for advanced edits.
+The settings system is in `src/settings.ts`, which constructs grouped sliders from `SETTING_SPECS` and uses `data-path` attributes to map slider values into `CFG` via `setByPath` from `src/utils.ts`. Sliders marked `requiresReset` only apply on world reset; live sliders call back to `src/main.ts`, which posts incremental updates to the server. The top-level core sliders (snake count, sim speed, layer counts, neuron sizes) are wired directly in `src/main.ts` and must stay aligned with `buildArch()` in `src/mlp.ts` and defaults in `src/config.ts`. Brain layouts are edited via the unified graph editor in the Settings tab (nodes/edges/outputs + templates), with optional JSON import/export for advanced edits.
 
 The diagram is interactive: drag nodes to reposition (layout overrides are UI-only), toggle Connect mode to add edges by clicking start/target nodes, and use the inspector to edit node/edge/output fields.
 
@@ -85,19 +85,19 @@ The diagram toolbar supports Add node/output, Delete, Auto layout, and Full scre
 
 Saved presets load from the server DB, and the current graph draft can be applied to reset the world.
 
-Graph preset lists come from `/api/graph-presets` and stay empty in worker mode.
+Graph preset lists come from `/api/graph-presets`.
 
 Advanced JSON controls (Load JSON into editor, Copy current graph, Export JSON) live under the optional details panel.
 
 `src/main.ts` persists the applied graph spec to localStorage (`slither_neuroevo_graph_spec`) and reloads it on startup, falling back to the default template if invalid.
 
-Visualization helpers live in `src/BrainViz.ts`, `src/FitnessChart.ts`, and `src/chartUtils.ts`. The Brain Visualizer renders activation heat strips when the worker or server sends `stats.viz` data (enabled via the Visualizer tab; `src/main.ts` posts a `viz` message to toggle streaming). The Stats tab uses a chart selector to render fitness, species diversity, and network complexity from `fitnessHistory` entries sent by the worker or server (min/avg/max plus species/complexity metrics).
+Visualization helpers live in `src/BrainViz.ts`, `src/FitnessChart.ts`, and `src/chartUtils.ts`. The Brain Visualizer renders activation heat strips when the server sends `stats.viz` data (enabled via the Visualizer tab; `src/main.ts` posts a `viz` message to toggle streaming). The Stats tab uses a chart selector to render fitness, species diversity, and network complexity from `fitnessHistory` entries sent by the server (min/avg/max plus species/complexity metrics).
 
 ## Persistence and Hall of Fame
 
-Persistence utilities are in `src/storage.ts`, which provides a small `Storage` wrapper and explicit population save/load helpers keyed by `slither_neuroevo_pop`. The Hall of Fame in `src/hallOfFame.ts` stores the top 50 snakes by fitness in `slither_neuroevo_hof` and is populated from `World._endGeneration()`. In the UI, `window.spawnHoF` is defined in `src/main.ts` and calls `proxyWorld.resurrect()` so the worker can spawn the saved genome, which also triggers follow mode and re-centers the camera on the resurrected snake.
+Persistence utilities are in `src/storage.ts`, which provides a small `Storage` wrapper and explicit population save/load helpers keyed by `slither_neuroevo_pop`. The Hall of Fame in `src/hallOfFame.ts` stores the top 50 snakes by fitness in `slither_neuroevo_hof` and is populated from `World._endGeneration()`. In the UI, `window.spawnHoF` is defined in `src/main.ts` and calls `proxyWorld.resurrect()` so the server can spawn the saved genome, which also triggers follow mode and re-centers the camera on the resurrected snake.
 
-Import/export is exposed in the Settings tab and uses the worker protocol in worker mode or the server HTTP endpoints in server mode. `src/main.ts` requests an export payload from the worker, adds HoF data, and downloads a JSON file; in server mode it posts `/api/save` then fetches `/api/export/latest` before downloading. Imports validate the JSON, update the Hall of Fame store, persist population JSON in localStorage, and send the genomes to the worker for an in-place reset; in server mode it posts `/api/import`. Server-side persistence (`server/persistence.ts`) stores population snapshots plus graph presets in SQLite (`data/slither.db`); `server/httpApi.ts` exposes `/api/save`, `/api/export/latest`, `/api/import`, `/api/graph-presets` (list/save), and `/api/graph-presets/:id` (load) for DB-backed workflows, while export still writes JSON to the client file system. Diagram layout overrides are not persisted.
+Import/export is exposed in the Settings tab and uses the server HTTP endpoints. `src/main.ts` posts `/api/save` then fetches `/api/export/latest` before downloading. Imports validate the JSON, update the Hall of Fame store, persist population JSON in localStorage, and post `/api/import`. Server-side persistence (`server/persistence.ts`) stores population snapshots plus graph presets in SQLite (`data/slither.db`); `server/httpApi.ts` exposes `/api/save`, `/api/export/latest`, `/api/import`, `/api/graph-presets` (list/save), and `/api/graph-presets/:id` (load) for DB-backed workflows, while export still writes JSON to the client file system. Diagram layout overrides are not persisted.
 
 ### Scalable server persistence (Chunked blob format)
 
@@ -114,14 +114,7 @@ This architecture ensures that the application can scale to thousands of complex
 
 ## Rust & WASM Toolchain
 
-The high-performance numerics are backed by a Rust crate located in `wasm/`. This crate compiles to a WebAssembly module that exposes SIMD-accelerated kernels (`dense_forward`, `lstm_step`, etc.) to the JavaScript runtime.
-
-**Build Pipeline**:
-The build process is automated via `scripts/build-wasm.mjs`. Use `npm run build` to invoke the pipeline, which:
-
-1. Calls `cargo build --target wasm32-unknown-unknown --release`.
-2. Optimizes the output binary using `wasm-opt` (if available) or internal shrinking flags.
-3. Copies the resulting `.wasm` file to the `public/` directory for Vite consumption.
+The server-authoritative path does not require WebAssembly to run. SIMD wasm kernels are optional and only used if `src/brains/wasm/brains_simd.wasm` is present and explicitly loaded by the runtime. If the wasm asset is missing, the server should fall back to the JS kernels without crashing.
 
 **Safety Invariants**:
 Because the WASM module operates on raw pointers passed from JavaScript (`SharedArrayBuffer` views), memory safety is manual and critical.
@@ -170,7 +163,7 @@ This runs Vite with ES module support and serves the app from a local server (op
 
 ## Project-specific conventions and gotchas
 
-Performance is a constant concern in this codebase. Hot paths avoid allocations and prefer typed arrays (`Float32Array` for network weights and serialization buffers, and typed arrays plus an object list in `FlatSpatialHash`), so when adding new per-frame data keep GC pressure low. The worker buffer layout is a hard contract: modify it only if you also update `renderWorldStruct` and the God Mode parsing in `src/main.ts`. There is also a legacy render path (`renderWorld`) that references a `drawSnake` helper not defined in `src/render.ts`, which is a signal that the non-worker renderer is not the current focus; if you revive it, audit that path carefully and supply any missing drawing helpers.
+Performance is a constant concern in this codebase. Hot paths avoid allocations and prefer typed arrays (`Float32Array` for network weights and serialization buffers, and typed arrays plus an object list in `FlatSpatialHash`), so when adding new per-frame data keep GC pressure low. The server frame buffer layout is a hard contract: modify it only if you also update `renderWorldStruct` and the God Mode parsing in `src/main.ts`. There is also a legacy render path (`renderWorld`) that references a `drawSnake` helper not defined in `src/render.ts`, which is a signal that the non-fast renderer is not the current focus; if you revive it, audit that path carefully and supply any missing drawing helpers.
 
 Keep the sensors and brain input size aligned. If you change `CFG.sense.bubbleBins` or adjust the sensor vector layout, update `CFG.brain.inSize` and any code that assumes a fixed input length (including BrainViz or any debug panels). Similarly, changes to genetic operators or architecture keys can invalidate saved genomes in localStorage, so consider how `Genome.toJSON()` and `archKey()` are used before altering their output.
 

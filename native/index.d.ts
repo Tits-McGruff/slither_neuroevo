@@ -22,12 +22,27 @@ export interface Brain {
   state: Array<number>
 }
 
+/** Native dense forward kernel (N-API). */
+export declare function denseForwardNative(weights: Float32Array, inputs: Float32Array, outputs: Float32Array, inSize: number, outSize: number, batchCount: number, inputStride: number, outputStride: number): void
+
+/** Native GRU step kernel (N-API). */
+export declare function gruStepNative(weights: Float32Array, inputs: Float32Array, h: Float32Array, z: Float32Array, r: Float32Array, hPrev: Float32Array, inSize: number, hiddenSize: number, batchCount: number, inputStride: number): void
+
+/** Native LSTM step kernel (N-API). */
+export declare function lstmStepNative(weights: Float32Array, inputs: Float32Array, h: Float32Array, c: Float32Array, hPrev: Float32Array, cPrev: Float32Array, inSize: number, hiddenSize: number, batchCount: number, inputStride: number): void
+
+/** Native MLP forward kernel (N-API). */
+export declare function mlpForwardNative(weights: Float32Array, layerSizes: Int32Array, inputs: Float32Array, outputs: Float32Array, layerCount: number, batchCount: number, inputStride: number, outputStride: number, scratch: Float32Array): void
+
 export interface Pellet {
   x: number
   y: number
   value: number
   type: string
 }
+
+/** Native RRU step kernel (N-API). */
+export declare function rruStepNative(weights: Float32Array, inputs: Float32Array, h: Float32Array, hPrev: Float32Array, inSize: number, hiddenSize: number, batchCount: number, inputStride: number): void
 
 export interface Snake {
   id: number
@@ -55,4 +70,19 @@ export interface WorldSettings {
   snakeCount: number
   pelletCount: number
   tickRate: number
+  hiddenLayers: number
+  neurons1: number
+  neurons2: number
+  neurons3: number
+  neurons4: number
+  neurons5: number
+  useMlp: boolean
+  stackGru: number
+  stackLstm: number
+  stackRru: number
+  gruHidden: number
+  lstmHidden: number
+  rruHidden: number
+  pelletSpawnPerSecond: number
+  controlDt: number
 }

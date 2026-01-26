@@ -57,3 +57,8 @@ const {
 })
 export default __napiModule.exports
 export const World = __napiModule.exports.World
+export const denseForwardNative = __napiModule.exports.denseForwardNative
+export const gruStepNative = __napiModule.exports.gruStepNative
+export const lstmStepNative = __napiModule.exports.lstmStepNative
+export const mlpForwardNative = __napiModule.exports.mlpForwardNative
+export const rruStepNative = __napiModule.exports.rruStepNative

@@ -110,7 +110,6 @@ async function handleInit(msg: InitMessage): Promise<void> {
   if (msg.indexBuffer.byteLength < msg.maxBatch * Uint32Array.BYTES_PER_ELEMENT) {
     throw new Error('inferWorker index buffer too small');
   }
-  await loadSimdKernels();
   inputView = new Float32Array(msg.inputBuffer);
   outputView = new Float32Array(msg.outputBuffer);
   indexView = new Uint32Array(msg.indexBuffer);
@@ -205,3 +204,9 @@ parentPort?.on('message', async (msg: WorkerMessage) => {
     postMessage({ type: 'error', reason: message });
   }
 });
+  try {
+    await loadSimdKernels();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn('[native] load failed; falling back to JS', { reason: message });
+  }
