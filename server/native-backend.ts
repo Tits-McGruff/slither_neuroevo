@@ -23,7 +23,7 @@ export class NativeBackend {
             neurons3: jsWorld.settings.neurons3,
             neurons4: jsWorld.settings.neurons4,
             neurons5: jsWorld.settings.neurons5,
-            useMlp: CFG.brain.useMlp !== false && CFG.brain.useMlp !== 0,
+            useMlp: CFG.brain.useMlp !== false,
             stackGru: CFG.brain.stack?.gru ?? 0,
             stackLstm: CFG.brain.stack?.lstm ?? 0,
             stackRru: CFG.brain.stack?.rru ?? 0,
