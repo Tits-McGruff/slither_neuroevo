@@ -21,7 +21,7 @@
     "lint": "eslint .",
     "server": "tsx server/index.ts",
     "server:dev": "tsx watch server/index.ts",
-    "postinstall": "node scripts/postinstall.cjs",
+    "postinstall": "scripts/postinstall-runner",
     "build:docs": "typedoc"
   },
   "keywords": [],

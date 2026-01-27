@@ -1,5 +1,7 @@
 /**
  * Runs the native dependency install using npm without relying on PATH resolution.
+ *
+ * @returns {void} No return value.
  */
 function runPostinstall() {
   const { spawnSync } = require("node:child_process")
