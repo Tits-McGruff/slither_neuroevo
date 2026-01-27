@@ -22,16 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (wasm target)
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            wasm -> target
+            native -> target
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -45,27 +43,26 @@ jobs:
       - run: npm test
 
   rust_lint:
-    name: Rust fmt and clippy (wasm crate)
+    name: Rust fmt and clippy (native crate)
     runs-on: ubuntu-latest
 
     defaults:
       run:
-        working-directory: wasm
+        working-directory: native
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (components + wasm target)
+      - name: Install Rust toolchain (components)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
           components: clippy, rustfmt
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            wasm -> target
+            native -> target
 
       - run: cargo fmt -- --check
-      - run: cargo clippy --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo clippy -- -D warnings
