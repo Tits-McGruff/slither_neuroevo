@@ -135,3 +135,4 @@ wasi-worker*.mjs
 !.yarn/sdks
 !.yarn/versions
 /npm
+yarn.lock

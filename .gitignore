@@ -2,6 +2,7 @@
 .vscode/
 dist/
 node_modules/
+yarn.lock
 
 markdown-rules/
 docs/feedback-from-outside-llms/

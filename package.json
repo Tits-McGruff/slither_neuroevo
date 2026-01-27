@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && npm --prefix native run build",
     "preview": "vite preview",
     "test": "npm run test:native && vitest run",
     "test:unit": "tsx scripts/run-tests.ts unit",
