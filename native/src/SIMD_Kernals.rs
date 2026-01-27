@@ -512,6 +512,7 @@ pub unsafe extern "C" fn rru_step(
   }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[napi(js_name = "denseForwardNative")]
 pub fn dense_forward_native(
   weights: Float32Array,
@@ -540,6 +541,7 @@ pub fn dense_forward_native(
   }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[napi(js_name = "mlpForwardNative")]
 pub fn mlp_forward_native(
   weights: Float32Array,
@@ -573,6 +575,7 @@ pub fn mlp_forward_native(
   }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[napi(js_name = "gruStepNative")]
 pub fn gru_step_native(
   weights: Float32Array,
@@ -608,6 +611,7 @@ pub fn gru_step_native(
   }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[napi(js_name = "lstmStepNative")]
 pub fn lstm_step_native(
   weights: Float32Array,
@@ -643,6 +647,7 @@ pub fn lstm_step_native(
   }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[napi(js_name = "rruStepNative")]
 pub fn rru_step_native(
   weights: Float32Array,

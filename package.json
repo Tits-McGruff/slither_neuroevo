@@ -21,7 +21,7 @@
     "lint": "eslint .",
     "server": "tsx server/index.ts",
     "server:dev": "tsx watch server/index.ts",
-    "postinstall": "npm --prefix native install",
+    "postinstall": "node scripts/postinstall.cjs",
     "build:docs": "typedoc"
   },
   "keywords": [],
