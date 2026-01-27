@@ -136,11 +136,7 @@ export class SimServer {
     });
 
     const nativeEnv = process.env.SLITHER_NATIVE_BACKEND;
-    const isTestEnv =
-      process.env.VITEST === '1' ||
-      process.env.VITEST_WORKER_ID !== undefined ||
-      process.env.NODE_ENV === 'test';
-    const shouldUseNative = nativeEnv === '1' || (!isTestEnv && nativeEnv !== '0');
+    const shouldUseNative = nativeEnv === '1';
 
     // Initialize Native Backend when enabled.
     if (shouldUseNative) {

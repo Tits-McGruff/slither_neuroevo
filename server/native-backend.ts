@@ -1,16 +1,48 @@
 
-import { World as NativeWorld } from '../native/index.js';
+import { createRequire } from 'node:module';
 import type { WorldSettings } from '../native/index.js';
 import type { World } from '../src/world.ts';
 import { CFG } from '../src/config.ts';
+
+type NativeWorldCtor = new (settings: WorldSettings) => {
+  step(): void;
+  getSnakes(): Array<{
+    id: number;
+    x: number;
+    y: number;
+    dir: number;
+    alive: boolean;
+    pointsScore: number;
+  }>;
+};
+
+function loadNativeWorldCtor(): NativeWorldCtor {
+  const require = createRequire(import.meta.url);
+  const native = require('../native/index.js') as { World?: NativeWorldCtor };
+  if (!native?.World) {
+    throw new Error('Native World export missing. Native backend is unavailable.');
+  }
+  return native.World;
+}
 
 /**
  * Adapter that wraps the Native Rust simulation engine.
  */
 export class NativeBackend {
-    private native: NativeWorld;
+    private native: {
+        step(): void;
+        getSnakes(): Array<{
+            id: number;
+            x: number;
+            y: number;
+            dir: number;
+            alive: boolean;
+            pointsScore: number;
+        }>;
+    };
 
     constructor(jsWorld: World) {
+        const NativeWorld = loadNativeWorldCtor();
         // Convert JS config to Native settings
         const settings: WorldSettings = {
             worldRadius: CFG.worldRadius,
