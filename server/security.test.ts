@@ -27,6 +27,70 @@ function parseJsonMessage(data: RawData): Record<string, unknown> | null {
 }
 
 /**
+ * Waits for a protocol error response or policy-violation close after sending data.
+ * @param ws - WebSocket client to monitor.
+ * @param timeoutMs - Timeout in milliseconds.
+ * @param sendOnOpen - Callback that sends the test payload after open.
+ * @returns True when a protocol rejection is observed.
+ */
+function waitForProtocolRejection(
+  ws: WebSocket,
+  timeoutMs: number,
+  sendOnOpen: () => void
+): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+
+    const cleanup = () => {
+      ws.off('open', onOpen);
+      ws.off('message', onMessage);
+      ws.off('close', onClose);
+      ws.off('error', onError);
+    };
+
+    const finish = (result: boolean) => {
+      clearTimeout(timeout);
+      cleanup();
+      resolve(result);
+    };
+
+    const onOpen = () => {
+      try {
+        sendOnOpen();
+      } catch (err) {
+        cleanup();
+        clearTimeout(timeout);
+        reject(err);
+      }
+    };
+
+    const onMessage = (data: RawData, isBinary: boolean) => {
+      if (isBinary) return;
+      const msg = parseJsonMessage(data);
+      if (!msg) return;
+      if (msg['type'] === 'error') {
+        finish(true);
+      }
+    };
+
+    const onClose = (code: number) => {
+      finish(code === 1008);
+    };
+
+    const onError = (err: Error) => {
+      cleanup();
+      clearTimeout(timeout);
+      reject(err);
+    };
+
+    ws.on('open', onOpen);
+    ws.on('message', onMessage);
+    ws.on('close', onClose);
+    ws.on('error', onError);
+  });
+}
+
+/**
  * Starts the server and returns null when permissions prevent binding.
  * @returns Server handle or null when the port is unavailable.
  */
@@ -74,28 +138,13 @@ describe('security: invalid WS payloads', () => {
     let sawError = false;
 
     try {
-      const result = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('timeout')), 4000);
-
-        ws.on('message', (data: RawData, isBinary: boolean) => {
-          if (isBinary) return;
-          const msg = parseJsonMessage(data);
-          if (!msg) return;
-          if (msg['type'] === 'error') {
-            sawError = true;
-            clearTimeout(timeout);
-            resolve();
-          }
-        });
-
-        ws.on('open', () => {
-          ws.send('{ this is not json');
-        });
+      sawError = await waitForProtocolRejection(ws, 6000, () => {
+        ws.send('{ this is not json');
       });
-
-      await result;
     } finally {
-      ws.close();
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
+        ws.close();
+      }
       await server.close();
     }
 
@@ -110,29 +159,14 @@ describe('security: invalid WS payloads', () => {
     let sawError = false;
 
     try {
-      const result = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('timeout')), 4000);
-
-        ws.on('message', (data: RawData, isBinary: boolean) => {
-          if (isBinary) return;
-          const msg = parseJsonMessage(data);
-          if (!msg) return;
-          if (msg['type'] === 'error') {
-            sawError = true;
-            clearTimeout(timeout);
-            resolve();
-          }
-        });
-
-        ws.on('open', () => {
-          ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
-          ws.send(JSON.stringify({ type: 'join', mode: 'player', name: '' }));
-        });
+      sawError = await waitForProtocolRejection(ws, 6000, () => {
+        ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
+        ws.send(JSON.stringify({ type: 'join', mode: 'player', name: '' }));
       });
-
-      await result;
     } finally {
-      ws.close();
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
+        ws.close();
+      }
       await server.close();
     }
 

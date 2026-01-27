@@ -4,7 +4,7 @@ import { World } from '../src/world.ts';
 import { WorldSerializer } from '../src/serializer.ts';
 import { CFG, resetCFGToDefaults, syncBrainInputSize } from '../src/config.ts';
 import { mlpParamCount } from '../src/brains/ops.ts';
-import { requireDenseKernel, requireMlpKernel } from '../src/brains/wasmBridge.ts';
+import { loadSimdKernels, requireDenseKernel, requireMlpKernel } from '../src/brains/wasmBridge.ts';
 
 /** Test suite label for server performance checks. */
 const SUITE = 'performance: world tick + serialize';
@@ -72,7 +72,8 @@ describe(SUITE, () => {
     }
   });
 
-  it('runs SIMD dense + MLP batches under a reasonable budget', () => {
+  it('runs SIMD dense + MLP batches under a reasonable budget', async () => {
+    await loadSimdKernels();
     const denseKernel = requireDenseKernel();
     const mlpKernel = requireMlpKernel();
 

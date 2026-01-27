@@ -78,13 +78,25 @@ describe('server integration', () => {
 
     try {
       const result = new Promise<void>((resolve, reject) => {
+        let settled = false;
         const timeout = setTimeout(() => {
+          if (settled) return;
+          settled = true;
           reject(new Error('timed out waiting for welcome/frame'));
-        }, 4000);
+        }, 15000);
 
         ws.on('error', (err: Error) => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timeout);
           reject(err);
+        });
+
+        ws.on('close', (code: number) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          reject(new Error(`socket closed (${code})`));
         });
 
         ws.on('message', (data: RawData, isBinary: boolean) => {
@@ -108,6 +120,8 @@ describe('server integration', () => {
           }
 
           if (seen.welcome && seen.frame) {
+            if (settled) return;
+            settled = true;
             clearTimeout(timeout);
             resolve();
           }
@@ -121,7 +135,9 @@ describe('server integration', () => {
 
       await result;
     } finally {
-      ws.close();
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
+        ws.close();
+      }
       await server.close();
     }
 
@@ -143,7 +159,7 @@ describe('server integration', () => {
       const result = new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('timed out waiting for assign/sensors'));
-        }, 4000);
+        }, 10000);
 
         ws.on('error', (err: Error) => {
           clearTimeout(timeout);

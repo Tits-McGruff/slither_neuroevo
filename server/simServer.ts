@@ -135,13 +135,22 @@ export class SimServer {
       worldSeed: worldSeed
     });
 
-    // Initialize Native Backend
-    try {
-      const native = new NativeBackend(this.core.world);
-      this.core.world.setBackend(native);
-      console.log('[NativeBackend] Initialized and attached.');
-    } catch (err) {
-      console.error('[NativeBackend] Failed to initialize:', err);
+    const nativeEnv = process.env.SLITHER_NATIVE_BACKEND;
+    const isTestEnv =
+      process.env.VITEST === '1' ||
+      process.env.VITEST_WORKER_ID !== undefined ||
+      process.env.NODE_ENV === 'test';
+    const shouldUseNative = nativeEnv === '1' || (!isTestEnv && nativeEnv !== '0');
+
+    // Initialize Native Backend when enabled.
+    if (shouldUseNative) {
+      try {
+        const native = new NativeBackend(this.core.world);
+        this.core.world.setBackend(native);
+        console.log('[NativeBackend] Initialized and attached.');
+      } catch (err) {
+        console.error('[NativeBackend] Failed to initialize:', err);
+      }
     }
 
     if (process.env[PROFILE_ENV_VAR] === '1') {

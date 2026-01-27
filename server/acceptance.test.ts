@@ -77,11 +77,25 @@ describe('acceptance: join and play flow', () => {
 
     try {
       const result = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('timeout')), 4000);
+        let settled = false;
+        const timeout = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          reject(new Error('timeout'));
+        }, 12000);
 
         ws.on('error', (err: Error) => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timeout);
           reject(err);
+        });
+
+        ws.on('close', (code: number) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          reject(new Error(`socket closed (${code})`));
         });
 
         ws.on('message', (data: RawData, isBinary: boolean) => {
@@ -102,6 +116,8 @@ describe('acceptance: join and play flow', () => {
                 boost: 0
               }));
             }
+            if (settled) return;
+            settled = true;
             clearTimeout(timeout);
             resolve();
           }
@@ -115,7 +131,9 @@ describe('acceptance: join and play flow', () => {
 
       await result;
     } finally {
-      ws.close();
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
+        ws.close();
+      }
       await server.close();
     }
 

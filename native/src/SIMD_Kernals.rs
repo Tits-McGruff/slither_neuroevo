@@ -1,4 +1,7 @@
-//! WASM kernels for Dense, MLP, and recurrent forward passes.
+//! x86_64 SIMD kernels for Dense, MLP, and recurrent forward passes.
+//!
+//! These are native-only kernels used from Node via N-API. No scalar or non-x86 fallback exists.
+//! If you're not on x86_64, that's a you problem.
 
 use core::mem;
 
@@ -518,7 +521,7 @@ pub unsafe extern "C" fn rru_step(
     }
 }
 
-#[napi(js_name = "dense_forward_native")]
+#[napi(js_name = "denseForwardNative")]
 pub fn dense_forward_native(
     weights: Float32Array,
     inputs: Float32Array,
@@ -546,7 +549,7 @@ pub fn dense_forward_native(
     }
 }
 
-#[napi(js_name = "mlp_forward_native")]
+#[napi(js_name = "mlpForwardNative")]
 pub fn mlp_forward_native(
     weights: Float32Array,
     layer_sizes: Int32Array,
@@ -579,7 +582,7 @@ pub fn mlp_forward_native(
     }
 }
 
-#[napi(js_name = "gru_step_native")]
+#[napi(js_name = "gruStepNative")]
 pub fn gru_step_native(
     weights: Float32Array,
     inputs: Float32Array,
@@ -614,7 +617,7 @@ pub fn gru_step_native(
     }
 }
 
-#[napi(js_name = "lstm_step_native")]
+#[napi(js_name = "lstmStepNative")]
 pub fn lstm_step_native(
     weights: Float32Array,
     inputs: Float32Array,
@@ -649,7 +652,7 @@ pub fn lstm_step_native(
     }
 }
 
-#[napi(js_name = "rru_step_native")]
+#[napi(js_name = "rruStepNative")]
 pub fn rru_step_native(
     weights: Float32Array,
     inputs: Float32Array,
@@ -675,5 +678,521 @@ pub fn rru_step_native(
             batch_count,
             input_stride,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dense_forward_reference(
+        weights: &[f32],
+        inputs: &[f32],
+        outputs: &mut [f32],
+        in_size: usize,
+        out_size: usize,
+        batch_count: usize,
+        input_stride: usize,
+        output_stride: usize,
+    ) {
+        let out_limit = out_size.min(output_stride);
+        for b in 0..batch_count {
+            let input_base = b * input_stride;
+            let output_base = b * output_stride;
+            for o in 0..output_stride {
+                outputs[output_base + o] = 0.0;
+            }
+            let mut w_index = 0usize;
+            for o in 0..out_limit {
+                let mut sum = 0.0_f32;
+                for i in 0..in_size {
+                    sum += weights[w_index + i] * inputs[input_base + i];
+                }
+                let bias = weights[w_index + in_size];
+                w_index += in_size + 1;
+                outputs[output_base + o] = (sum + bias).tanh();
+            }
+        }
+    }
+
+    fn mlp_forward_reference(
+        weights: &[f32],
+        layer_sizes: &[i32],
+        inputs: &[f32],
+        outputs: &mut [f32],
+        batch_count: usize,
+        input_stride: usize,
+        output_stride: usize,
+    ) {
+        let layer_count = layer_sizes.len();
+        if layer_count < 2 {
+            return;
+        }
+        let mut max_size = 0usize;
+        for &size in layer_sizes {
+            max_size = max_size.max(to_usize(size));
+        }
+        let mut buf_a = vec![0.0_f32; max_size.max(1)];
+        let mut buf_b = vec![0.0_f32; max_size.max(1)];
+        for b in 0..batch_count {
+            let input_base = b * input_stride;
+            let input_size = to_usize(layer_sizes[0]);
+            buf_a[..input_size].copy_from_slice(&inputs[input_base..input_base + input_size]);
+            let mut cur = &mut buf_a;
+            let mut next = &mut buf_b;
+            let mut w_index = 0usize;
+            for l in 1..layer_count {
+                let in_size = to_usize(layer_sizes[l - 1]);
+                let out_size = to_usize(layer_sizes[l]);
+                for o in 0..out_size {
+                    let mut sum = 0.0_f32;
+                    for i in 0..in_size {
+                        sum += weights[w_index + i] * cur[i];
+                    }
+                    let bias = weights[w_index + in_size];
+                    w_index += in_size + 1;
+                    next[o] = (sum + bias).tanh();
+                }
+                mem::swap(&mut cur, &mut next);
+            }
+            let out_size = to_usize(layer_sizes[layer_count - 1]);
+            let out_limit = out_size.min(output_stride);
+            let output_base = b * output_stride;
+            for o in 0..output_stride {
+                outputs[output_base + o] = 0.0;
+            }
+            for o in 0..out_limit {
+                outputs[output_base + o] = cur[o];
+            }
+        }
+    }
+
+    #[test]
+    fn dense_forward_matches_reference() {
+        let in_size = 3;
+        let out_size = 2;
+        let count = 2;
+        let input_stride = 3;
+        let output_stride = 2;
+        let weights = vec![
+            0.1, 0.2, 0.3, 0.01, // o0
+            -0.2, 0.4, 0.05, -0.03, // o1
+        ];
+        let inputs = vec![
+            1.0, -2.0, 0.5,
+            0.25, 0.75, -1.5,
+        ];
+        let mut out_native = vec![0.0_f32; count * output_stride];
+        let mut out_ref = vec![0.0_f32; count * output_stride];
+        unsafe {
+            dense_forward(
+                weights.as_ptr(),
+                inputs.as_ptr(),
+                out_native.as_mut_ptr(),
+                in_size as i32,
+                out_size as i32,
+                count as i32,
+                input_stride as i32,
+                output_stride as i32,
+            );
+        }
+        dense_forward_reference(
+            &weights,
+            &inputs,
+            &mut out_ref,
+            in_size,
+            out_size,
+            count,
+            input_stride,
+            output_stride,
+        );
+        for i in 0..out_native.len() {
+            assert!((out_native[i] - out_ref[i]).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn mlp_forward_matches_reference() {
+        let layer_sizes = vec![3, 4, 2];
+        let count = 2;
+        let input_stride = 3;
+        let output_stride = 2;
+        let param_count = (3 + 1) * 4 + (4 + 1) * 2;
+        let mut weights = Vec::with_capacity(param_count);
+        for i in 0..param_count {
+            weights.push((i as f32 * 0.01) - 0.2);
+        }
+        let inputs = vec![
+            1.0, -2.0, 0.5,
+            0.25, 0.75, -1.5,
+        ];
+        let mut out_native = vec![0.0_f32; count * output_stride];
+        let mut out_ref = vec![0.0_f32; count * output_stride];
+        let mut scratch = vec![0.0_f32; 8];
+        unsafe {
+            mlp_forward(
+                weights.as_ptr(),
+                layer_sizes.as_ptr(),
+                inputs.as_ptr(),
+                out_native.as_mut_ptr(),
+                layer_sizes.len() as i32,
+                count as i32,
+                input_stride as i32,
+                output_stride as i32,
+                scratch.as_mut_ptr(),
+                scratch.len() as i32,
+            );
+        }
+        mlp_forward_reference(
+            &weights,
+            &layer_sizes,
+            &inputs,
+            &mut out_ref,
+            count,
+            input_stride,
+            output_stride,
+        );
+        for i in 0..out_native.len() {
+            assert!((out_native[i] - out_ref[i]).abs() < 1e-6);
+        }
+    }
+
+    fn gru_step_reference(
+        weights: &[f32],
+        inputs: &[f32],
+        h: &mut [f32],
+        z: &mut [f32],
+        r: &mut [f32],
+        h_prev: &mut [f32],
+        in_size: usize,
+        hidden_size: usize,
+        batch_count: usize,
+        input_stride: usize,
+    ) {
+        let wsz = hidden_size * in_size;
+        let usz = hidden_size * hidden_size;
+        let wz = 0usize;
+        let wr = wz + wsz;
+        let wh = wr + wsz;
+        let uz = wh + wsz;
+        let ur = uz + usz;
+        let uh = ur + usz;
+        let bz = uh + usz;
+        let br = bz + hidden_size;
+        let bh = br + hidden_size;
+
+        for b in 0..batch_count {
+            let input_base = b * input_stride;
+            let state_base = b * hidden_size;
+            for j in 0..hidden_size {
+                h_prev[state_base + j] = h[state_base + j];
+            }
+            for j in 0..hidden_size {
+                let mut sum_z = 0.0_f32;
+                let mut sum_r = 0.0_f32;
+                let wz_row = wz + j * in_size;
+                let wr_row = wr + j * in_size;
+                let uz_row = uz + j * hidden_size;
+                let ur_row = ur + j * hidden_size;
+                for i in 0..in_size {
+                    sum_z += weights[wz_row + i] * inputs[input_base + i];
+                    sum_r += weights[wr_row + i] * inputs[input_base + i];
+                }
+                for i in 0..hidden_size {
+                    sum_z += weights[uz_row + i] * h_prev[state_base + i];
+                    sum_r += weights[ur_row + i] * h_prev[state_base + i];
+                }
+                sum_z += weights[bz + j];
+                sum_r += weights[br + j];
+                z[state_base + j] = sigmoid(sum_z);
+                r[state_base + j] = sigmoid(sum_r);
+            }
+            for j in 0..hidden_size {
+                let wh_row = wh + j * in_size;
+                let uh_row = uh + j * hidden_size;
+                let mut sum_h = 0.0_f32;
+                for i in 0..in_size {
+                    sum_h += weights[wh_row + i] * inputs[input_base + i];
+                }
+                for i in 0..hidden_size {
+                    sum_h += weights[uh_row + i] * (r[state_base + i] * h_prev[state_base + i]);
+                }
+                sum_h += weights[bh + j];
+                let h_tilde = sum_h.tanh();
+                let z_val = z[state_base + j];
+                let prev = h_prev[state_base + j];
+                h[state_base + j] = (1.0 - z_val) * prev + z_val * h_tilde;
+            }
+        }
+    }
+
+    fn lstm_step_reference(
+        weights: &[f32],
+        inputs: &[f32],
+        h: &mut [f32],
+        c: &mut [f32],
+        h_prev: &mut [f32],
+        c_prev: &mut [f32],
+        in_size: usize,
+        hidden_size: usize,
+        batch_count: usize,
+        input_stride: usize,
+    ) {
+        let wsz = hidden_size * in_size;
+        let usz = hidden_size * hidden_size;
+        let wi = 0usize;
+        let wf = wi + wsz;
+        let wo = wf + wsz;
+        let wg = wo + wsz;
+        let ui = wg + wsz;
+        let uf = ui + usz;
+        let uo = uf + usz;
+        let ug = uo + usz;
+        let bi = ug + usz;
+        let bf = bi + hidden_size;
+        let bo = bf + hidden_size;
+        let bg = bo + hidden_size;
+
+        for b in 0..batch_count {
+            let input_base = b * input_stride;
+            let state_base = b * hidden_size;
+            for j in 0..hidden_size {
+                h_prev[state_base + j] = h[state_base + j];
+                c_prev[state_base + j] = c[state_base + j];
+            }
+            for j in 0..hidden_size {
+                let wi_row = wi + j * in_size;
+                let wf_row = wf + j * in_size;
+                let wo_row = wo + j * in_size;
+                let wg_row = wg + j * in_size;
+                let ui_row = ui + j * hidden_size;
+                let uf_row = uf + j * hidden_size;
+                let uo_row = uo + j * hidden_size;
+                let ug_row = ug + j * hidden_size;
+                let mut sum_i = 0.0_f32;
+                let mut sum_f = 0.0_f32;
+                let mut sum_o = 0.0_f32;
+                let mut sum_g = 0.0_f32;
+                for i in 0..in_size {
+                    let x = inputs[input_base + i];
+                    sum_i += weights[wi_row + i] * x;
+                    sum_f += weights[wf_row + i] * x;
+                    sum_o += weights[wo_row + i] * x;
+                    sum_g += weights[wg_row + i] * x;
+                }
+                for i in 0..hidden_size {
+                    let prev = h_prev[state_base + i];
+                    sum_i += weights[ui_row + i] * prev;
+                    sum_f += weights[uf_row + i] * prev;
+                    sum_o += weights[uo_row + i] * prev;
+                    sum_g += weights[ug_row + i] * prev;
+                }
+                sum_i += weights[bi + j];
+                sum_f += weights[bf + j];
+                sum_o += weights[bo + j];
+                sum_g += weights[bg + j];
+                let i_gate = sigmoid(sum_i);
+                let f_gate = sigmoid(sum_f);
+                let o_gate = sigmoid(sum_o);
+                let g_gate = sum_g.tanh();
+                let prev_c = c_prev[state_base + j];
+                let next_c = f_gate * prev_c + i_gate * g_gate;
+                c[state_base + j] = next_c;
+                h[state_base + j] = o_gate * next_c.tanh();
+            }
+        }
+    }
+
+    fn rru_step_reference(
+        weights: &[f32],
+        inputs: &[f32],
+        h: &mut [f32],
+        h_prev: &mut [f32],
+        in_size: usize,
+        hidden_size: usize,
+        batch_count: usize,
+        input_stride: usize,
+    ) {
+        let wsz = hidden_size * in_size;
+        let usz = hidden_size * hidden_size;
+        let wc = 0usize;
+        let wr = wc + wsz;
+        let uc = wr + wsz;
+        let ur = uc + usz;
+        let bc = ur + usz;
+        let br = bc + hidden_size;
+
+        for b in 0..batch_count {
+            let input_base = b * input_stride;
+            let state_base = b * hidden_size;
+            for j in 0..hidden_size {
+                h_prev[state_base + j] = h[state_base + j];
+            }
+            for j in 0..hidden_size {
+                let wc_row = wc + j * in_size;
+                let wr_row = wr + j * in_size;
+                let uc_row = uc + j * hidden_size;
+                let ur_row = ur + j * hidden_size;
+                let mut sum_c = 0.0_f32;
+                let mut sum_r = 0.0_f32;
+                for i in 0..in_size {
+                    let x = inputs[input_base + i];
+                    sum_c += weights[wc_row + i] * x;
+                    sum_r += weights[wr_row + i] * x;
+                }
+                for i in 0..hidden_size {
+                    let prev = h_prev[state_base + i];
+                    sum_c += weights[uc_row + i] * prev;
+                    sum_r += weights[ur_row + i] * prev;
+                }
+                sum_c += weights[bc + j];
+                sum_r += weights[br + j];
+                let cand = sum_c.tanh();
+                let gate = sigmoid(sum_r);
+                let prev = h_prev[state_base + j];
+                h[state_base + j] = (1.0 - gate) * prev + gate * cand;
+            }
+        }
+    }
+
+    fn assert_all_close(label: &str, a: &[f32], b: &[f32]) {
+        assert_eq!(a.len(), b.len(), "{label} length mismatch");
+        for i in 0..a.len() {
+            let diff = (a[i] - b[i]).abs();
+            assert!(diff < 1e-6, "{label} idx {i} diff {diff}");
+        }
+    }
+
+    #[test]
+    fn recurrent_steps_match_reference() {
+        let in_size = 2usize;
+        let hidden_size = 2usize;
+        let batch_count = 2usize;
+        let input_stride = 2usize;
+
+        let gru_weight_count = 3 * (hidden_size * in_size + hidden_size * hidden_size + hidden_size);
+        let mut gru_weights = Vec::with_capacity(gru_weight_count);
+        for i in 0..gru_weight_count {
+            gru_weights.push((i as f32 * 0.01) - 0.15);
+        }
+        let inputs = vec![0.5, -1.0, 1.5, 0.25];
+        let mut h = vec![0.2, -0.1, 0.05, -0.2];
+        let mut z = vec![0.0; hidden_size * batch_count];
+        let mut r = vec![0.0; hidden_size * batch_count];
+        let mut h_prev = vec![0.0; hidden_size * batch_count];
+        let mut h_ref = h.clone();
+        let mut z_ref = z.clone();
+        let mut r_ref = r.clone();
+        let mut h_prev_ref = h_prev.clone();
+        unsafe {
+            gru_step(
+                gru_weights.as_ptr(),
+                inputs.as_ptr(),
+                h.as_mut_ptr(),
+                z.as_mut_ptr(),
+                r.as_mut_ptr(),
+                h_prev.as_mut_ptr(),
+                in_size as i32,
+                hidden_size as i32,
+                batch_count as i32,
+                input_stride as i32,
+            );
+        }
+        gru_step_reference(
+            &gru_weights,
+            &inputs,
+            &mut h_ref,
+            &mut z_ref,
+            &mut r_ref,
+            &mut h_prev_ref,
+            in_size,
+            hidden_size,
+            batch_count,
+            input_stride,
+        );
+        assert_all_close("gru_h", &h, &h_ref);
+        assert_all_close("gru_z", &z, &z_ref);
+        assert_all_close("gru_r", &r, &r_ref);
+        assert_all_close("gru_prev", &h_prev, &h_prev_ref);
+
+        let lstm_weight_count =
+            4 * (hidden_size * in_size + hidden_size * hidden_size + hidden_size);
+        let mut lstm_weights = Vec::with_capacity(lstm_weight_count);
+        for i in 0..lstm_weight_count {
+            lstm_weights.push((i as f32 * 0.008) - 0.12);
+        }
+        let mut h_l = vec![0.1, 0.2, -0.1, 0.05];
+        let mut c_l = vec![0.02, -0.03, 0.01, -0.02];
+        let mut h_prev_l = vec![0.0; hidden_size * batch_count];
+        let mut c_prev_l = vec![0.0; hidden_size * batch_count];
+        let mut h_l_ref = h_l.clone();
+        let mut c_l_ref = c_l.clone();
+        let mut h_prev_l_ref = h_prev_l.clone();
+        let mut c_prev_l_ref = c_prev_l.clone();
+        unsafe {
+            lstm_step(
+                lstm_weights.as_ptr(),
+                inputs.as_ptr(),
+                h_l.as_mut_ptr(),
+                c_l.as_mut_ptr(),
+                h_prev_l.as_mut_ptr(),
+                c_prev_l.as_mut_ptr(),
+                in_size as i32,
+                hidden_size as i32,
+                batch_count as i32,
+                input_stride as i32,
+            );
+        }
+        lstm_step_reference(
+            &lstm_weights,
+            &inputs,
+            &mut h_l_ref,
+            &mut c_l_ref,
+            &mut h_prev_l_ref,
+            &mut c_prev_l_ref,
+            in_size,
+            hidden_size,
+            batch_count,
+            input_stride,
+        );
+        assert_all_close("lstm_h", &h_l, &h_l_ref);
+        assert_all_close("lstm_c", &c_l, &c_l_ref);
+        assert_all_close("lstm_prev_h", &h_prev_l, &h_prev_l_ref);
+        assert_all_close("lstm_prev_c", &c_prev_l, &c_prev_l_ref);
+
+        let rru_weight_count =
+            2 * (hidden_size * in_size + hidden_size * hidden_size + hidden_size);
+        let mut rru_weights = Vec::with_capacity(rru_weight_count);
+        for i in 0..rru_weight_count {
+            rru_weights.push((i as f32 * 0.012) - 0.08);
+        }
+        let mut h_r = vec![0.15, -0.05, 0.2, -0.1];
+        let mut h_prev_r = vec![0.0; hidden_size * batch_count];
+        let mut h_r_ref = h_r.clone();
+        let mut h_prev_r_ref = h_prev_r.clone();
+        unsafe {
+            rru_step(
+                rru_weights.as_ptr(),
+                inputs.as_ptr(),
+                h_r.as_mut_ptr(),
+                h_prev_r.as_mut_ptr(),
+                in_size as i32,
+                hidden_size as i32,
+                batch_count as i32,
+                input_stride as i32,
+            );
+        }
+        rru_step_reference(
+            &rru_weights,
+            &inputs,
+            &mut h_r_ref,
+            &mut h_prev_r_ref,
+            in_size,
+            hidden_size,
+            batch_count,
+            input_stride,
+        );
+        assert_all_close("rru_h", &h_r, &h_r_ref);
+        assert_all_close("rru_prev", &h_prev_r, &h_prev_r_ref);
     }
 }

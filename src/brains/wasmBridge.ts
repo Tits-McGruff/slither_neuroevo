@@ -100,7 +100,13 @@ function buildDenseKernel(): DenseKernel {
   return {
     forwardBatch: (weights, inputs, outputs, inSize, outSize, count, inputStride, outputStride) => {
       const native = requireNativeBinding();
-      native.dense_forward_native(weights, inputs, outputs, inSize, outSize, count, inputStride, outputStride);
+      const forward =
+        native.denseForwardNative ??
+        native.dense_forward_native;
+      if (!forward) {
+        throw new Error('Native dense kernel missing; expected denseForwardNative.');
+      }
+      forward(weights, inputs, outputs, inSize, outSize, count, inputStride, outputStride);
     }
   };
 }
@@ -119,7 +125,13 @@ function buildMlpKernel(): MlpKernel {
       if (scratch.length < required) {
         scratch = new Float32Array(required);
       }
-      native.mlp_forward_native(
+      const forward =
+        native.mlpForwardNative ??
+        native.mlp_forward_native;
+      if (!forward) {
+        throw new Error('Native MLP kernel missing; expected mlpForwardNative.');
+      }
+      forward(
         weights,
         layerSizes,
         inputs,
@@ -138,7 +150,13 @@ function buildGruKernel(): GruKernel {
   return {
     stepBatch: (weights, inputs, h, z, r, hPrev, inSize, hiddenSize, count, inputStride) => {
       const native = requireNativeBinding();
-      native.gru_step_native(weights, inputs, h, z, r, hPrev, inSize, hiddenSize, count, inputStride);
+      const step =
+        native.gruStepNative ??
+        native.gru_step_native;
+      if (!step) {
+        throw new Error('Native GRU kernel missing; expected gruStepNative.');
+      }
+      step(weights, inputs, h, z, r, hPrev, inSize, hiddenSize, count, inputStride);
     }
   };
 }
@@ -147,7 +165,13 @@ function buildLstmKernel(): LstmKernel {
   return {
     stepBatch: (weights, inputs, h, c, hPrev, cPrev, inSize, hiddenSize, count, inputStride) => {
       const native = requireNativeBinding();
-      native.lstm_step_native(weights, inputs, h, c, hPrev, cPrev, inSize, hiddenSize, count, inputStride);
+      const step =
+        native.lstmStepNative ??
+        native.lstm_step_native;
+      if (!step) {
+        throw new Error('Native LSTM kernel missing; expected lstmStepNative.');
+      }
+      step(weights, inputs, h, c, hPrev, cPrev, inSize, hiddenSize, count, inputStride);
     }
   };
 }
@@ -156,7 +180,13 @@ function buildRruKernel(): RruKernel {
   return {
     stepBatch: (weights, inputs, h, hPrev, inSize, hiddenSize, count, inputStride) => {
       const native = requireNativeBinding();
-      native.rru_step_native(weights, inputs, h, hPrev, inSize, hiddenSize, count, inputStride);
+      const step =
+        native.rruStepNative ??
+        native.rru_step_native;
+      if (!step) {
+        throw new Error('Native RRU kernel missing; expected rruStepNative.');
+      }
+      step(weights, inputs, h, hPrev, inSize, hiddenSize, count, inputStride);
     }
   };
 }

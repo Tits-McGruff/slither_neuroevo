@@ -300,7 +300,14 @@ export class WsHub {
    */
   private protocolError(state: ConnectionState, message: string): void {
     if (state.socket.readyState === WebSocket.OPEN) {
-      state.socket.send(JSON.stringify({ type: 'error', message }));
+      try {
+        state.socket.send(JSON.stringify({ type: 'error', message }), () => {
+          state.socket.close(1008, message);
+        });
+        return;
+      } catch {
+        // Fall through to ensure the socket is still closed.
+      }
     }
     state.socket.close(1008, message);
   }
