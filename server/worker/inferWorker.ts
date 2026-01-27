@@ -1,5 +1,5 @@
 import { parentPort } from 'node:worker_threads';
-import { loadSimdKernels } from '../../src/brains/wasmBridge.ts';
+import { loadSimdKernels } from '../../src/brains/nativeBridge.ts';
 import { compileGraph } from '../../src/brains/graph/compiler.ts';
 import { GraphBrain } from '../../src/brains/graph/runtime.ts';
 import type { GraphSpec } from '../../src/brains/graph/schema.ts';

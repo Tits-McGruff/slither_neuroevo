@@ -27,11 +27,13 @@ npm run server
 npm run dev
 ```
 
-Build the native SIMD addon (needed for SIMD kernels and perf tests):
+`npm install` also installs the native package (postinstall). The native SIMD
+addon is built automatically by `npm run build` and `npm test`. To build it
+directly:
 
 ```bash
 cd native
-npm run build
+npm run build:debug
 ```
 
 Open the local URL printed by Vite (usually `http://localhost:5173`).

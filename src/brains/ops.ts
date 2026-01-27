@@ -1,7 +1,7 @@
 /** Low-level neural network primitives and parameter layouts used by brains. */
 
 import { clamp } from '../utils.ts';
-import { isSimdAvailable, requireGruKernel, requireLstmKernel, requireRruKernel } from './wasmBridge.ts';
+import { isSimdAvailable, requireGruKernel, requireLstmKernel, requireRruKernel } from './nativeBridge.ts';
 
 /**
  * Sigmoid activation function.

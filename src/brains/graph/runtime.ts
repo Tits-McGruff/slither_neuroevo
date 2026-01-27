@@ -1,7 +1,7 @@
 import type { VizData, VizLayer } from '../../protocol/messages.ts';
 import type { Brain } from '../types.ts';
 import { DenseHead, GRU, LSTM, MLP, RRU } from '../ops.ts';
-import { isSimdAvailable, requireDenseKernel, requireMlpKernel } from '../wasmBridge.ts';
+import { isSimdAvailable, requireDenseKernel, requireMlpKernel } from '../nativeBridge.ts';
 import type { CompiledGraph, CompiledNode } from './compiler.ts';
 import type { GraphNodeType } from './schema.ts';
 

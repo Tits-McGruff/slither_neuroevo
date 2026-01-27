@@ -1,9 +1,9 @@
 import { beforeAll, describe, it, expect } from 'vitest';
 import { DenseHead, GRU, LSTM, MLP, RRU, gruParamCount, lstmParamCount, mlpParamCount, rruParamCount } from './ops.ts';
-import { isSimdAvailable, loadSimdKernels, requireDenseKernel, requireGruKernel, requireLstmKernel, requireMlpKernel, requireRruKernel } from './wasmBridge.ts';
+import { isSimdAvailable, loadSimdKernels, requireDenseKernel, requireGruKernel, requireLstmKernel, requireMlpKernel, requireRruKernel } from './nativeBridge.ts';
 
-/** Test suite label for SIMD wasm parity. */
-const SUITE = 'brains/wasmBridge parity';
+/** Test suite label for SIMD native parity. */
+const SUITE = 'brains/nativeBridge parity';
 
 /**
  * Build deterministic weights for a given length.

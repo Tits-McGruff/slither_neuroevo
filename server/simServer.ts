@@ -135,7 +135,7 @@ export class SimServer {
       worldSeed: worldSeed
     });
 
-    const nativeEnv = process.env.SLITHER_NATIVE_BACKEND;
+    const nativeEnv = process.env['SLITHER_NATIVE_BACKEND'];
     const shouldUseNative = nativeEnv === '1';
 
     // Initialize Native Backend when enabled.

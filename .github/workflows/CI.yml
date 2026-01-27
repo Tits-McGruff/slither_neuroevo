@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  HUSKY: 0
 
 jobs:
   node:

@@ -4,7 +4,7 @@ import { World } from '../src/world.ts';
 import { WorldSerializer } from '../src/serializer.ts';
 import { CFG, resetCFGToDefaults, syncBrainInputSize } from '../src/config.ts';
 import { mlpParamCount } from '../src/brains/ops.ts';
-import { loadSimdKernels, requireDenseKernel, requireMlpKernel } from '../src/brains/wasmBridge.ts';
+import { loadSimdKernels, requireDenseKernel, requireMlpKernel } from '../src/brains/nativeBridge.ts';
 
 /** Test suite label for server performance checks. */
 const SUITE = 'performance: world tick + serialize';

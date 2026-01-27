@@ -114,11 +114,11 @@ This architecture ensures that the application can scale to thousands of complex
 
 ## Rust & Native SIMD Toolchain
 
-The server uses a native N-API addon (napi-rs) for SIMD kernels. There is no WASM asset path in the runtime. The SIMD kernels live in `native/src/SIMD_Kernals.rs` and are loaded via `src/brains/wasmBridge.ts` (native binding). Build the addon with:
+The server uses a native N-API addon (napi-rs) for SIMD kernels. There is no WASM asset path in the runtime. The SIMD kernels live in `native/src/SIMD_Kernals.rs` and are loaded via `src/brains/nativeBridge.ts` (native binding). Build the addon with:
 
 ```bash
 cd native
-npm run build
+npm run build:debug
 ```
 
 **Safety Invariants**:
@@ -128,7 +128,7 @@ Because the native addon operates on raw pointers passed from JavaScript (`Share
 - **Slice Copying**: Manual `for` loops that copy data byte-by-byte are banned. Use `slice.copy_from_slice()` instead, as it compiles to efficient `memcpy` intrinsics and allows the Rust compiler to elide bounds checks where possible.
 - **Architecture**: SIMD kernels are x86_64-only; there is no scalar fallback. Non-x86_64 builds must fail fast.
 - **Linting**: The CI pipeline enforces `cargo clippy` and `cargo fmt` in the native crate.
-- **Testing**: Run `cd native && cargo test` for SIMD unit tests. `npm test` exercises the native binding through the JS integration suite.
+- **Testing**: Run `cd native && cargo test` for SIMD unit tests. `npm test` runs the native build, Rust tests, and the JS integration suite.
 
 ## Utilities and configuration
 
@@ -165,7 +165,7 @@ npm run server
 npm run dev
 ```
 
-This runs Vite with ES module support and serves the app from a local server (opening `index.html` directly will not work). For production builds use `npm run build` and `npm run preview`. Use `npm run server` (or `npm run server:dev`) to launch the Node simulation server. `play.bat` automates the Vite dev server on Windows and uses `npm run dev -- --open --force` so the browser opens automatically; `play.sh` does the same on POSIX and only auto-opens when `xdg-open` is available. In CI, `.github/workflows/node.js.yml` runs install, build, typecheck, and test across Node 20/22/24.
+This runs Vite with ES module support and serves the app from a local server (opening `index.html` directly will not work). For production builds use `npm run build` and `npm run preview`. Use `npm run server` (or `npm run server:dev`) to launch the Node simulation server. `play.bat` automates the Vite dev server on Windows and uses `npm run dev -- --open --force` so the browser opens automatically; `play.sh` does the same on POSIX and only auto-opens when `xdg-open` is available. In CI, `.github/workflows/CI.yml` runs install, build, typecheck, and test across Node 22/24.
 
 ## Project-specific conventions and gotchas
 
