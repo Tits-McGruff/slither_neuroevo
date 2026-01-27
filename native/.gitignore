@@ -119,6 +119,13 @@ dist
 /target
 Cargo.lock
 
+# Native N-API build outputs (auto-generated)
+*.node
+index.js
+index.d.ts
+slither-native.wasi*
+wasi-worker*.mjs
+
 *.node
 .pnp.*
 .yarn/*
