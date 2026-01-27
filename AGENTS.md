@@ -112,17 +112,23 @@ To resolve this, the persistence layer (`server/persistence.ts`) now employs a *
 
 This architecture ensures that the application can scale to thousands of complex agents without memory crashes. When loading a snapshot (`loadLatestSnapshot`), the server strictly reverses this process: reading the blob, gunzipping, parsing the binary chunks, and re-attaching the genomes to the JSON payload before passing it to the simulation controller. Existing database migrations (`ensureSnapshotColumns`) handle the schema update automatically.
 
-## Rust & WASM Toolchain
+## Rust & Native SIMD Toolchain
 
-The server-authoritative path does not require WebAssembly to run. SIMD wasm kernels are optional and only used if `src/brains/wasm/brains_simd.wasm` is present and explicitly loaded by the runtime. If the wasm asset is missing, the server should fall back to the JS kernels without crashing.
+The server uses a native N-API addon (napi-rs) for SIMD kernels. There is no WASM asset path in the runtime. The SIMD kernels live in `native/src/SIMD_Kernals.rs` and are loaded via `src/brains/wasmBridge.ts` (native binding). Build the addon with:
+
+```bash
+cd native
+npm run build
+```
 
 **Safety Invariants**:
-Because the WASM module operates on raw pointers passed from JavaScript (`SharedArrayBuffer` views), memory safety is manual and critical.
+Because the native addon operates on raw pointers passed from JavaScript (`SharedArrayBuffer` views), memory safety is manual and critical.
 
-- **Unsafe Blocks**: All raw pointer arithmetic in `lib.rs` is wrapped in explicit `unsafe {}` blocks. Every such block MUST be accompanied by a `/// # Safety` documentation comment explaining the contract (e.g., "Pointers must be valid for `len` elements").
+- **Unsafe Blocks**: All raw pointer arithmetic in the SIMD kernels must be wrapped in explicit `unsafe {}` blocks. Every such block MUST be accompanied by a `/// # Safety` documentation comment explaining the contract (e.g., "Pointers must be valid for `len` elements").
 - **Slice Copying**: Manual `for` loops that copy data byte-by-byte are banned. Use `slice.copy_from_slice()` instead, as it compiles to efficient `memcpy` intrinsics and allows the Rust compiler to elide bounds checks where possible.
-- **Linting**: The CI pipeline enforces `cargo clippy` and `cargo fmt`. You can run these locally with `npm run lint:rust` and `npm run format:rust`.
-- **Testing**: `npm run test:rust` acts as a compile-check for the WASM target (via `--no-run`), while `npm test` runs the actual behavioral integration tests (`server/mtParity.test.ts`) using the verified binary.
+- **Architecture**: SIMD kernels are x86_64-only; there is no scalar fallback. Non-x86_64 builds must fail fast.
+- **Linting**: The CI pipeline enforces `cargo clippy` and `cargo fmt` in the native crate.
+- **Testing**: Run `cd native && cargo test` for SIMD unit tests. `npm test` exercises the native binding through the JS integration suite.
 
 ## Utilities and configuration
 

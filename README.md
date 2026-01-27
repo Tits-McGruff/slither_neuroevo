@@ -5,7 +5,7 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 ## Key Features
 
 - **High-Performance Core**: Unified `SimCore` engine ensures consistent physics and neural logic.
-- **Native Rust Engine**: High-performance Native SIMD backend via N-API (`slither-native`) for maximum server throughput.
+- **Native Rust Engine**: High-performance native SIMD backend via N-API (`slither-native`) for maximum server throughput (no WASM/worker fallback).
 - **Multi-Threaded Inference**: Multi-core brain pool (`IBrainPool`) utilizes all server CPU cores for parallel inference (300+ snakes at 60 FPS).
 - **Deep Evolution**: Supports MLP, GRU, LSTM, and RRU architectures with complex genetic operators and a modular graph editor.
 - **Robust Persistence**: SQLite-backed server mode capable of saving/loading massive generations with chunked binary serialization.
@@ -27,6 +27,13 @@ npm run server
 npm run dev
 ```
 
+Build the native SIMD addon (needed for SIMD kernels and perf tests):
+
+```bash
+cd native
+npm run build
+```
+
 Open the local URL printed by Vite (usually `http://localhost:5173`).
 
 Note: This project uses ES modules, so opening `index.html` directly in a file browser will not work.
@@ -38,7 +45,7 @@ Convenience launchers (install deps, start the server, then start Vite):
 
 ### Architecture
 
-This application uses a pure client-server model. The simulation runs exclusively on the Node.js server to enable multiplayer interactions and backend persistence. The UI will connect over WebSocket and show **SERVER** in the status pill.
+This application uses a pure client-server model. The simulation runs exclusively on the Node.js server to enable multiplayer interactions and backend persistence. The UI will connect over WebSocket and show **SERVER** in the status pill. There is no local worker/offline simulation path.
 By default the client connects to `ws://localhost:5174`; use `?server=ws://host:port` to point at a different server.
 If the server connection is lost, the app will attempt to reconnect in the background.
 UI defaults come from `server/config.toml`:
@@ -53,7 +60,7 @@ If the UI is on a different machine than the server, set `publicWsUrl` to
 
 ## Controls
 
-- `V`: In worker mode, toggle camera mode between Overview and Follow. In server mode, toggle between Play and Spectate.
+- `V`: Toggle between Play and Spectate camera modes.
 - Left click: Select a snake (God Mode selection).
 - Right click: Kill the selected snake (God Mode).
 - Left click + drag: Move a selected snake (God Mode).
@@ -66,7 +73,7 @@ If the UI is on a different machine than the server, set `publicWsUrl` to
 
 - Enter a nickname, then **Play** to spawn a player snake (server mode only).
 - **Spectate** starts the sim with no player control.
-- If the server is unavailable, the join overlay is hidden and the sim runs in worker mode.
+- If the server is unavailable, the UI stays in the connecting state and does not run a local sim.
 - When a server connection is established, the client auto-spectates and shows the join overlay.
 - **Spectate** switches the camera to overview; **Play** switches to follow after assignment.
 - Player control begins after the server sends an assignment; the overlay hides once assigned.
