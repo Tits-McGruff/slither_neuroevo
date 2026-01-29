@@ -1,6 +1,6 @@
 
 [package]
-authors = ["LongYinan <lynweklm@gmail.com>"]
+authors = ["jlow8697@gmail.com"]
 edition = "2021"
 name = "slither_native"
 version = "0.1.0"
@@ -17,5 +17,9 @@ serde_json = "1"
 napi-build = "2"
 
 [profile.release]
-lto = true
-strip = "symbols"
+opt-level = 3         # Maximum optimizations (Default for release)
+lto = "fat"           # Aggressive Link-Time Optimization for speed
+codegen-units = 1     # Slower compile, but better optimization
+panic = "abort"       # Removes stack unwinding code to reduce binary size and overhead
+debug = true          # KEPT: Needed for samply/flamegraph reports
+strip = false         # KEPT: Ensures symbols aren't deleted so you can read function names
