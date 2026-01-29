@@ -33,7 +33,7 @@ directly:
 
 ```bash
 cd native
-npm run build:debug
+npm run build
 ```
 
 Open the local URL printed by Vite (usually `http://localhost:5173`).

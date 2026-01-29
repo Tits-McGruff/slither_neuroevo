@@ -8,7 +8,6 @@
     "url": "git+ssh://git@github.com/napi-rs/package-template.git"
   },
   "license": "MIT",
-  "browser": "browser.js",
   "keywords": [
     "napi-rs",
     "NAPI",
@@ -19,8 +18,7 @@
   ],
   "files": [
     "index.d.ts",
-    "index.js",
-    "browser.js"
+    "index.js"
   ],
   "napi": {
     "binaryName": "slither-native",
@@ -37,8 +35,7 @@
       "x86_64-unknown-freebsd",
       "aarch64-unknown-linux-musl",
       "aarch64-pc-windows-msvc",
-      "armv7-linux-androideabi",
-      "wasm32-wasip1-threads"
+      "armv7-linux-androideabi"
     ]
   },
   "engines": {
@@ -65,12 +62,9 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "@emnapi/core": "^1.5.0",
-    "@emnapi/runtime": "^1.5.0",
     "@napi-rs/cli": "^3.2.0",
     "@oxc-node/core": "^0.0.35",
     "@taplo/cli": "^0.7.0",
-    "@tybys/wasm-util": "^0.10.0",
     "ava": "^6.4.1",
     "chalk": "^5.6.2",
     "husky": "^9.1.7",

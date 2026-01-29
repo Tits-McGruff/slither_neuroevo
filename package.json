@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm --prefix native run build:debug && vite build",
+    "build": "npm --prefix native run build && vite build",
     "preview": "vite preview",
     "test": "npm run test:native && vitest run",
     "test:unit": "tsx scripts/run-tests.ts unit",
@@ -16,7 +16,7 @@
     "test:regression": "tsx scripts/run-tests.ts regression",
     "test:performance": "tsx scripts/run-tests.ts performance",
     "test:security": "tsx scripts/run-tests.ts security",
-    "test:native": "npm --prefix native run build:debug && cargo test --manifest-path native/Cargo.toml",
+    "test:native": "npm --prefix native run build && cargo test --manifest-path native/Cargo.toml --release",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
     "server": "tsx server/index.ts",

@@ -118,7 +118,7 @@ The server uses a native N-API addon (napi-rs) for SIMD kernels. There is no WAS
 
 ```bash
 cd native
-npm run build:debug
+npm run build
 ```
 
 **Safety Invariants**:
