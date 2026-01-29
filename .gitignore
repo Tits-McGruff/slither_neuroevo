@@ -26,3 +26,5 @@ dev.pid
 test_output.txt
 # Zip of shame artifacts
 zip_of_shame.tar.gz
+
+.clinic/
