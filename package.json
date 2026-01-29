@@ -21,7 +21,7 @@
     "lint": "eslint .",
     "server": "tsx server/index.ts",
     "server:dev": "tsx watch server/index.ts",
-    "postinstall": "\"%npm_node_execpath%\" scripts\\postinstall.cjs || \"$npm_node_execpath\" scripts/postinstall.cjs",
+    "postinstall": ".\\\\scripts\\\\postinstall.cmd || ./scripts/postinstall",
     "build:docs": "typedoc"
   },
   "keywords": [],

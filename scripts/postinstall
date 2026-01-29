@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+set -eu
+
+NODE_BIN="${npm_node_execpath:-node}"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+exec "$NODE_BIN" "$SCRIPT_DIR/postinstall.cjs"
