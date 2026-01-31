@@ -317,12 +317,12 @@ describe(SUITE, () => {
         }
     });
 
-    it('keeps sensors finite after reset with v2 layout', () => {
+    it('keeps sensors finite after reset with v3 layout', () => {
         resetCFGToDefaults();
         const originalTarget = CFG.pelletCountTarget;
         CFG.pelletCountTarget = 150;
         try {
-            expect(CFG.sense.layoutVersion).toBe('v2');
+            expect(CFG.sense.layoutVersion).toBe('v3');
             const world = new World({ ...settings, snakeCount: 4 });
             world.update(1 / 30, 800, 600);
             for (const s of world.snakes) {

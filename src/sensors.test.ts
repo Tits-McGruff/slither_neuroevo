@@ -35,7 +35,7 @@ describe('sensors.ts', () => {
 
   beforeEach(() => {
     CFG.sense.bubbleBins = 8;
-    CFG.sense.layoutVersion = 'v2';
+    CFG.sense.layoutVersion = 'v3';
     CFG.boost.minPointsToBoost = 5;
   });
 
@@ -70,6 +70,8 @@ describe('sensors.ts', () => {
       speed: CFG.snakeBaseSpeed,
       boost: 0,
       pointsScore: 0,
+      prevPointsScore: 0,
+      age: 0,
       points: [],
       radius: CFG.snakeRadius,
       alive: true,
@@ -128,17 +130,17 @@ describe('sensors.ts', () => {
     expect(sensors.length).toBe(expected);
   });
 
-  it('getSensorLayout matches the legacy layout contract', () => {
+  it('getSensorLayout returns v3 layout with expected structure', () => {
     const bins = 12;
-    const layout = getSensorLayout(bins, 'legacy');
+    const layout = getSensorLayout(bins, 'v3');
 
-    expect(layout.scalarCount).toBe(5);
-    expect(layout.channelCount).toBe(3);
-    expect(layout.inputSize).toBe(5 + 3 * bins);
-    expect(layout.offsets.food).toBe(5);
-    expect(layout.offsets.hazard).toBe(5 + bins);
-    expect(layout.offsets.wall).toBe(5 + 2 * bins);
-    expect(layout.offsets.head).toBeNull();
+    expect(layout.scalarCount).toBe(17);
+    expect(layout.channelCount).toBe(4);
+    expect(layout.inputSize).toBe(17 + 4 * bins);
+    expect(layout.offsets.food).toBe(17);
+    expect(layout.offsets.hazard).toBe(17 + bins);
+    expect(layout.offsets.wall).toBe(17 + 2 * bins);
+    expect(layout.offsets.head).toBe(17 + 3 * bins);
     expect(layout.order.length).toBe(layout.inputSize);
   });
 
@@ -167,9 +169,8 @@ describe('sensors.ts', () => {
 
     const sensors = buildSensors(world, snake);
     const foodOffset = layout.offsets.food;
-    const expectedBin = layout.layoutVersion === 'v2'
-      ? angleToCenteredBin(0, layout.bins)
-      : 0;
+    // V3 uses centered bins like v2
+    const expectedBin = angleToCenteredBin(0, layout.bins);
 
     expect(sensors[foodOffset + expectedBin]).toBeGreaterThan(-1);
   });
@@ -189,20 +190,20 @@ describe('sensors.ts', () => {
     }
   });
 
-  it('defaults to the v2 layout input size after reset', () => {
+  it('defaults to the v3 layout input size after reset', () => {
     resetCFGToDefaults();
     const layout = getSensorLayout(CFG.sense.bubbleBins, CFG.sense.layoutVersion);
 
-    expect(CFG.sense.layoutVersion).toBe('v2');
+    expect(CFG.sense.layoutVersion).toBe('v3');
     expect(CFG.brain.inSize).toBe(layout.inputSize);
   });
 
   /**
-   * Configure deterministic v2 sensor values for unit tests.
-   * @param bins - Bin count for v2 layouts.
+   * Configure deterministic v3 sensor values for unit tests.
+   * @param bins - Bin count for v3 layouts.
    */
-  function configureV2(bins: number): void {
-    CFG.sense.layoutVersion = 'v2';
+  function configureV3(bins: number): void {
+    CFG.sense.layoutVersion = 'v3';
     CFG.sense.bubbleBins = bins;
     CFG.sense.rNearBase = 100;
     CFG.sense.rNearScale = 0;
@@ -235,8 +236,8 @@ describe('sensors.ts', () => {
     return bestIdx;
   }
 
-  it('computes v2 radii with monotonic clamps', () => {
-    CFG.sense.layoutVersion = 'v2';
+  it('computes radii with monotonic clamps', () => {
+    CFG.sense.layoutVersion = 'v3';
     CFG.sense.rNearBase = 150;
     CFG.sense.rNearScale = 80;
     CFG.sense.rNearMin = 120;
@@ -256,9 +257,9 @@ describe('sensors.ts', () => {
   });
 
   it('uses centered bin mapping for v2 food bins', () => {
-    configureV2(16);
+    configureV3(16);
     const snake = makeSnake({ dir: 0 });
-    const layout = getSensorLayout(CFG.sense.bubbleBins, 'v2');
+    const layout = getSensorLayout(CFG.sense.bubbleBins, 'v3');
 
     const pelletForward = { x: 80, y: 0, v: CFG.foodValue * 2 };
     const worldForward = makeWorld({ pellets: [pelletForward], bestPointsThisGen: 5, snakes: [snake] });
@@ -276,7 +277,7 @@ describe('sensors.ts', () => {
   });
 
   it('matches hitScale when computing v2 hazard clearance', () => {
-    configureV2(8);
+    configureV3(8);
     CFG.collision.hitScale = 1.0;
     const snake = makeSnake({ id: 1, radius: 10 });
     const other = makeSnake({
@@ -292,7 +293,7 @@ describe('sensors.ts', () => {
     };
 
     const sensors = buildSensors(world, snake);
-    const layout = getSensorLayout(CFG.sense.bubbleBins, 'v2');
+    const layout = getSensorLayout(CFG.sense.bubbleBins, 'v3');
     const hazardIdx = angleToCenteredBin(0, layout.bins);
     const hazardValue = sensors[layout.offsets.hazard + hazardIdx];
 
@@ -300,12 +301,12 @@ describe('sensors.ts', () => {
   });
 
   it('normalizes v2 wall clearance by rNear', () => {
-    configureV2(8);
+    configureV3(8);
     CFG.worldRadius = 100;
     const snake = makeSnake({ x: 80, y: 0, radius: 10, dir: 0 });
     const world = makeWorld({ pellets: [], bestPointsThisGen: 5, snakes: [snake] });
     const sensors = buildSensors(world, snake);
-    const layout = getSensorLayout(CFG.sense.bubbleBins, 'v2');
+    const layout = getSensorLayout(CFG.sense.bubbleBins, 'v3');
     const wallIdx = angleToCenteredBin(0, layout.bins);
     const wallValue = sensors[layout.offsets.wall + wallIdx];
 
@@ -313,7 +314,7 @@ describe('sensors.ts', () => {
   });
 
   it('keeps head pressure head-only in v2', () => {
-    configureV2(12);
+    configureV3(12);
     const snake = makeSnake({ id: 1 });
     const other = makeSnake({
       id: 2,
@@ -324,7 +325,7 @@ describe('sensors.ts', () => {
     });
     const world = makeWorld({ pellets: [], bestPointsThisGen: 5, snakes: [snake, other] });
     const sensors = buildSensors(world, snake);
-    const layout = getSensorLayout(CFG.sense.bubbleBins, 'v2');
+    const layout = getSensorLayout(CFG.sense.bubbleBins, 'v3');
     const headOffset = layout.offsets.head!;
     const headIdx = angleToCenteredBin(0, layout.bins);
     const bodyIdx = angleToCenteredBin(Math.PI / 2, layout.bins);
@@ -334,7 +335,7 @@ describe('sensors.ts', () => {
   });
 
   it('produces deterministic v2 food bins with fixed pellets', () => {
-    configureV2(10);
+    configureV3(10);
     const snake = makeSnake({ id: 3 });
     const pellets = [
       { x: 30, y: 10, v: CFG.foodValue },

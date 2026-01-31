@@ -13,7 +13,7 @@ const STRATEGY_THRESHOLD_LARGE = 80;
 /** Bin evaluation penalty for directions with dangerous clearance (hazards/walls). */
 const VETO_PENALTY = 1000;
 /** Clearance threshold below which a direction is considered for veto. */
-const VETO_THRESHOLD = -0.5;
+const VETO_THRESHOLD = -0.4;
 /** Angle wander scale in radians for roaming. */
 const WANDER_ANGLE_SCALE = 0.6;
 /** Roam-to-Seek food activation threshold. */
@@ -83,12 +83,9 @@ function normalizeSettings(settings: BaselineBotSettings): BaselineBotSettings {
  * @param layoutVersion - Sensor layout version that produced the bins.
  * @returns Relative angle in radians within [-pi, pi].
  */
-function binIndexToAngle(index: number, bins: number, layoutVersion: SensorLayoutVersion): number {
-  if (layoutVersion === 'v2') {
-    return -Math.PI + (index / bins) * TAU;
-  }
-  const ang = (index / bins) * TAU;
-  return ang > Math.PI ? ang - TAU : ang;
+function binIndexToAngle(index: number, bins: number, _layoutVersion: SensorLayoutVersion): number {
+  // Both v2 and v3 use centered bins.
+  return -Math.PI + (index / bins) * TAU;
 }
 
 /**
@@ -166,7 +163,7 @@ export class BaselineBotManager {
     this.snakeIdToIndex = new Map();
     this.respawnTimers = [];
     this.controllerDisabled = false;
-    this.sensorLayoutVersion = (CFG.sense?.layoutVersion ?? 'v2') as SensorLayoutVersion;
+    this.sensorLayoutVersion = (CFG.sense?.layoutVersion ?? 'v3') as SensorLayoutVersion;
     this.sensorLayout = getSensorLayout(CFG.sense?.bubbleBins ?? 16, this.sensorLayoutVersion);
     this.sensorLayoutBins = this.sensorLayout.bins;
 
@@ -218,7 +215,7 @@ export class BaselineBotManager {
    */
   private refreshSensorLayout(): void {
     const bins = Math.max(8, Math.floor(CFG.sense?.bubbleBins ?? 16));
-    const layoutVersion = (CFG.sense?.layoutVersion ?? 'v2') as SensorLayoutVersion;
+    const layoutVersion = (CFG.sense?.layoutVersion ?? 'v3') as SensorLayoutVersion;
     if (bins === this.sensorLayoutBins && layoutVersion === this.sensorLayoutVersion) return;
     this.sensorLayoutVersion = layoutVersion;
     this.sensorLayout = getSensorLayout(bins, layoutVersion);
@@ -431,6 +428,8 @@ export class BaselineBotManager {
       clearWeight = 2.5;
     }
 
+    const headOffset = layout.offsets.head;
+
     const FOOD_CLAMP_SMALL = 0.4;
     const { targetIdx } = this.evaluateBins(
       sensors,
@@ -438,6 +437,7 @@ export class BaselineBotManager {
       foodOffset,
       hazardOffset,
       wallOffset,
+      headOffset,
       foodWeight,
       clearWeight,
       FOOD_CLAMP_SMALL,
@@ -546,6 +546,8 @@ export class BaselineBotManager {
       }
     }
 
+    const headOffset = layout.offsets.head;
+
     const FOOD_CLAMP_MEDIUM = 0.6;
     const { targetIdx } = this.evaluateBins(
       sensors,
@@ -553,11 +555,12 @@ export class BaselineBotManager {
       foodOffset,
       hazardOffset,
       wallOffset,
+      headOffset,
       foodWeight,
       clearWeight,
       FOOD_CLAMP_MEDIUM,
       layoutVersion,
-      (binAngle) => {
+      (binAngle: number) => {
         if (huntStrength <= 0) return 0;
         const diff = Math.abs(angNorm(binAngle - huntBiasAngle));
         // Falloff the hunt bias as the bin angle diverges from the target angle.
@@ -650,6 +653,8 @@ export class BaselineBotManager {
       }
     }
 
+    const headOffset = layout.offsets.head;
+
     const FOOD_CLAMP_LARGE = 0.4;
     const { targetIdx } = this.evaluateBins(
       sensors,
@@ -657,11 +662,12 @@ export class BaselineBotManager {
       foodOffset,
       hazardOffset,
       wallOffset,
+      headOffset,
       foodWeight,
       clearWeight,
       FOOD_CLAMP_LARGE,
       layoutVersion,
-      (binAngle) => {
+      (binAngle: number) => {
         if (crowdStrength <= 0) return 0;
         const diff = Math.abs(angNorm(binAngle - crowdBiasAngle));
         // Large snakes use a regional bias to slowly "herd" others.
@@ -726,17 +732,21 @@ export class BaselineBotManager {
     let worstClear = Infinity;
     let bestFood = -Infinity;
 
+    const layout = this.sensorLayout;
     for (let i = 0; i < bins; i++) {
-      const h = sensors[hazardOffset + i] ?? -1;
-      const w = sensors[wallOffset + i] ?? -1;
-      const cl = (h + w) * 0.5;
+      const h = sensors[hazardOffset + i] ?? 1;
+      const w = sensors[wallOffset + i] ?? 1;
+      // In V3, headOffset is always present. In V2 it was optional.
+      const head = (layout.offsets.head != null) ? (sensors[layout.offsets.head + i] ?? 1) : 1;
+      // Use minimum perceived safety rather than average to avoid "averaging out" a fatal collision.
+      const cl = Math.min(h, w, head);
       if (cl < worstClear) worstClear = cl;
 
       const f = sensors[foodOffset + i] ?? -1;
       if (f > bestFood) bestFood = f;
     }
 
-    const hazardTrigger = -0.25;
+    const hazardTrigger = -0.15;
 
     // Enter avoid immediately when boxed-in risk is detected.
     if (state !== 'avoid' && worstClear < hazardTrigger) {
@@ -788,6 +798,7 @@ export class BaselineBotManager {
     foodOffset: number,
     hazardOffset: number,
     wallOffset: number,
+    headOffset: number | null,
     foodWeight: number,
     clearWeight: number,
     foodClamp: number,
@@ -809,9 +820,10 @@ export class BaselineBotManager {
       const angle = binIndexToAngle(i, bins, layoutVersion);
       const rawFood = sensors[foodOffset + i] ?? -1;
       const food = Math.min(rawFood, foodClamp);
-      const hazard = sensors[hazardOffset + i] ?? -1;
-      const wall = sensors[wallOffset + i] ?? -1;
-      const clearance = (hazard + wall) * 0.5;
+      const hazard = sensors[hazardOffset + i] ?? 1;
+      const wall = sensors[wallOffset + i] ?? 1;
+      const head = (headOffset != null) ? (sensors[headOffset + i] ?? 1) : 1;
+      const clearance = Math.min(hazard, wall, head);
 
       if (clearance > bestClearVal + 1e-6) {
         bestClearVal = clearance;

@@ -1,5 +1,5 @@
-/** Supported sensor layout versions. */
-export type SensorLayoutVersion = 'legacy' | 'v2';
+/** Supported sensor layout version. V3 is the only supported version. */
+export type SensorLayoutVersion = 'v3';
 
 /** Sensor layout metadata describing counts, offsets, and ordering. */
 export interface SensorLayout {
@@ -18,7 +18,7 @@ export interface SensorLayout {
     food: number;
     hazard: number;
     wall: number;
-    head: number | null;
+    head: number;
   };
   /** Label order describing the sensor vector layout. */
   order: string[];
@@ -30,26 +30,44 @@ export interface SensorSpec {
   sensorCount: number;
   /** Sensor label order. */
   order: string[];
-  /** Optional layout version identifier for debugging. */
-  layoutVersion?: SensorLayoutVersion;
+  /** Layout version identifier for debugging. */
+  layoutVersion: SensorLayoutVersion;
 }
 
 /** Minimum supported bin count for sensor layouts. */
 const MIN_BINS = 8;
-/** Default layout version when no override is provided. */
-const DEFAULT_LAYOUT_VERSION: SensorLayoutVersion = 'v2';
-/** Scalar sensor labels for the legacy layout. */
-const LEGACY_SCALAR_LABELS = ['heading_sin', 'heading_cos', 'size_norm', 'boost_margin', 'points_pct'];
-/** Scalar sensor labels for the v2 layout. */
-const V2_SCALAR_LABELS = [...LEGACY_SCALAR_LABELS, 'speed_norm', 'boost_state'];
-/** Scalar count for the legacy layout. */
-const LEGACY_SCALAR_COUNT = LEGACY_SCALAR_LABELS.length;
-/** Channel count for the legacy layout. */
-const LEGACY_CHANNEL_COUNT = 3;
-/** Scalar count for the v2 layout. */
-const V2_SCALAR_COUNT = V2_SCALAR_LABELS.length;
-/** Channel count for the v2 layout. */
-const V2_CHANNEL_COUNT = 4;
+
+/**
+ * V3 scalar sensor labels.
+ * - Indices 0-6: inherited from v2 (heading, size, boost, speed state)
+ * - Indices 7-16: new sensors for improved learnability
+ */
+const V3_SCALAR_LABELS = [
+  // Original sensors (0-6)
+  'heading_sin',
+  'heading_cos',
+  'size_norm',
+  'boost_margin',
+  'points_pct',
+  'speed_norm',
+  'boost_state',
+  // New v3 sensors (7-16)
+  'points_norm',
+  'points_delta_norm',
+  'length_norm',
+  'boost_points_frac',
+  'boost_cost_norm',
+  'wall_dist_norm',
+  'nearest_food_dist_norm',
+  'nearest_body_dist_norm',
+  'nearest_head_dist_norm',
+  'age_norm'
+];
+
+/** Scalar count for v3 layout. */
+const V3_SCALAR_COUNT = V3_SCALAR_LABELS.length;
+/** Channel count for v3 layout (food, hazard, wall, head). */
+const V3_CHANNEL_COUNT = 4;
 
 /**
  * Normalize a bin count to a finite, minimum-safe integer.
@@ -70,60 +88,44 @@ function normalizeBins(bins: number): number {
 }
 
 /**
- * Coerce a layout version to a supported value.
- * @param layoutVersion - Requested layout version.
- * @returns Supported layout version.
- */
-function normalizeLayoutVersion(layoutVersion: SensorLayoutVersion | string): SensorLayoutVersion {
-  if (layoutVersion === 'legacy' || layoutVersion === 'v2') return layoutVersion;
-  console.warn('[sensors.layout.invalid_version]', { layoutVersion });
-  return DEFAULT_LAYOUT_VERSION;
-}
-
-/**
- * Build the sensor label order for a given layout.
+ * Build the sensor label order for a v3 layout.
  * @param layout - Sensor layout metadata.
  * @returns Ordered sensor labels.
  */
 function buildSensorOrder(layout: SensorLayout): string[] {
   const order: string[] = [];
-  const scalarLabels = layout.layoutVersion === 'v2' ? V2_SCALAR_LABELS : LEGACY_SCALAR_LABELS;
-  for (const label of scalarLabels) order.push(label);
+  for (const label of V3_SCALAR_LABELS) order.push(label);
   for (let i = 0; i < layout.bins; i++) order.push(`food_${i}`);
   for (let i = 0; i < layout.bins; i++) order.push(`hazard_${i}`);
   for (let i = 0; i < layout.bins; i++) order.push(`wall_${i}`);
-  if (layout.offsets.head != null) {
-    for (let i = 0; i < layout.bins; i++) order.push(`head_${i}`);
-  }
+  for (let i = 0; i < layout.bins; i++) order.push(`head_${i}`);
   return order;
 }
 
 /**
- * Resolve the sensor layout metadata for the requested bin count and version.
+ * Resolve the sensor layout metadata for the requested bin count.
+ * Only v3 layout is supported.
  * @param bins - Desired bin count.
- * @param layoutVersion - Layout version identifier.
+ * @param _layoutVersion - Ignored, v3 is always used.
  * @returns Sensor layout metadata.
  */
 export function getSensorLayout(
   bins: number,
-  layoutVersion: SensorLayoutVersion | string = DEFAULT_LAYOUT_VERSION
+  _layoutVersion?: SensorLayoutVersion | string
 ): SensorLayout {
   const safeBins = normalizeBins(bins);
-  const resolvedVersion = normalizeLayoutVersion(layoutVersion);
-  const scalarCount = resolvedVersion === 'v2' ? V2_SCALAR_COUNT : LEGACY_SCALAR_COUNT;
-  const channelCount = resolvedVersion === 'v2' ? V2_CHANNEL_COUNT : LEGACY_CHANNEL_COUNT;
-  const inputSize = scalarCount + channelCount * safeBins;
+  const inputSize = V3_SCALAR_COUNT + V3_CHANNEL_COUNT * safeBins;
   const offsets = {
-    food: scalarCount,
-    hazard: scalarCount + safeBins,
-    wall: scalarCount + safeBins * 2,
-    head: resolvedVersion === 'v2' && channelCount > 3 ? scalarCount + safeBins * 3 : null
+    food: V3_SCALAR_COUNT,
+    hazard: V3_SCALAR_COUNT + safeBins,
+    wall: V3_SCALAR_COUNT + safeBins * 2,
+    head: V3_SCALAR_COUNT + safeBins * 3
   };
   const layout: SensorLayout = {
-    layoutVersion: resolvedVersion,
+    layoutVersion: 'v3',
     bins: safeBins,
-    scalarCount,
-    channelCount,
+    scalarCount: V3_SCALAR_COUNT,
+    channelCount: V3_CHANNEL_COUNT,
     inputSize,
     offsets,
     order: []
@@ -131,7 +133,7 @@ export function getSensorLayout(
   layout.order = buildSensorOrder(layout);
   if (layout.order.length !== layout.inputSize) {
     console.warn('[sensors.layout.order_mismatch]', {
-      layoutVersion: resolvedVersion,
+      layoutVersion: 'v3',
       bins: safeBins,
       inputSize,
       orderLength: layout.order.length
@@ -152,3 +154,4 @@ export function getSensorSpec(layout: SensorLayout): SensorSpec {
     layoutVersion: layout.layoutVersion
   };
 }
+

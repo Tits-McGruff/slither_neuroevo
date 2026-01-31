@@ -217,6 +217,8 @@ export class Snake {
   baselineBotIndex: number | null;
   /** Skin flag used for rendering. */
   skin: number;
+  /** Previous tick's points score for delta calculation. */
+  prevPointsScore: number;
 
   /**
    * Create a new snake instance with a generated brain.
@@ -253,6 +255,7 @@ export class Snake {
     this.controlMode = options.controlMode ?? 'neural';
     this.baselineBotIndex = options.baselineBotIndex ?? null;
     this.skin = options.skin ?? 0;
+    this.prevPointsScore = 0;
     this.updateRadiusFromLen();
   }
   /**
@@ -461,6 +464,7 @@ export class Snake {
    * @param dt - Delta time in seconds.
    */
   prepareForStep(dt: number): void {
+    this.prevPointsScore = this.pointsScore;
     if (!this.points.length) this.points.push({ x: this.x, y: this.y });
     this.age += dt;
     this.pointsScore += dt * CFG.reward.pointsPerSecondAlive;

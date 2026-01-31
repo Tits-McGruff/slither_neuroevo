@@ -76,7 +76,7 @@ export const CFG_DEFAULT = {
     // 360° "bubble" sensing around the head.
     // The bubble radius increases with snake length using the same zoom curve
     // as the follow camera (larger snakes see farther).
-    layoutVersion: 'v2' as SensorLayoutVersion,
+    layoutVersion: 'v3' as SensorLayoutVersion,
     bubbleBins: 16,
     bubbleRadiusBase: 760,
     bubbleRadiusMin: 420,
@@ -111,7 +111,7 @@ export const CFG_DEFAULT = {
   // Brain configuration.
   // Input size is derived from the active sensor layout.
   brain: {
-    inSize: getSensorLayout(16, 'v2').inputSize,
+    inSize: getSensorLayout(16, 'v3').inputSize,
     outSize: 2,
     // Enable batched control evaluation when true.
     batchEnabled: true,
@@ -216,14 +216,15 @@ export function resetCFGToDefaults(): void {
 }
 
 /**
- * Emit a one-time log when the default v2 layout is active.
+ * Emit a one-time log when the v3 layout is active.
  * @param layout - Active sensor layout metadata.
  */
-function logDefaultV2LayoutOnce(layout: SensorLayout): void {
+function logV3LayoutOnce(layout: SensorLayout): void {
   if (didLogDefaultV2Layout) return;
-  if (layout.layoutVersion !== 'v2') return;
-  console.info('[sensors.layout.default_v2_enabled]', {
+  if (layout.layoutVersion !== 'v3') return;
+  console.info('[sensors.layout.v3_enabled]', {
     bins: layout.bins,
+    scalarCount: layout.scalarCount,
     inputSize: layout.inputSize
   });
   didLogDefaultV2Layout = true;
@@ -234,8 +235,8 @@ function logDefaultV2LayoutOnce(layout: SensorLayout): void {
  */
 export function syncBrainInputSize(): void {
   const sense = CFG.sense ?? {};
-  const layoutVersion: SensorLayoutVersion = sense.layoutVersion ?? 'v2';
-  const layout = getSensorLayout(sense.bubbleBins ?? 16, layoutVersion);
+  const layout = getSensorLayout(sense.bubbleBins ?? 16);
   CFG.brain.inSize = layout.inputSize;
-  logDefaultV2LayoutOnce(layout);
+  logV3LayoutOnce(layout);
 }
+

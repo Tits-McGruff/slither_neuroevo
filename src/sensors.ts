@@ -36,6 +36,10 @@ interface SnakeLike {
   /** Boost state flag as numeric value. */
   boost: number;
   pointsScore: number;
+  /** Previous tick's points score for delta calculation. */
+  prevPointsScore: number;
+  /** Age in seconds since spawn. */
+  age: number;
   points: SnakePoint[];
   radius: number;
   alive: boolean;
@@ -196,34 +200,6 @@ function _forEachNearbyPellet(
   }
 }
 
-/**
- * Converts snake length into a sensing radius that scales like the follow
- * camera zoom: larger snakes get a larger "view bubble".
- */
-function _bubbleRadiusForSnake(snake: SnakeLike): number {
-  const len = snake.length();
-  const maxLen = Math.max(1, CFG.snakeMaxLen);
-  const zoom = clamp(1.15 - (len / maxLen) * 0.55, 0.45, 1.12);
-  const base = Math.max(80, CFG.sense?.bubbleRadiusBase ?? 760);
-  const minR = Math.max(80, CFG.sense?.bubbleRadiusMin ?? 420);
-  const maxR = Math.max(minR, CFG.sense?.bubbleRadiusMax ?? 1700);
-  const r = base / Math.max(0.02, zoom);
-  return clamp(r, minR, maxR);
-}
-
-/**
- * Map a relative angle to a histogram bin index.
- * @param relAngle - Relative angle in radians.
- * @param bins - Total number of bins.
- * @returns Bin index.
- */
-function _angleToBin(relAngle: number, bins: number): number {
-  // relAngle is in [-pi, pi]. Map so 0 is forward.
-  let a = relAngle;
-  if (a < 0) a += TAU;
-  const idx = Math.floor((a / TAU) * bins);
-  return clamp(idx, 0, bins - 1);
-}
 
 /** Default v2 near radius base in world units. */
 const DEFAULT_R_NEAR_BASE = 520;
@@ -356,112 +332,6 @@ function _ensureScratch(bins: number): void {
   if (_scratchHead.length !== bins) _scratchHead = new Float32Array(bins);
 }
 
-function _fillFoodBubbleBins(
-  world: WorldLike,
-  snake: SnakeLike,
-  bins: number,
-  r: number,
-  ins: Float32Array,
-  insOffset: number
-): void {
-  // Accumulate weighted food value by direction bin.
-  _ensureScratch(bins);
-  for (let i = 0; i < bins; i++) _scratchFood[i] = 0;
-
-  const sx = snake.x;
-  const sy = snake.y;
-  const baseV = Math.max(1e-6, CFG.foodValue);
-
-  _forEachNearbyPellet(world, sx, sy, r, p => {
-    const dx = p.x - sx;
-    const dy = p.y - sy;
-    const d = Math.hypot(dx, dy);
-    if (d <= 1e-6 || d > r) return;
-    const ang = Math.atan2(dy, dx);
-    const rel = angNorm(ang - snake.dir);
-    const b = _angleToBin(rel, bins);
-    const wDist = 1 - d / r;
-    const wVal = clamp(p.v / baseV, 0, 6.0);
-    const prev = _scratchFood[b] ?? 0;
-    _scratchFood[b] = prev + wDist * wVal;
-  });
-
-  const K0 = Math.max(0.1, CFG.sense?.bubbleFoodK ?? 4.0);
-  const scale = r / Math.max(1e-6, CFG.sense?.bubbleRadiusMin ?? 420);
-  const K = K0 * Math.max(0.75, scale);
-
-  for (let i = 0; i < bins; i++) {
-    const s = _scratchFood[i] ?? 0;
-    const frac = s / (s + K);
-    ins[insOffset + i] = clamp(frac * 2 - 1, -1, 1);
-  }
-}
-
-/**
- * Computes a 360° hazard clearance histogram around the head.
- * Returns values in [-1,1] where +1 means clear and -1 means blocked.
- */
-function _fillHazardBubbleBins(
-  world: WorldLike,
-  snake: SnakeLike,
-  bins: number,
-  r: number,
-  ins: Float32Array,
-  insOffset: number
-): void {
-  _ensureScratch(bins);
-  for (let i = 0; i < bins; i++) _scratchHaz[i] = r;
-  const sx = snake.x;
-  const sy = snake.y;
-
-  _forEachNearbySegment(world, sx, sy, r, ref => {
-    const other = ref.s;
-    if (!other || !other.alive || other === snake) return;
-    const i = ref.i;
-    const pts = other.points;
-    if (!pts || i <= 0 || i >= pts.length) return;
-    const a = pts[i - 1];
-    const b = pts[i];
-    if (!a || !b) return;
-    const c = _closestPointOnSegment(sx, sy, a.x, a.y, b.x, b.y);
-    const d = Math.sqrt(c.d2);
-    if (d > r + (other.radius || CFG.snakeRadius) + 8) return;
-    const free = Math.max(0, d - (other.radius || CFG.snakeRadius));
-    const ang = Math.atan2(c.qy - sy, c.qx - sx);
-    const rel = angNorm(ang - snake.dir);
-    const bi = _angleToBin(rel, bins);
-    const prev = _scratchHaz[bi] ?? r;
-    if (free < prev) _scratchHaz[bi] = free;
-  });
-
-  for (let i = 0; i < bins; i++) {
-    const haz = _scratchHaz[i] ?? r;
-    const ratio = clamp(haz / r, 0, 1);
-    ins[insOffset + i] = ratio * 2 - 1;
-  }
-}
-
-/**
- * Computes a 360° wall distance histogram around the head.
- * Returns values in [-1,1] where +1 means wall is beyond the bubble radius.
- */
-function _fillWallBubbleBins(
-  snake: SnakeLike,
-  bins: number,
-  r: number,
-  ins: Float32Array,
-  insOffset: number
-): void {
-  const sx = snake.x;
-  const sy = snake.y;
-  const R = CFG.worldRadius;
-  for (let i = 0; i < bins; i++) {
-    const theta = snake.dir + (i / bins) * TAU;
-    const t = _distToWallAlongRay(sx, sy, theta, R);
-    const ratio = clamp(t / r, 0, 1);
-    ins[insOffset + i] = ratio * 2 - 1;
-  }
-}
 
 /**
  * Compute a v2 food density histogram using centered binning.
@@ -660,51 +530,130 @@ export function buildSensors(
   const layout = getActiveLayout();
   const bins = layout.bins;
   const ins = out && out.length === layout.inputSize ? out : new Float32Array(layout.inputSize);
+  const sizeNorm = snake.sizeNorm();
 
-  // 0-1: heading sin/cos
+  // Index 0-1: heading sin/cos
   ins[0] = Math.sin(snake.dir);
   ins[1] = Math.cos(snake.dir);
 
-  // 2: size fraction [-1,1]
-  const sizeNorm = snake.sizeNorm();
+  // Index 2: size fraction [-1,1]
   ins[2] = clamp(sizeNorm * 2 - 1, -1, 1);
 
-  // 3: boost margin relative to minimum points to boost
+  // Index 3: boost margin relative to minimum points to boost
   const minBoostPts = CFG.boost.minPointsToBoost;
   const margin = snake.pointsScore - minBoostPts;
   ins[3] = clamp(margin / Math.max(1e-6, minBoostPts), -1, 1);
 
-  // 4: log-scaled percentile of points relative to best this generation
+  // Index 4: log-scaled percentile of points relative to best this generation
   const bestPts = Math.max(0.001, world.bestPointsThisGen);
   const logFrac = Math.log(1 + snake.pointsScore) / Math.log(1 + bestPts);
   ins[4] = clamp(logFrac * 2 - 1, -1, 1);
 
+  // Index 5: speed_norm - speed relative to boost speed
+  const speedRatio = Number.isFinite(snake.speed)
+    ? snake.speed / Math.max(1e-6, CFG.snakeBoostSpeed)
+    : 0;
+  ins[5] = ratioToBipolar(speedRatio);
+
+  // Index 6: boost_state - current boost flag
+  const boostRatio = Number.isFinite(snake.boost) ? snake.boost : 0;
+  ins[6] = ratioToBipolar(clamp(boostRatio, 0, 1));
+
+  // === New V3 scalar sensors (indices 7-16) ===
+
+  // Index 7: points_norm - normalized score vs generation best
+  const pointsRatio = snake.pointsScore / Math.max(1, bestPts);
+  ins[7] = clamp(2 * pointsRatio - 1, -1, 1);
+
+  // Index 8: points_delta_norm - change since last tick
+  const dpScale = 10; // saturating scale for point deltas
+  const dp = snake.pointsScore - (snake.prevPointsScore ?? snake.pointsScore);
+  ins[8] = clamp(dp / dpScale, -1, 1);
+
+  // Index 9: length_norm - length normalized to max
+  const lenRatio = snake.length() / Math.max(1, CFG.snakeMaxLen);
+  ins[9] = clamp(2 * lenRatio - 1, -1, 1);
+
+  // Index 10: boost_points_frac - fuel above minimum
+  const fuelRatio = (snake.pointsScore - minBoostPts) / Math.max(1, minBoostPts);
+  ins[10] = clamp(fuelRatio, -1, 1);
+
+  // Index 11: boost_cost_norm - current boost cost rate (varies with size)
+  const baseCost = CFG.boost.pointsCostPerSecond;
+  const sizeFactor = CFG.boost.pointsCostSizeFactor ?? 1.1;
+  const effectiveCost = baseCost * (1 + sizeFactor * sizeNorm);
+  const costScale = baseCost * 3; // normalize to reasonable range
+  ins[11] = clamp(2 * (effectiveCost / Math.max(1, costScale)) - 1, -1, 1);
+
+  // Index 12: wall_dist_norm - scalar distance to wall
+  const distToCenter = Math.hypot(snake.x, snake.y);
+  const wallDist = CFG.worldRadius - distToCenter;
+  ins[12] = clamp(2 * (wallDist / CFG.worldRadius) - 1, -1, 1);
+
+  // Compute sensing radii for binned and distance sensors
+  const { rNear, rFar } = computeSensorRadii(sizeNorm);
+
+  // Index 13: nearest_food_dist_norm - distance to nearest pellet
+  let nearestFoodDist = rFar; // default to max sensing range
+  _forEachNearbyPellet(world, snake.x, snake.y, rFar, p => {
+    const dx = p.x - snake.x;
+    const dy = p.y - snake.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < nearestFoodDist) nearestFoodDist = d;
+    return d < 1; // early exit if very close
+  });
+  ins[13] = clamp(2 * (1 - nearestFoodDist / rFar) - 1, -1, 1);
+
+  // Index 14: nearest_body_dist_norm - distance to nearest body segment
+  let nearestBodyDist = rNear;
+  _forEachNearbySegment(world, snake.x, snake.y, rNear, ref => {
+    const other = ref.s;
+    if (!other || !other.alive || other === snake) return;
+    const i = ref.i;
+    const pts = other.points;
+    if (!pts || i <= 0 || i >= pts.length) return;
+    const a = pts[i - 1];
+    const b = pts[i];
+    if (!a || !b) return;
+    const c = _closestPointOnSegment(snake.x, snake.y, a.x, a.y, b.x, b.y);
+    const dist = Math.sqrt(c.d2);
+    const clear = Math.max(0, dist - (snake.radius + other.radius));
+    if (clear < nearestBodyDist) nearestBodyDist = clear;
+  });
+  ins[14] = clamp(2 * (1 - nearestBodyDist / rNear) - 1, -1, 1);
+
+  // Index 15: nearest_head_dist_norm - distance to nearest enemy head
+  let nearestHeadDist = rNear;
+  const snakes = world.snakes ?? [];
+  for (const other of snakes) {
+    if (!other || !other.alive || other === snake || other.id === snake.id) continue;
+    const head = other.points[0];
+    if (!head) continue;
+    const dx = head.x - snake.x;
+    const dy = head.y - snake.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const thr = snake.radius + other.radius;
+    const clear = Math.max(0, dist - thr);
+    if (clear < nearestHeadDist) nearestHeadDist = clear;
+  }
+  ins[15] = clamp(2 * (1 - nearestHeadDist / rNear) - 1, -1, 1);
+
+  // Index 16: age_norm - survival time normalized
+  const ageScale = Math.max(1, CFG.generationSeconds);
+  const ageRatio = Math.min(1, (snake.age ?? 0) / ageScale);
+  ins[16] = clamp(2 * ageRatio - 1, -1, 1);
+
+  // === Binned sensors (v3 uses same bin logic as v2) ===
   const foodOff = layout.offsets.food;
   const hazOff = layout.offsets.hazard;
   const wallOff = layout.offsets.wall;
+  const headOff = layout.offsets.head;
 
-  if (layout.layoutVersion === 'v2') {
-    const speedRatio = Number.isFinite(snake.speed)
-      ? snake.speed / Math.max(1e-6, CFG.snakeBoostSpeed)
-      : 0;
-    ins[5] = ratioToBipolar(speedRatio);
-    const boostRatio = Number.isFinite(snake.boost) ? snake.boost : 0;
-    ins[6] = ratioToBipolar(clamp(boostRatio, 0, 1));
-
-    const { rNear, rFar } = computeSensorRadii(sizeNorm);
-    _fillFoodBinsV2(world, snake, bins, rFar, ins, foodOff);
-    _fillHazardBinsV2(world, snake, bins, rNear, ins, hazOff);
-    _fillWallBinsV2(snake, bins, rNear, ins, wallOff);
-
-    if (layout.offsets.head != null) {
-      _fillHeadBinsV2(world, snake, bins, rNear, ins, layout.offsets.head);
-    }
-  } else {
-    const r = _bubbleRadiusForSnake(snake);
-    _fillFoodBubbleBins(world, snake, bins, r, ins, foodOff);
-    _fillHazardBubbleBins(world, snake, bins, r, ins, hazOff);
-    _fillWallBubbleBins(snake, bins, r, ins, wallOff);
-  }
+  _fillFoodBinsV2(world, snake, bins, rFar, ins, foodOff);
+  _fillHazardBinsV2(world, snake, bins, rNear, ins, hazOff);
+  _fillWallBinsV2(snake, bins, rNear, ins, wallOff);
+  _fillHeadBinsV2(world, snake, bins, rNear, ins, headOff);
 
   return ins;
 }
+

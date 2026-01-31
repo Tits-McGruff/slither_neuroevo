@@ -100,18 +100,13 @@ current TypeScript server implementation and `server/config.toml`.
 
 ### SensorSpec contract details
 
-19. `sensorSpec.layoutVersion` is `"v2"` by default. The `"legacy"` layout
-    removes the `speed_norm`, `boost_state`, and `head_*` bins and uses the
-    older 3-channel bubble layout. Treat different layout versions as
-    incompatible input schemas.
-20. `sensorSpec.sensorCount` always equals `sensorSpec.order.length`. The
-    layout is stable for the life of a connection and only changes after a
-    server reset plus reconnect.
-21. `head_*` bins are only present in `layoutVersion: "v2"`. Bin count and
-    channel presence depend on `CFG.sense.bubbleBins` and `layoutVersion`,
-    not on bot mode or generation.
-22. All sensor values are clamped into `[-1, 1]` by `buildSensors`. No
-    current labels exceed that range.
+19. `sensorSpec.layoutVersion` is `"v3"`. This is the only supported version.
+    Legacy layouts (`v2` and `legacy`) are no longer supported.
+20. `sensorSpec.sensorCount` always equals 17 + (4 * bins). The scalar count
+    is fixed at 17.
+21. All four binned channels (`food`, `hazard`, `wall`, `head`) are always
+    present in the v3 layout.
+22. All sensor values are clamped into `[-1, 1]` by `buildSensors`.
 
 ### Optional UI-oriented messages and binary frames
 
@@ -358,30 +353,40 @@ The serializer version is included in `welcome.serializerVersion`.
 The server sends the exact sensor order in `welcome.sensorSpec.order`. Do not
 assume a fixed layout; always build your input vector from this order.
 
-### Scalar sensors
+### Scalar sensors (17 total)
 
-The scalar sensors come first in the vector:
+The scalar sensors occupying indices 0-16 in the vector:
 
-- `heading_sin`, `heading_cos`: sine/cosine of heading angle.
+- `heading_sin`, `heading_cos`: sine/cosine of current heading.
 - `size_norm`: snake size fraction in `[-1, 1]`.
 - `boost_margin`: points relative to `minPointsToBoost`, in `[-1, 1]`.
 - `points_pct`: log-scaled percentile vs best points this generation.
-- `speed_norm`: speed relative to boost speed, in `[-1, 1]` (v2 only).
-- `boost_state`: current boost state mapped to `[-1, 1]` (v2 only).
+- `speed_norm`: speed relative to maximum boost speed.
+- `boost_state`: current boost fuel status in `[0, 1]` mapped to `[-1, 1]`.
+- `points_norm`: current points score normalized by generation best.
+- `points_delta_norm`: change in points since the last simulation tick.
+- `length_norm`: snake length relative to absolute max length.
+- `boost_points_frac`: points available for boost relative to minimum cost.
+- `boost_cost_norm`: current point loss rate from boosting (scales with size).
+- `wall_dist_norm`: distance to the circular world boundary.
+- `nearest_food_dist_norm`: distance to the nearest food pellet.
+- `nearest_body_dist_norm`: distance to the nearest snake segment (any snake).
+- `nearest_head_dist_norm`: distance to the nearest enemy snake head.
+- `age_norm`: survival time normalized by the generation duration limit.
 
 ### Binned sensors
 
-Bins are ordered by label name, e.g. `food_0 ... food_(N-1)`, then
-`hazard_*`, `wall_*`, and `head_*` (v2 only).
+The binned channels follow the scalar sensors. With $N$ bins, there are $4 \times N$
+total binned inputs:
 
-- `food_i`: local food density in the bin. `-1` = none, `+1` = dense.
-- `hazard_i`: clearance to nearby bodies. `-1` = very close, `+1` = clear.
-- `wall_i`: clearance to the arena wall. `-1` = wall at head, `+1` = far.
-- `head_i`: clearance to other snake heads. `-1` = very close, `+1` = far.
+- `food_0` ... `food_(N-1)`: local food density.
+- `hazard_0` ... `hazard_(N-1)`: clearance to nearby bodies.
+- `wall_0` ... `wall_(N-1)`: distance to the circular world wall.
+- `head_0` ... `head_(N-1)`: pressure from nearby enemy heads.
 
-Bins are arranged around the snake's heading in a full 360-degree ring. Use
-`sensorSpec.order` to map indices to labels, and avoid assuming a specific
-bin orientation.
+All channels use **centered bin mapping**:
+- Bin 0 is centered at $-\pi$ (directly behind).
+- Bin $N/2$ is centered at $0$ (directly ahead).
 
 ## Action timing and rate limits
 
@@ -639,7 +644,7 @@ export type ClientMessage =
 export type SensorSpec = {
   sensorCount: number;
   order: string[];
-  layoutVersion?: "legacy" | "v2";
+  layoutVersion: "v3";
 };
 
 export type WelcomeMsg = {
