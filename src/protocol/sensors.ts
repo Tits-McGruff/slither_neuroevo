@@ -40,7 +40,7 @@ const MIN_BINS = 8;
 /**
  * V3 scalar sensor labels.
  * - Indices 0-6: inherited from v2 (heading, size, boost, speed state)
- * - Indices 7-16: new sensors for improved learnability
+ * - Indices 7-18: new sensors for improved learnability
  */
 const V3_SCALAR_LABELS = [
   // Original sensors (0-6)
@@ -51,7 +51,7 @@ const V3_SCALAR_LABELS = [
   'points_pct',
   'speed_norm',
   'boost_state',
-  // New v3 sensors (7-16)
+  // New v3 sensors (7-18)
   'points_norm',
   'points_delta_norm',
   'length_norm',
@@ -59,6 +59,8 @@ const V3_SCALAR_LABELS = [
   'boost_cost_norm',
   'wall_dist_norm',
   'nearest_food_dist_norm',
+  'nearest_food_dir_sin',
+  'nearest_food_dir_cos',
   'nearest_body_dist_norm',
   'nearest_head_dist_norm',
   'age_norm'
@@ -154,4 +156,3 @@ export function getSensorSpec(layout: SensorLayout): SensorSpec {
     layoutVersion: layout.layoutVersion
   };
 }
-

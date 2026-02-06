@@ -134,13 +134,13 @@ describe('sensors.ts', () => {
     const bins = 12;
     const layout = getSensorLayout(bins, 'v3');
 
-    expect(layout.scalarCount).toBe(17);
+    expect(layout.scalarCount).toBe(19);
     expect(layout.channelCount).toBe(4);
-    expect(layout.inputSize).toBe(17 + 4 * bins);
-    expect(layout.offsets.food).toBe(17);
-    expect(layout.offsets.hazard).toBe(17 + bins);
-    expect(layout.offsets.wall).toBe(17 + 2 * bins);
-    expect(layout.offsets.head).toBe(17 + 3 * bins);
+    expect(layout.inputSize).toBe(19 + 4 * bins);
+    expect(layout.offsets.food).toBe(19);
+    expect(layout.offsets.hazard).toBe(19 + bins);
+    expect(layout.offsets.wall).toBe(19 + 2 * bins);
+    expect(layout.offsets.head).toBe(19 + 3 * bins);
     expect(layout.order.length).toBe(layout.inputSize);
   });
 

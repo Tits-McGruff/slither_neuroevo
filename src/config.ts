@@ -113,8 +113,6 @@ export const CFG_DEFAULT = {
   brain: {
     inSize: getSensorLayout(16, 'v3').inputSize,
     outSize: 2,
-    // Enable batched control evaluation when true.
-    batchEnabled: true,
     // Recurrent memory.
     // Stackable memory units sit after the MLP feature extractor.
     useMlp: true,
@@ -239,4 +237,3 @@ export function syncBrainInputSize(): void {
   CFG.brain.inSize = layout.inputSize;
   logV3LayoutOnce(layout);
 }
-

@@ -74,8 +74,6 @@ export class SimCore {
 
   /** Optional Brain Pool for parallel inference. */
   brainPool: BatchInferenceRunner | null = null;
-  /** Whether batch inference is active/enabled. */
-  batchEnabled: boolean = true;
 
   /** Last known fitness history length (for incremental stats updates). */
   lastHistoryLen: number = 0;
@@ -122,7 +120,7 @@ export class SimCore {
       this.tickId++;
 
       // Execute one physics step
-      if (this.brainPool && this.batchEnabled) {
+      if (this.brainPool) {
         // Use parallel batch inference if available.
         await this.world.updateAsync(
           this.fixedDt,

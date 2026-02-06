@@ -559,7 +559,7 @@ export function buildSensors(
   const boostRatio = Number.isFinite(snake.boost) ? snake.boost : 0;
   ins[6] = ratioToBipolar(clamp(boostRatio, 0, 1));
 
-  // === New V3 scalar sensors (indices 7-16) ===
+  // === New V3 scalar sensors (indices 7-18) ===
 
   // Index 7: points_norm - normalized score vs generation best
   const pointsRatio = snake.pointsScore / Math.max(1, bestPts);
@@ -593,18 +593,44 @@ export function buildSensors(
   // Compute sensing radii for binned and distance sensors
   const { rNear, rFar } = computeSensorRadii(sizeNorm);
 
-  // Index 13: nearest_food_dist_norm - distance to nearest pellet
+  // Index 13-15: nearest_food_dist_norm and direction to nearest pellet
   let nearestFoodDist = rFar; // default to max sensing range
+  let nearestFoodDx = 0;
+  let nearestFoodDy = 0;
+  let foundFood = false;
   _forEachNearbyPellet(world, snake.x, snake.y, rFar, p => {
     const dx = p.x - snake.x;
     const dy = p.y - snake.y;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    if (d < nearestFoodDist) nearestFoodDist = d;
-    return d < 1; // early exit if very close
+    const d2 = dx * dx + dy * dy;
+    if (d2 < 1e-6) {
+      nearestFoodDist = 0;
+      nearestFoodDx = dx;
+      nearestFoodDy = dy;
+      foundFood = true;
+      return false;
+    }
+    const d = Math.sqrt(d2);
+    if (d < nearestFoodDist) {
+      nearestFoodDist = d;
+      nearestFoodDx = dx;
+      nearestFoodDy = dy;
+      foundFood = true;
+      if (d < 1) return false; // early exit if very close
+    }
+    return true;
   });
   ins[13] = clamp(2 * (1 - nearestFoodDist / rFar) - 1, -1, 1);
+  if (foundFood && nearestFoodDist > 1e-6) {
+    const ang = Math.atan2(nearestFoodDy, nearestFoodDx);
+    const rel = angNorm(ang - snake.dir);
+    ins[14] = Math.sin(rel);
+    ins[15] = Math.cos(rel);
+  } else {
+    ins[14] = 0;
+    ins[15] = 0;
+  }
 
-  // Index 14: nearest_body_dist_norm - distance to nearest body segment
+  // Index 16: nearest_body_dist_norm - distance to nearest body segment
   let nearestBodyDist = rNear;
   _forEachNearbySegment(world, snake.x, snake.y, rNear, ref => {
     const other = ref.s;
@@ -620,9 +646,9 @@ export function buildSensors(
     const clear = Math.max(0, dist - (snake.radius + other.radius));
     if (clear < nearestBodyDist) nearestBodyDist = clear;
   });
-  ins[14] = clamp(2 * (1 - nearestBodyDist / rNear) - 1, -1, 1);
+  ins[16] = clamp(2 * (1 - nearestBodyDist / rNear) - 1, -1, 1);
 
-  // Index 15: nearest_head_dist_norm - distance to nearest enemy head
+  // Index 17: nearest_head_dist_norm - distance to nearest enemy head
   let nearestHeadDist = rNear;
   const snakes = world.snakes ?? [];
   for (const other of snakes) {
@@ -636,12 +662,12 @@ export function buildSensors(
     const clear = Math.max(0, dist - thr);
     if (clear < nearestHeadDist) nearestHeadDist = clear;
   }
-  ins[15] = clamp(2 * (1 - nearestHeadDist / rNear) - 1, -1, 1);
+  ins[17] = clamp(2 * (1 - nearestHeadDist / rNear) - 1, -1, 1);
 
-  // Index 16: age_norm - survival time normalized
+  // Index 18: age_norm - survival time normalized
   const ageScale = Math.max(1, CFG.generationSeconds);
   const ageRatio = Math.min(1, (snake.age ?? 0) / ageScale);
-  ins[16] = clamp(2 * ageRatio - 1, -1, 1);
+  ins[18] = clamp(2 * ageRatio - 1, -1, 1);
 
   // === Binned sensors (v3 uses same bin logic as v2) ===
   const foodOff = layout.offsets.food;
@@ -656,4 +682,3 @@ export function buildSensors(
 
   return ins;
 }
-

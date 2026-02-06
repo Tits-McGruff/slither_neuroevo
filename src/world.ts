@@ -675,18 +675,6 @@ export class World {
     profiler?.endTick();
   }
   /**
-   * Return whether batched control evaluation is enabled.
-   * @returns True when batched control is enabled and sized.
-   */
-  _shouldUseBatchControl(): boolean {
-    if (CFG.brain.batchEnabled === false) return false;
-    const inSize = CFG.brain.inSize;
-    const outSize = CFG.brain.outSize;
-    if (!Number.isFinite(inSize) || inSize <= 0) return false;
-    if (!Number.isFinite(outSize) || outSize <= 0) return false;
-    return true;
-  }
-  /**
    * Warn once when the sensor layout size does not match CFG.brain.inSize.
    */
   _warnOnSensorLayoutMismatch(): void {
@@ -764,10 +752,6 @@ export class World {
       return;
     }
 
-    if (!this._shouldUseBatchControl()) {
-      this._stepPhysicsLegacy(dt, controllers, tickId);
-      return;
-    }
     const deficit = Math.max(0, CFG.pelletCountTarget - this.pellets.length);
     this._pelletSpawnAcc += CFG.pelletSpawnPerSecond * dt;
     const spawnN = Math.min(deficit, Math.floor(this._pelletSpawnAcc));
@@ -877,10 +861,6 @@ export class World {
     tickId: number,
     batchRunner: BatchInferenceRunner
   ): Promise<void> {
-    if (!this._shouldUseBatchControl()) {
-      this._stepPhysics(dt, controllers, tickId);
-      return;
-    }
     const deficit = Math.max(0, CFG.pelletCountTarget - this.pellets.length);
     this._pelletSpawnAcc += CFG.pelletSpawnPerSecond * dt;
     const spawnN = Math.min(deficit, Math.floor(this._pelletSpawnAcc));
@@ -974,58 +954,6 @@ export class World {
       sn.advance(this, dt);
     }
 
-    // Rebuild collision grid
-    const skip = Math.max(0, Math.floor(CFG.collision.skipSegments));
-    this._collGrid.reset(CFG.collision.cellSize);
-    for (const s of this.snakes) {
-      if (!s.alive) continue;
-      const pts = s.points;
-      // Add all segments
-      for (let i = Math.max(1, skip); i < pts.length; i++) {
-        const p0 = pts[i - 1];
-        const p1 = pts[i];
-        if (!p0 || !p1) continue;
-        const mx = (p0.x + p1.x) * 0.5;
-        const my = (p0.y + p1.y) * 0.5;
-        this._collGrid.add(mx, my, s, i);
-      }
-    }
-
-    // Substep physics for collisions
-    this._resolveCollisionsGrid();
-  }
-  /**
-   * Performs a legacy per-snake substep of physics for fallback usage.
-   * @param dt - Substep delta time in seconds.
-   * @param controllers - Optional external controller registry.
-   * @param tickId - Optional tick id for controller sync.
-   */
-  _stepPhysicsLegacy(
-    dt: number,
-    controllers?: ControllerRegistryLike,
-    tickId = 0
-  ): void {
-    const deficit = Math.max(0, CFG.pelletCountTarget - this.pellets.length);
-    this._pelletSpawnAcc += CFG.pelletSpawnPerSecond * dt;
-    const spawnN = Math.min(deficit, Math.floor(this._pelletSpawnAcc));
-    this._pelletSpawnAcc -= spawnN;
-    for (let i = 0; i < spawnN; i++) this.addPellet(this._spawnAmbientPellet());
-    for (const sn of this.snakes) {
-      if (!sn.alive) continue;
-      const botAction = this.botManager.getActionForSnake(sn.id);
-      if (botAction) {
-        sn.update(this, dt, botAction);
-        continue;
-      }
-      if (controllers && controllers.isControlled(sn.id)) {
-        const control = controllers.getAction(sn.id, tickId);
-        if (control) {
-          sn.update(this, dt, control);
-          continue;
-        }
-      }
-      sn.update(this, dt);
-    }
     // Rebuild collision grid
     const skip = Math.max(0, Math.floor(CFG.collision.skipSegments));
     this._collGrid.reset(CFG.collision.cellSize);
