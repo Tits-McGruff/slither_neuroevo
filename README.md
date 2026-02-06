@@ -161,7 +161,7 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 
 ### Sensors
 
-- **Use v2 sensor layout**: Enables the v2 sensor layout (changes input size; reset-only).
+- **Use v2 sensor layout**: Deprecated compatibility toggle; runtime sensor layout is v3.
 - **Sensor bins**: Number of angular bins per channel (reset-only).
 - **Near radius base**: Base near sensing radius.
 - **Near radius scale**: Size-based near radius increase.
@@ -175,6 +175,7 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 - **Max pellet checks**: Work cap for pellet sampling.
 - **Max segment checks**: Work cap for segment sampling.
 - **Sensors debug logs**: Enables sensor debug logging.
+- Sensor model note: v3 observations include nearest-pellet distance and direction (`nearest_food_dir_sin/cos`) in addition to binned food/hazard/wall/head channels.
 
 ### Evolution
 
@@ -251,7 +252,7 @@ The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM
 Population import/export lives in the Settings tab and writes a JSON file that includes the population, applied settings, the active graph spec, and Hall of Fame entries.
 In server mode, exports are pulled from a server snapshot; in worker mode, exports come from the local worker state.
 Imports reset the simulation to the file contents.
-Imports created before the v2 sensor layout switch are incompatible; if you see input size mismatch errors, clear localStorage and delete `data/slither.db`, then retry or switch layouts.
+Imports from older builds may be incompatible with the current v3 sensor layout. If you see input size mismatch errors, clear localStorage and delete `data/slither.db`, then re-export from a matching build.
 
 ## Preset recipes (QA-friendly)
 
@@ -319,4 +320,4 @@ Use GRU for smoother, more deliberate behavior.
 - **Join disabled**: The server is not connected; worker mode does not allow player control.
 - **Snakes die instantly**: Lower hit scale or increase skip segments near head.
 - **Server install fails on Windows**: Use Node 20 LTS or install the Visual Studio C++ build tools + Windows SDK (for `better-sqlite3`).
-- **Import input size mismatch**: Clear browser storage (`localStorage`) and delete `data/slither.db`, then re-export from a matching build/layout.
+- **Import input size mismatch**: Clear browser storage (`localStorage`) and delete `data/slither.db`, then re-export from a matching build.

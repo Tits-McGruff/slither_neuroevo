@@ -102,8 +102,8 @@ current TypeScript server implementation and `server/config.toml`.
 
 19. `sensorSpec.layoutVersion` is `"v3"`. This is the only supported version.
     Legacy layouts (`v2` and `legacy`) are no longer supported.
-20. `sensorSpec.sensorCount` always equals 17 + (4 * bins). The scalar count
-    is fixed at 17.
+20. `sensorSpec.sensorCount` always equals 19 + (4 * bins). The scalar count
+    is fixed at 19.
 21. All four binned channels (`food`, `hazard`, `wall`, `head`) are always
     present in the v3 layout.
 22. All sensor values are clamped into `[-1, 1]` by `buildSensors`.
@@ -255,9 +255,9 @@ The server requires `hello` before `join`, and `join` before `action`, `view`,
   "worldSeed": 987654,
   "cfgHash": "...",
   "sensorSpec": {
-    "sensorCount": 55,
+    "sensorCount": 83,
     "order": ["heading_sin", "heading_cos"],
-    "layoutVersion": "v2"
+    "layoutVersion": "v3"
   },
   "serializerVersion": 1,
   "frameByteLength": 123456
@@ -353,9 +353,9 @@ The serializer version is included in `welcome.serializerVersion`.
 The server sends the exact sensor order in `welcome.sensorSpec.order`. Do not
 assume a fixed layout; always build your input vector from this order.
 
-### Scalar sensors (17 total)
+### Scalar sensors (19 total)
 
-The scalar sensors occupying indices 0-16 in the vector:
+The scalar sensors occupying indices 0-18 in the vector:
 
 - `heading_sin`, `heading_cos`: sine/cosine of current heading.
 - `size_norm`: snake size fraction in `[-1, 1]`.
@@ -370,6 +370,8 @@ The scalar sensors occupying indices 0-16 in the vector:
 - `boost_cost_norm`: current point loss rate from boosting (scales with size).
 - `wall_dist_norm`: distance to the circular world boundary.
 - `nearest_food_dist_norm`: distance to the nearest food pellet.
+- `nearest_food_dir_sin`: sine of relative angle to nearest food pellet.
+- `nearest_food_dir_cos`: cosine of relative angle to nearest food pellet.
 - `nearest_body_dist_norm`: distance to the nearest snake segment (any snake).
 - `nearest_head_dist_norm`: distance to the nearest enemy snake head.
 - `age_norm`: survival time normalized by the generation duration limit.
