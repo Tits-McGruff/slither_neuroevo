@@ -195,8 +195,7 @@ export const CFG_DEFAULT = {
     clusterJitter: 14,
     maxPellets: 420,
     useSnakeColor: true
-  },
-  dtClamp: 0.01
+  }
 };
 
 /** Mutable configuration object, cloned from CFG_DEFAULT on reset. */

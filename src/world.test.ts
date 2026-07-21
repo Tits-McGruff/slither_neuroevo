@@ -40,15 +40,17 @@ describe(SUITE, () => {
      * @param maxTime - Maximum time to wait before giving up.
      * @returns Accumulated time spent stepping.
      */
-    function waitForBaselineRespawn(world: World, dt = 0.045, maxTime = 2): number {
+    async function waitForBaselineRespawn(
+        world: World,
+        dt = 1 / 60,
+        maxTime = 2
+    ): Promise<number> {
         let elapsed = 0;
-        const maxStep = Math.max(0.004, CFG.dtClamp);
         while (elapsed < maxTime) {
             const bot = world.baselineBots[0];
             if (bot && bot.alive) break;
-            world.update(dt, 800, 600);
-            const scaled = Math.min(Math.max(dt * world.simSpeed, 0), maxStep);
-            elapsed += scaled;
+            await world.step(dt, 800, 600);
+            elapsed += dt;
         }
         return elapsed;
     }
@@ -95,12 +97,12 @@ describe(SUITE, () => {
         expect(found).toBe(false);
     });
 
-    it('World update should advance physics', () => {
+    it('World step should advance physics', async () => {
         const world = new World(settings);
         const snake = world.snakes[0]!;
         const initialAge = snake.age;
 
-        world.update(0.1, 800, 600);
+        await world.step(1 / 60, 800, 600, undefined, 1);
 
         expect(snake.age).toBeGreaterThan(initialAge);
     });
@@ -123,7 +125,7 @@ describe(SUITE, () => {
         }
     });
 
-    it('keeps initial sensors and points finite after the first tick', () => {
+    it('keeps initial sensors and points finite after the first tick', async () => {
         resetCFGToDefaults();
         const originalTarget = CFG.pelletCountTarget;
         const originalGenSeconds = CFG.generationSeconds;
@@ -131,7 +133,7 @@ describe(SUITE, () => {
         CFG.generationSeconds = 5;
         try {
             const world = new World({ ...settings, snakeCount: 6 });
-            world.update(1 / 30, 800, 600);
+            await world.step(1 / 60, 800, 600, undefined, 1);
             expect(Number.isFinite(world.bestPointsThisGen)).toBe(true);
             for (const s of world.snakes) {
                 if (!s.alive) continue;
@@ -150,14 +152,14 @@ describe(SUITE, () => {
         }
     });
 
-    it('keeps sensors finite after reset with v3 layout', () => {
+    it('keeps sensors finite after reset with v3 layout', async () => {
         resetCFGToDefaults();
         const originalTarget = CFG.pelletCountTarget;
         CFG.pelletCountTarget = 150;
         try {
             expect(CFG.sense.layoutVersion).toBe('v3');
             const world = new World({ ...settings, snakeCount: 4 });
-            world.update(1 / 30, 800, 600);
+            await world.step(1 / 60, 800, 600, undefined, 1);
             for (const s of world.snakes) {
                 if (!s.alive) continue;
                 if (!s.lastSensors) continue;
@@ -218,7 +220,7 @@ describe(SUITE, () => {
         }
     });
 
-    it('excludes baseline bots from bestPointsThisGen', () => {
+    it('excludes baseline bots from bestPointsThisGen', async () => {
         resetCFGToDefaults();
         CFG.baselineBots.count = 1;
         const originalTarget = CFG.pelletCountTarget;
@@ -232,8 +234,8 @@ describe(SUITE, () => {
             // Move them far apart to avoid accidental collisions or kills
             popSnake.x = -100; popSnake.y = -100;
             botSnake.x = 100; botSnake.y = 100;
-            world.update(0, 800, 600);
-            expect(world.bestPointsThisGen).toBe(5);
+            await world.step(1 / 60, 800, 600, undefined, 1);
+            expect(world.bestPointsThisGen).toBeGreaterThanOrEqual(5);
             expect(world.bestPointsSnakeId).toBe(popSnake.id);
         } finally {
             CFG.pelletCountTarget = originalTarget;
@@ -259,7 +261,7 @@ describe(SUITE, () => {
         }
     });
 
-    it('baselineBotIndex stays stable across respawn', () => {
+    it('baselineBotIndex stays stable across respawn', async () => {
         resetCFGToDefaults();
         CFG.baselineBots.count = 1;
         CFG.baselineBots.respawnDelay = 0.5;
@@ -269,7 +271,7 @@ describe(SUITE, () => {
             const initialId = bot.id;
             const initialIndex = bot.baselineBotIndex;
             bot.die(world);
-            const elapsed = waitForBaselineRespawn(world);
+            const elapsed = await waitForBaselineRespawn(world);
             const respawned = world.baselineBots[0]!;
             expect(respawned.alive).toBe(true);
             expect(respawned.baselineBotIndex).toBe(initialIndex);
@@ -290,7 +292,7 @@ describe(SUITE, () => {
         expect(seedC).not.toBe(seedD);
     });
 
-    it('respawns baseline bots within the delay', () => {
+    it('respawns baseline bots within the delay', async () => {
         resetCFGToDefaults();
         CFG.baselineBots.count = 1;
         CFG.baselineBots.respawnDelay = 0.5;
@@ -298,7 +300,7 @@ describe(SUITE, () => {
             const world = new World({ ...settings, snakeCount: 1 });
             const bot = world.baselineBots[0]!;
             bot.die(world);
-            const elapsed = waitForBaselineRespawn(world);
+            const elapsed = await waitForBaselineRespawn(world);
             const respawned = world.baselineBots[0]!;
             expect(respawned.alive).toBe(true);
             expect(elapsed).toBeGreaterThanOrEqual(0.45);

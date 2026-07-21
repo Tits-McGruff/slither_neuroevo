@@ -113,7 +113,7 @@ describe('render.ts', () => {
     expect(lineCalls).toBeGreaterThan(0);
   });
 
-  it('renders the first-generation world frame with snakes present', () => {
+  it('renders the first-generation world frame with snakes present', async () => {
     resetCFGToDefaults();
     const originalTarget = CFG.pelletCountTarget;
     const originalSpawn = CFG.pelletSpawnPerSecond;
@@ -121,7 +121,7 @@ describe('render.ts', () => {
     CFG.pelletSpawnPerSecond = 40;
     try {
       const world = new World({ snakeCount: 6, hiddenLayers: 1, neurons1: 12, neurons2: 8 });
-      world.update(1 / 30, 800, 600);
+      await world.step(1 / 60, 800, 600, undefined, 1);
       const buffer = WorldSerializer.serialize(world);
       const ctx = makeCtx();
       const renderCtx = ctx as unknown as CanvasRenderingContext2D;

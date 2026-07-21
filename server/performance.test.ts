@@ -49,7 +49,7 @@ function sumAbs(buffer: Float32Array): number {
 }
 
 describe(SUITE, () => {
-  it('ticks 60 frames under a reasonable budget', () => {
+  it('ticks 60 frames under a reasonable budget', async () => {
     resetCFGToDefaults();
     const originalBaselineBots = CFG.baselineBots.count;
     CFG.baselineBots.count = 0;
@@ -59,7 +59,7 @@ describe(SUITE, () => {
       const frames = 60;
       const start = performance.now();
       for (let i = 0; i < frames; i++) {
-        world.update(1 / 60, 800, 600);
+        await world.step(1 / 60, 800, 600, undefined, i + 1);
         WorldSerializer.serialize(world);
       }
       const elapsed = performance.now() - start;

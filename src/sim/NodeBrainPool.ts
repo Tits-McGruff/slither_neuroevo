@@ -8,6 +8,7 @@
 import os from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { BaseBrainPool, type BrainPoolInitOptions } from './BaseBrainPool.ts';
+import type { InferenceBackend } from '../brains/types.ts';
 import type {
     InferWorkerResponse,
     WorkerInitMessage,
@@ -18,8 +19,19 @@ import type {
 export class NodeBrainPool extends BaseBrainPool {
     private workers: Worker[] = [];
 
+    /** Backend hard-coded by the active server worker implementation. */
+    readonly inferenceBackend: InferenceBackend = 'js';
+
     constructor(private requestedWorkerCount: number = 0) {
         super();
+    }
+
+    /**
+     * Return the number of worker threads that completed pool initialization.
+     * @returns Ready worker count, or zero while the pool is not ready.
+     */
+    getActiveWorkerCount(): number {
+        return this.status === 'ready' ? this.workers.length : 0;
     }
 
     async init(options: BrainPoolInitOptions): Promise<void> {

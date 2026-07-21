@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { CFG, resetCFGToDefaults } from '../src/config.ts';
 import { World } from '../src/world.ts';
@@ -19,6 +19,20 @@ export interface RunningServer {
   port: number;
   wsUrl: string;
   close: () => Promise<void>;
+}
+
+/**
+ * Close a listening HTTP server and wait for its close callback.
+ * @param server - Node HTTP server to close.
+ */
+async function closeHttpServer(server: Server): Promise<void> {
+  if (!server.listening) return;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
 }
 
 /**
@@ -61,10 +75,16 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
   let wsHub: WsHub | null = null;
 
   const httpHandler = createHttpHandler({
-    getStatus: () => ({
-      tick: simServer?.getTickId() ?? 0,
-      clients: wsHub?.getClientCount() ?? 0
-    }),
+    getStatus: () => {
+      if (!simServer) throw new Error('simulation server not ready');
+      return {
+        tick: simServer.getTickId(),
+        clients: wsHub?.getClientCount() ?? 0,
+        inferenceMode: simServer.getInferenceMode(),
+        scheduler: simServer.getSchedulerDiagnostics(),
+        fault: simServer.getFaultStatus()
+      };
+    },
     getWorld: () => simServer?.getWorld() ?? null,
     importPopulation: (data) =>
       simServer?.importPopulation(data) ?? { ok: false, reason: 'world not ready' },
@@ -80,45 +100,79 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
     httpHandler(req, res);
   });
 
-  wsHub = new WsHub(httpServer, welcome);
-  simServer = new SimServer(config, wsHub, persistence, cfgHash, worldSeed, initialSettings);
-  wsHub.setHandlers({
-    onJoin: (connId, msg, clientType) =>
-      simServer?.handleJoin(connId, msg.mode, clientType, msg.name),
-    onAction: (connId, msg) => simServer?.handleAction(connId, msg),
-    onView: (connId, msg) => simServer?.handleView(connId, msg),
-    onViz: (connId, msg) => simServer?.handleViz(connId, msg),
-    onReset: (connId, msg) => simServer?.handleReset(connId, msg),
-    onDisconnect: (connId) => simServer?.handleDisconnect(connId)
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    const onError = (err: Error) => {
-      httpServer.off('error', onError);
-      reject(err);
-    };
-    httpServer.once('error', onError);
+  let closed = false;
+  /** Close every resource exactly once, preserving the first cleanup error. */
+  const close = async (): Promise<void> => {
+    if (closed) return;
+    closed = true;
+    let firstError: unknown = null;
     try {
-      httpServer.listen({ port: config.port, host: config.host }, () => {
-        httpServer.off('error', onError);
-        resolve();
-      });
-    } catch (err) {
-      onError(err as Error);
+      await simServer?.stop();
+    } catch (error) {
+      firstError = error;
     }
-  });
+    try {
+      wsHub?.closeAll();
+    } catch (error) {
+      firstError ??= error;
+    }
+    try {
+      await closeHttpServer(httpServer);
+    } catch (error) {
+      firstError ??= error;
+    }
+    try {
+      db.close();
+    } catch (error) {
+      firstError ??= error;
+    }
+    if (firstError) throw firstError;
+  };
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: Error) => {
+        httpServer.off('error', onError);
+        reject(err);
+      };
+      httpServer.once('error', onError);
+      try {
+        httpServer.listen({ port: config.port, host: config.host }, () => {
+          httpServer.off('error', onError);
+          resolve();
+        });
+      } catch (err) {
+        onError(err as Error);
+      }
+    });
+    // Attach WebSocket and simulation resources only after the HTTP bind has
+    // succeeded. The ws package forwards HTTP bind errors through its own
+    // EventEmitter, which would otherwise create a second uncaught error path.
+    wsHub = new WsHub(httpServer, welcome);
+    simServer = new SimServer(config, wsHub, persistence, cfgHash, worldSeed, initialSettings);
+    wsHub.setHandlers({
+      onJoin: (connId, msg, clientType) =>
+        simServer?.handleJoin(connId, msg.mode, clientType, msg.name),
+      onAction: (connId, msg) => simServer?.handleAction(connId, msg),
+      onView: (connId, msg) => simServer?.handleView(connId, msg),
+      onViz: (connId, msg) => simServer?.handleViz(connId, msg),
+      onReset: (connId, msg) => simServer?.handleReset(connId, msg),
+      onDisconnect: (connId) => simServer?.handleDisconnect(connId)
+    });
+    await simServer.start();
+  } catch (error) {
+    try {
+      await close();
+    } catch (cleanupError) {
+      logger?.error('server.cleanup', String(cleanupError));
+    }
+    throw error;
+  }
 
   const address = httpServer.address();
   const port = typeof address === 'object' && address ? address.port : config.port;
 
-  simServer.start();
-
-  const close = async () => {
-    simServer?.stop();
-    wsHub?.closeAll();
-    db.close();
-    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
-  };
+  logger?.info('inference-mode', JSON.stringify(simServer.getInferenceMode()));
 
   const wsHost =
     config.host === '0.0.0.0' || config.host === '::' ? 'localhost' : config.host;

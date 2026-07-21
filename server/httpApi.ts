@@ -5,6 +5,9 @@ import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateSnapshotPayload, type Persistence, type PopulationSnapshotPayload } from './persistence.ts';
 import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 import type { Logger } from './logger.ts';
+import type { InferenceModeRecord } from './inferenceMode.ts';
+import type { SchedulerDiagnostics } from '../src/sim/SimCore.ts';
+import type { SimulationFaultStatus } from './simServer.ts';
 
 /** Hard limit for incoming request bodies to avoid memory pressure. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -14,7 +17,13 @@ const MAX_RESURRECT_WEIGHTS = 2_000_000;
 /** Dependencies injected into the HTTP API handler. */
 export interface HttpApiDeps {
   /** Returns the current server status for health checks. */
-  getStatus: () => { tick: number; clients: number };
+  getStatus: () => {
+    tick: number;
+    clients: number;
+    inferenceMode: InferenceModeRecord;
+    scheduler: SchedulerDiagnostics;
+    fault: SimulationFaultStatus;
+  };
   /** Returns the current world instance, or null if not ready. */
   getWorld: () => World | null;
   /** Imports a population snapshot into the active world. */
@@ -182,7 +191,7 @@ async function routeRequest(
   const url = new URL(req.url ?? '/', 'http://localhost');
   if (req.method === 'GET' && url.pathname === '/health') {
     const status = deps.getStatus();
-    sendJson(res, 200, { ok: true, tick: status.tick, clients: status.clients });
+    sendJson(res, 200, { ok: true, ...status });
     return;
   }
 

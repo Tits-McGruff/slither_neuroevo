@@ -10,8 +10,13 @@ import { SimProfiler, formatSimProfilerReport } from '../src/profiling.ts';
 import type { Snake } from '../src/snake.ts';
 import type { ServerConfig } from './config.ts';
 import { NodeBrainPool } from '../src/sim/NodeBrainPool.ts';
-import { SimCore } from '../src/sim/SimCore.ts';
+import { SimCore, type SchedulerDiagnostics } from '../src/sim/SimCore.ts';
 import { compileGraph } from '../src/brains/graph/compiler.ts';
+import {
+  getNativeAddonBuildIdentifier,
+  getSimdKernelStatus
+} from '../src/brains/nativeBridge.ts';
+import type { InferenceBackend } from '../src/brains/types.ts';
 import type {
   ActionMsg,
   ClientType,
@@ -28,6 +33,7 @@ import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './setti
 import { WsHub } from './wsHub.ts';
 import { buildSensorSpec } from './sensorSpec.ts';
 import { NativeBackend } from './native-backend.ts';
+import type { ActiveInferenceBackend, InferenceModeRecord } from './inferenceMode.ts';
 
 /** SQLite error code indicating the database or disk is full. */
 const SQLITE_FULL_CODE = 'SQLITE_FULL';
@@ -35,6 +41,8 @@ const SQLITE_FULL_CODE = 'SQLITE_FULL';
 const PROFILE_ENV_VAR = 'SLITHER_PROFILE';
 /** Interval in milliseconds between profiling reports. */
 const PROFILE_REPORT_INTERVAL_MS = 1000;
+/** Minimum interval between dropped scheduler-debt warnings. */
+const SCHEDULER_DROP_LOG_INTERVAL_MS = 1000;
 
 /**
  * Determine whether an error is a SQLite "full" error.
@@ -44,6 +52,16 @@ const PROFILE_REPORT_INTERVAL_MS = 1000;
 function isSqliteFullError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   return (err as { code?: string }).code === SQLITE_FULL_CODE;
+}
+
+/** Public status for a simulation object that may be unusable after a failed step. */
+export interface SimulationFaultStatus {
+  /** Whether authoritative stepping is prohibited. */
+  faulted: boolean;
+  /** Stable human-readable failure reason. */
+  reason: string | null;
+  /** Last successfully committed tick when the fault was recorded. */
+  tick: number | null;
 }
 
 /** Server-side simulation loop and WS broadcasting. */
@@ -69,11 +87,15 @@ export class SimServer {
   private running = false;
   /** Active timer id for scheduled ticks. */
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Currently executing loop iteration, awaited during shutdown. */
+  private loopPromise: Promise<void> | null = null;
   /** Target time for the next tick in ms. */
   private nextTickAt = 0;
 
   /** Timestamp for the previous tick in ms. */
   private lastTickAt = 0;
+  /** Timestamp of the latest dropped scheduler-debt warning. */
+  private lastSchedulerDropLogAt = 0;
 
   /** Controller registry for player and bot assignments. */
   private controllers: ControllerRegistry;
@@ -100,12 +122,18 @@ export class SimServer {
   private brainPool: NodeBrainPool | null = null;
   /** Whether server-side MT inference is enabled. */
   private mtEnabled: boolean;
+  /** Original multi-threading request retained even if the baseline silently falls back. */
+  private readonly requestedMt: boolean;
   /** Requested worker count for the MT pool. */
   private mtWorkerCount: number;
   /** Last generation synchronized with the MT pool. */
   private mtGeneration: number;
   /** Whether multi-threading was active on the last tick. */
   public mtActive = false;
+  /** Failure reason prohibiting further authoritative steps. */
+  private faultReason: string | null = null;
+  /** Last committed tick when the failure was recorded. */
+  private faultedAtTick: number | null = null;
 
   /**
    * Create a simulation server instance for a websocket hub.
@@ -177,7 +205,8 @@ export class SimServer {
     this.lastGeneration = this.core.world.generation;
     this.lastHofGenSaved = 0;
     this.vizConnections = new Set();
-    this.mtEnabled = config.mtEnabled === true;
+    this.requestedMt = config.mtEnabled === true;
+    this.mtEnabled = this.requestedMt;
     this.mtWorkerCount = config.mtWorkers ?? 0;
     this.mtGeneration = this.core.world.generation;
     this.lastTickAt = performance.now();
@@ -225,18 +254,20 @@ export class SimServer {
 
     this.running = true;
     this.nextTickAt = performance.now();
-    void this.loop();
+    this.startLoopIteration();
   }
 
-  /** Stop the server tick loop. */
-  stop(): void {
+  /** Stop the server tick loop and await in-flight work and worker cleanup. */
+  async stop(): Promise<void> {
     this.running = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    if (this.brainPool) {
-      void this.brainPool.shutdown();
-      this.brainPool = null;
-    }
+    const activeLoop = this.loopPromise;
+    if (activeLoop) await activeLoop;
+    const pool = this.brainPool;
+    this.brainPool = null;
+    this.core.brainPool = null;
+    if (pool) await pool.shutdown();
   }
 
   /**
@@ -248,11 +279,75 @@ export class SimServer {
   }
 
   /**
+   * Return current operational fixed-step scheduler measurements.
+   * @returns Requested/achieved multiplier and dropped-debt diagnostics.
+   */
+  getSchedulerDiagnostics(): SchedulerDiagnostics {
+    return this.core.getSchedulerDiagnostics();
+  }
+
+  /**
+   * Return whether a failed fixed step has made this simulation unusable.
+   * @returns Current fault status.
+   */
+  getFaultStatus(): SimulationFaultStatus {
+    return {
+      faulted: this.faultReason !== null,
+      reason: this.faultReason,
+      tick: this.faultedAtTick
+    };
+  }
+
+  /**
    * Return the underlying world instance.
    * @returns World instance.
    */
   getWorld(): World {
     return this.core.world;
+  }
+
+  /**
+   * Return an honest snapshot of the currently attached inference path.
+   * @returns Current inference-mode record for logging and status checks.
+   */
+  getInferenceMode(): InferenceModeRecord {
+    const world = this.core.world;
+    const archInfo = enrichArchInfo(world.arch);
+    const readyPool = this.brainPool?.status === 'ready' ? this.brainPool : null;
+    return {
+      // There is no neural math-backend request surface in the baseline. The
+      // similarly named SLITHER_NATIVE_BACKEND controls an unfinished World adapter.
+      requestedBackend: null,
+      activeBackend: readyPool?.inferenceBackend ?? this.getSerialInferenceBackend(),
+      requestedMt: this.requestedMt,
+      activeWorkerCount: readyPool?.getActiveWorkerCount() ?? 0,
+      poolEpoch: null,
+      weightEpoch: null,
+      graphKey: world.archKey,
+      parameterCount: archInfo.totalCount,
+      seed: this.worldSeed,
+      nativeAddonStatus: getSimdKernelStatus(),
+      nativeAddonBuildIdentifier: getNativeAddonBuildIdentifier()
+    };
+  }
+
+  /**
+   * Summarize the backend captured by the currently constructed serial brains.
+   * @returns A uniform backend, mixed when brains disagree, or unknown when unavailable.
+   */
+  private getSerialInferenceBackend(): ActiveInferenceBackend {
+    let active: InferenceBackend | null = null;
+    for (const snake of this.core.world.snakes) {
+      if (snake.baselineBotIndex != null || snake.controlMode === 'external-only') continue;
+      const backend = snake.brain.inferenceBackend;
+      if (!backend) return 'unknown';
+      if (active === null) {
+        active = backend;
+      } else if (active !== backend) {
+        return 'mixed';
+      }
+    }
+    return active ?? 'unknown';
   }
 
   /**
@@ -351,6 +446,9 @@ export class SimServer {
 
     // Reset Core
     this.core.reset(settings);
+    this.faultReason = null;
+    this.faultedAtTick = null;
+    this.lastTickAt = performance.now();
     // Profiler Re-attach
     if (this.profiler) this.core.world.profiler = this.profiler;
 
@@ -441,22 +539,55 @@ export class SimServer {
     return pool;
   }
 
+  /** Start one tracked loop iteration so shutdown can await it. */
+  private startLoopIteration(): void {
+    const iteration = this.loop();
+    this.loopPromise = iteration;
+    void iteration.then(
+      () => {
+        if (this.loopPromise === iteration) this.loopPromise = null;
+      },
+      (error: unknown) => {
+        if (this.loopPromise === iteration) this.loopPromise = null;
+        this.enterFault(error);
+      }
+    );
+  }
+
+  /**
+   * Mark the current World object unusable after a failed authoritative step.
+   * @param error - Failure that prevents safe continued stepping.
+   */
+  private enterFault(error: unknown): void {
+    if (this.faultReason !== null) return;
+    this.faultReason = error instanceof Error ? error.message : String(error);
+    this.faultedAtTick = this.core.tickId;
+    this.mtActive = false;
+    console.error('[simulation.faulted]', {
+      tick: this.faultedAtTick,
+      reason: this.faultReason
+    });
+  }
+
   /** Main timer loop for scheduling ticks. */
   private async loop(): Promise<void> {
     if (!this.running) return;
     const now = performance.now();
     if (now >= this.nextTickAt) {
-      try {
-        await this.tick(now);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.warn('[simServer] tick failed', { reason: message });
+      if (this.faultReason === null) {
+        try {
+          await this.tick(now);
+        } catch (error) {
+          this.enterFault(error);
+        }
       }
-      this.nextTickAt += 1000 / this.tickRateHz;
+      this.nextTickAt = now + 1000 / this.tickRateHz;
     }
+    if (!this.running) return;
     const delay = Math.max(0, this.nextTickAt - performance.now());
     this.timer = setTimeout(() => {
-      void this.loop();
+      this.timer = null;
+      this.startLoopIteration();
     }, delay);
   }
 
@@ -465,19 +596,12 @@ export class SimServer {
    * @param now - Current high-resolution timestamp.
    */
   private async tick(now: number): Promise<void> {
+    if (this.faultReason !== null) return;
     // 1. Ensure Pool
     this.mtActive = false;
     if (this.mtEnabled) {
-      try {
-        const pool = await this.ensureBrainPool();
-        if (pool) this.mtActive = true;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.warn('[mt.pool.failed]', { reason: message });
-        this.mtEnabled = false;
-        this.brainPool = null;
-        this.core.brainPool = null;
-      }
+      const pool = await this.ensureBrainPool();
+      if (pool) this.mtActive = true;
     }
 
     // 2. Sync Controllers to current core state
@@ -491,6 +615,20 @@ export class SimServer {
     this.lastTickAt = now;
 
     await this.core.update(dt, this.controllers);
+
+    const scheduler = this.core.getSchedulerDiagnostics();
+    if (
+      scheduler.droppedSimulationSecondsThisPump > 0 &&
+      now - this.lastSchedulerDropLogAt >= SCHEDULER_DROP_LOG_INTERVAL_MS
+    ) {
+      console.warn('[scheduler.debt_dropped]', {
+        requestedMultiplier: scheduler.requestedMultiplier,
+        achievedMultiplier: scheduler.achievedMultiplier,
+        droppedSimulationSeconds: scheduler.droppedSimulationSecondsThisPump,
+        maxStepsPerPump: scheduler.maxStepsPerPump
+      });
+      this.lastSchedulerDropLogAt = now;
+    }
 
     const report = this.profiler?.reportIfDue(now);
     if (report) console.log(formatSimProfilerReport(report));

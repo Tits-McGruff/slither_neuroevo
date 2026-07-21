@@ -1,5 +1,13 @@
 # Slither-Native: The Exhaustive Refactor & Parity Documentation
 
+> [!CAUTION]
+> This plan is superseded and must not be implemented. On 2026-07-21 the
+> repository owner chose Rust N-API neural kernels, used by both single-thread
+> and MT inference, instead of a second full world/physics implementation.
+> The authoritative current plan is
+> [project-recovery-plan.md](./project-recovery-plan.md). This file remains
+> unchanged below this notice as historical context outside the archive.
+
 ## Revision Notes (Phase 1 Final)
 
 - **Modular Rebuild**: Gutting monolithic `lib.rs` into `math`, `kernels`, `brain`, `spatial_hash`, `sensors`, and `physics`.

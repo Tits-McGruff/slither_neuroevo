@@ -356,6 +356,22 @@ export function isSimdAvailable(): boolean {
 }
 
 /**
+ * Return the current native-kernel load state without attempting a load.
+ * @returns Current native-kernel load state.
+ */
+export function getSimdKernelStatus(): SimdKernelStatus {
+  return simdStatus;
+}
+
+/**
+ * Return the identifier exported by the loaded native addon.
+ * @returns Null because the current addon does not export a build identifier.
+ */
+export function getNativeAddonBuildIdentifier(): string | null {
+  return null;
+}
+
+/**
  * Get the dense kernel wrapper if loaded.
  * @returns Dense kernel instance or null.
  */

@@ -114,6 +114,8 @@ export interface SnakeSpawnOptions {
   brain?: Brain;
   /** Optional baseline bot index identifier. */
   baselineBotIndex?: number | null;
+  /** Durable population-owned inference slot, or null for non-population snakes. */
+  populationSlot?: number | null;
   /** Optional skin flag for rendering. */
   skin?: number;
 }
@@ -215,6 +217,8 @@ export class Snake {
   controlMode: ControlMode;
   /** Baseline bot identity index or null. */
   baselineBotIndex: number | null;
+  /** Durable population-owned inference slot or null for independently owned snakes. */
+  populationSlot: number | null;
   /** Skin flag used for rendering. */
   skin: number;
   /** Previous tick's points score for delta calculation. */
@@ -254,6 +258,7 @@ export class Snake {
     this.boostInput = 0;
     this.controlMode = options.controlMode ?? 'neural';
     this.baselineBotIndex = options.baselineBotIndex ?? null;
+    this.populationSlot = options.populationSlot ?? null;
     this.skin = options.skin ?? 0;
     this.prevPointsScore = 0;
     this.updateRadiusFromLen();

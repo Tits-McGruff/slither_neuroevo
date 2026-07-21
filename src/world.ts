@@ -21,6 +21,8 @@ import { getSensorLayout } from './protocol/sensors.ts';
 const EXTERNAL_SNAKE_ID_START = 100000;
 /** Starting id reserved for baseline bot snakes. */
 const BASELINE_BOT_ID_START = 200000;
+/** Hard safety bound for lower-level collision integration within one fixed step. */
+const MAX_COLLISION_SUBSTEPS = 64;
 
 /** Optional settings overrides accepted by the World constructor. */
 interface WorldSettingsInput {
@@ -66,8 +68,10 @@ interface FitnessHistoryEntry {
 
 /** Batched control buffers for neural inference. */
 interface ControlBatch {
-  /** Indices of snakes requiring inference in this batch. */
+  /** Durable population slots requiring pooled inference in this batch. */
   indices: Uint32Array;
+  /** Current snake-array index corresponding to each batch entry. */
+  snakeIndices: Uint32Array;
   /** Number of active entries in the batch. */
   count: number;
   /** Allocated capacity for the batch. */
@@ -189,6 +193,10 @@ export class World {
   _pendingControlTurn: Float32Array;
   /** Pending boost input per snake. */
   _pendingControlBoost: Float32Array;
+  /** Snake-array indices whose neural inference runs on the serial path. */
+  _serialControlIndices: Uint32Array;
+  /** Number of valid serial-control entries for the current fixed step. */
+  _serialControlCount: number;
   /** Whether a sensor layout mismatch warning has been logged. */
   _didWarnSensorLayout: boolean;
   /** Next id to assign to externally controlled snakes. */
@@ -213,6 +221,9 @@ export class World {
     // sizes.
     const observerSettings = { ...CFG.observer, ...(settings.observer ?? {}) };
     const collisionSettings = { ...CFG.collision, ...(settings.collision ?? {}) };
+    const simSpeed = Number.isFinite(settings.simSpeed)
+      ? clamp(settings.simSpeed as number, 0.01, 500)
+      : 1;
     this.settings = {
       ...settings,
       snakeCount: settings.snakeCount ?? 55,
@@ -222,7 +233,7 @@ export class World {
       neurons3: settings.neurons3 ?? 64,
       neurons4: settings.neurons4 ?? 48,
       neurons5: settings.neurons5 ?? 32,
-      simSpeed: settings.simSpeed ?? 1,
+      simSpeed,
       worldRadius: settings.worldRadius ?? CFG.worldRadius,
       observer: observerSettings,
       collision: collisionSettings
@@ -246,7 +257,7 @@ export class World {
     this.bestPointsThisGen = 0;
     this.bestPointsSnakeId = 0;
     this._lastHoFEntry = null;
-    // Simulation speed multiplier.  Affects how dt is scaled per frame.
+    // Simulation speed is consumed only by SimCore's wall-time scheduler.
     this.simSpeed = this.settings.simSpeed;
     // Camera state for panning and zooming.
     this.cameraX = 0;
@@ -265,6 +276,7 @@ export class World {
     this._collGrid = new FlatSpatialHash(w, w, this.settings.collision.cellSize, 200000);
     this._controlBatch = {
       indices: new Uint32Array(0),
+      snakeIndices: new Uint32Array(0),
       count: 0,
       capacity: 0,
       inputStride: 0,
@@ -275,6 +287,8 @@ export class World {
     this._pendingControlSource = new Uint8Array(0);
     this._pendingControlTurn = new Float32Array(0);
     this._pendingControlBoost = new Float32Array(0);
+    this._serialControlIndices = new Uint32Array(0);
+    this._serialControlCount = 0;
     this._didWarnSensorLayout = false;
     this._nextExternalSnakeId = EXTERNAL_SNAKE_ID_START;
     this._nextBaselineBotId = BASELINE_BOT_ID_START;
@@ -420,7 +434,7 @@ export class World {
     for (let i = 0; i < this.population.length; i++) {
       const g = this.population[i];
       if (!g) continue;
-      this.snakes.push(new Snake(i + 1, g.clone(), this.arch));
+      this.snakes.push(new Snake(i + 1, g.clone(), this.arch, { populationSlot: i }));
     }
     this._spawnBaselineBots();
   }
@@ -481,6 +495,7 @@ export class World {
       brain: new NullBrain(),
       controlMode: 'external-only',
       baselineBotIndex: index,
+      populationSlot: null,
       skin: 2,
     });
     snake.color = THEME.snakeRobotBody;
@@ -544,136 +559,327 @@ export class World {
   }
 
   /**
-   * Advances the simulation by dt seconds (scaled by simSpeed) and
-   * updates camera and focus logic.  Handles early generation termination.
-   * @param dt - Base delta time (unscaled).
-   * @param viewW - Canvas width in CSS pixels.
-   * @param viewH - Canvas height in CSS pixels.
+   * Execute one complete authoritative fixed simulation step.
+   *
+   * Ordering is intentionally shared by serial and pooled inference: advance
+   * time/accounting, sample the stable pre-movement world, collect every due
+   * control, await inference when needed, commit controls, integrate movement
+   * and collisions, then complete observer/statistics/generation work.
+   *
+   * @param baseDt - Positive fixed simulation delta in seconds.
+   * @param viewW - Viewport width used only for observer camera state.
+   * @param viewH - Viewport height used only for observer camera state.
    * @param controllers - Optional external controller registry.
-   * @param tickId - Optional tick id for controller sync.
+   * @param tickId - Authoritative step id assigned by the caller.
+   * @param batchRunner - Optional population inference runner.
    */
-  update(
-    dt: number,
+  async step(
+    baseDt: number,
     viewW: number,
     viewH: number,
     controllers?: ControllerRegistryLike,
-    tickId?: number
-  ): void {
-    const profiler = this.profiler;
-    profiler?.beginTick();
-    const rawScaled = dt * this.simSpeed;
-    const scaled = clamp(rawScaled, 0, Math.max(0.004, CFG.dtClamp));
-    const maxStep = clamp(CFG.collision.substepMaxDt, 0.004, 0.08);
-    const steps = clamp(Math.ceil(scaled / maxStep), 1, 20);
-    const stepDt = scaled / steps;
-    const controllerTick = Number.isFinite(tickId) ? (tickId as number) : 0;
-    this.generationTime += scaled;
-    this.particles.update(scaled); // Update particles
-    if (!Number.isFinite(this.bestPointsThisGen)) {
-      console.warn('[world] bestPointsThisGen.invalid', { value: this.bestPointsThisGen });
-      this.bestPointsThisGen = 0;
-    }
-    this._warnOnSensorLayoutMismatch();
-    if (controllers) this._publishControllerSensors(controllers, controllerTick);
-    if (this.botManager.getCount() > 0) {
-      this.botManager.update(this, scaled, (index, rng) => this._respawnBaselineBot(index, rng));
-    }
-    for (let s = 0; s < steps; s++) {
-      this._stepPhysics(stepDt, controllers, controllerTick);
-    }
-    this._updateFocus(scaled);
-    this._updateCamera(viewW, viewH);
-    let bestPts = -Infinity;
-    let bestId = 0;
-    for (let i = 0; i < this.population.length; i++) {
-      const sn = this.snakes[i];
-      if (!sn || !sn.alive) continue;
-      if (sn.pointsScore > bestPts) {
-        bestPts = sn.pointsScore;
-        bestId = sn.id;
-      }
-    }
-    // Keep bestPointsThisGen finite; sensors use it for log normalization on every tick.
-    const prevBest = Number.isFinite(this.bestPointsThisGen) ? this.bestPointsThisGen : 0;
-    this.bestPointsThisGen = Math.max(prevBest, bestPts > -Infinity ? bestPts : 0);
-    if (bestId) this.bestPointsSnakeId = bestId;
-    let aliveCount = 0;
-    for (let i = 0; i < this.population.length; i++) {
-      const sn = this.snakes[i];
-      if (sn && sn.alive) aliveCount += 1;
-    }
-    const early = aliveCount <= CFG.observer.earlyEndAliveThreshold && this.generationTime >= CFG.observer.earlyEndMinSeconds;
-    if (this.generationTime >= CFG.generationSeconds || early) this._endGeneration();
-    profiler?.endTick();
-  }
-  /**
-   * Advances the simulation by dt seconds using an async batch inference runner.
-   * @param dt - Base delta time (unscaled).
-   * @param viewW - Canvas width in CSS pixels.
-   * @param viewH - Canvas height in CSS pixels.
-   * @param controllers - Optional external controller registry.
-   * @param tickId - Optional tick id for controller sync.
-   * @param batchRunner - Optional async batch inference runner.
-   */
-  async updateAsync(
-    dt: number,
-    viewW: number,
-    viewH: number,
-    controllers?: ControllerRegistryLike,
-    tickId?: number,
+    tickId = 0,
     batchRunner?: BatchInferenceRunner
   ): Promise<void> {
+    if (!Number.isFinite(baseDt) || baseDt <= 0) {
+      throw new RangeError(`World.step requires a positive finite baseDt; received ${baseDt}`);
+    }
+
     const profiler = this.profiler;
     profiler?.beginTick();
-    const rawScaled = dt * this.simSpeed;
-    const scaled = clamp(rawScaled, 0, Math.max(0.004, CFG.dtClamp));
-    const maxStep = clamp(CFG.collision.substepMaxDt, 0.004, 0.08);
-    const steps = clamp(Math.ceil(scaled / maxStep), 1, 20);
-    const stepDt = scaled / steps;
-    const controllerTick = Number.isFinite(tickId) ? (tickId as number) : 0;
-    this.generationTime += scaled;
-    this.particles.update(scaled); // Update particles
-    if (!Number.isFinite(this.bestPointsThisGen)) {
-      console.warn('[world] bestPointsThisGen.invalid', { value: this.bestPointsThisGen });
-      this.bestPointsThisGen = 0;
-    }
-    this._warnOnSensorLayoutMismatch();
-    if (controllers) this._publishControllerSensors(controllers, controllerTick);
-    if (this.botManager.getCount() > 0) {
-      this.botManager.update(this, scaled, (index, rng) => this._respawnBaselineBot(index, rng));
-    }
-    for (let s = 0; s < steps; s++) {
-      if (batchRunner) {
-        await this._stepPhysicsAsync(stepDt, controllers, controllerTick, batchRunner);
-      } else {
-        this._stepPhysics(stepDt, controllers, controllerTick);
+    try {
+      const controllerTick = Number.isSafeInteger(tickId) && tickId >= 0 ? tickId : 0;
+      this.generationTime += baseDt;
+      this.particles.update(baseDt);
+      if (!Number.isFinite(this.bestPointsThisGen)) {
+        console.warn('[world] bestPointsThisGen.invalid', { value: this.bestPointsThisGen });
+        this.bestPointsThisGen = 0;
       }
-    }
-    this._updateFocus(scaled);
-    this._updateCamera(viewW, viewH);
-    let bestPts = -Infinity;
-    let bestId = 0;
-    for (let i = 0; i < this.population.length; i++) {
-      const sn = this.snakes[i];
-      if (!sn || !sn.alive) continue;
-      if (sn.pointsScore > bestPts) {
-        bestPts = sn.pointsScore;
-        bestId = sn.id;
+      this._warnOnSensorLayoutMismatch();
+
+      for (const snake of this.snakes) {
+        if (snake.alive) snake.prepareForStep(baseDt);
       }
+      this._spawnAmbientForFixedStep(baseDt);
+      if (controllers) this._publishControllerSensors(controllers, controllerTick);
+      if (this.botManager.getCount() > 0) {
+        this.botManager.update(this, baseDt, (index, rng) => {
+          const respawned = this._respawnBaselineBot(index, rng);
+          respawned?.prepareForStep(baseDt);
+          return respawned;
+        });
+      }
+
+      await this._collectFixedStepControls(
+        baseDt,
+        controllers,
+        controllerTick,
+        batchRunner
+      );
+      this._applyFixedStepControls();
+      this._advanceFixedStepPhysics(baseDt);
+      this._finishFixedStep(baseDt, viewW, viewH);
+      this.tickId = controllerTick;
+    } finally {
+      profiler?.endTick();
     }
-    // Keep bestPointsThisGen finite; sensors use it for log normalization on every tick.
-    const prevBest = Number.isFinite(this.bestPointsThisGen) ? this.bestPointsThisGen : 0;
-    this.bestPointsThisGen = Math.max(prevBest, bestPts > -Infinity ? bestPts : 0);
-    if (bestId) this.bestPointsSnakeId = bestId;
-    let aliveCount = 0;
-    for (let i = 0; i < this.population.length; i++) {
-      const sn = this.snakes[i];
-      if (sn && sn.alive) aliveCount += 1;
-    }
-    const early = aliveCount <= CFG.observer.earlyEndAliveThreshold && this.generationTime >= CFG.observer.earlyEndMinSeconds;
-    if (this.generationTime >= CFG.generationSeconds || early) this._endGeneration();
-    profiler?.endTick();
   }
+
+  /**
+   * Spawn ambient pellets due during one fixed step before observations.
+   * @param baseDt - Fixed simulation delta in seconds.
+   */
+  private _spawnAmbientForFixedStep(baseDt: number): void {
+    const deficit = Math.max(0, CFG.pelletCountTarget - this.pellets.length);
+    this._pelletSpawnAcc += CFG.pelletSpawnPerSecond * baseDt;
+    const spawnCount = Math.min(deficit, Math.floor(this._pelletSpawnAcc));
+    this._pelletSpawnAcc -= spawnCount;
+    for (let index = 0; index < spawnCount; index++) {
+      this.addPellet(this._spawnAmbientPellet());
+    }
+  }
+
+  /**
+   * Collect all due controls from one stable pre-movement snapshot.
+   * @param baseDt - Fixed simulation delta in seconds.
+   * @param controllers - Optional external controller registry.
+   * @param tickId - Authoritative step id for controller actions.
+   * @param batchRunner - Optional population inference runner.
+   */
+  private async _collectFixedStepControls(
+    baseDt: number,
+    controllers: ControllerRegistryLike | undefined,
+    tickId: number,
+    batchRunner: BatchInferenceRunner | undefined
+  ): Promise<void> {
+    this._ensureControlScratchCapacity(this.snakes.length);
+    const batch = this._buildControlBatch();
+    const pendingSource = this._pendingControlSource;
+    const pendingTurn = this._pendingControlTurn;
+    const pendingBoost = this._pendingControlBoost;
+    pendingSource.fill(0, 0, this.snakes.length);
+    this._serialControlCount = 0;
+
+    for (let snakeIndex = 0; snakeIndex < this.snakes.length; snakeIndex++) {
+      const snake = this.snakes[snakeIndex];
+      if (!snake || !snake.alive) continue;
+
+      const botAction = this.botManager.getActionForSnake(snake.id);
+      if (botAction) {
+        pendingSource[snakeIndex] = 1;
+        pendingTurn[snakeIndex] = botAction.turn ?? 0;
+        pendingBoost[snakeIndex] = botAction.boost ?? 0;
+        continue;
+      }
+      if (controllers && controllers.isControlled(snake.id)) {
+        const control = controllers.getAction(snake.id, tickId);
+        if (control) {
+          pendingSource[snakeIndex] = 1;
+          pendingTurn[snakeIndex] = control.turn ?? 0;
+          pendingBoost[snakeIndex] = control.boost ?? 0;
+          continue;
+        }
+      }
+      if (snake.controlMode === 'external-only') {
+        pendingSource[snakeIndex] = 1;
+        pendingTurn[snakeIndex] = 0;
+        pendingBoost[snakeIndex] = 0;
+        continue;
+      }
+      if (!snake.needsControlUpdate(baseDt)) continue;
+
+      const sensors = this._computeControlSensors(snake);
+      snake.lastSensors = sensors;
+      const populationSlot = snake.populationSlot;
+      if (populationSlot !== null && (
+        !Number.isSafeInteger(populationSlot) ||
+        populationSlot < 0 ||
+        populationSlot >= this.population.length
+      )) {
+        throw new Error(`Invalid population slot ${populationSlot} for snake ${snake.id}`);
+      }
+
+      if (batchRunner && populationSlot !== null) {
+        const batchIndex = batch.count++;
+        batch.indices[batchIndex] = populationSlot;
+        batch.snakeIndices[batchIndex] = snakeIndex;
+        batch.inputs.set(sensors, batchIndex * batch.inputStride);
+      } else {
+        this._serialControlIndices[this._serialControlCount++] = snakeIndex;
+      }
+    }
+
+    for (let serialIndex = 0; serialIndex < this._serialControlCount; serialIndex++) {
+      const snakeIndex = this._serialControlIndices[serialIndex] ?? 0;
+      const snake = this.snakes[snakeIndex];
+      if (!snake || !snake.alive || !snake.lastSensors) continue;
+      const output = this._runSerialInference(snake, snake.lastSensors);
+      pendingSource[snakeIndex] = 2;
+      pendingTurn[snakeIndex] = output[0] ?? 0;
+      pendingBoost[snakeIndex] = output[1] ?? 0;
+    }
+
+    if (!batchRunner || batch.count <= 0) return;
+    const start = this.profiler?.now();
+    await batchRunner.runBatch(
+      batch.inputs,
+      batch.outputs,
+      batch.indices,
+      batch.count,
+      batch.inputStride,
+      batch.outputStride
+    );
+    if (this.profiler && start != null) {
+      this.profiler.recordBrain(this.profiler.now() - start);
+    }
+    for (let batchIndex = 0; batchIndex < batch.count; batchIndex++) {
+      const snakeIndex = batch.snakeIndices[batchIndex] ?? 0;
+      const outputBase = batchIndex * batch.outputStride;
+      pendingSource[snakeIndex] = 2;
+      pendingTurn[snakeIndex] = batch.outputs[outputBase] ?? 0;
+      pendingBoost[snakeIndex] = batch.outputStride > 1
+        ? (batch.outputs[outputBase + 1] ?? 0)
+        : 0;
+    }
+  }
+
+  /**
+   * Compute one neural observation with optional profiling.
+   * @param snake - Snake whose observation is due.
+   * @returns Sensor vector owned by the snake scratch buffer.
+   */
+  private _computeControlSensors(snake: Snake): Float32Array {
+    const profiler = this.profiler;
+    if (!profiler) return snake.computeSensors(this);
+    const start = profiler.now();
+    const sensors = snake.computeSensors(this);
+    profiler.recordSensors(profiler.now() - start);
+    return sensors;
+  }
+
+  /**
+   * Run one serial neural inference after control collection is complete.
+   * @param snake - Snake owning the serial brain.
+   * @param sensors - Stable observation sampled for this fixed step.
+   * @returns Raw neural outputs.
+   */
+  private _runSerialInference(snake: Snake, sensors: Float32Array): Float32Array {
+    const profiler = this.profiler;
+    if (!profiler) return snake.brain.forward(sensors);
+    const start = profiler.now();
+    const output = snake.brain.forward(sensors);
+    profiler.recordBrain(profiler.now() - start);
+    return output;
+  }
+
+  /** Commit collected controls without moving any snake. */
+  private _applyFixedStepControls(): void {
+    for (let snakeIndex = 0; snakeIndex < this.snakes.length; snakeIndex++) {
+      const snake = this.snakes[snakeIndex];
+      if (!snake || !snake.alive) continue;
+      const source = this._pendingControlSource[snakeIndex] ?? 0;
+      if (source === 1) {
+        snake.applyExternalControl({
+          turn: this._pendingControlTurn[snakeIndex] ?? 0,
+          boost: this._pendingControlBoost[snakeIndex] ?? 0
+        });
+      } else if (source === 2) {
+        snake.applyBrainOutput(
+          this._pendingControlTurn[snakeIndex] ?? 0,
+          this._pendingControlBoost[snakeIndex] ?? 0
+        );
+      }
+    }
+  }
+
+  /**
+   * Integrate movement and collisions using controls held for the full step.
+   * Lower-level subdivision depends only on fixed-step collision safety, never
+   * on the requested simulation-speed multiplier.
+   * @param baseDt - Fixed simulation delta in seconds.
+   */
+  private _advanceFixedStepPhysics(baseDt: number): void {
+    if (this.backend) {
+      this.backend.step(baseDt);
+      this.backend.syncTo(this);
+      return;
+    }
+
+    const maxSubstep = clamp(CFG.collision.substepMaxDt, 0.001, baseDt);
+    const substepCount = clamp(
+      Math.ceil(baseDt / maxSubstep),
+      1,
+      MAX_COLLISION_SUBSTEPS
+    );
+    const substepDt = baseDt / substepCount;
+    for (let substep = 0; substep < substepCount; substep++) {
+      for (const snake of this.snakes) {
+        if (snake.alive) snake.advance(this, substepDt);
+      }
+      this._rebuildCollisionGrid();
+      this._resolveCollisionsGrid();
+    }
+  }
+
+  /** Rebuild the segment collision grid from the current alive snake bodies. */
+  private _rebuildCollisionGrid(): void {
+    const skip = Math.max(0, Math.floor(CFG.collision.skipSegments));
+    this._collGrid.reset(CFG.collision.cellSize);
+    for (const snake of this.snakes) {
+      if (!snake.alive) continue;
+      const points = snake.points;
+      for (let pointIndex = Math.max(1, skip); pointIndex < points.length; pointIndex++) {
+        const previous = points[pointIndex - 1];
+        const current = points[pointIndex];
+        if (!previous || !current) continue;
+        this._collGrid.add(
+          (previous.x + current.x) * 0.5,
+          (previous.y + current.y) * 0.5,
+          snake,
+          pointIndex
+        );
+      }
+    }
+  }
+
+  /**
+   * Complete observer, score-summary, and generation-boundary work.
+   * @param baseDt - Fixed simulation delta in seconds.
+   * @param viewW - Viewport width used for observer camera state.
+   * @param viewH - Viewport height used for observer camera state.
+   */
+  private _finishFixedStep(baseDt: number, viewW: number, viewH: number): void {
+    this._updateFocus(baseDt);
+    this._updateCamera(viewW, viewH);
+    let bestPoints = -Infinity;
+    let bestId = 0;
+    let aliveCount = 0;
+    for (let populationSlot = 0; populationSlot < this.population.length; populationSlot++) {
+      const snake = this.snakes[populationSlot];
+      if (!snake || !snake.alive) continue;
+      aliveCount += 1;
+      if (snake.pointsScore > bestPoints) {
+        bestPoints = snake.pointsScore;
+        bestId = snake.id;
+      }
+    }
+    const previousBest = Number.isFinite(this.bestPointsThisGen)
+      ? this.bestPointsThisGen
+      : 0;
+    this.bestPointsThisGen = Math.max(
+      previousBest,
+      bestPoints > -Infinity ? bestPoints : 0
+    );
+    if (bestId) this.bestPointsSnakeId = bestId;
+    const early = (
+      aliveCount <= CFG.observer.earlyEndAliveThreshold &&
+      this.generationTime >= CFG.observer.earlyEndMinSeconds
+    );
+    if (this.generationTime >= CFG.generationSeconds || early) {
+      this._endGeneration();
+    }
+  }
+
   /**
    * Warn once when the sensor layout size does not match CFG.brain.inSize.
    */
@@ -710,6 +916,7 @@ export class World {
     batch.inputStride = inputStride;
     batch.outputStride = outputStride;
     batch.indices = new Uint32Array(capacity);
+    batch.snakeIndices = new Uint32Array(capacity);
     batch.inputs = new Float32Array(capacity * inputStride);
     batch.outputs = new Float32Array(capacity * outputStride);
   }
@@ -719,10 +926,16 @@ export class World {
    */
   _ensureControlScratchCapacity(required: number): void {
     const capacity = Math.max(0, Math.floor(required));
-    if (this._pendingControlSource.length >= capacity) return;
+    if (
+      this._pendingControlSource.length >= capacity &&
+      this._serialControlIndices.length >= capacity
+    ) {
+      return;
+    }
     this._pendingControlSource = new Uint8Array(capacity);
     this._pendingControlTurn = new Float32Array(capacity);
     this._pendingControlBoost = new Float32Array(capacity);
+    this._serialControlIndices = new Uint32Array(capacity);
   }
   /**
    * Build the control batch buffers for this substep.
@@ -733,246 +946,6 @@ export class World {
     const batch = this._controlBatch;
     batch.count = 0;
     return batch;
-  }
-  /**
-   * Performs a single substep of physics: spawn pellets, update snakes
-   * and resolve collisions.
-   * @param dt - Substep delta time in seconds.
-   * @param controllers - Optional external controller registry.
-   * @param tickId - Optional tick id for controller sync.
-   */
-  _stepPhysics(
-    dt: number,
-    controllers?: ControllerRegistryLike,
-    tickId = 0
-  ): void {
-    if (this.backend) {
-      this.backend.step(dt);
-      this.backend.syncTo(this);
-      return;
-    }
-
-    const deficit = Math.max(0, CFG.pelletCountTarget - this.pellets.length);
-    this._pelletSpawnAcc += CFG.pelletSpawnPerSecond * dt;
-    const spawnN = Math.min(deficit, Math.floor(this._pelletSpawnAcc));
-    this._pelletSpawnAcc -= spawnN;
-    for (let i = 0; i < spawnN; i++) this.addPellet(this._spawnAmbientPellet());
-    this._ensureControlScratchCapacity(this.snakes.length);
-    const pendingSource = this._pendingControlSource;
-    const pendingTurn = this._pendingControlTurn;
-    const pendingBoost = this._pendingControlBoost;
-    const profiler = this.profiler;
-
-    for (let i = 0; i < this.snakes.length; i++) {
-      const sn = this.snakes[i];
-      pendingSource[i] = 0;
-      if (!sn || !sn.alive) continue;
-      sn.prepareForStep(dt);
-
-      const botAction = this.botManager.getActionForSnake(sn.id);
-      if (botAction) {
-        pendingSource[i] = 1;
-        pendingTurn[i] = botAction.turn ?? 0;
-        pendingBoost[i] = botAction.boost ?? 0;
-        continue;
-      }
-      if (controllers && controllers.isControlled(sn.id)) {
-        const control = controllers.getAction(sn.id, tickId);
-        if (control) {
-          pendingSource[i] = 1;
-          pendingTurn[i] = control.turn ?? 0;
-          pendingBoost[i] = control.boost ?? 0;
-          continue;
-        }
-      }
-      const externalOnly = sn.controlMode === 'external-only';
-      if (externalOnly) {
-        pendingSource[i] = 1;
-        pendingTurn[i] = 0;
-        pendingBoost[i] = 0;
-        continue;
-      }
-
-      if (sn.needsControlUpdate(dt)) {
-        let sensors: Float32Array;
-        if (profiler) {
-          const start = profiler.now();
-          sensors = sn.computeSensors(this);
-          profiler.recordSensors(profiler.now() - start);
-        } else {
-          sensors = sn.computeSensors(this);
-        }
-        sn.lastSensors = sensors;
-        let out: Float32Array;
-        if (profiler) {
-          const start = profiler.now();
-          out = sn.brain.forward(sensors);
-          profiler.recordBrain(profiler.now() - start);
-        } else {
-          out = sn.brain.forward(sensors);
-        }
-        pendingSource[i] = 2;
-        pendingTurn[i] = out[0] ?? 0;
-        pendingBoost[i] = out[1] ?? 0;
-      }
-    }
-
-    for (let i = 0; i < this.snakes.length; i++) {
-      const sn = this.snakes[i];
-      if (!sn || !sn.alive) continue;
-      const source = pendingSource[i] ?? 0;
-      if (source === 1) {
-        sn.applyExternalControl({ turn: pendingTurn[i] ?? 0, boost: pendingBoost[i] ?? 0 });
-      } else if (source === 2) {
-        sn.applyBrainOutput(pendingTurn[i] ?? 0, pendingBoost[i] ?? 0);
-      }
-      sn.advance(this, dt);
-    }
-    // Rebuild collision grid
-    const skip = Math.max(0, Math.floor(CFG.collision.skipSegments));
-    this._collGrid.reset(CFG.collision.cellSize);
-    for (const s of this.snakes) {
-      if (!s.alive) continue;
-      const pts = s.points;
-      // Add all segments
-      for (let i = Math.max(1, skip); i < pts.length; i++) {
-        const p0 = pts[i - 1];
-        const p1 = pts[i];
-        if (!p0 || !p1) continue;
-        const mx = (p0.x + p1.x) * 0.5;
-        const my = (p0.y + p1.y) * 0.5;
-        this._collGrid.add(mx, my, s, i);
-      }
-    }
-
-    // Substep physics for collisions
-    this._resolveCollisionsGrid();
-  }
-  /**
-   * Performs a single substep of physics using an async batch inference runner.
-   * @param dt - Substep delta time in seconds.
-   * @param controllers - Optional external controller registry.
-   * @param tickId - Optional tick id for controller sync.
-   * @param batchRunner - Async batch inference runner.
-   */
-  async _stepPhysicsAsync(
-    dt: number,
-    controllers: ControllerRegistryLike | undefined,
-    tickId: number,
-    batchRunner: BatchInferenceRunner
-  ): Promise<void> {
-    const deficit = Math.max(0, CFG.pelletCountTarget - this.pellets.length);
-    this._pelletSpawnAcc += CFG.pelletSpawnPerSecond * dt;
-    const spawnN = Math.min(deficit, Math.floor(this._pelletSpawnAcc));
-    this._pelletSpawnAcc -= spawnN;
-    for (let i = 0; i < spawnN; i++) this.addPellet(this._spawnAmbientPellet());
-
-    const batch = this._buildControlBatch();
-    this._ensureControlScratchCapacity(this.snakes.length);
-    const inputStride = batch.inputStride;
-    const outputStride = batch.outputStride;
-    const pendingSource = this._pendingControlSource;
-    const pendingTurn = this._pendingControlTurn;
-    const pendingBoost = this._pendingControlBoost;
-    const profiler = this.profiler;
-
-    for (let i = 0; i < this.snakes.length; i++) {
-      const sn = this.snakes[i];
-      pendingSource[i] = 0;
-      if (!sn || !sn.alive) continue;
-      sn.prepareForStep(dt);
-      const botAction = this.botManager.getActionForSnake(sn.id);
-      if (botAction) {
-        pendingSource[i] = 1;
-        pendingTurn[i] = botAction.turn ?? 0;
-        pendingBoost[i] = botAction.boost ?? 0;
-        continue;
-      }
-      if (controllers && controllers.isControlled(sn.id)) {
-        const control = controllers.getAction(sn.id, tickId);
-        if (control) {
-          pendingSource[i] = 1;
-          pendingTurn[i] = control.turn ?? 0;
-          pendingBoost[i] = control.boost ?? 0;
-          continue;
-        }
-      }
-      const externalOnly = sn.controlMode === 'external-only';
-      if (externalOnly) {
-        pendingSource[i] = 1;
-        pendingTurn[i] = 0;
-        pendingBoost[i] = 0;
-        continue;
-      }
-      if (sn.needsControlUpdate(dt)) {
-        const batchIndex = batch.count++;
-        batch.indices[batchIndex] = i;
-        let sensors: Float32Array;
-        if (profiler) {
-          const start = profiler.now();
-          sensors = sn.computeSensors(this);
-          profiler.recordSensors(profiler.now() - start);
-        } else {
-          sensors = sn.computeSensors(this);
-        }
-        batch.inputs.set(sensors, batchIndex * inputStride);
-        sn.lastSensors = sensors;
-      }
-    }
-
-    if (batch.count > 0) {
-      const start = profiler?.now();
-      await batchRunner.runBatch(
-        batch.inputs,
-        batch.outputs,
-        batch.indices,
-        batch.count,
-        inputStride,
-        outputStride
-      );
-      if (profiler && start != null) {
-        profiler.recordBrain(profiler.now() - start);
-      }
-      for (let b = 0; b < batch.count; b++) {
-        const snakeIndex = batch.indices[b] ?? 0;
-        const base = b * outputStride;
-        pendingSource[snakeIndex] = 2;
-        pendingTurn[snakeIndex] = batch.outputs[base] ?? 0;
-        pendingBoost[snakeIndex] = outputStride > 1 ? (batch.outputs[base + 1] ?? 0) : 0;
-      }
-    }
-
-    for (let i = 0; i < this.snakes.length; i++) {
-      const sn = this.snakes[i];
-      if (!sn || !sn.alive) continue;
-      const source = pendingSource[i] ?? 0;
-      if (source === 1) {
-        sn.applyExternalControl({ turn: pendingTurn[i] ?? 0, boost: pendingBoost[i] ?? 0 });
-      } else if (source === 2) {
-        sn.applyBrainOutput(pendingTurn[i] ?? 0, pendingBoost[i] ?? 0);
-      }
-      sn.advance(this, dt);
-    }
-
-    // Rebuild collision grid
-    const skip = Math.max(0, Math.floor(CFG.collision.skipSegments));
-    this._collGrid.reset(CFG.collision.cellSize);
-    for (const s of this.snakes) {
-      if (!s.alive) continue;
-      const pts = s.points;
-      // Add all segments
-      for (let i = Math.max(1, skip); i < pts.length; i++) {
-        const p0 = pts[i - 1];
-        const p1 = pts[i];
-        if (!p0 || !p1) continue;
-        const mx = (p0.x + p1.x) * 0.5;
-        const my = (p0.y + p1.y) * 0.5;
-        this._collGrid.add(mx, my, s, i);
-      }
-    }
-
-    // Substep physics for collisions
-    this._resolveCollisionsGrid();
   }
   /**
    * Publishes sensor vectors for externally controlled snakes at the start
@@ -1305,7 +1278,7 @@ export class World {
     const genome = Genome.fromJSON(genomeJSON);
     // Create a new snake with a high ID to avoid collision
     const id = 10000 + randInt(90000);
-    const snake = new Snake(id, genome, this.arch, { skin: 1 });
+    const snake = new Snake(id, genome, this.arch, { skin: 1, populationSlot: null });
 
     // Give it a distinct look (e.g. golden glow) if possible, or just standard
     snake.color = '#FFD700'; // Gold color to signify HoF status
@@ -1328,12 +1301,12 @@ export class World {
     );
     if (reusableIndex >= 0) {
       const existingId = this.snakes[reusableIndex]!.id;
-      const snake = new Snake(existingId, genome, this.arch);
+      const snake = new Snake(existingId, genome, this.arch, { populationSlot: null });
       this.snakes[reusableIndex] = snake;
       return snake;
     }
     const id = this._nextExternalSnakeId++;
-    const snake = new Snake(id, genome, this.arch);
+    const snake = new Snake(id, genome, this.arch, { populationSlot: null });
     this.snakes.push(snake);
     return snake;
   }

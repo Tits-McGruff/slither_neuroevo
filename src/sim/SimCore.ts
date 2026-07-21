@@ -18,6 +18,33 @@ import type {
   VizData
 } from '../protocol/messages.ts';
 
+/** Default hard limit for complete fixed steps executed by one scheduler pump. */
+const DEFAULT_MAX_STEPS_PER_PUMP = 120;
+
+/** Operational scheduler measurements that never feed authoritative World state. */
+export interface SchedulerDiagnostics {
+  /** Current requested simulation-time multiplier. */
+  requestedMultiplier: number;
+  /** Cumulative completed simulation seconds divided by observed wall seconds. */
+  achievedMultiplier: number;
+  /** Total successfully completed fixed steps. */
+  completedSteps: number;
+  /** Successfully completed fixed steps in the latest pump. */
+  completedStepsThisPump: number;
+  /** Cumulative finite non-negative wall time supplied to the scheduler. */
+  wallSeconds: number;
+  /** Cumulative authoritative simulation time completed by fixed steps. */
+  simulatedSeconds: number;
+  /** Cumulative simulation-time debt discarded by the pump cap. */
+  droppedSimulationSeconds: number;
+  /** Simulation-time debt discarded in the latest pump. */
+  droppedSimulationSecondsThisPump: number;
+  /** Fractional scheduled simulation time retained for a future whole step. */
+  pendingSimulationSeconds: number;
+  /** Configured upper bound on complete steps per pump. */
+  maxStepsPerPump: number;
+}
+
 /** Standardized experiment statistics produced by SimCore. */
 export interface CoreStats {
   tick: number;
@@ -47,6 +74,8 @@ export interface SimCoreOptions {
   brainPool?: BatchInferenceRunner | null;
   /** Tick rate in Hz (simulation updates per second). */
   tickRateHz?: number;
+  /** Maximum complete fixed steps allowed in one scheduler pump. */
+  maxStepsPerPump?: number;
 }
 
 /**
@@ -64,6 +93,24 @@ export class SimCore {
 
   /** Fixed delta time step (default 60Hz). */
   fixedDt: number = 1 / 60;
+
+  /** Hard upper bound on complete fixed steps in one scheduler pump. */
+  maxStepsPerPump: number = DEFAULT_MAX_STEPS_PER_PUMP;
+
+  /** Cumulative finite non-negative wall time supplied to the scheduler. */
+  private totalWallSeconds = 0;
+
+  /** Cumulative authoritative simulation time completed by fixed steps. */
+  private totalSimulatedSeconds = 0;
+
+  /** Cumulative simulation-time debt discarded by the pump cap. */
+  private totalDroppedSimulationSeconds = 0;
+
+  /** Complete fixed steps committed by the latest scheduler pump. */
+  private completedStepsThisPump = 0;
+
+  /** Simulation-time debt discarded by the latest scheduler pump. */
+  private droppedSimulationSecondsThisPump = 0;
 
   /** Last calculated FPS. */
   fps: number = 0;
@@ -91,8 +138,17 @@ export class SimCore {
     // 2. Create World
     this.world = new World(options.settings || {});
     this.brainPool = options.brainPool || null;
-    if (options.tickRateHz) {
-      this.fixedDt = 1 / options.tickRateHz;
+    const tickRateHz = options.tickRateHz;
+    if (typeof tickRateHz === 'number' && Number.isFinite(tickRateHz) && tickRateHz > 0) {
+      this.fixedDt = 1 / tickRateHz;
+    }
+    const maxStepsPerPump = options.maxStepsPerPump;
+    if (
+      typeof maxStepsPerPump === 'number' &&
+      Number.isFinite(maxStepsPerPump) &&
+      maxStepsPerPump > 0
+    ) {
+      this.maxStepsPerPump = Math.max(1, Math.floor(maxStepsPerPump));
     }
 
     this.viewW = CFG.worldRadius * 2;
@@ -102,53 +158,90 @@ export class SimCore {
   }
 
   /**
-   * Run the simulation loop for a given real-world delta time.
-   * Handles the fixed-timestep accumulation and interpolation (conceptually).
-   * 
-   * @param dt - Real time elapsed since last call (in seconds).
+   * Convert elapsed wall time into zero or more complete fixed World steps.
+   * The measured delta controls scheduling only; every authoritative step
+   * receives exactly `fixedDt` regardless of speed or pump grouping.
+   *
+   * @param wallDt - Measured wall time since the previous pump, in seconds.
    * @param controllerProvider - Optional provider for snake controllers.
+   * @returns Number of complete fixed steps committed by this pump.
    */
-  async update(dt: number, controllerProvider?: ControllerRegistryLike): Promise<void> {
-    // Cap dt to prevent spiral of death
-    if (dt > 0.2) dt = 0.2;
+  async update(
+    wallDt: number,
+    controllerProvider?: ControllerRegistryLike
+  ): Promise<number> {
+    const elapsed = Number.isFinite(wallDt) && wallDt > 0 ? wallDt : 0;
+    const requestedMultiplier = Number.isFinite(this.world.simSpeed)
+      ? Math.max(0, this.world.simSpeed)
+      : 0;
+    this.fps = elapsed > 0 ? 1 / elapsed : 0;
+    this.totalWallSeconds += elapsed;
+    this.accumulator += elapsed * requestedMultiplier;
+    this.completedStepsThisPump = 0;
+    this.droppedSimulationSecondsThisPump = 0;
 
-    this.fps = dt > 0 ? 1 / dt : 0;
-    this.accumulator += dt;
-
-    // Fixed Update Loop
-    while (this.accumulator >= this.fixedDt) {
-      this.tickId++;
-
-      // Execute one physics step
-      if (this.brainPool) {
-        // Use parallel batch inference if available.
-        await this.world.updateAsync(
-          this.fixedDt,
-          this.viewW,
-          this.viewH,
-          controllerProvider,
-          this.tickId,
-          this.brainPool
-        );
-      } else {
-        // Serial fallback
-        this.world.update(
-          this.fixedDt,
-          this.viewW,
-          this.viewH,
-          controllerProvider,
-          this.tickId
-        );
-      }
-
-      this.accumulator -= this.fixedDt;
+    const roundingAllowance = this.fixedDt * 1e-9;
+    const dueSteps = Math.max(
+      0,
+      Math.floor((this.accumulator + roundingAllowance) / this.fixedDt)
+    );
+    const droppedSteps = Math.max(0, dueSteps - this.maxStepsPerPump);
+    if (droppedSteps > 0) {
+      const droppedSeconds = droppedSteps * this.fixedDt;
+      this.accumulator = Math.max(0, this.accumulator - droppedSeconds);
+      this.droppedSimulationSecondsThisPump = droppedSeconds;
+      this.totalDroppedSimulationSeconds += droppedSeconds;
     }
 
-    // Post-update logic (generation tracking)
+    const stepsToRun = Math.min(dueSteps, this.maxStepsPerPump);
+    try {
+      for (let stepIndex = 0; stepIndex < stepsToRun; stepIndex++) {
+        const nextTickId = this.tickId + 1;
+        await this.world.step(
+          this.fixedDt,
+          this.viewW,
+          this.viewH,
+          controllerProvider,
+          nextTickId,
+          this.brainPool ?? undefined
+        );
+        this.tickId = nextTickId;
+        this.accumulator = Math.max(0, this.accumulator - this.fixedDt);
+        this.totalSimulatedSeconds += this.fixedDt;
+        this.completedStepsThisPump += 1;
+      }
+    } finally {
+      if (this.accumulator < roundingAllowance) this.accumulator = 0;
+    }
+
     if (this.world.generation !== this.lastGeneration) {
       this.lastGeneration = this.world.generation;
-      // Hook for persistence could go here
     }
+    return this.completedStepsThisPump;
+  }
+
+  /**
+   * Return current operational scheduler diagnostics.
+   * @returns Copy of requested/achieved speed and dropped-debt measurements.
+   */
+  getSchedulerDiagnostics(): SchedulerDiagnostics {
+    const requestedMultiplier = Number.isFinite(this.world.simSpeed)
+      ? Math.max(0, this.world.simSpeed)
+      : 0;
+    return {
+      requestedMultiplier,
+      achievedMultiplier: this.totalWallSeconds > 0
+        ? this.totalSimulatedSeconds / this.totalWallSeconds
+        : 0,
+      completedSteps: this.tickId,
+      completedStepsThisPump: this.completedStepsThisPump,
+      wallSeconds: this.totalWallSeconds,
+      simulatedSeconds: this.totalSimulatedSeconds,
+      droppedSimulationSeconds: this.totalDroppedSimulationSeconds,
+      droppedSimulationSecondsThisPump: this.droppedSimulationSecondsThisPump,
+      pendingSimulationSeconds: this.accumulator,
+      maxStepsPerPump: this.maxStepsPerPump
+    };
   }
 
   /**
@@ -251,6 +344,11 @@ export class SimCore {
     this.world = new World(settings);
     this.tickId = 0;
     this.accumulator = 0;
+    this.totalWallSeconds = 0;
+    this.totalSimulatedSeconds = 0;
+    this.totalDroppedSimulationSeconds = 0;
+    this.completedStepsThisPump = 0;
+    this.droppedSimulationSecondsThisPump = 0;
     this.lastGeneration = this.world.generation;
     this.lastHistoryLen = this.world.fitnessHistory.length;
   }

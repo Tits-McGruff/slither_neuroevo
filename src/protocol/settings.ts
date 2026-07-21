@@ -92,8 +92,7 @@ export const SETTINGS_PATHS = [
   'brain.gruCrossoverMode',
   'brain.gruInitUpdateBias',
   'brain.lstmInitForgetBias',
-  'brain.rruInitGateBias',
-  'dtClamp'
+  'brain.rruInitGateBias'
 ] as const;
 
 /** Union type of all supported settings paths. */

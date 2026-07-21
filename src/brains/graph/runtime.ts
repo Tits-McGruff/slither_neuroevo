@@ -1,5 +1,5 @@
 import type { VizData, VizLayer } from '../../protocol/messages.ts';
-import type { Brain } from '../types.ts';
+import type { Brain, InferenceBackend } from '../types.ts';
 import { DenseHead, GRU, LSTM, MLP, RRU } from '../ops.ts';
 import { isSimdAvailable, requireDenseKernel, requireMlpKernel } from '../nativeBridge.ts';
 import type { CompiledGraph, CompiledNode } from './compiler.ts';
@@ -267,6 +267,8 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
 
 /** Graph-based brain runtime for compiled specs. */
 export class GraphBrain implements Brain {
+  /** Math backend captured by this brain's node closures at construction. */
+  readonly inferenceBackend: InferenceBackend;
   /** Compiled graph metadata used by this runtime. */
   compiled: CompiledGraph;
   /** Weight buffer for all nodes. */
@@ -286,6 +288,7 @@ export class GraphBrain implements Brain {
    * @param weights - Weight buffer for all nodes.
    */
   constructor(compiled: CompiledGraph, weights: Float32Array) {
+    this.inferenceBackend = isSimdAvailable() ? 'native' : 'js';
     this.compiled = compiled;
     this.weights = weights;
     if (weights.length < compiled.totalParams) {
