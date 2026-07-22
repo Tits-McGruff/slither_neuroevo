@@ -36,8 +36,8 @@ interface SnakeLike {
   /** Boost state flag as numeric value. */
   boost: number;
   pointsScore: number;
-  /** Previous tick's points score for delta calculation. */
-  prevPointsScore: number;
+  /** Points score committed at the most recent delivered sensor sample. */
+  pointsAtLastSensorSample: number;
   /** Age in seconds since spawn. */
   age: number;
   points: SnakePoint[];
@@ -565,9 +565,9 @@ export function buildSensors(
   const pointsRatio = snake.pointsScore / Math.max(1, bestPts);
   ins[7] = clamp(2 * pointsRatio - 1, -1, 1);
 
-  // Index 8: points_delta_norm - change since last tick
+  // Index 8: points_delta_norm - change since the prior delivered observation
   const dpScale = 10; // saturating scale for point deltas
-  const dp = snake.pointsScore - (snake.prevPointsScore ?? snake.pointsScore);
+  const dp = snake.pointsScore - snake.pointsAtLastSensorSample;
   ins[8] = clamp(dp / dpScale, -1, 1);
 
   // Index 9: length_norm - length normalized to max

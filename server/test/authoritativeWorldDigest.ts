@@ -7,7 +7,7 @@ import type { Snake } from '../../src/snake.ts';
 import type { World } from '../../src/world.ts';
 
 /** Canonical digest schema version. */
-const DIGEST_VERSION = 2;
+const DIGEST_VERSION = 3;
 /** Raw Float32 hexadecimal width. */
 const FLOAT32_HEX_WIDTH = 8;
 
@@ -414,7 +414,12 @@ function captureSnake(entries: StateEntry[], item: CanonicalSnake): void {
   addNumber(entries, `${path}.age`, snake.age, context);
   addNumber(entries, `${path}.killScore`, snake.killScore, context);
   addNumber(entries, `${path}.pointsScore`, snake.pointsScore, context);
-  addNumber(entries, `${path}.prevPointsScore`, snake.prevPointsScore, context);
+  addNumber(
+    entries,
+    `${path}.pointsAtLastSensorSample`,
+    snake.pointsAtLastSensorSample,
+    context
+  );
   addNumber(entries, `${path}.targetLen`, snake.targetLen, context);
   addNumber(entries, `${path}.turnInput`, snake.turnInput, context);
   addNumber(entries, `${path}.boostInput`, snake.boostInput, context);

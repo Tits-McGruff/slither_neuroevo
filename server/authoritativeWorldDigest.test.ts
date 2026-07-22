@@ -63,7 +63,7 @@ function makeWorldFixture(options: FixtureOptions = {}): World {
     age: 4.5,
     killScore: 2.25,
     pointsScore: 18.75,
-    prevPointsScore: 17.5,
+    pointsAtLastSensorSample: 17.5,
     targetLen: 24.25,
     points: [{ x: 10.25, y: -20.5 }, { x: 8.5, y: -21.25 }],
     genome: populationGenome,
@@ -93,7 +93,7 @@ function makeWorldFixture(options: FixtureOptions = {}): World {
     age: 2,
     killScore: 0,
     pointsScore: 4,
-    prevPointsScore: 4,
+    pointsAtLastSensorSample: 4,
     targetLen: 16,
     points: [{ x: -4, y: 8 }],
     genome: baselineGenome,
@@ -205,7 +205,7 @@ describe(SUITE, () => {
     expect(actual.digest).toBe(expected.digest);
     expect(findFirstAuthoritativeWorldDivergence(expected, actual)).toBeNull();
     expect(expected.algorithm).toBe('sha256');
-    expect(expected.version).toBe(2);
+    expect(expected.version).toBe(3);
     const paths = expected.entries.map((entry) => entry.path);
     expect(paths).toEqual([...paths].sort());
     expect(new Set(paths).size).toBe(paths.length);

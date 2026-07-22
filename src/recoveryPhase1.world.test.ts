@@ -66,7 +66,7 @@ function buildStepSnake(
       events.push(`${kind}:needs-control`);
       return true;
     },
-    computeSensors: (_world: World) => {
+    sampleSensors: (_world: World) => {
       events.push(`${kind}:sensors`);
       return sensors;
     },

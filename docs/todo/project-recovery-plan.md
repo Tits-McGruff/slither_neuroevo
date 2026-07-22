@@ -3,12 +3,12 @@
 ## Document control
 
 - Status: authoritative, owner-approved implementation plan; Phases 0 through
-  4 are complete, and Phase 5 has not started.
+  5 are complete, and Phase 6 has not started.
 - Created: 2026-07-21.
 - Branch: `exclusive-server-mode-refactor`.
 - Audit baseline commit: `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
-- Current implementation HEAD: `58f85b009dbc461702e7f571a4ef0ab964b4a134`.
-- Last fully verified HEAD: `58f85b009dbc461702e7f571a4ef0ab964b4a134`.
+- Current implementation HEAD: `7ca46faeaf371ee4d20fcb9a5b60e93cbdf70a57`.
+- Last fully verified HEAD: `7ca46faeaf371ee4d20fcb9a5b60e93cbdf70a57`.
 - Baseline worktree: clean before the two planning-document changes.
 - Current expected worktree changes are recorded under "Live execution status".
 - Scope owner: the repository owner.
@@ -77,6 +77,14 @@ progresses.
   boundaries, deterministic native worker parity, explicit fault recovery,
   tagged MT visualization, and 233 passing JavaScript tests. Phase 5 was not
   started.
+- 2026-07-22: Committed and pushed the verified Phase 4 work as `7ca46fa`,
+  synchronized the local branch with its upstream, and began Phase 5 from that
+  committed baseline. The content-identical `AGENTS.md` status artifact remains
+  intentionally untouched.
+- 2026-07-22: Completed Phase 5 with one explicit score-observation boundary,
+  consistent external/serial/pooled delivery, accumulated skipped-cadence
+  deltas, aligned protocol/API wording, digest schema v3, and 242 passing
+  JavaScript tests. Phase 6 was not started.
 
 ## How to resume this work
 
@@ -1142,34 +1150,34 @@ the next action is external, serial neural, or pooled neural.
 
 ### Detailed checklist
 
-- [ ] Rename `prevPointsScore` to a name that describes the observation
+- [x] Rename `prevPointsScore` to a name that describes the observation
   boundary, such as `pointsAtLastSensorSample`.
-- [ ] Remove score-marker overwrite from `prepareForStep`.
-- [ ] Keep pure sensor construction separate from marker mutation.
-- [ ] Add one sampling method that builds sensors and then commits the score
+- [x] Remove score-marker overwrite from `prepareForStep`.
+- [x] Keep pure sensor construction separate from marker mutation.
+- [x] Add one sampling method that builds sensors and then commits the score
   marker exactly once.
-- [ ] Use that method for serial neural control.
-- [ ] Use that method for pooled neural control.
-- [ ] Use that method for external controller sensor messages.
-- [ ] Define first-sample behavior explicitly.
-- [ ] Define behavior when control cadence skips physics substeps.
-- [ ] Update sensor protocol documentation.
+- [x] Use that method for serial neural control.
+- [x] Use that method for pooled neural control.
+- [x] Use that method for external controller sensor messages.
+- [x] Define first-sample behavior explicitly.
+- [x] Define behavior when control cadence skips physics substeps.
+- [x] Update sensor protocol documentation.
 
 ### Required tests
 
-- [ ] First observation has the documented delta.
-- [ ] Survival reward appears once.
-- [ ] Food gained after one observation appears in the next.
-- [ ] Kill reward appears in the next observation.
-- [ ] Boost spending produces a negative delta.
-- [ ] A repeated sample without score change returns zero.
-- [ ] Skipped control intervals accumulate rather than discard changes.
-- [ ] External, serial neural, and pooled neural sampling agree.
+- [x] First observation has the documented delta.
+- [x] Survival reward appears once.
+- [x] Food gained after one observation appears in the next.
+- [x] Kill reward appears in the next observation.
+- [x] Boost spending produces a negative delta.
+- [x] A repeated sample without score change returns zero.
+- [x] Skipped control intervals accumulate rather than discard changes.
+- [x] External, serial neural, and pooled neural sampling agree.
 
 ### Acceptance gate
 
-- [ ] No path writes the marker immediately before reading it.
-- [ ] Sensor contract and API documentation use the same wording.
+- [x] No path writes the marker immediately before reading it.
+- [x] Sensor contract and API documentation use the same wording.
 
 ## Phase 6: Server-authoritative live controls and God Mode
 
@@ -1822,48 +1830,57 @@ The recovery is complete only when:
 
 ## Live execution status
 
-- Current phase: Phase 4 is complete; Phase 5 has not started.
-- Active checklist item: none. Every Phase 4 detailed-checklist, required-test,
+- Current phase: Phase 5 score-delta sensor semantics is complete. Phase 6 has
+  not started.
+- Active checklist item: none. Every Phase 5 detailed-checklist, required-test,
   and acceptance-gate item is complete and verified.
-- Last completed work: passed the full 51-file/233-test JavaScript suite,
-  strict TypeScript, repository-wide ESLint, Vite production build, three Rust
-  release tests, stale-duplicate scan, and diff-hygiene gate after removing the
-  obsolete worker chain.
-- Source implementation status: the fully verified Phase 4 worktree is
-  uncommitted atop synchronized HEAD `58f85b0`; nothing is staged or pushed.
+- Last completed work: passed the full 52-file/242-test JavaScript suite,
+  strict TypeScript, repository-wide ESLint, the Vite production build,
+  static marker/delivery scans, documentation equality, and diff hygiene.
+- Source implementation status: the fully verified Phase 5 worktree is
+  uncommitted atop synchronized HEAD `7ca46fa`; nothing is staged or pushed.
 - Current blocker: none.
-- Next action: await owner direction. Do not begin Phase 5 in this pass and do
+- Next action: await owner direction. Do not begin Phase 6 in this pass and do
   not commit or push without an explicit owner request.
 - Current implementation HEAD:
-  `58f85b009dbc461702e7f571a4ef0ab964b4a134`.
+  `7ca46faeaf371ee4d20fcb9a5b60e93cbdf70a57`.
 - Last fully verified HEAD:
-  `58f85b009dbc461702e7f571a4ef0ab964b4a134`.
+  `7ca46faeaf371ee4d20fcb9a5b60e93cbdf70a57`.
 - Verification scope note: the complete dirty-file set recorded below is the
-  fully verified Phase 4 worktree atop the unchanged committed HEAD.
-- Last successful phase acceptance gate: Phase 4 canonical MT inference with
-  stable recurrent state.
+  fully verified Phase 5 worktree atop the unchanged committed HEAD.
+- Last successful phase acceptance gate: Phase 5 score-delta sensor semantics.
 - Exact dirty-file summary:
-  - content-modified tracked files: `docs/todo/project-recovery-plan.md`,
-    `server/brainPool.ts`, `server/httpApi.ts`, `server/index.ts`,
-    `server/inferenceMode.ts`,
-    `server/recoveryPhase0.characterization.test.ts`,
-    `server/recoveryPhase2.determinism.test.ts`, `server/simServer.ts`,
-    `server/worker/inferWorker.ts`, `server/wsHub.ts`,
-    `src/protocol/messages.ts`, and `src/sim/SimCore.ts`;
+  - content-modified tracked files: `docs/API-instructions.md`,
+    `docs/todo/project-recovery-plan.md`,
+    `server/authoritativeWorldDigest.test.ts`,
+    `server/test/authoritativeWorldDigest.ts`, `src/protocol/sensors.ts`,
+    `src/recoveryPhase1.world.test.ts`, `src/sensors.test.ts`,
+    `src/sensors.ts`, `src/snake.ts`, and `src/world.ts`;
   - status-only artifact: Git reports `AGENTS.md` modified, but
     `git diff -- AGENTS.md` is empty and its worktree/HEAD blob IDs both equal
     `b7c033c5de793219e590a8382befadb417d77915`; it was not edited;
-  - deleted tracked files: `src/sim/BaseBrainPool.ts`,
-    `src/sim/NodeBrainPool.ts`, `src/sim/poolProtocol.ts`, and
-    `src/worker/inferWorker.ts`;
-  - untracked files: `server/brainPoolProtocol.ts`,
-    `server/recoveryPhase4.brainPool.test.ts`,
-    `server/recoveryPhase4.simServer.test.ts`, and
-    `server/test/stallBrainPoolWorker.ts`;
+  - deleted tracked files: none;
+  - untracked files: `src/recoveryPhase5.sensors.test.ts`;
   - staged: none.
-- Last full JS test result: 51 files, 233 tests passed.
+- Last full JS test result: 52 files, 242 tests passed.
+- Pre-change Phase 5 baseline: 4 files, 31 tests passed. Command:
+  `node .\node_modules\vitest\vitest.mjs run src\sensors.test.ts
+  src\snake.test.ts src\recoveryPhase1.world.test.ts
+  server\controllerRegistry.test.ts --reporter=dot`.
+- Latest focused Phase 5 result: 6 files, 57 tests passed. Command:
+  `node .\node_modules\vitest\vitest.mjs run
+  src\recoveryPhase5.sensors.test.ts src\sensors.test.ts src\snake.test.ts
+  src\recoveryPhase1.world.test.ts server\authoritativeWorldDigest.test.ts
+  server\recoveryPhase2.determinism.test.ts --reporter=dot`.
+- Latest Phase 5 TypeScript result: passed.
+- Latest Phase 5 focused ESLint result: passed.
+- Last ESLint result: repository-wide pass against the completed Phase 5
+  worktree.
+- Last client-build result: passed against the completed Phase 5 worktree with
+  the existing `node:module` browser-externalization warning from
+  `nativeBridge`.
 - Last Rust test result: 3 release tests passed.
-- Last TypeScript result: passed against the completed Phase 4 worktree.
+- Last TypeScript result: passed against the completed Phase 5 worktree.
 - Pre-change Phase 4 baseline: 4 files, 11 tests passed. Command:
   `node .\node_modules\vitest\vitest.mjs run server\brainPool.test.ts
   server\recoveryPhase0.characterization.test.ts
@@ -1880,9 +1897,6 @@ The recovery is complete only when:
   rebuilt addon.
 - Last focused Phase 2 result: 2 files, 22 tests passed in the prior phase.
 - Last focused Phase 1 result: 5 files, 17 tests passed.
-- Last ESLint result: repository-wide pass.
-- Last client-build result: passed with the existing `node:module`
-  browser-externalization warning from `nativeBridge`.
 - Loaded native build identifier:
   `slither_native/0.1.0+51e5deda32c5.9f5ea40929585feb`.
 
@@ -2598,6 +2612,142 @@ The recovery is complete only when:
 - Last successful acceptance gate: Phase 4 canonical MT inference with stable
   recurrent state. Current blocker: none. Await explicit owner direction before
   Phase 5.
+
+### 2026-07-22 — Phase 5 start
+
+- Re-read this authoritative plan completely, then re-read the repository-root
+  `AGENTS.md`. The stale-documentation warnings in this plan take precedence;
+  the superseded native plan and archive were not consulted.
+- Verified repository root `C:/Users/jlow8/source/repos/slither_neuroevo`,
+  branch `exclusive-server-mode-refactor`, HEAD
+  `7ca46faeaf371ee4d20fcb9a5b60e93cbdf70a57`, and upstream divergence `0 0`.
+- Verified that the owner-approved Phase 4 commit is present and pushed. The
+  starting worktree contained only the preserved content-identical `AGENTS.md`
+  status artifact: its worktree and HEAD blob IDs both equal
+  `b7c033c5de793219e590a8382befadb417d77915`, and its diff is empty.
+- Phase 5 is authorized and in progress. The first action is a current-source
+  audit of every score-marker read/write and every external, serial, and pooled
+  sensor-delivery path, followed by the smallest direct pre-change sensor/world
+  baseline. Phase 6 has not started.
+- The audit confirmed the plan's source assumptions. `Snake.prepareForStep`
+  overwrites `prevPointsScore` immediately before adding survival score;
+  `buildSensors` then reads that marker. External publication and neural
+  control call the pure builder separately, while scripted baseline-bot probes
+  also call it but are not delivered score-delta observations.
+- The implementation seam is therefore one stateful `Snake.sampleSensors`
+  boundary layered over pure `computeSensors`. First-sample behavior is change
+  since snake construction: an immediate sample is zero, while score accrued
+  before the first delivery is included. Baseline-bot strategy probes remain
+  pure and do not advance the delivery marker.
+- Focused pre-change command:
+  `node .\node_modules\vitest\vitest.mjs run src\sensors.test.ts
+  src\snake.test.ts src\recoveryPhase1.world.test.ts
+  server\controllerRegistry.test.ts --reporter=dot`; result: 4 files and 31
+  tests passed.
+- Implemented `pointsAtLastSensorSample` as the authoritative observation
+  boundary. `prepareForStep` now adds survival reward without touching it;
+  pure `computeSensors` only reads it; `sampleSensors` builds the vector and
+  commits the current score only after construction succeeds.
+- Routed external publication plus serial and pooled neural inference through
+  `sampleSensors`. The legacy one-snake neural update uses the same boundary.
+  The three baseline-bot strategy probes remain pure because they are not
+  delivered neural/external observations and must not consume accumulated
+  score delta.
+- Added `src/recoveryPhase5.sensors.test.ts` for first delivery, pure repeated
+  construction, survival, food, kill, boost cost, skipped control cadence,
+  external/serial/pooled agreement, and source/API wording equality. The first
+  focused run passed 56 tests and exposed one invalid boost fixture: the snake
+  was exactly at the minimum-length guard and correctly spent nothing. Making
+  only that fixture boost-eligible produced a clean 57-test rerun.
+- Renamed the marker in the canonical authoritative digest and advanced its
+  schema from v2 to v3 because both the state path and its future-observation
+  semantics changed. The deterministic regression suite passes with the new
+  schema.
+- Focused Phase 5 command over the new suite plus sensor, snake, canonical
+  step, digest, and deterministic regressions passed 6 files and 57 tests.
+  Strict TypeScript and focused ESLint also pass. Static scans find no
+  `prevPointsScore` reference and no delivered production path that bypasses
+  `sampleSensors`.
+- Broad regression verification is active. Phase 6 has not started.
+- Current blocker: none. Last successful acceptance gate remains Phase 4
+  canonical MT inference with stable recurrent state.
+
+### 2026-07-22 — Phase 5 completion handoff
+
+- Completed every Phase 5 detailed-checklist, required-test, and acceptance
+  item. Phase 6 has not started, and no Phase 6 production behavior changed.
+- Renamed the old tick-oriented marker to `pointsAtLastSensorSample` and
+  removed its overwrite from `prepareForStep`. Survival, food, kill rewards,
+  and boost costs now remain accumulated until a delivered observation
+  consumes them.
+- Kept `computeSensors` pure. The new `sampleSensors` method constructs the
+  vector first and then commits the current score exactly once. A failed sensor
+  build therefore does not advance the observation boundary.
+- Routed external controller publication, serial neural control, pooled neural
+  control, and the legacy one-snake neural update through the same sampling
+  method. Scripted baseline-bot strategy probes intentionally retain pure
+  `computeSensors` calls because they are not delivered neural or external
+  observations and do not consume the delta channel.
+- Defined the first observation as change since construction. Because a snake
+  initializes its marker from its initial score, an immediate sample is zero;
+  any survival or other score change accrued before the first delivery appears
+  in that delivery. When neural cadence skips fixed steps, all intervening
+  changes accumulate until the next due sample.
+- Added one exact public description in `src/protocol/sensors.ts` and mirrored
+  it in `docs/API-instructions.md`. The focused suite normalizes Markdown
+  layout and asserts the wording remains equal.
+- Advanced the authoritative World digest from schema v2 to v3 and renamed its
+  marker path because the captured state now has an observation-boundary name
+  and meaning. Existing deterministic replay and first-divergence coverage
+  passes with the new schema.
+- Added `src/recoveryPhase5.sensors.test.ts`. It proves first-sample behavior,
+  pure repeated construction, single-consumption survival, food and kill
+  rewards, negative boost spending, skipped-cadence accumulation,
+  external/serial/pooled equality, and protocol/API documentation alignment.
+- Verification commands and results:
+  - pre-change focused baseline:
+    `node .\node_modules\vitest\vitest.mjs run src\sensors.test.ts
+    src\snake.test.ts src\recoveryPhase1.world.test.ts
+    server\controllerRegistry.test.ts --reporter=dot` passed 4 files and 31
+    tests;
+  - the first focused Phase 5 run passed 56 tests and failed only the new boost
+    fixture because its snake was correctly at the minimum-length no-boost
+    guard. Making that fixture boost-eligible without changing production code
+    resolved the test;
+  - final focused Phase 5:
+    `node .\node_modules\vitest\vitest.mjs run
+    src\recoveryPhase5.sensors.test.ts src\sensors.test.ts src\snake.test.ts
+    src\recoveryPhase1.world.test.ts server\authoritativeWorldDigest.test.ts
+    server\recoveryPhase2.determinism.test.ts --reporter=dot` passed 6 files
+    and 57 tests;
+  - strict TypeScript:
+    `node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false`
+    passed;
+  - repository-wide ESLint:
+    `node .\node_modules\eslint\bin\eslint.js .` passed;
+  - full JavaScript suite:
+    `node .\node_modules\vitest\vitest.mjs run --reporter=dot` passed all 242
+    tests across 52 files;
+  - client build: `node .\node_modules\vite\bin\vite.js build` passed with 29
+    modules transformed and the existing `node:module`
+    browser-externalization warning from `nativeBridge`;
+  - static scans found no `prevPointsScore` reference and no delivered World
+    path that bypasses `sampleSensors`; only the explicitly pure baseline-bot
+    probes and `sampleSensors`'s internal builder call remain;
+  - `git diff --check` passed with only existing LF-to-CRLF working-copy
+    warnings. Native/Rust source was unchanged, so the prior three-test release
+    result remains the last Rust result and was not rerun.
+- Repository state at completion:
+  - root: `C:/Users/jlow8/source/repos/slither_neuroevo`;
+  - branch: `exclusive-server-mode-refactor`;
+  - current implementation HEAD and last fully verified committed HEAD:
+    `7ca46faeaf371ee4d20fcb9a5b60e93cbdf70a57`;
+  - upstream divergence: `0 0`;
+  - the exact modified, untracked, status-only, and staged paths are listed
+    under "Live execution status"; nothing is staged, committed, or pushed.
+- Fixed registered defects `SNS-001` and `SNS-002`. No new production defect
+  or blocker was discovered. Last successful acceptance gate: Phase 5
+  score-delta sensor semantics.
 
 ## Verification command reference
 

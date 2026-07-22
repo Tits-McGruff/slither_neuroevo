@@ -37,6 +37,10 @@ export interface SensorSpec {
 /** Minimum supported bin count for sensor layouts. */
 const MIN_BINS = 8;
 
+/** Exact public contract for the score-delta sensor. */
+export const POINTS_DELTA_SENSOR_DESCRIPTION =
+  "Score change accumulated since this snake's previous delivered sensor sample, or since construction for its first sample; unsampled control intervals accumulate. The value is divided by 10 and clamped to [-1, 1].";
+
 /**
  * V3 scalar sensor labels.
  * - Indices 0-6: inherited from v2 (heading, size, boost, speed state)
@@ -53,6 +57,7 @@ const V3_SCALAR_LABELS = [
   'boost_state',
   // New v3 sensors (7-18)
   'points_norm',
+  // See POINTS_DELTA_SENSOR_DESCRIPTION for observation-boundary semantics.
   'points_delta_norm',
   'length_norm',
   'boost_points_frac',

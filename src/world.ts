@@ -876,7 +876,7 @@ export class World {
       }
       if (!snake.needsControlUpdate(baseDt)) continue;
 
-      const sensors = this._computeControlSensors(snake);
+      const sensors = this._sampleControlSensors(snake);
       snake.lastSensors = sensors;
       const populationSlot = snake.populationSlot;
       if (populationSlot !== null && (
@@ -936,11 +936,11 @@ export class World {
    * @param snake - Snake whose observation is due.
    * @returns Sensor vector owned by the snake scratch buffer.
    */
-  private _computeControlSensors(snake: Snake): Float32Array {
+  private _sampleControlSensors(snake: Snake): Float32Array {
     const profiler = this.profiler;
-    if (!profiler) return snake.computeSensors(this);
+    if (!profiler) return snake.sampleSensors(this);
     const start = profiler.now();
-    const sensors = snake.computeSensors(this);
+    const sensors = snake.sampleSensors(this);
     profiler.recordSensors(profiler.now() - start);
     return sensors;
   }
@@ -1141,10 +1141,10 @@ export class World {
       let sensors: Float32Array;
       if (profiler) {
         const start = profiler.now();
-        sensors = sn.computeSensors(this);
+        sensors = sn.sampleSensors(this);
         profiler.recordSensors(profiler.now() - start);
       } else {
-        sensors = sn.computeSensors(this);
+        sensors = sn.sampleSensors(this);
       }
       controllers.publishSensors(sn.id, tickId, sensors, { x: sn.x, y: sn.y, dir: sn.dir });
     }

@@ -364,7 +364,10 @@ The scalar sensors occupying indices 0-18 in the vector:
 - `speed_norm`: speed relative to maximum boost speed.
 - `boost_state`: current boost fuel status in `[0, 1]` mapped to `[-1, 1]`.
 - `points_norm`: current points score normalized by generation best.
-- `points_delta_norm`: change in points since the last simulation tick.
+- `points_delta_norm`: Score change accumulated since this snake's previous
+  delivered sensor sample, or since construction for its first sample;
+  unsampled control intervals accumulate. The value is divided by 10 and
+  clamped to `[-1, 1]`.
 - `length_norm`: snake length relative to absolute max length.
 - `boost_points_frac`: points available for boost relative to minimum cost.
 - `boost_cost_norm`: current point loss rate from boosting (scales with size).

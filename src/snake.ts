@@ -234,8 +234,8 @@ export class Snake {
   populationSlot: number | null;
   /** Skin flag used for rendering. */
   skin: number;
-  /** Previous tick's points score for delta calculation. */
-  prevPointsScore: number;
+  /** Points score committed at the most recent delivered sensor sample. */
+  pointsAtLastSensorSample: number;
   /** Random stream used for this snake's spawn and gameplay side effects. */
   private readonly rng: RandomSource;
 
@@ -276,7 +276,7 @@ export class Snake {
     this.baselineBotIndex = options.baselineBotIndex ?? null;
     this.populationSlot = options.populationSlot ?? null;
     this.skin = options.skin ?? 0;
-    this.prevPointsScore = 0;
+    this.pointsAtLastSensorSample = this.pointsScore;
     this.updateRadiusFromLen();
   }
   /**
@@ -499,7 +499,6 @@ export class Snake {
    * @param dt - Delta time in seconds.
    */
   prepareForStep(dt: number): void {
-    this.prevPointsScore = this.pointsScore;
     if (!this.points.length) this.points.push({ x: this.x, y: this.y });
     this.age += dt;
     this.pointsScore += dt * CFG.reward.pointsPerSecondAlive;
@@ -515,6 +514,17 @@ export class Snake {
       this._sensorBuf = new Float32Array(expected);
     }
     return buildSensors(world, this, this._sensorBuf);
+  }
+  /**
+   * Build one delivered observation and commit its score boundary exactly once.
+   * @param world - World state sampled for the observation.
+   * @param out - Optional output buffer to reuse.
+   * @returns Sensor vector containing score change since the prior delivery.
+   */
+  sampleSensors(world: WorldLike, out?: Float32Array): Float32Array {
+    const sensors = this.computeSensors(world, out);
+    this.pointsAtLastSensorSample = this.pointsScore;
+    return sensors;
   }
   /**
    * Sync control state when switching between external and neural inputs.
@@ -693,10 +703,10 @@ export class Snake {
       let sensors: Float32Array;
       if (profiler) {
         const start = profiler.now();
-        sensors = this.computeSensors(world, this._sensorBuf);
+        sensors = this.sampleSensors(world, this._sensorBuf);
         profiler.recordSensors(profiler.now() - start);
       } else {
-        sensors = this.computeSensors(world, this._sensorBuf);
+        sensors = this.sampleSensors(world, this._sensorBuf);
       }
       this.lastSensors = sensors;
       let out: Float32Array;

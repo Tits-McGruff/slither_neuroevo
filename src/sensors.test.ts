@@ -70,7 +70,7 @@ describe('sensors.ts', () => {
       speed: CFG.snakeBaseSpeed,
       boost: 0,
       pointsScore: 0,
-      prevPointsScore: 0,
+      pointsAtLastSensorSample: 0,
       age: 0,
       points: [],
       radius: CFG.snakeRadius,
