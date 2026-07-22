@@ -39,9 +39,16 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm run build
+      - name: Build native addon
+        run: npm --prefix native run build
+      - name: Verify native addon load and source identity
+        run: node -e "const addon = require('./native/index.js'); if (!addon.nativeAddonBuildIdentifier?.()) throw new Error('native build identifier missing')"
+      - name: Test native crate
+        run: cargo test --manifest-path native/Cargo.toml --release
+      - run: npm run build:client
       - run: npm run typecheck
-      - run: npm test
+      - run: npm run lint
+      - run: npm run test:js
 
   rust_lint:
     name: Rust fmt and clippy (native crate)

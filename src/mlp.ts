@@ -8,7 +8,7 @@ import { graphKey } from './brains/graph/compiler.ts';
 import type { CompiledGraph } from './brains/graph/compiler.ts';
 import type { GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
 import { validateGraph } from './brains/graph/validate.ts';
-import type { Brain } from './brains/types.ts';
+import type { Brain, InferenceBackend } from './brains/types.ts';
 import { buildBrain as buildBrainInstance, compileBrainSpec } from './brains/registry.ts';
 import { DenseHead, GRU, LSTM, MLP, RRU } from './brains/ops.ts';
 
@@ -214,11 +214,12 @@ export class Genome {
   /**
    * Build a brain instance from the genome weights and architecture.
    * @param arch - Architecture definition to compile.
+   * @param inferenceBackend - Immutable math backend for the new brain.
    * @returns Initialized brain instance.
    */
-  buildBrain(arch: ArchDefinition): Brain {
+  buildBrain(arch: ArchDefinition, inferenceBackend: InferenceBackend = 'js'): Brain {
     const info = enrichArchInfo(arch);
-    const brain = buildBrainInstance(info.compiled.spec, this.weights);
+    const brain = buildBrainInstance(info.compiled.spec, this.weights, inferenceBackend);
     brain.reset();
     return brain;
   }

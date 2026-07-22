@@ -36,7 +36,6 @@ import type { Persistence, PopulationSnapshotPayload } from './persistence.ts';
 import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 import { WsHub } from './wsHub.ts';
 import { buildSensorSpec } from './sensorSpec.ts';
-import { NativeBackend } from './native-backend.ts';
 import type { ActiveInferenceBackend, InferenceModeRecord } from './inferenceMode.ts';
 import { createEntropySeed, createRunId } from './runIdentity.ts';
 
@@ -170,22 +169,9 @@ export class SimServer {
       settings: initialSettings,
       tickRateHz: this.tickRateHz,
       worldSeed,
-      runId
+      runId,
+      inferenceBackend: config.inferenceBackend
     });
-
-    const nativeEnv = process.env['SLITHER_NATIVE_BACKEND'];
-    const shouldUseNative = nativeEnv === '1';
-
-    // Initialize Native Backend when enabled.
-    if (shouldUseNative) {
-      try {
-        const native = new NativeBackend(this.core.world);
-        this.core.world.setBackend(native);
-        console.log('[NativeBackend] Initialized and attached.');
-      } catch (err) {
-        console.error('[NativeBackend] Failed to initialize:', err);
-      }
-    }
 
     if (process.env[PROFILE_ENV_VAR] === '1') {
       this.profiler = new SimProfiler({ reportIntervalMs: PROFILE_REPORT_INTERVAL_MS });
@@ -234,7 +220,7 @@ export class SimServer {
     if (!this.brainPool) {
       const world = this.core.world;
       const specKey = world.archKey;
-      this.brainPool = new NodeBrainPool(this.mtWorkerCount);
+      this.brainPool = new NodeBrainPool(this.mtWorkerCount, this.core.inferenceBackend);
       const info = enrichArchInfo(world.arch);
 
       // Input size is the output of the first node (Input node) in the compiled spec
@@ -334,9 +320,7 @@ export class SimServer {
     const archInfo = enrichArchInfo(world.arch);
     const readyPool = this.brainPool?.status === 'ready' ? this.brainPool : null;
     return {
-      // There is no neural math-backend request surface in the baseline. The
-      // similarly named SLITHER_NATIVE_BACKEND controls an unfinished World adapter.
-      requestedBackend: null,
+      requestedBackend: this.core.inferenceBackend,
       activeBackend: readyPool?.inferenceBackend ?? this.getSerialInferenceBackend(),
       requestedMt: this.requestedMt,
       activeWorkerCount: readyPool?.getActiveWorkerCount() ?? 0,
@@ -560,7 +544,7 @@ export class SimServer {
         console.log('[SimServer] Re-initializing brain pool due to spec change');
         await pool.shutdown();
       }
-      pool = new NodeBrainPool(this.mtWorkerCount);
+      pool = new NodeBrainPool(this.mtWorkerCount, this.core.inferenceBackend);
       await pool.init({
         specKey,
         graphSpec: archInfo.spec,

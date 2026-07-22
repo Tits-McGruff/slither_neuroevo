@@ -7,8 +7,10 @@
   "scripts": {
     "dev": "vite",
     "build": "npm --prefix native run build && vite build",
+    "build:client": "vite build",
     "preview": "vite preview",
     "test": "npm run test:native && vitest run",
+    "test:js": "vitest run",
     "test:unit": "tsx scripts/run-tests.ts unit",
     "test:integration": "tsx scripts/run-tests.ts integration",
     "test:system": "tsx scripts/run-tests.ts system",

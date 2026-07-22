@@ -1,7 +1,11 @@
 import type { VizData, VizLayer } from '../../protocol/messages.ts';
 import type { Brain, InferenceBackend } from '../types.ts';
 import { DenseHead, GRU, LSTM, MLP, RRU } from '../ops.ts';
-import { isSimdAvailable, requireDenseKernel, requireMlpKernel } from '../nativeBridge.ts';
+import {
+  assertInferenceBackendReady,
+  requireDenseKernel,
+  requireMlpKernel
+} from '../nativeBridge.ts';
 import type { CompiledGraph, CompiledNode } from './compiler.ts';
 import type { GraphNodeType } from './schema.ts';
 
@@ -61,13 +65,19 @@ function createVizLayers(node: RuntimeNode): VizLayer[] {
  * @param node - Compiled node metadata.
  * @param weights - Full weight buffer.
  * @param inputRefs - Input buffers from upstream nodes.
+ * @param inferenceBackend - Immutable math backend for this graph runtime.
  * @returns Runtime node instance.
  */
-function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: Float32Array[]): RuntimeNode {
+function buildRuntimeNode(
+  node: CompiledNode,
+  weights: Float32Array,
+  inputRefs: Float32Array[],
+  inferenceBackend: InferenceBackend
+): RuntimeNode {
   const getSlice = (w: Float32Array) =>
     node.paramLength ? w.subarray(node.paramOffset, node.paramOffset + node.paramLength) : new Float32Array(0);
   const slice = getSlice(weights);
-  const useSimd = isSimdAvailable();
+  const useSimd = inferenceBackend === 'native';
 
   switch (node.type) {
     case 'Input': {
@@ -192,7 +202,14 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
       };
     }
     case 'GRU': {
-      const gru = new GRU(node.inputSize, node.hiddenSize ?? node.outputSize, slice);
+      const gru = new GRU(
+        node.inputSize,
+        node.hiddenSize ?? node.outputSize,
+        slice,
+        undefined,
+        undefined,
+        inferenceBackend
+      );
       return {
         id: node.id,
         type: node.type,
@@ -215,7 +232,14 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
       };
     }
     case 'LSTM': {
-      const lstm = new LSTM(node.inputSize, node.hiddenSize ?? node.outputSize, slice);
+      const lstm = new LSTM(
+        node.inputSize,
+        node.hiddenSize ?? node.outputSize,
+        slice,
+        undefined,
+        undefined,
+        inferenceBackend
+      );
       return {
         id: node.id,
         type: node.type,
@@ -238,7 +262,14 @@ function buildRuntimeNode(node: CompiledNode, weights: Float32Array, inputRefs: 
       };
     }
     case 'RRU': {
-      const rru = new RRU(node.inputSize, node.hiddenSize ?? node.outputSize, slice);
+      const rru = new RRU(
+        node.inputSize,
+        node.hiddenSize ?? node.outputSize,
+        slice,
+        undefined,
+        undefined,
+        inferenceBackend
+      );
       return {
         id: node.id,
         type: node.type,
@@ -286,9 +317,15 @@ export class GraphBrain implements Brain {
    * Create a graph brain runtime from a compiled spec and weights.
    * @param compiled - Compiled graph metadata.
    * @param weights - Weight buffer for all nodes.
+   * @param inferenceBackend - Immutable math backend prepared by the runtime owner.
    */
-  constructor(compiled: CompiledGraph, weights: Float32Array) {
-    this.inferenceBackend = isSimdAvailable() ? 'native' : 'js';
+  constructor(
+    compiled: CompiledGraph,
+    weights: Float32Array,
+    inferenceBackend: InferenceBackend = 'js'
+  ) {
+    assertInferenceBackendReady(inferenceBackend);
+    this.inferenceBackend = inferenceBackend;
     this.compiled = compiled;
     this.weights = weights;
     if (weights.length < compiled.totalParams) {
@@ -306,7 +343,7 @@ export class GraphBrain implements Brain {
         if (!outputs) throw new Error(`Graph runtime: missing outputs for ${input.fromId}.`);
         return outputs[input.fromPort]!;
       });
-      const runtime = buildRuntimeNode(node, weights, inputRefs);
+      const runtime = buildRuntimeNode(node, weights, inputRefs, inferenceBackend);
       if (node.type === 'Input') {
         runtime.output = this.inputBuffer;
       }

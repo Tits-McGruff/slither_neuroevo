@@ -6,8 +6,8 @@ export type ActiveInferenceBackend = InferenceBackend | 'mixed' | 'unknown';
 
 /** Runtime record describing the inference path that was requested and attached. */
 export interface InferenceModeRecord {
-  /** Requested neural math backend, or null because the baseline has no selector. */
-  requestedBackend: InferenceBackend | null;
+  /** Immutable neural math backend requested by server configuration. */
+  requestedBackend: InferenceBackend;
   /** Backend attached to the currently executing serial brains or ready worker pool. */
   activeBackend: ActiveInferenceBackend;
   /** Whether multi-threaded inference was requested in server configuration. */
@@ -22,10 +22,10 @@ export interface InferenceModeRecord {
   graphKey: string;
   /** Number of Float32 parameters in one active population genome. */
   parameterCount: number;
-  /** Seed recorded at server startup; the baseline World does not yet consume it. */
+  /** Active authoritative run seed. */
   seed: number;
   /** Current native-addon loader state without triggering a load. */
   nativeAddonStatus: SimdKernelStatus;
-  /** Native-addon build identifier, or null because the baseline addon exports none. */
+  /** Source-derived native-addon build identifier, or null when native is not loaded. */
   nativeAddonBuildIdentifier: string | null;
 }

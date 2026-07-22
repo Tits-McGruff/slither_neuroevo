@@ -238,7 +238,12 @@ describe(SUITE, () => {
   it('passes the server seed into SimCore/World and starts a new entropy lineage', () => {
     const wsHub = { sendJsonTo: () => undefined } as unknown as WsHub;
     const server = new SimServer(
-      { ...DEFAULT_CONFIG, dbPath: ':memory:', logLevel: 'error' },
+      {
+        ...DEFAULT_CONFIG,
+        dbPath: ':memory:',
+        logLevel: 'error',
+        inferenceBackend: 'js'
+      },
       wsHub,
       undefined,
       'phase-2-config',

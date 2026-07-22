@@ -2,7 +2,13 @@
 
 import { clamp } from '../utils.ts';
 import { unseededRandom, type RandomSource } from '../rng.ts';
-import { isSimdAvailable, requireGruKernel, requireLstmKernel, requireRruKernel } from './nativeBridge.ts';
+import {
+  assertInferenceBackendReady,
+  requireGruKernel,
+  requireLstmKernel,
+  requireRruKernel
+} from './nativeBridge.ts';
+import type { InferenceBackend } from './types.ts';
 
 /**
  * Sigmoid activation function.
@@ -185,6 +191,8 @@ export class MLP {
 
 /** Gated recurrent unit implementation with configurable bias init. */
 export class GRU {
+  /** Immutable math backend selected before construction. */
+  readonly inferenceBackend: InferenceBackend;
   /** Input vector size. */
   inSize: number;
   /** Hidden state size. */
@@ -209,14 +217,18 @@ export class GRU {
    * @param weights - Optional weight buffer.
    * @param initUpdateBias - Initial update gate bias.
    * @param rng - Random source used only when weights are omitted.
+   * @param inferenceBackend - Immutable math backend for recurrent steps.
    */
   constructor(
     inSize: number,
     hiddenSize: number,
     weights: Float32Array | null = null,
     initUpdateBias = -0.7,
-    rng: RandomSource = unseededRandom
+    rng: RandomSource = unseededRandom,
+    inferenceBackend: InferenceBackend = 'js'
   ) {
+    assertInferenceBackendReady(inferenceBackend);
+    this.inferenceBackend = inferenceBackend;
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
     this.paramCount = gruParamCount(inSize, hiddenSize);
@@ -246,12 +258,12 @@ export class GRU {
 
   /**
    * Advance the GRU by one timestep.
-   * Uses SIMD kernels when available, otherwise falls back to the reference path.
+   * Uses the immutable backend selected at construction.
    * @param x - Input vector.
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
-    if (!isSimdAvailable()) {
+    if (this.inferenceBackend === 'js') {
       return this.stepReference(x);
     }
     const kernel = requireGruKernel();
@@ -340,6 +352,8 @@ export class GRU {
 
 /** Long short-term memory implementation. */
 export class LSTM {
+  /** Immutable math backend selected before construction. */
+  readonly inferenceBackend: InferenceBackend;
   /** Input vector size. */
   inSize: number;
   /** Hidden state size. */
@@ -364,14 +378,18 @@ export class LSTM {
    * @param weights - Optional weight buffer.
    * @param initForgetBias - Initial forget gate bias.
    * @param rng - Random source used only when weights are omitted.
+   * @param inferenceBackend - Immutable math backend for recurrent steps.
    */
   constructor(
     inSize: number,
     hiddenSize: number,
     weights: Float32Array | null = null,
     initForgetBias = 0.6,
-    rng: RandomSource = unseededRandom
+    rng: RandomSource = unseededRandom,
+    inferenceBackend: InferenceBackend = 'js'
   ) {
+    assertInferenceBackendReady(inferenceBackend);
+    this.inferenceBackend = inferenceBackend;
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
     this.paramCount = lstmParamCount(inSize, hiddenSize);
@@ -403,12 +421,12 @@ export class LSTM {
 
   /**
    * Advance the LSTM by one timestep.
-   * Uses SIMD kernels when available, otherwise falls back to the reference path.
+   * Uses the immutable backend selected at construction.
    * @param x - Input vector.
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
-    if (!isSimdAvailable()) {
+    if (this.inferenceBackend === 'js') {
       return this.stepReference(x);
     }
     const kernel = requireLstmKernel();
@@ -500,6 +518,8 @@ export class LSTM {
 
 /** Minimal recurrent unit with reset gate. */
 export class RRU {
+  /** Immutable math backend selected before construction. */
+  readonly inferenceBackend: InferenceBackend;
   /** Input vector size. */
   inSize: number;
   /** Hidden state size. */
@@ -520,14 +540,18 @@ export class RRU {
    * @param weights - Optional weight buffer.
    * @param initGateBias - Initial reset gate bias.
    * @param rng - Random source used only when weights are omitted.
+   * @param inferenceBackend - Immutable math backend for recurrent steps.
    */
   constructor(
     inSize: number,
     hiddenSize: number,
     weights: Float32Array | null = null,
     initGateBias = 0.1,
-    rng: RandomSource = unseededRandom
+    rng: RandomSource = unseededRandom,
+    inferenceBackend: InferenceBackend = 'js'
   ) {
+    assertInferenceBackendReady(inferenceBackend);
+    this.inferenceBackend = inferenceBackend;
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
     this.paramCount = rruParamCount(inSize, hiddenSize);
@@ -554,12 +578,12 @@ export class RRU {
 
   /**
    * Advance the RRU by one timestep.
-   * Uses SIMD kernels when available, otherwise falls back to the reference path.
+   * Uses the immutable backend selected at construction.
    * @param x - Input vector.
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
-    if (!isSimdAvailable()) {
+    if (this.inferenceBackend === 'js') {
       return this.stepReference(x);
     }
     const kernel = requireRruKernel();

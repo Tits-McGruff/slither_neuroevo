@@ -17,6 +17,7 @@ import { CFG } from '../config.ts';
 import { normalizeSeed } from '../rng.ts';
 import type { CoreSettings } from '../protocol/settings.ts';
 import type { Snake } from '../snake.ts';
+import type { InferenceBackend } from '../brains/types.ts';
 import type {
   FitnessData,
   FitnessHistoryEntry,
@@ -123,6 +124,8 @@ export interface SimCoreOptions {
   worldSeed?: number;
   /** Optional lineage id generated independently from simulation randomness. */
   runId?: string;
+  /** Immutable neural math backend prepared before World construction. */
+  inferenceBackend?: InferenceBackend;
   /** Optional exact pre-spawn generation-boundary observer. */
   onGenerationBoundary?: GenerationBoundaryHook;
   /** Optional brain pool for batch inference. */
@@ -145,6 +148,9 @@ export class SimCore {
 
   /** Opaque evolutionary-lineage identifier. */
   runId: string;
+
+  /** Immutable neural math backend preserved across run reconstruction. */
+  readonly inferenceBackend: InferenceBackend;
 
   /** Boundary observer preserved across Reset and New Run reconstruction. */
   private generationBoundaryHook: GenerationBoundaryHook | null;
@@ -202,9 +208,11 @@ export class SimCore {
     // 2. Create World
     this.worldSeed = normalizeSeed(options.worldSeed ?? 0);
     this.runId = normalizeRunId(options.runId, this.worldSeed);
+    this.inferenceBackend = options.inferenceBackend ?? 'js';
     this.generationBoundaryHook = options.onGenerationBoundary ?? null;
     this.world = new World(options.settings || {}, {
       seed: this.worldSeed,
+      inferenceBackend: this.inferenceBackend,
       ...(this.generationBoundaryHook
         ? { onGenerationBoundary: this.generationBoundaryHook }
         : {})
@@ -433,6 +441,7 @@ export class SimCore {
     const nextRunId = normalizeRunId(runId, nextSeed);
     const nextWorld = new World(settings, {
       seed: nextSeed,
+      inferenceBackend: this.inferenceBackend,
       ...(this.generationBoundaryHook
         ? { onGenerationBoundary: this.generationBoundaryHook }
         : {})

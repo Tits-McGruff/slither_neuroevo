@@ -3,12 +3,12 @@
 ## Document control
 
 - Status: authoritative, owner-approved implementation plan; Phases 0 through
-  2 are complete, and Phase 3 has not started.
+  3 are complete, and Phase 4 has not started.
 - Created: 2026-07-21.
 - Branch: `exclusive-server-mode-refactor`.
 - Audit baseline commit: `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
-- Current implementation HEAD: `acb634f1af68422b2a18e5d04903e2b140520b68`.
-- Last fully verified HEAD: `acb634f1af68422b2a18e5d04903e2b140520b68`.
+- Current implementation HEAD: `51e5deda32c5861fd34c11ff9c5389ae100e814f`.
+- Last fully verified HEAD: `51e5deda32c5861fd34c11ff9c5389ae100e814f`.
 - Baseline worktree: clean before the two planning-document changes.
 - Current expected worktree changes are recorded under "Live execution status".
 - Scope owner: the repository owner.
@@ -61,6 +61,12 @@ progresses.
 - 2026-07-22: The owner committed and pushed the fully verified Phase 2 work as
   `acb634f`; the local branch and upstream are synchronized. Phase 3 remains
   unstarted.
+- 2026-07-22: Committed the owner-requested Phase 2 checkpoint metadata as
+  `51e5ded`, then began Phase 3 from its clean worktree. The commit is local and
+  has not been pushed.
+- 2026-07-22: Completed Phase 3 with immutable native/JS backend selection,
+  checked Rust N-API boundaries, source-derived addon identity, required-native
+  tests, and existing-matrix CI coverage. Phase 4 was not started.
 
 ## How to resume this work
 
@@ -349,6 +355,8 @@ deleted files are evidence and reference material, not specifications to copy.
 | NAT-003 | N-API functions enter unsafe pointer code without validating array lengths and dimensions | `native/src/SIMD_Kernals.rs` | 3 |
 | NAT-004 | Native package metadata and targets are largely napi-rs template defaults | `native/package.json` | 3 and 9 |
 | NAT-005 | Canonical worker message handling can begin before asynchronous native loading completes | `server/worker/inferWorker.ts` installs its handler before the final native-load await | 3 and 4 |
+| NAT-006 | A `GraphBrain` records one backend at construction, while GRU/LSTM/RRU primitives recheck global native availability on every step and can execute a different backend than diagnostics report | `src/brains/graph/runtime.ts` and `src/brains/ops.ts` | 3 |
+| NAT-007 | The native loader reports ready without validating every required kernel export or a source-derived build identifier, deferring stale/incompatible-addon failure until inference | `src/brains/nativeBridge.ts` | 3 |
 | MT-001 | Two incompatible server brain pools exist | `server/brainPool.ts` and `src/sim/NodeBrainPool.ts` | 4 |
 | MT-002 | The active pool begins with zero-filled weights and skips initial synchronization | `NodeBrainPool.init` and `SimServer.mtGeneration` | 4 |
 | MT-003 | Active workers allocate private recurrent stores when `stateSize` is omitted | `SimServer.initMT` / `ensureBrainPool` and `src/worker/inferWorker.ts` | 4 |
@@ -936,40 +944,40 @@ scope narrow and its unsafe boundary checked.
 
 ### Detailed checklist
 
-- [ ] Delete `server/native-backend.ts` and the `PhysicsBackend` branch after
+- [x] Delete `server/native-backend.ts` and the `PhysicsBackend` branch after
   confirming no supported caller remains.
-- [ ] Remove `SLITHER_NATIVE_BACKEND` full-world behavior and replace it with a
+- [x] Remove `SLITHER_NATIVE_BACKEND` full-world behavior and replace it with a
   clear math-backend configuration if needed.
-- [ ] Select and load an immutable backend before creating any main-thread
+- [x] Select and load an immutable backend before creating any main-thread
   `GraphBrain`; diagnostics must come from the backend actually attached to the
   brain, not only from requested configuration.
-- [ ] Load the selected worker backend before installing a worker message
+- [x] Load the selected worker backend before installing a worker message
   handler or compiling/creating worker brains.
-- [ ] Make normal native startup fail with a concise actionable error if the
+- [x] Make normal native startup fail with a concise actionable error if the
   addon is absent or incompatible.
-- [ ] Support an explicit JS diagnostic backend without pretending native ran.
-- [ ] Export or derive a native-addon build identifier from crate/package
+- [x] Support an explicit JS diagnostic backend without pretending native ran.
+- [x] Export or derive a native-addon build identifier from crate/package
   version plus source revision; do not report package metadata as proof that a
   stale binary did not load.
-- [ ] Record requested/active backend and addon build ID in runtime diagnostics.
-- [ ] Validate dimensions, strides, multiplication overflow, and all input,
+- [x] Record requested/active backend and addon build ID in runtime diagnostics.
+- [x] Validate dimensions, strides, multiplication overflow, and all input,
   output, scratch, weight, and recurrent-state lengths in Rust before entering
   unsafe pointer code.
-- [ ] Validate zero-sized/invalid dimensions and unsupported buffer overlap or
+- [x] Validate zero-sized/invalid dimensions and unsupported buffer overlap or
   aliasing assumptions before unsafe code.
-- [ ] Return structured N-API errors for invalid calls.
-- [ ] Keep `unsafe` blocks narrowly scoped with accurate safety comments.
-- [ ] Add invalid-length and invalid-dimension tests through the exported
+- [x] Return structured N-API errors for invalid calls.
+- [x] Keep `unsafe` blocks narrowly scoped with accurate safety comments.
+- [x] Add invalid-length and invalid-dimension tests through the exported
   N-API boundary.
-- [ ] Remove native-test early returns in this phase. A missing addon fails the
+- [x] Remove native-test early returns in this phase. A missing addon fails the
   required-native suite; only the explicitly named JS suite can run without it.
-- [ ] Rename the misspelled `SIMD_Kernals.rs` to `simd_kernels.rs` if the
+- [x] Rename the misspelled `SIMD_Kernals.rs` to `simd_kernels.rs` if the
   rename is isolated and does not complicate active work.
-- [ ] Remove unused Rust dependencies.
-- [ ] Reduce `native/package.json` from generated template metadata to the
+- [x] Remove unused Rust dependencies.
+- [x] Reduce `native/package.json` from generated template metadata to the
   packages, targets, and scripts this repository actually supports.
-- [ ] Keep only x86_64 targets while the crate has an x86_64 compile error.
-- [ ] Strengthen the repository's existing Ubuntu/Windows CI matrix for addon
+- [x] Keep only x86_64 targets while the crate has an x86_64 compile error.
+- [x] Strengthen the repository's existing Ubuntu/Windows CI matrix for addon
   build/load coverage rather than adding a duplicate Windows job.
 
 ### Parity contract
@@ -984,22 +992,22 @@ scope narrow and its unsafe boundary checked.
 
 ### Required tests
 
-- [ ] Dense native versus JS reference.
-- [ ] MLP native versus JS reference.
-- [ ] GRU native versus JS reference across multiple recurrent steps.
-- [ ] LSTM native versus JS reference across multiple recurrent steps.
-- [ ] RRU native versus JS reference across multiple recurrent steps.
-- [ ] Invalid buffers fail safely rather than reading out of bounds.
-- [ ] Unsupported aliasing/overlap fails safely, or is explicitly proven safe.
-- [ ] A missing addon fails the native-required suite instead of returning.
-- [ ] Runtime integration asserts native mode is active.
-- [ ] Explicit JS diagnostic mode asserts native is inactive.
+- [x] Dense native versus JS reference.
+- [x] MLP native versus JS reference.
+- [x] GRU native versus JS reference across multiple recurrent steps.
+- [x] LSTM native versus JS reference across multiple recurrent steps.
+- [x] RRU native versus JS reference across multiple recurrent steps.
+- [x] Invalid buffers fail safely rather than reading out of bounds.
+- [x] Unsupported aliasing/overlap fails safely, or is explicitly proven safe.
+- [x] A missing addon fails the native-required suite instead of returning.
+- [x] Runtime integration asserts native mode is active.
+- [x] Explicit JS diagnostic mode asserts native is inactive.
 
 ### Acceptance gate
 
-- [ ] Normal single-threaded server inference uses Rust kernels.
-- [ ] No code expects a Rust `World` export.
-- [ ] Unsafe exported calls validate their contracts.
+- [x] Normal single-threaded server inference uses Rust kernels.
+- [x] No code expects a Rust `World` export.
+- [x] Unsafe exported calls validate their contracts.
 
 ## Phase 4: Canonical MT inference with stable recurrent state
 
@@ -1802,42 +1810,63 @@ The recovery is complete only when:
 
 ## Live execution status
 
-- Current phase: Phase 2 is complete; Phase 3 has not started.
-- Active checklist item: none. Every Phase 2 checklist, required-test, and
-  acceptance-gate item is complete and verified.
-- Last completed work: verified the owner's Phase 2 commit, its upstream
-  synchronization, and the clean post-push worktree, then refreshed this
-  checkpoint metadata.
-- Source implementation status: Phases 0 through 2 are committed, pushed, and
-  fully verified at the current HEAD. Only this recovery-plan metadata refresh
-  is dirty after the clean post-push verification.
+- Current phase: Phase 3 is complete; Phase 4 has not started.
+- Active checklist item: none. Every Phase 3 detailed-checklist,
+  required-test, and acceptance-gate item is complete and verified.
+- Last completed work: tightened the final raw-pointer safety scopes, rebuilt
+  and loaded the source-identified addon, reran the focused native/server gate
+  and complete JavaScript suite, and recorded this completion handoff.
+- Source implementation status: the fully verified Phase 3 worktree is
+  uncommitted atop `51e5ded`. The branch is one local plan-only commit ahead of
+  upstream; no Phase 3 file was staged, committed, or pushed.
 - Current blocker: none.
-- Next action: await owner authorization before beginning Phase 3. Do not begin
-  Phase 3 as part of this pass.
+- Next action: await owner direction. Do not begin Phase 4 without a new owner
+  request; if a commit is requested, review and stage the deliberate Phase 3
+  patch without staging the content-identical `AGENTS.md` status artifact.
 - Current implementation HEAD:
-  `acb634f1af68422b2a18e5d04903e2b140520b68`.
+  `51e5deda32c5861fd34c11ff9c5389ae100e814f`.
 - Last fully verified HEAD:
-  `acb634f1af68422b2a18e5d04903e2b140520b68`.
-- Verification scope note: the complete Phase 0 through Phase 2 implementation
-  is committed and pushed at that HEAD. The committed Phase 2 content is the
-  same worktree that passed the focused and full verification matrices.
-- Last successful phase acceptance gate: Phase 2 authoritative seeded
-  randomness gate.
+  `51e5deda32c5861fd34c11ff9c5389ae100e814f`.
+- Verification scope note: every current Phase 3 source, test, native-package,
+  and CI edit in the uncommitted worktree atop that HEAD passed the focused and
+  broad gates recorded below.
+- Last successful phase acceptance gate: Phase 3 native kernel safety and
+  runtime activation.
 - Exact dirty-file summary:
-  - modified: `docs/todo/project-recovery-plan.md` only;
-  - untracked: none;
+  - content-modified tracked files: `.github/workflows/CI.yml`,
+    `docs/todo/project-recovery-plan.md`, `native/Cargo.toml`,
+    `native/build.rs`, `native/package-lock.json`, `native/package.json`,
+    `native/src/lib.rs`, `package.json`, `server/brainPool.test.ts`,
+    `server/brainPool.ts`, `server/config.ts`, `server/index.ts`,
+    `server/inferenceMode.test.ts`, `server/inferenceMode.ts`,
+    `server/recoveryPhase2.determinism.test.ts`, `server/simServer.ts`,
+    `server/worker/inferWorker.ts`, `src/brains/graph/runtime.ts`,
+    `src/brains/nativeBridge.test.ts`, `src/brains/nativeBridge.ts`,
+    `src/brains/ops.ts`, `src/brains/registry.ts`, `src/mlp.ts`,
+    `src/sim/NodeBrainPool.ts`, `src/sim/SimCore.ts`, `src/snake.ts`,
+    `src/worker/inferWorker.ts`, and `src/world.ts`;
+  - status-only artifact: Git reports `AGENTS.md` modified, but
+    `git diff -- AGENTS.md` is empty and its worktree/HEAD blob IDs both equal
+    `b7c033c5de793219e590a8382befadb417d77915`; it was not edited;
+  - deleted tracked files: `native/src/SIMD_Kernals.rs` as the old side of the
+    isolated rename, and obsolete `server/native-backend.ts`;
+  - untracked files: `native/src/simd_kernels.rs` as the new side of the
+    isolated rename, `server/recoveryPhase3.native.test.ts`, and
+    `src/brains/nativeBridge.missing.test.ts`;
   - staged: none.
-- Last full JS test result: 47 files, 199 tests passed.
-- Last Rust test result: 3 release tests passed at the earlier verified
-  baseline; native source was unchanged and Rust was not rerun during Phase 2.
-- Last TypeScript result: passed after all current Phase 2 implementation and
-  test edits.
-- Pre-change Phase 2 baseline: 4 files, 30 tests passed.
-- Last focused Phase 2 result: 2 files, 22 tests passed.
+- Last full JS test result: 49 files, 209 tests passed.
+- Last Rust test result: 3 release tests passed after the final safety edit.
+- Last TypeScript result: passed after all Phase 3 TypeScript/test edits.
+- Pre-change Phase 3 baseline: 2 files, 9 tests passed.
+- Last focused Phase 3 result: 7 files, 42 tests passed against the final
+  rebuilt addon.
+- Last focused Phase 2 result: 2 files, 22 tests passed in the prior phase.
 - Last focused Phase 1 result: 5 files, 17 tests passed.
 - Last ESLint result: passed.
 - Last client-build result: passed with the existing `node:module`
   browser-externalization warning from `nativeBridge`.
+- Loaded native build identifier:
+  `slither_native/0.1.0+51e5deda32c5.9f5ea40929585feb`.
 
 ## Handoff journal
 
@@ -2223,6 +2252,141 @@ The recovery is complete only when:
   `acb634f1af68422b2a18e5d04903e2b140520b68`. Last successful acceptance gate
   remains Phase 2 authoritative seeded randomness. There are no new defects or
   blockers, and Phase 3 has not started.
+
+### 2026-07-22 — Phase 3 start
+
+- Staged only `docs/todo/project-recovery-plan.md`, verified the staged diff,
+  and created the explicitly requested commit
+  `51e5deda32c5861fd34c11ff9c5389ae100e814f` with subject `Record Phase 2
+  post-commit checkpoint`. No push was requested or performed.
+- Verified root `C:/Users/jlow8/source/repos/slither_neuroevo`, branch
+  `exclusive-server-mode-refactor`, a clean post-commit worktree, and upstream
+  divergence `1 0`, consisting only of that local plan commit.
+- Re-read this authoritative plan completely, then re-read the repository-root
+  `AGENTS.md`. The stale-documentation warnings in this plan take precedence;
+  the superseded native plan and archive were not consulted.
+- Phase 3 is authorized and in progress. The first action is a current-source
+  audit of native loading, immutable backend selection, Rust N-API safety,
+  package metadata, existing parity tests, and the active CI matrix, followed
+  by the smallest direct native pre-change baseline. Phase 4 has not started.
+- Current blocker: none. Last successful acceptance gate remains Phase 2
+  authoritative seeded randomness.
+
+### 2026-07-22 — Phase 3 completion handoff
+
+- Completed every Phase 3 detailed-checklist, required-test, and
+  acceptance-gate item. Phase 4 has not started.
+- Current-source audit and implementation result:
+  - deleted the unsupported full-World `NativeBackend`, removed the
+    `PhysicsBackend` World branch and `SLITHER_NATIVE_BACKEND`, and confirmed
+    no supported caller or Rust `World` expectation remains;
+  - added one immutable `native`/`js` math-backend selection to server config,
+    defaulting normal startup to native with CLI/environment overrides for the
+    explicitly named JS diagnostic mode;
+  - made server startup prepare and validate the selected backend before any
+    World or main-thread brain construction, and threaded that selection
+    through `SimCore`, `World`, `Snake`, genome/registry construction, and
+    every graph node;
+  - made GRU, LSTM, and RRU instances retain the same backend reported by their
+    owning `GraphBrain`, fixing newly registered `NAT-006` rather than allowing
+    a later global addon load to change an existing brain's execution path;
+  - made both current worker chains receive and prepare their selected backend
+    before installing a message handler or constructing a brain. Consolidating
+    the duplicate pools and recurrent ownership remains Phase 4 work;
+  - made loader readiness require every Dense/MLP/GRU/LSTM/RRU export plus a
+    nonempty source-derived build identifier, fixing newly registered
+    `NAT-007`; normal native failure now reports the direct build instruction
+    and names JS as diagnostic-only rather than silently falling back;
+  - renamed `SIMD_Kernals.rs` to `simd_kernels.rs`, removed the unused Rust
+    dependency, reduced the napi-rs template package to the two supported
+    x86_64 targets and actual scripts, and regenerated its lockfile;
+  - added a deterministic addon identifier containing crate version, Git
+    revision, and a content hash of the native manifest/build/source inputs;
+  - moved every public N-API entry behind positive-dimension, stride,
+    checked-arithmetic, buffer-length, scratch/state/weight, and writable-alias
+    validation. Invalid calls return structured `InvalidArg` N-API errors before
+    private raw-pointer kernels run;
+  - placed scalar-tail pointer access in explicit unsafe scopes and replaced
+    inherited vague comments with exact range/non-overlap safety contracts;
+  - strengthened the existing Ubuntu/Windows Node 22/24 matrix to build and
+    load the addon, assert its identifier, run Rust release tests, client build,
+    typecheck, lint, and the required JavaScript suite without adding a
+    duplicate job.
+- Test coverage result:
+  - Dense and MLP compare native output with bounded JS references;
+  - GRU, LSTM, and RRU compare multiple recurrent steps;
+  - exported calls reject zero/negative/overflowing dimensions, short inputs,
+    outputs, scratch, weights and recurrent state, invalid layers/strides, and
+    unsupported writable overlap;
+  - the required-native file loads the addon in `beforeAll` and contains no
+    missing-addon return, while a fresh subprocess proves a missing addon fails
+    with actionable output;
+  - runtime integration proves a normal single-threaded server reports
+    requested/active native plus the loaded identifier, and explicit JS mode
+    reports native inactive and unloaded;
+  - the canonical future worker pool has a native-preload initialization and
+    inference test without beginning the Phase 4 ownership refactor.
+- Verification commands and results:
+  - pre-change focused baseline:
+    `node .\node_modules\vitest\vitest.mjs run
+    src\brains\nativeBridge.test.ts server\inferenceMode.test.ts
+    --reporter=dot` passed 2 files and 9 tests;
+  - pre-change native baseline and final native unit gate:
+    `cargo test --manifest-path native\Cargo.toml --release` each passed all 3
+    tests; the final run followed the raw-pointer safety tightening;
+  - the repository-local `npm --prefix native run build` wrapper failed
+    immediately because its user-level shim targets missing
+    `C:\Users\jlow8\AppData\Roaming\npm\node_modules\npm\bin\npm-cli.js`.
+    Per the verification-command fallback, no wait/retry loop was used;
+  - direct addon build from `native`:
+    `node .\node_modules\@napi-rs\cli\dist\cli.js build --platform --release`
+    passed after the final native edit;
+  - direct addon load/export validation passed for all five kernels and
+    `nativeAddonBuildIdentifier`, returning
+    `slither_native/0.1.0+51e5deda32c5.9f5ea40929585feb`;
+  - `cargo fmt --manifest-path native\Cargo.toml` completed,
+    `cargo fmt --manifest-path native\Cargo.toml -- --check` passed, and
+    `cargo clippy --manifest-path native\Cargo.toml -- -D warnings` passed;
+  - strict TypeScript:
+    `node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false`
+    passed;
+  - repository-wide ESLint:
+    `node .\node_modules\eslint\bin\eslint.js .` passed;
+  - final focused Phase 3 gate:
+    `node .\node_modules\vitest\vitest.mjs run
+    src\brains\nativeBridge.test.ts
+    src\brains\nativeBridge.missing.test.ts
+    server\recoveryPhase3.native.test.ts server\inferenceMode.test.ts
+    server\brainPool.test.ts server\recoveryPhase1.lifecycle.test.ts
+    server\recoveryPhase2.determinism.test.ts --reporter=dot` passed 7 files
+    and 42 tests;
+  - full JavaScript suite:
+    `node .\node_modules\vitest\vitest.mjs run --reporter=dot --silent`
+    passed all 49 files and 209 tests. An earlier restricted wrapper attempt
+    failed before collection when esbuild was denied access while loading the
+    Vite config; the direct approved invocation completed normally;
+  - client build: `node .\node_modules\vite\bin\vite.js build` passed with 29
+    modules transformed and the previously recorded `node:module`
+    browser-externalization warning from the Node-only loader branch;
+  - static scans found no production `NativeBackend`, `PhysicsBackend`,
+    `SLITHER_NATIVE_BACKEND`, `setBackend`, or `native-backend` reference, and
+    no skip/early-return pattern in the required-native tests;
+  - `git diff --check` passed with only the existing LF-to-CRLF working-copy
+    warnings; its final rerun after the completed handoff edit also passed.
+- Repository state:
+  - root: `C:/Users/jlow8/source/repos/slither_neuroevo`;
+  - branch: `exclusive-server-mode-refactor`;
+  - current implementation HEAD and last fully verified committed HEAD:
+    `51e5deda32c5861fd34c11ff9c5389ae100e814f`;
+  - upstream divergence: `1 0`, consisting of the earlier local plan-only
+    commit; no Phase 3 commit or push was performed;
+  - the exact unstaged worktree is listed under "Live execution status".
+- Newly discovered defects `NAT-006` and `NAT-007` were fixed and verified in
+  this phase. The absent `markdown-rules/rules.md` reference was reconfirmed as
+  existing registered defect `DOC-003`, not rediscovered as new work. No new
+  blocker remains.
+- Last successful acceptance gate: Phase 3 native kernel safety and runtime
+  activation. Await explicit owner direction before Phase 4.
 
 ## Verification command reference
 

@@ -115,4 +115,40 @@ describe(SUITE, () => {
 
     expectClose(outputs, expected, 1e-4);
   });
+
+  it('loads the selected native backend before worker brain initialization', async () => {
+    const spec: GraphSpec = {
+      type: 'graph',
+      nodes: [
+        { id: 'input', type: 'Input', outputSize: 3 },
+        { id: 'dense', type: 'Dense', inputSize: 3, outputSize: 2 }
+      ],
+      edges: [{ from: 'input', to: 'dense' }],
+      outputs: [{ nodeId: 'dense' }],
+      outputSize: 2
+    };
+    const compiled = compileGraph(spec);
+    const populationCount = 2;
+    const paramCount = compiled.totalParams;
+    const weights = buildPopulationWeights(populationCount, paramCount);
+    const pool = new BrainPool(1, 'native');
+    activePool = pool;
+
+    await pool.init({
+      spec,
+      specKey: graphKey(spec),
+      populationCount,
+      paramCount,
+      inputStride: 3,
+      outputStride: 2,
+      maxBatch: populationCount,
+      weights
+    });
+    const inputs = buildBatchInputs(2, 3);
+    const outputs = new Float32Array(4);
+    await pool.runBatch(inputs, outputs, new Uint32Array([0, 1]), 2, 3, 2);
+
+    expect(pool.inferenceBackend).toBe('native');
+    expect(Array.from(outputs).every(Number.isFinite)).toBe(true);
+  });
 });

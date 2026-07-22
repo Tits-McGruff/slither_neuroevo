@@ -19,11 +19,20 @@ import type {
 export class NodeBrainPool extends BaseBrainPool {
     private workers: Worker[] = [];
 
-    /** Backend hard-coded by the active server worker implementation. */
-    readonly inferenceBackend: InferenceBackend = 'js';
+    /** Immutable backend selected for every worker brain in this pool. */
+    readonly inferenceBackend: InferenceBackend;
 
-    constructor(private requestedWorkerCount: number = 0) {
+    /**
+     * Create a Node worker pool.
+     * @param requestedWorkerCount - Requested worker count, or zero for auto.
+     * @param inferenceBackend - Immutable math backend prepared inside each worker.
+     */
+    constructor(
+        private requestedWorkerCount: number = 0,
+        inferenceBackend: InferenceBackend = 'js'
+    ) {
         super();
+        this.inferenceBackend = inferenceBackend;
     }
 
     /**
@@ -64,7 +73,7 @@ export class NodeBrainPool extends BaseBrainPool {
         for (let i = 0; i < workerCount; i++) {
             const w = new Worker(workerUrl, {
                 execArgv: ['--import', 'tsx/esm'],
-                // workerData can be passed here if needed
+                workerData: { inferenceBackend: this.inferenceBackend }
             });
             this.workers.push(w);
 

@@ -4,6 +4,7 @@ import { CFG, resetCFGToDefaults } from '../src/config.ts';
 import { World } from '../src/world.ts';
 import { WorldSerializer } from '../src/serializer.ts';
 import { normalizeSeed } from '../src/rng.ts';
+import { prepareInferenceBackend } from '../src/brains/nativeBridge.ts';
 import { parseConfig, type ServerConfig } from './config.ts';
 import { hashConfig } from './hash.ts';
 import { createHttpHandler } from './httpApi.ts';
@@ -49,6 +50,7 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
     : createEntropySeed();
   const sessionId = createSessionId();
   const runId = createRunId();
+  await prepareInferenceBackend(config.inferenceBackend);
   const db = initDb(config.dbPath);
   const persistence = createPersistence(db);
   const latestSnapshot = persistence.loadLatestSnapshot();
@@ -61,7 +63,10 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
   // Hash config so clients can detect mismatched settings.
   const cfgHash = hashConfig(CFG);
   const sensorSpec = buildSensorSpec();
-  const sampleWorld = new World(initialSettings, { seed: worldSeed });
+  const sampleWorld = new World(initialSettings, {
+    seed: worldSeed,
+    inferenceBackend: config.inferenceBackend
+  });
   const frameByteLength = WorldSerializer.serialize(sampleWorld).byteLength;
   const welcome: WelcomeMsg = {
     type: 'welcome',

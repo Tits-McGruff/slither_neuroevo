@@ -7,7 +7,7 @@ import { CFG } from './config.ts';
 import { clamp, hashColor, lerp, angNorm, hypot, TAU } from './utils.ts';
 import { buildSensors } from './sensors.ts';
 import type { ArchDefinition, Genome } from './mlp.ts';
-import type { Brain } from './brains/types.ts';
+import type { Brain, InferenceBackend } from './brains/types.ts';
 import type { SimProfiler } from './profiling.ts';
 import { unseededRandom, type RandomSource } from './rng.ts';
 
@@ -112,6 +112,8 @@ export interface SnakeSpawnOptions {
   controlMode?: ControlMode;
   /** Optional brain override for the snake. */
   brain?: Brain;
+  /** Immutable math backend used when constructing the snake's brain. */
+  inferenceBackend?: InferenceBackend;
   /** Optional baseline bot index identifier. */
   baselineBotIndex?: number | null;
   /** Durable population-owned inference slot, or null for non-population snakes. */
@@ -267,7 +269,7 @@ export class Snake {
     this.points = [];
     this._initBody();
     this.genome = genome;
-    this.brain = options.brain ?? genome.buildBrain(arch);
+    this.brain = options.brain ?? genome.buildBrain(arch, options.inferenceBackend ?? 'js');
     this.turnInput = 0;
     this.boostInput = 0;
     this.controlMode = options.controlMode ?? 'neural';

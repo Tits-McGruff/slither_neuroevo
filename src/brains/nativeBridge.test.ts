@@ -1,6 +1,18 @@
 import { beforeAll, describe, it, expect } from 'vitest';
 import { DenseHead, GRU, LSTM, MLP, RRU, gruParamCount, lstmParamCount, mlpParamCount, rruParamCount } from './ops.ts';
-import { isSimdAvailable, loadSimdKernels, requireDenseKernel, requireGruKernel, requireLstmKernel, requireMlpKernel, requireRruKernel } from './nativeBridge.ts';
+import { compileGraph } from './graph/compiler.ts';
+import { GraphBrain } from './graph/runtime.ts';
+import type { GraphSpec } from './graph/schema.ts';
+import {
+  getNativeAddonBuildIdentifier,
+  isSimdAvailable,
+  loadSimdKernels,
+  requireDenseKernel,
+  requireGruKernel,
+  requireLstmKernel,
+  requireMlpKernel,
+  requireRruKernel
+} from './nativeBridge.ts';
 
 /** Test suite label for SIMD native parity. */
 const SUITE = 'brains/nativeBridge parity';
@@ -79,19 +91,12 @@ function expectClose(actual: Float32Array, expected: Float32Array, tol: number):
 }
 
 describe(SUITE, () => {
-  let hasNative = false;
-
   beforeAll(async () => {
-    try {
-      await loadSimdKernels();
-    } catch {
-      // Native kernels are optional in this environment.
-    }
-    hasNative = isSimdAvailable();
+    await loadSimdKernels();
+    expect(isSimdAvailable()).toBe(true);
   });
 
   it('Dense kernel matches JS outputs for batched inputs', () => {
-    if (!hasNative) return;
     const inSize = 5;
     const outSize = 3;
     const count = 4;
@@ -111,7 +116,6 @@ describe(SUITE, () => {
   });
 
   it('MLP kernel matches JS outputs for batched inputs', () => {
-    if (!hasNative) return;
     const layerSizes = [4, 6, 3];
     const inSize = layerSizes[0]!;
     const outSize = layerSizes[layerSizes.length - 1]!;
@@ -140,12 +144,11 @@ describe(SUITE, () => {
   });
 
   it('GRU kernel matches JS outputs across steps', () => {
-    if (!hasNative) return;
     const inSize = 4;
     const hiddenSize = 5;
     const steps = 6;
     const weights = buildDeterministicWeights(gruParamCount(inSize, hiddenSize));
-    const gru = new GRU(inSize, hiddenSize, weights);
+    const gru = new GRU(inSize, hiddenSize, weights, undefined, undefined, 'native');
     const gruRef = new GRU(inSize, hiddenSize, weights);
     const inputs = buildStepInputs(steps, inSize);
     for (let s = 0; s < steps; s++) {
@@ -158,7 +161,6 @@ describe(SUITE, () => {
   });
 
   it('GRU kernel matches JS outputs for batched inputs', () => {
-    if (!hasNative) return;
     const inSize = 4;
     const hiddenSize = 6;
     const count = 3;
@@ -186,12 +188,11 @@ describe(SUITE, () => {
   });
 
   it('LSTM kernel matches JS outputs across steps', () => {
-    if (!hasNative) return;
     const inSize = 3;
     const hiddenSize = 4;
     const steps = 5;
     const weights = buildDeterministicWeights(lstmParamCount(inSize, hiddenSize));
-    const lstm = new LSTM(inSize, hiddenSize, weights);
+    const lstm = new LSTM(inSize, hiddenSize, weights, undefined, undefined, 'native');
     const lstmRef = new LSTM(inSize, hiddenSize, weights);
     const inputs = buildStepInputs(steps, inSize);
     for (let s = 0; s < steps; s++) {
@@ -205,7 +206,6 @@ describe(SUITE, () => {
   });
 
   it('LSTM kernel matches JS outputs for batched inputs', () => {
-    if (!hasNative) return;
     const inSize = 3;
     const hiddenSize = 5;
     const count = 4;
@@ -240,12 +240,11 @@ describe(SUITE, () => {
   });
 
   it('RRU kernel matches JS outputs across steps', () => {
-    if (!hasNative) return;
     const inSize = 3;
     const hiddenSize = 4;
     const steps = 7;
     const weights = buildDeterministicWeights(rruParamCount(inSize, hiddenSize));
-    const rru = new RRU(inSize, hiddenSize, weights);
+    const rru = new RRU(inSize, hiddenSize, weights, undefined, undefined, 'native');
     const rruRef = new RRU(inSize, hiddenSize, weights);
     const inputs = buildStepInputs(steps, inSize);
     for (let s = 0; s < steps; s++) {
@@ -258,7 +257,6 @@ describe(SUITE, () => {
   });
 
   it('RRU kernel matches JS outputs for batched inputs', () => {
-    if (!hasNative) return;
     const inSize = 3;
     const hiddenSize = 4;
     const count = 3;
@@ -281,5 +279,116 @@ describe(SUITE, () => {
     }
     expectClose(h, expected, 1e-4);
     expectClose(hPrev, hInitial, 1e-4);
+  });
+
+  it('reports a source-derived native addon build identifier', () => {
+    expect(getNativeAddonBuildIdentifier()).toMatch(
+      /^slither_native\/0\.1\.0\+[0-9a-f]{12}\.[0-9a-f]{16}$/u
+    );
+  });
+
+  it('keeps each GraphBrain on its immutable selected backend', () => {
+    const spec: GraphSpec = {
+      type: 'graph',
+      nodes: [
+        { id: 'input', type: 'Input', outputSize: 3 },
+        { id: 'gru', type: 'GRU', inputSize: 3, hiddenSize: 4 }
+      ],
+      edges: [{ from: 'input', to: 'gru' }],
+      outputs: [{ nodeId: 'gru' }],
+      outputSize: 4
+    };
+    const compiled = compileGraph(spec);
+    const weights = buildDeterministicWeights(compiled.totalParams);
+    const nativeBrain = new GraphBrain(compiled, weights, 'native');
+    const jsBrain = new GraphBrain(compiled, weights, 'js');
+    const inputs = buildStepInputs(6, 3);
+
+    expect(nativeBrain.inferenceBackend).toBe('native');
+    expect(jsBrain.inferenceBackend).toBe('js');
+    expect(nativeBrain.nodes.find(node => node.gru)?.gru?.inferenceBackend).toBe('native');
+    expect(jsBrain.nodes.find(node => node.gru)?.gru?.inferenceBackend).toBe('js');
+    for (let step = 0; step < 6; step++) {
+      const input = inputs.subarray(step * 3, (step + 1) * 3);
+      expectClose(nativeBrain.forward(input), jsBrain.forward(input), 1e-4);
+    }
+  });
+
+  it('rejects invalid dimensions and undersized buffers through N-API', () => {
+    const dense = requireDenseKernel();
+    expect(() => dense.forwardBatch(
+      new Float32Array(1),
+      new Float32Array(2),
+      new Float32Array(2),
+      2,
+      2,
+      1,
+      2,
+      2
+    )).toThrow(/denseForwardNative: weights length 1 is smaller than required 6/u);
+    expect(() => dense.forwardBatch(
+      new Float32Array(6),
+      new Float32Array(2),
+      new Float32Array(2),
+      0,
+      2,
+      1,
+      2,
+      2
+    )).toThrow(/denseForwardNative: inSize must be greater than zero/u);
+  });
+
+  it('rejects invalid MLP and recurrent buffer contracts through N-API', () => {
+    const mlp = requireMlpKernel();
+    expect(() => mlp.forwardBatch(
+      new Float32Array(32),
+      new Int32Array([4, 0, 2]),
+      new Float32Array(4),
+      new Float32Array(2),
+      1,
+      4,
+      2
+    )).toThrow(/mlpForwardNative: layerSizes\[1\] must be greater than zero/u);
+
+    const gru = requireGruKernel();
+    expect(() => gru.stepBatch(
+      new Float32Array(gruParamCount(2, 3)),
+      new Float32Array(2),
+      new Float32Array(2),
+      new Float32Array(3),
+      new Float32Array(3),
+      new Float32Array(3),
+      2,
+      3,
+      1,
+      2
+    )).toThrow(/gruStepNative: h length 2 is smaller than required 3/u);
+    expect(() => gru.stepBatch(
+      new Float32Array(1),
+      new Float32Array(1),
+      new Float32Array(1),
+      new Float32Array(1),
+      new Float32Array(1),
+      new Float32Array(1),
+      0x7fffffff,
+      0x7fffffff,
+      1,
+      0x7fffffff
+    )).toThrow(/gruStepNative: weights length overflows addressable length/u);
+  });
+
+  it('rejects writable buffer overlap through N-API', () => {
+    const dense = requireDenseKernel();
+    const aliased = new Float32Array(2);
+    expect(() => dense.forwardBatch(
+      new Float32Array(6),
+      aliased,
+      aliased,
+      2,
+      2,
+      1,
+      2,
+      2
+    )).toThrow(/denseForwardNative: outputs overlaps inputs/u);
   });
 });

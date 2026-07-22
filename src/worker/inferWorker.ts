@@ -3,11 +3,26 @@
  * Executes batched neural network kernels on shared memory.
  */
 
-import { parentPort } from 'node:worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
 import type { InferWorkerMessage, InferWorkerResponse } from '../sim/poolProtocol.ts';
 import { compileGraph } from '../brains/graph/compiler.ts';
 import { GraphBrain, type RuntimeNode } from '../brains/graph/runtime.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
+import type { InferenceBackend } from '../brains/types.ts';
+import { prepareInferenceBackend } from '../brains/nativeBridge.ts';
+
+/** Worker bootstrap payload supplied before any message handler is installed. */
+interface InferenceWorkerData {
+    /** Immutable neural math backend for every brain in this worker. */
+    inferenceBackend?: InferenceBackend;
+}
+
+/** Immutable backend validated and loaded before accepting init messages. */
+const inferenceBackend = (workerData as InferenceWorkerData | null)?.inferenceBackend ?? 'js';
+if (inferenceBackend !== 'js' && inferenceBackend !== 'native') {
+    throw new Error(`Unsupported inference backend: ${String(inferenceBackend)}`);
+}
+await prepareInferenceBackend(inferenceBackend);
 
 // Local state
 let inputStride = 0;
@@ -52,7 +67,7 @@ parentPort.on('message', async (msg: InferWorkerMessage) => {
                     totalStateFloats = compiled.totalStateSize;
 
                     const dummyWeights = new Float32Array(paramCount);
-                    brain = new GraphBrain(compiled, dummyWeights);
+                    brain = new GraphBrain(compiled, dummyWeights, inferenceBackend);
 
                     // Use shared state store from pool 
                     if (msg.buffers.states) {

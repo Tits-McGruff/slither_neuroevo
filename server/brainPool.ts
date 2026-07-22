@@ -1,6 +1,7 @@
 import os from 'node:os';
 import { Worker } from 'node:worker_threads';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
+import type { InferenceBackend } from '../src/brains/types.ts';
 import type { BatchInferenceRunner } from '../src/world.ts';
 
 /** Worker pool lifecycle states. */
@@ -106,6 +107,8 @@ interface PendingInit {
  * Server-side worker pool for batched brain inference.
  */
 export class BrainPool implements BatchInferenceRunner {
+  /** Immutable backend selected for every worker brain. */
+  readonly inferenceBackend: InferenceBackend;
   /** Current pool status. */
   status: PoolStatus;
   /** Configured worker count. */
@@ -152,8 +155,10 @@ export class BrainPool implements BatchInferenceRunner {
   /**
    * Create a new brain pool with a requested worker count.
    * @param workerCount - Requested worker thread count.
+   * @param inferenceBackend - Immutable backend prepared by each worker.
    */
-  constructor(workerCount: number) {
+  constructor(workerCount: number, inferenceBackend: InferenceBackend = 'js') {
+    this.inferenceBackend = inferenceBackend;
     this.workerCount = resolveWorkerCount(workerCount);
     this.status = this.workerCount > 0 ? 'disabled' : 'failed';
     this.workers = [];
@@ -219,7 +224,8 @@ export class BrainPool implements BatchInferenceRunner {
     const readyTasks: Promise<void>[] = [];
     for (let i = 0; i < this.workerCount; i++) {
       const worker = new Worker(workerUrl, {
-        execArgv: ['--import', 'tsx/esm']
+        execArgv: ['--import', 'tsx/esm'],
+        workerData: { inferenceBackend: this.inferenceBackend }
       });
       this.attachWorker(worker);
       this.workers.push(worker);

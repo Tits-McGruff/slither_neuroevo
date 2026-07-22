@@ -6,8 +6,8 @@ import type { Logger } from './logger.ts';
 import type { SimulationFaultStatus } from './simServer.ts';
 import type { SchedulerDiagnostics } from '../src/sim/SimCore.ts';
 
-/** Test suite label for Phase 0 inference-mode diagnostics. */
-const SUITE = 'Phase 0 inference-mode diagnostics';
+/** Test suite label for native/diagnostic inference-mode integration. */
+const SUITE = 'Phase 3 inference-mode diagnostics';
 
 /** Minimal shape returned by the health endpoint. */
 interface HealthResponse {
@@ -48,7 +48,7 @@ function createCapturingLogger(entries: CapturedLog[]): Logger {
 }
 
 describe(SUITE, () => {
-  it('reports the baseline serial JS path through startup logs and /health', async () => {
+  it('reports explicit serial JS diagnostic mode without loading native', async () => {
     const logs: CapturedLog[] = [];
     const server = await startServer({
       ...DEFAULT_CONFIG,
@@ -56,7 +56,8 @@ describe(SUITE, () => {
       dbPath: ':memory:',
       logLevel: 'error',
       seed: 424242,
-      mtEnabled: false
+      mtEnabled: false,
+      inferenceBackend: 'js'
     }, createCapturingLogger(logs));
 
     try {
@@ -67,7 +68,7 @@ describe(SUITE, () => {
       expect(health.tick).toBeGreaterThanOrEqual(0);
       expect(health.clients).toBe(0);
       expect(health.inferenceMode).toMatchObject({
-        requestedBackend: null,
+        requestedBackend: 'js',
         activeBackend: 'js',
         requestedMt: false,
         activeWorkerCount: 0,
@@ -78,9 +79,7 @@ describe(SUITE, () => {
       });
       expect(health.inferenceMode.graphKey.length).toBeGreaterThan(0);
       expect(health.inferenceMode.parameterCount).toBeGreaterThan(0);
-      expect(['unavailable', 'loading', 'ready', 'failed']).toContain(
-        health.inferenceMode.nativeAddonStatus
-      );
+      expect(health.inferenceMode.nativeAddonStatus).toBe('unavailable');
       expect(health.scheduler).toMatchObject({
         requestedMultiplier: 1,
         droppedSimulationSeconds: 0,
@@ -89,6 +88,40 @@ describe(SUITE, () => {
       expect(health.scheduler.achievedMultiplier).toBeGreaterThanOrEqual(0);
       expect(health.fault).toEqual({ faulted: false, reason: null, tick: null });
 
+      const modeLog = logs.find(entry => entry.module === 'inference-mode');
+      expect(modeLog).toBeDefined();
+      expect(JSON.parse(modeLog?.message ?? 'null')).toEqual(health.inferenceMode);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('loads and reports native for a normal single-threaded server', async () => {
+    const logs: CapturedLog[] = [];
+    const server = await startServer({
+      ...DEFAULT_CONFIG,
+      port: 0,
+      dbPath: ':memory:',
+      logLevel: 'error',
+      seed: 424242,
+      mtEnabled: false,
+      inferenceBackend: 'native'
+    }, createCapturingLogger(logs));
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/health`);
+      expect(response.status).toBe(200);
+      const health = await response.json() as HealthResponse;
+      expect(health.inferenceMode).toMatchObject({
+        requestedBackend: 'native',
+        activeBackend: 'native',
+        requestedMt: false,
+        activeWorkerCount: 0,
+        nativeAddonStatus: 'ready'
+      });
+      expect(health.inferenceMode.nativeAddonBuildIdentifier).toMatch(
+        /^slither_native\/0\.1\.0\+[0-9a-f]{12}\.[0-9a-f]{16}$/u
+      );
       const modeLog = logs.find(entry => entry.module === 'inference-mode');
       expect(modeLog).toBeDefined();
       expect(JSON.parse(modeLog?.message ?? 'null')).toEqual(health.inferenceMode);

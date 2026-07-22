@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
+import type { InferenceBackend } from '../src/brains/types.ts';
 
 /** Allowed log levels for server output. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -26,6 +27,8 @@ export interface ServerConfig {
   mtEnabled: boolean;
   /** Requested worker count (0 for auto). */
   mtWorkers: number;
+  /** Immutable neural math backend selected before brain construction. */
+  inferenceBackend: InferenceBackend;
   seed?: number;
 }
 
@@ -44,7 +47,8 @@ export const DEFAULT_CONFIG: ServerConfig = {
   checkpointEveryGenerations: 0,
   logLevel: 'info',
   mtEnabled: false,
-  mtWorkers: 0
+  mtWorkers: 0,
+  inferenceBackend: 'native'
 };
 
 /** Shape of a process environment map. */
@@ -54,6 +58,8 @@ type RawConfigInput = Partial<Record<keyof ServerConfig, unknown>>;
 
 /** Supported log levels for validation. */
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
+/** Supported immutable neural math backends. */
+const INFERENCE_BACKENDS: InferenceBackend[] = ['native', 'js'];
 /** Default TOML config file path relative to the repo root. */
 const DEFAULT_CONFIG_PATH = 'server/config.toml';
 
@@ -276,6 +282,16 @@ export function normalizeConfig(
     }
   }
   const mtWorkers = coerceInt('mtWorkers', input.mtWorkers, DEFAULT_CONFIG.mtWorkers, 0, 128, warn);
+  let inferenceBackend = DEFAULT_CONFIG.inferenceBackend;
+  const rawInferenceBackend =
+    typeof input.inferenceBackend === 'string' ? input.inferenceBackend.trim().toLowerCase() : '';
+  if (INFERENCE_BACKENDS.includes(rawInferenceBackend as InferenceBackend)) {
+    inferenceBackend = rawInferenceBackend as InferenceBackend;
+  } else if (input.inferenceBackend !== undefined) {
+    warn?.(
+      `inferenceBackend "${String(input.inferenceBackend)}" is invalid; using ${inferenceBackend}.`
+    );
+  }
 
   const output: ServerConfig = {
     host,
@@ -291,7 +307,8 @@ export function normalizeConfig(
     checkpointEveryGenerations,
     logLevel,
     mtEnabled,
-    mtWorkers
+    mtWorkers,
+    inferenceBackend
   };
   if (seed !== undefined) output.seed = seed;
   return output;
@@ -361,7 +378,8 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     logLevel: data['logLevel'],
     seed: data['seed'],
     mtEnabled: data['mtEnabled'],
-    mtWorkers: data['mtWorkers']
+    mtWorkers: data['mtWorkers'],
+    inferenceBackend: data['inferenceBackend']
   };
 }
 
@@ -441,5 +459,7 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
   const mtWorkers =
     parseIntValue(getArgValue(argv, '--mt-workers')) ?? parseIntValue(env['MT_WORKERS']);
   if (mtWorkers !== undefined) input.mtWorkers = mtWorkers;
+  const inferenceBackend = getArgValue(argv, '--backend') ?? env['INFERENCE_BACKEND'];
+  if (inferenceBackend !== undefined) input.inferenceBackend = inferenceBackend;
   return normalizeConfig(input, warn);
 }

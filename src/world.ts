@@ -10,6 +10,7 @@ import { hof } from './hallOfFame.ts';
 import { FlatSpatialHash } from './spatialHash.ts';
 import { BaselineBotManager, type BaselineBotRngState } from './bots/baselineBots.ts';
 import { NullBrain } from './brains/nullBrain.ts';
+import type { InferenceBackend } from './brains/types.ts';
 import type { SimProfiler } from './profiling.ts';
 import type { ArchDefinition } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData, PopulationExport } from './protocol/messages.ts';
@@ -121,6 +122,8 @@ export type GenerationBoundaryHook = (
 export interface WorldConstructionOptions {
   /** Root seed from which every named stream is derived directly. */
   seed?: number;
+  /** Immutable neural math backend prepared before World construction. */
+  inferenceBackend?: InferenceBackend;
   /** Optional observer for exact generation checkpoint boundaries. */
   onGenerationBoundary?: GenerationBoundaryHook;
 }
@@ -190,26 +193,18 @@ export interface ControllerRegistryLike {
   ) => void;
 }
 
-/** Interface for pluggable physics engines (e.g. Native Rust adapter). */
-export interface PhysicsBackend {
-  /** Perform a single physics step. */
-  step(dt: number): void;
-  /** Sync backend state to the JS World instance. */
-  syncTo(world: World): void;
-}
-
 /** Main simulation world containing population state, pellets, and snakes. */
 export class World {
   /** Normalized active seed for this simulation lineage. */
   seed: number;
+  /** Immutable math backend attached to every neural brain in this World. */
+  readonly inferenceBackend: InferenceBackend;
   /** Gameplay and world-construction random stream. */
   worldRng: StatefulRng;
   /** Genome initialization and evolution random stream. */
   evolutionRng: StatefulRng;
   /** Observer-only random stream. */
   observerRng: StatefulRng;
-  /** Optional native physics backend. */
-  backend: PhysicsBackend | null = null;
   /** Normalized settings for the world instance. */
   settings: WorldSettings;
   /** Neural network architecture definition for the population. */
@@ -301,6 +296,7 @@ export class World {
    */
   constructor(settings: WorldSettingsInput = {}, options: WorldConstructionOptions = {}) {
     this.seed = normalizeSeed(options.seed ?? 0);
+    this.inferenceBackend = options.inferenceBackend ?? 'js';
     this.worldRng = new StatefulRng(deriveSeed(this.seed, 'world'));
     this.evolutionRng = new StatefulRng(deriveSeed(this.seed, 'evolution'));
     this.observerRng = new StatefulRng(deriveSeed(this.seed, 'observer'));
@@ -493,14 +489,6 @@ export class World {
   }
 
   /**
-   * Set the physics backend to use.
-   * @param backend - Physics backend instance.
-   */
-  setBackend(backend: PhysicsBackend): void {
-    this.backend = backend;
-  }
-
-  /**
    * Immediately adjusts the simulation speed.  Also stores the new
    * value back into the settings object.
    * @param x - New simulation speed multiplier.
@@ -632,6 +620,7 @@ export class World {
       if (!g) continue;
       this.snakes.push(new Snake(i + 1, g.clone(), this.arch, {
         populationSlot: i,
+        inferenceBackend: this.inferenceBackend,
         rng
       }));
     }
@@ -998,12 +987,6 @@ export class World {
    * @param baseDt - Fixed simulation delta in seconds.
    */
   private _advanceFixedStepPhysics(baseDt: number): void {
-    if (this.backend) {
-      this.backend.step(baseDt);
-      this.backend.syncTo(this);
-      return;
-    }
-
     const maxSubstep = clamp(CFG.collision.substepMaxDt, 0.001, baseDt);
     const substepCount = clamp(
       Math.ceil(baseDt / maxSubstep),
@@ -1498,6 +1481,7 @@ export class World {
     const snake = new Snake(id, genome, this.arch, {
       skin: 1,
       populationSlot: null,
+      inferenceBackend: this.inferenceBackend,
       rng: this.worldRng.asSource()
     });
 
@@ -1524,6 +1508,7 @@ export class World {
       const existingId = this.snakes[reusableIndex]!.id;
       const snake = new Snake(existingId, genome, this.arch, {
         populationSlot: null,
+        inferenceBackend: this.inferenceBackend,
         rng: this.worldRng.asSource()
       });
       this.snakes[reusableIndex] = snake;
@@ -1532,6 +1517,7 @@ export class World {
     const id = this._nextExternalSnakeId++;
     const snake = new Snake(id, genome, this.arch, {
       populationSlot: null,
+      inferenceBackend: this.inferenceBackend,
       rng: this.worldRng.asSource()
     });
     this.snakes.push(snake);

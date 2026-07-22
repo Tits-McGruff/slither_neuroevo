@@ -1,8 +1,22 @@
-import { parentPort } from 'node:worker_threads';
-import { loadSimdKernels } from '../../src/brains/nativeBridge.ts';
+import { parentPort, workerData } from 'node:worker_threads';
+import { prepareInferenceBackend } from '../../src/brains/nativeBridge.ts';
 import { compileGraph } from '../../src/brains/graph/compiler.ts';
 import { GraphBrain } from '../../src/brains/graph/runtime.ts';
 import type { GraphSpec } from '../../src/brains/graph/schema.ts';
+import type { InferenceBackend } from '../../src/brains/types.ts';
+
+/** Worker bootstrap payload supplied before message handling is enabled. */
+interface InferenceWorkerData {
+  /** Immutable math backend for every worker-owned brain. */
+  inferenceBackend?: InferenceBackend;
+}
+
+/** Backend loaded before this worker accepts initialization messages. */
+const inferenceBackend = (workerData as InferenceWorkerData | null)?.inferenceBackend ?? 'js';
+if (inferenceBackend !== 'js' && inferenceBackend !== 'native') {
+  throw new Error(`Unsupported inference backend: ${String(inferenceBackend)}`);
+}
+await prepareInferenceBackend(inferenceBackend);
 
 /** Worker init message payload. */
 interface InitMessage {
@@ -124,7 +138,7 @@ async function handleInit(msg: InitMessage): Promise<void> {
       offset * Float32Array.BYTES_PER_ELEMENT,
       msg.paramCount
     );
-    const brain = new GraphBrain(compiled, weights);
+    const brain = new GraphBrain(compiled, weights, inferenceBackend);
     brain.reset();
     brains[i] = brain;
   }
@@ -204,9 +218,3 @@ parentPort?.on('message', async (msg: WorkerMessage) => {
     postMessage({ type: 'error', reason: message });
   }
 });
-  try {
-    await loadSimdKernels();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn('[native] load failed; falling back to JS', { reason: message });
-  }

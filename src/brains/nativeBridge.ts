@@ -1,5 +1,7 @@
 /** Native SIMD kernel loader and runtime accessors. */
 
+import type { InferenceBackend } from './types.ts';
+
 /** Load state for native kernels. */
 export type SimdKernelStatus = 'unavailable' | 'loading' | 'ready' | 'failed';
 
@@ -153,8 +155,12 @@ interface NativeBinding {
   lstm_step_native?: NativeLstmStep;
   rruStepNative?: NativeRruStep;
   rru_step_native?: NativeRruStep;
+  nativeAddonBuildIdentifier?: () => string;
+  native_addon_build_identifier?: () => string;
 }
 
+/** Default generated napi-rs loader relative to this source module. */
+const DEFAULT_NATIVE_ADDON_PATH = '../../native/index.js';
 /** True when executing in a Node.js runtime. */
 const isNode = typeof process !== 'undefined' && !!process.versions?.node;
 /** Current load status for native SIMD kernels. */
@@ -175,8 +181,43 @@ let rruKernel: RruKernel | null = null;
 
 /** Cached native binding module. */
 let nativeBinding: NativeBinding | null = null;
+/** Source-derived identifier exported by the loaded native addon. */
+let nativeAddonBuildIdentifier: string | null = null;
 /** Tracks whether we already warned about native load failures. */
 let didLogNativeFailure = false;
+
+/** Required kernel export names checked before the loader reports ready. */
+const REQUIRED_NATIVE_EXPORTS = [
+  ['denseForwardNative', 'dense_forward_native'],
+  ['mlpForwardNative', 'mlp_forward_native'],
+  ['gruStepNative', 'gru_step_native'],
+  ['lstmStepNative', 'lstm_step_native'],
+  ['rruStepNative', 'rru_step_native']
+] as const;
+
+/**
+ * Validate that a loaded module is the complete kernel addon built by this project.
+ * @param binding - Candidate native module exports.
+ * @returns Source-derived native build identifier.
+ */
+function validateNativeBinding(binding: NativeBinding): string {
+  const missing = REQUIRED_NATIVE_EXPORTS
+    .filter(([camel, snake]) => typeof binding[camel] !== 'function' && typeof binding[snake] !== 'function')
+    .map(([camel]) => camel);
+  if (missing.length > 0) {
+    throw new Error(`Native addon is incompatible; missing exports: ${missing.join(', ')}.`);
+  }
+  const getBuildIdentifier =
+    binding.nativeAddonBuildIdentifier ?? binding.native_addon_build_identifier;
+  if (typeof getBuildIdentifier !== 'function') {
+    throw new Error('Native addon is incompatible; missing nativeAddonBuildIdentifier export.');
+  }
+  const identifier = getBuildIdentifier().trim();
+  if (!identifier) {
+    throw new Error('Native addon returned an empty build identifier.');
+  }
+  return identifier;
+}
 
 /**
  * Get the native binding or throw if it has not been loaded.
@@ -305,9 +346,10 @@ function buildRruKernel(): RruKernel {
 }
 
 /**
- * Load native kernels when available.
+ * Load and validate the native kernels.
+ * @param addonPath - Optional generated napi-rs loader path for focused tests.
  */
-export async function loadSimdKernels(): Promise<void> {
+export async function loadSimdKernels(addonPath = DEFAULT_NATIVE_ADDON_PATH): Promise<void> {
   if (simdStatus === 'ready') return;
   if (simdLoadPromise) return simdLoadPromise;
   simdStatus = 'loading';
@@ -318,8 +360,9 @@ export async function loadSimdKernels(): Promise<void> {
       }
       const { createRequire } = await import(/* @vite-ignore */ 'node:module');
       const require = createRequire(import.meta.url);
-      const loaded = require('../../native/index.js') as { default?: NativeBinding } | NativeBinding;
+      const loaded = require(addonPath) as { default?: NativeBinding } | NativeBinding;
       nativeBinding = (loaded as { default?: NativeBinding }).default ?? (loaded as NativeBinding);
+      nativeAddonBuildIdentifier = validateNativeBinding(nativeBinding);
       denseKernel = buildDenseKernel();
       mlpKernel = buildMlpKernel();
       gruKernel = buildGruKernel();
@@ -335,6 +378,7 @@ export async function loadSimdKernels(): Promise<void> {
       lstmKernel = null;
       rruKernel = null;
       nativeBinding = null;
+      nativeAddonBuildIdentifier = null;
       const message = err instanceof Error ? err.message : String(err);
       if (!didLogNativeFailure) {
         console.warn('[native] load failed', { reason: message });
@@ -356,6 +400,41 @@ export function isSimdAvailable(): boolean {
 }
 
 /**
+ * Prepare one explicitly selected math backend before any brain is constructed.
+ * @param backend - Immutable backend selected for the owning runtime.
+ * @param addonPath - Optional generated addon loader used by focused tests.
+ */
+export async function prepareInferenceBackend(
+  backend: InferenceBackend,
+  addonPath = DEFAULT_NATIVE_ADDON_PATH
+): Promise<void> {
+  if (backend === 'js') return;
+  try {
+    await loadSimdKernels(addonPath);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Native inference backend could not start: ${reason} ` +
+      'Build the addon with "npm --prefix native run build", then restart; ' +
+      'use --backend js only for explicit diagnostics.',
+      { cause: error }
+    );
+  }
+}
+
+/**
+ * Require that the selected backend was prepared before brain construction.
+ * @param backend - Backend about to be attached to a brain runtime.
+ */
+export function assertInferenceBackendReady(backend: InferenceBackend): void {
+  if (backend === 'native' && simdStatus !== 'ready') {
+    throw new Error(
+      'Native inference backend is not ready; call prepareInferenceBackend() before constructing brains.'
+    );
+  }
+}
+
+/**
  * Return the current native-kernel load state without attempting a load.
  * @returns Current native-kernel load state.
  */
@@ -365,10 +444,10 @@ export function getSimdKernelStatus(): SimdKernelStatus {
 
 /**
  * Return the identifier exported by the loaded native addon.
- * @returns Null because the current addon does not export a build identifier.
+ * @returns Source-derived identifier from the loaded addon, or null when inactive.
  */
 export function getNativeAddonBuildIdentifier(): string | null {
-  return null;
+  return nativeAddonBuildIdentifier;
 }
 
 /**
