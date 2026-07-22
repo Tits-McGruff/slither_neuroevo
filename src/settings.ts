@@ -6,141 +6,28 @@
 
 import { CFG, syncBrainInputSize } from './config.ts';
 import { coerceSettingsUpdateValue, type SettingsPath } from './protocol/settings.ts';
+import {
+  BASELINE_BOT_SEED_HINT_ID,
+  BASELINE_BOT_SEED_INPUT_ID,
+  BASELINE_BOT_SEED_RANDOMIZE_ID,
+  SETTING_DEFINITIONS,
+  type SettingControlType,
+  type SettingDefinition
+} from './protocol/settingDefinitions.ts';
 import { getByPath, setByPath, fmtNumber } from './utils.ts';
 
-/** Supported input types for settings controls. */
-type SettingControlType = 'range' | 'number' | 'checkbox' | 'action';
+/** Preserve the public DOM ids historically exported by this module. */
+export {
+  BASELINE_BOT_SEED_HINT_ID,
+  BASELINE_BOT_SEED_INPUT_ID,
+  BASELINE_BOT_SEED_RANDOMIZE_ID
+};
 
-/** Settings specification describing a single CFG path control. */
-interface SettingSpec {
-  group: string;
-  path?: string;
-  label: string;
-  min?: number;
-  max?: number;
-  step?: number;
-  decimals?: number;
-  requiresReset?: boolean;
-  type?: SettingControlType;
-  id?: string;
-  actionLabel?: string;
-  hint?: string;
-  hintId?: string;
-}
+/** Settings specification alias used by the DOM builder. */
+type SettingSpec = SettingDefinition;
 
-/** Input id for the baseline bot seed control. */
-export const BASELINE_BOT_SEED_INPUT_ID = 'baselineBotSeed';
-/** Hint id for invalid baseline bot seed values. */
-export const BASELINE_BOT_SEED_HINT_ID = 'baselineBotSeedHint';
-/** Button id for randomizing the baseline bot seed. */
-export const BASELINE_BOT_SEED_RANDOMIZE_ID = 'baselineBotSeedRandomize';
-
-/** Slider specifications used to build the settings UI. */
-const SETTING_SPECS: SettingSpec[] = [
-  { group: "World and food", path: "worldRadius", label: "World radius", min: 800, max: 10000, step: 50, decimals: 0, requiresReset: true },
-  { group: "World and food", path: "pelletCountTarget", label: "Pellet target count", min: 100, max: 25000, step: 50, decimals: 0, requiresReset: true },
-  { group: "World and food", path: "pelletSpawnPerSecond", label: "Pellet spawn per second", min: 5, max: 3500, step: 5, decimals: 0, requiresReset: true },
-  { group: "World and food", path: "foodValue", label: "Food value per pellet", min: 0.1, max: 8.0, step: 0.1, decimals: 1, requiresReset: true },
-  { group: "World and food", path: "growPerFood", label: "Growth per food", min: 0.1, max: 10.0, step: 0.1, decimals: 1, requiresReset: true },
-  { group: "World and food", path: "foodSpawn.edgeFalloffEnabled", label: "Edge food falloff", requiresReset: false, type: "checkbox" },
-  { group: "World and food", path: "foodSpawn.edgeFadeStart", label: "Edge fade start", min: 0.05, max: 0.85, step: 0.01, decimals: 2, requiresReset: false },
-  { group: "World and food", path: "foodSpawn.edgeFadePower", label: "Edge fade sharpness", min: 1.0, max: 6.0, step: 0.1, decimals: 1, requiresReset: false },
-  { group: "World and food", path: "foodSpawn.filamentPower", label: "Filament contrast", min: 1.5, max: 8.0, step: 0.1, decimals: 1, requiresReset: false },
-  { group: "World and food", path: "foodSpawn.warpScale", label: "Filament warp scale", min: 0.0, max: 0.20, step: 0.005, decimals: 3, requiresReset: false },
-  { group: "World and food", path: "foodSpawn.warpFreq", label: "Filament warp frequency", min: 0.0003, max: 0.0030, step: 0.0001, decimals: 4, requiresReset: false },
-  { group: "World and food", path: "foodSpawn.freqLarge", label: "Filament scale (large)", min: 0.0010, max: 0.0060, step: 0.0001, decimals: 4, requiresReset: false },
-  { group: "World and food", path: "foodSpawn.freqMedium", label: "Filament scale (medium)", min: 0.0015, max: 0.0100, step: 0.0001, decimals: 4, requiresReset: false },
-  { group: "World and food", path: "foodSpawn.freqSmall", label: "Filament scale (small)", min: 0.0025, max: 0.0200, step: 0.0002, decimals: 4, requiresReset: false },
-  { group: "World and food", path: "foodSpawn.dustStrength", label: "Filament speckle strength", min: 0.0, max: 1.0, step: 0.05, decimals: 2, requiresReset: false },
-
-  { group: "Sensors", path: "sense.layoutVersion", label: "Use v2 sensor layout", requiresReset: true, type: "checkbox", hint: "Switching layouts changes input size and requires a reset." },
-  { group: "Sensors", path: "sense.bubbleBins", label: "Sensor bins", min: 8, max: 32, step: 1, decimals: 0, requiresReset: true },
-  { group: "Sensors", path: "sense.rNearBase", label: "Near radius base", min: 200, max: 900, step: 10, decimals: 0, requiresReset: false },
-  { group: "Sensors", path: "sense.rNearScale", label: "Near radius scale", min: 0, max: 600, step: 10, decimals: 0, requiresReset: false },
-  { group: "Sensors", path: "sense.rNearMin", label: "Near radius min", min: 150, max: 900, step: 10, decimals: 0, requiresReset: false },
-  { group: "Sensors", path: "sense.rNearMax", label: "Near radius max", min: 200, max: 1200, step: 10, decimals: 0, requiresReset: false },
-  { group: "Sensors", path: "sense.rFarBase", label: "Far radius base", min: 400, max: 2000, step: 20, decimals: 0, requiresReset: false },
-  { group: "Sensors", path: "sense.rFarScale", label: "Far radius scale", min: 0, max: 1200, step: 20, decimals: 0, requiresReset: false },
-  { group: "Sensors", path: "sense.rFarMin", label: "Far radius min", min: 400, max: 2200, step: 20, decimals: 0, requiresReset: false },
-  { group: "Sensors", path: "sense.rFarMax", label: "Far radius max", min: 600, max: 3000, step: 20, decimals: 0, requiresReset: false },
-  { group: "Sensors", path: "sense.foodKBase", label: "Food saturation K", min: 0.5, max: 12.0, step: 0.1, decimals: 1, requiresReset: false },
-  { group: "Sensors", path: "sense.maxPelletChecks", label: "Max pellet checks", min: 100, max: 3000, step: 50, decimals: 0, requiresReset: false },
-  { group: "Sensors", path: "sense.maxSegmentChecks", label: "Max segment checks", min: 200, max: 4000, step: 50, decimals: 0, requiresReset: false },
-  { group: "Sensors", path: "sense.debug", label: "Sensors debug logs", requiresReset: false, type: "checkbox", hint: "Enable sensor debug logging." },
-
-  { group: "Baseline bots", path: "baselineBots.count", label: "Baseline bot count", min: 0, max: 120, step: 1, decimals: 0, requiresReset: true },
-  { group: "Baseline bots", path: "baselineBots.respawnDelay", label: "Respawn delay (sec)", min: 0.5, max: 60.0, step: 0.5, decimals: 1, requiresReset: false },
-  { group: "Baseline bots", path: "baselineBots.randomizeSeedPerGen", label: "Randomize base seed per generation", requiresReset: true, type: "checkbox" },
-  { group: "Baseline bots", path: "baselineBots.seed", label: "Baseline bot base seed", min: 0, max: 4294967295, step: 1, decimals: 0, requiresReset: true, type: "number", id: BASELINE_BOT_SEED_INPUT_ID, hint: "Seed must be a non-negative integer.", hintId: BASELINE_BOT_SEED_HINT_ID },
-  { group: "Baseline bots", label: "Randomize base seed", type: "action", actionLabel: "Randomize seed", id: BASELINE_BOT_SEED_RANDOMIZE_ID },
-
-  { group: "Snake physics", path: "snakeBaseSpeed", label: "Base speed", min: 30, max: 650, step: 5, decimals: 0, requiresReset: true },
-  { group: "Snake physics", path: "snakeBoostSpeed", label: "Boost speed (used as relative multiplier)", min: 40, max: 1200, step: 5, decimals: 0, requiresReset: true },
-  { group: "Snake physics", path: "snakeTurnRate", label: "Turn rate", min: 0.4, max: 14.0, step: 0.1, decimals: 1, requiresReset: true },
-
-  { group: "Snake physics", path: "snakeRadius", label: "Base radius", min: 3, max: 30, step: 1, decimals: 0, requiresReset: true },
-  { group: "Snake physics", path: "snakeRadiusMax", label: "Max radius", min: 4, max: 50, step: 1, decimals: 0, requiresReset: true },
-  { group: "Snake physics", path: "snakeThicknessScale", label: "Thickness scale", min: 0.0, max: 20.0, step: 0.1, decimals: 1, requiresReset: true },
-  { group: "Snake physics", path: "snakeThicknessLogDiv", label: "Thickness log divisor", min: 1.0, max: 240.0, step: 1.0, decimals: 0, requiresReset: true },
-
-  { group: "Snake physics", path: "snakeSpacing", label: "Segment spacing", min: 3.0, max: 20.0, step: 0.1, decimals: 1, requiresReset: true },
-  { group: "Snake physics", path: "snakeStartLen", label: "Start length", min: 5, max: 140, step: 1, decimals: 0, requiresReset: true },
-  { group: "Snake physics", path: "snakeMaxLen", label: "Max length", min: 60, max: 100000, step: 10, decimals: 0, requiresReset: true },
-  { group: "Snake physics", path: "snakeMinLen", label: "Min length", min: 4, max: 80, step: 1, decimals: 0, requiresReset: true },
-
-  { group: "Snake physics", path: "snakeSizeSpeedPenalty", label: "Size speed penalty", min: 0.0, max: 0.70, step: 0.01, decimals: 2, requiresReset: false },
-  { group: "Snake physics", path: "snakeBoostSizePenalty", label: "Size boost penalty", min: 0.0, max: 0.95, step: 0.01, decimals: 2, requiresReset: false },
-
-  { group: "Boost and mass", path: "boost.minPointsToBoost", label: "Min points to boost", min: 0.0, max: 60.0, step: 0.1, decimals: 1, requiresReset: false },
-  { group: "Boost and mass", path: "boost.pointsCostPerSecond", label: "Boost points cost per second", min: 0.0, max: 80.0, step: 0.5, decimals: 1, requiresReset: false },
-  { group: "Boost and mass", path: "boost.pointsCostSizeFactor", label: "Boost cost size factor", min: 0.0, max: 4.0, step: 0.05, decimals: 2, requiresReset: false },
-  { group: "Boost and mass", path: "boost.lenLossPerPoint", label: "Length loss per point", min: 0.0, max: 2.0, step: 0.01, decimals: 2, requiresReset: false },
-  { group: "Boost and mass", path: "boost.pelletValueFactor", label: "Boost drop pellet value factor", min: 0.0, max: 1.5, step: 0.01, decimals: 2, requiresReset: false },
-  { group: "Boost and mass", path: "boost.pelletJitter", label: "Boost drop jitter", min: 0.0, max: 80.0, step: 1.0, decimals: 0, requiresReset: false },
-
-  { group: "Collision", path: "collision.substepMaxDt", label: "Substep max dt", min: 0.006, max: 0.05, step: 0.001, decimals: 3, requiresReset: false },
-  { group: "Collision", path: "collision.skipSegments", label: "Skip segments near head", min: 0, max: 30, step: 1, decimals: 0, requiresReset: false },
-  { group: "Collision", path: "collision.hitScale", label: "Hit scale", min: 0.45, max: 1.20, step: 0.01, decimals: 2, requiresReset: false },
-  { group: "Collision", path: "collision.cellSize", label: "Collision grid cell size", min: 20, max: 200, step: 1, decimals: 0, requiresReset: false },
-  { group: "Collision", path: "collision.neighborRange", label: "Collision neighbor range", min: 1, max: 3, step: 1, decimals: 0, requiresReset: false },
-
-  { group: "Evolution", path: "generationSeconds", label: "Generation duration seconds", min: 8, max: 480, step: 1, decimals: 0, requiresReset: true },
-  { group: "Evolution", path: "eliteFrac", label: "Elite fraction", min: 0.01, max: 0.50, step: 0.01, decimals: 2, requiresReset: true },
-  { group: "Evolution", path: "mutationRate", label: "Mutation rate", min: 0.0, max: 0.50, step: 0.005, decimals: 3, requiresReset: true },
-  { group: "Evolution", path: "mutationStd", label: "Mutation std", min: 0.0, max: 2.50, step: 0.05, decimals: 2, requiresReset: true },
-  { group: "Evolution", path: "crossoverRate", label: "Crossover rate", min: 0.0, max: 1.0, step: 0.02, decimals: 2, requiresReset: true },
-
-  { group: "Observer and camera", path: "observer.focusRecheckSeconds", label: "Focus recheck seconds", min: 0.10, max: 6.0, step: 0.05, decimals: 2, requiresReset: false },
-  { group: "Observer and camera", path: "observer.focusSwitchMargin", label: "Focus switch margin", min: 1.00, max: 1.60, step: 0.01, decimals: 2, requiresReset: false },
-  { group: "Observer and camera", path: "observer.earlyEndMinSeconds", label: "Early end min seconds", min: 0, max: 50, step: 1, decimals: 0, requiresReset: false },
-  { group: "Observer and camera", path: "observer.earlyEndAliveThreshold", label: "Early end alive threshold", min: 1, max: 25, step: 1, decimals: 0, requiresReset: false },
-  { group: "Observer and camera", path: "observer.overviewPadding", label: "Overview padding", min: 1.00, max: 1.80, step: 0.01, decimals: 2, requiresReset: false },
-  { group: "Observer and camera", path: "observer.zoomLerpFollow", label: "Follow zoom lerp", min: 0.0, max: 0.40, step: 0.01, decimals: 2, requiresReset: false },
-  { group: "Observer and camera", path: "observer.zoomLerpOverview", label: "Overview zoom lerp", min: 0.0, max: 0.40, step: 0.01, decimals: 2, requiresReset: false },
-  { group: "Observer and camera", path: "observer.overviewExtraWorldMargin", label: "Overview extra margin", min: 0, max: 1200, step: 10, decimals: 0, requiresReset: false },
-
-  { group: "Rewards", path: "reward.pointsPerFood", label: "Points per food", min: 0.0, max: 20.0, step: 0.1, decimals: 1, requiresReset: false },
-  { group: "Rewards", path: "reward.pointsPerKill", label: "Points per kill", min: 0.0, max: 400.0, step: 1, decimals: 0, requiresReset: false },
-  { group: "Rewards", path: "reward.pointsPerSecondAlive", label: "Points per second alive", min: 0.0, max: 10.0, step: 0.05, decimals: 2, requiresReset: false },
-
-  { group: "Rewards", path: "reward.fitnessSurvivalPerSecond", label: "Fitness survival per second", min: 0.0, max: 10.0, step: 0.05, decimals: 2, requiresReset: false },
-  { group: "Rewards", path: "reward.fitnessFood", label: "Fitness per food", min: 0.0, max: 80.0, step: 0.5, decimals: 1, requiresReset: false },
-  { group: "Rewards", path: "reward.fitnessLengthPerSegment", label: "Fitness per grown segment", min: 0.0, max: 100.0, step: 0.05, decimals: 2, requiresReset: false },
-  { group: "Rewards", path: "reward.fitnessKill", label: "Fitness per kill", min: 0.0, max: 400.0, step: 1, decimals: 0, requiresReset: false },
-  { group: "Rewards", path: "reward.fitnessPointsNorm", label: "Fitness points normalization weight", min: 0.0, max: 300.0, step: 1, decimals: 0, requiresReset: false },
-  { group: "Rewards", path: "reward.fitnessTopPointsBonus", label: "Fitness top points bonus", min: 0.0, max: 600.0, step: 1, decimals: 0, requiresReset: false },
-
-  { group: "Brain and memory", path: "brain.gruHidden", label: "GRU hidden size", min: 4, max: 96, step: 1, decimals: 0, requiresReset: true },
-  { group: "Brain and memory", path: "brain.lstmHidden", label: "LSTM hidden size", min: 4, max: 96, step: 1, decimals: 0, requiresReset: true },
-  { group: "Brain and memory", path: "brain.rruHidden", label: "RRU hidden size", min: 4, max: 96, step: 1, decimals: 0, requiresReset: true },
-  { group: "Brain and memory", path: "brain.controlDt", label: "Brain control dt", min: 0.008, max: 0.060, step: 0.001, decimals: 3, requiresReset: false },
-  { group: "Brain and memory", path: "brain.gruMutationRate", label: "Recurrent mutation rate (GRU/LSTM/RRU)", min: 0.0, max: 0.35, step: 0.005, decimals: 3, requiresReset: true },
-  { group: "Brain and memory", path: "brain.gruMutationStd", label: "Recurrent mutation std (GRU/LSTM/RRU)", min: 0.0, max: 1.60, step: 0.02, decimals: 2, requiresReset: true },
-  { group: "Brain and memory", path: "brain.gruCrossoverMode", label: "Recurrent crossover mode (0 block, 1 unit)", min: 0, max: 1, step: 1, decimals: 0, requiresReset: true },
-  { group: "Brain and memory", path: "brain.gruInitUpdateBias", label: "GRU init update gate bias (GRU only)", min: -2.5, max: 1.5, step: 0.05, decimals: 2, requiresReset: true },
-  { group: "Brain and memory", path: "brain.lstmInitForgetBias", label: "LSTM init forget gate bias (LSTM only)", min: -1.5, max: 3.0, step: 0.05, decimals: 2, requiresReset: true },
-  { group: "Brain and memory", path: "brain.rruInitGateBias", label: "RRU init gate bias (RRU only)", min: -1.5, max: 2.0, step: 0.05, decimals: 2, requiresReset: true }
-];
+/** Pure shared definitions used to build the settings UI. */
+const SETTING_SPECS = SETTING_DEFINITIONS;
 
 /**
  * Resolve the control type for a spec, defaulting to range sliders.
@@ -294,16 +181,8 @@ export function applyValuesToSlidersFromCFG(root: HTMLElement): void {
   inputs.forEach(input => {
     const path = input.dataset['path']!;
     const rawValue = getByPath(CFG, path);
-    let numericValue = typeof rawValue === 'number' ? rawValue : (rawValue ? 1 : 0);
-    if (path === 'sense.layoutVersion') {
-      const isV2 = rawValue === 'v2' || rawValue === 1;
-      numericValue = isV2 ? 1 : 0;
-      if (input.type === 'checkbox') {
-        input.checked = isV2;
-      } else {
-        input.value = String(numericValue);
-      }
-    } else if (input.type === 'checkbox') {
+    const numericValue = typeof rawValue === 'number' ? rawValue : (rawValue ? 1 : 0);
+    if (input.type === 'checkbox') {
       input.checked = Boolean(rawValue);
     } else {
       input.value = String(numericValue);

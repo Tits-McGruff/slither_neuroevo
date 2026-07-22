@@ -116,19 +116,18 @@ describe('settings.ts', () => {
     const inputs = collectInputs(container);
     const paths = inputs.map(input => input.dataset['path']).filter(Boolean);
 
-    expect(paths).toContain('sense.layoutVersion');
+    expect(paths).not.toContain('sense.layoutVersion');
     expect(paths).toContain('sense.bubbleBins');
     expect(paths).toContain('sense.rNearBase');
     expect(paths).toContain('sense.foodKBase');
     expect(paths).toContain('sense.maxPelletChecks');
     expect(paths).toContain('sense.debug');
 
-    const layoutInput = inputs.find(input => input.dataset['path'] === 'sense.layoutVersion');
     const binsInput = inputs.find(input => input.dataset['path'] === 'sense.bubbleBins');
+    const collisionCellInput = inputs.find(input => input.dataset['path'] === 'collision.cellSize');
 
-    expect(layoutInput?.dataset['requiresReset']).toBe('1');
     expect(binsInput?.dataset['requiresReset']).toBe('1');
-    expect(layoutInput?.type).toBe('checkbox');
+    expect(collisionCellInput?.dataset['requiresReset']).toBe('1');
   });
 
   it('applyValuesToSlidersFromCFG updates slider values and labels', () => {
@@ -203,8 +202,8 @@ describe('settings.ts', () => {
     const handler = vi.fn();
     let stored: (() => void) | undefined;
     const slider = {
-      dataset: { path: 'collision.cellSize', decimals: '0', requiresReset: '0' },
-      value: '80',
+      dataset: { path: 'collision.hitScale', decimals: '2', requiresReset: '0' },
+      value: '0.8',
       addEventListener: (evt: string, cb: () => void) => {
         if (evt === 'input') stored = cb;
       }

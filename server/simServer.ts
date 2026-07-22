@@ -1,11 +1,17 @@
 import { performance } from 'node:perf_hooks';
 import { CFG, resetCFGToDefaults, syncBrainInputSize } from '../src/config.ts';
 import { World } from '../src/world.ts';
-import { setByPath } from '../src/utils.ts';
+import { getByPath, setByPath } from '../src/utils.ts';
 import { validateGraph } from '../src/brains/graph/validate.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { enrichArchInfo } from '../src/mlp.ts';
-import { coerceSettingsUpdateValue, type CoreSettings, type SettingsUpdate } from '../src/protocol/settings.ts';
+import {
+  coerceSettingsUpdateValue,
+  getLiveSettingDefinition,
+  normalizeLiveSettingsUpdates,
+  type CoreSettings,
+  type SettingsUpdate
+} from '../src/protocol/settings.ts';
 import { SimProfiler, formatSimProfilerReport } from '../src/profiling.ts';
 import type { Snake } from '../src/snake.ts';
 import type { ServerConfig } from './config.ts';
@@ -22,8 +28,12 @@ import {
 import type { InferenceBackend } from '../src/brains/types.ts';
 import type {
   ActionMsg,
+  AuthoritativeSettingsState,
   ClientType,
+  GodModeMsg,
   JoinMode,
+  LiveSettingsMsg,
+  NewRunMsg,
   ResetMsg,
   StatsMsg,
   ViewMsg,
@@ -37,6 +47,8 @@ import { WsHub } from './wsHub.ts';
 import { buildSensorSpec } from './sensorSpec.ts';
 import type { ActiveInferenceBackend, InferenceModeRecord } from './inferenceMode.ts';
 import { createEntropySeed, createRunId } from './runIdentity.ts';
+import { buildAuthoritativeConfigHash } from './configIdentity.ts';
+import { normalizeSettingValue } from '../src/protocol/settingDefinitions.ts';
 
 /** SQLite error code indicating the database or disk is full. */
 const SQLITE_FULL_CODE = 'SQLITE_FULL';
@@ -46,6 +58,34 @@ const PROFILE_ENV_VAR = 'SLITHER_PROFILE';
 const PROFILE_REPORT_INTERVAL_MS = 1000;
 /** Minimum interval between dropped scheduler-debt warnings. */
 const SCHEDULER_DROP_LOG_INTERVAL_MS = 1000;
+/** Hard cap for commands waiting on an authoritative fixed-step boundary. */
+const MAX_PENDING_COMMANDS = 4096;
+/** Phase 6 reason returned until New Run gains a durable run-start checkpoint. */
+const NEW_RUN_UNAVAILABLE_REASON =
+  'New Run is unavailable until durable run-start checkpoints are implemented in Phase 7';
+
+/** Queued live-settings command awaiting the next fixed-step boundary. */
+interface PendingSettingsCommand {
+  /** Queue discriminator. */
+  kind: 'settings';
+  /** Requesting connection id. */
+  connId: number;
+  /** Strictly parsed request. */
+  message: LiveSettingsMsg;
+}
+
+/** Queued God Mode command awaiting the next fixed-step boundary. */
+interface PendingGodModeCommand {
+  /** Queue discriminator. */
+  kind: 'godMode';
+  /** Requesting connection id. */
+  connId: number;
+  /** Strictly parsed request. */
+  message: GodModeMsg;
+}
+
+/** Authoritative commands that may mutate live world state. */
+type PendingAuthoritativeCommand = PendingSettingsCommand | PendingGodModeCommand;
 
 /**
  * Determine whether an error is a SQLite "full" error.
@@ -106,6 +146,12 @@ export class SimServer {
   private persistence: Persistence | null;
   /** Hash for the active configuration. */
   private cfgHash: string;
+  /** Monotonic count of accepted authoritative configuration requests. */
+  private configRevision = 0;
+  /** Next global sequence assigned to an applied boundary command. */
+  private nextCommandSequence = 1;
+  /** Parsed commands waiting for the next fixed-step boundary. */
+  private pendingCommands: PendingAuthoritativeCommand[] = [];
   /** Seed used for the world initialization. */
   private worldSeed: number;
   /** Current evolutionary-lineage identifier. */
@@ -172,6 +218,7 @@ export class SimServer {
       worldSeed,
       runId,
       inferenceBackend: config.inferenceBackend,
+      onStepStarting: (_world, tickId) => this.drainPendingCommands(tickId),
       onStepCommitted: async (world) => this.synchronizeBrainPoolGeneration(world)
     });
 
@@ -197,7 +244,8 @@ export class SimServer {
     );
 
     this.persistence = persistence ?? null;
-    this.cfgHash = cfgHash;
+    void cfgHash;
+    this.cfgHash = buildAuthoritativeConfigHash(this.core.world);
     this.worldSeed = this.core.worldSeed;
     this.runId = this.core.runId;
     this.checkpointEveryGenerations = Math.max(0, config.checkpointEveryGenerations);
@@ -209,6 +257,7 @@ export class SimServer {
     this.mtWorkerCount = config.mtWorkers ?? 0;
     this.mtGeneration = this.core.world.generation;
     this.lastTickAt = performance.now();
+    this.refreshWelcomeState();
   }
 
   /** 
@@ -228,6 +277,8 @@ export class SimServer {
     if (this.mtEnabled) {
       await this.initMT();
     }
+
+    this.refreshWelcomeState();
 
     this.running = true;
     this.nextTickAt = performance.now();
@@ -294,6 +345,33 @@ export class SimServer {
   }
 
   /**
+   * Return the current monotonic revision and canonical content hash.
+   * @returns Active authoritative configuration identity.
+   */
+  getConfigState(): { configRevision: number; configHash: string } {
+    return { configRevision: this.configRevision, configHash: this.cfgHash };
+  }
+
+  /**
+   * Return the active canonical configuration content hash.
+   * @returns Current versioned hash.
+   */
+  getConfigHash(): string {
+    return this.cfgHash;
+  }
+
+  /**
+   * Return a complete settings snapshot suitable for a Protocol 2 welcome.
+   * @returns Active core settings and CFG updates.
+   */
+  getAuthoritativeSettingsState(): AuthoritativeSettingsState {
+    return {
+      core: buildCoreSettingsSnapshot(this.core.world),
+      updates: buildSettingsUpdatesSnapshot()
+    };
+  }
+
+  /**
    * Return an honest snapshot of the currently attached inference path.
    * @returns Current inference-mode record for logging and status checks.
    */
@@ -354,6 +432,7 @@ export class SimServer {
       this.lastHofGenSaved = 0;
       if (this.mtEnabled) await this.ensureBrainPool();
       this.clearFault();
+      this.refreshWelcomeState();
       return result;
     });
   }
@@ -421,6 +500,204 @@ export class SimServer {
   }
 
   /**
+   * Queue an atomic live-settings request for the next fixed-step boundary.
+   * @param connId - Requesting UI connection id.
+   * @param msg - Strict Protocol 2 settings request.
+   */
+  handleSettings(connId: number, msg: LiveSettingsMsg): void {
+    if (this.pendingCommands.length >= MAX_PENDING_COMMANDS) {
+      this.wsHub.sendJsonTo(connId, {
+        type: 'settingsApplied',
+        requestId: msg.requestId,
+        applied: false,
+        updates: [],
+        configRevision: this.configRevision,
+        configHash: this.cfgHash,
+        reason: 'authoritative command queue is full'
+      });
+      return;
+    }
+    this.pendingCommands.push({ kind: 'settings', connId, message: msg });
+  }
+
+  /**
+   * Queue a God Mode mutation for the next fixed-step boundary.
+   * @param connId - Requesting UI connection id.
+   * @param msg - Strict Protocol 2 God Mode request.
+   */
+  handleGodMode(connId: number, msg: GodModeMsg): void {
+    if (this.pendingCommands.length >= MAX_PENDING_COMMANDS) {
+      this.wsHub.sendJsonTo(connId, {
+        type: 'godModeResult',
+        requestId: msg.requestId,
+        action: msg.action,
+        snakeId: msg.snakeId,
+        applied: false,
+        reason: 'authoritative command queue is full'
+      });
+      return;
+    }
+    this.pendingCommands.push({ kind: 'godMode', connId, message: msg });
+  }
+
+  /**
+   * Expose New Run in Protocol 2 without acknowledging a crash-unsafe restart.
+   * @param connId - Requesting UI connection id.
+   * @param msg - Strict Protocol 2 New Run request.
+   */
+  handleNewRun(connId: number, msg: NewRunMsg): void {
+    this.wsHub.sendJsonTo(connId, {
+      type: 'newRunResult',
+      requestId: msg.requestId,
+      applied: false,
+      reason: NEW_RUN_UNAVAILABLE_REASON
+    });
+  }
+
+  /**
+   * Drain commands in arrival order immediately before one fixed step starts.
+   * Commands received while that step awaits inference remain queued until the
+   * following boundary because this method never runs inside inference.
+   * @param stepId - Fixed step that will observe accepted mutations.
+   */
+  private drainPendingCommands(stepId: number): void {
+    if (this.pendingCommands.length === 0) return;
+    const commands = this.pendingCommands.splice(0, this.pendingCommands.length);
+    for (const command of commands) {
+      if (command.kind === 'settings') {
+        this.applyQueuedSettings(command, stepId);
+      } else {
+        this.applyQueuedGodMode(command, stepId);
+      }
+    }
+  }
+
+  /**
+   * Validate and apply one atomic settings request against prior queue results.
+   * @param command - Queued settings command.
+   * @param stepId - Fixed step that will first observe the result.
+   */
+  private applyQueuedSettings(command: PendingSettingsCommand, stepId: number): void {
+    const normalized = normalizeLiveSettingsUpdates(command.message.updates);
+    if (!normalized.ok) {
+      this.wsHub.sendJsonTo(command.connId, {
+        type: 'settingsApplied',
+        requestId: command.message.requestId,
+        applied: false,
+        updates: [],
+        configRevision: this.configRevision,
+        configHash: this.cfgHash,
+        reason: normalized.reason
+      });
+      return;
+    }
+
+    const previous = new Map<string, unknown>();
+    try {
+      for (const update of normalized.updates) {
+        if (update.path === 'simSpeed') {
+          previous.set(update.path, this.core.world.simSpeed);
+          this.core.world.applyLiveSimSpeed(update.value);
+          continue;
+        }
+        previous.set(update.path, getByPath(CFG, update.path));
+        const coerced = coerceSettingsUpdateValue(update.path, update.value);
+        setByPath(CFG, update.path, coerced);
+        const definition = getLiveSettingDefinition(update.path);
+        if (definition?.derivedState === 'baseline-respawn-delay') {
+          this.core.world.applyLiveBaselineRespawnDelay(update.value);
+        }
+      }
+      syncBrainInputSize();
+      const nextHash = buildAuthoritativeConfigHash(this.core.world);
+      this.configRevision += 1;
+      this.cfgHash = nextHash;
+    } catch (error) {
+      this.rollbackLiveSettings(previous);
+      const reason = error instanceof Error ? error.message : String(error);
+      this.wsHub.sendJsonTo(command.connId, {
+        type: 'settingsApplied',
+        requestId: command.message.requestId,
+        applied: false,
+        updates: [],
+        configRevision: this.configRevision,
+        configHash: this.cfgHash,
+        reason: `settings application failed: ${reason}`
+      });
+      return;
+    }
+
+    const sequence = this.nextCommandSequence++;
+    this.refreshWelcomeState();
+    this.wsHub.broadcastJsonToUi({
+      type: 'settingsApplied',
+      requestId: command.message.requestId,
+      applied: true,
+      updates: normalized.updates,
+      configRevision: this.configRevision,
+      configHash: this.cfgHash,
+      sequence,
+      step: stepId
+    });
+  }
+
+  /**
+   * Restore values captured before a failed atomic live-settings application.
+   * @param previous - Prior values keyed by authoritative setting path.
+   */
+  private rollbackLiveSettings(previous: ReadonlyMap<string, unknown>): void {
+    for (const [path, value] of previous) {
+      if (path === 'simSpeed' && typeof value === 'number') {
+        this.core.world.applyLiveSimSpeed(value);
+        continue;
+      }
+      setByPath(CFG, path, value);
+      if (path === 'baselineBots.respawnDelay' && typeof value === 'number') {
+        this.core.world.applyLiveBaselineRespawnDelay(value);
+      }
+    }
+    syncBrainInputSize();
+  }
+
+  /**
+   * Apply one queued God Mode operation and report authoritative results.
+   * @param command - Queued God Mode command.
+   * @param stepId - Fixed step that will first observe the mutation.
+   */
+  private applyQueuedGodMode(command: PendingGodModeCommand, stepId: number): void {
+    const message = command.message;
+    const result = message.action === 'kill'
+      ? this.core.world.applyGodModeKill(message.snakeId)
+      : this.core.world.applyGodModeMove(message.snakeId, message.x, message.y);
+    const sequence = result.applied ? this.nextCommandSequence++ : undefined;
+    this.wsHub.sendJsonTo(command.connId, {
+      type: 'godModeResult',
+      requestId: message.requestId,
+      action: message.action,
+      snakeId: message.snakeId,
+      applied: result.applied,
+      ...(sequence === undefined ? {} : { sequence, step: stepId }),
+      ...(result.reason === undefined ? {} : { reason: result.reason }),
+      ...(result.x === undefined ? {} : { x: result.x }),
+      ...(result.y === undefined ? {} : { y: result.y }),
+      ...(result.pelletsDropped === undefined ? {} : { pelletsDropped: result.pelletsDropped })
+    });
+  }
+
+  /** Refresh future handshake state from the active authoritative runtime. */
+  private refreshWelcomeState(): void {
+    this.wsHub.updateWelcome?.({
+      worldSeed: this.worldSeed,
+      runId: this.runId,
+      configRevision: this.configRevision,
+      configHash: this.cfgHash,
+      settings: this.getAuthoritativeSettingsState(),
+      inferenceMode: this.getInferenceMode(),
+      sensorSpec: buildSensorSpec()
+    });
+  }
+
+  /**
    * Handle a reset request to rebuild the world with new settings.
    * @param connId - Connection id requesting the reset.
    * @param msg - Reset message payload.
@@ -439,7 +716,10 @@ export class SimServer {
       const identity = this.core.reset(settings, { runId: createRunId() });
       this.completeCoreRestart(identity);
       if (this.mtEnabled) await this.ensureBrainPool();
+      this.configRevision += 1;
+      this.cfgHash = buildAuthoritativeConfigHash(this.core.world);
       this.clearFault();
+      this.refreshWelcomeState();
     });
   }
 
@@ -460,6 +740,7 @@ export class SimServer {
       this.completeCoreRestart(identity);
       if (this.mtEnabled) await this.ensureBrainPool();
       this.clearFault();
+      this.refreshWelcomeState();
       return identity;
     });
   }
@@ -921,20 +1202,32 @@ export function coerceCoreSettings(value: unknown): Partial<CoreSettings> {
   const output: Partial<CoreSettings> = {};
   const raw = value as Record<string, unknown>;
   if (isFiniteNumber(raw['snakeCount'])) {
-    output.snakeCount = Math.max(1, Math.floor(raw['snakeCount']));
+    output.snakeCount = normalizeCoreSetting('snakeCount', raw['snakeCount']);
   }
   if (isFiniteNumber(raw['simSpeed'])) {
-    output.simSpeed = raw['simSpeed'];
+    output.simSpeed = normalizeCoreSetting('simSpeed', raw['simSpeed']);
   }
   if (isFiniteNumber(raw['hiddenLayers'])) {
-    output.hiddenLayers = Math.max(1, Math.floor(raw['hiddenLayers']));
+    output.hiddenLayers = normalizeCoreSetting('hiddenLayers', raw['hiddenLayers']);
   }
-  if (isFiniteNumber(raw['neurons1'])) output.neurons1 = Math.max(1, Math.floor(raw['neurons1']));
-  if (isFiniteNumber(raw['neurons2'])) output.neurons2 = Math.max(1, Math.floor(raw['neurons2']));
-  if (isFiniteNumber(raw['neurons3'])) output.neurons3 = Math.max(1, Math.floor(raw['neurons3']));
-  if (isFiniteNumber(raw['neurons4'])) output.neurons4 = Math.max(1, Math.floor(raw['neurons4']));
-  if (isFiniteNumber(raw['neurons5'])) output.neurons5 = Math.max(1, Math.floor(raw['neurons5']));
+  if (isFiniteNumber(raw['neurons1'])) output.neurons1 = normalizeCoreSetting('neurons1', raw['neurons1']);
+  if (isFiniteNumber(raw['neurons2'])) output.neurons2 = normalizeCoreSetting('neurons2', raw['neurons2']);
+  if (isFiniteNumber(raw['neurons3'])) output.neurons3 = normalizeCoreSetting('neurons3', raw['neurons3']);
+  if (isFiniteNumber(raw['neurons4'])) output.neurons4 = normalizeCoreSetting('neurons4', raw['neurons4']);
+  if (isFiniteNumber(raw['neurons5'])) output.neurons5 = normalizeCoreSetting('neurons5', raw['neurons5']);
   return output;
+}
+
+/**
+ * Normalize one core setting using the same metadata as live validation.
+ * @param path - Core setting key.
+ * @param value - Finite numeric input.
+ * @returns Shared clamped/type-normalized value.
+ */
+function normalizeCoreSetting(path: keyof CoreSettings, value: number): number {
+  const definition = getLiveSettingDefinition(path);
+  if (!definition) throw new Error(`missing core setting definition: ${path}`);
+  return normalizeSettingValue(definition, value);
 }
 
 /**

@@ -50,7 +50,7 @@ describe('system: server lifecycle', () => {
         });
 
         ws.on('open', () => {
-          ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
+          ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 2 }));
           ws.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
         });
       });

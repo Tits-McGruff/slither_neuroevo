@@ -6,7 +6,7 @@ import { validateSnapshotPayload, type Persistence, type PopulationSnapshotPaylo
 import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 import type { Logger } from './logger.ts';
 import type { InferenceModeRecord } from './inferenceMode.ts';
-import type { SchedulerDiagnostics } from '../src/sim/SimCore.ts';
+import type { SchedulerDiagnostics, SimulationRunIdentity } from '../src/sim/SimCore.ts';
 import type { SimulationFaultStatus } from './simServer.ts';
 
 /** Hard limit for incoming request bodies to avoid memory pressure. */
@@ -23,6 +23,9 @@ export interface HttpApiDeps {
     inferenceMode: InferenceModeRecord;
     scheduler: SchedulerDiagnostics;
     fault: SimulationFaultStatus;
+    run: SimulationRunIdentity;
+    configRevision: number;
+    configHash: string;
   };
   /** Returns the current world instance, or null if not ready. */
   getWorld: () => World | null;
@@ -35,10 +38,10 @@ export interface HttpApiDeps {
   }>;
   /** Persistence adapter for snapshots and graph presets. */
   persistence: Persistence;
-  /** Hash of the active server configuration. */
-  cfgHash: string;
-  /** Seed used to initialize the world. */
-  worldSeed: number;
+  /** Returns the hash of the active server configuration. */
+  getConfigHash: () => string;
+  /** Returns the active world seed. */
+  getWorldSeed: () => number;
   /** Optional logger for error reporting. */
   logger?: Logger | undefined;
 }
@@ -202,7 +205,7 @@ async function routeRequest(
       return;
     }
     try {
-      const snapshot = buildSnapshotPayload(world, deps.cfgHash, deps.worldSeed);
+      const snapshot = buildSnapshotPayload(world, deps.getConfigHash(), deps.getWorldSeed());
       const snapshotId = deps.persistence.saveSnapshot(snapshot);
       sendJson(res, 200, { ok: true, snapshotId });
     } catch (err) {
@@ -236,7 +239,7 @@ async function routeRequest(
       sendJson(res, 400, { ok: false, message: (err as Error).message });
       return;
     }
-    if (payload.cfgHash !== deps.cfgHash && !force) {
+    if (payload.cfgHash !== deps.getConfigHash() && !force) {
       sendJson(res, 409, {
         ok: false,
         message: 'cfgHash mismatch; pass force=true to override'

@@ -27,6 +27,8 @@ import type {
 
 /** Observer awaited after one World step becomes authoritative. */
 export type StepCommittedHook = (world: World, tickId: number) => void | Promise<void>;
+/** Observer awaited immediately before one World fixed step begins. */
+export type StepStartingHook = (world: World, tickId: number) => void | Promise<void>;
 
 /** Default hard limit for complete fixed steps executed by one scheduler pump. */
 const DEFAULT_MAX_STEPS_PER_PUMP = 120;
@@ -131,6 +133,8 @@ export interface SimCoreOptions {
   inferenceBackend?: InferenceBackend;
   /** Optional exact pre-spawn generation-boundary observer. */
   onGenerationBoundary?: GenerationBoundaryHook;
+  /** Optional async boundary hook awaited before each fixed step. */
+  onStepStarting?: StepStartingHook;
   /** Optional async observer awaited between committed fixed steps. */
   onStepCommitted?: StepCommittedHook;
   /** Optional brain pool for batch inference. */
@@ -159,6 +163,9 @@ export class SimCore {
 
   /** Boundary observer preserved across Reset and New Run reconstruction. */
   private generationBoundaryHook: GenerationBoundaryHook | null;
+
+  /** Boundary hook awaited before each fixed step and before inference begins. */
+  private stepStartingHook: StepStartingHook | null;
 
   /** Observer awaited after each committed step and before the next one. */
   private stepCommittedHook: StepCommittedHook | null;
@@ -218,6 +225,7 @@ export class SimCore {
     this.runId = normalizeRunId(options.runId, this.worldSeed);
     this.inferenceBackend = options.inferenceBackend ?? 'js';
     this.generationBoundaryHook = options.onGenerationBoundary ?? null;
+    this.stepStartingHook = options.onStepStarting ?? null;
     this.stepCommittedHook = options.onStepCommitted ?? null;
     this.world = new World(options.settings || {}, {
       seed: this.worldSeed,
@@ -286,6 +294,9 @@ export class SimCore {
     try {
       for (let stepIndex = 0; stepIndex < stepsToRun; stepIndex++) {
         const nextTickId = this.tickId + 1;
+        if (this.stepStartingHook) {
+          await this.stepStartingHook(this.world, nextTickId);
+        }
         await this.world.step(
           this.fixedDt,
           this.viewW,

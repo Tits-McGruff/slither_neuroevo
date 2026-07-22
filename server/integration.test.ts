@@ -37,6 +37,8 @@ async function startServerWithGuard() {
   const startPromise = startServer({
     ...DEFAULT_CONFIG,
     port: 0,
+    dbPath: ':memory:',
+    inferenceBackend: 'js',
     logLevel: 'error'
   }).catch((err) => {
     if (isEperm(err)) return null;
@@ -67,6 +69,39 @@ async function startServerWithGuard() {
 }
 
 describe('server integration', () => {
+  it('rejects Protocol 1 with an explicit incompatibility error', async () => {
+    const server = await startServerWithGuard();
+    if (!server) return;
+    const ws = new WebSocket(server.wsUrl);
+
+    try {
+      const result = await new Promise<{ message: string; code: number }>((resolve, reject) => {
+        let message = '';
+        const timeout = setTimeout(() => reject(new Error('timed out waiting for version rejection')), 5000);
+        ws.on('error', reject);
+        ws.on('message', (data: RawData) => {
+          const parsed = parseJsonMessage(data);
+          if (parsed?.['type'] === 'error' && typeof parsed['message'] === 'string') {
+            message = parsed['message'];
+          }
+        });
+        ws.on('close', (code: number) => {
+          clearTimeout(timeout);
+          resolve({ message, code });
+        });
+        ws.on('open', () => {
+          ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
+        });
+      });
+
+      expect(result.code).toBe(1008);
+      expect(result.message).toContain('server requires 2');
+    } finally {
+      ws.close();
+      await server.close();
+    }
+  }, 10000);
+
   it('handshakes and streams frames', async () => {
     const server = await startServerWithGuard();
     if (!server) return;
@@ -128,7 +163,7 @@ describe('server integration', () => {
         });
 
         ws.on('open', () => {
-          ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
+          ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 2 }));
           ws.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
         });
       });
@@ -201,7 +236,7 @@ describe('server integration', () => {
         });
 
         ws.on('open', () => {
-          ws.send(JSON.stringify({ type: 'hello', clientType: 'bot', version: 1 }));
+          ws.send(JSON.stringify({ type: 'hello', clientType: 'bot', version: 2 }));
           ws.send(JSON.stringify({ type: 'join', mode: 'player', name: 'test-bot' }));
         });
       });
@@ -213,9 +248,91 @@ describe('server integration', () => {
     }
 
     expect(assignedId).toBeTruthy();
-    const layout = getSensorLayout(16, 'v2');
+    const layout = getSensorLayout(16, 'v3');
     expect(sensorCount).toBe(layout.inputSize);
     expect(sensorOrder.length).toBe(layout.inputSize);
     expect(sensorOrder.slice(0, 7)).toEqual(layout.order.slice(0, 7));
   }, 20000);
+
+  it('reports live config identity through dynamic HTTP getters and save payloads', async () => {
+    const server = await startServerWithGuard();
+    if (!server) return;
+    const httpBase = `http://127.0.0.1:${server.port}`;
+    let ws: WebSocket | null = null;
+
+    try {
+      const initialHealth = await fetch(`${httpBase}/health`).then(async response =>
+        response.json() as Promise<{ configRevision: number; configHash: string }>);
+      ws = new WebSocket(server.wsUrl);
+      const socket = ws;
+      const applied = await new Promise<Record<string, unknown>>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('timed out waiting for settings result')), 5000);
+        socket.on('error', reject);
+        socket.on('close', (code: number, reason: Buffer) => {
+          clearTimeout(timeout);
+          reject(new Error(`settings socket closed (${code}): ${reason.toString('utf8')}`));
+        });
+        socket.on('message', (data: RawData) => {
+          const msg = parseJsonMessage(data);
+          if (msg?.['type'] === 'welcome') {
+            socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+            socket.send(JSON.stringify({
+              type: 'reset',
+              settings: {
+                snakeCount: 2,
+                simSpeed: 1,
+                hiddenLayers: 1,
+                neurons1: 8,
+                neurons2: 8,
+                neurons3: 8,
+                neurons4: 8,
+                neurons5: 8
+              },
+              updates: [
+                { path: 'baselineBots.count', value: 0 },
+                { path: 'pelletCountTarget', value: 100 }
+              ]
+            }));
+            setTimeout(() => {
+              socket.send(JSON.stringify({
+                type: 'settings',
+                requestId: 'http-state',
+                updates: [{ path: 'observer.zoomLerpFollow', value: 0.2 }]
+              }));
+            }, 100);
+            return;
+          }
+          if (msg?.['type'] === 'error') {
+            clearTimeout(timeout);
+            reject(new Error(String(msg['message'])));
+            return;
+          }
+          if (msg?.['type'] !== 'settingsApplied') return;
+          clearTimeout(timeout);
+          resolve(msg);
+        });
+        socket.on('open', () => {
+          socket.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 2 }));
+        });
+      });
+      const updatedHealth = await fetch(`${httpBase}/health`).then(async response =>
+        response.json() as Promise<{ configRevision: number; configHash: string }>);
+      const saveResponse = await fetch(`${httpBase}/api/save`, { method: 'POST' });
+      expect(saveResponse.ok).toBe(true);
+      const exported = await fetch(`${httpBase}/api/export/latest`).then(async response =>
+        response.json() as Promise<{ cfgHash: string; worldSeed: number }>);
+
+      expect(applied['configRevision']).toBe(2);
+      expect(updatedHealth.configRevision).toBe(2);
+      expect(updatedHealth.configHash).not.toBe(initialHealth.configHash);
+      expect(exported.cfgHash).toBe(updatedHealth.configHash);
+      expect(exported.worldSeed).toBe(
+        (await fetch(`${httpBase}/health`).then(async response =>
+          response.json() as Promise<{ run: { seed: number } }>)).run.seed
+      );
+    } finally {
+      ws?.close();
+      await server.close();
+    }
+  }, 10000);
 });

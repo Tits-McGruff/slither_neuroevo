@@ -1,4 +1,10 @@
-/** Ordered list of config paths that can be updated live. */
+import {
+  SETTING_DEFINITION_BY_PATH,
+  normalizeSettingValue,
+  type SettingDefinition
+} from './settingDefinitions.ts';
+
+/** Ordered list of config paths accepted by reset/import snapshots. */
 export const SETTINGS_PATHS = [
   'worldRadius',
   'pelletCountTarget',
@@ -104,17 +110,97 @@ export interface SettingsUpdate {
   value: number;
 }
 
+/** Path accepted by the Protocol 2 authoritative live-settings surface. */
+export type LiveSettingPath = SettingsPath | 'simSpeed';
+
+/** One path/value pair in an authoritative live-settings request or result. */
+export interface LiveSettingsUpdate {
+  /** Shared setting path. */
+  path: LiveSettingPath;
+  /** Finite numeric wire representation; booleans use zero or one. */
+  value: number;
+}
+
+/** Successful atomic normalization of one live-settings request. */
+export interface NormalizedLiveSettings {
+  /** Whether every update was accepted for live application. */
+  ok: true;
+  /** Authoritative clamped and type-normalized updates. */
+  updates: LiveSettingsUpdate[];
+}
+
+/** Rejected atomic normalization of one live-settings request. */
+export interface RejectedLiveSettings {
+  /** Whether every update was accepted for live application. */
+  ok: false;
+  /** Stable human-readable rejection reason. */
+  reason: string;
+}
+
+/** Result of atomically validating and normalizing live setting updates. */
+export type LiveSettingsNormalization = NormalizedLiveSettings | RejectedLiveSettings;
+
 /**
  * Coerce a numeric settings update value into the CFG-compatible representation.
  * @param path - Settings path being updated.
  * @param value - Numeric value from the UI or import payload.
  * @returns Coerced value for writing into CFG.
  */
-export function coerceSettingsUpdateValue(path: SettingsPath, value: number): number | string {
+export function coerceSettingsUpdateValue(
+  path: SettingsPath,
+  value: number
+): number | string | boolean {
   if (path === 'sense.layoutVersion') {
-    return value >= 1 ? 'v2' : 'legacy';
+    return 'v3';
   }
-  return value;
+  const definition = SETTING_DEFINITION_BY_PATH.get(path);
+  if (!definition) return value;
+  const normalized = normalizeSettingValue(definition, value);
+  return definition.valueType === 'boolean' ? normalized === 1 : normalized;
+}
+
+/**
+ * Resolve shared metadata for a supported live-settings path.
+ * @param path - Untrusted path string from a Protocol 2 request.
+ * @returns Definition when the path exists, otherwise undefined.
+ */
+export function getLiveSettingDefinition(path: string): SettingDefinition | undefined {
+  return SETTING_DEFINITION_BY_PATH.get(path);
+}
+
+/**
+ * Validate and normalize one live-settings request atomically.
+ * @param updates - Untrusted but structurally numeric path/value pairs.
+ * @returns All normalized updates, or one rejection with no partial values.
+ */
+export function normalizeLiveSettingsUpdates(
+  updates: readonly { path: string; value: number }[]
+): LiveSettingsNormalization {
+  if (updates.length === 0) return { ok: false, reason: 'at least one settings update is required' };
+  if (updates.length > 64) return { ok: false, reason: 'too many settings updates' };
+  const seen = new Set<string>();
+  const normalized: LiveSettingsUpdate[] = [];
+  for (const update of updates) {
+    if (seen.has(update.path)) {
+      return { ok: false, reason: `duplicate setting path: ${update.path}` };
+    }
+    seen.add(update.path);
+    const definition = getLiveSettingDefinition(update.path);
+    if (!definition?.path) {
+      return { ok: false, reason: `unknown setting path: ${update.path}` };
+    }
+    if (definition.requiresReset !== false) {
+      return { ok: false, reason: `setting requires reset: ${update.path}` };
+    }
+    if (!Number.isFinite(update.value)) {
+      return { ok: false, reason: `setting value must be finite: ${update.path}` };
+    }
+    normalized.push({
+      path: definition.path as LiveSettingPath,
+      value: normalizeSettingValue(definition, update.value)
+    });
+  }
+  return { ok: true, updates: normalized };
 }
 
 /** Core UI settings that are controlled outside of CFG. */

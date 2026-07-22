@@ -1,7 +1,26 @@
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../protocol/messages.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
 import type { SensorSpec } from '../protocol/sensors.ts';
-import type { CoreSettings, SettingsUpdate } from '../protocol/settings.ts';
+import type {
+  CoreSettings,
+  LiveSettingsUpdate,
+  SettingsUpdate
+} from '../protocol/settings.ts';
+
+/** Protocol version implemented by this browser transport. */
+export const WS_PROTOCOL_VERSION = 2;
+
+/** Inference-path fields displayed or diagnosed by the browser. */
+export interface WelcomeInferenceMode {
+  /** Requested math backend. */
+  requestedBackend: string;
+  /** Currently executing math backend. */
+  activeBackend: string;
+  /** Whether worker-thread inference was requested. */
+  requestedMt: boolean;
+  /** Number of active inference workers. */
+  activeWorkerCount: number;
+}
 
 /** Default WebSocket URL injected at build time. */
 declare const __SLITHER_DEFAULT_WS_URL__: string | undefined;
@@ -11,10 +30,18 @@ declare const __SLITHER_SERVER_PORT__: number | undefined;
 /** Welcome message payload from the server. */
 export interface WelcomeMsg {
   type: 'welcome';
+  protocolVersion: number;
   sessionId: string;
   tickRate: number;
   worldSeed: number;
-  cfgHash: string;
+  runId: string;
+  configRevision: number;
+  configHash: string;
+  settings: {
+    core: CoreSettings;
+    updates: SettingsUpdate[];
+  };
+  inferenceMode: WelcomeInferenceMode;
   sensorSpec: SensorSpec;
   serializerVersion: number;
   frameByteLength: number;
@@ -69,6 +96,66 @@ export interface ErrorMsg {
   message: string;
 }
 
+/** Authoritative result for one live-settings request. */
+export interface SettingsAppliedMsg {
+  /** Message discriminator. */
+  type: 'settingsApplied';
+  /** Original client request id. */
+  requestId: string;
+  /** Whether the full request was applied. */
+  applied: boolean;
+  /** Authoritative normalized patch. */
+  updates: LiveSettingsUpdate[];
+  /** Current monotonic config revision. */
+  configRevision: number;
+  /** Current canonical config hash. */
+  configHash: string;
+  /** Accepted global command sequence. */
+  sequence?: number;
+  /** Fixed step that first observed the update. */
+  step?: number;
+  /** Rejection reason. */
+  reason?: string;
+}
+
+/** Authoritative result for one God Mode request. */
+export interface GodModeResultMsg {
+  /** Message discriminator. */
+  type: 'godModeResult';
+  /** Original client request id. */
+  requestId: string;
+  /** Requested mutation. */
+  action: 'kill' | 'move';
+  /** Target snake id. */
+  snakeId: number;
+  /** Whether the mutation was applied. */
+  applied: boolean;
+  /** Rejection reason. */
+  reason?: string;
+  /** Actual authoritative X after a move. */
+  x?: number;
+  /** Actual authoritative Y after a move. */
+  y?: number;
+  /** Number of normal death pellets added by a kill. */
+  pelletsDropped?: number;
+}
+
+/** Protocol 2 result for an explicit New Run request. */
+export interface NewRunResultMsg {
+  /** Message discriminator. */
+  type: 'newRunResult';
+  /** Original client request id. */
+  requestId: string;
+  /** Whether a durably checkpointed new run started. */
+  applied: boolean;
+  /** New seed on future success. */
+  worldSeed?: number;
+  /** New run id on future success. */
+  runId?: string;
+  /** Explicit rejection or unavailability reason. */
+  reason?: string;
+}
+
 /** Reset request payload sent to the server. */
 export interface ResetMsg {
   type: 'reset';
@@ -85,6 +172,9 @@ export interface WsClientCallbacks {
   onStats: (msg: StatsMsg) => void;
   onAssign?: (msg: AssignMsg) => void;
   onSensors?: (msg: SensorsMsg) => void;
+  onSettingsApplied?: (msg: SettingsAppliedMsg) => void;
+  onGodModeResult?: (msg: GodModeResultMsg) => void;
+  onNewRunResult?: (msg: NewRunResultMsg) => void;
   onError?: (msg: ErrorMsg) => void;
 }
 
@@ -97,6 +187,10 @@ export interface WsClient {
   sendView: (payload: { viewW?: number; viewH?: number; mode?: 'overview' | 'follow' | 'toggle' }) => void;
   sendViz: (enabled: boolean) => void;
   sendReset: (settings: CoreSettings, updates: SettingsUpdate[], graphSpec?: GraphSpec | null) => void;
+  sendSettings: (requestId: string, updates: LiveSettingsUpdate[]) => void;
+  sendGodModeKill: (requestId: string, snakeId: number) => void;
+  sendGodModeMove: (requestId: string, snakeId: number, x: number, y: number) => void;
+  sendNewRun: (requestId: string) => void;
   isConnected: () => boolean;
 }
 
@@ -195,7 +289,11 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     socket.binaryType = 'arraybuffer';
     socket.onopen = () => {
       connected = false;
-      socket?.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
+      socket?.send(JSON.stringify({
+        type: 'hello',
+        clientType: 'ui',
+        version: WS_PROTOCOL_VERSION
+      }));
       clearHandshakeTimer();
       handshakeTimer = setTimeout(() => {
         if (connected || !socket) return;
@@ -261,6 +359,35 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     socket.send(JSON.stringify(payload));
   };
 
+  /** Send one atomic authoritative live-settings request. */
+  const sendSettings = (requestId: string, updates: LiveSettingsUpdate[]): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'settings', requestId, updates }));
+  };
+
+  /** Send one authoritative God Mode kill request. */
+  const sendGodModeKill = (requestId: string, snakeId: number): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'godMode', requestId, action: 'kill', snakeId }));
+  };
+
+  /** Send one authoritative God Mode move request. */
+  const sendGodModeMove = (
+    requestId: string,
+    snakeId: number,
+    x: number,
+    y: number
+  ): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'godMode', requestId, action: 'move', snakeId, x, y }));
+  };
+
+  /** Send a Protocol 2 New Run request. */
+  const sendNewRun = (requestId: string): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'newRun', requestId }));
+  };
+
   const isConnected = (): boolean => connected;
 
   const handleMessage = (data: unknown): void => {
@@ -296,6 +423,14 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     if (typeof msg['type'] !== 'string') return;
     switch (msg['type']) {
       case 'welcome':
+        if (msg['protocolVersion'] !== WS_PROTOCOL_VERSION) {
+          callbacks.onError?.({
+            type: 'error',
+            message: `Protocol mismatch: server reported ${String(msg['protocolVersion'])}, client requires ${WS_PROTOCOL_VERSION}`
+          });
+          socket?.close();
+          return;
+        }
         connected = true;
         clearHandshakeTimer();
         callbacks.onConnected(msg as unknown as WelcomeMsg);
@@ -308,6 +443,15 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
         return;
       case 'sensors':
         callbacks.onSensors?.(msg as unknown as SensorsMsg);
+        return;
+      case 'settingsApplied':
+        callbacks.onSettingsApplied?.(msg as unknown as SettingsAppliedMsg);
+        return;
+      case 'godModeResult':
+        callbacks.onGodModeResult?.(msg as unknown as GodModeResultMsg);
+        return;
+      case 'newRunResult':
+        callbacks.onNewRunResult?.(msg as unknown as NewRunResultMsg);
         return;
       case 'error':
         callbacks.onError?.(msg as unknown as ErrorMsg);
@@ -325,6 +469,10 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     sendView,
     sendViz,
     sendReset,
+    sendSettings,
+    sendGodModeKill,
+    sendGodModeMove,
+    sendNewRun,
     isConnected
   };
 }

@@ -48,6 +48,12 @@ describe('BaselineBotManager AI', () => {
     CFG.sense.layoutVersion = originalLayoutVersion;
   });
 
+  it('updates cached respawn delay live with safe normalization', () => {
+    expect(manager.updateRespawnDelay(100)).toBe(60);
+    expect(manager.updateRespawnDelay(0)).toBe(0.1);
+    expect(manager.updateRespawnDelay(2.5)).toBe(2.5);
+  });
+
   /**
    * Create a sensor array with the expected layout:
    * - 5 global values

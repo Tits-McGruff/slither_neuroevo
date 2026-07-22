@@ -1,21 +1,26 @@
 import { createServer, type Server } from 'node:http';
 import { pathToFileURL } from 'node:url';
-import { CFG, resetCFGToDefaults } from '../src/config.ts';
+import { resetCFGToDefaults } from '../src/config.ts';
 import { World } from '../src/world.ts';
 import { WorldSerializer } from '../src/serializer.ts';
 import { normalizeSeed } from '../src/rng.ts';
-import { prepareInferenceBackend } from '../src/brains/nativeBridge.ts';
+import {
+  getNativeAddonBuildIdentifier,
+  getSimdKernelStatus,
+  prepareInferenceBackend
+} from '../src/brains/nativeBridge.ts';
 import { parseConfig, type ServerConfig } from './config.ts';
-import { hashConfig } from './hash.ts';
 import { createHttpHandler } from './httpApi.ts';
 import { createLogger } from './logger.ts';
 import { createPersistence, initDb } from './persistence.ts';
-import { SERIALIZER_VERSION, type WelcomeMsg } from './protocol.ts';
+import { PROTOCOL_VERSION, SERIALIZER_VERSION, type WelcomeMsg } from './protocol.ts';
 import { SimServer, applySettingsUpdates, coerceCoreSettings } from './simServer.ts';
 import { WsHub } from './wsHub.ts';
 import type { Logger } from './logger.ts';
 import { buildSensorSpec } from './sensorSpec.ts';
 import { createEntropySeed, createRunId, createSessionId } from './runIdentity.ts';
+import { buildAuthoritativeConfigHash } from './configIdentity.ts';
+import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 
 /** Minimal server handle returned by `startServer` for lifecycle management. */
 export interface RunningServer {
@@ -60,20 +65,43 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
   if (latestSnapshot?.updates) {
     applySettingsUpdates(latestSnapshot.updates);
   }
-  // Hash config so clients can detect mismatched settings.
-  const cfgHash = hashConfig(CFG);
   const sensorSpec = buildSensorSpec();
   const sampleWorld = new World(initialSettings, {
     seed: worldSeed,
     inferenceBackend: config.inferenceBackend
   });
+  const cfgHash = buildAuthoritativeConfigHash(sampleWorld);
+  const sampleGraphKey = typeof sampleWorld.archKey === 'string'
+    ? sampleWorld.archKey
+    : 'initializing';
+  const sampleParameterCount = sampleWorld.population?.[0]?.weights.length ?? 0;
   const frameByteLength = WorldSerializer.serialize(sampleWorld).byteLength;
   const welcome: WelcomeMsg = {
     type: 'welcome',
+    protocolVersion: PROTOCOL_VERSION,
     sessionId,
     tickRate: config.tickRateHz,
     worldSeed,
-    cfgHash,
+    runId,
+    configRevision: 0,
+    configHash: cfgHash,
+    settings: {
+      core: buildCoreSettingsSnapshot(sampleWorld),
+      updates: buildSettingsUpdatesSnapshot()
+    },
+    inferenceMode: {
+      requestedBackend: config.inferenceBackend,
+      activeBackend: config.inferenceBackend,
+      requestedMt: config.mtEnabled,
+      activeWorkerCount: 0,
+      poolEpoch: null,
+      weightEpoch: null,
+      graphKey: sampleGraphKey,
+      parameterCount: sampleParameterCount,
+      seed: worldSeed,
+      nativeAddonStatus: getSimdKernelStatus(),
+      nativeAddonBuildIdentifier: getNativeAddonBuildIdentifier()
+    },
     sensorSpec,
     serializerVersion: SERIALIZER_VERSION,
     frameByteLength
@@ -91,7 +119,8 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
         inferenceMode: simServer.getInferenceMode(),
         scheduler: simServer.getSchedulerDiagnostics(),
         fault: simServer.getFaultStatus(),
-        run: simServer.getRunIdentity()
+        run: simServer.getRunIdentity(),
+        ...simServer.getConfigState()
       };
     },
     getWorld: () => simServer?.getWorld() ?? null,
@@ -100,8 +129,8 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
         ? simServer.importPopulation(data)
         : { ok: false, reason: 'world not ready' },
     persistence,
-    cfgHash,
-    worldSeed,
+    getConfigHash: () => simServer?.getConfigHash() ?? cfgHash,
+    getWorldSeed: () => simServer?.getRunIdentity().seed ?? worldSeed,
     logger
   });
 
@@ -176,6 +205,9 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
       onView: (connId, msg) => simServer?.handleView(connId, msg),
       onViz: (connId, msg) => simServer?.handleViz(connId, msg),
       onReset: (connId, msg) => simServer?.handleReset(connId, msg),
+      onSettings: (connId, msg) => simServer?.handleSettings(connId, msg),
+      onGodMode: (connId, msg) => simServer?.handleGodMode(connId, msg),
+      onNewRun: (connId, msg) => simServer?.handleNewRun(connId, msg),
       onDisconnect: (connId) => simServer?.handleDisconnect(connId)
     });
     await simServer.start();

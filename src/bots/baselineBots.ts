@@ -272,6 +272,25 @@ export class BaselineBotManager {
   }
 
   /**
+   * Apply an authoritative live respawn delay without rebuilding bot identity.
+   * Active timers are capped to the new delay so lowering the value takes
+   * effect immediately while increasing it does not restart elapsed waits.
+   * @param seconds - Requested finite delay in seconds.
+   * @returns Normalized delay stored by the manager.
+   */
+  updateRespawnDelay(seconds: number): number {
+    const normalized = clamp(seconds, 0.1, 60);
+    this.settings.respawnDelay = normalized;
+    for (let index = 0; index < this.respawnTimers.length; index++) {
+      const remaining = this.respawnTimers[index];
+      if (remaining !== undefined && remaining >= 0) {
+        this.respawnTimers[index] = Math.min(remaining, normalized);
+      }
+    }
+    return normalized;
+  }
+
+  /**
    * Export every durable baseline-bot RNG stream in slot order.
    * @returns Lossless per-slot RNG continuation states.
    */

@@ -38,6 +38,55 @@ const WORLD_RNG_STATE_VERSION = 1 as const;
 /** Version of the exported deterministic id-allocator bundle. */
 const WORLD_ALLOCATOR_STATE_VERSION = 1 as const;
 
+/** Authoritative result of a God Mode world mutation. */
+export interface GodModeWorldResult {
+  /** Whether the requested mutation was applied. */
+  applied: boolean;
+  /** Target snake id. */
+  snakeId: number;
+  /** Stable rejection reason when the mutation was not applied. */
+  reason?: string;
+  /** Actual authoritative head X after an accepted move. */
+  x?: number;
+  /** Actual authoritative head Y after an accepted move. */
+  y?: number;
+  /** Number of normal death pellets added by an accepted kill. */
+  pelletsDropped?: number;
+}
+
+/**
+ * Find the largest fraction of one translation that keeps every point inside
+ * a circle centered at the origin.
+ * @param points - Snake body points in world coordinates.
+ * @param dx - Requested X translation.
+ * @param dy - Requested Y translation.
+ * @param limit - Maximum radial distance for each body point.
+ * @returns Translation scale in [0, 1], or -1 when current state is invalid.
+ */
+function maxTranslationScaleInsideCircle(
+  points: readonly { x: number; y: number }[],
+  dx: number,
+  dy: number,
+  limit: number
+): number {
+  const deltaSquared = dx * dx + dy * dy;
+  if (!Number.isFinite(deltaSquared)) return -1;
+  const limitSquared = limit * limit;
+  let scale = 1;
+  for (const point of points) {
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return -1;
+    const currentError = point.x * point.x + point.y * point.y - limitSquared;
+    if (currentError > 1e-6) return -1;
+    if (deltaSquared <= Number.EPSILON) continue;
+    const linear = 2 * (point.x * dx + point.y * dy);
+    const discriminant = linear * linear - 4 * deltaSquared * currentError;
+    if (!Number.isFinite(linear) || !Number.isFinite(discriminant) || discriminant < 0) return -1;
+    const exitScale = (-linear + Math.sqrt(discriminant)) / (2 * deltaSquared);
+    if (Number.isFinite(exitScale)) scale = Math.min(scale, exitScale);
+  }
+  return clamp(scale, 0, 1);
+}
+
 /** Optional settings overrides accepted by the World constructor. */
 interface WorldSettingsInput {
   snakeCount?: number;
@@ -496,6 +545,72 @@ export class World {
   applyLiveSimSpeed(x: number): void {
     this.simSpeed = clamp(x, 0.01, 500.0);
     this.settings.simSpeed = this.simSpeed;
+  }
+
+  /**
+   * Apply the cached baseline-bot respawn delay alongside the global CFG value.
+   * @param seconds - Authoritative normalized delay in seconds.
+   * @returns Delay retained by the bot manager.
+   */
+  applyLiveBaselineRespawnDelay(seconds: number): number {
+    return this.botManager.updateRespawnDelay(seconds);
+  }
+
+  /**
+   * Kill an alive snake through its normal death path and refresh collisions.
+   * @param snakeId - Target snake id.
+   * @returns Applied or rejected authoritative result.
+   */
+  applyGodModeKill(snakeId: number): GodModeWorldResult {
+    const snake = this.snakes.find((candidate) => candidate.id === snakeId);
+    if (!snake || !snake.alive) {
+      return { applied: false, snakeId, reason: 'snake is missing or already dead' };
+    }
+    const pelletCountBefore = this.pellets.length;
+    snake.die(this);
+    this._rebuildCollisionGrid();
+    return {
+      applied: true,
+      snakeId,
+      pelletsDropped: Math.max(0, this.pellets.length - pelletCountBefore)
+    };
+  }
+
+  /**
+   * Translate an alive snake head and every body point by one clamped delta.
+   * @param snakeId - Target snake id.
+   * @param targetX - Requested head X coordinate.
+   * @param targetY - Requested head Y coordinate.
+   * @returns Applied or rejected authoritative result including actual position.
+   */
+  applyGodModeMove(snakeId: number, targetX: number, targetY: number): GodModeWorldResult {
+    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+      return { applied: false, snakeId, reason: 'move coordinates must be finite' };
+    }
+    const snake = this.snakes.find((candidate) => candidate.id === snakeId);
+    if (!snake || !snake.alive) {
+      return { applied: false, snakeId, reason: 'snake is missing or already dead' };
+    }
+    const dx = targetX - snake.x;
+    const dy = targetY - snake.y;
+    const radialLimit = Math.max(0, this.worldRadius - snake.radius);
+    const scale = maxTranslationScaleInsideCircle(snake.points, dx, dy, radialLimit);
+    if (scale < 0) {
+      return { applied: false, snakeId, reason: 'snake body is outside valid world bounds' };
+    }
+    if (scale <= Number.EPSILON && (Math.abs(dx) > 1e-9 || Math.abs(dy) > 1e-9)) {
+      return { applied: false, snakeId, reason: 'translation cannot keep the body in bounds' };
+    }
+    const appliedDx = dx * scale;
+    const appliedDy = dy * scale;
+    snake.x += appliedDx;
+    snake.y += appliedDy;
+    for (const point of snake.points) {
+      point.x += appliedDx;
+      point.y += appliedDy;
+    }
+    this._rebuildCollisionGrid();
+    return { applied: true, snakeId, x: snake.x, y: snake.y };
   }
   /**
    * Toggles between overview and follow camera modes.  Ensures that a

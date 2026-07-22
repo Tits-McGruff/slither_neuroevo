@@ -90,14 +90,18 @@ describe('wsClient', () => {
       onclose: (() => void) | null = null;
       /** Binary type preference for messages. */
       binaryType = 'arraybuffer';
+      /** Text payloads sent by the client. */
+      sent: string[] = [];
 
       /** Create a stub socket and register it in the instance list. */
       constructor() {
         StubWebSocket.instances.push(this);
       }
 
-      /** No-op send implementation. */
-      send(): void {}
+      /** Collect one client payload. */
+      send(payload: string): void {
+        this.sent.push(payload);
+      }
       /** Close the socket and emit a close event. */
       close(): void {
         this.readyState = 3;
@@ -122,6 +126,9 @@ describe('wsClient', () => {
 
     let sawWelcome = false;
     let sawFrame = false;
+    let sawSettings = false;
+    let sawGodMode = false;
+    let sawNewRun = false;
     const client = createWsClient({
       onConnected: () => {
         sawWelcome = true;
@@ -130,7 +137,16 @@ describe('wsClient', () => {
       onFrame: () => {
         sawFrame = true;
       },
-      onStats: () => {}
+      onStats: () => {},
+      onSettingsApplied: () => {
+        sawSettings = true;
+      },
+      onGodModeResult: () => {
+        sawGodMode = true;
+      },
+      onNewRunResult: () => {
+        sawNewRun = true;
+      }
     });
 
     client.connect('ws://localhost:9999');
@@ -140,10 +156,40 @@ describe('wsClient', () => {
       throw new Error('Expected WebSocket instance');
     }
     instance.open();
-    instance.emit(JSON.stringify({ type: 'welcome', tickRate: 60 }));
+    instance.emit(JSON.stringify({ type: 'welcome', protocolVersion: 2, tickRate: 60 }));
+    client.sendSettings('settings-1', [{ path: 'simSpeed', value: 2 }]);
+    client.sendGodModeKill('god-1', 8);
+    client.sendGodModeMove('god-2', 8, 10, 20);
+    client.sendNewRun('run-1');
+    instance.emit(JSON.stringify({
+      type: 'settingsApplied',
+      requestId: 'settings-1',
+      applied: true,
+      updates: [{ path: 'simSpeed', value: 2 }],
+      configRevision: 1,
+      configHash: 'v1-test'
+    }));
+    instance.emit(JSON.stringify({
+      type: 'godModeResult',
+      requestId: 'god-1',
+      action: 'kill',
+      snakeId: 8,
+      applied: true
+    }));
+    instance.emit(JSON.stringify({
+      type: 'newRunResult',
+      requestId: 'run-1',
+      applied: false,
+      reason: 'unavailable'
+    }));
     instance.emit(new ArrayBuffer(8));
 
     expect(sawWelcome).toBe(true);
     expect(sawFrame).toBe(true);
+    expect(sawSettings).toBe(true);
+    expect(sawGodMode).toBe(true);
+    expect(sawNewRun).toBe(true);
+    expect(instance.sent.map(payload => JSON.parse(payload) as { type: string }).map(msg => msg.type))
+      .toEqual(['hello', 'settings', 'godMode', 'godMode', 'newRun']);
   });
 });

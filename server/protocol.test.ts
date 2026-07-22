@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseClientMessage } from './protocol.ts';
+import { getProtocolVersionError, parseClientMessage } from './protocol.ts';
 import type { StatsMsg } from './protocol.ts';
 
 /** Test suite label for server protocol validation. */
@@ -7,8 +7,14 @@ const SUITE = 'server protocol';
 
 describe(SUITE, () => {
   it('accepts a valid hello message', () => {
-    const msg = parseClientMessage({ type: 'hello', clientType: 'ui', version: 1 });
+    const msg = parseClientMessage({ type: 'hello', clientType: 'ui', version: 2 });
     expect(msg?.type).toBe('hello');
+  });
+
+  it('describes Protocol 1 as explicitly incompatible', () => {
+    const hello = { type: 'hello', clientType: 'ui', version: 1 };
+    expect(parseClientMessage(hello)).toBeNull();
+    expect(getProtocolVersionError(hello)).toContain('server requires 2');
   });
 
   it('rejects hello with NaN version', () => {
@@ -101,6 +107,40 @@ describe(SUITE, () => {
       updates: [{ path: 'sense.unknownField', value: 12 }]
     });
     expect(msg).toBeNull();
+  });
+
+  it('accepts strict Protocol 2 settings, God Mode, and New Run messages', () => {
+    expect(parseClientMessage({
+      type: 'settings',
+      requestId: 'settings-1',
+      updates: [{ path: 'simSpeed', value: 2.5 }]
+    })?.type).toBe('settings');
+    expect(parseClientMessage({
+      type: 'godMode',
+      requestId: 'god-1',
+      action: 'move',
+      snakeId: 7,
+      x: 12,
+      y: -4
+    })?.type).toBe('godMode');
+    expect(parseClientMessage({ type: 'newRun', requestId: 'run-1' })?.type).toBe('newRun');
+  });
+
+  it('rejects unknown fields and non-finite command coordinates', () => {
+    expect(parseClientMessage({
+      type: 'settings',
+      requestId: 'settings-1',
+      updates: [{ path: 'simSpeed', value: 2 }],
+      unexpected: true
+    })).toBeNull();
+    expect(parseClientMessage({
+      type: 'godMode',
+      requestId: 'god-1',
+      action: 'move',
+      snakeId: 7,
+      x: Number.NaN,
+      y: 0
+    })).toBeNull();
   });
 
   it('stats requires total fields', () => {

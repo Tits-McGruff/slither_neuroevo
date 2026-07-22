@@ -1,12 +1,15 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import type { RawData } from 'ws';
 import type { Server } from 'node:http';
-import { parseClientMessage } from './protocol.ts';
+import { getProtocolVersionError, parseClientMessage } from './protocol.ts';
 import type {
   ActionMsg,
   ClientType,
+  GodModeMsg,
   JoinMode,
   JoinMsg,
+  LiveSettingsMsg,
+  NewRunMsg,
   ResetMsg,
   ViewMsg,
   VizMsg,
@@ -45,6 +48,12 @@ export interface WsHubHandlers {
   onViz?: (connId: number, msg: VizMsg) => void;
   /** Optional handler for reset requests from UI clients. */
   onReset?: (connId: number, msg: ResetMsg) => void | Promise<void>;
+  /** Optional handler for authoritative live-settings requests. */
+  onSettings?: (connId: number, msg: LiveSettingsMsg) => void;
+  /** Optional handler for authoritative God Mode requests. */
+  onGodMode?: (connId: number, msg: GodModeMsg) => void;
+  /** Optional handler for explicit New Run requests. */
+  onNewRun?: (connId: number, msg: NewRunMsg) => void;
   onDisconnect?: (connId: number) => void;
 }
 
@@ -106,6 +115,15 @@ export class WsHub {
    */
   updateSensorSpec(sensorSpec: SensorSpec): void {
     this.welcome = { ...this.welcome, sensorSpec };
+    this.welcomeJson = JSON.stringify(this.welcome);
+  }
+
+  /**
+   * Update dynamic authoritative fields cached for future handshakes.
+   * @param patch - Partial welcome state produced by SimServer.
+   */
+  updateWelcome(patch: Partial<WelcomeMsg>): void {
+    this.welcome = { ...this.welcome, ...patch, type: 'welcome' };
     this.welcomeJson = JSON.stringify(this.welcome);
   }
 
@@ -184,6 +202,20 @@ export class WsHub {
   }
 
   /**
+   * Broadcast one JSON result to every joined UI client in connection order.
+   * @param message - Authoritative server message.
+   */
+  broadcastJsonToUi(message: ServerMessage): void {
+    const payload = JSON.stringify(message);
+    for (const state of this.connections.values()) {
+      if (state.clientType !== 'ui' || !state.joined) continue;
+      if (state.socket.readyState !== WebSocket.OPEN) continue;
+      if (state.socket.bufferedAmount > this.maxBufferedAmount) continue;
+      state.socket.send(payload);
+    }
+  }
+
+  /**
    * Send a JSON payload to a specific client by connection id.
    * @param connId - Connection id to target.
    * @param payload - Server message to send.
@@ -238,6 +270,11 @@ export class WsHub {
       parsed = JSON.parse(text);
     } catch {
       this.protocolError(state, 'invalid JSON');
+      return;
+    }
+    const versionError = getProtocolVersionError(parsed);
+    if (versionError) {
+      this.protocolError(state, versionError);
       return;
     }
     const msg = parseClientMessage(parsed);
@@ -302,6 +339,27 @@ export class WsHub {
           const reason = error instanceof Error ? error.message : String(error);
           this.sendJsonTo(state.id, { type: 'error', message: `reset failed: ${reason}` });
         });
+        return;
+      case 'settings':
+        if (!state.joined || state.clientType !== 'ui') {
+          this.protocolError(state, 'settings requires a joined ui client');
+          return;
+        }
+        this.handlers?.onSettings?.(state.id, msg);
+        return;
+      case 'godMode':
+        if (!state.joined || state.clientType !== 'ui') {
+          this.protocolError(state, 'God Mode requires a joined ui client');
+          return;
+        }
+        this.handlers?.onGodMode?.(state.id, msg);
+        return;
+      case 'newRun':
+        if (!state.joined || state.clientType !== 'ui') {
+          this.protocolError(state, 'New Run requires a joined ui client');
+          return;
+        }
+        this.handlers?.onNewRun?.(state.id, msg);
         return;
       case 'ping':
         return;

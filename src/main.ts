@@ -25,13 +25,19 @@ import { BrainViz } from './BrainViz.ts';
 import { AdvancedCharts } from './chartUtils.ts';
 import { FRAME_HEADER_FLOATS, FRAME_HEADER_OFFSETS } from './protocol/frame.ts';
 import { createWsClient, resolveServerUrl, storeServerUrl } from './net/wsClient.ts';
+import { createAuthoritativeControls } from './net/authoritativeControls.ts';
 import { inferGraphSizes } from './brains/graph/editor.ts';
 import type { GraphSizeState } from './brains/graph/editor.ts';
 import { validateGraph } from './brains/graph/validate.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
 import type { FrameStats, GenomeJSON, HallOfFameEntry, VizData } from './protocol/messages.ts';
 import { SETTINGS_PATHS, coerceSettingsUpdateValue } from './protocol/settings.ts';
-import type { CoreSettings, SettingsUpdate } from './protocol/settings.ts';
+import type {
+  CoreSettings,
+  LiveSettingPath,
+  LiveSettingsUpdate,
+  SettingsUpdate
+} from './protocol/settings.ts';
 
 /** Minimal world interface exposed to UI panels and HoF actions. */
 interface ProxyWorld {
@@ -90,12 +96,24 @@ declare global {
 
 /** WebSocket client when connected to the server. */
 let wsClient: ReturnType<typeof createWsClient> | null = null;
+/** Extracted coalescing and God Mode transport bound to the current socket. */
+const authoritativeControls = createAuthoritativeControls({
+  sendSettings: (requestId, updates) => wsClient?.sendSettings(requestId, updates),
+  sendGodModeKill: (requestId, snakeId) => wsClient?.sendGodModeKill(requestId, snakeId),
+  sendGodModeMove: (requestId, snakeId, x, y) =>
+    wsClient?.sendGodModeMove(requestId, snakeId, x, y),
+  sendNewRun: (requestId) => wsClient?.sendNewRun(requestId)
+});
 /** Current connection mode state. */
 let connectionMode: ConnectionMode = 'connecting';
 /** Current server URL used for connection attempts. */
 let serverUrl = '';
 /** Latest server config hash from the welcome message. */
 let serverCfgHash: string | null = null;
+/** Latest authoritative config revision received from the server. */
+let serverConfigRevision = 0;
+/** Last simulation speed accepted or advertised by the authoritative server. */
+let serverSimSpeed = 1;
 /** Latest server world seed from the welcome message. */
 let serverWorldSeed: number | null = null;
 /** Latest tick id observed from server stats. */
@@ -3355,6 +3373,7 @@ function resolveGraphSpecForReset(): GraphSpec | null {
  * @param resetCfg - Whether to reset CFG before applying updates in worker mode.
  */
 function applyResetToSimulation(_resetCfg = true): void {
+  authoritativeControls.dispose();
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdatesFromUI();
   if (wsClient && wsClient.isConnected()) {
@@ -3394,12 +3413,55 @@ function connectToServer(url: string): void {
   updateJoinControls();
 }
 
+/**
+ * Apply a complete authoritative settings snapshot received during handshake.
+ * @param core - Active server-owned core settings.
+ * @param updates - Active server-owned CFG path values.
+ */
+function applyAuthoritativeSettingsState(
+  core: CoreSettings,
+  updates: readonly SettingsUpdate[]
+): void {
+  serverSimSpeed = core.simSpeed;
+  applyCoreSettingsToUi(core);
+  for (const update of updates) {
+    setByPath(CFG, update.path, coerceSettingsUpdateValue(update.path, update.value));
+  }
+  syncBrainInputSize();
+  applyValuesToSlidersFromCFG(resolveSettingsRoot());
+  refreshCoreUIState();
+  persistBaselineBotSettings();
+}
+
+/**
+ * Apply one authoritative normalized live patch to browser display state.
+ * @param updates - Server-normalized live path/value pairs.
+ */
+function applyAuthoritativeLivePatch(updates: readonly LiveSettingsUpdate[]): void {
+  let baselineSettingsChanged = false;
+  for (const update of updates) {
+    if (update.path === 'simSpeed') {
+      serverSimSpeed = update.value;
+      elSimSpeed.value = String(update.value);
+      continue;
+    }
+    setByPath(CFG, update.path, coerceSettingsUpdateValue(update.path, update.value));
+    baselineSettingsChanged ||= update.path.startsWith('baselineBots.');
+  }
+  syncBrainInputSize();
+  applyValuesToSlidersFromCFG(resolveSettingsRoot());
+  refreshCoreUIState();
+  if (baselineSettingsChanged) persistBaselineBotSettings();
+}
+
 wsClient = createWsClient({
   onConnected: (info) => {
     storeServerUrl(serverUrl);
     reconnectDelayMs = 1000;
-    serverCfgHash = info.cfgHash;
+    serverCfgHash = info.configHash;
+    serverConfigRevision = info.configRevision;
     serverWorldSeed = info.worldSeed;
+    applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
     lastServerTick = 0;
     spectatorFollowSnakeId = null;
     currentStats = {
@@ -3427,8 +3489,11 @@ wsClient = createWsClient({
     }
   },
   onDisconnected: () => {
+    authoritativeControls.dispose();
     setConnectionStatus('connecting');
     serverCfgHash = null;
+    serverConfigRevision = 0;
+    serverSimSpeed = 1;
     serverWorldSeed = null;
     lastServerTick = 0;
     resolvePendingServerReset();
@@ -3527,6 +3592,34 @@ wsClient = createWsClient({
     }
     sendPlayerAction();
   },
+  onSettingsApplied: (msg) => {
+    if (msg.configRevision < serverConfigRevision) return;
+    serverConfigRevision = msg.configRevision;
+    serverCfgHash = msg.configHash;
+    if (msg.applied) {
+      applyAuthoritativeLivePatch(msg.updates);
+      return;
+    }
+    applyValuesToSlidersFromCFG(resolveSettingsRoot());
+    elSimSpeed.value = String(serverSimSpeed);
+    refreshCoreUIState();
+    console.warn(`[settings] ${msg.reason ?? 'request rejected'}`);
+  },
+  onGodModeResult: (msg) => {
+    godModeLog.push({
+      time: Date.now(),
+      action: msg.action === 'move' ? 'drag' : 'kill',
+      snakeId: msg.snakeId,
+      result: msg.applied ? 'success' : `rejected: ${msg.reason ?? 'unknown reason'}`
+    });
+    if (msg.applied && msg.action === 'move' && selectedSnake && selectedSnake.id === msg.snakeId) {
+      if (Number.isFinite(msg.x)) selectedSnake.x = msg.x!;
+      if (Number.isFinite(msg.y)) selectedSnake.y = msg.y!;
+    }
+  },
+  onNewRunResult: (msg) => {
+    if (!msg.applied) console.warn(`[new-run] ${msg.reason ?? 'request rejected'}`);
+  },
   onError: (msg) => {
     console.warn(`[ws] ${msg.message}`);
     if (joinPending) {
@@ -3550,18 +3643,21 @@ if (typeof WebSocket === 'undefined') {
  * @param sliderEl - Slider input element to read.
  */
 function liveUpdateFromSlider(sliderEl: HTMLInputElement): void {
-  const path = sliderEl.dataset['path']!;
+  const path = sliderEl.dataset['path'] as LiveSettingPath | undefined;
+  if (!path) return;
   const value = readSettingsInputValue(sliderEl);
   if (value == null) return;
-  setByPath(CFG, path, value);
-  if (path.startsWith('baselineBots.')) {
-    persistBaselineBotSettings();
-  }
+  if (!wsClient?.isConnected()) return;
+  authoritativeControls.queueSetting(path, value);
 }
 
 // Live update simulation speed when the slider moves
 elSimSpeed.addEventListener('input', () => {
   refreshCoreUIState();
+  const value = Number(elSimSpeed.value);
+  if (wsClient?.isConnected() && Number.isFinite(value)) {
+    authoritativeControls.queueSetting('simSpeed', value);
+  }
 });
 // Update other core UI labels live
 elSnakes.addEventListener('input', refreshCoreUIState);
@@ -3740,15 +3836,7 @@ canvas.addEventListener('contextmenu', (e) => {
   const world = screenToWorld(screenX, screenY);
 
   const snake = findSnakeNear(world.x, world.y);
-  if (snake) {
-    godModeLog.push({
-      time: Date.now(),
-      action: 'kill',
-      snakeId: snake.id,
-      result: 'sent'
-    });
-    console.log('Killed snake #' + snake.id);
-  }
+  if (snake && wsClient?.isConnected()) authoritativeControls.killSnake(snake.id);
 });
 
 // Drag to move snake (hold left mouse button)
@@ -3774,27 +3862,32 @@ canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
-    screenToWorld(screenX, screenY);
+    const world = screenToWorld(screenX, screenY);
+    if (wsClient?.isConnected()) {
+      authoritativeControls.moveSnake(selectedSnake.id, world.x, world.y);
+    }
   }
 });
 
-canvas.addEventListener('mouseup', (e) => {
+/**
+ * Finish a God Mode drag and always send the release position immediately.
+ * @param e - Mouse-up event whose client coordinates define the final target.
+ */
+function finishGodModeDrag(e: MouseEvent): void {
   if (isPlayerControlActive()) {
     if (e.button === 0) boostHeld = false;
     return;
   }
-  if (isDragging) {
-    isDragging = false;
-    if (selectedSnake) {
-      godModeLog.push({
-        time: Date.now(),
-        action: 'drag',
-        snakeId: selectedSnake.id,
-        result: 'completed'
-      });
-    }
-  }
-});
+  if (!isDragging || e.button !== 0) return;
+  isDragging = false;
+  if (!selectedSnake || !wsClient?.isConnected()) return;
+  const rect = canvas.getBoundingClientRect();
+  const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  authoritativeControls.finishMove(selectedSnake.id, world.x, world.y);
+}
+
+canvas.addEventListener('mouseup', finishGodModeDrag);
+window.addEventListener('mouseup', finishGodModeDrag);
 
 canvas.addEventListener('mouseleave', () => {
   if (!isPlayerControlActive()) return;

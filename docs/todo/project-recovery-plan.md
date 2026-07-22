@@ -3,12 +3,12 @@
 ## Document control
 
 - Status: authoritative, owner-approved implementation plan; Phases 0 through
-  5 are complete, and Phase 6 has not started.
+  6 are complete, and Phase 7 has not started.
 - Created: 2026-07-21.
 - Branch: `exclusive-server-mode-refactor`.
 - Audit baseline commit: `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
-- Current implementation HEAD: `7ca46faeaf371ee4d20fcb9a5b60e93cbdf70a57`.
-- Last fully verified HEAD: `7ca46faeaf371ee4d20fcb9a5b60e93cbdf70a57`.
+- Current implementation HEAD: `957b76f3734de3f634f12bc921fbaed52a62bb2a`.
+- Last fully verified HEAD: `957b76f3734de3f634f12bc921fbaed52a62bb2a`.
 - Baseline worktree: clean before the two planning-document changes.
 - Current expected worktree changes are recorded under "Live execution status".
 - Scope owner: the repository owner.
@@ -85,6 +85,14 @@ progresses.
   consistent external/serial/pooled delivery, accumulated skipped-cadence
   deltas, aligned protocol/API wording, digest schema v3, and 242 passing
   JavaScript tests. Phase 6 was not started.
+- 2026-07-22: Committed and pushed the verified Phase 5 work as `957b76f`,
+  synchronized the local branch with its upstream, and began Phase 6 from that
+  committed baseline. The content-identical `AGENTS.md` status artifact remains
+  intentionally untouched.
+- 2026-07-22: Completed and fully verified Phase 6 server-authoritative live
+  controls and God Mode. Protocol 2, boundary-queued commands, canonical live
+  config identity, extracted client controls, and server-result-driven UI state
+  are complete. Phase 7 has not started.
 
 ## How to resume this work
 
@@ -394,6 +402,7 @@ deleted files are evidence and reference material, not specifications to copy.
 | UI-003 | God Mode kill logs but sends nothing; drag discards coordinates | `main.ts` canvas handlers | 6 |
 | UI-004 | Live/reset metadata is private to a DOM-oriented module | `src/settings.ts` | 6 |
 | UI-005 | At least two "live" values need explicit derived-state handling | collision cell size and baseline bot respawn delay | 6 |
+| UI-006 | Settings UI and snapshot coercion still advertise removed v2/legacy sensor layouts although v3 is the sole runtime contract | `settings.ts`, `protocol/settings.ts`, `settingsSnapshot.ts` | 6 |
 | CFG-001 | Config hash and seed captured by HTTP/welcome state become stale after changes | `server/index.ts` closure values | 6 and 7 |
 | CFG-002 | Config identity depends on raw object property order | `server/hash.ts` hashes `JSON.stringify` output directly | 6 |
 | PER-001 | Advertised chunked module does not exist | Documentation versus filesystem | 7 |
@@ -1230,72 +1239,72 @@ the revision.
 
 ### Detailed checklist
 
-- [ ] Extract shared setting definitions from `src/settings.ts`.
-- [ ] Audit every currently live setting for derived state.
-- [ ] Mark genuinely reset-required settings as such.
-- [ ] Add a safe live reconfiguration path for collision-grid cell size or
+- [x] Extract shared setting definitions from `src/settings.ts`.
+- [x] Audit every currently live setting for derived state.
+- [x] Mark genuinely reset-required settings as such.
+- [x] Add a safe live reconfiguration path for collision-grid cell size or
   reclassify it as reset-required.
-- [ ] Add a live update method for baseline bot respawn delay.
-- [ ] Remove obsolete `dtClamp` setting if Phase 1 makes it meaningless.
-- [ ] Add strict server protocol validation.
-- [ ] Increment the handshake and message schema to Protocol 2; reject Protocol
+- [x] Add a live update method for baseline bot respawn delay.
+- [x] Remove obsolete `dtClamp` setting if Phase 1 makes it meaningless.
+- [x] Add strict server protocol validation.
+- [x] Increment the handshake and message schema to Protocol 2; reject Protocol
   1 explicitly.
-- [ ] Add `WsClient` send methods and response handling.
-- [ ] Debounce/coalesce high-frequency slider changes by path.
-- [ ] Coalesce only one client's unsent updates for the same path. An optimistic
+- [x] Add `WsClient` send methods and response handling.
+- [x] Debounce/coalesce high-frequency slider changes by path.
+- [x] Coalesce only one client's unsent updates for the same path. An optimistic
   display may move immediately, but accepted/stored state comes from the
   server result or broadcast.
-- [ ] Queue accepted live updates in `SimServer`.
-- [ ] Assign queued commands a total order and drain them before their fixed
+- [x] Queue accepted live updates in `SimServer`.
+- [x] Assign queued commands a total order and drain them before their fixed
   step, never during awaited inference.
-- [ ] Validate each atomic request against prior accepted requests in order;
+- [x] Validate each atomic request against prior accepted requests in order;
   acknowledge only values actually applied and increment revision once.
-- [ ] Broadcast normalized authoritative results to every UI and update browser
+- [x] Broadcast normalized authoritative results to every UI and update browser
   `CFG` from results/broadcasts, including server clamping.
-- [ ] Send sim-speed changes through the same authoritative mechanism.
-- [ ] Recompute a versioned canonical config hash from explicitly included,
+- [x] Send sim-speed changes through the same authoritative mechanism.
+- [x] Recompute a versioned canonical config hash from explicitly included,
   recursively sorted fields after relevant changes. Do not hash raw object
   insertion order; keep content hash distinct from monotonic revision.
-- [ ] Replace captured HTTP seed/hash values with getters from active state.
-- [ ] Add God Mode message routing for joined UI clients.
-- [ ] Queue God Mode operations at a tick boundary.
-- [ ] Kill through the normal `Snake.die` behavior.
-- [ ] Move by translating head and all body points by the same delta.
-- [ ] Validate finite coordinates and clamp/reject the translation delta so the
+- [x] Replace captured HTTP seed/hash values with getters from active state.
+- [x] Add God Mode message routing for joined UI clients.
+- [x] Queue God Mode operations at a tick boundary.
+- [x] Kill through the normal `Snake.die` behavior.
+- [x] Move by translating head and all body points by the same delta.
+- [x] Validate finite coordinates and clamp/reject the translation delta so the
   entire body, not only the head, remains within defined world bounds.
-- [ ] Rebuild or invalidate spatial state after a move before it is queried.
-- [ ] Throttle drag messages and always send a final mouse-up position.
-- [ ] Update the log from server results, not optimistic console text.
-- [ ] Extract transport/control logic from the 4,000-line `main.ts` into small
+- [x] Rebuild or invalidate spatial state after a move before it is queried.
+- [x] Throttle drag messages and always send a final mouse-up position.
+- [x] Update the log from server results, not optimistic console text.
+- [x] Extract transport/control logic from the 4,000-line `main.ts` into small
   testable modules.
-- [ ] Keep selection/frame parsing client-side and unchanged unless a test
+- [x] Keep selection/frame parsing client-side and unchanged unless a test
   proves an offset bug.
 
 ### Required tests
 
-- [ ] Each live UI interaction emits the expected message.
-- [ ] Reset-required paths are rejected by the live validator.
-- [ ] Server clamps/normalizes values from shared metadata.
-- [ ] Update arriving during worker inference waits until the next boundary.
-- [ ] Sim speed visibly and authoritatively changes generation-time rate.
-- [ ] Config hash/revision changes when appropriate.
-- [ ] God kill changes the serialized alive set and applies normal drops.
-- [ ] God move translates the entire body and leaves valid collision queries.
-- [ ] Invalid IDs and coordinates return a rejected result.
-- [ ] Drag coalescing applies the final requested position.
-- [ ] Multiple UI clients receive coherent authoritative setting state.
-- [ ] Two clients racing updates converge by config revision and authoritative
+- [x] Each live UI interaction emits the expected message.
+- [x] Reset-required paths are rejected by the live validator.
+- [x] Server clamps/normalizes values from shared metadata.
+- [x] Update arriving during worker inference waits until the next boundary.
+- [x] Sim speed visibly and authoritatively changes generation-time rate.
+- [x] Config hash/revision changes when appropriate.
+- [x] God kill changes the serialized alive set and applies normal drops.
+- [x] God move translates the entire body and leaves valid collision queries.
+- [x] Invalid IDs and coordinates return a rejected result.
+- [x] Drag coalescing applies the final requested position.
+- [x] Multiple UI clients receive coherent authoritative setting state.
+- [x] Two clients racing updates converge by config revision and authoritative
   broadcast order.
-- [ ] One accepted multi-path request increments revision once; a rejected
+- [x] One accepted multi-path request increments revision once; a rejected
   request does not increment it.
-- [ ] Canonically equivalent configs produce the same hash regardless of
+- [x] Canonically equivalent configs produce the same hash regardless of
   property insertion order.
 
 ### Acceptance gate
 
-- [ ] No live control only mutates browser-private state.
-- [ ] God Mode kill and drag work against serialized server frames.
-- [ ] UI tests exercise extracted behavior rather than only module startup.
+- [x] No live control only mutates browser-private state.
+- [x] God Mode kill and drag work against serialized server frames.
+- [x] UI tests exercise extracted behavior rather than only module startup.
 
 ## Phase 7: Bounded-memory persistence and actual resume
 
@@ -1830,39 +1839,62 @@ The recovery is complete only when:
 
 ## Live execution status
 
-- Current phase: Phase 5 score-delta sensor semantics is complete. Phase 6 has
-  not started.
-- Active checklist item: none. Every Phase 5 detailed-checklist, required-test,
-  and acceptance-gate item is complete and verified.
-- Last completed work: passed the full 52-file/242-test JavaScript suite,
-  strict TypeScript, repository-wide ESLint, the Vite production build,
-  static marker/delivery scans, documentation equality, and diff hygiene.
-- Source implementation status: the fully verified Phase 5 worktree is
-  uncommitted atop synchronized HEAD `7ca46fa`; nothing is staged or pushed.
+- Current phase: Phase 6 server-authoritative live controls and God Mode is
+  complete. Phase 7 has not started.
+- Active checklist item: none. Every Phase 6 detailed, required-test, and
+  acceptance-gate item is complete and verified.
+- Last completed work: implemented and fully verified the uncommitted Phase 6
+  worktree atop the pushed Phase 5 commit `957b76f`.
+- Source implementation status: Protocol 2 settings and God Mode commands are
+  server-authoritative, boundary-queued, normalized, revisioned, and broadcast.
+  Browser controls consume server results, and New Run remains explicitly
+  unavailable until Phase 7 provides its durability contract.
 - Current blocker: none.
-- Next action: await owner direction. Do not begin Phase 6 in this pass and do
-  not commit or push without an explicit owner request.
+- Next action: wait for explicit owner direction before beginning Phase 7. Do
+  not commit or push the Phase 6 worktree without owner authorization.
 - Current implementation HEAD:
-  `7ca46faeaf371ee4d20fcb9a5b60e93cbdf70a57`.
+  `957b76f3734de3f634f12bc921fbaed52a62bb2a`.
 - Last fully verified HEAD:
-  `7ca46faeaf371ee4d20fcb9a5b60e93cbdf70a57`.
-- Verification scope note: the complete dirty-file set recorded below is the
-  fully verified Phase 5 worktree atop the unchanged committed HEAD.
-- Last successful phase acceptance gate: Phase 5 score-delta sensor semantics.
+  `957b76f3734de3f634f12bc921fbaed52a62bb2a`.
+- Verification scope note: `957b76f` remains the committed and fully verified
+  HEAD. The complete uncommitted Phase 6 worktree listed below is also fully
+  verified against that HEAD.
+- Last successful phase acceptance gate: Phase 6 server-authoritative live
+  controls and God Mode.
 - Exact dirty-file summary:
-  - content-modified tracked files: `docs/API-instructions.md`,
-    `docs/todo/project-recovery-plan.md`,
-    `server/authoritativeWorldDigest.test.ts`,
-    `server/test/authoritativeWorldDigest.ts`, `src/protocol/sensors.ts`,
-    `src/recoveryPhase1.world.test.ts`, `src/sensors.test.ts`,
-    `src/sensors.ts`, `src/snake.ts`, and `src/world.ts`;
+  - content-modified tracked files: 23 (`docs/todo/project-recovery-plan.md`,
+    12 files under `server/`, and 10 files under `src/`);
+  - untracked Phase 6 files: `server/configIdentity.ts`,
+    `server/hash.test.ts`, `server/recoveryPhase6.controls.test.ts`,
+    `src/net/authoritativeControls.ts`,
+    `src/net/authoritativeControls.test.ts`,
+    `src/protocol/settingDefinitions.ts`, and
+    `src/protocol/settings.test.ts`;
   - status-only artifact: Git reports `AGENTS.md` modified, but
     `git diff -- AGENTS.md` is empty and its worktree/HEAD blob IDs both equal
     `b7c033c5de793219e590a8382befadb417d77915`; it was not edited;
   - deleted tracked files: none;
-  - untracked files: `src/recoveryPhase5.sensors.test.ts`;
   - staged: none.
-- Last full JS test result: 52 files, 242 tests passed.
+- Pre-change Phase 6 baseline: 9 files, 47 tests passed.
+- Latest focused Phase 6 result: 12 files, 68 tests passed. Command:
+  `node .\node_modules\vitest\vitest.mjs run
+  src\protocol\settings.test.ts src\settings.test.ts
+  src\net\authoritativeControls.test.ts src\net\wsClient.test.ts
+  server\hash.test.ts server\protocol.test.ts
+  server\recoveryPhase6.controls.test.ts server\integration.test.ts
+  src\bots\baselineBots.test.ts src\sim\SimCore.test.ts src\world.test.ts
+  src\main.test.ts --reporter=dot`.
+- Last full JS test result: 56 files, 264 tests passed. Command:
+  `node .\node_modules\vitest\vitest.mjs run --reporter=dot`.
+- Last TypeScript result: passed against the completed Phase 6 worktree with
+  `node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false`.
+- Last ESLint result: repository-wide pass against the completed Phase 6
+  worktree with `node .\node_modules\eslint\bin\eslint.js .`.
+- Last client-build result: passed against the completed Phase 6 worktree with
+  `node .\node_modules\vite\bin\vite.js build`; the existing `node:module`
+  browser-externalization warning from `nativeBridge` remains.
+- Last diff-hygiene result: `git diff --check` passed with only the preserved
+  LF-to-CRLF working-copy warnings.
 - Pre-change Phase 5 baseline: 4 files, 31 tests passed. Command:
   `node .\node_modules\vitest\vitest.mjs run src\sensors.test.ts
   src\snake.test.ts src\recoveryPhase1.world.test.ts
@@ -1874,13 +1906,7 @@ The recovery is complete only when:
   server\recoveryPhase2.determinism.test.ts --reporter=dot`.
 - Latest Phase 5 TypeScript result: passed.
 - Latest Phase 5 focused ESLint result: passed.
-- Last ESLint result: repository-wide pass against the completed Phase 5
-  worktree.
-- Last client-build result: passed against the completed Phase 5 worktree with
-  the existing `node:module` browser-externalization warning from
-  `nativeBridge`.
 - Last Rust test result: 3 release tests passed.
-- Last TypeScript result: passed against the completed Phase 5 worktree.
 - Pre-change Phase 4 baseline: 4 files, 11 tests passed. Command:
   `node .\node_modules\vitest\vitest.mjs run server\brainPool.test.ts
   server\recoveryPhase0.characterization.test.ts
@@ -2748,6 +2774,148 @@ The recovery is complete only when:
 - Fixed registered defects `SNS-001` and `SNS-002`. No new production defect
   or blocker was discovered. Last successful acceptance gate: Phase 5
   score-delta sensor semantics.
+
+### 2026-07-22 — Phase 6 start
+
+- Verified repository root `C:/Users/jlow8/source/repos/slither_neuroevo`,
+  branch `exclusive-server-mode-refactor`, new HEAD
+  `957b76f3734de3f634f12bc921fbaed52a62bb2a`, and upstream divergence `0 0`.
+- Verified the owner-approved Phase 5 commit is present and pushed. The
+  starting worktree contained only the preserved content-identical `AGENTS.md`
+  status artifact: its worktree and HEAD blob IDs both equal
+  `b7c033c5de793219e590a8382befadb417d77915`, and its diff is empty.
+- The authoritative plan and repository instructions were read before this
+  phase transition; the superseded native plan and archive remain outside the
+  implementation source of truth.
+- Phase 6 is authorized and in progress. The first action is a current-source
+  audit of shared setting metadata, Protocol 1 validation/handshake behavior,
+  client transport and UI bindings, server command-boundary ordering, config
+  identity, and God Mode routing, followed by the smallest relevant pre-change
+  baseline. Phase 7 has not started.
+- Current blocker: none. Last successful acceptance gate remains Phase 5
+  score-delta sensor semantics.
+
+### 2026-07-22 — Phase 6 implementation and focused verification
+
+- Pre-change characterization passed 47 tests across 9 files with the direct
+  focused command covering settings, WebSocket transport, protocol,
+  integration/system, `main.ts`, baseline bots, `SimCore`, and `World`.
+- The source audit confirmed the planned Protocol 1/browser-only control gaps
+  and found one additional settings-contract defect: the UI and snapshot
+  coercion still advertised v2/legacy sensor layouts although v3 is the only
+  valid runtime contract. The obsolete UI control is removed, and all legacy
+  numeric markers now normalize to v3 rather than writing stale labels.
+- Extracted pure setting definitions from the DOM module, including numeric
+  type/range/integer/live/reset metadata. Collision cell size is reset-only;
+  baseline respawn delay has an explicit live cached-state method.
+- Implemented strict Protocol 2 shapes for live settings, God Mode, New Run,
+  authoritative results, revision/hash/settings/inference welcome state, and
+  explicit Protocol 1 incompatibility reporting. New Run remains explicitly
+  unavailable and does not mutate identity before Phase 7 durability.
+- Added a total-order server command queue drained by a new pre-step `SimCore`
+  hook. Atomic setting batches normalize before application, increment one
+  revision only after success, compute a canonical versioned hash, and
+  broadcast one authoritative patch to every joined UI. A test-controlled
+  inference wait proves commands arriving mid-inference wait for step 2 rather
+  than mutating step 1.
+- Added normal-death God Mode kill and whole-body bounded translation with
+  collision-grid rebuild. Overflowing but finite coordinates are rejected.
+  The serialized alive set, pellet drops, equal point deltas, and post-move
+  spatial query are covered.
+- Extracted slider debounce/coalescing and drag throttling from `main.ts` into
+  `src/net/authoritativeControls.ts`. Browser `CFG` is now updated from welcome
+  state or server results/broadcasts, sim speed uses the same live path, and
+  the God Mode log is result-driven. Final mouse-up coordinates always send.
+- Verification so far:
+  - strict TypeScript passed with
+    `node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false`;
+  - the first focused run exposed only test-environment native setup and a real
+    finite-coordinate overflow hole in the new bounds math; the fixture was
+    switched to the explicit JS backend, and production math now rejects
+    non-finite intermediate values;
+  - the corrected focused command passed 66 tests across 13 files, including
+    shared metadata, extracted client behavior, Protocol 2 validation,
+    canonical hashing, boundary ordering, multi-client convergence, sim speed,
+    God Mode, WebSocket integration, system lifecycle, and main startup.
+- Current blocker: none. Phase 6 full lint/build/test and acceptance review are
+  pending. Last fully verified HEAD and last successful phase acceptance gate
+  remain `957b76f` and Phase 5 respectively; no Phase 6 file is staged,
+  committed, or pushed.
+
+### 2026-07-22 — Phase 6 completion handoff
+
+- Completed and verified every Phase 6 detailed-checklist, required-test, and
+  acceptance-gate item. Phase 7 has not started.
+- Current repository state:
+  - root: `C:/Users/jlow8/source/repos/slither_neuroevo`;
+  - branch: `exclusive-server-mode-refactor`;
+  - current implementation HEAD and last fully verified committed HEAD:
+    `957b76f3734de3f634f12bc921fbaed52a62bb2a`;
+  - upstream divergence: `0 0`;
+  - staged paths: none;
+  - deleted tracked paths: none;
+  - no Phase 6 commit or push was performed.
+- Exact dirty-file summary:
+  - content-modified tracked paths:
+    `docs/todo/project-recovery-plan.md`, `server/acceptance.test.ts`,
+    `server/hash.ts`, `server/httpApi.ts`, `server/index.ts`,
+    `server/integration.test.ts`, `server/protocol.test.ts`,
+    `server/protocol.ts`, `server/security.test.ts`,
+    `server/settingsSnapshot.ts`, `server/simServer.ts`,
+    `server/system.test.ts`, `server/wsHub.ts`,
+    `src/bots/baselineBots.test.ts`, `src/bots/baselineBots.ts`,
+    `src/main.ts`, `src/net/wsClient.test.ts`, `src/net/wsClient.ts`,
+    `src/protocol/settings.ts`, `src/settings.test.ts`, `src/settings.ts`,
+    `src/sim/SimCore.ts`, and `src/world.ts`;
+  - untracked paths: `server/configIdentity.ts`, `server/hash.test.ts`,
+    `server/recoveryPhase6.controls.test.ts`,
+    `src/net/authoritativeControls.test.ts`,
+    `src/net/authoritativeControls.ts`,
+    `src/protocol/settingDefinitions.ts`, and
+    `src/protocol/settings.test.ts`;
+  - status-only artifact: Git reports `AGENTS.md` modified, but its diff is
+    empty and its worktree/HEAD blob IDs remain identical. Per owner direction,
+    it was left untouched.
+- Implemented the shared pure setting schema and atomic live normalizer,
+  including bounded core values, explicit derived-state metadata, reset-only
+  collision cell size, live baseline-respawn cache updates, and v3-only sensor
+  layout normalization.
+- Implemented strict Protocol 2 validation and explicit Protocol 1 rejection,
+  settings/God Mode/New Run transport, dynamic welcome/health/save/export
+  identity, and one monotonic pre-step command queue. New Run is deliberately
+  rejected without mutation until Phase 7 can durably checkpoint run start.
+- Implemented authoritative browser control flow, per-client/per-path slider
+  coalescing, drag throttling with a guaranteed final release position,
+  result-driven logs, and server-normalized browser state. Existing
+  selection/frame parsing was not changed.
+- Implemented normal-death God Mode kill and bounded equal-delta whole-body
+  translation with finite-intermediate validation and spatial-grid rebuild.
+  Tests verify pellet drops, serialized alive/head state, body coordinates,
+  bounds, and collision queries.
+- Final verification commands and results:
+  - `node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false`
+    passed;
+  - `node .\node_modules\eslint\bin\eslint.js .` passed repository-wide;
+  - the focused Phase 6 Vitest command recorded in live status passed 68 tests
+    across 12 files;
+  - `node .\node_modules\vitest\vitest.mjs run --reporter=dot` passed all 264
+    tests across 56 files;
+  - `node .\node_modules\vite\bin\vite.js build` passed with the existing
+    `node:module` browser-externalization warning from `nativeBridge`;
+  - `git diff --check` passed with only LF-to-CRLF working-copy warnings;
+  - native/Rust source was unchanged, so the prior three passing release tests
+    remain the last Rust result and were not rerun.
+- The first full regression run exposed an incomplete Phase 0 startup test
+  double after welcome diagnostics began reading architecture information. The
+  startup diagnostic was made tolerant of the established mock while retaining
+  accurate real-world values. Focused verification then added the serialized
+  moved-head assertion and completed with 68 passing tests.
+- Newly discovered defect `UI-006` was registered and fixed: stale v2/legacy
+  sensor-layout choices are no longer advertised or persisted. Registered
+  Phase 6 defects `UI-001` through `UI-005` and `CFG-001` through `CFG-002` are
+  also repaired by the verified implementation. No new blocker remains.
+- Last successful acceptance gate: Phase 6 server-authoritative live controls
+  and God Mode. Await explicit owner direction before Phase 7.
 
 ## Verification command reference
 

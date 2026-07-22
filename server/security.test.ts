@@ -160,7 +160,7 @@ describe('security: invalid WS payloads', () => {
 
     try {
       sawError = await waitForProtocolRejection(ws, 6000, () => {
-        ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
+        ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 2 }));
         ws.send(JSON.stringify({ type: 'join', mode: 'player', name: '' }));
       });
     } finally {

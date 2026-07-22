@@ -124,7 +124,7 @@ describe('acceptance: join and play flow', () => {
         });
 
         ws.on('open', () => {
-          ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
+          ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 2 }));
           ws.send(JSON.stringify({ type: 'join', mode: 'player', name: 'acceptance' }));
         });
       });
