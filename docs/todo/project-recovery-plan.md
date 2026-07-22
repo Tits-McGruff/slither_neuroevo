@@ -4,14 +4,16 @@
 
 - Status: authoritative, owner-approved implementation plan; Phases 0 through
   8 are complete. Phase 9 implementation and the emergency Phase 10 LAN
-  restoration pass their automated gates, and a partial browser QA pass
-  verified rendering, runtime identity, speed controls, and restart/resume.
-  The remaining owner-device/manual UI acceptance is still pending, so neither
+  restoration passed their local automated gates and were published as
+  `258ac69`. Remote CI then exposed `TEST-008`, a runner-capacity assumption in
+  one MT integration assertion. Its uncommitted test-only repair passes the
+  focused and native-required gates locally; a pushed CI rerun and the
+  remaining owner-device/manual UI acceptance are still pending, so neither
   phase nor the recovery is complete.
 - Created: 2026-07-21.
 - Branch: `exclusive-server-mode-refactor`.
 - Audit baseline commit: `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
-- Current implementation HEAD: `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`.
+- Current implementation HEAD: `258ac69e80df411fa724ad16f1b2cb19e1ae210c`.
 - Last fully verified HEAD: `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`.
 - Baseline worktree: clean before the two planning-document changes.
 - Current expected worktree changes are recorded under "Live execution status".
@@ -143,6 +145,16 @@ progresses.
   an exact latest-checkpoint restart. Browser automation could not reliably
   change the reset-only range input, so reset, God Mode, visualizer, New Run,
   launcher, and real second-device checks remain explicitly open.
+- 2026-07-23: Committed and pushed the verified Phase 9/10 scope as
+  `258ac69`. GitHub Actions run `29933523899` passed Rust fmt/Clippy and every
+  native build, identity, and Rust-test prerequisite, but all four Node matrix
+  jobs stopped in the native-required overlay because `TEST-008` expected a
+  four-worker request to bypass the documented conservative CPU bound.
+- 2026-07-23: Repaired `TEST-008` locally by asserting the active worker count
+  produced by the same requested-count, CPU-reserve, and population bounds as
+  production. The focused SimServer suite passes 6/6, the native-required
+  overlay passes 45/45, TypeScript and focused ESLint pass, and diff hygiene
+  passes. The repair is uncommitted and has not yet received a remote rerun.
 
 ## How to resume this work
 
@@ -485,6 +497,7 @@ deleted files are evidence and reference material, not specifications to copy.
 | TEST-005 | Acceptance and security tests inherit the production SQLite path, allowing one test run's checkpoint to contaminate later restart behavior and local user state | `server/acceptance.test.ts` and `server/security.test.ts` | 7 and 8 |
 | TEST-006 | Phase 4 SimServer fixtures invoke New Run without persistence, so the full suite fails once durable-before-switch is enforced | `server/recoveryPhase4.simServer.test.ts` | 7 |
 | TEST-007 | HTTP/config integration sends a live setting after an arbitrary 100 ms reset delay, racing asynchronous reset under full-suite load | `server/integration.test.ts` | 8 |
+| TEST-008 | The native SimServer integration test assumes a four-worker request always creates four workers, contradicting the production `availableParallelism() - 1` safety bound on four-core CI runners | `server/recoveryPhase4.simServer.test.ts` | 8 follow-up |
 | DOC-001 | README, AGENTS, and API docs describe behavior absent from code | current documentation | 9 |
 | DOC-002 | `AGENTS.md` describes `server/config.toml` as an existing defaults file, but the baseline checkout has no such file and `parseConfig` creates it as a startup side effect | `AGENTS.md`, `server/config.ts`, and the baseline tree | 9 |
 | DOC-003 | `AGENTS.md` requires `markdown-rules/rules.md`, but that policy file and directory are absent from the checkout | `AGENTS.md` and the baseline tree | 9 |
@@ -2042,68 +2055,54 @@ The recovery is complete only when:
 
 ## Live execution status
 
-- Current phase: Phase 9 documentation/debris cleanup and emergency Phase 10
-  trusted-LAN restoration have completed implementation and automated
-  verification. Their manual owner-visible acceptance gates remain active.
+- Current phase: Phase 9/10 implementation is published at `258ac69`; a narrow
+  test-only follow-up for remote CI defect `TEST-008` is locally verified and
+  uncommitted. Manual owner-visible acceptance gates remain active.
 - Completed checklist items: every Phase 9 detailed implementation item and
   every Phase 10 audit, restoration, documentation, and automated-verification
   item. The Phase 10 acceptance conditions correctly record the still-pending
   owner-device gate without claiming full recovery.
-- Active checklist items: Phase 9 final manual QA and Phase 10 owner-machine
-  manual acceptance, especially a real phone/second-computer load, control,
-  frame, and HMR check over the owner's trusted LAN.
-- Last completed work: repaired and regression-tested `PER-007` checkpoint
-  identity and `LAN-006` development WebSocket injection, completed a native-MT
-  loopback/LAN live smoke, and passed the complete automated matrix.
+- Active checklist items: publish and remotely rerun the verified `TEST-008`
+  correction, plus Phase 9 final manual QA and Phase 10 owner-machine manual
+  acceptance, especially a real phone/second-computer load, control, frame,
+  and HMR check over the owner's trusted LAN.
+- Last completed work: inspected GitHub Actions run `29933523899`, identified
+  the common four-platform failure at the worker-count assertion, repaired the
+  runner-capacity assumption, and passed the focused/native-required/static
+  local gates.
 - Source implementation status: the valid Phase 9 documentation, ADR, native
   package cleanup, browser bundle cleanup, New Run UI, runtime status, and
   launcher native build remain intact. All Phase 9 LAN removals were restored
   surgically. Loopback stays the default; explicit trusted-LAN binding,
   discovery, browser routing, HMR, and cross-origin requests work without being
   described as authenticated, TLS-protected, or public-internet safe.
-- Current blockers: browser QA verified live rendering, runtime identity,
-  spectating, speed controls, and checkpoint restart, but its automation could
-  not reliably manipulate the reset-only range input. The remaining UI checks
-  and a phone or second computer on the owner's LAN remain owner-visible gates.
-  No source or automated-verification blocker remains.
-- Next action: commit and push the verified Phase 9/10 implementation at the
-  owner's explicit direction, then retain the unchecked owner-visible items
-  without declaring either phase or the recovery complete.
+- Current blockers: the CI repair must be committed and pushed before GitHub
+  can confirm the complete matrix. Browser QA verified live rendering, runtime
+  identity, spectating, speed controls, and checkpoint restart, but its
+  automation could not reliably manipulate the reset-only range input. The
+  remaining UI checks and a phone or second computer on the owner's LAN remain
+  owner-visible gates.
+- Next action: after owner review, commit and push the two-file `TEST-008`
+  correction, monitor the resulting GitHub Actions run, and retain the
+  unchecked owner-visible items without declaring recovery complete.
 - Current implementation HEAD:
-  `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`.
+  `258ac69e80df411fa724ad16f1b2cb19e1ae210c`.
 - Last fully verified HEAD:
   `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`.
-- Verification scope note: commit `3fe2e00` remains the committed/pushed Phase
-  8 baseline. The current uncommitted worktree passes the complete Phase 9/10
-  automated matrix and live protocol/LAN checks recorded below. Because the
-  verified changes are not committed, the last fully verified commit remains
-  `3fe2e00`; the worktree itself is verified at that HEAD.
+- Verification scope note: commit `258ac69` contains the locally verified and
+  published Phase 9/10 work. Its first remote matrix stopped at `TEST-008`
+  before later JavaScript/build/static steps could run. The current uncommitted
+  correction passes the exact failed suite, the complete native-required
+  overlay, TypeScript, focused ESLint, and diff hygiene. Until that correction
+  is pushed and the matrix passes, `3fe2e00` remains the last fully verified
+  committed HEAD.
 - Last successful phase acceptance gate: Phase 8 test and CI reconstruction.
 - Exact dirty-file summary:
-  - modified tracked files: `AGENTS.md`, `README.md`,
-    `docs/API-instructions.md`, `docs/todo/project-recovery-plan.md`,
-    `index.html`, `native/.gitattributes`, `native/.gitignore`,
-    `native/README.md`, `native/package.json`, `play.sh`,
-    `scripts/slither.ps1`, `scripts/test-categories.ts`, `server/config.ts`,
-    `server/configIdentity.ts`, `server/httpApi.ts`,
-    `server/integration.test.ts`, `server/recoveryPhase7.persistence.test.ts`,
-    `server/simServer.ts`, `src/brains/graph/compiler.ts`, `src/brains/ops.ts`,
-    `src/main.test.ts`, `src/main.ts`, `src/net/wsClient.test.ts`,
-    `src/net/wsClient.ts`, `src/protocol/messages.ts`, `src/sensors.ts`,
-    `src/storage.test.ts`, `src/storage.ts`, `src/types.d.ts`, `styles.css`, and
-    `vite.config.ts`;
-  - deleted tracked native-template files: `native/.editorconfig`,
-    `native/.husky/.gitignore`, `native/.husky/pre-commit`,
-    `native/.prettierignore`, `native/.taplo.toml`,
-    `native/__test__/package.json`, `native/__test__/tsconfig.json`,
-    `native/benchmark/bench.ts`, `native/benchmark/package.json`,
-    `native/benchmark/tsconfig.json`, and `native/tsconfig.json`;
-  - untracked files: `docs/decisions/0001-native-kernels-and-threading.md`,
-    the reproducibility lockfile `native/Cargo.lock`,
-    `scripts/recoveryPhase10.lan.test.ts`, and
-    `src/brains/parameterCounts.ts`;
+  - modified tracked files: `docs/todo/project-recovery-plan.md` and
+    `server/recoveryPhase4.simServer.test.ts`;
+  - deleted or untracked files: none;
   - staged files: none;
-  - branch/upstream divergence: `0 0` at `3fe2e00`.
+  - branch/upstream divergence: `0 0` at `258ac69`.
 ### Historical Phase 8 verification retained for comparison
 
 - Pre-change focused baseline:
@@ -2259,6 +2258,41 @@ The recovery is complete only when:
   `slither-phase9-browser-a53f159eb44442f99df59913966143e7` database/config
   directory was permanently removed. No repository source changed during the
   browser interaction.
+
+### 2026-07-23 remote CI inspection and TEST-008 verification
+
+- GitHub Actions run `29933523899` for commit `258ac69` completed with one
+  successful Rust fmt/Clippy job and four failed Node jobs: Ubuntu and Windows
+  on Node 22 and Node 24. Every Node job successfully installed dependencies,
+  built and source-verified the native addon, and passed the Rust release tests
+  before reaching the same native-required failure.
+- Each native-required overlay passed 44 tests and failed only
+  `server/recoveryPhase4.simServer.test.ts` at its assertion that a request for
+  four workers must create exactly four. GitHub runners exposed four available
+  CPUs, while production correctly reserved one and activated three workers.
+  The workflow stopped at this required gate, so later JavaScript categories,
+  Vite, TypeScript, and ESLint were skipped rather than failed.
+- The test now computes the expected active count from the requested count,
+  production's `availableParallelism() - 1` reserve, and population size. It
+  continues to execute requests for 1, 2, and 4 workers and compare the same
+  authoritative seeded result without contradicting the bounded-count runtime
+  contract. Production source was not changed.
+- Verification results after the repair:
+  - `node .\node_modules\@napi-rs\cli\dist\cli.js build --platform
+    --release` from `native/`: passed;
+  - `node .\node_modules\vitest\vitest.mjs run
+    server\recoveryPhase4.simServer.test.ts --reporter=dot
+    --configLoader=runner`: 1 file and 6 tests passed;
+  - `node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts
+    native-required --reporter=dot --configLoader=runner`: 7 files and 45
+    tests passed;
+  - `node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty
+    false`: passed;
+  - `node .\node_modules\eslint\bin\eslint.js
+    server\recoveryPhase4.simServer.test.ts`: passed;
+  - `git diff --check`: passed with only Git's LF-to-CRLF working-copy notice.
+- No remote rerun is claimed. The repair and this plan update are unstaged and
+  uncommitted at base/upstream HEAD `258ac69`.
 
 ## Handoff journal
 
@@ -3700,6 +3734,41 @@ The recovery is complete only when:
 - Nothing is staged. Preserve the entire worktree. The next action is the
   owner's unchecked Phase 9/10 manual QA, followed by recording its evidence;
   do not mark recovery complete or commit/push without owner direction.
+
+### 2026-07-23 — GitHub Actions TEST-008 repair handoff
+
+- The owner requested inspection of the latest pushed CI and then explicitly
+  authorized fixing it. GitHub CLI authentication was restored and read-only
+  inspection identified failed run `29933523899` for Phase 9/10 commit
+  `258ac69e80df411fa724ad16f1b2cb19e1ae210c`.
+- Rust fmt/Clippy passed. All four Ubuntu/Windows and Node 22/24 jobs built and
+  source-verified native, passed the Rust tests, then failed the same one of 45
+  native-required tests: requested worker count 4 was asserted as active count
+  4 even though production intentionally bounded it to 3 on four-core runners.
+  Registered this inaccurate cross-runner assumption as `TEST-008`.
+- Changed only the Phase 4 SimServer integration test. Its expected active
+  count now mirrors the documented request, CPU-reserve, and population bounds;
+  production worker selection and runtime behavior remain untouched.
+- Rebuilt the source-identified native addon. The focused SimServer suite
+  passed 6/6, the complete native-required overlay passed 45/45, strict
+  TypeScript passed, focused ESLint passed, and `git diff --check` passed.
+- Current implementation HEAD and upstream are both
+  `258ac69e80df411fa724ad16f1b2cb19e1ae210c`, with divergence `0 0`. Last fully
+  verified committed HEAD remains
+  `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8` until the CI repair is published
+  and the remote matrix succeeds. Last successful complete phase gate remains
+  Phase 8.
+- Exact dirty-file summary:
+
+  ```text
+   M docs/todo/project-recovery-plan.md
+   M server/recoveryPhase4.simServer.test.ts
+  ```
+
+- Nothing is staged, committed, or pushed for this repair. The immediate next
+  action is owner review and explicit commit/push direction, followed by
+  monitoring the new GitHub Actions run. Remaining Phase 9/10 owner-visible UI
+  and second-device gates remain open and are independent of `TEST-008`.
 
 ## Verification command reference
 

@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CFG, resetCFGToDefaults } from '../src/config.ts';
 import { prepareInferenceBackend } from '../src/brains/nativeBridge.ts';
@@ -182,7 +183,15 @@ describe(SUITE, () => {
       const { server, access } = await createMtServer(workerCount, 'native');
       const pool = access.brainPool;
       if (!pool) throw new Error('expected a canonical pool');
-      expect(pool.workerCount).toBe(workerCount);
+      const available = typeof os.availableParallelism === 'function'
+        ? os.availableParallelism()
+        : os.cpus().length;
+      const expectedWorkerCount = Math.min(
+        workerCount,
+        Math.max(1, available - 1),
+        server.getWorld().population.length
+      );
+      expect(pool.workerCount).toBe(expectedWorkerCount);
       expect(Array.from(pool.weightsView ?? [])).toEqual(
         server.getWorld().population.flatMap((genome) => Array.from(genome.weights))
       );
