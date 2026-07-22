@@ -83,8 +83,18 @@ export interface VizLayer {
 
 /** Brain visualizer payload for the UI. */
 export interface VizData {
+  /** Runtime family that produced the layer visualization. */
   kind: string;
+  /** Ordered layer activation snapshots. */
   layers: VizLayer[];
+  /** Population slot whose brain produced the snapshot, when pooled. */
+  populationSlot?: number;
+  /** Last committed authoritative step associated with the snapshot. */
+  simulationStep?: number;
+  /** Worker-pool lifecycle epoch associated with the snapshot. */
+  poolEpoch?: number;
+  /** Population-weight epoch associated with the snapshot. */
+  weightEpoch?: number;
 }
 
 /** Hall of Fame entry for resurrecting elite snakes. */

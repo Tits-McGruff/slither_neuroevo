@@ -27,12 +27,12 @@ export interface HttpApiDeps {
   /** Returns the current world instance, or null if not ready. */
   getWorld: () => World | null;
   /** Imports a population snapshot into the active world. */
-  importPopulation: (data: PopulationImportData) => {
+  importPopulation: (data: PopulationImportData) => Promise<{
     ok: boolean;
     reason?: string;
     used?: number;
     total?: number;
-  };
+  }>;
   /** Persistence adapter for snapshots and graph presets. */
   persistence: Persistence;
   /** Hash of the active server configuration. */
@@ -248,7 +248,7 @@ async function routeRequest(
       archKey: payload.archKey,
       genomes: payload.genomes
     };
-    const result = deps.importPopulation(importData);
+    const result = await deps.importPopulation(importData);
     if (!result.ok) {
       sendJson(res, 400, { ok: false, message: result.reason ?? 'import failed' });
       return;

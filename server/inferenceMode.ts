@@ -14,9 +14,9 @@ export interface InferenceModeRecord {
   requestedMt: boolean;
   /** Number of worker threads in a ready active pool. */
   activeWorkerCount: number;
-  /** Pool lifecycle epoch, or null because the baseline pool has no epoch. */
+  /** Active pool lifecycle epoch, or null when serial/failed/uninitialized. */
   poolEpoch: number | null;
-  /** Population-weight epoch, or null because the baseline pool has no epoch. */
+  /** Active population-weight epoch, or null when serial/failed/uninitialized. */
   weightEpoch: number | null;
   /** Stable key for the active brain graph. */
   graphKey: string;

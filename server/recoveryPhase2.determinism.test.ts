@@ -235,7 +235,7 @@ describe(SUITE, () => {
     expect(captureAuthoritativeWorldDigest(core.world).digest).not.toBe(initial.digest);
   });
 
-  it('passes the server seed into SimCore/World and starts a new entropy lineage', () => {
+  it('passes the server seed into SimCore/World and starts a new entropy lineage', async () => {
     const wsHub = { sendJsonTo: () => undefined } as unknown as WsHub;
     const server = new SimServer(
       {
@@ -259,7 +259,7 @@ describe(SUITE, () => {
     });
     expect(server.getWorld().seed).toBe(0x12345678);
 
-    const identity = server.startNewRun();
+    const identity = await server.startNewRun();
     expect(identity.seed).not.toBe(0x12345678);
     expect(identity.runId).not.toBe('server-run-before');
     expect(server.getWorld().seed).toBe(identity.seed);

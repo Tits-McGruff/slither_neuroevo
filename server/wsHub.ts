@@ -44,7 +44,7 @@ export interface WsHubHandlers {
   onView?: (connId: number, msg: ViewMsg) => void;
   onViz?: (connId: number, msg: VizMsg) => void;
   /** Optional handler for reset requests from UI clients. */
-  onReset?: (connId: number, msg: ResetMsg) => void;
+  onReset?: (connId: number, msg: ResetMsg) => void | Promise<void>;
   onDisconnect?: (connId: number) => void;
 }
 
@@ -170,6 +170,20 @@ export class WsHub {
   }
 
   /**
+   * Broadcast a structured runtime failure to every joined client.
+   * @param message - Human-readable authoritative failure reason.
+   */
+  broadcastError(message: string): void {
+    const payload = JSON.stringify({ type: 'error', message });
+    for (const state of this.connections.values()) {
+      if (!state.joined) continue;
+      if (state.socket.readyState !== WebSocket.OPEN) continue;
+      if (state.socket.bufferedAmount > this.maxBufferedAmount) continue;
+      state.socket.send(payload);
+    }
+  }
+
+  /**
    * Send a JSON payload to a specific client by connection id.
    * @param connId - Connection id to target.
    * @param payload - Server message to send.
@@ -284,7 +298,10 @@ export class WsHub {
           this.protocolError(state, 'reset requires ui client');
           return;
         }
-        this.handlers?.onReset?.(state.id, msg);
+        void Promise.resolve(this.handlers?.onReset?.(state.id, msg)).catch((error: unknown) => {
+          const reason = error instanceof Error ? error.message : String(error);
+          this.sendJsonTo(state.id, { type: 'error', message: `reset failed: ${reason}` });
+        });
         return;
       case 'ping':
         return;

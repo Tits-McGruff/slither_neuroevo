@@ -9,13 +9,12 @@ import { coerceSettingsUpdateValue, type CoreSettings, type SettingsUpdate } fro
 import { SimProfiler, formatSimProfilerReport } from '../src/profiling.ts';
 import type { Snake } from '../src/snake.ts';
 import type { ServerConfig } from './config.ts';
-import { NodeBrainPool } from '../src/sim/NodeBrainPool.ts';
+import { BrainPool } from './brainPool.ts';
 import {
   SimCore,
   type SchedulerDiagnostics,
   type SimulationRunIdentity
 } from '../src/sim/SimCore.ts';
-import { compileGraph } from '../src/brains/graph/compiler.ts';
 import {
   getNativeAddonBuildIdentifier,
   getSimdKernelStatus
@@ -125,7 +124,7 @@ export class SimServer {
   /** Optional profiler for per-tick timing breakdowns. */
   private profiler: SimProfiler | null = null;
   /** Optional worker pool for multi-threaded inference. */
-  private brainPool: NodeBrainPool | null = null;
+  private brainPool: BrainPool | null = null;
   /** Whether server-side MT inference is enabled. */
   private mtEnabled: boolean;
   /** Original multi-threading request retained even if the baseline silently falls back. */
@@ -134,6 +133,8 @@ export class SimServer {
   private mtWorkerCount: number;
   /** Last generation synchronized with the MT pool. */
   private mtGeneration: number;
+  /** Barrier that prevents fixed-step entry during an explicit reset boundary. */
+  private boundaryTransition: Promise<void> | null = null;
   /** Whether multi-threading was active on the last tick. */
   public mtActive = false;
   /** Failure reason prohibiting further authoritative steps. */
@@ -170,7 +171,8 @@ export class SimServer {
       tickRateHz: this.tickRateHz,
       worldSeed,
       runId,
-      inferenceBackend: config.inferenceBackend
+      inferenceBackend: config.inferenceBackend,
+      onStepCommitted: async (world) => this.synchronizeBrainPoolGeneration(world)
     });
 
     if (process.env[PROFILE_ENV_VAR] === '1') {
@@ -215,29 +217,7 @@ export class SimServer {
    */
   async initMT(): Promise<void> {
     if (!this.mtEnabled) return;
-    if (this.brainPool && this.brainPool.status === 'ready') return;
-
-    if (!this.brainPool) {
-      const world = this.core.world;
-      const specKey = world.archKey;
-      this.brainPool = new NodeBrainPool(this.mtWorkerCount, this.core.inferenceBackend);
-      const info = enrichArchInfo(world.arch);
-
-      // Input size is the output of the first node (Input node) in the compiled spec
-      const inputSize = info.compiled.nodes[0]?.outputSize || 0;
-
-      // Start initialization
-      await this.brainPool.init({
-        specKey,
-        graphSpec: world.arch.spec,
-        populationCount: world.population.length,
-        paramCount: info.totalCount,
-        inputStride: inputSize,
-        outputStride: info.compiled.outputSize
-      });
-      // CRITICAL: Point core to the new pool
-      this.core.brainPool = this.brainPool;
-    }
+    await this.ensureBrainPool();
   }
 
   /** Start the server tick loop. */
@@ -261,6 +241,8 @@ export class SimServer {
     this.timer = null;
     const activeLoop = this.loopPromise;
     if (activeLoop) await activeLoop;
+    const activeTransition = this.boundaryTransition;
+    if (activeTransition) await activeTransition;
     const pool = this.brainPool;
     this.brainPool = null;
     this.core.brainPool = null;
@@ -324,8 +306,8 @@ export class SimServer {
       activeBackend: readyPool?.inferenceBackend ?? this.getSerialInferenceBackend(),
       requestedMt: this.requestedMt,
       activeWorkerCount: readyPool?.getActiveWorkerCount() ?? 0,
-      poolEpoch: null,
-      weightEpoch: null,
+      poolEpoch: readyPool?.poolEpoch ?? null,
+      weightEpoch: readyPool?.weightEpoch ?? null,
       graphKey: world.archKey,
       parameterCount: archInfo.totalCount,
       seed: this.worldSeed,
@@ -358,17 +340,22 @@ export class SimServer {
    * @param data - Import payload to apply.
    * @returns Import result summary.
    */
-  importPopulation(data: PopulationImportData): {
+  async importPopulation(data: PopulationImportData): Promise<{
     ok: boolean;
     reason?: string;
     used?: number;
     total?: number;
-  } {
-    const result = this.core.world.importPopulation(data);
-    this.lastGeneration = this.core.world.generation;
-    this.lastHofGenSaved = 0;
-    this.invalidateBrainPool();
-    return result;
+  }> {
+    return this.runAtRecurrentResetBoundary(async () => {
+      const result = this.core.world.importPopulation(data);
+      if (!result.ok) return result;
+      await this.disposeBrainPool();
+      this.lastGeneration = this.core.world.generation;
+      this.lastHofGenSaved = 0;
+      if (this.mtEnabled) await this.ensureBrainPool();
+      this.clearFault();
+      return result;
+    });
   }
 
   /**
@@ -438,17 +425,22 @@ export class SimServer {
    * @param connId - Connection id requesting the reset.
    * @param msg - Reset message payload.
    */
-  handleReset(connId: number, msg: ResetMsg): void {
-    const settings = coerceCoreSettings(msg.settings);
-    resetCFGToDefaults();
-    applySettingsUpdates(msg.updates);
-    applyGraphSpecOverride(msg.graphSpec, (reason) => {
-      this.wsHub.sendJsonTo(connId, { type: 'error', message: `reset failed: ${reason}` });
-    });
-    this.wsHub.updateSensorSpec(buildSensorSpec());
+  async handleReset(connId: number, msg: ResetMsg): Promise<void> {
+    await this.runAtRecurrentResetBoundary(async () => {
+      await this.disposeBrainPool();
+      const settings = coerceCoreSettings(msg.settings);
+      resetCFGToDefaults();
+      applySettingsUpdates(msg.updates);
+      applyGraphSpecOverride(msg.graphSpec, (reason) => {
+        this.wsHub.sendJsonTo(connId, { type: 'error', message: `reset failed: ${reason}` });
+      });
+      this.wsHub.updateSensorSpec(buildSensorSpec());
 
-    const identity = this.core.reset(settings, { runId: createRunId() });
-    this.completeCoreRestart(identity);
+      const identity = this.core.reset(settings, { runId: createRunId() });
+      this.completeCoreRestart(identity);
+      if (this.mtEnabled) await this.ensureBrainPool();
+      this.clearFault();
+    });
   }
 
   /**
@@ -457,14 +449,19 @@ export class SimServer {
    * required run-start checkpoint make external success acknowledgement safe.
    * @returns Visible identity of the new in-memory run.
    */
-  startNewRun(): SimulationRunIdentity {
-    const settings = buildCoreSettingsSnapshot(this.core.world);
-    const identity = this.core.newRun(settings, {
-      seed: createEntropySeed(this.worldSeed),
-      runId: createRunId()
+  async startNewRun(): Promise<SimulationRunIdentity> {
+    return this.runAtRecurrentResetBoundary(async () => {
+      await this.disposeBrainPool();
+      const settings = buildCoreSettingsSnapshot(this.core.world);
+      const identity = this.core.newRun(settings, {
+        seed: createEntropySeed(this.worldSeed),
+        runId: createRunId()
+      });
+      this.completeCoreRestart(identity);
+      if (this.mtEnabled) await this.ensureBrainPool();
+      this.clearFault();
+      return identity;
     });
-    this.completeCoreRestart(identity);
-    return identity;
   }
 
   /**
@@ -474,8 +471,6 @@ export class SimServer {
   private completeCoreRestart(identity: SimulationRunIdentity): void {
     this.worldSeed = identity.seed;
     this.runId = identity.runId;
-    this.faultReason = null;
-    this.faultedAtTick = null;
     this.lastTickAt = performance.now();
     // Profiler Re-attach
     if (this.profiler) this.core.world.profiler = this.profiler;
@@ -488,7 +483,6 @@ export class SimServer {
     this.lastHofGenSaved = 0;
     this.controllers.setTickId(this.core.tickId);
     this.controllers.reassignDeadSnakes(() => this.core.world.spawnExternalSnake().id);
-    this.invalidateBrainPool();
   }
 
   /**
@@ -501,70 +495,127 @@ export class SimServer {
   }
 
   /**
-   * Mark the MT pool as invalid and schedule a rebuild.
+   * Run one explicit zero-state transition while preventing new fixed steps.
+   * @param operation - Reset/import/new-run operation executed at the boundary.
+   * @returns Operation result after the previous loop iteration is quiescent.
    */
-  private invalidateBrainPool(): void {
-    this.mtGeneration = this.core.world.generation;
-    if (this.brainPool) {
-      void this.brainPool.shutdown();
-      this.brainPool = null;
-      this.core.brainPool = null;
+  private async runAtRecurrentResetBoundary<T>(operation: () => Promise<T>): Promise<T> {
+    while (this.boundaryTransition) {
+      await this.boundaryTransition;
+    }
+    let releaseBoundary!: () => void;
+    const boundary = new Promise<void>((resolve) => {
+      releaseBoundary = resolve;
+    });
+    this.boundaryTransition = boundary;
+    try {
+      const activeLoop = this.loopPromise;
+      if (activeLoop) await activeLoop;
+      return await operation();
+    } catch (error) {
+      this.enterFault(error);
+      throw error;
+    } finally {
+      releaseBoundary();
+      if (this.boundaryTransition === boundary) this.boundaryTransition = null;
     }
   }
 
+  /**
+   * Await worker termination and detach the pool from authoritative stepping.
+   */
+  private async disposeBrainPool(): Promise<void> {
+    const pool = this.brainPool;
+    this.brainPool = null;
+    this.core.brainPool = null;
+    this.mtActive = false;
+    this.mtGeneration = -1;
+    if (pool) await pool.shutdown();
+  }
+
+  /** Clear a prior fault only after an explicit boundary rebuild succeeds. */
+  private clearFault(): void {
+    this.faultReason = null;
+    this.faultedAtTick = null;
+  }
 
   /**
-   * Ensure the MT pool is initialized and consistent with the current world state.
-   * Re-initializes the pool if architecture or population constraints change.
-   * @returns Ready brain pool or null when MT is disabled/unavailable.
+   * Ensure the canonical MT pool exactly matches the current zero-state world.
+   * @returns Ready brain pool or null when MT was not requested.
    */
-  private async ensureBrainPool(): Promise<NodeBrainPool | null> {
+  private async ensureBrainPool(): Promise<BrainPool | null> {
     if (!this.mtEnabled) return null;
     const populationCount = this.core.world.population.length;
-    if (populationCount <= 0) return null;
+    if (populationCount <= 0) {
+      throw new Error('mt pool requires a nonempty population');
+    }
 
     const archInfo = enrichArchInfo(this.core.world.arch);
     const specKey = this.core.world.archKey;
-    const compiled = compileGraph(archInfo.spec);
-    const actualParamCount = compiled.totalParams;
+    const actualParamCount = archInfo.compiled.totalParams;
     const inStride = CFG.brain.inSize;
     const outStride = CFG.brain.outSize;
-
-    let pool = this.brainPool;
-
-    // Verify pool identity
-    const identityMatch = pool &&
-      pool.specKey === specKey &&
-      pool.paramCount === actualParamCount &&
-      pool.inputStride === inStride &&
-      pool.outputStride === outStride;
-
-    if (!pool || !identityMatch) {
-      if (pool) {
-        console.log('[SimServer] Re-initializing brain pool due to spec change');
-        await pool.shutdown();
+    const existing = this.brainPool;
+    if (existing) {
+      if (existing.status !== 'ready') {
+        throw new Error(`mt pool is ${existing.status}: ${existing.failureReason ?? 'unknown failure'}`);
       }
-      pool = new NodeBrainPool(this.mtWorkerCount, this.core.inferenceBackend);
-      await pool.init({
-        specKey,
-        graphSpec: archInfo.spec,
-        populationCount,
-        paramCount: actualParamCount,
-        inputStride: inStride,
-        outputStride: outStride
-      });
-
-      this.brainPool = pool;
-      this.core.brainPool = pool;
-      this.mtGeneration = -1; // Force weight sync
+      const identityMatch =
+        existing.specKey === specKey &&
+        existing.populationCount === populationCount &&
+        existing.paramCount === actualParamCount &&
+        existing.inputStride === inStride &&
+        existing.outputStride === outStride &&
+        existing.inferenceBackend === this.core.inferenceBackend;
+      if (!identityMatch) {
+        throw new Error('mt pool identity changed outside a recurrent-reset boundary');
+      }
+      if (this.mtGeneration !== this.core.world.generation) {
+        await this.synchronizeBrainPoolGeneration(this.core.world);
+      }
+      this.core.brainPool = existing;
+      return existing;
     }
 
-    if (this.mtGeneration !== this.core.world.generation) {
-      pool.syncWeights(this.core.world.population);
-      this.mtGeneration = this.core.world.generation;
-    }
-
+    const pool = new BrainPool(this.mtWorkerCount, this.core.inferenceBackend);
+    await pool.init({
+      spec: archInfo.spec,
+      specKey,
+      populationCount,
+      paramCount: actualParamCount,
+      inputStride: inStride,
+      outputStride: outStride,
+      maxBatch: populationCount,
+      weights: packPopulationWeights(this.core.world.population, actualParamCount)
+    });
+    this.brainPool = pool;
+    this.core.brainPool = pool;
+    this.mtGeneration = this.core.world.generation;
     return pool;
+  }
+
+  /**
+   * Install a new generation's weights and zero recurrent state before another step.
+   * @param world - World whose just-committed step may have advanced generation.
+   */
+  private async synchronizeBrainPoolGeneration(world: World): Promise<void> {
+    if (!this.mtEnabled || this.mtGeneration === world.generation) return;
+    const pool = this.brainPool;
+    if (!pool || pool.status !== 'ready') {
+      throw new Error('mt generation transition has no ready canonical pool');
+    }
+    const archInfo = enrichArchInfo(world.arch);
+    if (
+      pool.specKey !== world.archKey ||
+      pool.populationCount !== world.population.length ||
+      pool.paramCount !== archInfo.totalCount
+    ) {
+      throw new Error('mt generation changed pool identity outside a zero-state boundary');
+    }
+    await pool.replacePopulationWeights(
+      packPopulationWeights(world.population, archInfo.totalCount)
+    );
+    this.mtGeneration = world.generation;
   }
 
   /** Start one tracked loop iteration so shutdown can await it. */
@@ -595,13 +646,18 @@ export class SimServer {
       tick: this.faultedAtTick,
       reason: this.faultReason
     });
+    this.wsHub.broadcastError?.(
+      `simulation faulted at tick ${this.faultedAtTick}: ${this.faultReason}`
+    );
   }
 
   /** Main timer loop for scheduling ticks. */
   private async loop(): Promise<void> {
     if (!this.running) return;
     const now = performance.now();
-    if (now >= this.nextTickAt) {
+    if (this.boundaryTransition) {
+      this.nextTickAt = now + 1000 / this.tickRateHz;
+    } else if (now >= this.nextTickAt) {
       if (this.faultReason === null) {
         try {
           await this.tick(now);
@@ -747,17 +803,33 @@ export class SimServer {
    * @returns Stats message payload.
    */
   private buildStats(): StatsMsg {
-    // Determine if we should include viz data. 
-    // We suppress viz if MT is active because main-thread brain activations are stale.
-    const includeViz = this.vizConnections.size > 0 && !this.mtActive;
+    const vizSnake = this.vizConnections.size > 0 ? this.pickVizSnake() : null;
+    const pooledViz =
+      this.mtActive &&
+      this.brainPool?.status === 'ready' &&
+      vizSnake?.populationSlot !== null &&
+      vizSnake?.populationSlot !== undefined;
+    const includeSerialViz = vizSnake !== null && !pooledViz;
+    this.core.onVizSnakePick = includeSerialViz ? () => vizSnake : null;
 
-    if (includeViz) {
-      this.core.onVizSnakePick = () => this.pickVizSnake();
-    } else {
-      this.core.onVizSnakePick = null;
+    const coreStats = this.core.buildStats(includeSerialViz);
+    if (pooledViz && vizSnake) {
+      const pool = this.brainPool;
+      const populationSlot = vizSnake.populationSlot;
+      if (pool && populationSlot !== null) {
+        const cached = pool.getCachedVisualization();
+        if (
+          cached?.populationSlot === populationSlot &&
+          cached.poolEpoch === pool.poolEpoch &&
+          cached.weightEpoch === pool.weightEpoch
+        ) {
+          coreStats.viz = cached;
+        }
+        void pool.requestVisualization(populationSlot, this.core.tickId).catch((error) => {
+          this.enterFault(error);
+        });
+      }
     }
-
-    const coreStats = this.core.buildStats(includeViz);
 
     const statsMsg: StatsMsg = {
       type: 'stats',
@@ -772,14 +844,53 @@ export class SimServer {
    */
   private pickVizSnake(): Snake | null {
     const focus = this.core.world.focusSnake;
-    if (focus && focus.alive && !this.controllers.isControlled(focus.id)) return focus;
+    if (
+      focus &&
+      focus.alive &&
+      !this.controllers.isControlled(focus.id) &&
+      (!this.mtActive || focus.populationSlot !== null)
+    ) {
+      return focus;
+    }
     for (const snake of this.core.world.snakes) {
       if (!snake.alive) continue;
       if (this.controllers.isControlled(snake.id)) continue;
+      if (this.mtActive && snake.populationSlot === null) continue;
       return snake;
     }
-    return focus ?? null;
+    if (focus?.alive && !this.controllers.isControlled(focus.id)) return focus;
+    return null;
   }
+}
+
+/**
+ * Pack dense population genomes into the exact shared worker stride layout.
+ * @param population - Population ordered by durable slot.
+ * @param paramCount - Required parameters in one population slot.
+ * @returns Packed weights whose initial contents are ready before worker init.
+ */
+function packPopulationWeights(
+  population: World['population'],
+  paramCount: number
+): Float32Array {
+  if (!Number.isSafeInteger(paramCount) || paramCount <= 0) {
+    throw new Error('mt population parameter count must be a positive safe integer');
+  }
+  const totalLength = population.length * paramCount;
+  if (!Number.isSafeInteger(totalLength)) {
+    throw new Error('mt packed population weights exceed safe integer capacity');
+  }
+  const packed = new Float32Array(totalLength);
+  for (let populationSlot = 0; populationSlot < population.length; populationSlot++) {
+    const genome = population[populationSlot];
+    if (!genome || genome.weights.length !== paramCount) {
+      throw new Error(
+        `mt population slot ${populationSlot} weight length mismatch: expected ${paramCount}, received ${genome?.weights.length ?? 0}`
+      );
+    }
+    packed.set(genome.weights, populationSlot * paramCount);
+  }
+  return packed;
 }
 
 /**

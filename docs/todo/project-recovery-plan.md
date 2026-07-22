@@ -3,12 +3,12 @@
 ## Document control
 
 - Status: authoritative, owner-approved implementation plan; Phases 0 through
-  3 are complete, and Phase 4 has not started.
+  4 are complete, and Phase 5 has not started.
 - Created: 2026-07-21.
 - Branch: `exclusive-server-mode-refactor`.
 - Audit baseline commit: `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
-- Current implementation HEAD: `51e5deda32c5861fd34c11ff9c5389ae100e814f`.
-- Last fully verified HEAD: `51e5deda32c5861fd34c11ff9c5389ae100e814f`.
+- Current implementation HEAD: `58f85b009dbc461702e7f571a4ef0ab964b4a134`.
+- Last fully verified HEAD: `58f85b009dbc461702e7f571a4ef0ab964b4a134`.
 - Baseline worktree: clean before the two planning-document changes.
 - Current expected worktree changes are recorded under "Live execution status".
 - Scope owner: the repository owner.
@@ -63,10 +63,20 @@ progresses.
   unstarted.
 - 2026-07-22: Committed the owner-requested Phase 2 checkpoint metadata as
   `51e5ded`, then began Phase 3 from its clean worktree. The commit is local and
-  has not been pushed.
+  was pushed immediately before the later Phase 3 implementation commit.
 - 2026-07-22: Completed Phase 3 with immutable native/JS backend selection,
   checked Rust N-API boundaries, source-derived addon identity, required-native
   tests, and existing-matrix CI coverage. Phase 4 was not started.
+- 2026-07-22: The owner approved the detailed Phase 3 commit message. Staged
+  only the verified Phase 3 scope, committed it as `58f85b0`, and pushed it;
+  the local branch and upstream are synchronized. Phase 4 remains unstarted.
+- 2026-07-22: Began Phase 4 from synchronized HEAD `58f85b0`, preserving the
+  post-commit plan checkpoint and content-identical `AGENTS.md` status marker.
+- 2026-07-22: Completed Phase 4 with one canonical Node worker pool, stable
+  recurrent slot ownership, pool/weight epochs, awaited generation and reset
+  boundaries, deterministic native worker parity, explicit fault recovery,
+  tagged MT visualization, and 233 passing JavaScript tests. Phase 5 was not
+  started.
 
 ## How to resume this work
 
@@ -367,6 +377,8 @@ deleted files are evidence and reference material, not specifications to copy.
 | MT-008 | Server startup does not await asynchronous MT initialization | `startServer` calls `simServer.start()` without awaiting | 4 |
 | MT-009 | Visualizer data is intentionally suppressed whenever MT is active | `SimServer.buildStats` | 4 |
 | MT-010 | The async World path mutates pre-inference state before pooled inference resolves | `World.updateAsync` / `_stepPhysicsAsync` and `SimServer.tick` | 1 and 4 |
+| MT-011 | Copying a new shared weight epoch does not update graph operators that copied their constructor weights | `GraphBrain` operator construction and the candidate pool reset path | 4 |
+| MT-012 | MT visualization can select a baseline or other null-slot focus snake and never request its owning worker | `SimServer.pickVizSnake` and `SimServer.buildStats` | 4 |
 | SNS-001 | `prepareForStep` overwrites the score marker immediately before neural sensing | `Snake.prepareForStep` and sensor index 8 | 5 |
 | SNS-002 | External and neural controllers sample score delta at different lifecycle points | `World._publishControllerSensors` versus physics control evaluation | 5 |
 | UI-001 | Live controls mutate browser `CFG` only | `main.ts liveUpdateFromSlider` | 6 |
@@ -1034,47 +1046,47 @@ within a pool epoch and can change only at a recurrent-reset boundary.
 
 ### Detailed checklist
 
-- [ ] Promote `server/brainPool.ts` as the canonical lifecycle foundation.
-- [ ] Define one parent/worker message protocol with batch IDs, pool
+- [x] Promote `server/brainPool.ts` as the canonical lifecycle foundation.
+- [x] Define one parent/worker message protocol with batch IDs, pool
   epoch, weight epoch, and reset acknowledgement. Keep evolutionary generation
   separate from pool lifecycle.
-- [ ] Cap automatic worker count by CPU count and population size; add a
+- [x] Cap automatic worker count by CPU count and population size; add a
   conservative upper bound pending benchmarks.
-- [ ] Allocate shared input, output, index, and population-weight buffers with
+- [x] Allocate shared input, output, index, and population-weight buffers with
   validated capacities.
-- [ ] Copy initial population weights during pool initialization.
-- [ ] Construct worker brains only after native/JS backend readiness.
-- [ ] Construct only the slots owned by each worker.
-- [ ] Dispatch batches without changing slot ownership.
-- [ ] Route noncontiguous batch entries explicitly: recurrent state indexes by
+- [x] Copy initial population weights during pool initialization.
+- [x] Construct worker brains only after native/JS backend readiness.
+- [x] Construct only the slots owned by each worker.
+- [x] Dispatch batches without changing slot ownership.
+- [x] Route noncontiguous batch entries explicitly: recurrent state indexes by
   population slot while output indexes by batch position.
-- [ ] Ignore or reject stale completion messages by batch ID and epoch.
-- [ ] Add inference timeout, init timeout, reset timeout, worker error, and
+- [x] Ignore or reject stale completion messages by batch ID and epoch.
+- [x] Add inference timeout, init timeout, reset timeout, worker error, and
   unexpected-exit handling.
-- [ ] Prevent concurrent in-flight batches.
-- [ ] On new generation, copy new weights, advance weight epoch, reset all
+- [x] Prevent concurrent in-flight batches.
+- [x] On new generation, copy new weights, advance weight epoch, reset all
   recurrent brains, and await acknowledgement before inference.
-- [ ] On import/reset/architecture change, rebuild the pool deliberately.
-- [ ] Apply worker-count and backend changes only while rebuilding at a
+- [x] On import/reset/architecture change, rebuild the pool deliberately.
+- [x] Apply worker-count and backend changes only while rebuilding at a
   recurrent-reset boundary.
-- [ ] Keep MLP, GRU, LSTM, and RRU behavior under the same pool abstraction.
-- [ ] Batch only snakes with a valid population slot.
-- [ ] Run resurrected and unowned external neural snakes through their own
+- [x] Keep MLP, GRU, LSTM, and RRU behavior under the same pool abstraction.
+- [x] Batch only snakes with a valid population slot.
+- [x] Run resurrected and unowned external neural snakes through their own
   main-thread native brains.
-- [ ] On worker error, unexpected exit, inference timeout, epoch mismatch, or
+- [x] On worker error, unexpected exit, inference timeout, epoch mismatch, or
   unrecoverable protocol violation, reject the in-flight step and enter the
   faulted state defined by DEC-005. Keep status available; allow only explicit
   Reset, New Run, or checkpoint-resume recovery.
-- [ ] Never rebuild a failed pool and continue mid-generation. Pool rebuild is
+- [x] Never rebuild a failed pool and continue mid-generation. Pool rebuild is
   safe only at a new-generation, import, reset, resume, architecture, backend,
   or worker-count boundary where recurrent state is defined as zero.
-- [ ] Await pool shutdown during server close.
-- [ ] Add a rate-limited visualization request for the selected slot and return
+- [x] Await pool shutdown during server close.
+- [x] Add a rate-limited visualization request for the selected slot and return
   activations tagged with slot, simulation step, pool epoch, and weight epoch
   from its owner worker. Discard delayed mismatched responses.
-- [ ] Remove the duplicate active chain under `src/sim` and `src/worker` only
+- [x] Remove the duplicate active chain under `src/sim` and `src/worker` only
   after replacement tests pass.
-- [ ] Remove tests that cover only the deleted duplicate, replacing them with
+- [x] Remove tests that cover only the deleted duplicate, replacing them with
   canonical-pool tests.
 
 ### Required test matrix
@@ -1090,30 +1102,30 @@ Run each relevant row with 1, 2, and 4 workers:
 
 Scenarios:
 
-- [ ] Initial inference uses nonzero expected population weights.
-- [ ] Shuffled batch order preserves outputs.
-- [ ] Pool lifecycle, weights, shuffled batches, and worker-count equality pass
+- [x] Initial inference uses nonzero expected population weights.
+- [x] Shuffled batch order preserves outputs.
+- [x] Pool lifecycle, weights, shuffled batches, and worker-count equality pass
   for all four brain families.
-- [ ] Deaths and shrinking batches preserve GRU/LSTM/RRU recurrent history.
-- [ ] A recurrent snake absent for several batches retains its own state.
-- [ ] Generation transition applies new weights and zeroes old state.
-- [ ] Architecture change rebuilds buffers and brains.
-- [ ] Resurrected snake does not overflow population buffers.
-- [ ] Released external snake uses a valid serial brain.
-- [ ] Worker crash rejects in-flight work and surfaces server failure.
-- [ ] A worker crash publishes no successful step/frame, causes no fallback,
+- [x] Deaths and shrinking batches preserve GRU/LSTM/RRU recurrent history.
+- [x] A recurrent snake absent for several batches retains its own state.
+- [x] Generation transition applies new weights and zeroes old state.
+- [x] Architecture change rebuilds buffers and brains.
+- [x] Resurrected snake does not overflow population buffers.
+- [x] Released external snake uses a valid serial brain.
+- [x] Worker crash rejects in-flight work and surfaces server failure.
+- [x] A worker crash publishes no successful step/frame, causes no fallback,
   and prevents further steps until explicit boundary recovery.
-- [ ] Stale completion cannot finish a later batch.
-- [ ] Native is reported active inside every native worker.
-- [ ] Selected-brain visualization is available under MT.
+- [x] Stale completion cannot finish a later batch.
+- [x] Native is reported active inside every native worker.
+- [x] Selected-brain visualization is available under MT.
 
 ### Acceptance gate
 
-- [ ] Within one code/runtime/addon build, the same native seed/run is identical
+- [x] Within one code/runtime/addon build, the same native seed/run is identical
   across 1, 2, and 4 workers.
-- [ ] Recurrent tests survive deaths and repartitioning.
-- [ ] Only one production Node brain pool remains.
-- [ ] MT and native are demonstrably active together.
+- [x] Recurrent tests survive deaths and repartitioning.
+- [x] Only one production Node brain pool remains.
+- [x] MT and native are demonstrably active together.
 
 ## Phase 5: Score-delta sensor semantics
 
@@ -1810,59 +1822,65 @@ The recovery is complete only when:
 
 ## Live execution status
 
-- Current phase: Phase 3 is complete; Phase 4 has not started.
-- Active checklist item: none. Every Phase 3 detailed-checklist,
-  required-test, and acceptance-gate item is complete and verified.
-- Last completed work: tightened the final raw-pointer safety scopes, rebuilt
-  and loaded the source-identified addon, reran the focused native/server gate
-  and complete JavaScript suite, and recorded this completion handoff.
-- Source implementation status: the fully verified Phase 3 worktree is
-  uncommitted atop `51e5ded`. The branch is one local plan-only commit ahead of
-  upstream; no Phase 3 file was staged, committed, or pushed.
+- Current phase: Phase 4 is complete; Phase 5 has not started.
+- Active checklist item: none. Every Phase 4 detailed-checklist, required-test,
+  and acceptance-gate item is complete and verified.
+- Last completed work: passed the full 51-file/233-test JavaScript suite,
+  strict TypeScript, repository-wide ESLint, Vite production build, three Rust
+  release tests, stale-duplicate scan, and diff-hygiene gate after removing the
+  obsolete worker chain.
+- Source implementation status: the fully verified Phase 4 worktree is
+  uncommitted atop synchronized HEAD `58f85b0`; nothing is staged or pushed.
 - Current blocker: none.
-- Next action: await owner direction. Do not begin Phase 4 without a new owner
-  request; if a commit is requested, review and stage the deliberate Phase 3
-  patch without staging the content-identical `AGENTS.md` status artifact.
+- Next action: await owner direction. Do not begin Phase 5 in this pass and do
+  not commit or push without an explicit owner request.
 - Current implementation HEAD:
-  `51e5deda32c5861fd34c11ff9c5389ae100e814f`.
+  `58f85b009dbc461702e7f571a4ef0ab964b4a134`.
 - Last fully verified HEAD:
-  `51e5deda32c5861fd34c11ff9c5389ae100e814f`.
-- Verification scope note: every current Phase 3 source, test, native-package,
-  and CI edit in the uncommitted worktree atop that HEAD passed the focused and
-  broad gates recorded below.
-- Last successful phase acceptance gate: Phase 3 native kernel safety and
-  runtime activation.
+  `58f85b009dbc461702e7f571a4ef0ab964b4a134`.
+- Verification scope note: the complete dirty-file set recorded below is the
+  fully verified Phase 4 worktree atop the unchanged committed HEAD.
+- Last successful phase acceptance gate: Phase 4 canonical MT inference with
+  stable recurrent state.
 - Exact dirty-file summary:
-  - content-modified tracked files: `.github/workflows/CI.yml`,
-    `docs/todo/project-recovery-plan.md`, `native/Cargo.toml`,
-    `native/build.rs`, `native/package-lock.json`, `native/package.json`,
-    `native/src/lib.rs`, `package.json`, `server/brainPool.test.ts`,
-    `server/brainPool.ts`, `server/config.ts`, `server/index.ts`,
-    `server/inferenceMode.test.ts`, `server/inferenceMode.ts`,
+  - content-modified tracked files: `docs/todo/project-recovery-plan.md`,
+    `server/brainPool.ts`, `server/httpApi.ts`, `server/index.ts`,
+    `server/inferenceMode.ts`,
+    `server/recoveryPhase0.characterization.test.ts`,
     `server/recoveryPhase2.determinism.test.ts`, `server/simServer.ts`,
-    `server/worker/inferWorker.ts`, `src/brains/graph/runtime.ts`,
-    `src/brains/nativeBridge.test.ts`, `src/brains/nativeBridge.ts`,
-    `src/brains/ops.ts`, `src/brains/registry.ts`, `src/mlp.ts`,
-    `src/sim/NodeBrainPool.ts`, `src/sim/SimCore.ts`, `src/snake.ts`,
-    `src/worker/inferWorker.ts`, and `src/world.ts`;
+    `server/worker/inferWorker.ts`, `server/wsHub.ts`,
+    `src/protocol/messages.ts`, and `src/sim/SimCore.ts`;
   - status-only artifact: Git reports `AGENTS.md` modified, but
     `git diff -- AGENTS.md` is empty and its worktree/HEAD blob IDs both equal
     `b7c033c5de793219e590a8382befadb417d77915`; it was not edited;
-  - deleted tracked files: `native/src/SIMD_Kernals.rs` as the old side of the
-    isolated rename, and obsolete `server/native-backend.ts`;
-  - untracked files: `native/src/simd_kernels.rs` as the new side of the
-    isolated rename, `server/recoveryPhase3.native.test.ts`, and
-    `src/brains/nativeBridge.missing.test.ts`;
+  - deleted tracked files: `src/sim/BaseBrainPool.ts`,
+    `src/sim/NodeBrainPool.ts`, `src/sim/poolProtocol.ts`, and
+    `src/worker/inferWorker.ts`;
+  - untracked files: `server/brainPoolProtocol.ts`,
+    `server/recoveryPhase4.brainPool.test.ts`,
+    `server/recoveryPhase4.simServer.test.ts`, and
+    `server/test/stallBrainPoolWorker.ts`;
   - staged: none.
-- Last full JS test result: 49 files, 209 tests passed.
-- Last Rust test result: 3 release tests passed after the final safety edit.
-- Last TypeScript result: passed after all Phase 3 TypeScript/test edits.
+- Last full JS test result: 51 files, 233 tests passed.
+- Last Rust test result: 3 release tests passed.
+- Last TypeScript result: passed against the completed Phase 4 worktree.
+- Pre-change Phase 4 baseline: 4 files, 11 tests passed. Command:
+  `node .\node_modules\vitest\vitest.mjs run server\brainPool.test.ts
+  server\recoveryPhase0.characterization.test.ts
+  server\recoveryPhase1.lifecycle.test.ts server\inferenceMode.test.ts
+  --reporter=dot`.
+- Latest focused Phase 4 pool result: 2 files, 21 tests passed. Command:
+  `node .\node_modules\vitest\vitest.mjs run server\brainPool.test.ts
+  server\recoveryPhase4.brainPool.test.ts --reporter=dot`.
+- Latest focused Phase 4 SimServer result: 1 file, 6 tests passed. Command:
+  `node .\node_modules\vitest\vitest.mjs run
+  server\recoveryPhase4.simServer.test.ts --reporter=dot`.
 - Pre-change Phase 3 baseline: 2 files, 9 tests passed.
 - Last focused Phase 3 result: 7 files, 42 tests passed against the final
   rebuilt addon.
 - Last focused Phase 2 result: 2 files, 22 tests passed in the prior phase.
 - Last focused Phase 1 result: 5 files, 17 tests passed.
-- Last ESLint result: passed.
+- Last ESLint result: repository-wide pass.
 - Last client-build result: passed with the existing `node:module`
   browser-externalization warning from `nativeBridge`.
 - Loaded native build identifier:
@@ -2387,6 +2405,199 @@ The recovery is complete only when:
   blocker remains.
 - Last successful acceptance gate: Phase 3 native kernel safety and runtime
   activation. Await explicit owner direction before Phase 4.
+
+### 2026-07-22 — Phase 3 post-commit synchronization
+
+- Pushed the existing local plan checkpoint
+  `51e5deda32c5861fd34c11ff9c5389ae100e814f` to
+  `origin/exclusive-server-mode-refactor`, then verified divergence `0 0`.
+- After the owner approved the proposed Phase 3 message, inspected the complete
+  unstaged name/status and diff summary. Explicitly staged the 33 deliberate
+  Phase 3 paths, including the Rust filename replacement and obsolete adapter
+  deletion. The content-identical `AGENTS.md` status artifact was excluded.
+- `git diff --cached --check` passed, and the staged summary contained only the
+  reviewed Phase 3 source, tests, native package, CI, and recovery-plan scope.
+- Created commit `58f85b009dbc461702e7f571a4ef0ab964b4a134` with subject
+  `Complete Phase 3 native safety and activation` and the owner-reviewed body.
+  The commit records 33 files, 2,685 insertions, and 4,954 deletions.
+- Pushed `58f85b0` to `origin/exclusive-server-mode-refactor` and verified the
+  local branch and upstream are synchronized at divergence `0 0`.
+- No validation command was rerun after committing because the commit tree is
+  exactly the already verified staged tree. The last results remain 42 focused
+  Phase 3 tests, all 209 JavaScript tests across 49 files, 3 Rust release tests,
+  and passing TypeScript, ESLint, rustfmt, Clippy, Vite build, addon-load, and
+  diff-hygiene checks.
+- Current implementation HEAD and last fully verified HEAD are both
+  `58f85b009dbc461702e7f571a4ef0ab964b4a134`. Last successful acceptance gate
+  remains Phase 3 native kernel safety and runtime activation.
+- Current blocker: none. The exact current worktree is this unstaged plan
+  synchronization plus the content-identical `AGENTS.md` status artifact; no
+  staged, deleted, or untracked path remains. Phase 4 has not started.
+
+### 2026-07-22 — Phase 4 start
+
+- Owner authorized the next phase and asked that the content-identical
+  `AGENTS.md` marker be left alone until later documentation work updates it.
+- Verified repository root `C:/Users/jlow8/source/repos/slither_neuroevo`,
+  branch `exclusive-server-mode-refactor`, HEAD
+  `58f85b009dbc461702e7f571a4ef0ab964b4a134`, and upstream divergence `0 0`.
+- Preserved the exact starting worktree: unstaged
+  `docs/todo/project-recovery-plan.md` post-commit metadata plus the
+  byte-identical `AGENTS.md` status marker. No path was staged, deleted, or
+  untracked.
+- Re-read the Phase 4 worker-ownership design, detailed checklist, required
+  matrix, DEC-005/DEC-006, user consultation gates, and repository-root
+  `AGENTS.md`. No consultation gate is active.
+- The first Phase 4 action is a local source audit of both pool/worker chains,
+  World batch routing, generation/reset boundaries, fault propagation,
+  diagnostics, and selected-slot visualization, followed by the smallest
+  current MT lifecycle baseline. Phase 5 has not started.
+- The audit confirmed that production still uses
+  `src/sim/NodeBrainPool.ts`/`src/worker/inferWorker.ts`, while
+  `server/brainPool.ts`/`server/worker/inferWorker.ts` is the stronger but
+  test-only candidate. The production chain does not copy initial population
+  weights, and the candidate constructs every population brain in every worker
+  and partitions current batch positions, so neither chain satisfies stable
+  recurrent ownership.
+- `World` already supplies durable `populationSlot` indices and keeps
+  slot-less baseline, resurrected, disconnected, and manual snakes on serial
+  inference. The replacement can preserve this existing batch contract.
+- `SimCore.update()` can commit more than one fixed step per outer server pump.
+  Generation synchronization therefore needs an awaited post-step boundary
+  before a subsequent fixed step, not only the existing once-per-pump check.
+- Focused pre-change command:
+  `node .\node_modules\vitest\vitest.mjs run server\brainPool.test.ts
+  server\recoveryPhase0.characterization.test.ts
+  server\recoveryPhase1.lifecycle.test.ts server\inferenceMode.test.ts
+  --reporter=dot`; result: 4 files and 11 tests passed. It reproduced the
+  expected expiring `MT-002` zero-weight behavior.
+- Added `server/brainPoolProtocol.ts` as the sole canonical parent/worker
+  protocol and replaced the candidate pool/worker internals. Workers now
+  construct only modulo-owned slots, scan explicit noncontiguous batch
+  positions, acknowledge pool/weight epochs, report active backend/build
+  identity, and return tagged activation snapshots from the selected slot.
+- `server/recoveryPhase4.brainPool.test.ts` exercises MLP, GRU, LSTM, and RRU
+  under JS and native backends for 1, 2, and 4 requested workers. Shuffled and
+  shrinking batches, absent recurrent slots, initial nonzero weights, new
+  generation reset, architecture reinitialization, stale completions,
+  injected worker failure, capacity validation, and MT visualization pass.
+- The first matrix run found newly registered `MT-011`: graph operators copy
+  their constructor weights, so copying the shared population buffer did not
+  update existing recurrent kernels. The reset protocol now rebinds each owned
+  brain to its shared slot before zeroing state. The focused rerun passed 16/16
+  tests across 2 files; TypeScript and focused ESLint also pass.
+- Production integration found newly registered `MT-012`: the existing
+  visualizer selector could choose a baseline/null-slot focus under MT and
+  therefore issue no worker request. MT selection now prefers an alive,
+  uncontrolled population slot, while preserving the serial/unowned fallback.
+  The SimServer integration rerun passed 5/5 tests.
+- Current blocker: none. Last successful acceptance gate remains Phase 3
+  native kernel safety and runtime activation.
+
+### 2026-07-22 — Phase 4 completion handoff
+
+- Completed every Phase 4 detailed-checklist, required-test, and acceptance
+  item. Phase 5 has not started.
+- Promoted `server/brainPool.ts` into the sole production Node pool and added
+  `server/brainPoolProtocol.ts` as the one shared parent/worker contract.
+  Pool lifecycle and population weights now use separate monotonic epochs;
+  batch completions also carry a monotonic batch id.
+- Pool initialization validates exact shared capacities, copies nonzero
+  population weights before worker construction, caps workers by available
+  CPUs, population size, and a conservative eight-worker ceiling, and requires
+  every worker to report the requested backend and native build identity.
+- Each worker constructs only slots satisfying the stable modulo ownership
+  rule. Every worker scans the explicit current batch positions and evaluates
+  only owned durable population slots, so batch shuffling, deaths, shrinking
+  batches, and temporarily absent recurrent snakes do not migrate GRU/LSTM/RRU
+  state. Slot-less baseline, external, and resurrected snakes remain on their
+  own serial main-thread brains.
+- New generation synchronization copies the complete population, advances the
+  weight epoch, rebinds graph operators to their shared slot, zeroes recurrent
+  state, and awaits every reset acknowledgement. `SimCore` now awaits a
+  post-commit hook between fixed steps, so a generation transition inside a
+  multi-step scheduler pump is synchronized before the next inference.
+- Reset, New Run, successful import, and architecture changes execute behind a
+  server boundary barrier, await old-pool shutdown, deliberately build a new
+  pool epoch, and clear a prior fault only after rebuild succeeds. A failed
+  worker, timeout, unexpected exit, future/mismatched epoch, or protocol
+  violation never enables serial fallback or mid-generation pool rebuilding.
+- Worker faults reject the authoritative step, publish no successful frame,
+  stats, or checkpoint from that tick, retain health/status access, and
+  broadcast a structured error. A focused test proves later ticks remain
+  prohibited until explicit New Run recovery creates a fresh pool epoch.
+- MT visualization now requests the selected population slot from its owning
+  worker, rate-limits requests, tags activation snapshots with slot, simulation
+  step, pool epoch, and weight epoch, and filters stale or mismatched cached
+  results. Under MT, selection prefers an alive uncontrolled population slot
+  while retaining serial fallback for a genuinely unowned selection.
+- Replacement coverage passed before deleting
+  `src/sim/BaseBrainPool.ts`, `src/sim/NodeBrainPool.ts`,
+  `src/sim/poolProtocol.ts`, and `src/worker/inferWorker.ts`. The expiring
+  `MT-002` Phase 0 characterization was converted rather than preserving a
+  test for deleted behavior. Static scans find no remaining production
+  `NodeBrainPool`, `BaseBrainPool`, `IBrainPool`, or duplicate protocol use.
+- Required matrix evidence:
+  - MLP, GRU, LSTM, and RRU each match their serial reference under native and
+    JS diagnostic backends for 1, 2, and 4 requested workers;
+  - shuffled and shrinking batches plus absent slots preserve recurrent
+    history and produce identical histories across worker counts;
+  - a complete native SimServer seed/run produces the same authoritative
+    digest for 1, 2, and 4 requested workers;
+  - native backend/build identity is reported by every native worker;
+  - initial weights, generation reset, architecture/reset/import rebuild,
+    stale completion, concurrent dispatch rejection, init/infer/reset timeout,
+    unexpected exit, selected-slot visualization, and fault recovery contracts
+    are covered.
+- Newly discovered `MT-011` was fixed: graph operators copy constructor
+  weights, so reset now rebinds every owned brain after the shared copy and
+  before state reset. Newly discovered `MT-012` was fixed: MT visualization no
+  longer stalls on a baseline/null-slot focus. No newly discovered blocker
+  remains.
+- Verification commands and results:
+  - pre-change baseline:
+    `node .\node_modules\vitest\vitest.mjs run server\brainPool.test.ts
+    server\recoveryPhase0.characterization.test.ts
+    server\recoveryPhase1.lifecycle.test.ts server\inferenceMode.test.ts
+    --reporter=dot`; 4 files and 11 tests passed;
+  - canonical pool matrix/lifecycle:
+    `node .\node_modules\vitest\vitest.mjs run server\brainPool.test.ts
+    server\recoveryPhase4.brainPool.test.ts --reporter=dot`; 2 files and 21
+    tests passed;
+  - production MT integration:
+    `node .\node_modules\vitest\vitest.mjs run
+    server\recoveryPhase4.simServer.test.ts --reporter=dot`; 1 file and 6
+    tests passed;
+  - post-consolidation focused regression command over 9 files passed 58 tests
+    before the final lifecycle additions; all those tests are included in the
+    later complete suite;
+  - `node .\node_modules\vitest\vitest.mjs run --reporter=dot`; all 233 tests
+    across 51 files passed;
+  - `node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false`;
+    passed;
+  - `node .\node_modules\eslint\bin\eslint.js .`; passed;
+  - `node .\node_modules\vite\bin\vite.js build`; passed with the existing
+    `node:module` browser-externalization warning from `nativeBridge`;
+  - `cargo test --manifest-path native\Cargo.toml --release`; 3 tests passed,
+    with the existing home-path canonicalization warning;
+  - `git diff --check`; passed, with only the existing LF-to-CRLF working-copy
+    warnings in the combined final audit;
+  - stale-chain scan and remaining-worker-file listing passed: production now
+    contains only `server/worker/inferWorker.ts`, while `src/sim` contains only
+    `SimCore.ts` and its test.
+- Repository state at completion:
+  - root: `C:/Users/jlow8/source/repos/slither_neuroevo`;
+  - branch: `exclusive-server-mode-refactor`;
+  - current implementation HEAD and last fully verified committed HEAD:
+    `58f85b009dbc461702e7f571a4ef0ab964b4a134`;
+  - upstream divergence: `0 0`;
+  - exact modified, deleted, untracked, status-only, and staged paths are listed
+    under "Live execution status". `AGENTS.md` remains untouched and
+    content-identical to HEAD despite its preserved status marker;
+  - no Phase 4 file is staged, committed, or pushed.
+- Last successful acceptance gate: Phase 4 canonical MT inference with stable
+  recurrent state. Current blocker: none. Await explicit owner direction before
+  Phase 5.
 
 ## Verification command reference
 

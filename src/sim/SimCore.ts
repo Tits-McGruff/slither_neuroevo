@@ -25,6 +25,9 @@ import type {
   VizData
 } from '../protocol/messages.ts';
 
+/** Observer awaited after one World step becomes authoritative. */
+export type StepCommittedHook = (world: World, tickId: number) => void | Promise<void>;
+
 /** Default hard limit for complete fixed steps executed by one scheduler pump. */
 const DEFAULT_MAX_STEPS_PER_PUMP = 120;
 /** Monotonic process-local identity source that never consumes simulation RNG. */
@@ -128,6 +131,8 @@ export interface SimCoreOptions {
   inferenceBackend?: InferenceBackend;
   /** Optional exact pre-spawn generation-boundary observer. */
   onGenerationBoundary?: GenerationBoundaryHook;
+  /** Optional async observer awaited between committed fixed steps. */
+  onStepCommitted?: StepCommittedHook;
   /** Optional brain pool for batch inference. */
   brainPool?: BatchInferenceRunner | null;
   /** Tick rate in Hz (simulation updates per second). */
@@ -154,6 +159,9 @@ export class SimCore {
 
   /** Boundary observer preserved across Reset and New Run reconstruction. */
   private generationBoundaryHook: GenerationBoundaryHook | null;
+
+  /** Observer awaited after each committed step and before the next one. */
+  private stepCommittedHook: StepCommittedHook | null;
 
   /** Current tick ID. */
   tickId: number = 0;
@@ -210,6 +218,7 @@ export class SimCore {
     this.runId = normalizeRunId(options.runId, this.worldSeed);
     this.inferenceBackend = options.inferenceBackend ?? 'js';
     this.generationBoundaryHook = options.onGenerationBoundary ?? null;
+    this.stepCommittedHook = options.onStepCommitted ?? null;
     this.world = new World(options.settings || {}, {
       seed: this.worldSeed,
       inferenceBackend: this.inferenceBackend,
@@ -289,6 +298,9 @@ export class SimCore {
         this.accumulator = Math.max(0, this.accumulator - this.fixedDt);
         this.totalSimulatedSeconds += this.fixedDt;
         this.completedStepsThisPump += 1;
+        if (this.stepCommittedHook) {
+          await this.stepCommittedHook(this.world, this.tickId);
+        }
       }
     } finally {
       if (this.accumulator < roundingAllowance) this.accumulator = 0;

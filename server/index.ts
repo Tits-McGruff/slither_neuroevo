@@ -95,8 +95,10 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
       };
     },
     getWorld: () => simServer?.getWorld() ?? null,
-    importPopulation: (data) =>
-      simServer?.importPopulation(data) ?? { ok: false, reason: 'world not ready' },
+    importPopulation: async (data) =>
+      simServer
+        ? simServer.importPopulation(data)
+        : { ok: false, reason: 'world not ready' },
     persistence,
     cfgHash,
     worldSeed,
