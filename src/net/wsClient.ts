@@ -22,11 +22,6 @@ export interface WelcomeInferenceMode {
   activeWorkerCount: number;
 }
 
-/** Default WebSocket URL injected at build time. */
-declare const __SLITHER_DEFAULT_WS_URL__: string | undefined;
-/** Server port injected at build time. */
-declare const __SLITHER_SERVER_PORT__: number | undefined;
-
 /** Welcome message payload from the server. */
 export interface WelcomeMsg {
   type: 'welcome';
@@ -194,12 +189,32 @@ export interface WsClient {
   isConnected: () => boolean;
 }
 
-/** Default server URL used when none is configured. */
 /** Build-time server URL from Vite when configured. */
 const INJECTED_SERVER_URL =
-  typeof __SLITHER_DEFAULT_WS_URL__ === 'string' ? __SLITHER_DEFAULT_WS_URL__ : '';
+  typeof import.meta.env.SLITHER_DEFAULT_WS_URL === 'string'
+    ? import.meta.env.SLITHER_DEFAULT_WS_URL
+    : '';
 /** Default server URL used when no runtime host is available. */
 export const DEFAULT_SERVER_URL = 'ws://localhost:5174';
+
+/**
+ * Format the concise server identity shown in the browser status pill.
+ * @param worldSeed - Active authoritative run seed.
+ * @param inferenceMode - Active math backend and worker count from welcome.
+ * @returns Human-readable server, seed, and inference-mode label.
+ */
+export function formatServerRuntimeStatus(
+  worldSeed: number,
+  inferenceMode: WelcomeInferenceMode
+): string {
+  const seed = Number.isFinite(worldSeed) ? worldSeed >>> 0 : 0;
+  const backend = inferenceMode.activeBackend.trim() || 'unknown';
+  const workerCount = Number.isFinite(inferenceMode.activeWorkerCount)
+    ? Math.max(0, Math.floor(inferenceMode.activeWorkerCount))
+    : 0;
+  const threading = workerCount > 0 ? `MT×${workerCount}` : 'single-thread';
+  return `Server · seed ${seed} · ${backend} ${threading}`;
+}
 
 /**
  * Format a host for URL usage, adding brackets for IPv6 literals.
@@ -213,14 +228,16 @@ function formatHostForUrl(host: string): string {
 
 /**
  * Resolve the default server URL from injected config and runtime location.
+ * @param configuredUrl - Build-time configured server URL, if any.
  * @returns Default WebSocket URL when no explicit override is provided.
  */
-export function getDefaultServerUrl(): string {
-  const injected = INJECTED_SERVER_URL.trim();
+export function getDefaultServerUrl(configuredUrl = INJECTED_SERVER_URL): string {
+  const injected = configuredUrl.trim();
   if (injected) return injected;
+  const configuredPort = import.meta.env.SLITHER_SERVER_PORT;
   const port =
-    typeof __SLITHER_SERVER_PORT__ === 'number' && Number.isFinite(__SLITHER_SERVER_PORT__)
-      ? __SLITHER_SERVER_PORT__
+    typeof configuredPort === 'number' && Number.isFinite(configuredPort)
+      ? configuredPort
       : 5174;
   if (typeof window !== 'undefined' && window.location) {
     const host = window.location.hostname || '';

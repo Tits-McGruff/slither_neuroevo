@@ -114,9 +114,13 @@ function pickLanIpv4(): string | null {
 /**
  * Resolve UI defaults from the server TOML config.
  * @param raw - Raw TOML config data.
+ * @param detectedLanIpv4 - Detected non-loopback address used for wildcard binds.
  * @returns Resolved UI defaults.
  */
-function resolveUiDefaults(raw: ServerTomlConfig): UiDefaults {
+export function resolveUiDefaults(
+  raw: ServerTomlConfig,
+  detectedLanIpv4: string | null = pickLanIpv4()
+): UiDefaults {
   const defaultServerPort = 5174;
   const defaultUiHost = "127.0.0.1";
   const defaultUiPort = 5173;
@@ -136,7 +140,7 @@ function resolveUiDefaults(raw: ServerTomlConfig): UiDefaults {
   const hmrHost =
     uiHost && uiHost !== "0.0.0.0" && uiHost !== "::"
       ? uiHost
-      : publicHost || pickLanIpv4() || undefined;
+      : publicHost || detectedLanIpv4 || undefined;
 
   return {
     uiHost,
@@ -151,7 +155,7 @@ function resolveUiDefaults(raw: ServerTomlConfig): UiDefaults {
  * Build the Vite configuration using server TOML defaults.
  * @returns Vite config object.
  */
-function buildViteConfig() {
+export function buildViteConfig() {
   const configPath = resolveServerConfigPath();
   const rawConfig = loadTomlConfig(configPath);
   const defaults = resolveUiDefaults(rawConfig);
@@ -184,13 +188,12 @@ function buildViteConfig() {
       outDir: "dist",
       emptyOutDir: true
     },
-    assetsInclude: ["**/*.wasm"],
     test: {
       setupFiles: ["src/test/vitest.setup.ts"]
     },
     define: {
-      __SLITHER_DEFAULT_WS_URL__: JSON.stringify(defaults.publicWsUrl),
-      __SLITHER_SERVER_PORT__: JSON.stringify(defaults.serverPort)
+      'import.meta.env.SLITHER_DEFAULT_WS_URL': JSON.stringify(defaults.publicWsUrl),
+      'import.meta.env.SLITHER_SERVER_PORT': JSON.stringify(defaults.serverPort)
     },
     server: serverConfig
   };

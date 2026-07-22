@@ -4,7 +4,7 @@ import {
   lstmParamCount,
   mlpParamCount,
   rruParamCount
-} from '../ops.ts';
+} from '../parameterCounts.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphOutputRef, GraphSpec } from './schema.ts';
 
 /** Input reference for a compiled node. */

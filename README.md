@@ -4,18 +4,20 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 
 ## Key Features
 
-- **High-Performance Core**: Unified `SimCore` engine ensures consistent physics and neural logic.
-- **Native Rust Engine**: High-performance native SIMD backend via N-API (`slither-native`) for maximum server throughput (no WASM/worker fallback).
-- **Multi-Threaded Inference**: Multi-core brain pool (`IBrainPool`) utilizes all server CPU cores for parallel inference (300+ snakes at 60 FPS).
+- **Server-authoritative core**: One fixed-step `SimCore`/`World` pipeline owns physics, sensors, evolution, and command ordering.
+- **Native neural kernels**: The normal backend uses x86_64 Rust N-API kernels for Dense, MLP, GRU, LSTM, and RRU math. Rust does not implement the simulation world.
+- **Optional multi-threaded inference**: A server worker pool can use the same native kernels without changing backend semantics.
 - **Deep Evolution**: Supports MLP, GRU, LSTM, and RRU architectures with complex genetic operators and a modular graph editor.
-- **Robust Persistence**: SQLite-backed server mode capable of saving/loading massive generations with chunked binary serialization.
+- **Deterministic run controls**: Reset repeats a seed; New Run starts and checkpoints a different seed.
+- **Bounded persistence**: Current SQLite checkpoints store one validated binary row per population genome and retain read-only compatibility with legacy blobs.
 
 ## Quick start
 
 ### Prerequisites
 
-- **Node.js**: v20+ (LTS recommended)
+- **Node.js**: v22 or newer
 - **Rust**: Required for compiling the native acceleration layer. Install via [rustup.rs](https://rustup.rs).
+- **Windows build tools**: Visual Studio C++ build tools and a Windows SDK are required by native dependencies.
 
 ### Running
 
@@ -23,49 +25,94 @@ The simulation runs in a server-authoritative mode. You must start the simulatio
 
 ```bash
 npm install
+npm --prefix native run build
 npm run server
 npm run dev
 ```
 
-`npm install` also installs the native package (postinstall). The native SIMD
-addon is built automatically by `npm run build` and `npm test`. To build it
-directly:
+`npm install` installs both root and native-package dependencies. Normal server
+startup requires the addon; it does not silently fall back to JavaScript. The
+root `npm run build` command builds both the addon and production client. To
+build only the addon, use the command above or run this from `native/`:
 
 ```bash
 cd native
 npm run build
 ```
 
-For a JavaScript-only QA pass after the addon is built, use
-`npm run test:js`. The same explicit suite manifest is available through
-`npm run test:unit`, `test:component`, `test:integration`, `test:system`,
-`test:acceptance`, `test:regression`, `test:security`, and
-`test:performance`; `npm run test:native-required` is the focused native and
-multi-thread contract gate.
+The convenience launchers install missing dependencies, build the required
+addon, start both services, and write logs/PID files in the repository root:
+
+- Windows: `play.bat`
+- macOS/Linux: `play.sh`
 
 Open the local URL printed by Vite (usually `http://localhost:5173`).
 
 Note: This project uses ES modules, so opening `index.html` directly in a file browser will not work.
 
-Convenience launchers (install deps, start the server, then start Vite):
-
-- Windows: `play.bat`
-- macOS/Linux: `play.sh` (auto-opens the browser only when `xdg-open` is available)
-
 ### Architecture
 
-This application uses a pure client-server model. The simulation runs exclusively on the Node.js server to enable multiplayer interactions and backend persistence. The UI will connect over WebSocket and show **SERVER** in the status pill. There is no local worker/offline simulation path.
-By default the client connects to `ws://localhost:5174`; use `?server=ws://host:port` to point at a different server.
-If the server connection is lost, the app will attempt to reconnect in the background.
-UI defaults come from `server/config.toml`:
+This application uses a pure client/server model. The Node server owns the
+simulation; the browser renders binary frames and submits controls over
+Protocol 2 WebSocket messages. There is no browser-local World, offline mode,
+or local simulation worker. The status pill shows the connected server, active
+seed, math backend, and whether inference is single-threaded or using workers.
+If the connection is lost, the browser reconnects in the background.
 
-- `host`/`port` bind the simulation server.
-- `uiHost`/`uiPort` bind the Vite dev server.
-- `publicWsUrl` optionally overrides the client default when no `?server=`
-  override is used. If empty, the client uses the UI hostname + server port.
+Loopback is the default, and deliberate use from a phone or another computer
+on the same trusted home LAN is supported. The project has no accounts,
+authentication, authorization, or TLS, so do not expose it through router port
+forwarding or run it on an untrusted network.
 
-If the UI is on a different machine than the server, set `publicWsUrl` to
-`ws://<vm-ip>:5174`.
+On first server startup, `server/config.ts` creates the ignored
+`server/config.toml` file from current defaults. Useful fields include the
+server/UI bind addresses and ports, `publicWsUrl`, checkpoint interval,
+native/JS diagnostic backend, and worker settings. `publicWsUrl` is simply the
+WebSocket address the webpage should use when the simulation server is not at
+the same hostname as the UI; despite the legacy word “public,” it does not make
+the service safe for the public internet. Normal defaults are native,
+single-threaded inference and resume-latest. Use `--mt` (and optionally
+`--mt-workers N`) for native MT, `--backend js` only for diagnosis, `--fresh`
+for a new durable run, or `--resume <snapshot-id>` for one compatible
+checkpoint.
+
+### Open it from a phone or another home computer
+
+On the Windows computer running Slither Neuroevolution:
+
+1. Start the server once so `server/config.toml` exists, then stop it.
+2. In that file, set `host` and `uiHost` to `"0.0.0.0"`.
+3. Set `publicWsUrl` to your computer's home-network address, for example
+   `"ws://192.168.1.25:5174"`.
+4. Run `play.bat`. It prints one or more **UI Network** addresses. Open one of
+   those addresses on the phone or other computer while both devices are on
+   the same trusted home network.
+5. If Windows asks about Node.js network access, allow it on **Private
+   networks**. If no prompt appears and the page cannot connect, allow inbound
+   TCP ports 5173 and 5174 on the Windows Private firewall profile.
+
+Your address will usually start with `192.168.`, `10.`, or `172.16` through
+`172.31`. It may change after a router or computer restart; update
+`publicWsUrl` to the address printed by the launcher when needed. Do not
+configure router port forwarding for these ports.
+
+## Test suites
+
+`npm test` builds/tests native code and runs the JavaScript suite. After the
+addon is built, `npm run test:js` runs the explicit complete JavaScript
+manifest. Focused commands are:
+
+- `test:unit`: small pure/module contracts.
+- `test:component`: multi-module behavior without a full server boundary.
+- `test:integration`: real WebSocket, persistence, worker-pool, and other
+  subsystem boundaries.
+- `test:system`: server/process lifecycle behavior.
+- `test:acceptance`: owner-visible end-to-end contracts.
+- `test:regression`: named historical failures.
+- `test:performance`: measured budgets; currently informational in CI.
+- `test:security`: protocol/input and resource-boundary hardening.
+- `test:native-required`: additive native and multi-thread contracts that fail
+  rather than skip when the addon is unavailable.
 
 ## Controls
 
@@ -75,8 +122,11 @@ If the UI is on a different machine than the server, set `publicWsUrl` to
 - Left click + drag: Move a selected snake (God Mode).
 - Mouse to steer, hold click to boost (when playing as a user snake).
 - **Settings lock**: Hides all sliders and controls inside the Settings tab; unlock to edit.
-- **Apply and reset**: Rebuild the world using reset-only settings.
-- **Defaults**: Restore default slider values and reset.
+- **Apply and reset**: Rebuild the world using reset-only settings. Reset keeps
+  the active seed, creates a new run ID, and durably records generation one.
+- **Defaults**: Restore default slider values and perform the same-seed reset.
+- **New Run (new seed)**: Start generation one with a different seed after its
+  run-start checkpoint commits. Older checkpoints are retained.
 
 ## Join and spectate
 
@@ -111,7 +161,9 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 ### Core sliders
 
 - **NPC snakes**: Total population size. Higher values make the sim more chaotic and slower.
-- **Simulation speed**: Multiplier for physics time. Higher values run faster but reduce visual clarity.
+- **Simulation speed**: Requested wall-clock rate for complete fixed steps. It
+  never enlarges a physics step; an overloaded machine may achieve less than
+  the requested multiplier and report dropped scheduler debt.
 - **AI hidden layers**: How many MLP hidden layers to use (1–5). More layers increase capacity.
 - **Neurons layer 1–5**: The size of each hidden layer. Only layers up to the selected count are active.
 
@@ -168,7 +220,6 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 
 ### Sensors
 
-- **Use v2 sensor layout**: Deprecated compatibility toggle; runtime sensor layout is v3.
 - **Sensor bins**: Number of angular bins per channel (reset-only).
 - **Near radius base**: Base near sensing radius.
 - **Near radius scale**: Size-based near radius increase.
@@ -183,6 +234,16 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 - **Max segment checks**: Work cap for segment sampling.
 - **Sensors debug logs**: Enables sensor debug logging.
 - Sensor model note: v3 observations include nearest-pellet distance and direction (`nearest_food_dir_sin/cos`) in addition to binned food/hazard/wall/head channels.
+
+### Baseline bots
+
+- **Baseline bot count**: Number of scripted opponents rebuilt on reset.
+- **Respawn delay (sec)**: Live delay before a dead baseline bot returns.
+- **Randomize base seed per generation**: Derives a different deterministic
+  baseline-bot seed for each generation.
+- **Baseline bot base seed**: Non-negative base seed for scripted bots.
+- **Randomize base seed**: Chooses a new valid value in the settings UI; Apply
+  and reset is still required before that reset-only seed becomes active.
 
 ### Evolution
 
@@ -244,24 +305,37 @@ The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM
   - **Connect**: Drag from the small handle on a node to another node (Split/Concat ports auto-assign).
   - **Move**: Drag nodes to reposition the diagram (visual layout only).
   - **Toolbar**: **Add node**, **Add output**, **Delete**, **Auto layout** (clears manual positions), **Full screen**.
-- **Saved presets**: Enter a name and **Save preset** to store in the server database; in worker mode the list stays empty.
+- **Saved presets**: Enter a name and **Save preset** to store it in the server database.
 - **Preset loading**: Click a saved preset entry to load it into the editor (you still need Apply graph).
 - **Layout persistence**: Diagram positions are UI-only and reset after refresh or Auto layout.
 - **Graph storage**: The applied graph spec is saved in browser localStorage; **Reset graph** reloads the applied spec or the default template.
 - **Advanced JSON**: Use **Load JSON into editor** to import, **Copy current graph** to populate the JSON editor, and **Export JSON** to download a file.
 
-### Misc
-
-- **Frame dt clamp**: Max time step per physics update (stability guard).
-
 ## Import and export
 
-Population import/export lives in the Settings tab and writes a JSON file that includes the population, applied settings, the active graph spec, and Hall of Fame entries. Exports are streamed from a server snapshot so large populations do not require one combined response buffer. Imports replace the population and settings, but an imported seed is retained as file metadata; it does not silently change the active run's seed.
+Population import/export lives in the Settings tab and writes a JSON file that includes the population, applied settings, the active graph spec, and Hall of Fame entries. The server streams its snapshot without constructing one population-sized JSON string; the browser then assembles the download so it can add UI settings and Hall of Fame entries. Imports replace the population and settings, but an imported seed is retained as file metadata; it does not silently change the active run's seed.
 
-Automatic restart checkpoints are exact generation-boundary population checkpoints. They preserve the evolved population, generation, experiment configuration, seed, random-number state, and deterministic allocator state before the new generation is spawned. They are not arbitrary mid-tick world saves: transient snake positions, pellets, and recurrent activations are reconstructed from the saved generation-start boundary instead of being restored from the middle of a tick. Normal server startup resumes the latest valid checkpoint; use `--fresh` to start and durably record a new run without deleting older snapshots, or `--resume <snapshot-id>` to select a specific valid checkpoint.
+Automatic restart checkpoints are exact generation-boundary population
+checkpoints. They preserve the evolved population, generation, experiment
+configuration, seed, random-number state, and deterministic allocator state
+before the new generation is spawned. They are not arbitrary mid-tick world
+saves: transient snake positions, pellets, and recurrent activations are
+reconstructed from the saved generation-start boundary instead of being
+restored from the middle of a tick. Normal startup resumes the latest valid
+checkpoint; use `--fresh` to start and durably record a new run without
+deleting older snapshots, or `--resume <snapshot-id>` to select a specific
+valid checkpoint.
+
+The **Export** button first creates a population-export snapshot, then streams
+JSON one genome at a time to the browser. A population export is portable but
+is not selected for automatic exact resume. Current resumable checkpoints use
+per-genome SQLite rows; the older combined `genomes_blob` format remains
+read-only compatibility.
 
 Imports reset the simulation to the file contents under the active run identity.
-Imports from older builds may be incompatible with the current v3 sensor layout. If you see input size mismatch errors, clear localStorage and delete `data/slither.db`, then re-export from a matching build.
+Imports from older builds may be incompatible with the current v3 sensor
+layout. Keep the database intact and use an export produced by a compatible
+graph/sensor build when input sizes differ.
 
 ## Preset recipes (QA-friendly)
 
@@ -307,7 +381,7 @@ Encourages food-seeking behavior.
 
 Use GRU for smoother, more deliberate behavior.
 
-- Use GRU memory: 1
+- Start from the **MLP → GRU → MLP** graph template.
 - GRU hidden size: 24–48
 - GRU mutation rate: 0.01–0.03
 - GRU mutation std: 0.12–0.25
@@ -324,9 +398,17 @@ Use GRU for smoother, more deliberate behavior.
 
 - **No snakes visible**: Click Apply and reset; reduce world radius or increase snake count.
 - **Sim too slow**: Reduce NPC snakes, pellet target count, or world radius.
-- **Windows install fails**: Server dependencies use `better-sqlite3`; install Visual Studio C++ build tools plus a Windows SDK, then re-run `npm install`.
 - **Visualizer empty**: Ensure a snake is focused (Follow mode) and wait a tick.
-- **Join disabled**: The server is not connected; worker mode does not allow player control.
+- **Join disabled**: The local server is not connected yet.
 - **Snakes die instantly**: Lower hit scale or increase skip segments near head.
-- **Server install fails on Windows**: Use Node 20 LTS or install the Visual Studio C++ build tools + Windows SDK (for `better-sqlite3`).
-- **Import input size mismatch**: Clear browser storage (`localStorage`) and delete `data/slither.db`, then re-export from a matching build.
+- **Install fails on Windows**: Use Node 22+ and install the Visual Studio C++
+  build tools plus a Windows SDK for `better-sqlite3` and the native addon,
+  then re-run `npm install`.
+- **Native startup failure**: Run `npm --prefix native run build`. JavaScript is
+  available only as the explicit `--backend js` diagnostic mode.
+- **Worker failure**: The server faults the run instead of switching backends
+  or publishing a partial step. Use Apply and reset, New Run, or restart from a
+  valid checkpoint after addressing the reported cause.
+- **Import input size mismatch**: Re-export from a build with the same v3
+  sensor size and graph parameter count; do not delete the database as a first
+  troubleshooting step.

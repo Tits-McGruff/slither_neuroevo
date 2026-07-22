@@ -259,7 +259,7 @@ function centeredBinToAngle(index: number, bins: number): number {
 }
 
 /**
- * Compute the near/far sensing radii for v2 sensors.
+ * Compute the near/far sensing radii for radial sensors.
  * @param sizeNorm - Snake size normalization in [0, 1].
  * @returns Near and far sensing radii in world units.
  */

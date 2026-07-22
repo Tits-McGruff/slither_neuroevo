@@ -284,6 +284,42 @@ describeNetworkSuite('server integration', () => {
     expect(sensorOrder.slice(0, 7)).toEqual(layout.order.slice(0, 7));
   }, 20000);
 
+  it('supports trusted-LAN CORS requests and preflight without treating CORS as authentication', async () => {
+    const server = await startIntegrationServer();
+    const httpBase = `http://127.0.0.1:${server.port}`;
+    const lanOrigin = 'http://192.168.1.25:5173';
+
+    try {
+      const response = await fetch(`${httpBase}/health`, {
+        headers: { Origin: lanOrigin }
+      });
+      expect(response.ok).toBe(true);
+      expect(response.headers.get('access-control-allow-origin')).toBe(lanOrigin);
+      expect(response.headers.get('access-control-allow-credentials')).toBe('true');
+      expect(response.headers.get('vary')).toContain('Origin');
+
+      const preflight = await fetch(`${httpBase}/api/save`, {
+        method: 'OPTIONS',
+        headers: {
+          Origin: lanOrigin,
+          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Headers': 'content-type'
+        }
+      });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get('access-control-allow-origin')).toBe(lanOrigin);
+      expect(preflight.headers.get('access-control-allow-methods')).toContain('POST');
+
+      const untrustedOrigin = await fetch(`${httpBase}/health`, {
+        headers: { Origin: 'https://example.com' }
+      });
+      expect(untrustedOrigin.headers.get('access-control-allow-origin')).toBe('*');
+      expect(untrustedOrigin.headers.get('access-control-allow-credentials')).toBeNull();
+    } finally {
+      await server.close();
+    }
+  }, 10000);
+
   it('reports live config identity through dynamic HTTP getters and save payloads', async () => {
     const server = await startIntegrationServer();
     const httpBase = `http://127.0.0.1:${server.port}`;

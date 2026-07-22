@@ -71,6 +71,15 @@ if [ "$need_install" -eq 1 ]; then
   echo "[SUCCESS] Dependencies installed!"
 fi
 
+echo
+echo "[SETUP] Building required native inference addon..."
+echo
+if ! (cd native && node ./node_modules/@napi-rs/cli/dist/cli.js build --platform --release); then
+  echo
+  echo "[ERROR] Failed to build the native inference addon."
+  exit 1
+fi
+
 # --------------------------------------------------------------------
 # Detached mode defaults
 # --------------------------------------------------------------------
@@ -265,17 +274,17 @@ if [ -n "$SERVER_CONNECT_HOSTS" ]; then
 fi
 
 if [ -n "$CFG_PUBLIC_WS_URL" ]; then
-  echo "WebSocket Public: $CFG_PUBLIC_WS_URL"
+  echo "WebSocket Configured: $CFG_PUBLIC_WS_URL"
   echo
 else
-  echo "WebSocket Local:   ws://localhost:$CFG_PORT/"
+  echo "WebSocket Local:      ws://localhost:$CFG_PORT/"
   if [ -n "$UI_CONNECT_HOSTS" ]; then
     for ip in $UI_CONNECT_HOSTS; do
-      echo "WebSocket Network: ws://$ip:$CFG_PORT/"
+      echo "WebSocket Network:    ws://$ip:$CFG_PORT/"
     done
   elif [ -n "$SERVER_CONNECT_HOSTS" ]; then
     for ip in $SERVER_CONNECT_HOSTS; do
-      echo "WebSocket Network: ws://$ip:$CFG_PORT/"
+      echo "WebSocket Network:    ws://$ip:$CFG_PORT/"
     done
   fi
   echo

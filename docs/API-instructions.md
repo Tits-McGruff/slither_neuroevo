@@ -1,764 +1,650 @@
-# Server API Instructions for External Bot Clients
+# Local Server API and Bot Client Guide
 
-## Overview
+## Scope
 
-This document explains how to connect a custom training program to the
-simulation server and control a player snake. The external bot interface
-exposes the same sensor vector and action space used by the built-in bots.
-The server is authoritative: clients send turn and boost inputs, and the
-server applies them during its tick loop.
+The Slither Neuroevolution server is authoritative. External bot clients send
+turn and boost commands; the server owns simulation time, physics, sensors,
+randomness, evolution, and persistence.
 
-## Endpoints and ports
+This is a hobby-project API for loopback or deliberate use on the owner's
+trusted home LAN, not a public service. The default listeners are:
 
-- WebSocket: `ws://HOST:PORT` (default `ws://localhost:5174`).
-- HTTP: `http://HOST:PORT` for REST endpoints on the same server.
-- TLS: use `wss://` and `https://` if the server is behind TLS.
+- WebSocket and HTTP API: `ws://127.0.0.1:5174` and
+  `http://127.0.0.1:5174`.
+- Vite UI: `http://127.0.0.1:5173`.
 
-The defaults come from `server/config.toml`. Adjust `host` and `port` if you
-run the server on a different interface.
+The server has no accounts, authentication, authorization, TLS termination,
+or hardened public-hosting boundary. Trusted-LAN clients may connect when
+`host` and `uiHost` bind to a LAN interface (or `0.0.0.0`). Do not forward the
+ports through a router or expose them on an untrusted network.
 
-## Protocol clarifications (from server code and defaults)
+`publicWsUrl` is the WebSocket address injected into the webpage when the
+simulation server's hostname differs from the UI hostname. It can be set in
+TOML, through `PUBLIC_WS_URL`, or with `--public-ws-url`. The browser resolves
+its server address in this order: `?server=...`, the saved browser override,
+`publicWsUrl`, the current UI hostname plus the configured server port, then
+the localhost fallback. The legacy word “public” means “advertised to the
+browser”; it is not a security claim.
 
-This section answers concrete integration questions by referencing the
-current TypeScript server implementation and `server/config.toml`.
+For a typical trusted-LAN setup, use:
 
-### WebSocket, handshake, and lifecycle
+```toml
+host = "0.0.0.0"
+uiHost = "0.0.0.0"
+publicWsUrl = "ws://192.168.1.25:5174"
+```
 
-1. WebSocket URL format is `ws://HOST:PORT` with no path. Example:
-   `ws://192.168.0.200:5174`. No query params are required or read by the
-   server.
-2. `PROTOCOL_VERSION` is `1`, defined in `server/protocol.ts`.
-3. No auth headers, API keys, allowlists, or session tokens are required or
-   supported for WebSocket connections. The server does not inspect custom
-   headers for WS auth.
-4. The server does not implement idle socket timeouts. Client `ping` is
-   optional and acts only as a keepalive for intermediaries.
-5. The server explicitly closes with code `1008` on protocol errors only.
-   Other close codes may come from clients or the network; the server does
-   not emit custom close codes beyond `1008`.
+Replace the example address with the computer's actual home-network address.
+On Windows, allow Node.js on the Private firewall profile (or allow inbound TCP
+5173 and 5174 on that profile). The launchers print the usable network URLs.
+CORS permits the separate UI and API origins; it is not authentication.
 
-### Message schemas, field types, validation rules
+The server writes `server/config.toml` with defaults when the file does not
+exist. Command-line and environment overrides are described by
+`node ./node_modules/tsx/dist/cli.mjs server/index.ts --help` and in
+`server/config.ts`.
 
-6. `hello.clientType` must be exactly `"bot"` or `"ui"`. `hello.version` is
-   strictly equal to `PROTOCOL_VERSION` (no range tolerance).
-7. `join.name` is required only for `mode: "player"`. It must be a string
-   of length <= 24. There are no character restrictions beyond length.
-8. `assign` messages contain only `snakeId` and `controller`. The server
-   does not emit extra fields. For external bot clients (`clientType: "bot"`)
-   the `controller` field is always `"bot"`.
-9. `sensors.meta` is optional in the schema but is always included by the
-   current server build. No additional fields are emitted. Clients should
-   ignore unknown fields if they ever appear.
-10. `stats` broadcasts about once per second. `fitnessData` is included by
-    default in the current build but should be treated as optional.
-    `fitnessHistory` is omitted unless a new generation entry has been
-    appended since the last broadcast. `viz` is included only when viz
-    streaming is enabled and MT inference is off (`mtEnabled` in
-    `server/config.toml`). `hofEntry` is included only when a new HoF entry
-    is produced.
-11. Protocol errors attempt to send `{ "type": "error", "message": "..." }`
-    before closing. If sending fails, the server may close without a payload
-    or with a minimal `{ "type": "error" }`. Clients should treat
-    `error.message` as optional.
-    Common error messages include:
-    - `message too large`
-    - `binary messages are not supported`
-    - `invalid JSON`
-    - `invalid message`
-    - `duplicate hello`
-    - `hello required before join`
-    - `join required before action`
-    - `action requires player mode`
-    - `join required before view`
-    - `join required before viz`
-    - `join required before reset`
-    - `reset requires ui client`
+## Protocol compatibility
 
-### Tick and action application semantics
+The WebSocket protocol version is exactly `2`. A client must send a Protocol 2
+`hello` before any other message. Protocol 1 is incompatible and is rejected
+with an explicit error before the socket closes with code `1008`.
 
-12. `action.tick` is not validated against the server tick. The action is
-    accepted regardless of tick value and updates the stored control input.
-13. The server holds the latest action and samples it during the tick
-    update. If multiple actions arrive in a tick, only the last one is used
-    (subject to rate limits).
-14. Actions are fire-and-forget. There is no acknowledgement, and dropped
-    actions are silent.
-15. When a snake dies, the server sends a new `assign` and the next tick's
-    `sensors` correspond to the new `snakeId`. `assign` precedes the first
-    `sensors` for the replacement snake.
+The binary world-frame serializer is version `1`. Protocol and serializer
+versions are independent and both appear in `welcome`.
 
-### Rate limits and configuration
+Client messages are UTF-8 JSON text and use strict schemas:
 
-16. Defaults in `server/config.toml` are `maxActionsPerTick = 1` and
-    `maxActionsPerSecond = 120`. These are read at startup (TOML, env, or
-    CLI) and cannot be changed live.
-17. Exceeding `maxActionsPerSecond` drops actions silently. There is no
-    error message or stats counter exposed to clients.
-18. `tickRateHz` is clamped to `[1, 240]` by `server/config.ts`. The
-    `welcome.tickRate` value is the effective runtime tick rate after
-    clamping.
+- Unknown fields are rejected.
+- Required fields must be present.
+- Numeric fields must be finite numbers.
+- A message may be at most 64 KiB by default.
+- Binary client messages, invalid JSON, invalid schemas, and lifecycle errors
+  produce an `error` message and close code `1008`.
+- Correlation `requestId` values must be non-empty strings of at most 64
+  characters.
 
-### SensorSpec contract details
+Server JSON messages may gain fields in a later protocol version. Clients
+should switch on `type` and ignore fields they do not use after confirming the
+protocol version.
 
-19. `sensorSpec.layoutVersion` is `"v3"`. This is the only supported version.
-    Legacy layouts (`v2` and `legacy`) are no longer supported.
-20. `sensorSpec.sensorCount` always equals 19 + (4 * bins). The scalar count
-    is fixed at 19.
-21. All four binned channels (`food`, `hazard`, `wall`, `head`) are always
-    present in the v3 layout.
-22. All sensor values are clamped into `[-1, 1]` by `buildSensors`.
+## Connection lifecycle
 
-### Optional UI-oriented messages and binary frames
+A bot-player connection follows this sequence. Replace `127.0.0.1` with the
+printed LAN address when the bot runs on another trusted home device:
 
-23. `view` and `viz` are accepted after `join`. `view` supports `mode`,
-    `viewW`, and `viewH`, but all are ignored by the simulation. `viz` can
-    enable visualization data in `stats` even for bot clients (if MT
-    inference is off).
-24. `serializerVersion` is `1` in the current build. `frameByteLength` is
-    derived from a sample frame and is primarily UI bookkeeping; actual
-    frame buffers are variable length.
+1. Open `ws://127.0.0.1:5174`.
+2. Send `hello` with `clientType: "bot"` and `version: 2`.
+3. Read `welcome` and verify its protocol, sensor, serializer, seed, and
+   inference metadata.
+4. Send `join` with `mode: "player"` and a non-blank name.
+5. Read `assign` to learn the controlled `snakeId`.
+6. For each `sensors` message, send an `action` for that assigned snake.
+7. If the controlled snake dies, read the replacement `assign` and use its new
+   `snakeId`.
 
-### HTTP endpoints alongside training clients
+A UI client may join as a `spectator` or `player`. The authoritative control
+messages `settings`, `godMode`, `reset`, and `newRun` require a joined UI
+client. Bots cannot invoke them.
 
-25. No HTTP endpoints require auth, special headers, or CSRF tokens. CORS is
-    configured in `server/httpApi.ts` (`applyCors`) and defaults to allowing
-    LAN origins with credentials, or `*` for non-credentialed requests.
-26. `POST /api/import` accepts `force` as either a query param `?force=1` or
-    a JSON body flag `{ "force": true }`. On `cfgHash` mismatch without
-    force, it returns HTTP 409 with:
+The server does not implement an application-level idle timeout. `ping` is
+accepted as a no-op and has no matching `pong` response.
 
-    ```json
-    {
-      "ok": false,
-      "message": "cfgHash mismatch; pass force=true to override"
-    }
-    ```
+## Client-to-server JSON messages
 
-    (HTTP 409).
-27. Responses for `/health`, `/api/save`, `/api/export/latest`,
-    `/api/resurrect` match the documented shapes and do not include extra
-    fields in the current build. Clients should ignore unknown fields for
-    forward compatibility.
+### `hello`
 
-## WebSocket protocol
-
-### Connection sequence
-
-1. Open a WebSocket connection.
-2. Send `hello` with `clientType` and `version`.
-3. Receive `welcome` (sensor spec, tick rate, versions).
-4. Send `join` with `mode: "player"` and a `name`.
-5. Receive `assign` with your `snakeId`.
-6. Receive `sensors` each tick and send `action` updates.
-7. Handle reassignments when the snake dies.
-
-The server requires `hello` before `join`, and `join` before `action`, `view`,
-`viz`, or `reset`.
-
-### Encoding, size limits, and errors
-
-- Client messages must be JSON text. Binary client messages are rejected.
-- Max client payload size is 64 KiB by default.
-- On protocol errors, the server sends `{ "type": "error" }` and closes the
-  connection with code `1008`.
-
-### Client-to-server messages
-
-#### `hello`
+The first message on a connection:
 
 ```json
 {
   "type": "hello",
   "clientType": "bot",
-  "version": 1
+  "version": 2
 }
 ```
 
-- `clientType`: `"bot"` for training clients. `"ui"` is reserved for the
-  browser UI.
-- `version`: must equal `PROTOCOL_VERSION` (currently `1`).
+- `clientType` is exactly `"bot"` or `"ui"`.
+- `version` must equal `2`.
+- Sending a second `hello` is a protocol error.
 
-#### `join`
+### `join`
+
+Register as a spectator or request a controlled snake:
 
 ```json
 {
   "type": "join",
   "mode": "player",
-  "name": "MyTrainer"
+  "name": "trainer-1"
 }
 ```
 
-- `mode`: `"player"` to control a snake, or `"spectator"` to observe.
-- `name`: required for `"player"` mode. Max length is 24 characters.
+- `mode` is exactly `"spectator"` or `"player"`.
+- `name`, when present, is at most 24 characters.
+- Player mode requires a non-blank name at the server behavior boundary.
+- Joining spectator mode releases any snake assigned to that connection.
 
-#### `action`
+### `action`
+
+Update the held input for the assigned snake:
 
 ```json
 {
   "type": "action",
-  "tick": 12345,
-  "snakeId": 42,
+  "tick": 312,
+  "snakeId": 100000,
   "turn": -0.25,
   "boost": 1
 }
 ```
 
-- `tick`: typically echo the tick from the latest `sensors` message.
-- `snakeId`: the id from the latest `assign` message.
-- `turn`: float in `[-1, 1]` (left to right). Values are clamped.
-- `boost`: float in `[0, 1]` (0 = off, 1 = on). Values are clamped.
-- `tick` is not validated against the server tick; use it for traceability,
-  not synchronization.
+- `tick` is the most recent authoritative sensor tick observed by the client.
+  It is recorded for diagnostics but is not required to equal the current
+  server tick.
+- `snakeId` must match the connection's current assignment. A mismatched ID is
+  ignored.
+- `turn` is clamped to `[-1, 1]`.
+- `boost` is clamped to `[0, 1]`.
+- The latest accepted input is held until another action is accepted or the
+  assignment is released.
 
-#### `ping`
+Default limits are one accepted action per authoritative tick and 120 action
+attempts per wall-clock second per controller. Excess actions are dropped
+without an acknowledgement. Send one action in response to each sensor packet
+instead of flooding the socket.
 
-```json
-{ "type": "ping", "t": 123456 }
-```
+### `ping`
 
-- Optional heartbeat. The server does not send a reply.
-
-#### `view` (optional, UI-oriented)
-
-```json
-{ "type": "view", "mode": "overview", "viewW": 1920, "viewH": 1080 }
-```
-
-- `mode`, `viewW`, and `viewH` are optional and ignored by the simulation.
-
-#### `viz` (optional, UI-oriented)
+Optional no-op heartbeat:
 
 ```json
-{ "type": "viz", "enabled": true }
+{
+  "type": "ping",
+  "t": 1721620000000
+}
 ```
 
-- Toggles visualizer streaming for UI clients.
+`t` is optional and may be any finite number. The server sends no `pong`.
 
-#### `reset` (UI-only)
+### `view`
+
+Accepted for UI compatibility:
 
 ```json
-{ "type": "reset", "settings": { "snakeCount": 300 } }
+{
+  "type": "view",
+  "viewW": 1920,
+  "viewH": 1080,
+  "mode": "follow"
+}
 ```
 
-- Only accepted from `clientType: "ui"`.
-- See `src/protocol/settings.ts` for allowed paths.
+`viewW` and `viewH` are optional finite numbers. `mode` is optionally
+`"overview"`, `"follow"`, or `"toggle"`. The current server accepts this
+message but does not use it to mutate the authoritative world.
 
-### Server-to-client messages
+### `viz`
 
-#### `welcome`
+Enable or disable neural-visualization data in stats:
+
+```json
+{
+  "type": "viz",
+  "enabled": true
+}
+```
+
+Visualization works in both serial and multi-threaded inference modes. It is
+intended for UI clients but structurally accepted from any joined client.
+
+### `settings` (joined UI only)
+
+Queue one atomic group of live setting updates for the next fixed-step
+boundary:
+
+```json
+{
+  "type": "settings",
+  "requestId": "settings-17",
+  "updates": [
+    { "path": "simSpeed", "value": 12 },
+    { "path": "baselineBots.respawnDelay", "value": 5 }
+  ]
+}
+```
+
+The request must contain between 1 and 64 updates. Only paths marked live in
+`src/protocol/settingDefinitions.ts` are accepted. The complete request is
+normalized and applied atomically, or rejected without incrementing
+`configRevision`. Successful results are broadcast to all joined UIs as
+`settingsApplied`; rejection is returned to the requester.
+
+### `godMode` (joined UI only)
+
+Kill one snake through the normal death path:
+
+```json
+{
+  "type": "godMode",
+  "requestId": "god-8",
+  "action": "kill",
+  "snakeId": 42
+}
+```
+
+Or translate its complete body:
+
+```json
+{
+  "type": "godMode",
+  "requestId": "god-9",
+  "action": "move",
+  "snakeId": 42,
+  "x": 125.5,
+  "y": -80
+}
+```
+
+The command is queued for a fixed-step boundary. Movement is clamped so the
+body remains within the world. The requester receives `godModeResult`.
+
+### `reset` (joined UI only)
+
+Rebuild generation one with the current seed and a new run ID:
+
+```json
+{
+  "type": "reset",
+  "settings": {
+    "snakeCount": 300,
+    "simSpeed": 1
+  },
+  "updates": [
+    { "path": "sense.bubbleBins", "value": 16 }
+  ],
+  "graphSpec": null
+}
+```
+
+All fields after `type` are optional. `settings` accepts only the core settings
+defined in `server/protocol.ts`; `updates` accepts the reset/import paths in
+`src/protocol/settings.ts`; `graphSpec` is an object or `null`.
+
+Reset is a deterministic experiment restart: the same seed and authoritative
+configuration reconstruct the same initial state. Before the new run is made
+current, the server writes a durable run-start checkpoint. A failed transition
+produces `error`; there is no separate successful reset acknowledgement.
+
+### `newRun` (joined UI only)
+
+Start generation one with a new entropy-derived seed and a new run ID:
+
+```json
+{
+  "type": "newRun",
+  "requestId": "new-run-3"
+}
+```
+
+The server preserves existing snapshots and returns `newRunResult` only after
+the new run-start checkpoint is durable. New Run is rejected when durable
+persistence is unavailable.
+
+## Server-to-client JSON messages
+
+### `welcome`
+
+Sent immediately after a valid `hello`:
 
 ```json
 {
   "type": "welcome",
-  "sessionId": "abcd1234",
+  "protocolVersion": 2,
+  "sessionId": "process-session-id",
   "tickRate": 60,
-  "worldSeed": 987654,
-  "cfgHash": "...",
+  "worldSeed": 123456789,
+  "runId": "lineage-id",
+  "configRevision": 0,
+  "configHash": "sha256-content-identity",
+  "settings": {
+    "core": {},
+    "updates": []
+  },
+  "inferenceMode": {
+    "requestedBackend": "native",
+    "activeBackend": "native",
+    "requestedMt": false,
+    "activeWorkerCount": 0,
+    "poolEpoch": null,
+    "weightEpoch": null,
+    "graphKey": "graph-key",
+    "parameterCount": 1234,
+    "seed": 123456789,
+    "nativeAddonStatus": "ready",
+    "nativeAddonBuildIdentifier": "source-derived-id"
+  },
   "sensorSpec": {
     "sensorCount": 83,
-    "order": ["heading_sin", "heading_cos"],
+    "order": [],
     "layoutVersion": "v3"
   },
   "serializerVersion": 1,
-  "frameByteLength": 123456
+  "frameByteLength": 4096
 }
 ```
 
-- `sensorSpec` defines the exact sensor ordering and size.
-- `tickRate` is the effective runtime tick frequency in Hz after config
-  clamping.
-- `serializerVersion` describes the binary frame layout (UI only).
-- `frameByteLength` is the byte size of a sample frame buffer; real frames
-  are variable length.
+The example abbreviates `settings` and `sensorSpec.order`; real messages
+contain the complete authoritative values. Treat `inferenceMode` as two
+independent axes: `requestedBackend`/`activeBackend` describe native versus JS
+math, while `requestedMt`/`activeWorkerCount` describe serial versus worker
+execution. Normal mode requires native. JS is an explicit diagnostic mode,
+not an automatic fallback.
 
-#### `assign`
+`configRevision` is a monotonic accepted-change sequence. `configHash` is a
+canonical content identity, so returning to an older configuration can repeat
+a hash at a newer revision.
+
+### `assign`
+
+Sent after player join and whenever a dead controlled snake is replaced:
 
 ```json
-{ "type": "assign", "snakeId": 42, "controller": "bot" }
+{
+  "type": "assign",
+  "snakeId": 100000,
+  "controller": "bot"
+}
 ```
 
-- Sent on initial control and whenever the assigned snake dies.
-- Reset any per-snake state when a new `snakeId` arrives.
-- External bot clients will only see `controller: "bot"`.
+`controller` is `"bot"` for a bot client and `"player"` for a UI player.
 
-#### `sensors`
+### `sensors`
+
+Sent at the stable pre-movement observation boundary of each completed fixed
+step for a controlled snake:
 
 ```json
 {
   "type": "sensors",
-  "tick": 12345,
-  "snakeId": 42,
-  "sensors": [0.12, -0.34, 0.7],
-  "meta": { "x": 12.3, "y": -4.5, "dir": 1.57 }
+  "tick": 312,
+  "snakeId": 100000,
+  "sensors": [0.0, 1.0],
+  "meta": { "x": 10.5, "y": -4.25, "dir": 1.57 }
 }
 ```
 
-- `sensors` is the observation vector for the assigned snake.
-- `meta` contains head position and heading for debugging or overlays.
+The example sensor array is abbreviated. Use `welcome.sensorSpec.sensorCount`
+and `welcome.sensorSpec.order`; do not hard-code the default length. `meta` is
+optional in the type but the current server includes the controlled snake's
+pose.
 
-#### `stats`
+### `stats`
+
+Broadcast about once per wall-clock second to every joined client. It contains
+the last committed `tick`, generation number and timing, population and
+baseline-bot alive counts, pump rate, and optional fitness, bounded history,
+visualization, and Hall-of-Fame data. Optional payloads are omitted when there
+is no new value to send.
+
+### `settingsApplied`
 
 ```json
 {
-  "type": "stats",
-  "tick": 12345,
-  "gen": 3,
-  "generationTime": 120.0,
-  "generationSeconds": 60.0,
-  "alive": 210,
-  "aliveTotal": 300,
-  "baselineBotsAlive": 210,
-  "baselineBotsTotal": 220,
-  "fps": 60
+  "type": "settingsApplied",
+  "requestId": "settings-17",
+  "applied": true,
+  "updates": [
+    { "path": "simSpeed", "value": 12 }
+  ],
+  "configRevision": 1,
+  "configHash": "sha256-content-identity",
+  "sequence": 4,
+  "step": 313
 }
 ```
 
-- Broadcast to all joined clients about once per second.
-- Optional fields may be omitted. See the clarifications for when each
-  field is present.
+On rejection, `applied` is false, `updates` is empty, `reason` is present, and
+`sequence`/`step` are absent. A successful response reports normalized
+authoritative values and is broadcast to all joined UIs.
 
-#### `error`
+### `godModeResult`
+
+Reports `requestId`, `action`, `snakeId`, and `applied`. Successful results
+also include the accepted `sequence` and boundary `step`. A move can include
+actual `x`/`y`; a kill can include `pelletsDropped`. Rejection includes
+`reason` and does not stop the server.
+
+### `newRunResult`
 
 ```json
-{ "type": "error", "message": "join required before action" }
+{
+  "type": "newRunResult",
+  "requestId": "new-run-3",
+  "applied": true,
+  "worldSeed": 987654321,
+  "runId": "new-lineage-id"
+}
 ```
 
-- Sent before the server closes the connection on protocol errors. The
-  `message` field can be omitted if the send fails.
+On rejection, `applied` is false and `reason` is present. Existing saved rows
+are not deleted by New Run.
 
-### Binary frame buffers (UI-only)
+### `error`
 
-UI clients receive binary frames as `ArrayBuffer` payloads. Bot clients do not
-receive frame buffers. If you want to render the world externally, open a
-second connection with `clientType: "ui"` and `mode: "spectator"`.
+```json
+{
+  "type": "error",
+  "message": "human-readable reason"
+}
+```
 
-Binary frame format is a `Float32Array` with this layout:
+Protocol errors are followed by socket close code `1008`. Operational errors
+such as a failed reset or a faulted simulation may be reported without closing
+the socket.
 
-1. Header (7 floats)
-   - `[generation, totalSnakes, aliveCount, worldRadius, cameraX,`
-     `cameraY, zoom]`
-2. Snake block (variable)
-   - For each alive snake:
-   - `[id, radius, skin, x, y, dir, boost, pointCount]`
-   - Followed by `pointCount * 2` floats for body points `[x, y]`.
-3. Pellet block (variable)
-   - `[pelletCount]`
-   - Followed by `pelletCount` entries of
-     `[x, y, value, type, colorId]`.
+## Sensor contract
 
-The serializer version is included in `welcome.serializerVersion`.
+The only supported sensor layout is `v3`. Its size is:
 
-## Sensor specification and layout
+```text
+19 + 4 * max(8, floor(bubbleBins))
+```
 
-The server sends the exact sensor order in `welcome.sensorSpec.order`. Do not
-assume a fixed layout; always build your input vector from this order.
+With the default 16 bins, `sensorCount` is 83. The first 19 values are:
 
-### Scalar sensors (19 total)
+1. `heading_sin`
+2. `heading_cos`
+3. `size_norm`
+4. `boost_margin`
+5. `points_pct`
+6. `speed_norm`
+7. `boost_state`
+8. `points_norm`
+9. `points_delta_norm`
+10. `length_norm`
+11. `boost_points_frac`
+12. `boost_cost_norm`
+13. `wall_dist_norm`
+14. `nearest_food_dist_norm`
+15. `nearest_food_dir_sin`
+16. `nearest_food_dir_cos`
+17. `nearest_body_dist_norm`
+18. `nearest_head_dist_norm`
+19. `age_norm`
 
-The scalar sensors occupying indices 0-18 in the vector:
+`points_delta_norm`: Score change accumulated since this snake's previous
+delivered sensor sample, or since construction for its first sample; unsampled
+control intervals accumulate. The value is divided by 10 and clamped to
+[-1, 1].
 
-- `heading_sin`, `heading_cos`: sine/cosine of current heading.
-- `size_norm`: snake size fraction in `[-1, 1]`.
-- `boost_margin`: points relative to `minPointsToBoost`, in `[-1, 1]`.
-- `points_pct`: log-scaled percentile vs best points this generation.
-- `speed_norm`: speed relative to maximum boost speed.
-- `boost_state`: current boost fuel status in `[0, 1]` mapped to `[-1, 1]`.
-- `points_norm`: current points score normalized by generation best.
-- `points_delta_norm`: Score change accumulated since this snake's previous
-  delivered sensor sample, or since construction for its first sample;
-  unsampled control intervals accumulate. The value is divided by 10 and
-  clamped to `[-1, 1]`.
-- `length_norm`: snake length relative to absolute max length.
-- `boost_points_frac`: points available for boost relative to minimum cost.
-- `boost_cost_norm`: current point loss rate from boosting (scales with size).
-- `wall_dist_norm`: distance to the circular world boundary.
-- `nearest_food_dist_norm`: distance to the nearest food pellet.
-- `nearest_food_dir_sin`: sine of relative angle to nearest food pellet.
-- `nearest_food_dir_cos`: cosine of relative angle to nearest food pellet.
-- `nearest_body_dist_norm`: distance to the nearest snake segment (any snake).
-- `nearest_head_dist_norm`: distance to the nearest enemy snake head.
-- `age_norm`: survival time normalized by the generation duration limit.
+The remaining channels contain `bubbleBins` values each, in this order:
 
-### Binned sensors
+1. `food_0` through `food_N-1`
+2. `hazard_0` through `hazard_N-1`
+3. `wall_0` through `wall_N-1`
+4. `head_0` through `head_N-1`
 
-The binned channels follow the scalar sensors. With $N$ bins, there are $4 \times N$
-total binned inputs:
+The `welcome.sensorSpec.order` array is the definitive index-to-label mapping.
+It must agree with the neural input size for the active graph.
 
-- `food_0` ... `food_(N-1)`: local food density.
-- `hazard_0` ... `hazard_(N-1)`: clearance to nearby bodies.
-- `wall_0` ... `wall_(N-1)`: distance to the circular world wall.
-- `head_0` ... `head_(N-1)`: pressure from nearby enemy heads.
+## UI binary frames
 
-All channels use **centered bin mapping**:
-- Bin 0 is centered at $-\pi$ (directly behind).
-- Bin $N/2$ is centered at $0$ (directly ahead).
+Joined UI clients also receive binary world frames; bot clients do not. The
+serializer version is reported in `welcome`. Version 1 is a packed
+`Float32Array`:
 
-## Action timing and rate limits
+1. Seven-float header: generation, snake count, alive count, world radius,
+   camera X, camera Y, zoom.
+2. One block per alive snake: ID, radius, skin flag, X, Y, direction, boost
+   flag, point count, then `pointCount * 2` body coordinates.
+3. Pellet count, followed by five floats per pellet: X, Y, value, type, color
+   ID.
 
-- Sensors are published at the start of each tick for controlled snakes.
-- Actions are sampled once per tick; the server holds the last action until
-  it is replaced.
-- Expect one-tick latency between a `sensors` message and the action that it
-  influences.
-- Rate limits are enforced per connection:
-  - `maxActionsPerTick` (default `1`).
-  - `maxActionsPerSecond` (default `120`).
-  - Extra actions are dropped silently.
+Consumers should use `src/protocol/frame.ts`; pointer arithmetic is a hard
+contract shared with the serializer and renderer.
 
-## Multi-agent control and reassignment
+## HTTP API
 
-- Each WebSocket connection controls one snake at a time.
-- To control multiple snakes, open multiple connections.
-- When a snake dies, the server assigns a new snake and sends a fresh
-  `assign` message. Reset per-agent state on reassignment.
-
-## HTTP API endpoints
-
-All endpoints are served from the same host and port as the WebSocket server.
+The HTTP routes share port 5174 with WebSocket upgrade handling. Request bodies
+are JSON and are limited to 50 MiB. These unauthenticated routes are intended
+only for the local UI and local tooling.
 
 ### `GET /health`
 
-Returns server status:
-
-```json
-{ "ok": true, "tick": 12345, "clients": 3 }
-```
+Returns `{ "ok": true, ... }` plus current tick, connected client count,
+inference mode, scheduler diagnostics, fault state, run identity,
+`configRevision`, and `configHash`.
 
 ### `POST /api/save`
 
-Persists a snapshot and returns the snapshot id:
-
-```json
-{ "ok": true, "snapshotId": 7 }
-```
+Writes the current population as a typed, non-resumable `population-export`
+snapshot and returns `{ "ok": true, "snapshotId": number }`. This is a
+population transfer, not a complete mid-tick checkpoint. Automatic generation
+and run-start checkpoints are separate resumable records.
 
 ### `GET /api/export/latest`
 
-Returns the latest snapshot payload. The payload includes:
-
-- `generation`, `archKey`, and `genomes`.
-- `cfgHash` and `worldSeed`.
-- Optional `settings` and `updates`.
+Streams the newest snapshot as JSON without constructing one
+population-sized JSON string. Returns 404 when the database has no snapshots.
+The payload includes `generation`, `archKey`, `genomes`, `cfgHash`,
+`worldSeed`, and available settings/run/boundary metadata.
 
 ### `POST /api/import`
 
-Imports a snapshot payload. The body may be the payload directly or wrapped
-as `{ "payload": { ... } }`.
+Accepts an exported snapshot directly or as `{ "payload": snapshot }`.
+Required fields are `generation`, `archKey`, a non-empty `genomes` array,
+`cfgHash`, and `worldSeed`. Use `?force=1` or top-level `force: true` to
+override a configuration-hash mismatch deliberately.
 
-- If `cfgHash` differs from the current server config, the request fails
-  with `409` unless `force=true` (body flag or `?force=1`).
-- Response:
-
-```json
-{ "ok": true, "used": 200, "total": 300 }
-```
+Import replaces compatible population genomes at a recurrent reset boundary;
+it does not apply the exported seed. Success reports `importedWorldSeed`,
+`activeWorldSeed`, `seedApplied: false`, and a metadata-only seed disposition.
+Use Protocol 2 New Run for a new seed or Reset for a same-seed reconstruction.
 
 ### `POST /api/resurrect`
 
-Spawns a snake from a genome. Body is either a `GenomeJSON` object or
-`{ "genome": { ... } }`.
+Accepts a genome directly or as `{ "genome": genome }`. A genome contains a
+non-empty `archKey`, a finite `weights` array, and optional `brainType` and
+`fitness`. Success returns the spawned `snakeId`.
 
-```json
-{ "ok": true, "snakeId": 42 }
-```
+### Graph presets
 
-### `GET /api/graph-presets?limit=50`
+- `GET /api/graph-presets?limit=50` lists preset metadata; limit is clamped to
+  1 through 200.
+- `GET /api/graph-presets/:id` loads one preset or returns 404.
+- `POST /api/graph-presets` accepts `{ "name": string, "spec": object }` and
+  returns `presetId`.
 
-Lists graph presets:
+### Hall of Fame
 
-```json
-{ "ok": true, "presets": [ { "id": 1, "name": "MySpec" } ] }
-```
+- `GET /api/hof?limit=50` returns `{ "ok": true, "hof": [...] }`.
+- `POST /api/hof` accepts `{ "hof": [...] }` and replaces/saves the supplied
+  entries.
 
-### `GET /api/graph-presets/:id`
+Unknown routes return 404.
 
-Loads a specific preset:
+## Minimal Node bot
 
-```json
-{ "ok": true, "preset": { "id": 1, "name": "MySpec", "spec": {} } }
-```
-
-### `POST /api/graph-presets`
-
-Saves a preset:
-
-```json
-{ "name": "MySpec", "spec": { "nodes": [], "edges": [] } }
-```
-
-### `GET /api/hof?limit=50`
-
-Returns Hall of Fame entries:
-
-```json
-{ "ok": true, "hof": [ { "gen": 10, "fitness": 123 } ] }
-```
-
-### `POST /api/hof`
-
-Saves Hall of Fame entries:
-
-```json
-{ "hof": [ { "gen": 10, "fitness": 123, "genome": { ... } } ] }
-```
-
-## Minimal Node bot client (ws)
-
-This example uses the `ws` package in Node. It connects, joins as a player,
-and sends an action for each `sensors` message.
-
-Install dependency:
-
-```bash
-npm install ws
-```
-
-Example client:
+Install dependencies in the repository, start the server, then run an ES
+module containing:
 
 ```js
-const WebSocket = require("ws");
+import WebSocket from 'ws';
 
-const url = process.env.SLITHER_WS_URL ?? "ws://localhost:5174";
-const name = process.env.SLITHER_BOT_NAME ?? "ExternalBot";
-
+const socket = new WebSocket('ws://127.0.0.1:5174');
 let snakeId = null;
-let sensorOrder = [];
-let sensorIndex = {};
 
-const ws = new WebSocket(url);
-
-ws.on("open", () => {
-  const hello = { type: "hello", clientType: "bot", version: 1 };
-  ws.send(JSON.stringify(hello));
+socket.on('open', () => {
+  socket.send(JSON.stringify({
+    type: 'hello',
+    clientType: 'bot',
+    version: 2
+  }));
 });
 
-ws.on("message", (data, isBinary) => {
+socket.on('message', (data, isBinary) => {
   if (isBinary) return;
-  const msg = JSON.parse(data.toString());
+  const message = JSON.parse(data.toString());
 
-  if (msg.type === "welcome") {
-    sensorOrder = msg.sensorSpec?.order ?? [];
-    sensorIndex = Object.fromEntries(
-      sensorOrder.map((label, i) => [label, i])
-    );
-    ws.send(JSON.stringify({ type: "join", mode: "player", name }));
-    return;
-  }
+  switch (message.type) {
+    case 'welcome':
+      if (message.protocolVersion !== 2) {
+        throw new Error(`Unsupported protocol ${message.protocolVersion}`);
+      }
+      console.log('run', {
+        seed: message.worldSeed,
+        backend: message.inferenceMode.activeBackend,
+        workers: message.inferenceMode.activeWorkerCount,
+        sensors: message.sensorSpec.sensorCount
+      });
+      socket.send(JSON.stringify({
+        type: 'join',
+        mode: 'player',
+        name: 'example-bot'
+      }));
+      break;
 
-  if (msg.type === "assign") {
-    snakeId = msg.snakeId;
-    return;
-  }
+    case 'assign':
+      snakeId = message.snakeId;
+      break;
 
-  if (msg.type === "sensors") {
-    if (snakeId == null || msg.snakeId !== snakeId) return;
-    const action = policy(msg.sensors, sensorIndex);
-    ws.send(
-      JSON.stringify({
-        type: "action",
-        tick: msg.tick,
+    case 'sensors':
+      if (message.snakeId !== snakeId) break;
+      socket.send(JSON.stringify({
+        type: 'action',
+        tick: message.tick,
         snakeId,
-        turn: action.turn,
-        boost: action.boost
-      })
-    );
-    return;
-  }
+        turn: 0,
+        boost: 0
+      }));
+      break;
 
-  if (msg.type === "error") {
-    console.error("Server error:", msg.message);
+    case 'error':
+      console.error('server error:', message.message);
+      break;
   }
 });
 
-function policy(sensors, index) {
-  const boostIdx = index.boost_margin ?? -1;
-  const boostMargin = boostIdx >= 0 ? sensors[boostIdx] : -1;
-  const boost = boostMargin > 0 ? 1 : 0;
-  return { turn: 0, boost };
-}
+socket.on('close', (code, reason) => {
+  console.log('closed', code, reason.toString());
+});
 ```
 
-## Protocol TypeScript snippets
+## Common integration mistakes
 
-These are minimal client-side typings that match the server protocol.
-
-```ts
-export const PROTOCOL_VERSION = 1;
-
-export type ClientType = "ui" | "bot";
-export type JoinMode = "spectator" | "player";
-
-export type HelloMsg = {
-  type: "hello";
-  clientType: ClientType;
-  version: number;
-};
-
-export type JoinMsg = {
-  type: "join";
-  mode: JoinMode;
-  name?: string;
-};
-
-export type PingMsg = {
-  type: "ping";
-  t?: number;
-};
-
-export type ActionMsg = {
-  type: "action";
-  tick: number;
-  snakeId: number;
-  turn: number;
-  boost: number;
-};
-
-export type ViewMsg = {
-  type: "view";
-  viewW?: number;
-  viewH?: number;
-  mode?: "overview" | "follow" | "toggle";
-};
-
-export type VizMsg = {
-  type: "viz";
-  enabled: boolean;
-};
-
-export type SettingsUpdate = {
-  path: string;
-  value: number;
-};
-
-export type ResetMsg = {
-  type: "reset";
-  settings?: Record<string, unknown>;
-  updates?: SettingsUpdate[];
-  graphSpec?: unknown | null;
-};
-
-export type ClientMessage =
-  | HelloMsg
-  | JoinMsg
-  | PingMsg
-  | ActionMsg
-  | ViewMsg
-  | VizMsg
-  | ResetMsg;
-
-export type SensorSpec = {
-  sensorCount: number;
-  order: string[];
-  layoutVersion: "v3";
-};
-
-export type WelcomeMsg = {
-  type: "welcome";
-  sessionId: string;
-  tickRate: number;
-  worldSeed: number;
-  cfgHash: string;
-  sensorSpec: SensorSpec;
-  serializerVersion: number;
-  frameByteLength: number;
-};
-
-export type AssignMsg = {
-  type: "assign";
-  snakeId: number;
-  controller: "player" | "bot";
-};
-
-export type SensorsMsg = {
-  type: "sensors";
-  tick: number;
-  snakeId: number;
-  sensors: number[];
-  meta?: { x: number; y: number; dir: number };
-};
-
-export type StatsMsg = {
-  type: "stats";
-  tick: number;
-  gen: number;
-  generationTime: number;
-  generationSeconds: number;
-  alive: number;
-  aliveTotal: number;
-  baselineBotsAlive: number;
-  baselineBotsTotal: number;
-  fps: number;
-  fitnessData?: {
-    gen: number;
-    avgFitness: number;
-    maxFitness: number;
-    minFitness: number;
-  };
-  fitnessHistory?: Array<{
-    gen: number;
-    best: number;
-    avg: number;
-    min: number;
-    speciesCount?: number;
-    topSpeciesSize?: number;
-    avgWeight?: number;
-    weightVariance?: number;
-  }>;
-  viz?: {
-    kind: string;
-    layers: Array<{
-      count: number;
-      activations: ArrayLike<number> | null;
-      isRecurrent?: boolean;
-    }>;
-  };
-  hofEntry?: {
-    gen: number;
-    seed: number;
-    fitness: number;
-    points: number;
-    length: number;
-    genome: {
-      archKey: string;
-      brainType?: string;
-      weights: number[];
-      fitness?: number;
-    };
-  };
-};
-
-export type ErrorMsg = {
-  type: "error";
-  message?: string;
-};
-
-export type ServerMessage =
-  | WelcomeMsg
-  | AssignMsg
-  | SensorsMsg
-  | StatsMsg
-  | ErrorMsg;
-```
-
-## Example control loop (pseudo code)
-
-```text
-connect ws
-send hello
-wait for welcome
-send join player with name
-wait for assign
-loop:
-  wait for sensors
-  compute action from sensor vector
-  send action using the same tick and snakeId
-```
-
-## Common integration pitfalls
-
-- Missing `hello` or `join` causes an immediate protocol error.
-- `name` is required for `player` mode.
-- Ignore `assign` and your actions will be dropped silently.
-- Spamming actions above the rate limits leads to dropped inputs.
-- Do not assume a fixed sensor length; always read `sensorSpec`.
-- Bot clients do not receive binary frame buffers.
+- Sending Protocol 1 or omitting `hello`.
+- Sending binary client messages instead of JSON text.
+- Adding unknown keys to otherwise valid messages.
+- Joining player mode without a non-blank name.
+- Continuing to use an old `snakeId` after a replacement `assign`.
+- Flooding actions instead of replying once per sensor sample.
+- Hard-coding 83 sensors instead of using `welcome.sensorSpec`.
+- Treating `requestId`, accepted `sequence`, and boundary `step` as the same
+  identity.
+- Treating `configRevision` as configuration content identity instead of using
+  `configHash`.
+- Treating a population export as an exact resumable checkpoint.
+- Assuming an imported `worldSeed` changes the active run.
+- Assuming JavaScript is a transparent fallback when native loading fails.
+- Exposing the unauthenticated local server to another machine.

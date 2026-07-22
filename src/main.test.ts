@@ -8,6 +8,8 @@ interface SmokeElement {
   value: string;
   /** Checkbox state. */
   checked: boolean;
+  /** Disabled form-control state. */
+  disabled: boolean;
   /** Text content. */
   textContent: string;
   /** HTML content. */
@@ -23,7 +25,7 @@ interface SmokeElement {
   /** Canvas height. */
   height: number;
   /** Register an event listener. */
-  addEventListener: () => void;
+  addEventListener: (type: string, listener: (event: Event) => void) => void;
   /** Append a child node. */
   appendChild: () => void;
   /** Set one attribute. */
@@ -47,6 +49,7 @@ interface SmokeElement {
  */
 function makeElement(id: string): SmokeElement {
   const attributes = new Map<string, string>();
+  const listeners = new Map<string, Array<(event: Event) => void>>();
   const classList = {
     add() { },
     remove() { },
@@ -68,6 +71,7 @@ function makeElement(id: string): SmokeElement {
     id,
     value: '',
     checked: false,
+    disabled: false,
     textContent: '',
     innerHTML: '',
     style: {},
@@ -75,15 +79,41 @@ function makeElement(id: string): SmokeElement {
     classList,
     width: 800,
     height: 600,
-    addEventListener() { },
+    addEventListener(type, listener) {
+      const registered = listeners.get(type) ?? [];
+      registered.push(listener);
+      listeners.set(type, registered);
+    },
     appendChild() { },
     setAttribute(name, value) { attributes.set(name, value); },
     getAttribute(name) { return attributes.get(name) ?? null; },
     querySelectorAll: () => [],
     closest: () => null,
     getContext: () => context,
-    click() { }
+    click() {
+      for (const listener of listeners.get('click') ?? []) {
+        listener(new Event('click'));
+      }
+    }
   };
+}
+
+/** Controllable WebSocket surface exposed to startup tests. */
+interface StubSocketSurface {
+  /** Browser-ready state. */
+  readyState: number;
+  /** Binary response mode selected by the client. */
+  binaryType: BinaryType;
+  /** Open callback installed by the client. */
+  onopen: (() => void) | null;
+  /** Message callback installed by the client. */
+  onmessage: ((event: { data: unknown }) => void) | null;
+  /** Error callback installed by the client. */
+  onerror: (() => void) | null;
+  /** Close callback installed by the client. */
+  onclose: (() => void) | null;
+  /** Serialized messages sent by the client. */
+  sent: string[];
 }
 
 /** Build isolated local storage for one startup import. */
@@ -102,11 +132,16 @@ function makeStorage(): Storage {
 describe('main.ts startup smoke', () => {
   /** URL passed to the WebSocket constructor during startup. */
   let connectedUrl = '';
+  /** DOM elements created during the current startup import. */
+  let elements: Map<string, SmokeElement>;
+  /** Socket instance created during the current startup import. */
+  let activeSocket: StubSocketSurface | null;
 
   beforeEach(() => {
     vi.resetModules();
     connectedUrl = '';
-    const elements = new Map<string, SmokeElement>();
+    activeSocket = null;
+    elements = new Map<string, SmokeElement>();
     const getElement = (id: string): SmokeElement => {
       const existing = elements.get(id);
       if (existing) return existing;
@@ -129,18 +164,42 @@ describe('main.ts startup smoke', () => {
       location: { search: '', hostname: 'localhost', protocol: 'http:' },
       addEventListener() { }
     } as unknown as Window & typeof globalThis;
+    /** Expose a constructed socket without aliasing `this` inside the stub. */
+    const captureSocket = (socket: StubSocketSurface): void => {
+      activeSocket = socket;
+    };
 
     class StubWebSocket {
+      /** Ready-state constant consumed by the transport send guards. */
+      static OPEN = 1;
+      /** Browser-ready state. */
+      readyState = StubWebSocket.OPEN;
+      /** Binary response mode selected by the client. */
+      binaryType: BinaryType = 'arraybuffer';
+      /** Open callback installed by the client. */
+      onopen: (() => void) | null = null;
+      /** Message callback installed by the client. */
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      /** Error callback installed by the client. */
+      onerror: (() => void) | null = null;
+      /** Close callback installed by the client. */
+      onclose: (() => void) | null = null;
+      /** Serialized messages sent by the client. */
+      sent: string[] = [];
+
       /** Construct a socket and capture its resolved URL. */
       constructor(url: string) {
         connectedUrl = url;
+        captureSocket(this);
       }
 
       /** Close the inert socket. */
       close(): void { }
 
-      /** Ignore sends in this startup-only smoke. */
-      send(): void { }
+      /** Capture one serialized client message. */
+      send(payload: string): void {
+        this.sent.push(payload);
+      }
     }
 
     vi.stubGlobal('document', documentStub);
@@ -148,6 +207,13 @@ describe('main.ts startup smoke', () => {
     vi.stubGlobal('localStorage', makeStorage());
     vi.stubGlobal('requestAnimationFrame', () => 0);
     vi.stubGlobal('WebSocket', StubWebSocket);
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const payload = url.includes('/api/graph-presets')
+        ? { ok: true, presets: [] }
+        : { ok: true, hof: [] };
+      return { ok: true, json: async () => payload } as Response;
+    }));
   });
 
   afterEach(() => {
@@ -158,5 +224,61 @@ describe('main.ts startup smoke', () => {
     await import('./main.ts');
 
     expect(connectedUrl).toBe('ws://localhost:5174');
+  });
+
+  it('sends New Run and refreshes the visible seed after acknowledgement', async () => {
+    await import('./main.ts');
+    const socket = activeSocket;
+    expect(socket).not.toBeNull();
+    if (!socket) return;
+
+    socket.onopen?.();
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: 'welcome',
+        protocolVersion: 2,
+        sessionId: 'test-session',
+        tickRate: 60,
+        worldSeed: 42,
+        runId: 'run-42',
+        configRevision: 0,
+        configHash: 'cfg-test',
+        settings: { core: { simSpeed: 1 }, updates: [] },
+        inferenceMode: {
+          requestedBackend: 'native',
+          activeBackend: 'native',
+          requestedMt: true,
+          activeWorkerCount: 2
+        },
+        sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' },
+        serializerVersion: 1,
+        frameByteLength: 28
+      })
+    });
+
+    expect(elements.get('connectionStatus')?.textContent)
+      .toBe('Server · seed 42 · native MT×2');
+
+    const newRunButton = elements.get('newRun');
+    newRunButton?.click();
+    const request = socket.sent
+      .map((payload) => JSON.parse(payload) as Record<string, unknown>)
+      .find((message) => message['type'] === 'newRun');
+    expect(request?.['requestId']).toEqual(expect.any(String));
+    expect(newRunButton?.disabled).toBe(true);
+
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: 'newRunResult',
+        requestId: request?.['requestId'],
+        applied: true,
+        worldSeed: 99,
+        runId: 'run-99'
+      })
+    });
+
+    expect(newRunButton?.disabled).toBe(false);
+    expect(elements.get('connectionStatus')?.textContent)
+      .toBe('Server · seed 99 · native MT×2');
   });
 });

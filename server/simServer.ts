@@ -55,7 +55,10 @@ import { WsHub } from './wsHub.ts';
 import { buildSensorSpec } from './sensorSpec.ts';
 import type { ActiveInferenceBackend, InferenceModeRecord } from './inferenceMode.ts';
 import { createEntropySeed, createRunId } from './runIdentity.ts';
-import { buildAuthoritativeConfigHash } from './configIdentity.ts';
+import {
+  buildAuthoritativeConfigHash,
+  buildLegacyNullGraphConfigHash
+} from './configIdentity.ts';
 import { normalizeSettingValue } from '../src/protocol/settingDefinitions.ts';
 import { WorldSerializer } from '../src/serializer.ts';
 
@@ -304,9 +307,13 @@ export class SimServer {
 
     void cfgHash;
     const activeConfigHash = buildAuthoritativeConfigHash(this.core.world);
+    const legacyNullGraphHash = bootstrap.expectedConfigHash
+      ? buildLegacyNullGraphConfigHash(this.core.world)
+      : null;
     if (
       bootstrap.expectedConfigHash &&
-      bootstrap.expectedConfigHash !== activeConfigHash
+      bootstrap.expectedConfigHash !== activeConfigHash &&
+      bootstrap.expectedConfigHash !== legacyNullGraphHash
     ) {
       throw new Error(
         `snapshot ${bootstrap.snapshotId ?? 'unknown'} configuration hash mismatch: expected ${bootstrap.expectedConfigHash}, reconstructed ${activeConfigHash}`

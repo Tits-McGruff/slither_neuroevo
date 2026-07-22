@@ -60,7 +60,7 @@ function Require-Command([string]$name, [string]$hint) {
 # Minimal TOML reader for required fields
 # ============================================================
 # Shutdown must work even if node_modules is missing or broken, so we do not require a TOML library.
-# We parse the specific keys we care about:
+# We parse the specific keys needed for launch and shutdown:
 #   host, port, uiHost, uiPort, publicWsUrl
 #
 # This parser:
@@ -205,6 +205,30 @@ function Ensure-Dependencies {
 
     Write-Host ""
     Write-Host "[SUCCESS] Dependencies installed!"
+  }
+}
+
+# Build the mandatory native addon through napi-rs's compiled CLI entry point.
+function Build-NativeAddon {
+  $nativeDir = Join-Path $RepoRoot "native"
+  $cli = Join-Path $nativeDir "node_modules\@napi-rs\cli\dist\cli.js"
+  if (-not (Test-Path $cli)) {
+    Write-Err "Native build CLI is missing. Re-run npm install."
+    exit 1
+  }
+
+  Write-Host ""
+  Write-Host "[SETUP] Building required native inference addon..."
+  Write-Host ""
+  Push-Location $nativeDir
+  try {
+    & node $cli build --platform --release
+    if ($LASTEXITCODE -ne 0) {
+      Write-Err "Failed to build the native inference addon."
+      exit 1
+    }
+  } finally {
+    Pop-Location
   }
 }
 
@@ -466,13 +490,13 @@ function Print-ConnectionDetails($cfg) {
   if ($srvHosts.Count -gt 0) { Write-Host "" }
 
   if ($cfg.publicWsUrl) {
-    Write-Host ("WebSocket Public: {0}" -f $cfg.publicWsUrl)
+    Write-Host ("WebSocket Configured: {0}" -f $cfg.publicWsUrl)
   } else {
-    Write-Host ("WebSocket Local:   ws://localhost:{0}/" -f $cfg.port)
+    Write-Host ("WebSocket Local:      ws://localhost:{0}/" -f $cfg.port)
     $wsHosts = @()
     if ($uiHosts.Count -gt 0) { $wsHosts = $uiHosts }
     elseif ($srvHosts.Count -gt 0) { $wsHosts = $srvHosts }
-    foreach ($h in $wsHosts) { Write-Host ("WebSocket Network: ws://{0}:{1}/" -f $h, $cfg.port) }
+    foreach ($h in $wsHosts) { Write-Host ("WebSocket Network:    ws://{0}:{1}/" -f $h, $cfg.port) }
   }
 
   Write-Host ""
@@ -493,6 +517,7 @@ function Do-Play {
   Require-Command npm  "It normally ships with Node.js; reinstall from https://nodejs.org/"
 
   Ensure-Dependencies
+  Build-NativeAddon
   $cfg = Read-ConfigToml
 
   $serverPid = Start-Detached "Simulation Server" @("run","server") "server.pid" "server.log"

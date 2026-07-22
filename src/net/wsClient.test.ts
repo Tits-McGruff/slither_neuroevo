@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   createWsClient,
+  formatServerRuntimeStatus,
+  getDefaultServerUrl,
   resolveServerUrl,
   storeServerUrl,
   DEFAULT_SERVER_URL
@@ -69,6 +71,36 @@ describe('wsClient', () => {
       key: () => null
     } as Storage;
     expect(resolveServerUrl()).toBe(DEFAULT_SERVER_URL);
+  });
+
+  it('uses configured and same-host LAN defaults before localhost fallback', () => {
+    globalAny.window = {
+      location: {
+        search: '',
+        hostname: '192.168.1.25',
+        protocol: 'http:'
+      }
+    } as unknown as Window & typeof globalThis;
+    expect(getDefaultServerUrl('ws://192.168.1.40:6200')).toBe('ws://192.168.1.40:6200');
+    expect(getDefaultServerUrl('')).toBe('ws://192.168.1.25:5174');
+
+    globalAny.window = undefined as unknown as Window & typeof globalThis;
+    expect(getDefaultServerUrl('')).toBe(DEFAULT_SERVER_URL);
+  });
+
+  it('formats the active seed, backend, and threading mode for the UI', () => {
+    expect(formatServerRuntimeStatus(42, {
+      requestedBackend: 'native',
+      activeBackend: 'native',
+      requestedMt: false,
+      activeWorkerCount: 0
+    })).toBe('Server · seed 42 · native single-thread');
+    expect(formatServerRuntimeStatus(99, {
+      requestedBackend: 'native',
+      activeBackend: 'native',
+      requestedMt: true,
+      activeWorkerCount: 4
+    })).toBe('Server · seed 99 · native MT×4');
   });
 
   it('dispatches welcome and frame messages', () => {

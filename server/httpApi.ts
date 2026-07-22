@@ -60,31 +60,25 @@ export function createHttpHandler(deps: HttpApiDeps): (req: IncomingMessage, res
 }
 
 /**
- * Check if a given origin corresponds to a LAN or local environment.
+ * Check whether an origin belongs to a loopback or trusted-LAN address shape.
+ * This routing check is not authentication or an internet-facing security boundary.
  * @param origin - Origin header to check.
- * @returns True if the origin is on the LAN.
+ * @returns True when the origin is local or LAN-shaped.
  */
 function isLanOrigin(origin: string | undefined): boolean {
   if (!origin) return false;
   try {
     const { hostname } = new URL(origin);
-    // Localhost and loopback
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
 
-    // Check for IPv4 private ranges:
-    // 10.0.0.0 - 10.255.255.255
-    // 172.16.0.0 - 172.31.255.255 (also allowing all 172.x for common container/VM bridges)
-    // 192.168.0.0 - 192.168.255.255
     const parts = hostname.split('.').map(Number);
-    if (parts.length === 4 && parts.every((p) => !isNaN(p) && p >= 0 && p <= 255)) {
+    if (parts.length === 4 && parts.every((part) => !Number.isNaN(part) && part >= 0 && part <= 255)) {
       if (parts[0] === 10) return true;
       if (parts[0] === 172) return true;
       if (parts[0] === 192 && parts[1] === 168) return true;
     }
 
-    // Hostnames without dots are typically local network machine names
     if (!hostname.includes('.')) return true;
-
     return false;
   } catch {
     return false;
@@ -92,7 +86,7 @@ function isLanOrigin(origin: string | undefined): boolean {
 }
 
 /**
- * Adds CORS headers for browser clients.
+ * Add CORS headers for browser clients on loopback or a trusted LAN.
  * @param req - Incoming request.
  * @param res - Server response.
  */
@@ -103,7 +97,6 @@ function applyCors(req: IncomingMessage, res: ServerResponse): void {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Vary', 'Origin');
   } else {
-    // If not a whitelisted LAN origin, default to allow-all (*) for non-credentialed requests
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
@@ -135,7 +128,7 @@ async function handleRequest(
     deps.logger?.error('http', `Request error: ${message}`);
     // If headers haven't been sent yet, we can send a 500.
     if (!res.headersSent) {
-      applyCors(req, res); // Ensure CORS headers are present even on error path
+      applyCors(req, res);
       sendJson(res, 500, { ok: false, message });
     } else {
       res.end();

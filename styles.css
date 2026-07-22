@@ -236,7 +236,7 @@ canvas {
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 10px;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0.04em;
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
@@ -247,10 +247,6 @@ canvas {
 .connection-status.server {
   color: #63e6b6;
   border-color: rgba(99, 230, 182, 0.5);
-}
-.connection-status.worker {
-  color: #6ab4ff;
-  border-color: rgba(106, 180, 255, 0.5);
 }
 .panel .row {
   display: grid;

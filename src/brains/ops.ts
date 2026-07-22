@@ -8,7 +8,23 @@ import {
   requireLstmKernel,
   requireRruKernel
 } from './nativeBridge.ts';
+import {
+  gruParamCount,
+  headParamCount,
+  lstmParamCount,
+  mlpParamCount,
+  rruParamCount
+} from './parameterCounts.ts';
 import type { InferenceBackend } from './types.ts';
+
+/** Re-export pure layout helpers for existing runtime and test imports. */
+export {
+  gruParamCount,
+  headParamCount,
+  lstmParamCount,
+  mlpParamCount,
+  rruParamCount
+} from './parameterCounts.ts';
 
 /**
  * Sigmoid activation function.
@@ -17,61 +33,6 @@ import type { InferenceBackend } from './types.ts';
  */
 export function sigmoid(x: number): number {
   return 1 / (1 + Math.exp(-x));
-}
-
-/**
- * Compute parameter count for an MLP with the given layer sizes.
- * @param layerSizes - Layer sizes including input and output.
- * @returns Total parameter count.
- */
-export function mlpParamCount(layerSizes: number[]): number {
-  let n = 0;
-  for (let l = 0; l < layerSizes.length - 1; l++) {
-    const ins = layerSizes[l]!;
-    const outs = layerSizes[l + 1]!;
-    n += outs * ins + outs;
-  }
-  return n;
-}
-
-/**
- * Compute parameter count for a GRU layer.
- * @param inSize - Input size.
- * @param hiddenSize - Hidden size.
- * @returns Total parameter count.
- */
-export function gruParamCount(inSize: number, hiddenSize: number): number {
-  return 3 * hiddenSize * (inSize + hiddenSize + 1);
-}
-
-/**
- * Compute parameter count for an LSTM layer.
- * @param inSize - Input size.
- * @param hiddenSize - Hidden size.
- * @returns Total parameter count.
- */
-export function lstmParamCount(inSize: number, hiddenSize: number): number {
-  return 4 * hiddenSize * (inSize + hiddenSize + 1);
-}
-
-/**
- * Compute parameter count for an RRU layer.
- * @param inSize - Input size.
- * @param hiddenSize - Hidden size.
- * @returns Total parameter count.
- */
-export function rruParamCount(inSize: number, hiddenSize: number): number {
-  return 2 * hiddenSize * (inSize + hiddenSize + 1);
-}
-
-/**
- * Compute parameter count for a dense head.
- * @param hiddenSize - Input size.
- * @param outSize - Output size.
- * @returns Total parameter count.
- */
-export function headParamCount(hiddenSize: number, outSize: number): number {
-  return outSize * hiddenSize + outSize;
 }
 
 /** Simple feed-forward MLP with tanh activations. */

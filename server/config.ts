@@ -16,7 +16,7 @@ export interface ServerConfig {
   uiHost: string;
   /** Port for the UI dev server bind. */
   uiPort: number;
-  /** Optional default WebSocket URL for the UI when no override is provided. */
+  /** Optional default WebSocket URL for UI clients on a different host. */
   publicWsUrl: string;
   tickRateHz: number;
   uiFrameRateHz: number;
@@ -136,7 +136,8 @@ function getArgValue(argv: string[], flag: string): string | undefined {
     const arg = argv[i];
     if (!arg) continue;
     if (arg === flag) {
-      return argv[i + 1];
+      const next = argv[i + 1];
+      return next && !next.startsWith('--') ? next : undefined;
     }
     if (arg.startsWith(prefix)) {
       return arg.slice(prefix.length);
@@ -348,8 +349,8 @@ function defaultConfigToml(): string {
   const base = stringifyToml(DEFAULT_CONFIG).trim();
   const seedHint = '# seed = 12345 # optional: fixed world seed\n';
   const publicWsHint =
-    '# publicWsUrl overrides the UI default when no ?server= override is used.\n' +
-    '# Leave it blank to use the UI hostname + server port.\n';
+    '# publicWsUrl tells browsers where to find the simulation server when it differs from the UI host.\n' +
+    '# Leave it blank to use the UI hostname plus the configured server port.\n';
   const uiHint = '# uiHost/uiPort control the Vite dev server bind.\n';
   return `# Slither Neuroevo server configuration (TOML)\n${seedHint}${publicWsHint}${uiHint}${base}\n`;
 }

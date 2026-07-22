@@ -11,7 +11,6 @@ import {
 } from './settings.ts';
 import { lerp, setByPath } from './utils.ts';
 import { renderWorldStruct } from './render.ts';
-// import { World } from './world.ts'; // Logic moved to worker
 import {
   exportJsonToFile,
   exportToFile,
@@ -24,7 +23,13 @@ import { hof } from './hallOfFame.ts';
 import { BrainViz } from './BrainViz.ts';
 import { AdvancedCharts } from './chartUtils.ts';
 import { FRAME_HEADER_FLOATS, FRAME_HEADER_OFFSETS } from './protocol/frame.ts';
-import { createWsClient, resolveServerUrl, storeServerUrl } from './net/wsClient.ts';
+import {
+  createWsClient,
+  formatServerRuntimeStatus,
+  resolveServerUrl,
+  storeServerUrl,
+  type WelcomeInferenceMode
+} from './net/wsClient.ts';
 import { createAuthoritativeControls } from './net/authoritativeControls.ts';
 import { inferGraphSizes } from './brains/graph/editor.ts';
 import type { GraphSizeState } from './brains/graph/editor.ts';
@@ -116,6 +121,10 @@ let serverConfigRevision = 0;
 let serverSimSpeed = 1;
 /** Latest server world seed from the welcome message. */
 let serverWorldSeed: number | null = null;
+/** Inference mode advertised for the active server run. */
+let serverInferenceMode: WelcomeInferenceMode | null = null;
+/** Correlation id of the currently pending New Run request. */
+let pendingNewRunRequestId: string | null = null;
 /** Latest tick id observed from server stats. */
 let lastServerTick = 0;
 /** Pending server reset promise used to sequence imports. */
@@ -196,7 +205,7 @@ let cssW = 0,
   dpr = 1;
 
 /**
- * Resize the canvas and notify the worker of the new viewport size.
+ * Resize the canvas and notify the server of the new viewport size.
  */
 function resize(): void {
   dpr = window.devicePixelRatio || 1;
@@ -307,6 +316,8 @@ const n5Val = document.getElementById('n5Val') as HTMLElement;
 const btnApply = document.getElementById('apply') as HTMLButtonElement;
 /** Button to restore default settings. */
 const btnDefaults = document.getElementById('defaults') as HTMLButtonElement;
+/** Button that starts a separately seeded, durably checkpointed run. */
+const btnNewRun = document.getElementById('newRun') as HTMLButtonElement;
 /** Button to toggle the settings panel. */
 const btnToggle = document.getElementById('toggle') as HTMLButtonElement;
 /** Settings tab container element. */
@@ -1030,7 +1041,7 @@ if (graphApply) {
   graphApply.addEventListener('click', () => {
     const draft = ensureGraphDraft();
     if (!applyGraphSpec(draft, 'Graph applied.')) return;
-    applyResetToSimulation(true);
+    applyResetToSimulation();
   });
 }
 
@@ -1199,8 +1210,16 @@ function setConnectionStatus(mode: ConnectionMode): void {
   if (!connectionStatus) return;
   connectionStatus.classList.remove('connecting', 'server');
   connectionStatus.classList.add(mode);
-  if (mode === 'server') connectionStatus.textContent = 'Server';
-  else connectionStatus.textContent = 'Connecting';
+  if (mode === 'server' && serverWorldSeed !== null && serverInferenceMode) {
+    connectionStatus.textContent = formatServerRuntimeStatus(
+      serverWorldSeed,
+      serverInferenceMode
+    );
+  } else if (mode === 'server') {
+    connectionStatus.textContent = 'Server';
+  } else {
+    connectionStatus.textContent = 'Connecting';
+  }
 }
 
 /**
@@ -1601,7 +1620,7 @@ function assertGraphSpecInputSizeMatches(spec: GraphSpec, context: string): void
   if (inputSize !== CFG.brain.inSize) {
     throw new Error(
       `${context} input size mismatch (expected ${CFG.brain.inSize}, got ${inputSize}). ` +
-      'If this file was exported from an older build, clear localStorage or delete data/slither.db and retry.'
+      'Rebuild or re-export the graph for the current v3 sensor size; existing checkpoints can remain in place.'
     );
   }
 }
@@ -3240,7 +3259,7 @@ function sendPlayerAction(): void {
 
 /**
  * Store a new frame buffer and update generation stats.
- * @param buffer - Raw frame buffer from worker/server.
+ * @param buffer - Raw frame buffer from the server.
  */
 function applyFrameBuffer(buffer: ArrayBuffer): void {
   currentFrameBuffer = new Float32Array(buffer);
@@ -3369,10 +3388,9 @@ function resolveGraphSpecForReset(): GraphSpec | null {
 }
 
 /**
- * Apply a full reset using the active simulation backend.
- * @param resetCfg - Whether to reset CFG before applying updates in worker mode.
+ * Apply a full reset through the authoritative server.
  */
-function applyResetToSimulation(_resetCfg = true): void {
+function applyResetToSimulation(): void {
   authoritativeControls.dispose();
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdatesFromUI();
@@ -3461,6 +3479,7 @@ wsClient = createWsClient({
     serverCfgHash = info.configHash;
     serverConfigRevision = info.configRevision;
     serverWorldSeed = info.worldSeed;
+    serverInferenceMode = info.inferenceMode;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
     lastServerTick = 0;
     spectatorFollowSnakeId = null;
@@ -3495,6 +3514,9 @@ wsClient = createWsClient({
     serverConfigRevision = 0;
     serverSimSpeed = 1;
     serverWorldSeed = null;
+    serverInferenceMode = null;
+    pendingNewRunRequestId = null;
+    btnNewRun.disabled = false;
     lastServerTick = 0;
     resolvePendingServerReset();
     playerSnakeId = null;
@@ -3618,7 +3640,20 @@ wsClient = createWsClient({
     }
   },
   onNewRunResult: (msg) => {
-    if (!msg.applied) console.warn(`[new-run] ${msg.reason ?? 'request rejected'}`);
+    if (pendingNewRunRequestId === msg.requestId) {
+      pendingNewRunRequestId = null;
+      btnNewRun.disabled = false;
+    }
+    if (!msg.applied) {
+      console.warn(`[new-run] ${msg.reason ?? 'request rejected'}`);
+      return;
+    }
+    if (Number.isFinite(msg.worldSeed)) {
+      serverWorldSeed = msg.worldSeed!;
+      setConnectionStatus('server');
+    }
+    selectedSnake = null;
+    console.info(`[new-run] started seed ${msg.worldSeed ?? 'unknown'}`);
   },
   onError: (msg) => {
     console.warn(`[ws] ${msg.message}`);
@@ -3673,7 +3708,7 @@ btnApply.addEventListener('click', () => {
   refreshCoreUIState();
   updateCFGFromUI(resolveSettingsRoot());
   persistBaselineBotSettings();
-  applyResetToSimulation(true);
+  applyResetToSimulation();
 });
 // Restore defaults
 btnDefaults.addEventListener('click', () => {
@@ -3692,7 +3727,13 @@ btnDefaults.addEventListener('click', () => {
   refreshCoreUIState();
   applySettingsLock();
   persistBaselineBotSettings();
-  applyResetToSimulation(true);
+  applyResetToSimulation();
+});
+// Start a separately seeded run after its generation-one checkpoint commits.
+btnNewRun.addEventListener('click', () => {
+  if (!wsClient?.isConnected() || pendingNewRunRequestId !== null) return;
+  pendingNewRunRequestId = authoritativeControls.requestNewRun();
+  btnNewRun.disabled = true;
 });
 // Toggle view mode
 btnToggle.addEventListener('click', () => proxyWorld.toggleViewMode());
@@ -3717,7 +3758,7 @@ window.addEventListener('keydown', e => {
  * @returns Object containing absolute simulation world coordinates \{x, y\}.
  */
 function screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
-  // Retrieve camera state from the current data source (Server stream or Local worker buffer).
+  // Retrieve camera state from the authoritative server frame.
   let camX = 0, camY = 0, zoom = 1;
   if (connectionMode === 'server') {
     camX = clientCamX;
@@ -4187,10 +4228,7 @@ function frame(): void {
       ctxViz.fillText("Waiting for visualization data...", 20, 20);
     }
   } else if (activeTab === 'tab-fitness') {
-    // Fitness Chart needs history.
-    // worker stats has gen.
-    // We can maintain history locally in proxyWorld?
-    // proxyWorld needs specific structure for FitnessChart.
+    // Fitness chart history is retained in the server stats stream.
   }
 
   // Updates UI overlay

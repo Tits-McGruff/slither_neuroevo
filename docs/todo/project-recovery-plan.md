@@ -3,12 +3,16 @@
 ## Document control
 
 - Status: authoritative, owner-approved implementation plan; Phases 0 through
-  8 are complete, and Phase 9 has not started.
+  8 are complete. Phase 9 implementation and the emergency Phase 10 LAN
+  restoration pass their automated gates, and a partial browser QA pass
+  verified rendering, runtime identity, speed controls, and restart/resume.
+  The remaining owner-device/manual UI acceptance is still pending, so neither
+  phase nor the recovery is complete.
 - Created: 2026-07-21.
 - Branch: `exclusive-server-mode-refactor`.
 - Audit baseline commit: `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
-- Current implementation HEAD: `308c6f0dd91eca8091bc75dcf08ca87904da2d50`.
-- Last fully verified HEAD: `308c6f0dd91eca8091bc75dcf08ca87904da2d50`.
+- Current implementation HEAD: `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`.
+- Last fully verified HEAD: `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`.
 - Baseline worktree: clean before the two planning-document changes.
 - Current expected worktree changes are recorded under "Live execution status".
 - Scope owner: the repository owner.
@@ -115,6 +119,30 @@ progresses.
   All 60 JavaScript test files/298 tests, the 7-file/45-test required-native
   overlay, Rust tests/fmt/clippy, strict TypeScript, repository-wide ESLint, and
   the production build pass. Phase 9 was not started.
+- 2026-07-22: The owner corrected a project-scope error introduced by this
+  recovery plan: trusted home-LAN use is supported and must not be conflated
+  with unsecured public-internet hosting. Emergency Phase 10 overrides every
+  contradictory local-only statement, pauses the affected portion of Phase 9,
+  and requires restoration plus end-to-end LAN verification before recovery
+  can be declared complete.
+- 2026-07-22: Surgically restored every uncommitted Phase 9 LAN regression
+  while retaining the native-launcher build and configuration-parser fixes.
+  Focused LAN/config/browser/HTTP/launcher coverage, strict TypeScript, and
+  focused ESLint pass; the full matrix and owner-device gate remain pending.
+- 2026-07-22: Completed the Phase 9/10 source and automated-verification pass.
+  Live LAN QA exposed and repaired development WebSocket injection (`LAN-006`)
+  and fallback-graph checkpoint identity (`PER-007`). The complete 61-file,
+  309-test JavaScript manifest, 7-file/45-test native-required overlay,
+  TypeScript, ESLint, Vite, Rust/native gates, and diff hygiene pass. The
+  owner-device/manual UI gate remains pending and no Phase 9/10 work was
+  committed or pushed.
+- 2026-07-23: The in-app browser became available and completed a partial
+  owner-visible Phase 9 pass. It rendered the live native MT x2 simulation,
+  displayed the server seed and inference mode, spectated successfully,
+  demonstrated distinct 0.10x, 1.00x, and 12.00x rates, and reconnected after
+  an exact latest-checkpoint restart. Browser automation could not reliably
+  change the reset-only range input, so reset, God Mode, visualizer, New Run,
+  launcher, and real second-device checks remain explicitly open.
 
 ## How to resume this work
 
@@ -216,15 +244,16 @@ when the advertised behavior is absent.
 - Preserve legacy snapshot readability without continuing the legacy write
   format.
 - Replace silent passes and weak smoke tests with contract-focused coverage.
-- Keep the project explicitly local and hobby-oriented.
+- Keep the project hobby-oriented while supporting deliberate use from other
+  devices on the owner's trusted home LAN.
 - Leave a continuously updated handoff record for future contexts.
 
 ## Non-goals
 
 - Do not implement a second, full simulation engine in Rust.
 - Do not restore the browser-local simulation or browser worker architecture.
-- Do not add accounts, authentication, authorization, public hosting support,
-  or an enterprise security model.
+- Do not claim that the application is hardened for public-internet exposure,
+  add an enterprise security model, or require accounts for trusted-LAN use.
 - Do not blindly restore deleted tests merely to increase the test count.
 - Do not promise bit-identical long-horizon behavior between the JS and native
   math backends when their floating-point evaluation order differs.
@@ -304,10 +333,21 @@ New writes use a bounded-memory format. Existing `genomes_blob` snapshots
 remain readable through a legacy path. A corrupt latest checkpoint must not be
 silently treated as an empty database.
 
-### DEC-010: Local-only operating model
+### DEC-010: Loopback default with supported trusted-LAN opt-in
 
-The default bind remains loopback. Input validation and size limits protect the
-process from accidental bad data. No authentication work is in scope.
+The default bind may remain loopback, but trusted home-LAN use is a supported
+product path. Explicit `host`/`uiHost` configuration must be able to bind the
+server and UI to a LAN interface. Launchers must discover and print usable LAN
+URLs when that mode is configured. The browser must retain an explicit server
+URL override for arrangements where the UI hostname is not the simulation
+server hostname, and development HMR must remain usable from another LAN
+device.
+
+LAN support does not imply public-internet hardening. The server has no account,
+authentication, authorization, or TLS boundary, so router port-forwarding and
+untrusted-network exposure remain unsupported unless separately designed and
+approved. Never use that limitation as a reason to remove trusted-LAN routing,
+discovery, CORS compatibility, documentation, or tests.
 
 ## Engineering decisions owned by the implementation
 
@@ -405,6 +445,7 @@ deleted files are evidence and reference material, not specifications to copy.
 | NAT-005 | Canonical worker message handling can begin before asynchronous native loading completes | `server/worker/inferWorker.ts` installs its handler before the final native-load await | 3 and 4 |
 | NAT-006 | A `GraphBrain` records one backend at construction, while GRU/LSTM/RRU primitives recheck global native availability on every step and can execute a different backend than diagnostics report | `src/brains/graph/runtime.ts` and `src/brains/ops.ts` | 3 |
 | NAT-007 | The native loader reports ready without validating every required kernel export or a source-derived build identifier, deferring stale/incompatible-addon failure until inference | `src/brains/nativeBridge.ts` | 3 |
+| NAT-008 | Convenience launchers install native dependencies but do not build the now-required addon before starting the server on a fresh checkout | `play.sh` and `scripts/slither.ps1` | 9 |
 | MT-001 | Two incompatible server brain pools exist | `server/brainPool.ts` and `src/sim/NodeBrainPool.ts` | 4 |
 | MT-002 | The active pool begins with zero-filled weights and skips initial synchronization | `NodeBrainPool.init` and `SimServer.mtGeneration` | 4 |
 | MT-003 | Active workers allocate private recurrent stores when `stateSize` is omitted | `SimServer.initMT` / `ensureBrainPool` and `src/worker/inferWorker.ts` | 4 |
@@ -425,14 +466,18 @@ deleted files are evidence and reference material, not specifications to copy.
 | UI-004 | Live/reset metadata is private to a DOM-oriented module | `src/settings.ts` | 6 |
 | UI-005 | At least two "live" values need explicit derived-state handling | collision cell size and baseline bot respawn delay | 6 |
 | UI-006 | Settings UI and snapshot coercion still advertise removed v2/legacy sensor layouts although v3 is the sole runtime contract | `settings.ts`, `protocol/settings.ts`, `settingsSnapshot.ts` | 6 |
+| UI-007 | Protocol 2 and durable server support exist for New Run, but the browser exposes no New Run control and ignores a successful result | `index.html` and `src/main.ts` | 9 |
+| UI-008 | The browser status pill reports only a generic server connection and does not expose the active seed or inference mode required by final QA | `index.html` and `src/main.ts` | 9 |
 | CFG-001 | Config hash and seed captured by HTTP/welcome state become stale after changes | `server/index.ts` closure values | 6 and 7 |
 | CFG-002 | Config identity depends on raw object property order | `server/hash.ts` hashes `JSON.stringify` output directly | 6 |
+| CFG-003 | The documented `--mt --mt-workers N` sequence lets the generic value parser consume `--mt-workers` as the boolean value and starts serially | `server/config.ts` | 9 |
 | PER-001 | Advertised chunked module does not exist | Documentation versus filesystem | 7 |
 | PER-002 | Save converts all weights to JSON arrays, accumulates buffers, concatenates, then gzip-compresses synchronously | `World.exportPopulation` and `server/persistence.ts` | 7 |
 | PER-003 | Startup reads snapshot settings but never restores saved genomes | `server/index.ts` | 7 |
 | PER-004 | HTTP export recreates the entire population as one JSON response | `server/httpApi.ts` | 7 |
 | PER-005 | Automatic checkpoints default to disabled and the current save hook runs after new-generation spawning/random draws | `server/config.ts`, `World._endGeneration`, and server generation-change handling | 2 and 7 |
 | PER-006 | Snapshot restore converts `brain.useMlp` from Boolean `true` to numeric `1`, changing canonical config identity and preventing exact resume | `src/protocol/settings.ts` and `server/settingsSnapshot.ts` | 7 |
+| PER-007 | Fallback-stack checkpoints store the compiled graph but hash the raw null graph setting, so restart reconstructs a different config identity and rejects an otherwise exact resumable checkpoint | `server/configIdentity.ts` and `server/simServer.ts` | 7 and 10 |
 | TEST-001 | Native tests silently pass without native | `src/brains/nativeBridge.test.ts` | 3 and 8 |
 | TEST-002 | Network suites silently return on bind permission errors | server acceptance/integration/system/security suites | 1, 6, and 8 |
 | TEST-003 | The main UI test asserts little beyond WebSocket construction | `src/main.test.ts` | 8 |
@@ -443,6 +488,13 @@ deleted files are evidence and reference material, not specifications to copy.
 | DOC-001 | README, AGENTS, and API docs describe behavior absent from code | current documentation | 9 |
 | DOC-002 | `AGENTS.md` describes `server/config.toml` as an existing defaults file, but the baseline checkout has no such file and `parseConfig` creates it as a startup side effect | `AGENTS.md`, `server/config.ts`, and the baseline tree | 9 |
 | DOC-003 | `AGENTS.md` requires `markdown-rules/rules.md`, but that policy file and directory are absent from the checkout | `AGENTS.md` and the baseline tree | 9 |
+| DOC-004 | Invalid defect entry created by conflating trusted-LAN support with public hosting; preserve as an audit record and replace its proposed removal with verified LAN behavior | `server/httpApi.ts` and owner correction | 10 |
+| LAN-001 | The Phase 9 draft removes LAN-address discovery and network URL output from both launchers | `play.sh` and `scripts/slither.ps1` uncommitted diff | 10 |
+| LAN-002 | The Phase 9 draft removes `publicWsUrl` from TOML, environment, CLI, Vite injection, and browser URL precedence, silently ignoring an existing routing control | `server/config.ts`, `vite.config.ts`, and `src/net/wsClient.ts` uncommitted diff | 10 |
+| LAN-003 | The Phase 9 draft removes explicit HMR host selection used when Vite is bound to all interfaces | `vite.config.ts` uncommitted diff | 10 |
+| LAN-004 | The Phase 9 draft changes established LAN-origin CORS behavior without first proving all supported UI/server address combinations | `server/httpApi.ts` uncommitted diff | 10 |
+| LAN-005 | Recovery-plan, README, API, and AGENTS wording incorrectly tells future agents and users that trusted-LAN use is unsupported | recovery plan plus Phase 9 documentation draft | 10 |
+| LAN-006 | Restored global Vite placeholders substitute in production but remain unresolved in served development modules, so split-host `publicWsUrl` can be ignored during LAN development | `vite.config.ts`, `src/types.d.ts`, and `src/net/wsClient.ts` | 10 |
 
 ## Target architecture
 
@@ -1619,45 +1671,162 @@ would mislead the next maintainer.
 
 ### Detailed checklist
 
-- [ ] Update `README.md` with honest local setup, runtime mode, seed/reset,
+- [x] Update `README.md` with honest local setup, runtime mode, seed/reset,
   New Run, speed, settings, God Mode, and save/resume behavior.
-- [ ] Rewrite the affected `AGENTS.md` sections from verified final code.
-- [ ] Update `docs/API-instructions.md` with protocol messages and local-only
-  scope.
-- [ ] Remove the false chunked-module documentation.
-- [ ] Remove the full-world Rust architecture claim.
-- [ ] Document native and threading as independent axes.
-- [ ] Leave a short durable architecture-decision record for kernel-only Rust
+- [x] Rewrite the affected `AGENTS.md` sections from verified final code.
+- [x] Update `docs/API-instructions.md` with protocol messages, supported
+  trusted-LAN use, and a separate warning against public-internet exposure.
+- [x] Remove the false chunked-module documentation.
+- [x] Remove the full-world Rust architecture claim.
+- [x] Document native and threading as independent axes.
+- [x] Leave a short durable architecture-decision record for kernel-only Rust
   (DEC-002) and independent backend/threading axes (DEC-004), so those choices
   do not depend only on this recovery checklist.
-- [ ] Document checkpoint versus population export semantics.
-- [ ] Document exact and tolerance-based determinism boundaries.
-- [ ] Document worker failure behavior.
-- [ ] Document the actual test commands and suite meanings.
-- [ ] Clean native package template files and metadata that no longer serve the
+- [x] Document checkpoint versus population export semantics.
+- [x] Document exact and tolerance-based determinism boundaries.
+- [x] Document worker failure behavior.
+- [x] Document the actual test commands and suite meanings.
+- [x] Clean native package template files and metadata that no longer serve the
   project.
-- [ ] Remove dead imports that drag server-only brain/native code into the
+- [x] Remove dead imports that drag server-only brain/native code into the
   browser bundle.
-- [ ] Remove dead local-worker comments and interfaces.
-- [ ] Remove obsolete environment variables and config fields.
-- [ ] Confirm archived plans remain untouched.
-- [ ] Keep the superseded banner on `native_refactor_plan.md` or archive it in
+- [x] Remove dead local-worker comments and interfaces.
+- [x] Remove only environment variables and config fields proven obsolete;
+  LAN routing controls such as `publicWsUrl`, `host`, and `uiHost` are not
+  obsolete.
+- [x] Confirm archived plans remain untouched.
+- [x] Keep the superseded banner on `native_refactor_plan.md` or archive it in
   a separately approved documentation operation.
-- [ ] Resolve or remove the broken `markdown-rules/rules.md` reference.
+- [x] Resolve or remove the broken `markdown-rules/rules.md` reference.
 
 ### Final manual QA
 
 - [ ] Fresh install/build instructions work on the owner's Windows machine.
 - [ ] Normal launcher starts native single-thread or configured native MT mode.
-- [ ] Browser clearly shows connected server, seed, and inference mode.
-- [ ] Representative live controls work.
+- [x] Browser clearly shows connected server, seed, and inference mode.
+- [x] Representative live controls work.
 - [ ] Reset-required controls work after Apply.
-- [ ] Sim speed is visibly different at 0.1x, 1x, and 12x.
+- [x] Sim speed is visibly different at 0.1x, 1x, and 12x.
 - [ ] God Mode select, kill, and drag work.
 - [ ] Visualizer works with MT enabled.
-- [ ] Save/restart resumes.
+- [x] Save/restart resumes.
 - [ ] New Run changes seed and preserves saves.
+- [ ] A configured trusted-LAN launch prints a usable URL and another device on
+  the owner's LAN can load the UI and connect to the simulation server.
 - [ ] No false public-hosting or security claims remain.
+
+## Phase 10: Emergency trusted-LAN scope recovery
+
+### Owner correction and priority
+
+This phase was ordered by the repository owner on 2026-07-22 after the recovery
+plan's author incorrectly equated trusted home-LAN access with unsecured public
+hosting. It is active immediately and takes precedence over the affected Phase
+9 cleanup. Phase 9's unrelated documentation, native-package, UI, and bundle
+cleanup may be retained, but no LAN-removal change may be committed.
+
+The required distinction is:
+
+- using the simulation from the owner's phone or another computer on the same
+  trusted home network is supported;
+- exposing the unauthenticated service to the public internet or an untrusted
+  network is not automatically safe and remains outside this repair.
+
+### Complete-scope audit
+
+- [x] Compare the audit baseline `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`,
+  every committed recovery phase through `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`,
+  and the complete current worktree for decisions caused by the mistaken
+  local-only assumption.
+- [x] Classify each finding as committed runtime behavior, uncommitted runtime
+  behavior, documentation/plan policy, test coverage, or an omission.
+- [x] Confirm explicitly whether any Phase 0-8 production behavior beyond LAN
+  support was changed because of this misunderstanding.
+- [x] Record every finding in the defect registry and handoff journal; absence
+  of further findings must be stated with the comparison commands used.
+
+### Required restoration
+
+- [x] Restore `publicWsUrl` as a supported TOML, `PUBLIC_WS_URL`, and
+  `--public-ws-url` routing override without removing newer Phase 9 config work.
+- [x] Restore Vite injection of the explicit WebSocket URL and the browser's
+  documented URL precedence: query override, saved override, configured
+  default, runtime UI hostname plus server port, then localhost fallback.
+- [x] Restore explicit Vite HMR host selection for configured LAN/all-interface
+  development binds, retaining current cache/build behavior.
+- [x] Restore PowerShell and POSIX launcher parsing of `host`, `uiHost`, and
+  `publicWsUrl`, non-loopback IPv4 discovery, and usable UI/server/WebSocket
+  network URL output. Preserve the new mandatory native-addon build step.
+- [x] Restore the established CORS behavior first, then change it only if a
+  focused test proves the replacement supports every trusted-LAN UI/server
+  address combination. Do not treat CORS as authentication.
+- [x] Keep loopback defaults unless the owner separately requests a default
+  LAN bind; explicit `0.0.0.0` or configured-interface operation must work.
+- [x] Preserve `?server=...` and browser-saved server overrides.
+- [x] Do not use wholesale reset/revert operations that would discard valid
+  overlapping Phase 9 work; restore affected hunks surgically.
+
+### Plan and documentation correction
+
+- [x] Remove or rewrite every statement that conflates trusted-LAN use with
+  public hosting in this plan, `README.md`, `AGENTS.md`,
+  `docs/API-instructions.md`, and the new architecture decision record.
+- [x] Document simple Windows instructions for opening the simulation from a
+  phone or another LAN computer, including firewall and bind prerequisites in
+  plain language.
+- [x] Document `publicWsUrl` in plain language as the address the webpage uses
+  to find the simulation server; its legacy name does not mean the server is
+  safe for the public internet.
+- [x] State clearly that trusted-LAN support has no built-in accounts or TLS
+  and must not be exposed through router port forwarding.
+- [x] Correct DEC-010, Phase 9 scope, consultation gates, acceptance mapping,
+  definition of done, defect registry, and live handoff metadata.
+
+### Automated verification
+
+- [x] Add config tests for TOML, `PUBLIC_WS_URL`, and `--public-ws-url`
+  precedence and normalization.
+- [x] Add browser URL-resolution tests for configured, same-host LAN, explicit
+  query, saved, and localhost-fallback cases.
+- [x] Add Vite/config-focused coverage proving a LAN/all-interface bind keeps a
+  connectable HMR/server host without importing server-only runtime code into
+  the browser bundle.
+- [x] Add launcher-focused static or unit coverage for LAN URL output where
+  practical; at minimum parse both scripts and exercise the address-formatting
+  helpers independently.
+- [x] Add HTTP integration coverage for the supported cross-origin LAN request
+  path and preflight behavior.
+- [x] Re-run the complete Phase 8 JavaScript manifest, native-required overlay,
+  native build/Rust tests/fmt/clippy, TypeScript, ESLint, Vite production build,
+  and `git diff --check`.
+
+### Owner-machine manual acceptance gate
+
+- [ ] Same-computer launcher use still works with default loopback settings.
+- [ ] With explicit trusted-LAN bind settings, the launcher prints the actual
+  phone-usable UI and WebSocket URLs rather than only `localhost`.
+- [ ] A second device on the owner's home LAN loads the UI, completes Protocol
+  2 welcome, displays seed/inference mode, receives frames, and can spectate.
+- [ ] Player join and representative live controls work from that second
+  device.
+- [ ] Development HMR reconnects from the second device after a harmless UI
+  edit or an equivalent controlled verification.
+- [ ] An explicit `publicWsUrl` arrangement works when UI and simulation server
+  hostnames differ.
+- [ ] Documentation enables a non-technical owner to repeat the LAN setup
+  without guessing IP addresses or internal terminology.
+- [ ] Public-internet exposure is never advertised as safe merely because LAN
+  access works.
+
+### Phase 10 acceptance gate
+
+- [x] Every Phase 10 audit and restoration item is verified.
+- [x] The owner-machine manual LAN gate passes or remains visibly blocked with
+  no claim that recovery is complete.
+- [x] No LAN regression from the uncommitted Phase 9 draft is present in the
+  final diff.
+- [x] No unrelated verified Phase 0-9 repair is lost during restoration.
+- [x] The recovery cannot be marked complete until Phase 10 is complete.
 
 ## Protocol and data-model migration notes
 
@@ -1807,10 +1976,13 @@ when one of these occurs:
 - Legacy snapshot compatibility would need to be dropped.
 - A gameplay/sensor/fitness meaning beyond `points_delta_norm` must change.
 - MT would be made default despite failing a correctness or performance gate.
-- Local-only scope would be expanded to LAN/public hosting with security
-  implications.
+- Public-internet or untrusted-network hosting would be added, requiring an
+  authentication, authorization, TLS, firewall, or threat-model decision.
 - A destructive database migration or snapshot deletion is proposed.
 - A new large dependency or framework is required.
+
+Restoring and maintaining the owner-mandated trusted-LAN path is not a
+consultation gate.
 
 ## Acceptance criteria mapping
 
@@ -1831,7 +2003,7 @@ when one of these occurs:
 | AC-013 | Legacy snapshots remain readable | Legacy fixture test |
 | AC-014 | Native tests cannot silently skip | Required-native suite behavior |
 | AC-015 | CI exercises real native MT | CI job mode assertion |
-| AC-016 | Docs match runtime and local scope | Final documentation review/manual QA |
+| AC-016 | Docs match runtime, trusted-LAN support, and public-exposure limits | Final documentation review/manual QA |
 | AC-017 | Fixed-step results ignore speed/jitter/pump grouping | Grouped-step scheduler replay tests |
 | AC-018 | One documented production World pipeline remains | Ordering characterization and focused pipeline tests |
 | AC-019 | Invalid native buffers/dimensions/aliasing fail safely | N-API boundary safety tests |
@@ -1840,6 +2012,8 @@ when one of these occurs:
 | AC-022 | Config revision/hash track authoritative live state | Multi-client ordering and canonical-hash tests |
 | AC-023 | New Run is immediately resumable | Run-start checkpoint crash/restart test |
 | AC-024 | Checkpoint resumes at the exact pre-spawn boundary | RNG/allocator/recurrent reconstruction test |
+| AC-025 | Trusted-LAN routing, discovery, browser connection, and HMR work | Phase 10 automated tests and owner-device QA |
+| AC-026 | Recovery scope no longer conflates LAN use with public hosting | Baseline-to-final audit and documentation review |
 
 ## Definition of done
 
@@ -1860,55 +2034,78 @@ The recovery is complete only when:
 - no required suite silently returns on missing dependencies or bind failure;
 - README, AGENTS, and API docs describe the verified architecture;
 - obsolete duplicate pools and full-world native adapter are gone;
+- trusted-LAN routing and launcher discovery pass Phase 10 acceptance without
+  claiming public-internet security;
+- every emergency Phase 10 checklist and acceptance item is complete;
 - this plan's live status says complete and includes the final validation
   commands/results.
 
 ## Live execution status
 
-- Current phase: Phase 8 test and CI reconstruction is complete. Phase 9 has not
-  started.
-- Active checklist item: none in Phase 8. Await owner review and explicit
-  direction before committing, pushing, or starting Phase 9.
-- Last completed work: reconstructed the test layers and CI contracts, repaired
-  the full-suite reset race exposed by the new manifest, and passed the complete
-  Phase 8 verification matrix.
-- Source implementation status: the fully verified Phase 8 worktree is
-  uncommitted and unstaged. It changes tests, test helpers, package scripts, CI,
-  narrow QA workflow documentation, and this plan; it does not change later-
-  phase production behavior.
-- Current blocker: none. The optional in-app browser spot check could not start
-  because the Codex browser runtime was denied access to its own Windows
-  `AppData` path. The local native+MT server and Vite client did launch and pass
-  HTTP health checks, all temporary processes were stopped, and Phase 9's final
-  manual-QA checklist remains intentionally untouched.
-- Next action: owner review of the Phase 8 worktree and commit message. Do not
-  start Phase 9 in this pass.
+- Current phase: Phase 9 documentation/debris cleanup and emergency Phase 10
+  trusted-LAN restoration have completed implementation and automated
+  verification. Their manual owner-visible acceptance gates remain active.
+- Completed checklist items: every Phase 9 detailed implementation item and
+  every Phase 10 audit, restoration, documentation, and automated-verification
+  item. The Phase 10 acceptance conditions correctly record the still-pending
+  owner-device gate without claiming full recovery.
+- Active checklist items: Phase 9 final manual QA and Phase 10 owner-machine
+  manual acceptance, especially a real phone/second-computer load, control,
+  frame, and HMR check over the owner's trusted LAN.
+- Last completed work: repaired and regression-tested `PER-007` checkpoint
+  identity and `LAN-006` development WebSocket injection, completed a native-MT
+  loopback/LAN live smoke, and passed the complete automated matrix.
+- Source implementation status: the valid Phase 9 documentation, ADR, native
+  package cleanup, browser bundle cleanup, New Run UI, runtime status, and
+  launcher native build remain intact. All Phase 9 LAN removals were restored
+  surgically. Loopback stays the default; explicit trusted-LAN binding,
+  discovery, browser routing, HMR, and cross-origin requests work without being
+  described as authenticated, TLS-protected, or public-internet safe.
+- Current blockers: browser QA verified live rendering, runtime identity,
+  spectating, speed controls, and checkpoint restart, but its automation could
+  not reliably manipulate the reset-only range input. The remaining UI checks
+  and a phone or second computer on the owner's LAN remain owner-visible gates.
+  No source or automated-verification blocker remains.
+- Next action: commit and push the verified Phase 9/10 implementation at the
+  owner's explicit direction, then retain the unchecked owner-visible items
+  without declaring either phase or the recovery complete.
 - Current implementation HEAD:
-  `308c6f0dd91eca8091bc75dcf08ca87904da2d50`.
+  `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`.
 - Last fully verified HEAD:
-  `308c6f0dd91eca8091bc75dcf08ca87904da2d50`.
-- Verification scope note: commit `308c6f0` remains the committed baseline; the
-  exact unstaged Phase 8 file set below passed all recorded verification. No
-  Phase 8 commit or push has occurred.
+  `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`.
+- Verification scope note: commit `3fe2e00` remains the committed/pushed Phase
+  8 baseline. The current uncommitted worktree passes the complete Phase 9/10
+  automated matrix and live protocol/LAN checks recorded below. Because the
+  verified changes are not committed, the last fully verified commit remains
+  `3fe2e00`; the worktree itself is verified at that HEAD.
 - Last successful phase acceptance gate: Phase 8 test and CI reconstruction.
 - Exact dirty-file summary:
-  - content-modified tracked files: `.github/workflows/CI.yml`, `README.md`,
-    `docs/todo/project-recovery-plan.md`, `package.json`,
-    `scripts/run-tests.ts`, `server/acceptance.test.ts`,
-    `server/integration.test.ts`, `server/performance.test.ts`,
-    `server/recoveryPhase1.lifecycle.test.ts`,
-    `server/recoveryPhase4.simServer.test.ts`, `server/security.test.ts`,
-    `server/system.test.ts`, and `src/main.test.ts`;
-  - status-only artifact: Git reports `AGENTS.md` modified, but
-    `git diff -- AGENTS.md` is empty and its worktree/HEAD blob IDs both equal
-    `b7c033c5de793219e590a8382befadb417d77915`; it was not edited;
-  - untracked files: `scripts/ci-contract.test.ts`,
-    `scripts/test-categories.test.ts`, `scripts/test-categories.ts`,
-    `server/test/networkSuites.test.ts`, and
-    `server/test/networkSuites.ts`;
-  - deleted tracked files: none;
+  - modified tracked files: `AGENTS.md`, `README.md`,
+    `docs/API-instructions.md`, `docs/todo/project-recovery-plan.md`,
+    `index.html`, `native/.gitattributes`, `native/.gitignore`,
+    `native/README.md`, `native/package.json`, `play.sh`,
+    `scripts/slither.ps1`, `scripts/test-categories.ts`, `server/config.ts`,
+    `server/configIdentity.ts`, `server/httpApi.ts`,
+    `server/integration.test.ts`, `server/recoveryPhase7.persistence.test.ts`,
+    `server/simServer.ts`, `src/brains/graph/compiler.ts`, `src/brains/ops.ts`,
+    `src/main.test.ts`, `src/main.ts`, `src/net/wsClient.test.ts`,
+    `src/net/wsClient.ts`, `src/protocol/messages.ts`, `src/sensors.ts`,
+    `src/storage.test.ts`, `src/storage.ts`, `src/types.d.ts`, `styles.css`, and
+    `vite.config.ts`;
+  - deleted tracked native-template files: `native/.editorconfig`,
+    `native/.husky/.gitignore`, `native/.husky/pre-commit`,
+    `native/.prettierignore`, `native/.taplo.toml`,
+    `native/__test__/package.json`, `native/__test__/tsconfig.json`,
+    `native/benchmark/bench.ts`, `native/benchmark/package.json`,
+    `native/benchmark/tsconfig.json`, and `native/tsconfig.json`;
+  - untracked files: `docs/decisions/0001-native-kernels-and-threading.md`,
+    the reproducibility lockfile `native/Cargo.lock`,
+    `scripts/recoveryPhase10.lan.test.ts`, and
+    `src/brains/parameterCounts.ts`;
   - staged files: none;
-  - branch/upstream divergence: `0 0` at `308c6f0`.
+  - branch/upstream divergence: `0 0` at `3fe2e00`.
+### Historical Phase 8 verification retained for comparison
+
 - Pre-change focused baseline:
   `node .\node_modules\vitest\vitest.mjs run
   src\brains\nativeBridge.test.ts
@@ -1983,6 +2180,85 @@ The recovery is complete only when:
   commands from this plan were used. The raw napi-rs development launcher also
   conflicts with Node 24 type stripping, so verification used the compiled
   `dist/cli.js` entry point that the real `napi` executable targets.
+
+### Current Phase 9/10 verification
+
+- `node .\node_modules\vitest\vitest.mjs run
+  scripts/recoveryPhase10.lan.test.ts src/net/wsClient.test.ts
+  server/recoveryPhase7.persistence.test.ts --reporter=dot
+  --configLoader=runner`: passed 3 files and 20 tests after the final
+  `LAN-006` and `PER-007` repairs.
+- `node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts all
+  --reporter=dot --configLoader=runner`: passed 61 files and 309 tests.
+- `node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts
+  native-required --reporter=dot --configLoader=runner`: passed 7 files and 45
+  tests with native plus MT execution required.
+- The native addon was rebuilt through `node
+  .\node_modules\@napi-rs\cli\dist\cli.js build --platform --release` from
+  `native/`; it passed and reports
+  `slither_native/0.1.0+3fe2e0063f8d.250d6b1948e7fc4d`.
+- `cargo test --manifest-path native\Cargo.toml --release` passed all 3 Rust
+  tests. `cargo fmt --manifest-path native\Cargo.toml -- --check` and `cargo
+  clippy --manifest-path native\Cargo.toml -- -D warnings` passed. No native
+  source changed after these gates.
+- `node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false` and
+  `node .\node_modules\eslint\bin\eslint.js .` passed after the final edits.
+- The default esbuild config loader intermittently failed in this sandbox
+  before reading project config with `Cannot read directory "../../.."`.
+  Following this plan's wrapper rule, `node .\node_modules\vite\bin\vite.js
+  build --configLoader runner` passed with 23 transformed modules and no stale
+  `nativeBridge` browser warning. A LAN-configured build also embedded the
+  exact `ws://192.168.0.119:55174` route and no unresolved placeholder.
+- `git diff --check` passed; Git emitted only LF-to-CRLF working-copy notices.
+  PowerShell parsed `scripts/slither.ps1`, its isolated LAN-output helper
+  printed the expected network URLs, and Git's `sh.exe -n ./play.sh` passed.
+- A temporary native-MT server and Vite UI on ports 55174/55173 passed loopback
+  health and Protocol 2 live control checks: settings, visualization stats,
+  God Mode kill, and New Run all acknowledged; New Run changed seed from
+  `716384154` to `1967239048`.
+- With explicit `0.0.0.0` trusted-LAN binds, the UI and API returned HTTP 200
+  through `192.168.0.119`; CORS echoed the LAN UI origin, Vite's HMR client
+  advertised that LAN host, the served development module contained the
+  configured WebSocket route, and a LAN WebSocket handshake returned a welcome
+  reporting native backend and two active workers. These are same-computer LAN
+  address checks, not a substitute for the pending second-device gate.
+- Restarting snapshot 3 initially exposed `PER-007`: expected config hash
+  `v1-f4cafc33` differed from reconstructed `v1-3ed928b2` because the write
+  hashed a null fallback graph while storing its compiled spec. Canonical
+  hashing now uses `world.arch.spec`, with read-only acceptance of the legacy
+  null-graph hash. The exact rejected snapshot then resumed successfully with
+  seed `1967239048`, run ID `d7927e2a-29e6-437f-be59-59261abe3aee`, native
+  backend, and two workers.
+- The in-app browser was initialized according to its skill instructions, but
+  browser enumeration returned an empty list. No visual UI or second-device
+  result is claimed. Both exact QA processes were stopped, their endpoints
+  ceased responding, and the validated temporary
+  `slither-phase9-live-4dfb2a2ce0c04d668c75c3a6e0326ac7` directory was
+  removed.
+
+### Partial in-app browser verification on 2026-07-23
+
+- A later browser session became available and loaded the isolated Vite UI at
+  `http://127.0.0.1:55273/` against a native-MT simulation server with two
+  workers. The page rendered live snakes and pellets, spectating connected,
+  and the status pill displayed server seed `1385006629` and `native MTx2`.
+- The Simulation speed control produced visibly distinct authoritative rates:
+  the generation timer advanced about `0.20` over `2.2` wall seconds at
+  `0.10x`, about `3.00` over `2.2` seconds at `1.00x`, and `12.00` over `1.2`
+  seconds at `12.00x`. The control was returned to `1.00x` before shutdown.
+- After the original temporary process lifetime expired, the server restarted
+  with `--resume latest` from the isolated database. Health reported exact
+  startup resume with the same seed/run identity, native backend, and two
+  workers; the browser reconnected and resumed receiving frames.
+- The browser-control API repeatedly focused the reset-only NPC range input
+  without changing its value. This was treated as an automation limitation,
+  not evidence of a product defect; no reset-only, visualizer, God Mode, or New
+  Run manual checkbox was marked complete from that session.
+- The temporary server and Vite processes were terminated, ports `55273` and
+  `55274` were confirmed closed, and the isolated
+  `slither-phase9-browser-a53f159eb44442f99df59913966143e7` database/config
+  directory was permanently removed. No repository source changed during the
+  browser interaction.
 
 ## Handoff journal
 
@@ -3211,6 +3487,220 @@ The recovery is complete only when:
   reconstruction. Await owner review; do not commit, push, or start Phase 9
   without explicit direction.
 
+### 2026-07-22 — Phase 8 publish and Phase 9 start
+
+- Inspected the complete Phase 8 scope, staged only the 18 reviewed paths, and
+  excluded the content-identical `AGENTS.md` status artifact. Staged diff
+  hygiene passed before commit.
+- Created commit `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8` with subject
+  `test: record Phase 8 suite and CI reconstruction` and the owner-reviewed
+  past-tense body. Pushed it to
+  `origin/exclusive-server-mode-refactor` and verified divergence `0 0`.
+- Re-read this authoritative plan completely and then the repository-root
+  `AGENTS.md`. The superseded native plan and archive were not consulted for
+  implementation direction.
+- Verified root `C:/Users/jlow8/source/repos/slither_neuroevo`, branch
+  `exclusive-server-mode-refactor`, and synchronized HEAD `3fe2e00` before the
+  first Phase 9 edit.
+- Preserved the starting `AGENTS.md` status artifact: its diff was empty and
+  its worktree/HEAD blob IDs both equaled
+  `b7c033c5de793219e590a8382befadb417d77915`. Phase 9 will now replace its stale
+  content from verified source, as previously directed by the owner.
+- Phase 9 is authorized and in progress. The first action is a current-source
+  audit of README, AGENTS, API documentation, native package residue,
+  browser-bundle imports, dead local-worker surfaces, and obsolete
+  configuration. No later phase exists or has been started.
+- Current blocker: none. Last successful acceptance gate remains Phase 8 test
+  and CI reconstruction.
+
+### 2026-07-22 — owner-mandated emergency Phase 10
+
+- The owner explicitly corrected the recovery author's scope assumption:
+  trusted home-LAN use, including access from a phone or another household
+  computer, is supported. It must not be grouped with unauthenticated
+  public-internet hosting.
+- Compared the original recovery baseline
+  `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0` through committed Phase 8 HEAD
+  `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`, then inspected the complete
+  uncommitted LAN-related diff. No committed Phase 0-8 production change
+  removed LAN routing, discovery, HMR, `publicWsUrl`, or CORS behavior. The
+  incorrect plan policy was nevertheless already authoritative and directly
+  caused the current Phase 9 draft regressions.
+- Registered `LAN-001` through `LAN-005` and invalidated `DOC-004` as a proposed
+  removal. The affected uncommitted behavior is exactly: launcher LAN address
+  discovery/output, `publicWsUrl` config and browser precedence, explicit Vite
+  HMR host selection, and established LAN-origin CORS handling. The affected
+  policy surface is this plan, README, AGENTS, API instructions, and any ADR
+  language derived from local-only scope.
+- Added emergency Phase 10 with a surgical restoration checklist, automated
+  contracts, and an owner-machine second-device acceptance gate. Phase 9 is
+  paused only where it overlaps LAN restoration; its unrelated valid work is
+  preserved. No runtime source was changed by this emergency planning entry.
+- Corrected the governing decision immediately: loopback remains a permissible
+  default, deliberate trusted-LAN binding is supported, and only public or
+  untrusted-network exposure remains outside the current security boundary.
+- Verification commands and results for this emergency planning checkpoint:
+  - `git diff --name-status cb276cce8dfc58a2fb3a3fdc3b60659626131ed0..HEAD`
+    plus a network/LAN keyword audit: completed; no committed Phase 0-8 LAN
+    feature removal found;
+  - targeted `git diff` inspection of `server/config.ts`, `vite.config.ts`,
+    `src/net/wsClient.ts`, both launchers, `server/httpApi.ts`, README, AGENTS,
+    and API instructions: completed; the five registered Phase 10 defect groups
+    were confirmed;
+  - `git diff --check`: passed with only Git's existing LF-to-CRLF notices.
+- Current implementation HEAD and last fully verified HEAD both remain
+  `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`; branch/upstream divergence is
+  `0 0`. Last successful acceptance gate remains Phase 8. Phase 10 has not been
+  implementation-verified and no Phase 10 checkbox is complete.
+- Exact current unstaged shared-worktree status at this checkpoint:
+
+  ```text
+   M AGENTS.md
+   M README.md
+   M docs/API-instructions.md
+   M docs/todo/project-recovery-plan.md
+   M index.html
+   D native/.editorconfig
+   M native/.gitattributes
+   M native/.gitignore
+   D native/.husky/.gitignore
+   D native/.husky/pre-commit
+   D native/.prettierignore
+   D native/.taplo.toml
+   M native/README.md
+   D native/__test__/package.json
+   D native/__test__/tsconfig.json
+   D native/benchmark/bench.ts
+   D native/benchmark/package.json
+   D native/benchmark/tsconfig.json
+   M native/package.json
+   D native/tsconfig.json
+   M play.sh
+   M scripts/slither.ps1
+   M server/config.ts
+   M server/httpApi.ts
+   M src/brains/graph/compiler.ts
+   M src/brains/ops.ts
+   M src/main.test.ts
+   M src/main.ts
+   M src/net/wsClient.test.ts
+   M src/net/wsClient.ts
+   M src/protocol/messages.ts
+   M src/sensors.ts
+   M src/storage.test.ts
+   M src/storage.ts
+   M styles.css
+   M vite.config.ts
+  ?? docs/decisions/
+  ?? native/Cargo.lock
+  ?? src/brains/parameterCounts.ts
+  ```
+
+- Nothing is staged. No commit or push was performed. The active blocker is the
+  required owner-device LAN acceptance gate; source restoration and automated
+  verification can proceed before that manual check.
+
+### 2026-07-22 — Phase 9/10 implementation and automated-verification handoff
+
+- Completed every Phase 9 detailed implementation item and every Phase 10
+  audit, restoration, plan/documentation, and automated-verification item.
+  Phase 9 final manual QA and Phase 10 owner-machine manual acceptance remain
+  active; recovery is not declared complete.
+- Preserved valid Phase 9 work while restoring all trusted-LAN affordances:
+  config precedence and `publicWsUrl`, browser URL precedence, Vite/HMR host
+  selection, launcher discovery and network URL output, and established LAN
+  CORS/preflight behavior. Loopback remains the default and documentation
+  distinguishes trusted home-LAN use from unsafe public exposure.
+- Discovered and repaired two additional defects during live verification:
+  - `LAN-006`: global Vite placeholders were replaced in production but stayed
+    unresolved in development modules. The client now consumes typed
+    `import.meta.env` values, and focused config coverage locks the development
+    and production injection keys;
+  - `PER-007`: fallback-stack New Run checkpoints stored a compiled graph while
+    hashing raw `graphSpec: null`, so restart rejected the checkpoint. Canonical
+    identity now hashes `world.arch.spec`; the reader accepts the exact legacy
+    null-graph hash only as a compatibility path.
+- Focused final verification passed 3 files/20 tests. The complete JavaScript
+  manifest passed 61 files/309 tests, and the required-native overlay passed 7
+  files/45 tests. Strict TypeScript, repository-wide ESLint, Vite production
+  build with 23 modules, and `git diff --check` passed. The default esbuild
+  config loader hit the recorded sandbox access failure; direct runner-loader
+  commands completed rather than waiting on the failed wrapper.
+- The native addon build passed and reports
+  `slither_native/0.1.0+3fe2e0063f8d.250d6b1948e7fc4d`; all 3 Rust release
+  tests, rustfmt, and Clippy with warnings denied passed. No native source
+  changed after those gates.
+- Live native-MT QA exercised health, settings, visualization stats, God Mode
+  kill, New Run, and exact restart. Same-machine requests through LAN address
+  `192.168.0.119` proved UI/API HTTP 200, LAN-origin CORS, HMR host injection,
+  configured development WebSocket injection, and Protocol 2 welcome with
+  native backend/two workers. The previously rejected snapshot resumed with
+  the identical seed, run ID, snapshot ID, backend, and worker count after the
+  `PER-007` repair.
+- Browser-tool enumeration returned no available browser, so visual controls
+  were not clicked and no screenshots are claimed. A real second phone or
+  computer could not be simulated. These are the only remaining acceptance
+  blockers. The two QA processes were terminated and the validated temporary
+  database/config/log directory was deleted.
+- Current implementation HEAD and last fully verified committed HEAD both
+  remain `3fe2e0063f8d7446076b0e2d5267163d3cc9d1e8`; upstream is the same commit
+  and divergence is `0 0`. The verified worktree is unstaged. Nothing was
+  committed or pushed. Last successful complete phase gate remains Phase 8.
+- Exact dirty-file summary at handoff:
+
+  ```text
+   M AGENTS.md
+   M README.md
+   M docs/API-instructions.md
+   M docs/todo/project-recovery-plan.md
+   M index.html
+   D native/.editorconfig
+   M native/.gitattributes
+   M native/.gitignore
+   D native/.husky/.gitignore
+   D native/.husky/pre-commit
+   D native/.prettierignore
+   D native/.taplo.toml
+   M native/README.md
+   D native/__test__/package.json
+   D native/__test__/tsconfig.json
+   D native/benchmark/bench.ts
+   D native/benchmark/package.json
+   D native/benchmark/tsconfig.json
+   M native/package.json
+   D native/tsconfig.json
+   M play.sh
+   M scripts/slither.ps1
+   M scripts/test-categories.ts
+   M server/config.ts
+   M server/configIdentity.ts
+   M server/httpApi.ts
+   M server/integration.test.ts
+   M server/recoveryPhase7.persistence.test.ts
+   M server/simServer.ts
+   M src/brains/graph/compiler.ts
+   M src/brains/ops.ts
+   M src/main.test.ts
+   M src/main.ts
+   M src/net/wsClient.test.ts
+   M src/net/wsClient.ts
+   M src/protocol/messages.ts
+   M src/sensors.ts
+   M src/storage.test.ts
+   M src/storage.ts
+   M src/types.d.ts
+   M styles.css
+   M vite.config.ts
+  ?? docs/decisions/
+  ?? native/Cargo.lock
+  ?? scripts/recoveryPhase10.lan.test.ts
+  ?? src/brains/parameterCounts.ts
+  ```
+
+- Nothing is staged. Preserve the entire worktree. The next action is the
+  owner's unchecked Phase 9/10 manual QA, followed by recording its evidence;
+  do not mark recovery complete or commit/push without owner direction.
+
 ## Verification command reference
 
 Use direct binaries when the npm/PowerShell wrapper obscures completion:
@@ -3224,6 +3714,11 @@ node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts all --reporter=dot
 node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts native-required --reporter=dot
 git status --short --branch
 ```
+
+If Vite/esbuild reports the recorded sandbox-only directory access error before
+loading `vite.config.ts`, append `--configLoader=runner` to the Vite or test
+command and record both the failed default-loader result and the successful
+runner-loader result.
 
 When the npm shim cannot start, run the native build from `native/` with:
 

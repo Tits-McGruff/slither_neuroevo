@@ -9,6 +9,9 @@ import type { ServerMessage } from './protocol.ts';
 import { World } from '../src/world.ts';
 import { buildGenerationCheckpoint } from './checkpoint.ts';
 import { DEFAULT_CONFIG, parseConfig } from './config.ts';
+import {
+  buildLegacyNullGraphConfigHash
+} from './configIdentity.ts';
 import { createPersistence, initDb, type Persistence } from './persistence.ts';
 import { prepareStartupResume } from './startupResume.ts';
 import { SimServer } from './simServer.ts';
@@ -228,6 +231,77 @@ describe(SUITE, () => {
     db.close();
   });
 
+  it('resumes a historical null-hash New Run checkpoint for the compiled fallback graph', async () => {
+    resetCFGToDefaults();
+    CFG.baselineBots.count = 0;
+    CFG.pelletCountTarget = 100;
+    CFG.pelletSpawnPerSecond = 5;
+    CFG.brain.graphSpec = null;
+    const db = initDb(':memory:');
+    const persistence = createPersistence(db);
+    const { server } = buildServer(persistence);
+    server.getWorld().applyLiveSimSpeed(0.1);
+
+    await server.startNewRun();
+
+    const canonical = persistence.loadResumeSnapshot('latest');
+    if (!canonical || canonical.compatibility !== 'current') {
+      throw new Error('canonical fallback-graph checkpoint missing');
+    }
+    const canonicalHash = canonical.metadata.configHash;
+    const legacyHash = buildLegacyNullGraphConfigHash(server.getWorld());
+    if (!legacyHash) throw new Error('legacy fallback-graph hash missing');
+    const row = db.prepare(
+      'SELECT payload_json FROM population_snapshots WHERE id = ?'
+    ).get(canonical.id) as { payload_json: string };
+    const legacyMetadata = JSON.parse(row.payload_json) as { configHash: string };
+    legacyMetadata.configHash = legacyHash;
+    db.prepare(
+      'UPDATE population_snapshots SET payload_json = ? WHERE id = ?'
+    ).run(JSON.stringify(legacyMetadata), canonical.id);
+
+    const loaded = persistence.loadResumeSnapshot(canonical.id);
+    if (!loaded || loaded.compatibility !== 'current') {
+      throw new Error('fallback-graph checkpoint missing');
+    }
+    const bootstrap = prepareStartupResume(loaded);
+    const { hub } = buildHub();
+    const resumed = new SimServer(
+      {
+        ...DEFAULT_CONFIG,
+        inferenceBackend: 'js',
+        mtEnabled: false
+      },
+      hub,
+      persistence,
+      '',
+      bootstrap.worldSeed,
+      bootstrap.settings,
+      bootstrap.runId,
+      {
+        resume: bootstrap.resume,
+        snapshotId: bootstrap.snapshotId,
+        exactResume: bootstrap.exact,
+        configRevision: bootstrap.configRevision,
+        expectedConfigHash: bootstrap.expectedConfigHash
+      }
+    );
+
+    expect(resumed.getWorld().settings.simSpeed).toBe(0.1);
+    expect(loaded.metadata.configHash).toBe(legacyHash);
+    expect(resumed.getConfigState().configHash).toBe(canonicalHash);
+    await server.stop();
+    await resumed.stop();
+    db.close();
+  });
+
+  it('does not apply null-graph compatibility to an explicit custom graph', () => {
+    resetCFGToDefaults();
+    installRecurrentGraph();
+    const world = new World({ snakeCount: 2 }, { seed: 74, runId: 'explicit-graph' });
+    expect(buildLegacyNullGraphConfigHash(world)).toBeNull();
+  });
+
   it('keeps the prior run current when a required New Run checkpoint fails', async () => {
     const db = initDb(':memory:');
     const persistence = createPersistence(db);
@@ -399,7 +473,7 @@ describe(SUITE, () => {
     db.close();
   });
 
-  it('parses explicit fresh/latest/id startup modes and rejects ambiguous CLI input', () => {
+  it('parses startup and threading flags and rejects ambiguous CLI input', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'slither-phase7-config-'));
     const freshConfig = path.join(root, 'fresh.toml');
     const idConfig = path.join(root, 'id.toml');
@@ -414,6 +488,18 @@ describe(SUITE, () => {
       });
       expect(parseConfig(['--config', latestConfig, '--resume', 'latest'], {})).toMatchObject({
         resume: 'latest'
+      });
+      expect(parseConfig([
+        '--config',
+        freshConfig,
+        '--fresh',
+        '--mt',
+        '--mt-workers',
+        '2'
+      ], {})).toMatchObject({
+        resume: 'fresh',
+        mtEnabled: true,
+        mtWorkers: 2
       });
       expect(() => parseConfig([
         '--config',
