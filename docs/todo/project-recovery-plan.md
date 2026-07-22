@@ -2,13 +2,13 @@
 
 ## Document control
 
-- Status: authoritative, owner-approved implementation plan; Phases 0 and 1
-  are complete, and Phase 2 has not started.
+- Status: authoritative, owner-approved implementation plan; Phases 0 through
+  2 are complete, and Phase 3 has not started.
 - Created: 2026-07-21.
 - Branch: `exclusive-server-mode-refactor`.
 - Audit baseline commit: `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
-- Current implementation HEAD: `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
-- Last fully verified HEAD: `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
+- Current implementation HEAD: `3fe62d0bdec4e9964f7f7c0da9d67ee4249612d2`.
+- Last fully verified HEAD: `3fe62d0bdec4e9964f7f7c0da9d67ee4249612d2`.
 - Baseline worktree: clean before the two planning-document changes.
 - Current expected worktree changes are recorded under "Live execution status".
 - Scope owner: the repository owner.
@@ -51,6 +51,13 @@ progresses.
   TypeScript, repository-wide ESLint, all 45 JavaScript test files, the Vite
   production build, stale-reference scan, and diff-hygiene check passed. Phase
   2 was not started.
+- 2026-07-22: The owner committed and pushed the verified Phase 0/1 work as
+  `3fe62d0`; began Phase 2 from that clean, remote-synchronized worktree after
+  re-reading this plan and the repository instructions.
+- 2026-07-22: Completed Phase 2 with versioned stateful randomness, independent
+  labeled streams, deterministic Reset/New Run identity semantics, exact
+  generation-boundary capture, exported allocator state, and 199 passing
+  JavaScript tests. Phase 3 was not started.
 
 ## How to resume this work
 
@@ -333,6 +340,7 @@ deleted files are evidence and reference material, not specifications to copy.
 | DET-002 | Core spawning, genetics, death drops, mutation, crossover, and food use global randomness | `world.ts`, `snake.ts`, `mlp.ts`, `brains/ops.ts`, `utils.ts` | 2 |
 | DET-003 | Reset and import discard meaningful RNG continuation state | `SimCore.reset` and `World.importPopulation` | 2 and 7 |
 | DET-004 | Baseline-bot RNG continuation is held inside opaque `createRng` closures and cannot be exported, digested, or restored | `src/rng.ts` and `BaselineBotManager.botRngs` | 2 |
+| DET-005 | Baseline-bot respawn recreates its RNG from the original seed, rewinding spawn and behavior draws instead of continuing the durable bot stream | `BaselineBotManager.prepareBotSpawn` replaces the live closure with `createRng(seed)` on every respawn | 2 |
 | NAT-001 | Active startup does not load the neural kernel bridge before brain construction | `server/index.ts` and active worker path | 3 |
 | NAT-002 | Full-world native adapter requires a Rust `World` export that does not exist | `server/native-backend.ts` and `native/src/lib.rs` | 3 |
 | NAT-003 | N-API functions enter unsafe pointer code without validating array lengths and dimensions | `native/src/SIMD_Kernals.rs` | 3 |
@@ -841,42 +849,42 @@ server RNG entirely.
 
 ### Detailed checklist
 
-- [ ] Pass `worldSeed` from server startup into `SimCore` and `World`.
-- [ ] Store the active seed and every authoritative derived-stream state on the
+- [x] Pass `worldSeed` from server startup into `SimCore` and `World`.
+- [x] Store the active seed and every authoritative derived-stream state on the
   authoritative core/world.
-- [ ] Add the reusable seeded full-World fixture deferred from Phase 0 and use
+- [x] Add the reusable seeded full-World fixture deferred from Phase 0 and use
   normal production construction paths without monkeypatching globals.
-- [ ] Replace authoritative `rand`, `randInt`, and `gaussian` calls with
+- [x] Replace authoritative `rand`, `randInt`, and `gaussian` calls with
   injected PRNG operations.
-- [ ] Add optional RNG parameters to genome and brain-weight initialization.
-- [ ] Inject RNG into `Genome.random`.
-- [ ] Inject RNG into crossover, recurrent crossover, tournament selection,
+- [x] Add optional RNG parameters to genome and brain-weight initialization.
+- [x] Inject RNG into `Genome.random`.
+- [x] Inject RNG into crossover, recurrent crossover, tournament selection,
   mutation, and Gaussian mutation.
-- [ ] Inject RNG into snake spawn position/heading.
-- [ ] Inject RNG into death-pellet value/jitter and boost-pellet jitter.
-- [ ] Inject RNG into ambient pellet generation and fallback spawning.
-- [ ] Replace random resurrect IDs with a deterministic, collision-safe
+- [x] Inject RNG into snake spawn position/heading.
+- [x] Inject RNG into death-pellet value/jitter and boost-pellet jitter.
+- [x] Inject RNG into ambient pellet generation and fallback spawning.
+- [x] Replace random resurrect IDs with a deterministic, collision-safe
   allocator.
-- [ ] Derive baseline-bot streams from the run seed and durable bot identity;
+- [x] Derive baseline-bot streams from the run seed and durable bot identity;
   verify they do not consume the world/evolution streams accidentally.
-- [ ] Move camera/focus randomness to a derived observer stream or a
+- [x] Move camera/focus randomness to a derived observer stream or a
   deterministic selection rule.
-- [ ] Keep render particles and client effects off the authoritative stream.
-- [ ] Generate an unspecified new run seed with a system entropy source, not
+- [x] Keep render particles and client effects off the authoritative stream.
+- [x] Generate an unspecified new run seed with a system entropy source, not
   `Math.random`.
-- [ ] Generate session IDs independently from simulation randomness.
-- [ ] Give each lineage a non-randomness-consuming run ID used to group its
+- [x] Generate session IDs independently from simulation randomness.
+- [x] Give each lineage a non-randomness-consuming run ID used to group its
   checkpoints.
-- [ ] Make Apply/Reset create generation one from the same seed and current
+- [x] Make Apply/Reset create generation one from the same seed and current
   authoritative configuration, with a new run ID and zero recurrent state.
-- [ ] Add an explicit New Run API that performs the same restart with a new
+- [x] Add an explicit New Run API that performs the same restart with a new
   entropy-derived seed and new run ID.
-- [ ] In this phase, prove deterministic in-memory restart and identity
+- [x] In this phase, prove deterministic in-memory restart and identity
   semantics. Do not claim Reset/New Run crash durability until Phase 7 commits
   the required run-start checkpoint.
-- [ ] Give authoritative generated IDs an exported/restored allocator state or
+- [x] Give authoritative generated IDs an exported/restored allocator state or
   derive them from stable run/generation/step/counter fields.
-- [ ] Add a lint restriction or focused static guard preventing
+- [x] Add a lint restriction or focused static guard preventing
   `Math.random` in authoritative modules.
 
 ### Checkpoint semantics
@@ -895,26 +903,26 @@ explicitly includes full world state.
 
 ### Required tests
 
-- [ ] Known PRNG sequence test.
-- [ ] PRNG state export/restore test.
-- [ ] Gaussian cache state export/restore test if the algorithm caches a value.
-- [ ] Same seed creates identical initial genomes, snakes, pellets, and focus.
-- [ ] Different seeds diverge.
-- [ ] Same seed and action log produce identical state for many fixed ticks.
-- [ ] Normal reset reproduces the same initial state.
-- [ ] New Run produces a new visible seed and divergent state.
-- [ ] Evolution selection, crossover, and mutation reproduce across runs.
-- [ ] Death and boost pellet placement reproduce across runs.
-- [ ] Cosmetic rendering calls do not change authoritative state.
-- [ ] Adding observer/cosmetic work does not shift world, evolution, or bot
+- [x] Known PRNG sequence test.
+- [x] PRNG state export/restore test.
+- [x] Gaussian cache state export/restore test if the algorithm caches a value.
+- [x] Same seed creates identical initial genomes, snakes, pellets, and focus.
+- [x] Different seeds diverge.
+- [x] Same seed and action log produce identical state for many fixed ticks.
+- [x] Normal reset reproduces the same initial state.
+- [x] New Run produces a new visible seed and divergent state.
+- [x] Evolution selection, crossover, and mutation reproduce across runs.
+- [x] Death and boost pellet placement reproduce across runs.
+- [x] Cosmetic rendering calls do not change authoritative state.
+- [x] Adding observer/cosmetic work does not shift world, evolution, or bot
   stream sequences.
-- [ ] Canonical digest ordering is unaffected by incidental array/batch order.
+- [x] Canonical digest ordering is unaffected by incidental array/batch order.
 
 ### Acceptance gate
 
-- [ ] Authoritative modules contain no unapproved `Math.random` calls.
-- [ ] Seeded replay passes without monkeypatching globals.
-- [ ] Seed and RNG version/state are available to persistence.
+- [x] Authoritative modules contain no unapproved `Math.random` calls.
+- [x] Seeded replay passes without monkeypatching globals.
+- [x] Seed and RNG version/state are available to persistence.
 
 ## Phase 3: Native kernel safety and runtime activation
 
@@ -1791,54 +1799,44 @@ The recovery is complete only when:
 
 ## Live execution status
 
-- Current phase: Phase 1 is complete; Phase 2 has not started.
-- Active checklist item: none. Stop at the Phase 1 boundary and await the next
-  owner instruction before beginning Phase 2.
-- Last completed work: full verification of the canonical fixed World
-  pipeline, durable population identity, truthful scheduler, awaited
-  lifecycle, bind-failure propagation, and inference-fault boundary.
-- Source implementation status: Phases 0 and 1 are complete and fully verified
-  in the uncommitted worktree.
+- Current phase: Phase 2 is complete; Phase 3 has not started.
+- Active checklist item: none. Every Phase 2 checklist, required-test, and
+  acceptance-gate item is complete and verified.
+- Last completed work: added a transactional failed-restart regression,
+  reran all JavaScript tests, and completed the production-build, static-scan,
+  remote-divergence, and diff-hygiene checks.
+- Source implementation status: Phases 0 and 1 are committed and pushed at the
+  current HEAD. The complete Phase 2 source and tests are fully verified in the
+  uncommitted worktree; nothing from Phase 2 has been committed or pushed.
 - Current blocker: none.
-- Next action: when authorized, begin Phase 2 from this handoff without
-  importing assumptions from superseded or archived plans.
+- Next action: await owner authorization before beginning Phase 3. Do not begin
+  Phase 3 as part of this pass.
 - Current implementation HEAD:
-  `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
+  `3fe62d0bdec4e9964f7f7c0da9d67ee4249612d2`.
 - Last fully verified HEAD:
-  `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
-- Verification scope note: the complete Phase 1 worktree atop that unchanged
-  HEAD is fully verified; no commit was created.
-- Last successful phase acceptance gate: Phase 1 one-step-pipeline and truthful
-  time gate.
+  `3fe62d0bdec4e9964f7f7c0da9d67ee4249612d2`.
+- Verification scope note: the complete Phase 0/1 implementation is committed
+  and pushed at that HEAD. The uncommitted Phase 2 worktree atop that HEAD has
+  passed the focused and full verification matrices.
+- Last successful phase acceptance gate: Phase 2 authoritative seeded
+  randomness gate.
 - Exact dirty-file summary:
-  - preserved pre-existing modified file:
-    `docs/todo/native_refactor_plan.md`;
-  - Phase 0-only modified files: `src/brains/graph/runtime.ts`,
-    `src/brains/nativeBridge.ts`, `src/brains/types.ts`, and
-    `src/sim/NodeBrainPool.ts`;
-  - files modified across Phase 0 and Phase 1: `server/httpApi.ts`,
-    `server/index.ts`, and `server/simServer.ts`;
-  - Phase 1 modified files: `server/inferenceMode.test.ts`,
-    `server/performance.test.ts`, `server/system.test.ts`, `src/config.ts`,
-    `src/protocol/settings.ts`, `src/render.test.ts`, `src/settings.ts`,
-    `src/sim/SimCore.ts`, `src/snake.ts`, `src/world.test.ts`, and
-    `src/world.ts`;
-  - preserved/updated untracked authoritative plan:
-    `docs/todo/project-recovery-plan.md`;
-  - Phase 0 untracked files: `server/authoritativeWorldDigest.test.ts`,
-    `server/inferenceMode.test.ts`, `server/inferenceMode.ts`,
-    `server/recoveryPhase0.characterization.test.ts`,
-    `server/recoveryPhase0Startup.characterization.test.ts`,
-    and `server/test/authoritativeWorldDigest.ts`;
-  - Phase 1 untracked files: `server/recoveryPhase1.lifecycle.test.ts`,
-    `src/recoveryPhase1.world.test.ts`, and `src/sim/SimCore.test.ts`;
-  - the former untracked `src/recoveryPhase0.characterization.test.ts` was
-    converted into the narrower Phase 1 suites and removed rather than
-    preserving stale broken-behavior assertions.
-- Last full JS test result: 45 files, 177 tests passed.
-- Last Rust test result: 3 release tests passed at the baseline; native source
-  was unchanged and Rust was not rerun during Phase 0.
-- Last TypeScript result: passed.
+  - modified: `docs/todo/project-recovery-plan.md`,
+    `server/authoritativeWorldDigest.test.ts`, `server/index.ts`,
+    `server/recoveryPhase0.characterization.test.ts`, `server/simServer.ts`,
+    `server/test/authoritativeWorldDigest.ts`,
+    `src/bots/baselineBots.ts`, `src/brains/ops.ts`, `src/mlp.ts`,
+    `src/rng.ts`, `src/sim/SimCore.ts`, `src/snake.ts`, and `src/world.ts`;
+  - untracked: `server/recoveryPhase2.determinism.test.ts`,
+    `server/runIdentity.ts`, `server/test/seededWorldFixture.ts`, and
+    `src/rng.test.ts`.
+- Last full JS test result: 47 files, 199 tests passed.
+- Last Rust test result: 3 release tests passed at the earlier verified
+  baseline; native source was unchanged and Rust was not rerun during Phase 2.
+- Last TypeScript result: passed after all current Phase 2 implementation and
+  test edits.
+- Pre-change Phase 2 baseline: 4 files, 30 tests passed.
+- Last focused Phase 2 result: 2 files, 22 tests passed.
 - Last focused Phase 1 result: 5 files, 17 tests passed.
 - Last ESLint result: passed.
 - Last client-build result: passed with the existing `node:module`
@@ -2096,6 +2094,116 @@ The recovery is complete only when:
 - Last successful acceptance gate: Phase 1 one-step-pipeline and truthful time
   gate. All Phase 1 checklist, required-test, and acceptance items are checked.
   Phase 2 has not started.
+
+### 2026-07-22 — Phase 2 start
+
+- Re-read this authoritative plan completely, then re-read the repository-root
+  `AGENTS.md`. Superseded and archived plans were not consulted for technical
+  direction.
+- Verified root `C:/Users/jlow8/source/repos/slither_neuroevo`, branch
+  `exclusive-server-mode-refactor`, and new HEAD
+  `3fe62d0bdec4e9964f7f7c0da9d67ee4249612d2`.
+- The worktree was clean and `HEAD...origin/exclusive-server-mode-refactor`
+  reported `0 0`, confirming the owner's Phase 0/1 commit was pushed.
+- The first Phase 2 action is a source-of-truth audit of all authoritative
+  randomness consumers, followed by the smallest focused pre-change RNG/world
+  baseline. No Phase 3 work has started.
+
+### 2026-07-22 — Phase 2 implementation checkpoint
+
+- The pre-change RNG/world baseline passed: 4 files and 30 tests.
+- Added xorshift32 v1 state with explicit Uint32 hexadecimal continuation,
+  versioned polar Box-Muller state, and lossless cached-Gaussian Float64 bits.
+- Derived `world`, `evolution`, `observer`, and durable `baseline:<slot>`
+  streams directly from the normalized run seed. Production World
+  construction no longer uses ambient global randomness.
+- Routed genome/brain initialization, selection, recurrent crossover,
+  mutation, spawning, food, death/boost drops, focus, and bot behavior through
+  their owned streams. Cosmetic particles remain intentionally unseeded and
+  outside the canonical gameplay digest.
+- Added seed/run identity to `SimCore`, crypto entropy and independent UUIDs at
+  the Node server boundary, reproducible same-seed Reset, and an in-memory New
+  Run API. Crash-durable acknowledgement remains explicitly deferred to Phase
+  7 as required.
+- Added export/restore for every stream and generated-id allocator plus the
+  exact population-assigned/pre-spawn generation hook. Persistence does not yet
+  consume that hook.
+- Discovered and fixed `DET-005`: baseline respawn rewound its RNG to the
+  original seed. Respawn now continues the durable slot stream.
+- Upgraded the canonical digest to schema v2 for seed, gameplay/evolution RNG,
+  per-bot RNG, and resurrection allocator state while retaining observer-only
+  exclusions.
+- Added the seeded production fixture and focused Phase 2 suites. Strict
+  TypeScript, repository-wide ESLint, and 21/21 focused Phase 2 tests pass.
+- Full JavaScript and production-build verification remain pending. Phase 3
+  has not started.
+
+### 2026-07-22 — Phase 2 completion handoff
+
+- Completed every Phase 2 implementation, required-test, and acceptance-gate
+  item. Phase 3 has not started, and no Phase 3 production behavior was
+  changed.
+- The versioned xorshift32 v1 uniform stream and polar Box-Muller v1 Gaussian
+  stream preserve lossless integer state and the cached Gaussian value. Stable
+  labels derive independent `world`, `evolution`, `observer`, and
+  `baseline:<slot>` streams directly from the normalized run seed.
+- All audited authoritative consumers now receive their owned stream:
+  brain/genome initialization, tournament selection, crossover, mutation,
+  snake spawning, ambient/death/boost pellets, baseline bots, and focus. The
+  static guard rejects ambient `Math.random` reads in those modules, while
+  cosmetic particle randomness remains intentionally non-authoritative.
+- `SimCore` and `World` retain the visible seed and run identity. Reset keeps
+  the seed and creates a new run ID; New Run uses Node system entropy for a
+  different seed and creates another independent run ID. Failed restart
+  construction is transactional and leaves the prior world and identity
+  intact.
+- The generation-boundary hook now observes the assigned new population,
+  incremented generation, cleared prior transient world state, zero recurrent
+  state, and every authoritative RNG/allocator state before any new-generation
+  spawn, pellet, focus, sensor, or inference draw. Phase 7 still owns durable
+  checkpoint acknowledgement and crash-resume behavior.
+- The canonical digest is schema v2 and includes gameplay/evolution/bot RNG
+  state and generated-ID allocator state, while excluding observer-only state
+  and run/session identity. The deterministic resurrection allocator is
+  collision-safe and exportable/restorable.
+- Discovered `DET-005` during implementation: baseline-bot respawn recreated
+  its original RNG and rewound the slot's sequence. The fix retains and
+  advances the durable per-slot stream, with a regression test proving
+  continuation after respawn.
+- The first full-suite run exposed one expected hand-built Phase 0 fixture
+  mismatch after the new boundary-clear operation was introduced; production
+  behavior was correct. The explicit characterization fixture/order was
+  updated, and the complete suite then passed.
+- Verification commands and results:
+  - `node .\node_modules\vitest\vitest.mjs run src\mlp.test.ts src\world.test.ts src\bots\baselineBots.test.ts server\authoritativeWorldDigest.test.ts --reporter=dot`
+    passed 4 files and 30 tests before Phase 2 edits;
+  - `node .\node_modules\typescript\bin\tsc -p tsconfig.json --noEmit`
+    passed after all source and test edits;
+  - `node .\node_modules\eslint\bin\eslint.js .` passed after all source and
+    test edits;
+  - `node .\node_modules\vitest\vitest.mjs run src\rng.test.ts server\recoveryPhase2.determinism.test.ts --reporter=dot`
+    passed 2 files and 22 tests;
+  - `node .\node_modules\vitest\vitest.mjs run --reporter=dot` passed all 47
+    files and 199 tests;
+  - `node .\node_modules\vite\bin\vite.js build` passed with 29 modules
+    transformed and the existing `node:module` browser-externalization warning
+    from `nativeBridge`;
+  - the authoritative `Math.random` and legacy random-helper import scans found
+    no prohibited use;
+  - `git diff --check` passed; its only output was the existing LF-to-CRLF
+    working-copy warnings.
+- Repository root is `C:/Users/jlow8/source/repos/slither_neuroevo`; branch is
+  `exclusive-server-mode-refactor`; both current implementation HEAD and last
+  fully verified committed HEAD are
+  `3fe62d0bdec4e9964f7f7c0da9d67ee4249612d2`; remote divergence is `0 0`.
+- The fully verified Phase 2 worktree remains uncommitted: 13 modified files
+  and 4 untracked files, listed exactly under "Live execution status". No file
+  was staged, committed, or pushed during this pass. Native/Rust source was not
+  changed, so the earlier three-test release result remains the last Rust
+  result.
+- Current blocker: none. Last successful acceptance gate: Phase 2
+  authoritative seeded randomness. The next executor must re-read this plan,
+  verify the worktree, and wait for explicit owner direction before Phase 3.
 
 ## Verification command reference
 

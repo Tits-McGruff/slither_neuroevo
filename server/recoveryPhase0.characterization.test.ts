@@ -120,8 +120,10 @@ function buildGenerationTransitionWorld(events: string[]): World {
     bestPointsSnakeId: 1,
     _lastHoFEntry: null,
     particles: {},
+    _clearTransientGenerationState: () => events.push(`clear@${world.generation}`),
     _initPellets: () => events.push(`pellets@${world.generation}`),
     _resetBaselineBotsForGen: () => events.push(`bots@${world.generation}`),
+    _emitGenerationBoundary: () => events.push(`boundary@${world.generation}`),
     _spawnAll: () => events.push(`spawn@${world.generation}`),
     _collGrid: {
       build: () => events.push(`grid@${world.generation}`)
@@ -179,7 +181,7 @@ describe(SUITE, () => {
     expect(DEFAULT_CONFIG.checkpointEveryGenerations).toBe(0);
   });
 
-  it('PER-005/CORE-001 [expires/converts in Phase 7 and Phase 1] checkpoint observation occurs only after new-generation spawn and focus', () => {
+  it('PER-005 [expires/converts in Phase 7] automatic persistence still observes after the Phase 2 boundary, spawn, and focus', () => {
     const events: string[] = [];
     const world = buildGenerationTransitionWorld(events);
     World.prototype._endGeneration.call(world);
@@ -212,9 +214,11 @@ describe(SUITE, () => {
     (server as unknown as CharacterizationSimServerAccess).handleGenerationEnd();
 
     expect(events).toEqual([
-      'pellets@2',
+      'clear@2',
       'bots@2',
+      'boundary@2',
       'spawn@2',
+      'pellets@2',
       'grid@2',
       'focus@2',
       'snapshot@2'

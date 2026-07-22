@@ -5,15 +5,22 @@ import { buildArch, archKey, Genome, crossover, mutate, enrichArchInfo } from '.
 import { ParticleSystem } from './particles.ts';
 import { Snake, Pellet, pointSegmentDist2 } from './snake.ts';
 import type { ControlInput } from './snake.ts';
-import { randInt, clamp, lerp, TAU } from './utils.ts';
+import { clamp, lerp, TAU } from './utils.ts';
 import { hof } from './hallOfFame.ts';
 import { FlatSpatialHash } from './spatialHash.ts';
-import { BaselineBotManager } from './bots/baselineBots.ts';
+import { BaselineBotManager, type BaselineBotRngState } from './bots/baselineBots.ts';
 import { NullBrain } from './brains/nullBrain.ts';
 import type { SimProfiler } from './profiling.ts';
 import type { ArchDefinition } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData, PopulationExport } from './protocol/messages.ts';
-import type { RandomSource } from './rng.ts';
+import {
+  StatefulRng,
+  deriveSeed,
+  normalizeSeed,
+  type RandomGenerator,
+  type RandomSource,
+  type SerializedRngState
+} from './rng.ts';
 import { THEME } from './theme.ts';
 import { getSensorLayout } from './protocol/sensors.ts';
 
@@ -21,8 +28,14 @@ import { getSensorLayout } from './protocol/sensors.ts';
 const EXTERNAL_SNAKE_ID_START = 100000;
 /** Starting id reserved for baseline bot snakes. */
 const BASELINE_BOT_ID_START = 200000;
+/** Starting id reserved for deterministic Hall-of-Fame resurrection spawns. */
+const RESURRECTED_SNAKE_ID_START = 1000000000;
 /** Hard safety bound for lower-level collision integration within one fixed step. */
 const MAX_COLLISION_SUBSTEPS = 64;
+/** Version of the exported authoritative RNG bundle. */
+const WORLD_RNG_STATE_VERSION = 1 as const;
+/** Version of the exported deterministic id-allocator bundle. */
+const WORLD_ALLOCATOR_STATE_VERSION = 1 as const;
 
 /** Optional settings overrides accepted by the World constructor. */
 interface WorldSettingsInput {
@@ -52,6 +65,64 @@ interface WorldSettings {
   worldRadius: number;
   observer: typeof CFG.observer;
   collision: typeof CFG.collision;
+}
+
+/** Exported continuation state for every authoritative random stream. */
+export interface WorldRngState {
+  /** Bundle schema version. */
+  version: typeof WORLD_RNG_STATE_VERSION;
+  /** Normalized active run seed. */
+  seed: number;
+  /** Gameplay/world-construction stream. */
+  world: SerializedRngState;
+  /** Genome initialization and evolution stream. */
+  evolution: SerializedRngState;
+  /** Observer-only selection stream. */
+  observer: SerializedRngState;
+  /** Per-slot baseline-bot streams. */
+  baselines: BaselineBotRngState[];
+}
+
+/** Exported continuation state for deterministic generated identifiers. */
+export interface WorldAllocatorState {
+  /** Bundle schema version. */
+  version: typeof WORLD_ALLOCATOR_STATE_VERSION;
+  /** Next external-controller snake id candidate. */
+  nextExternalSnakeId: number;
+  /** Next baseline-bot snake id candidate. */
+  nextBaselineBotId: number;
+  /** Next Hall-of-Fame resurrection id candidate. */
+  nextResurrectedSnakeId: number;
+}
+
+/** Exact pre-spawn checkpoint boundary exposed to later persistence work. */
+export interface GenerationBoundaryState {
+  /** Boundary schema version. */
+  version: 1;
+  /** Reason this population boundary was created. */
+  kind: 'run-start' | 'generation';
+  /** Generation whose population has been assigned. */
+  generation: number;
+  /** Normalized active run seed. */
+  seed: number;
+  /** Every authoritative RNG continuation before construction draws. */
+  rng: WorldRngState;
+  /** Every deterministic generated-id continuation. */
+  allocators: WorldAllocatorState;
+}
+
+/** Callback invoked at an exact population-assigned, pre-spawn boundary. */
+export type GenerationBoundaryHook = (
+  boundary: GenerationBoundaryState,
+  world: World
+) => void;
+
+/** Optional deterministic construction controls for a World. */
+export interface WorldConstructionOptions {
+  /** Root seed from which every named stream is derived directly. */
+  seed?: number;
+  /** Optional observer for exact generation checkpoint boundaries. */
+  onGenerationBoundary?: GenerationBoundaryHook;
 }
 
 /** Fitness history record stored by the world for charts. */
@@ -129,6 +200,14 @@ export interface PhysicsBackend {
 
 /** Main simulation world containing population state, pellets, and snakes. */
 export class World {
+  /** Normalized active seed for this simulation lineage. */
+  seed: number;
+  /** Gameplay and world-construction random stream. */
+  worldRng: StatefulRng;
+  /** Genome initialization and evolution random stream. */
+  evolutionRng: StatefulRng;
+  /** Observer-only random stream. */
+  observerRng: StatefulRng;
   /** Optional native physics backend. */
   backend: PhysicsBackend | null = null;
   /** Normalized settings for the world instance. */
@@ -203,6 +282,10 @@ export class World {
   _nextExternalSnakeId: number;
   /** Next id to assign to baseline bot spawns. */
   _nextBaselineBotId: number;
+  /** Next deterministic id candidate for Hall-of-Fame resurrection spawns. */
+  _nextResurrectedSnakeId: number;
+  /** Optional exact-boundary observer used by later persistence work. */
+  private generationBoundaryHook: GenerationBoundaryHook | null;
   /** Optional profiler for timing breakdowns. */
   profiler?: SimProfiler;
 
@@ -214,8 +297,14 @@ export class World {
   /**
    * Create a new World instance with optional settings overrides.
    * @param settings - World settings overrides from UI or worker.
+   * @param options - Seed and generation-boundary controls.
    */
-  constructor(settings: WorldSettingsInput = {}) {
+  constructor(settings: WorldSettingsInput = {}, options: WorldConstructionOptions = {}) {
+    this.seed = normalizeSeed(options.seed ?? 0);
+    this.worldRng = new StatefulRng(deriveSeed(this.seed, 'world'));
+    this.evolutionRng = new StatefulRng(deriveSeed(this.seed, 'evolution'));
+    this.observerRng = new StatefulRng(deriveSeed(this.seed, 'observer'));
+    this.generationBoundaryHook = options.onGenerationBoundary ?? null;
     // Store a shallow copy of the UI settings to decouple from external
     // mutations.  The settings include snakeCount, simSpeed and hidden layer
     // sizes.
@@ -246,7 +335,7 @@ export class World {
     this._pelletSpawnAcc = 0;
     this.snakes = [];
     this.baselineBots = [];
-    this.botManager = new BaselineBotManager(CFG.baselineBots);
+    this.botManager = new BaselineBotManager(CFG.baselineBots, this.seed);
     this.particles = new ParticleSystem(); // Initialize particle system
     this.generation = 1;
     this.generationTime = 0;
@@ -292,13 +381,117 @@ export class World {
     this._didWarnSensorLayout = false;
     this._nextExternalSnakeId = EXTERNAL_SNAKE_ID_START;
     this._nextBaselineBotId = BASELINE_BOT_ID_START;
+    this._nextResurrectedSnakeId = RESURRECTED_SNAKE_ID_START;
     this._initPopulation();
     this._resetBaselineBotsForGen();
+    this._emitGenerationBoundary('run-start');
     this._spawnAll();
     this._collGrid.build(this.snakes, CFG.collision.skipSegments);
     this._initPellets();
     this._chooseInitialFocus();
   }
+
+  /**
+   * Export every authoritative RNG stream for a future exact-boundary resume.
+   * @returns Lossless versioned RNG bundle.
+   */
+  exportRngState(): WorldRngState {
+    return {
+      version: WORLD_RNG_STATE_VERSION,
+      seed: this.seed,
+      world: this.worldRng.exportState(),
+      evolution: this.evolutionRng.exportState(),
+      observer: this.observerRng.exportState(),
+      baselines: this.botManager.exportRngStates()
+    };
+  }
+
+  /**
+   * Restore every authoritative RNG stream after strict seed/version validation.
+   * @param state - Bundle previously returned by `exportRngState`.
+   */
+  restoreRngState(state: WorldRngState): void {
+    if (state.version !== WORLD_RNG_STATE_VERSION || state.seed !== this.seed) {
+      throw new TypeError(
+        `World RNG state ${state.version}/${state.seed} does not match ${WORLD_RNG_STATE_VERSION}/${this.seed}`
+      );
+    }
+    const world = StatefulRng.fromState(state.world);
+    const evolution = StatefulRng.fromState(state.evolution);
+    const observer = StatefulRng.fromState(state.observer);
+    this.botManager.restoreRngStates(state.baselines);
+    this.worldRng.restoreState(world.exportState());
+    this.evolutionRng.restoreState(evolution.exportState());
+    this.observerRng.restoreState(observer.exportState());
+  }
+
+  /**
+   * Export every deterministic generated-id continuation.
+   * @returns Versioned allocator state.
+   */
+  exportAllocatorState(): WorldAllocatorState {
+    return {
+      version: WORLD_ALLOCATOR_STATE_VERSION,
+      nextExternalSnakeId: this._nextExternalSnakeId,
+      nextBaselineBotId: this._nextBaselineBotId,
+      nextResurrectedSnakeId: this._nextResurrectedSnakeId
+    };
+  }
+
+  /**
+   * Restore deterministic generated-id continuations after validation.
+   * @param state - Allocator state previously returned by `exportAllocatorState`.
+   */
+  restoreAllocatorState(state: WorldAllocatorState): void {
+    if (state.version !== WORLD_ALLOCATOR_STATE_VERSION) {
+      throw new TypeError(`Unsupported World allocator state version ${state.version}`);
+    }
+    if (
+      !Number.isSafeInteger(state.nextExternalSnakeId) ||
+      state.nextExternalSnakeId < EXTERNAL_SNAKE_ID_START ||
+      !Number.isSafeInteger(state.nextBaselineBotId) ||
+      state.nextBaselineBotId < BASELINE_BOT_ID_START ||
+      !Number.isSafeInteger(state.nextResurrectedSnakeId) ||
+      state.nextResurrectedSnakeId < RESURRECTED_SNAKE_ID_START
+    ) {
+      throw new TypeError('World allocator state contains an invalid id candidate');
+    }
+    this._nextExternalSnakeId = state.nextExternalSnakeId;
+    this._nextBaselineBotId = state.nextBaselineBotId;
+    this._nextResurrectedSnakeId = state.nextResurrectedSnakeId;
+  }
+
+  /**
+   * Publish an exact population-assigned boundary before construction draws.
+   * @param kind - Run-start or evolved-generation boundary kind.
+   */
+  private _emitGenerationBoundary(kind: GenerationBoundaryState['kind']): void {
+    if (!this.generationBoundaryHook) return;
+    this.generationBoundaryHook({
+      version: 1,
+      kind,
+      generation: this.generation,
+      seed: this.seed,
+      rng: this.exportRngState(),
+      allocators: this.exportAllocatorState()
+    }, this);
+  }
+
+  /**
+   * Remove prior-generation transient objects before exposing a new boundary.
+   * Population and RNG/allocator continuations remain intact; no random draw
+   * occurs here, and new snakes/pellets/focus are created only after the hook.
+   */
+  private _clearTransientGenerationState(): void {
+    this.snakes.length = 0;
+    this.baselineBots.length = 0;
+    this.pellets.length = 0;
+    this.pelletGrid.resetForCFG();
+    this._pelletSpawnAcc = 0;
+    this.focusSnake = null;
+    this._collGrid.reset(this.settings.collision.cellSize);
+  }
+
   /**
    * Set the physics backend to use.
    * @param backend - Physics backend instance.
@@ -348,7 +541,7 @@ export class World {
   _pickAnyAlive(): Snake | null {
     const alive = this.snakes.filter(s => s.alive);
     if (!alive.length) return null;
-    const idx = randInt(alive.length);
+    const idx = this.observerRng.int(alive.length);
     return alive[idx] ?? null;
   }
   /**
@@ -357,8 +550,9 @@ export class World {
    */
   _initPopulation(): void {
     this.population.length = 0;
+    const rng = this.evolutionRng.asSource();
     for (let i = 0; i < this.settings.snakeCount; i++) {
-      this.population.push(Genome.random(this.arch));
+      this.population.push(Genome.random(this.arch, rng));
     }
   }
 
@@ -404,10 +598,11 @@ export class World {
     }
     const targetCount = Math.max(1, Math.floor(this.settings.snakeCount || parsed.length));
     const nextPop = [];
+    const rng = this.evolutionRng.asSource();
     for (let i = 0; i < targetCount; i++) {
       const candidate = parsed[i];
       if (candidate) nextPop.push(candidate.clone());
-      else nextPop.push(Genome.random(this.arch));
+      else nextPop.push(Genome.random(this.arch, rng));
     }
     this.population = nextPop;
     this.generation = Number.isFinite(data.generation)
@@ -431,10 +626,14 @@ export class World {
    */
   _spawnAll(): void {
     this.snakes.length = 0;
+    const rng = this.worldRng.asSource();
     for (let i = 0; i < this.population.length; i++) {
       const g = this.population[i];
       if (!g) continue;
-      this.snakes.push(new Snake(i + 1, g.clone(), this.arch, { populationSlot: i }));
+      this.snakes.push(new Snake(i + 1, g.clone(), this.arch, {
+        populationSlot: i,
+        rng
+      }));
     }
     this._spawnBaselineBots();
   }
@@ -974,7 +1173,7 @@ export class World {
   _chooseInitialFocus(): void {
     const alive = this.snakes.filter(s => s.alive);
     if (alive.length) {
-      const idx = randInt(alive.length);
+      const idx = this.observerRng.int(alive.length);
       this.focusSnake = alive[idx] ?? null;
     } else {
       this.focusSnake = null;
@@ -1249,10 +1448,10 @@ export class World {
       if (elite) newPop.push(elite.clone());
     }
     while (newPop.length < this.population.length) {
-      const parentA = tournamentPick(this.population, 5);
-      const parentB = tournamentPick(this.population, 5);
-      const child = crossover(parentA, parentB, this.arch);
-      mutate(child, this.arch);
+      const parentA = tournamentPick(this.population, 5, this.evolutionRng);
+      const parentB = tournamentPick(this.population, 5, this.evolutionRng);
+      const child = crossover(parentA, parentB, this.arch, this.evolutionRng.asSource());
+      mutate(child, this.arch, this.evolutionRng);
       child.fitness = 0;
       newPop.push(child);
     }
@@ -1262,11 +1461,30 @@ export class World {
     this.bestPointsThisGen = 0;
     this.bestPointsSnakeId = 0;
     this.particles = new ParticleSystem(); // Reset particles
-    this._initPellets();
+    this._clearTransientGenerationState();
     this._resetBaselineBotsForGen();
+    this._emitGenerationBoundary('generation');
     this._spawnAll();
+    this._initPellets();
     this._collGrid.build(this.snakes, CFG.collision.skipSegments);
     this._chooseInitialFocus();
+  }
+
+  /**
+   * Allocate a deterministic collision-safe Hall-of-Fame snake identifier.
+   * @returns Unique safe integer id.
+   */
+  private _allocateResurrectedSnakeId(): number {
+    let candidate = this._nextResurrectedSnakeId;
+    while (this.snakes.some(snake => snake.id === candidate)) {
+      candidate += 1;
+      if (!Number.isSafeInteger(candidate)) throw new RangeError('Hall-of-Fame snake id allocator exhausted');
+    }
+    if (candidate >= Number.MAX_SAFE_INTEGER) {
+      throw new RangeError('Hall-of-Fame snake id allocator exhausted');
+    }
+    this._nextResurrectedSnakeId = candidate + 1;
+    return candidate;
   }
 
   /**
@@ -1276,9 +1494,12 @@ export class World {
    */
   resurrect(genomeJSON: GenomeJSON): number {
     const genome = Genome.fromJSON(genomeJSON);
-    // Create a new snake with a high ID to avoid collision
-    const id = 10000 + randInt(90000);
-    const snake = new Snake(id, genome, this.arch, { skin: 1, populationSlot: null });
+    const id = this._allocateResurrectedSnakeId();
+    const snake = new Snake(id, genome, this.arch, {
+      skin: 1,
+      populationSlot: null,
+      rng: this.worldRng.asSource()
+    });
 
     // Give it a distinct look (e.g. golden glow) if possible, or just standard
     snake.color = '#FFD700'; // Gold color to signify HoF status
@@ -1295,18 +1516,24 @@ export class World {
    * Reuses dead external slots to avoid unbounded growth.
    */
   spawnExternalSnake(): Snake {
-    const genome = Genome.random(this.arch);
+    const genome = Genome.random(this.arch, this.evolutionRng.asSource());
     const reusableIndex = this.snakes.findIndex(
       (snake) => !snake.alive && snake.id >= EXTERNAL_SNAKE_ID_START && snake.baselineBotIndex == null
     );
     if (reusableIndex >= 0) {
       const existingId = this.snakes[reusableIndex]!.id;
-      const snake = new Snake(existingId, genome, this.arch, { populationSlot: null });
+      const snake = new Snake(existingId, genome, this.arch, {
+        populationSlot: null,
+        rng: this.worldRng.asSource()
+      });
       this.snakes[reusableIndex] = snake;
       return snake;
     }
     const id = this._nextExternalSnakeId++;
-    const snake = new Snake(id, genome, this.arch, { populationSlot: null });
+    const snake = new Snake(id, genome, this.arch, {
+      populationSlot: null,
+      rng: this.worldRng.asSource()
+    });
     this.snakes.push(snake);
     return snake;
   }
@@ -1360,8 +1587,8 @@ export class World {
 
     for (let i = 0; i < REJECTION_RETRIES; i++) {
       // Phase 1: Pick a random candidate point within the circular world.
-      const a = Math.random() * TAU;
-      const d = Math.sqrt(Math.random()) * r;
+      const a = this.worldRng.next() * TAU;
+      const d = Math.sqrt(this.worldRng.next()) * r;
       const x = Math.cos(a) * d;
       const y = Math.sin(a) * d;
 
@@ -1403,7 +1630,7 @@ export class World {
         bestY = y;
       }
 
-      if (Math.random() < prob) {
+      if (this.worldRng.next() < prob) {
         return new Pellet(x, y, CFG.foodValue, null, "ambient", 0);
       }
     }
@@ -1421,11 +1648,12 @@ export class World {
  * breeding new individuals.
  * @param pop - Candidate population.
  * @param k - Tournament size.
+ * @param rng - Evolution random stream.
  */
-function tournamentPick(pop: Genome[], k: number): Genome {
+function tournamentPick(pop: Genome[], k: number, rng: RandomGenerator): Genome {
   let best: Genome | null = null;
   for (let i = 0; i < k; i++) {
-    const g = pop[randInt(pop.length)] ?? pop[0]!;
+    const g = pop[rng.int(pop.length)] ?? pop[0]!;
     if (!best || g.fitness > best.fitness) best = g;
   }
   return best!;

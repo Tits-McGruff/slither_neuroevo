@@ -205,7 +205,7 @@ describe(SUITE, () => {
     expect(actual.digest).toBe(expected.digest);
     expect(findFirstAuthoritativeWorldDivergence(expected, actual)).toBeNull();
     expect(expected.algorithm).toBe('sha256');
-    expect(expected.version).toBe(1);
+    expect(expected.version).toBe(2);
     const paths = expected.entries.map((entry) => entry.path);
     expect(paths).toEqual([...paths].sort());
     expect(new Set(paths).size).toBe(paths.length);

@@ -2,11 +2,12 @@
 
 import { createHash } from 'node:crypto';
 import type { Genome } from '../../src/mlp.ts';
+import type { SerializedRngState } from '../../src/rng.ts';
 import type { Snake } from '../../src/snake.ts';
 import type { World } from '../../src/world.ts';
 
 /** Canonical digest schema version. */
-const DIGEST_VERSION = 1;
+const DIGEST_VERSION = 2;
 /** Raw Float32 hexadecimal width. */
 const FLOAT32_HEX_WIDTH = 8;
 
@@ -140,6 +141,8 @@ interface BotManagerView {
   respawnTimers?: number[];
   /** Global controller-disable flag. */
   controllerDisabled?: boolean;
+  /** Export current per-slot RNG continuations. */
+  exportRngStates?: () => Array<{ slot: number; seed: number; rng: SerializedRngState }>;
 }
 
 /** Canonical identity assigned to one snake. */
@@ -312,6 +315,18 @@ function addOptionalBoolean(entries: StateEntry[], path: string, value: boolean 
   else addBoolean(entries, path, value, context);
 }
 
+/** Capture one versioned deterministic RNG continuation. */
+function captureRngState(entries: StateEntry[], path: string, state: SerializedRngState): void {
+  addString(entries, `${path}.algorithm`, state.algorithm);
+  addInteger(entries, `${path}.version`, state.version);
+  addString(entries, `${path}.state`, state.stateHex);
+  addString(entries, `${path}.gaussian.algorithm`, state.gaussianAlgorithm);
+  addInteger(entries, `${path}.gaussian.version`, state.gaussianVersion);
+  addBoolean(entries, `${path}.gaussian.spareValid`, state.gaussianSpareValid);
+  if (state.gaussianSpareHex === null) addAbsent(entries, `${path}.gaussian.spare`);
+  else addString(entries, `${path}.gaussian.spare`, state.gaussianSpareHex);
+}
+
 /** Capture one genome. */
 function captureGenome(entries: StateEntry[], path: string, genome: Genome, context: StateContext): void {
   addString(entries, `${path}.archKey`, genome.archKey, context);
@@ -431,10 +446,7 @@ function canonicalPellets(world: World): CanonicalPellet[] {
   return result;
 }
 
-/**
- * Capture inspectable baseline-manager state. Opaque closure RNG continuation
- * remains deferred until Phase 2 provides exportable production RNG state.
- */
+/** Capture inspectable baseline-manager state and durable RNG continuations. */
 function captureBotManager(entries: StateEntry[], world: World): void {
   const manager = world.botManager as unknown as BotManagerView;
   const count = Math.max(
@@ -449,6 +461,7 @@ function captureBotManager(entries: StateEntry[], world: World): void {
   );
   addInteger(entries, '40.baselineBots.count', count);
   addBoolean(entries, '40.baselineBots.controllerDisabled', manager.controllerDisabled === true);
+  const rngStates = manager.exportRngStates?.() ?? [];
   for (let slot = 0; slot < count; slot++) {
     const path = `40.baselineBots.slot=${identity('baselineBots.slot', slot)}`;
     const seed = manager.botSeeds?.[slot];
@@ -468,6 +481,13 @@ function captureBotManager(entries: StateEntry[], world: World): void {
     }
     addOptionalInteger(entries, `${path}.snakeId`, manager.botSnakeIds?.[slot], WORLD_CONTEXT);
     addOptionalNumber(entries, `${path}.respawnTimer`, manager.respawnTimers?.[slot], WORLD_CONTEXT);
+    const rngState = rngStates.find(candidate => candidate.slot === slot);
+    if (rngState) {
+      addInteger(entries, `${path}.rng.seed`, rngState.seed);
+      captureRngState(entries, `${path}.rng`, rngState.rng);
+    } else {
+      addAbsent(entries, `${path}.rng`);
+    }
   }
 }
 
@@ -475,6 +495,7 @@ function captureBotManager(entries: StateEntry[], world: World): void {
 function captureEntries(world: World): StateEntry[] {
   const entries: StateEntry[] = [];
   addString(entries, '00.world.archKey', world.archKey);
+  addOptionalInteger(entries, '00.world.seed', world.seed, WORLD_CONTEXT);
   addInteger(entries, '00.world.generation', world.generation);
   addNumber(entries, '00.world.generationTime', world.generationTime);
   addInteger(entries, '00.world.tick', world.tickId);
@@ -484,6 +505,21 @@ function captureEntries(world: World): StateEntry[] {
   addInteger(entries, '00.world.bestPointsSnakeId', world.bestPointsSnakeId);
   addInteger(entries, '00.world.nextExternalSnakeId', world._nextExternalSnakeId);
   addInteger(entries, '00.world.nextBaselineBotId', world._nextBaselineBotId);
+  addOptionalInteger(
+    entries,
+    '00.world.nextResurrectedSnakeId',
+    world._nextResurrectedSnakeId,
+    WORLD_CONTEXT
+  );
+  if (typeof world.exportRngState === 'function') {
+    const rng = world.exportRngState();
+    addInteger(entries, '02.rng.version', rng.version);
+    addInteger(entries, '02.rng.seed', rng.seed);
+    captureRngState(entries, '02.rng.world', rng.world);
+    captureRngState(entries, '02.rng.evolution', rng.evolution);
+  } else {
+    addAbsent(entries, '02.rng');
+  }
   addInteger(entries, '01.settings.snakeCount', world.settings.snakeCount);
   addNumber(entries, '01.settings.simSpeed', world.settings.simSpeed);
   addInteger(entries, '01.settings.hiddenLayers', world.settings.hiddenLayers);

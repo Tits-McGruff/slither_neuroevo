@@ -6,9 +6,15 @@
  * statistics. It is designed to be wrapped by both the Server (Node.js) and the Client (Browser/Worker).
  */
 
-import { World, type BatchInferenceRunner, type ControllerRegistryLike } from '../world.ts';
+import {
+  World,
+  type BatchInferenceRunner,
+  type ControllerRegistryLike,
+  type GenerationBoundaryHook
+} from '../world.ts';
 import { WorldSerializer } from '../serializer.ts';
 import { CFG } from '../config.ts';
+import { normalizeSeed } from '../rng.ts';
 import type { CoreSettings } from '../protocol/settings.ts';
 import type { Snake } from '../snake.ts';
 import type {
@@ -20,6 +26,51 @@ import type {
 
 /** Default hard limit for complete fixed steps executed by one scheduler pump. */
 const DEFAULT_MAX_STEPS_PER_PUMP = 120;
+/** Monotonic process-local identity source that never consumes simulation RNG. */
+let nextLocalRunOrdinal = 1;
+
+/** Public identity for one in-memory evolutionary lineage. */
+export interface SimulationRunIdentity {
+  /** Normalized active run seed. */
+  seed: number;
+  /** Opaque lineage identifier independent from simulation RNG. */
+  runId: string;
+}
+
+/** Optional identity overrides accepted by a same-seed Reset. */
+export interface SimCoreResetOptions {
+  /** Fresh lineage id; a process-local id is created when omitted. */
+  runId?: string;
+}
+
+/** Required identity inputs accepted by an explicit New Run. */
+export interface SimCoreNewRunOptions {
+  /** New root seed supplied by a system-entropy owner. */
+  seed: number;
+  /** Fresh lineage id; a process-local id is created when omitted. */
+  runId?: string;
+}
+
+/**
+ * Create a process-local run id without reading an authoritative random stream.
+ * @param seed - Normalized lineage seed included only for diagnostics.
+ * @returns Fresh process-local run id.
+ */
+function createLocalRunId(seed: number): string {
+  const ordinal = nextLocalRunOrdinal++;
+  return `local-${seed.toString(16).padStart(8, '0')}-${ordinal.toString(36)}`;
+}
+
+/**
+ * Normalize a supplied run id or create an independent process-local fallback.
+ * @param runId - Optional externally generated id.
+ * @param seed - Normalized lineage seed used by the fallback.
+ * @returns Non-empty run id.
+ */
+function normalizeRunId(runId: string | undefined, seed: number): string {
+  const normalized = runId?.trim();
+  return normalized || createLocalRunId(seed);
+}
 
 /** Operational scheduler measurements that never feed authoritative World state. */
 export interface SchedulerDiagnostics {
@@ -70,6 +121,10 @@ export interface SimCoreOptions {
   cfgHash?: string;
   /** Optional world seed. */
   worldSeed?: number;
+  /** Optional lineage id generated independently from simulation randomness. */
+  runId?: string;
+  /** Optional exact pre-spawn generation-boundary observer. */
+  onGenerationBoundary?: GenerationBoundaryHook;
   /** Optional brain pool for batch inference. */
   brainPool?: BatchInferenceRunner | null;
   /** Tick rate in Hz (simulation updates per second). */
@@ -84,6 +139,15 @@ export interface SimCoreOptions {
 export class SimCore {
   /** The physics world. */
   world: World;
+
+  /** Normalized active run seed. */
+  worldSeed: number;
+
+  /** Opaque evolutionary-lineage identifier. */
+  runId: string;
+
+  /** Boundary observer preserved across Reset and New Run reconstruction. */
+  private generationBoundaryHook: GenerationBoundaryHook | null;
 
   /** Current tick ID. */
   tickId: number = 0;
@@ -136,7 +200,15 @@ export class SimCore {
     // The world is initialized with the provided settings.
 
     // 2. Create World
-    this.world = new World(options.settings || {});
+    this.worldSeed = normalizeSeed(options.worldSeed ?? 0);
+    this.runId = normalizeRunId(options.runId, this.worldSeed);
+    this.generationBoundaryHook = options.onGenerationBoundary ?? null;
+    this.world = new World(options.settings || {}, {
+      seed: this.worldSeed,
+      ...(this.generationBoundaryHook
+        ? { onGenerationBoundary: this.generationBoundaryHook }
+        : {})
+    });
     this.brainPool = options.brainPool || null;
     const tickRateHz = options.tickRateHz;
     if (typeof tickRateHz === 'number' && Number.isFinite(tickRateHz) && tickRateHz > 0) {
@@ -252,6 +324,14 @@ export class SimCore {
   }
 
   /**
+   * Return the visible identity of the active in-memory lineage.
+   * @returns Seed and independent run id.
+   */
+  getRunIdentity(): SimulationRunIdentity {
+    return { seed: this.worldSeed, runId: this.runId };
+  }
+
+  /**
    * Build a statistics object for the current frame.
    * This is the single source of truth for server-side stats.
    *
@@ -338,10 +418,28 @@ export class SimCore {
   }
 
   /**
-   * Reset the simulation with new settings.
+   * Rebuild all run-scoped state from a selected seed and fresh lineage id.
+   * @param settings - Authoritative settings for the rebuilt generation one.
+   * @param seed - Root seed for the rebuilt World.
+   * @param runId - New lineage id independent from simulation randomness.
+   * @returns Visible identity of the rebuilt run.
    */
-  reset(settings: Partial<CoreSettings>): void {
-    this.world = new World(settings);
+  private restart(
+    settings: Partial<CoreSettings>,
+    seed: number,
+    runId: string
+  ): SimulationRunIdentity {
+    const nextSeed = normalizeSeed(seed);
+    const nextRunId = normalizeRunId(runId, nextSeed);
+    const nextWorld = new World(settings, {
+      seed: nextSeed,
+      ...(this.generationBoundaryHook
+        ? { onGenerationBoundary: this.generationBoundaryHook }
+        : {})
+    });
+    this.worldSeed = nextSeed;
+    this.runId = nextRunId;
+    this.world = nextWorld;
     this.tickId = 0;
     this.accumulator = 0;
     this.totalWallSeconds = 0;
@@ -351,5 +449,37 @@ export class SimCore {
     this.droppedSimulationSecondsThisPump = 0;
     this.lastGeneration = this.world.generation;
     this.lastHistoryLen = this.world.fitnessHistory.length;
+    return this.getRunIdentity();
+  }
+
+  /**
+   * Apply/Reset to generation one using the same seed and a new run id.
+   * @param settings - Authoritative settings for the rebuilt generation one.
+   * @param options - Optional independently generated lineage id.
+   * @returns Visible identity of the rebuilt run.
+   */
+  reset(
+    settings: Partial<CoreSettings>,
+    options: SimCoreResetOptions = {}
+  ): SimulationRunIdentity {
+    return this.restart(
+      settings,
+      this.worldSeed,
+      normalizeRunId(options.runId, this.worldSeed)
+    );
+  }
+
+  /**
+   * Start generation one with a new externally selected seed and run id.
+   * @param settings - Authoritative settings for the rebuilt generation one.
+   * @param options - New seed and optional independently generated lineage id.
+   * @returns Visible identity of the rebuilt run.
+   */
+  newRun(
+    settings: Partial<CoreSettings>,
+    options: SimCoreNewRunOptions
+  ): SimulationRunIdentity {
+    const seed = normalizeSeed(options.seed);
+    return this.restart(settings, seed, normalizeRunId(options.runId, seed));
   }
 }

@@ -1,7 +1,8 @@
 /** Architecture selection, genome representation, and evolution operators. */
 
 import { CFG } from './config.ts';
-import { clamp, gaussian } from './utils.ts';
+import { clamp } from './utils.ts';
+import { unseededRandom, type RandomGenerator, type RandomSource } from './rng.ts';
 import { buildStackGraphSpec } from './brains/stackBuilder.ts';
 import { graphKey } from './brains/graph/compiler.ts';
 import type { CompiledGraph } from './brains/graph/compiler.ts';
@@ -158,9 +159,10 @@ export class Genome {
   /**
    * Build a randomized genome for a specific architecture.
    * @param arch - Architecture definition to target.
+   * @param rng - Random source used for every initialized parameter.
    * @returns New randomized genome.
    */
-  static random(arch: ArchDefinition): Genome {
+  static random(arch: ArchDefinition, rng: RandomSource = unseededRandom): Genome {
     const info = enrichArchInfo(arch);
     const w = new Float32Array(info.totalCount);
     for (const node of info.nodes) {
@@ -169,12 +171,12 @@ export class Genome {
       switch (node.type) {
         case 'MLP': {
           const sizes = [node.inputSize, ...(node.hiddenSizes ?? []), node.outputSize];
-          const mlp = new MLP(sizes);
+          const mlp = new MLP(sizes, null, rng);
           slice.set(mlp.w);
           break;
         }
         case 'Dense': {
-          const head = new DenseHead(node.inputSize, node.outputSize);
+          const head = new DenseHead(node.inputSize, node.outputSize, null, rng);
           slice.set(head.w);
           break;
         }
@@ -182,7 +184,7 @@ export class Genome {
           const initBias = CFG.brain && typeof CFG.brain.gruInitUpdateBias === 'number'
             ? CFG.brain.gruInitUpdateBias
             : -0.7;
-          const gru = new GRU(node.inputSize, node.hiddenSize ?? node.outputSize, null, initBias);
+          const gru = new GRU(node.inputSize, node.hiddenSize ?? node.outputSize, null, initBias, rng);
           slice.set(gru.w);
           break;
         }
@@ -190,7 +192,7 @@ export class Genome {
           const initBias = CFG.brain && typeof CFG.brain.lstmInitForgetBias === 'number'
             ? CFG.brain.lstmInitForgetBias
             : 0.6;
-          const lstm = new LSTM(node.inputSize, node.hiddenSize ?? node.outputSize, null, initBias);
+          const lstm = new LSTM(node.inputSize, node.hiddenSize ?? node.outputSize, null, initBias, rng);
           slice.set(lstm.w);
           break;
         }
@@ -198,7 +200,7 @@ export class Genome {
           const initBias = CFG.brain && typeof CFG.brain.rruInitGateBias === 'number'
             ? CFG.brain.rruInitGateBias
             : 0.1;
-          const rru = new RRU(node.inputSize, node.hiddenSize ?? node.outputSize, null, initBias);
+          const rru = new RRU(node.inputSize, node.hiddenSize ?? node.outputSize, null, initBias, rng);
           slice.set(rru.w);
           break;
         }
@@ -263,18 +265,20 @@ export class Genome {
  * @param wb - Parent B weights.
  * @param node - Node parameter metadata.
  * @param mode - Crossover mode (0 block, 1 unit).
+ * @param rng - Random source used for parent choices.
  */
 function crossoverRecurrentBlock(
   out: Float32Array,
   wa: Float32Array,
   wb: Float32Array,
   node: NodeParamInfo,
-  mode: number
+  mode: number,
+  rng: RandomSource
 ): void {
   const offset = node.offset;
   const len = node.length;
   if (mode === 0) {
-    const src = Math.random() < 0.5 ? wa : wb;
+    const src = rng() < 0.5 ? wa : wb;
     out.set(src.subarray(offset, offset + len), offset);
     return;
   }
@@ -293,7 +297,7 @@ function crossoverRecurrentBlock(
     const br = bz + H;
     const bh = br + H;
     for (let j = 0; j < H; j++) {
-      const src = Math.random() < 0.5 ? wa : wb;
+      const src = rng() < 0.5 ? wa : wb;
       out.set(src.subarray(Wz + j * I, Wz + (j + 1) * I), Wz + j * I);
       out.set(src.subarray(Wr + j * I, Wr + (j + 1) * I), Wr + j * I);
       out.set(src.subarray(Wh + j * I, Wh + (j + 1) * I), Wh + j * I);
@@ -320,7 +324,7 @@ function crossoverRecurrentBlock(
     const bo = bf + H;
     const bg = bo + H;
     for (let j = 0; j < H; j++) {
-      const src = Math.random() < 0.5 ? wa : wb;
+      const src = rng() < 0.5 ? wa : wb;
       out.set(src.subarray(Wi + j * I, Wi + (j + 1) * I), Wi + j * I);
       out.set(src.subarray(Wf + j * I, Wf + (j + 1) * I), Wf + j * I);
       out.set(src.subarray(Wo + j * I, Wo + (j + 1) * I), Wo + j * I);
@@ -344,7 +348,7 @@ function crossoverRecurrentBlock(
     const bc = Ur + Usz;
     const br = bc + H;
     for (let j = 0; j < H; j++) {
-      const src = Math.random() < 0.5 ? wa : wb;
+      const src = rng() < 0.5 ? wa : wb;
       out.set(src.subarray(Wc + j * I, Wc + (j + 1) * I), Wc + j * I);
       out.set(src.subarray(Wr + j * I, Wr + (j + 1) * I), Wr + j * I);
       out.set(src.subarray(Uc + j * H, Uc + (j + 1) * H), Uc + j * H);
@@ -360,17 +364,23 @@ function crossoverRecurrentBlock(
  * @param a - Parent A genome.
  * @param b - Parent B genome.
  * @param arch - Architecture definition.
+ * @param rng - Random source used for every parent choice.
  * @returns Child genome.
  */
-export function crossover(a: Genome, b: Genome, arch: ArchDefinition): Genome {
+export function crossover(
+  a: Genome,
+  b: Genome,
+  arch: ArchDefinition,
+  rng: RandomSource = unseededRandom
+): Genome {
   const info = enrichArchInfo(arch);
   const wa = a.weights;
   const wb = b.weights;
   const n = wa.length;
   const child = new Float32Array(n);
 
-  if (Math.random() > CFG.crossoverRate) {
-    child.set(Math.random() < 0.5 ? wa : wb);
+  if (rng() > CFG.crossoverRate) {
+    child.set(rng() < 0.5 ? wa : wb);
     return new Genome(a.archKey, child, arch.spec.type);
   }
 
@@ -378,24 +388,46 @@ export function crossover(a: Genome, b: Genome, arch: ArchDefinition): Genome {
   for (const node of info.nodes) {
     if (node.length <= 0) continue;
     if (node.isRecurrent) {
-      crossoverRecurrentBlock(child, wa, wb, node, mode);
+      crossoverRecurrentBlock(child, wa, wb, node, mode, rng);
       continue;
     }
     for (let i = node.offset; i < node.offset + node.length; i++) {
       const aVal = wa[i] ?? 0;
       const bVal = wb[i] ?? 0;
-      child[i] = Math.random() < 0.5 ? aVal : bVal;
+      child[i] = rng() < 0.5 ? aVal : bVal;
     }
   }
   return new Genome(a.archKey, child, arch.spec.type);
 }
 
 /**
+ * Generate a standard normal sample for non-authoritative fallback callers.
+ * @param rng - Uniform random source.
+ * @returns Standard normal sample.
+ */
+function gaussianFromSource(rng: RandomSource): number {
+  let x = 0;
+  let y = 0;
+  let radiusSquared = 0;
+  do {
+    x = rng() * 2 - 1;
+    y = rng() * 2 - 1;
+    radiusSquared = x * x + y * y;
+  } while (radiusSquared === 0 || radiusSquared >= 1);
+  return x * Math.sqrt((-2 * Math.log(radiusSquared)) / radiusSquared);
+}
+
+/**
  * Mutate a genome in-place using configured mutation rates.
  * @param genome - Genome to mutate.
  * @param arch - Architecture definition for recurrent ranges.
+ * @param rng - Stateful random generator used for decisions and Gaussian noise.
  */
-export function mutate(genome: Genome, arch: ArchDefinition): void {
+export function mutate(
+  genome: Genome,
+  arch: ArchDefinition,
+  rng?: RandomGenerator
+): void {
   const info = enrichArchInfo(arch);
   const w = genome.weights;
   const recurrentRanges: Array<{ start: number; end: number }> = [];
@@ -405,10 +437,14 @@ export function mutate(genome: Genome, arch: ArchDefinition): void {
   }
   const mRateGRU = (CFG.brain && typeof CFG.brain.gruMutationRate === 'number') ? CFG.brain.gruMutationRate : CFG.mutationRate;
   const mStdGRU = (CFG.brain && typeof CFG.brain.gruMutationStd === 'number') ? CFG.brain.gruMutationStd : CFG.mutationStd;
+  const next = rng ? () => rng.next() : unseededRandom;
   for (let i = 0; i < w.length; i++) {
     const inRecurrent = recurrentRanges.some(r => i >= r.start && i < r.end);
     const rate = inRecurrent ? mRateGRU : CFG.mutationRate;
     const std = inRecurrent ? mStdGRU : CFG.mutationStd;
-    if (Math.random() < rate) w[i] = clamp((w[i] ?? 0) + gaussian() * std, -5, 5);
+    if (next() < rate) {
+      const noise = rng ? rng.gaussian() : gaussianFromSource(next);
+      w[i] = clamp((w[i] ?? 0) + noise * std, -5, 5);
+    }
   }
 }

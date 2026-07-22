@@ -10,7 +10,11 @@ import { SimProfiler, formatSimProfilerReport } from '../src/profiling.ts';
 import type { Snake } from '../src/snake.ts';
 import type { ServerConfig } from './config.ts';
 import { NodeBrainPool } from '../src/sim/NodeBrainPool.ts';
-import { SimCore, type SchedulerDiagnostics } from '../src/sim/SimCore.ts';
+import {
+  SimCore,
+  type SchedulerDiagnostics,
+  type SimulationRunIdentity
+} from '../src/sim/SimCore.ts';
 import { compileGraph } from '../src/brains/graph/compiler.ts';
 import {
   getNativeAddonBuildIdentifier,
@@ -34,6 +38,7 @@ import { WsHub } from './wsHub.ts';
 import { buildSensorSpec } from './sensorSpec.ts';
 import { NativeBackend } from './native-backend.ts';
 import type { ActiveInferenceBackend, InferenceModeRecord } from './inferenceMode.ts';
+import { createEntropySeed, createRunId } from './runIdentity.ts';
 
 /** SQLite error code indicating the database or disk is full. */
 const SQLITE_FULL_CODE = 'SQLITE_FULL';
@@ -105,6 +110,8 @@ export class SimServer {
   private cfgHash: string;
   /** Seed used for the world initialization. */
   private worldSeed: number;
+  /** Current evolutionary-lineage identifier. */
+  private runId: string;
   /** Interval for snapshot checkpoints in generations. */
   private checkpointEveryGenerations: number;
   /** Generation number at last checkpoint. */
@@ -143,6 +150,7 @@ export class SimServer {
    * @param cfgHash - Hash of the config used for snapshots.
    * @param worldSeed - Seed used for world initialization.
    * @param initialSettings - Optional core settings snapshot.
+   * @param runId - Lineage id generated independently from simulation RNG.
    */
   constructor(
     config: ServerConfig,
@@ -150,7 +158,8 @@ export class SimServer {
     persistence?: Persistence,
     cfgHash = '',
     worldSeed = 0,
-    initialSettings: Partial<CoreSettings> = {}
+    initialSettings: Partial<CoreSettings> = {},
+    runId = createRunId()
   ) {
     this.wsHub = wsHub;
     this.tickRateHz = config.tickRateHz;
@@ -160,7 +169,8 @@ export class SimServer {
     this.core = new SimCore({
       settings: initialSettings,
       tickRateHz: this.tickRateHz,
-      worldSeed: worldSeed
+      worldSeed,
+      runId
     });
 
     const nativeEnv = process.env['SLITHER_NATIVE_BACKEND'];
@@ -200,7 +210,8 @@ export class SimServer {
 
     this.persistence = persistence ?? null;
     this.cfgHash = cfgHash;
-    this.worldSeed = worldSeed;
+    this.worldSeed = this.core.worldSeed;
+    this.runId = this.core.runId;
     this.checkpointEveryGenerations = Math.max(0, config.checkpointEveryGenerations);
     this.lastGeneration = this.core.world.generation;
     this.lastHofGenSaved = 0;
@@ -304,6 +315,14 @@ export class SimServer {
    */
   getWorld(): World {
     return this.core.world;
+  }
+
+  /**
+   * Return the visible seed and lineage id for the active in-memory run.
+   * @returns Current run identity.
+   */
+  getRunIdentity(): SimulationRunIdentity {
+    return { seed: this.worldSeed, runId: this.runId };
   }
 
   /**
@@ -444,8 +463,33 @@ export class SimServer {
     });
     this.wsHub.updateSensorSpec(buildSensorSpec());
 
-    // Reset Core
-    this.core.reset(settings);
+    const identity = this.core.reset(settings, { runId: createRunId() });
+    this.completeCoreRestart(identity);
+  }
+
+  /**
+   * Start a generation-one run with a new entropy-derived seed and lineage id.
+   * This is an in-memory API only until the Phase 6 protocol and Phase 7
+   * required run-start checkpoint make external success acknowledgement safe.
+   * @returns Visible identity of the new in-memory run.
+   */
+  startNewRun(): SimulationRunIdentity {
+    const settings = buildCoreSettingsSnapshot(this.core.world);
+    const identity = this.core.newRun(settings, {
+      seed: createEntropySeed(this.worldSeed),
+      runId: createRunId()
+    });
+    this.completeCoreRestart(identity);
+    return identity;
+  }
+
+  /**
+   * Reattach operational server state after a completed core reconstruction.
+   * @param identity - Identity returned by the rebuilt SimCore.
+   */
+  private completeCoreRestart(identity: SimulationRunIdentity): void {
+    this.worldSeed = identity.seed;
+    this.runId = identity.runId;
     this.faultReason = null;
     this.faultedAtTick = null;
     this.lastTickAt = performance.now();

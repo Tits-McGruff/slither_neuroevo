@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { CFG, resetCFGToDefaults } from '../src/config.ts';
 import { World } from '../src/world.ts';
 import { WorldSerializer } from '../src/serializer.ts';
+import { normalizeSeed } from '../src/rng.ts';
 import { parseConfig, type ServerConfig } from './config.ts';
 import { hashConfig } from './hash.ts';
 import { createHttpHandler } from './httpApi.ts';
@@ -13,6 +14,7 @@ import { SimServer, applySettingsUpdates, coerceCoreSettings } from './simServer
 import { WsHub } from './wsHub.ts';
 import type { Logger } from './logger.ts';
 import { buildSensorSpec } from './sensorSpec.ts';
+import { createEntropySeed, createRunId, createSessionId } from './runIdentity.ts';
 
 /** Minimal server handle returned by `startServer` for lifecycle management. */
 export interface RunningServer {
@@ -43,9 +45,10 @@ async function closeHttpServer(server: Server): Promise<void> {
 export async function startServer(config: ServerConfig, logger?: Logger): Promise<RunningServer> {
   resetCFGToDefaults();
   const worldSeed = Number.isFinite(config.seed)
-    ? (config.seed as number)
-    : Math.floor(Math.random() * 1e9);
-  const sessionId = Math.random().toString(36).slice(2, 10);
+    ? normalizeSeed(config.seed as number)
+    : createEntropySeed();
+  const sessionId = createSessionId();
+  const runId = createRunId();
   const db = initDb(config.dbPath);
   const persistence = createPersistence(db);
   const latestSnapshot = persistence.loadLatestSnapshot();
@@ -58,7 +61,7 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
   // Hash config so clients can detect mismatched settings.
   const cfgHash = hashConfig(CFG);
   const sensorSpec = buildSensorSpec();
-  const sampleWorld = new World(initialSettings);
+  const sampleWorld = new World(initialSettings, { seed: worldSeed });
   const frameByteLength = WorldSerializer.serialize(sampleWorld).byteLength;
   const welcome: WelcomeMsg = {
     type: 'welcome',
@@ -82,7 +85,8 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
         clients: wsHub?.getClientCount() ?? 0,
         inferenceMode: simServer.getInferenceMode(),
         scheduler: simServer.getSchedulerDiagnostics(),
-        fault: simServer.getFaultStatus()
+        fault: simServer.getFaultStatus(),
+        run: simServer.getRunIdentity()
       };
     },
     getWorld: () => simServer?.getWorld() ?? null,
@@ -149,7 +153,15 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
     // succeeded. The ws package forwards HTTP bind errors through its own
     // EventEmitter, which would otherwise create a second uncaught error path.
     wsHub = new WsHub(httpServer, welcome);
-    simServer = new SimServer(config, wsHub, persistence, cfgHash, worldSeed, initialSettings);
+    simServer = new SimServer(
+      config,
+      wsHub,
+      persistence,
+      cfgHash,
+      worldSeed,
+      initialSettings,
+      runId
+    );
     wsHub.setHandlers({
       onJoin: (connId, msg, clientType) =>
         simServer?.handleJoin(connId, msg.mode, clientType, msg.name),

@@ -1,6 +1,7 @@
 /** Low-level neural network primitives and parameter layouts used by brains. */
 
 import { clamp } from '../utils.ts';
+import { unseededRandom, type RandomSource } from '../rng.ts';
 import { isSimdAvailable, requireGruKernel, requireLstmKernel, requireRruKernel } from './nativeBridge.ts';
 
 /**
@@ -84,15 +85,20 @@ export class MLP {
    * Create an MLP instance with optional weights.
    * @param layerSizes - Layer sizes including input and output.
    * @param weights - Optional weight buffer.
+   * @param rng - Random source used only when weights are omitted.
    */
-  constructor(layerSizes: number[], weights: Float32Array | null = null) {
+  constructor(
+    layerSizes: number[],
+    weights: Float32Array | null = null,
+    rng: RandomSource = unseededRandom
+  ) {
     this.layerSizes = layerSizes.slice();
     this.key = this.layerSizes.join("x");
     this.paramCount = mlpParamCount(this.layerSizes);
     this.w = weights ? weights.slice() : new Float32Array(this.paramCount);
     if (!weights) {
       for (let i = 0; i < this.paramCount; i++) {
-        this.w[i] = (Math.random() * 2 - 1) * 0.6;
+        this.w[i] = (rng() * 2 - 1) * 0.6;
       }
     }
     this._bufs = [];
@@ -202,12 +208,14 @@ export class GRU {
    * @param hiddenSize - Hidden state size.
    * @param weights - Optional weight buffer.
    * @param initUpdateBias - Initial update gate bias.
+   * @param rng - Random source used only when weights are omitted.
    */
   constructor(
     inSize: number,
     hiddenSize: number,
     weights: Float32Array | null = null,
-    initUpdateBias = -0.7
+    initUpdateBias = -0.7,
+    rng: RandomSource = unseededRandom
   ) {
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
@@ -219,11 +227,11 @@ export class GRU {
       const Wsz = H * I;
       const Usz = H * H;
       let idx = 0;
-      for (let i = 0; i < 3 * Wsz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.35;
-      for (let i = 0; i < 3 * Usz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.18;
-      for (let j = 0; j < H; j++) this.w[idx++] = initUpdateBias + (Math.random() * 2 - 1) * 0.10;
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10;
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10;
+      for (let i = 0; i < 3 * Wsz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.35;
+      for (let i = 0; i < 3 * Usz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.18;
+      for (let j = 0; j < H; j++) this.w[idx++] = initUpdateBias + (rng() * 2 - 1) * 0.10;
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10;
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10;
     }
     this.h = new Float32Array(hiddenSize);
     this._z = new Float32Array(hiddenSize);
@@ -355,8 +363,15 @@ export class LSTM {
    * @param hiddenSize - Hidden state size.
    * @param weights - Optional weight buffer.
    * @param initForgetBias - Initial forget gate bias.
+   * @param rng - Random source used only when weights are omitted.
    */
-  constructor(inSize: number, hiddenSize: number, weights: Float32Array | null = null, initForgetBias = 0.6) {
+  constructor(
+    inSize: number,
+    hiddenSize: number,
+    weights: Float32Array | null = null,
+    initForgetBias = 0.6,
+    rng: RandomSource = unseededRandom
+  ) {
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
     this.paramCount = lstmParamCount(inSize, hiddenSize);
@@ -367,12 +382,12 @@ export class LSTM {
       const Wsz = H * I;
       const Usz = H * H;
       let idx = 0;
-      for (let i = 0; i < 4 * Wsz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.35;
-      for (let i = 0; i < 4 * Usz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.18;
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // bi
-      for (let j = 0; j < H; j++) this.w[idx++] = initForgetBias + (Math.random() * 2 - 1) * 0.10; // bf
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // bo
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // bg
+      for (let i = 0; i < 4 * Wsz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.35;
+      for (let i = 0; i < 4 * Usz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.18;
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10; // bi
+      for (let j = 0; j < H; j++) this.w[idx++] = initForgetBias + (rng() * 2 - 1) * 0.10; // bf
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10; // bo
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10; // bg
     }
     this.h = new Float32Array(hiddenSize);
     this.c = new Float32Array(hiddenSize);
@@ -504,8 +519,15 @@ export class RRU {
    * @param hiddenSize - Hidden state size.
    * @param weights - Optional weight buffer.
    * @param initGateBias - Initial reset gate bias.
+   * @param rng - Random source used only when weights are omitted.
    */
-  constructor(inSize: number, hiddenSize: number, weights: Float32Array | null = null, initGateBias = 0.1) {
+  constructor(
+    inSize: number,
+    hiddenSize: number,
+    weights: Float32Array | null = null,
+    initGateBias = 0.1,
+    rng: RandomSource = unseededRandom
+  ) {
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
     this.paramCount = rruParamCount(inSize, hiddenSize);
@@ -516,10 +538,10 @@ export class RRU {
       const Wsz = H * I;
       const Usz = H * H;
       let idx = 0;
-      for (let i = 0; i < 2 * Wsz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.35;
-      for (let i = 0; i < 2 * Usz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.18;
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // bc
-      for (let j = 0; j < H; j++) this.w[idx++] = initGateBias + (Math.random() * 2 - 1) * 0.10; // br
+      for (let i = 0; i < 2 * Wsz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.35;
+      for (let i = 0; i < 2 * Usz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.18;
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10; // bc
+      for (let j = 0; j < H; j++) this.w[idx++] = initGateBias + (rng() * 2 - 1) * 0.10; // br
     }
     this.h = new Float32Array(hiddenSize);
     this._hPrev = new Float32Array(hiddenSize);
@@ -620,14 +642,20 @@ export class DenseHead {
    * @param inSize - Input size.
    * @param outSize - Output size.
    * @param weights - Optional weight buffer.
+   * @param rng - Random source used only when weights are omitted.
    */
-  constructor(inSize: number, outSize: number, weights: Float32Array | null = null) {
+  constructor(
+    inSize: number,
+    outSize: number,
+    weights: Float32Array | null = null,
+    rng: RandomSource = unseededRandom
+  ) {
     this.inSize = inSize;
     this.outSize = outSize;
     this.paramCount = headParamCount(inSize, outSize);
     this.w = weights ? weights.slice() : new Float32Array(this.paramCount);
     if (!weights) {
-      for (let i = 0; i < this.w.length; i++) this.w[i] = clamp((Math.random() * 2 - 1) * 0.45, -5, 5);
+      for (let i = 0; i < this.w.length; i++) this.w[i] = clamp((rng() * 2 - 1) * 0.45, -5, 5);
     }
     this._out = new Float32Array(outSize);
   }
