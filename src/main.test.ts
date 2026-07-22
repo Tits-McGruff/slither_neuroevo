@@ -1,33 +1,59 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-/** Minimal worker stub for tracking messages in main thread tests. */
-type WorkerStub = {
-  messages: unknown[];
-  onmessage: ((event: MessageEvent) => void) | null;
-  postMessage: (msg: unknown) => void;
-};
-
-/** Global object shape override used in DOM-free tests. */
-type TestGlobal = typeof globalThis & {
-  document?: Document;
-  window?: Window & typeof globalThis;
-  Worker?: typeof Worker;
-  WebSocket?: unknown;
-  localStorage?: Storage;
-  requestAnimationFrame?: (callback: FrameRequestCallback) => number;
-  __workerInstance?: WorkerStub;
-  currentWorld?: { fitnessHistory: unknown[] };
-};
-
-/** Mutable global alias with test-specific fields. */
-const globalAny = globalThis as TestGlobal;
+/** Generic element surface sufficient for the application startup boundary. */
+interface SmokeElement {
+  /** Element identifier. */
+  id: string;
+  /** Form value. */
+  value: string;
+  /** Checkbox state. */
+  checked: boolean;
+  /** Text content. */
+  textContent: string;
+  /** HTML content. */
+  innerHTML: string;
+  /** Mutable inline style. */
+  style: Record<string, string>;
+  /** Mutable data attributes. */
+  dataset: Record<string, string>;
+  /** Class-list shim. */
+  classList: DOMTokenList;
+  /** Canvas width. */
+  width: number;
+  /** Canvas height. */
+  height: number;
+  /** Register an event listener. */
+  addEventListener: () => void;
+  /** Append a child node. */
+  appendChild: () => void;
+  /** Set one attribute. */
+  setAttribute: (name: string, value: string) => void;
+  /** Read one attribute. */
+  getAttribute: (name: string) => string | null;
+  /** Query descendants. */
+  querySelectorAll: () => SmokeElement[];
+  /** Resolve a matching ancestor. */
+  closest: () => Element | null;
+  /** Return a canvas context. */
+  getContext: () => CanvasRenderingContext2D;
+  /** Trigger a click. */
+  click: () => void;
+}
 
 /**
- * Builds a minimal 2D canvas context stub.
- * @returns Canvas 2D context shim.
+ * Build a small inert DOM element used only while importing the app entry point.
+ * @param id - Element identifier.
+ * @returns Generic element stub.
  */
-function makeCtx(): CanvasRenderingContext2D {
-  return {
+function makeElement(id: string): SmokeElement {
+  const attributes = new Map<string, string>();
+  const classList = {
+    add() { },
+    remove() { },
+    toggle() { return false; },
+    contains() { return false; }
+  } as unknown as DOMTokenList;
+  const context = {
     setTransform() { },
     clearRect() { },
     beginPath() { },
@@ -38,74 +64,6 @@ function makeCtx(): CanvasRenderingContext2D {
     stroke() { },
     fillText() { }
   } as unknown as CanvasRenderingContext2D;
-}
-
-/** Minimal element stub used for DOM wiring tests. */
-type TestElement = {
-  id: string;
-  value: string;
-  checked?: boolean;
-  textContent: string;
-  innerHTML: string;
-  style: Record<string, string>;
-  dataset: Record<string, string>;
-  classList: DOMTokenList;
-  addEventListener: () => void;
-  appendChild: () => void;
-  setAttribute: (name: string, value: string) => void;
-  getAttribute: (name: string) => string | null;
-  querySelectorAll: () => TestElement[];
-  closest: () => Element | null;
-  getContext: () => CanvasRenderingContext2D;
-  click: () => void;
-};
-
-/**
- * Builds a DOMTokenList stub for classList usage.
- * @returns DOMTokenList shim.
- */
-function makeClassList(): DOMTokenList {
-  return {
-    length: 0,
-    value: '',
-    add() { },
-    remove() { },
-    toggle() {
-      return false;
-    },
-    contains() {
-      return false;
-    },
-    item() {
-      return null;
-    },
-    replace() {
-      return false;
-    },
-    supports() {
-      return false;
-    },
-    forEach() { },
-    entries() {
-      return [][Symbol.iterator]();
-    },
-    keys() {
-      return [][Symbol.iterator]();
-    },
-    values() {
-      return [][Symbol.iterator]();
-    }
-  } as unknown as DOMTokenList;
-}
-
-/**
- * Creates a test element with optional property overrides.
- * @param id - Element id to assign.
- * @param overrides - Optional field overrides.
- * @returns Test element stub.
- */
-function makeElement(id: string, overrides: Record<string, unknown> = {}): TestElement {
-  const attributes = new Map<string, string>();
   return {
     id,
     value: '',
@@ -114,212 +72,91 @@ function makeElement(id: string, overrides: Record<string, unknown> = {}): TestE
     innerHTML: '',
     style: {},
     dataset: {},
-    classList: makeClassList(),
+    classList,
+    width: 800,
+    height: 600,
     addEventListener() { },
     appendChild() { },
-    setAttribute(name: string, value: string) {
-      attributes.set(name, String(value));
-    },
-    getAttribute(name: string) {
-      return attributes.get(name) ?? null;
-    },
+    setAttribute(name, value) { attributes.set(name, value); },
+    getAttribute(name) { return attributes.get(name) ?? null; },
     querySelectorAll: () => [],
     closest: () => null,
-    getContext: () => makeCtx(),
-    click() { },
-    ...overrides
-  } as TestElement;
+    getContext: () => context,
+    click() { }
+  };
 }
 
-describe('main.ts', () => {
-  let originalDocument: unknown;
-  let originalWindow: unknown;
-  let originalWorker: unknown;
-  let originalRaf: unknown;
-  let originalLocalStorage: unknown;
-  let elements: Map<string, TestElement>;
+/** Build isolated local storage for one startup import. */
+function makeStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() { return values.size; },
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key),
+    clear: () => values.clear(),
+    key: index => Array.from(values.keys())[index] ?? null
+  };
+}
+
+describe('main.ts startup smoke', () => {
+  /** URL passed to the WebSocket constructor during startup. */
+  let connectedUrl = '';
 
   beforeEach(() => {
     vi.resetModules();
-    elements = new Map();
-    const ids = [
-      'c',
-      'snakes',
-      'simSpeed',
-      'layers',
-      'n1',
-      'n2',
-      'n3',
-      'n4',
-      'n5',
-      'graphNodes',
-      'graphEdges',
-      'graphOutputs',
-      'graphOutputNode',
-      'graphOutputSplit',
-      'graphOutputHint',
-      'graphNodeAdd',
-      'graphEdgeAdd',
-      'graphOutputAdd',
-      'graphApply',
-      'graphReset',
-      'graphPresetList',
-      'graphPresetName',
-      'graphPresetSave',
-      'graphSpecInput',
-      'graphSpecApply',
-      'graphSpecCopy',
-      'graphSpecExport',
-      'graphSpecStatus',
-      'graphModeHint',
-      'graphSizeHint',
-      'snakesVal',
-      'simSpeedVal',
-      'layersVal',
-      'n1Val',
-      'n2Val',
-      'n3Val',
-      'n4Val',
-      'n5Val',
-      'apply',
-      'defaults',
-      'toggle',
-      'settingsContainer',
-      'connectionStatus',
-      'vizCanvas',
-      'statsCanvas',
-      'btnExport',
-      'btnImport',
-      'fileInput',
-      'statsTitle',
-      'statsSubtitle',
-      'statsInfo',
-      'hofTable',
-      'vizInfo',
-      'godModeLog',
-      'joinOverlay',
-      'joinName',
-      'joinPlay',
-      'joinSpectate',
-      'joinStatus',
-      'toggleSettingsLock',
-      'settingsControls',
-      'settingsLockHint',
-      'tab-settings',
-      'tab-viz',
-      'tab-stats'
-    ];
-
-    ids.forEach((id) => {
-      elements.set(id, makeElement(id));
-    });
-
-    const tabBtns = [
-      makeElement('tabBtnSettings', { dataset: { tab: 'tab-settings' } }),
-      makeElement('tabBtnViz', { dataset: { tab: 'tab-viz' } }),
-      makeElement('tabBtnStats', { dataset: { tab: 'tab-stats' } })
-    ];
-    const tabContents = [
-      elements.get('tab-settings'),
-      elements.get('tab-viz'),
-      elements.get('tab-stats')
-    ];
-
-    originalDocument = globalAny.document;
-    const mockDocument: Partial<Document> = {
-      getElementById: (id: string) =>
-        (elements.get(id) || makeElement(id)) as unknown as HTMLElement,
-      querySelectorAll: (selector: string) => {
-        if (selector === '.tab-btn') return tabBtns as unknown as NodeListOf<HTMLElement>;
-        if (selector === '.tab-content') return tabContents as unknown as NodeListOf<HTMLElement>;
-        return [] as unknown as NodeListOf<HTMLElement>;
-      },
-      querySelector: () => tabBtns[1] ?? null,
-      createElement: () => makeElement('created') as unknown as HTMLElement,
-      createElementNS: ((namespaceURI: string, qualifiedName: string) => {
-        void namespaceURI;
-        void qualifiedName;
-        return makeElement('created-ns') as unknown as Element;
-      }) as Document['createElementNS']
+    connectedUrl = '';
+    const elements = new Map<string, SmokeElement>();
+    const getElement = (id: string): SmokeElement => {
+      const existing = elements.get(id);
+      if (existing) return existing;
+      const created = makeElement(id);
+      elements.set(id, created);
+      return created;
     };
-    globalAny.document = mockDocument as Document;
+    const documentStub = {
+      body: getElement('body'),
+      getElementById: (id: string) => getElement(id),
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      createElement: () => makeElement('created'),
+      createElementNS: () => makeElement('created-ns')
+    } as unknown as Document;
+    const windowStub = {
+      devicePixelRatio: 1,
+      innerWidth: 800,
+      innerHeight: 600,
+      location: { search: '', hostname: 'localhost', protocol: 'http:' },
+      addEventListener() { }
+    } as unknown as Window & typeof globalThis;
 
-    originalWindow = globalAny.window;
-    globalAny.window = globalAny as unknown as Window & typeof globalThis;
-    globalAny.window.devicePixelRatio = 1;
-    globalAny.window.addEventListener = () => { };
-
-    originalLocalStorage = globalAny.localStorage;
-    const storage = new Map<string, string>();
-    globalAny.localStorage = {
-      length: 0,
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        storage.set(key, value);
-      },
-      removeItem: (key: string) => {
-        storage.delete(key);
-      },
-      clear: () => {
-        storage.clear();
-      },
-      key: () => null
-    } as Storage;
-
-    originalRaf = globalAny.requestAnimationFrame;
-    globalAny.requestAnimationFrame = () => 0;
-
-    originalWorker = globalAny.Worker;
-    /** Worker stub that captures posted messages for assertions. */
-    class StubWorker implements WorkerStub {
-      /** Recorded messages posted by the main thread. */
-      messages: unknown[];
-      /** Message handler assigned by the main module. */
-      onmessage: ((event: MessageEvent) => void) | null;
-
-      /** Create a stub worker and register it on the test global. */
-      constructor() {
-        this.messages = [];
-        this.onmessage = null;
-        globalAny.__workerInstance = this;
-      }
-      /**
-       * Record a posted message.
-       * @param msg - Message payload to store.
-       */
-      postMessage(msg: unknown) {
-        this.messages.push(msg);
-      }
-    }
-    globalAny.Worker = StubWorker as unknown as typeof Worker;
-
-    globalAny.WebSocket = undefined as unknown as typeof WebSocket;
-  });
-
-  afterEach(() => {
-    globalAny.document = originalDocument as Document;
-    globalAny.window = originalWindow as Window & typeof globalThis;
-    globalAny.Worker = originalWorker as typeof Worker;
-    globalAny.localStorage = originalLocalStorage as Storage;
-    delete globalAny.WebSocket;
-    globalAny.requestAnimationFrame = originalRaf as (callback: FrameRequestCallback) => number;
-    delete globalAny.__workerInstance;
-  });
-
-  it('attempts to connect to the server on startup', async () => {
-    let connectedUrl = '';
     class StubWebSocket {
+      /** Construct a socket and capture its resolved URL. */
       constructor(url: string) {
         connectedUrl = url;
       }
-      addEventListener() { }
-      close() { }
-      send() { }
-    }
-    globalAny.WebSocket = StubWebSocket as unknown as typeof WebSocket;
 
+      /** Close the inert socket. */
+      close(): void { }
+
+      /** Ignore sends in this startup-only smoke. */
+      send(): void { }
+    }
+
+    vi.stubGlobal('document', documentStub);
+    vi.stubGlobal('window', windowStub);
+    vi.stubGlobal('localStorage', makeStorage());
+    vi.stubGlobal('requestAnimationFrame', () => 0);
+    vi.stubGlobal('WebSocket', StubWebSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('attempts the resolved server connection when the entry module loads', async () => {
     await import('./main.ts');
 
-    expect(connectedUrl).toBeTruthy();
+    expect(connectedUrl).toBe('ws://localhost:5174');
   });
 });

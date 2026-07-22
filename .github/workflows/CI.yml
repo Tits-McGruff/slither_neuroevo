@@ -45,10 +45,31 @@ jobs:
         run: node -e "const addon = require('./native/index.js'); if (!addon.nativeAddonBuildIdentifier?.()) throw new Error('native build identifier missing')"
       - name: Test native crate
         run: cargo test --manifest-path native/Cargo.toml --release
-      - run: npm run build:client
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm run test:js
+      - name: Required native and MT contracts
+        run: npm run test:native-required -- --reporter=dot
+      - name: Unit tests
+        run: npm run test:unit -- --reporter=dot
+      - name: Component tests
+        run: npm run test:component -- --reporter=dot
+      - name: Integration tests
+        run: npm run test:integration -- --reporter=dot
+      - name: System tests
+        run: npm run test:system -- --reporter=dot
+      - name: Acceptance tests
+        run: npm run test:acceptance -- --reporter=dot
+      - name: Regression tests
+        run: npm run test:regression -- --reporter=dot
+      - name: Security tests
+        run: npm run test:security -- --reporter=dot
+      - name: Performance measurements (informational)
+        continue-on-error: true
+        run: npm run test:performance -- --reporter=dot
+      - name: Build browser client
+        run: npm run build:client
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
 
   rust_lint:
     name: Rust fmt and clippy (native crate)

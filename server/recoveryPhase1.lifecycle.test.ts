@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG } from './config.ts';
 import { startServer } from './index.ts';
 import { SimServer } from './simServer.ts';
+import { networkTest } from './test/networkSuites.ts';
 
 /** Phase 1 server lifecycle and authoritative-failure suite label. */
 const SUITE = 'recovery Phase 1 — server lifecycle';
@@ -54,7 +55,7 @@ async function closeServer(server: Server): Promise<void> {
 }
 
 describe(SUITE, () => {
-  it('fails the required lifecycle when its configured address is already bound', async () => {
+  networkTest('fails the required lifecycle when its configured address is already bound', async () => {
     const occupied = createServer();
     const port = await listenOnLoopback(occupied);
     try {
@@ -70,7 +71,7 @@ describe(SUITE, () => {
     }
   });
 
-  it('observes MT initialization failure through awaited server startup', async () => {
+  networkTest('observes MT initialization failure through awaited server startup', async () => {
     const initSpy = vi.spyOn(SimServer.prototype, 'initMT')
       .mockRejectedValue(new Error('phase1 MT initialization failure'));
     try {

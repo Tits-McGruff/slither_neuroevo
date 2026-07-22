@@ -182,19 +182,30 @@ describe(SUITE, () => {
       const { server, access } = await createMtServer(workerCount, 'native');
       const pool = access.brainPool;
       if (!pool) throw new Error('expected a canonical pool');
+      expect(pool.workerCount).toBe(workerCount);
       expect(Array.from(pool.weightsView ?? [])).toEqual(
         server.getWorld().population.flatMap((genome) => Array.from(genome.weights))
       );
-      expect(server.getInferenceMode()).toMatchObject({
+      const inferenceMode = server.getInferenceMode();
+      expect(inferenceMode).toMatchObject({
         requestedBackend: 'native',
         activeBackend: 'native',
         requestedMt: true,
         activeWorkerCount: pool.workerCount,
         poolEpoch: pool.poolEpoch,
-        weightEpoch: 1
+        weightEpoch: 1,
+        graphKey: server.getWorld().archKey,
+        seed: server.getRunIdentity().seed,
+        nativeAddonStatus: 'ready'
       });
+      expect(inferenceMode.nativeAddonBuildIdentifier).toMatch(
+        /^slither_native\/0\.1\.0\+[0-9a-f]{12}\.[0-9a-f]{16}$/u
+      );
       expect(pool.getWorkerStatuses().every((status) => status.activeBackend === 'native'))
         .toBe(true);
+      expect(pool.getWorkerStatuses().every((status) =>
+        status.nativeAddonBuildIdentifier === inferenceMode.nativeAddonBuildIdentifier
+      )).toBe(true);
 
       await driveFixedSteps(access, 6);
       expect(server.mtActive).toBe(false);

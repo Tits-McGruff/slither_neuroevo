@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { it, expect } from 'vitest';
 import WebSocket, { type RawData } from 'ws';
 import { startServer } from './index.ts';
 import { DEFAULT_CONFIG } from './config.ts';
+import { describeNetworkSuite } from './test/networkSuites.ts';
 
-describe('system: server lifecycle', () => {
+describeNetworkSuite('system: server lifecycle', () => {
   it('boots, streams, and shuts down cleanly', async () => {
     const server = await startServer({
       ...DEFAULT_CONFIG,

@@ -1,9 +1,30 @@
-import { describe, it, expect } from 'vitest';
+import { it, expect } from 'vitest';
 import WebSocket, { type RawData } from 'ws';
 import { startServer } from './index.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 import { getSensorLayout } from '../src/protocol/sensors.ts';
 import type { PopulationSnapshotPayload } from './persistence.ts';
+import { describeNetworkSuite } from './test/networkSuites.ts';
+
+/** One alive snake decoded from the authoritative binary frame. */
+interface SerializedSnake {
+  /** Stable snake identifier. */
+  id: number;
+  /** Serialized head X coordinate. */
+  x: number;
+  /** Serialized head Y coordinate. */
+  y: number;
+}
+
+/** Minimal binary-frame state required by network integration assertions. */
+interface SerializedFrame {
+  /** Authoritative world radius. */
+  worldRadius: number;
+  /** Authoritative camera zoom. */
+  zoom: number;
+  /** Alive snakes decoded from the compact frame. */
+  snakes: SerializedSnake[];
+}
 
 /**
  * Parses WS text payloads into JSON objects when possible.
@@ -28,51 +49,61 @@ function parseJsonMessage(data: RawData): Record<string, unknown> | null {
   }
 }
 
-/**
- * Starts the server and returns null when permissions prevent binding.
- * @returns Server handle or null when the port is unavailable.
- */
-async function startServerWithGuard() {
-  const isEperm = (err: unknown): boolean =>
-    (err as { code?: string } | null)?.code === 'EPERM';
-  const startPromise = startServer({
+/** Start one isolated JS server for network integration. */
+async function startIntegrationServer() {
+  return startServer({
     ...DEFAULT_CONFIG,
     port: 0,
     dbPath: ':memory:',
+    resume: 'fresh',
     inferenceBackend: 'js',
     logLevel: 'error'
-  }).catch((err) => {
-    if (isEperm(err)) return null;
-    throw err;
   });
-
-  let cleanup = () => { };
-  const guard = new Promise<null>((resolve) => {
-    const handler = (err: unknown) => {
-      if (isEperm(err)) {
-        resolve(null);
-        return;
-      }
-      throw err;
-    };
-    process.once('uncaughtException', handler);
-    cleanup = () => process.off('uncaughtException', handler);
-  });
-
-  let server: Awaited<ReturnType<typeof startServer>> | null = null;
-  try {
-    server = await Promise.race([startPromise, guard]);
-  } finally {
-    cleanup();
-  }
-
-  return server;
 }
 
-describe('server integration', () => {
+/**
+ * Decode the binary frame fields exercised by live settings and God Mode.
+ * @param data - Raw binary WebSocket payload.
+ * @returns Parsed frame, or null when the compact layout is malformed.
+ */
+function parseSerializedFrame(data: RawData): SerializedFrame | null {
+  const bytes = Array.isArray(data)
+    ? Buffer.concat(data)
+    : data instanceof ArrayBuffer
+      ? Buffer.from(data)
+      : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  if (bytes.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) return null;
+  const copy = Uint8Array.from(bytes);
+  const frame = new Float32Array(copy.buffer);
+  if (frame.length < 7) return null;
+
+  const aliveCount = frame[2] ?? -1;
+  if (!Number.isInteger(aliveCount) || aliveCount < 0) return null;
+  const snakes: SerializedSnake[] = [];
+  let pointer = 7;
+  for (let index = 0; index < aliveCount; index++) {
+    if (pointer + 8 > frame.length) return null;
+    const pointCount = frame[pointer + 7] ?? -1;
+    if (!Number.isInteger(pointCount) || pointCount < 0) return null;
+    const nextPointer = pointer + 8 + pointCount * 2;
+    if (nextPointer > frame.length) return null;
+    snakes.push({
+      id: frame[pointer] ?? -1,
+      x: frame[pointer + 3] ?? 0,
+      y: frame[pointer + 4] ?? 0
+    });
+    pointer = nextPointer;
+  }
+  return {
+    worldRadius: frame[3] ?? 0,
+    zoom: frame[6] ?? 0,
+    snakes
+  };
+}
+
+describeNetworkSuite('server integration', () => {
   it('rejects Protocol 1 with an explicit incompatibility error', async () => {
-    const server = await startServerWithGuard();
-    if (!server) return;
+    const server = await startIntegrationServer();
     const ws = new WebSocket(server.wsUrl);
 
     try {
@@ -104,8 +135,7 @@ describe('server integration', () => {
   }, 10000);
 
   it('handshakes and streams frames', async () => {
-    const server = await startServerWithGuard();
-    if (!server) return;
+    const server = await startIntegrationServer();
 
     const ws = new WebSocket(server.wsUrl);
     ws.binaryType = 'arraybuffer';
@@ -182,8 +212,7 @@ describe('server integration', () => {
   }, 20000);
 
   it('assigns a player and streams sensors', async () => {
-    const server = await startServerWithGuard();
-    if (!server) return;
+    const server = await startIntegrationServer();
 
     const ws = new WebSocket(server.wsUrl);
     ws.binaryType = 'arraybuffer';
@@ -256,8 +285,7 @@ describe('server integration', () => {
   }, 20000);
 
   it('reports live config identity through dynamic HTTP getters and save payloads', async () => {
-    const server = await startServerWithGuard();
-    if (!server) return;
+    const server = await startIntegrationServer();
     const httpBase = `http://127.0.0.1:${server.port}`;
     let ws: WebSocket | null = null;
 
@@ -265,15 +293,29 @@ describe('server integration', () => {
       const initialHealth = await fetch(`${httpBase}/health`).then(async response =>
         response.json() as Promise<{ configRevision: number; configHash: string }>);
       ws = new WebSocket(server.wsUrl);
+      ws.binaryType = 'arraybuffer';
       const socket = ws;
       const applied = await new Promise<Record<string, unknown>>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('timed out waiting for settings result')), 5000);
+        let didRequestSettings = false;
+        const timeout = setTimeout(() => reject(new Error('timed out waiting for settings result')), 15000);
         socket.on('error', reject);
         socket.on('close', (code: number, reason: Buffer) => {
           clearTimeout(timeout);
           reject(new Error(`settings socket closed (${code}): ${reason.toString('utf8')}`));
         });
-        socket.on('message', (data: RawData) => {
+        socket.on('message', (data: RawData, isBinary: boolean) => {
+          if (isBinary) {
+            const frame = parseSerializedFrame(data);
+            if (frame?.snakes.length === 2 && !didRequestSettings) {
+              didRequestSettings = true;
+              socket.send(JSON.stringify({
+                type: 'settings',
+                requestId: 'http-state',
+                updates: [{ path: 'observer.zoomLerpFollow', value: 0.2 }]
+              }));
+            }
+            return;
+          }
           const msg = parseJsonMessage(data);
           if (msg?.['type'] === 'welcome') {
             socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
@@ -294,13 +336,6 @@ describe('server integration', () => {
                 { path: 'pelletCountTarget', value: 100 }
               ]
             }));
-            setTimeout(() => {
-              socket.send(JSON.stringify({
-                type: 'settings',
-                requestId: 'http-state',
-                updates: [{ path: 'observer.zoomLerpFollow', value: 0.2 }]
-              }));
-            }, 100);
             return;
           }
           if (msg?.['type'] === 'error') {
@@ -355,5 +390,168 @@ describe('server integration', () => {
       ws?.close();
       await server.close();
     }
-  }, 10000);
+  }, 20000);
+
+  it('applies live settings and God Mode through WebSocket into serialized frames', async () => {
+    const server = await startIntegrationServer();
+    const ws = new WebSocket(server.wsUrl);
+    ws.binaryType = 'arraybuffer';
+    let initialZoom = 0;
+    let updatedZoom = 0;
+    let targetSnakeId = -1;
+    let targetX = 0;
+    let targetY = 0;
+    let movedDistance = Number.POSITIVE_INFINITY;
+    let sawKilledFrame = false;
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        let phase = 'welcome';
+        let settled = false;
+        const timeout = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          reject(new Error(`timed out during WebSocket control phase: ${phase}`));
+        }, 15000);
+        const fail = (error: unknown): void => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        };
+
+        ws.on('error', fail);
+        ws.on('close', (code: number, reason: Buffer) => {
+          fail(new Error(`control socket closed (${code}): ${reason.toString('utf8')}`));
+        });
+        ws.on('message', (data: RawData, isBinary: boolean) => {
+          if (settled) return;
+          if (!isBinary) {
+            const message = parseJsonMessage(data);
+            if (message?.['type'] === 'error') {
+              fail(new Error(String(message['message'])));
+              return;
+            }
+            if (message?.['type'] === 'welcome' && phase === 'welcome') {
+              phase = 'reset-frame';
+              ws.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+              ws.send(JSON.stringify({
+                type: 'reset',
+                settings: {
+                  snakeCount: 2,
+                  simSpeed: 1,
+                  hiddenLayers: 1,
+                  neurons1: 8,
+                  neurons2: 8,
+                  neurons3: 8,
+                  neurons4: 8,
+                  neurons5: 8
+                },
+                updates: [
+                  { path: 'baselineBots.count', value: 0 },
+                  { path: 'pelletCountTarget', value: 100 }
+                ]
+              }));
+              return;
+            }
+            if (message?.['type'] === 'settingsApplied' && phase === 'settings-result') {
+              if (message['applied'] !== true) {
+                fail(new Error(`live settings rejected: ${String(message['reason'])}`));
+                return;
+              }
+              phase = 'settings-frame';
+              return;
+            }
+            if (message?.['type'] === 'godModeResult' && phase === 'move-result') {
+              if (message['requestId'] !== 'integration-move' || message['applied'] !== true) {
+                fail(new Error(`God Mode move rejected: ${String(message['reason'])}`));
+                return;
+              }
+              phase = 'move-frame';
+              return;
+            }
+            if (message?.['type'] === 'godModeResult' && phase === 'kill-result') {
+              if (message['requestId'] !== 'integration-kill' || message['applied'] !== true) {
+                fail(new Error(`God Mode kill rejected: ${String(message['reason'])}`));
+                return;
+              }
+              phase = 'kill-frame';
+            }
+            return;
+          }
+
+          const frame = parseSerializedFrame(data);
+          if (!frame) {
+            fail(new Error('received a malformed authoritative frame'));
+            return;
+          }
+          if (phase === 'reset-frame' && frame.snakes.length === 2) {
+            initialZoom = frame.zoom;
+            phase = 'settings-result';
+            ws.send(JSON.stringify({
+              type: 'settings',
+              requestId: 'integration-settings',
+              updates: [
+                { path: 'observer.overviewPadding', value: 1.8 },
+                { path: 'observer.zoomLerpOverview', value: 1 }
+              ]
+            }));
+            return;
+          }
+          if (phase === 'settings-frame' && frame.zoom < initialZoom - 0.01) {
+            const snake = frame.snakes[0];
+            if (!snake) {
+              fail(new Error('no snake remained for God Mode integration'));
+              return;
+            }
+            updatedZoom = frame.zoom;
+            targetSnakeId = snake.id;
+            const targetOffset = Math.min(500, frame.worldRadius * 0.25);
+            targetX = snake.x >= 0 ? -targetOffset : targetOffset;
+            targetY = snake.y >= 0 ? -targetOffset : targetOffset;
+            phase = 'move-result';
+            ws.send(JSON.stringify({
+              type: 'godMode',
+              requestId: 'integration-move',
+              action: 'move',
+              snakeId: targetSnakeId,
+              x: targetX,
+              y: targetY
+            }));
+            return;
+          }
+          if (phase === 'move-frame') {
+            const moved = frame.snakes.find(snake => snake.id === targetSnakeId);
+            if (!moved) return;
+            movedDistance = Math.hypot(moved.x - targetX, moved.y - targetY);
+            if (movedDistance > 25) return;
+            phase = 'kill-result';
+            ws.send(JSON.stringify({
+              type: 'godMode',
+              requestId: 'integration-kill',
+              action: 'kill',
+              snakeId: targetSnakeId
+            }));
+            return;
+          }
+          if (phase === 'kill-frame' && !frame.snakes.some(snake => snake.id === targetSnakeId)) {
+            sawKilledFrame = true;
+            settled = true;
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+        ws.on('open', () => {
+          ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 2 }));
+        });
+      });
+    } finally {
+      ws.close();
+      await server.close();
+    }
+
+    expect(updatedZoom).toBeLessThan(initialZoom);
+    expect(movedDistance).toBeLessThanOrEqual(25);
+    expect(sawKilledFrame).toBe(true);
+  }, 20000);
 });

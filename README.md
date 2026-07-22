@@ -36,6 +36,13 @@ cd native
 npm run build
 ```
 
+For a JavaScript-only QA pass after the addon is built, use
+`npm run test:js`. The same explicit suite manifest is available through
+`npm run test:unit`, `test:component`, `test:integration`, `test:system`,
+`test:acceptance`, `test:regression`, `test:security`, and
+`test:performance`; `npm run test:native-required` is the focused native and
+multi-thread contract gate.
+
 Open the local URL printed by Vite (usually `http://localhost:5173`).
 
 Note: This project uses ES modules, so opening `index.html` directly in a file browser will not work.

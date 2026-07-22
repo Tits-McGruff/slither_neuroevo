@@ -3,12 +3,12 @@
 ## Document control
 
 - Status: authoritative, owner-approved implementation plan; Phases 0 through
-  7 are complete, and Phase 8 has not started.
+  8 are complete, and Phase 9 has not started.
 - Created: 2026-07-21.
 - Branch: `exclusive-server-mode-refactor`.
 - Audit baseline commit: `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
-- Current implementation HEAD: `24b587a0cc541dcee7068d22d86e3a4946777c34`.
-- Last fully verified HEAD: `24b587a0cc541dcee7068d22d86e3a4946777c34`.
+- Current implementation HEAD: `308c6f0dd91eca8091bc75dcf08ca87904da2d50`.
+- Last fully verified HEAD: `308c6f0dd91eca8091bc75dcf08ca87904da2d50`.
 - Baseline worktree: clean before the two planning-document changes.
 - Current expected worktree changes are recorded under "Live execution status".
 - Scope owner: the repository owner.
@@ -104,6 +104,17 @@ progresses.
   measurement harness. All 290 JavaScript tests, strict TypeScript,
   repository-wide ESLint, the production build, and diff hygiene pass. Phase 8
   was not started.
+- 2026-07-22: Committed and pushed the fully verified Phase 7 work as
+  `308c6f0`, synchronized the local branch with its upstream, and began Phase 8
+  from that committed baseline. The content-identical `AGENTS.md` status
+  artifact remains intentionally untouched.
+- 2026-07-22: Completed Phase 8 with explicit non-overlapping test layers,
+  required-native and visible network opt-out contracts, real WebSocket control
+  integration, runtime/worker identity assertions, a small startup smoke test,
+  measured performance diagnostics, and an Ubuntu/Windows native+MT CI matrix.
+  All 60 JavaScript test files/298 tests, the 7-file/45-test required-native
+  overlay, Rust tests/fmt/clippy, strict TypeScript, repository-wide ESLint, and
+  the production build pass. Phase 9 was not started.
 
 ## How to resume this work
 
@@ -425,9 +436,10 @@ deleted files are evidence and reference material, not specifications to copy.
 | TEST-001 | Native tests silently pass without native | `src/brains/nativeBridge.test.ts` | 3 and 8 |
 | TEST-002 | Network suites silently return on bind permission errors | server acceptance/integration/system/security suites | 1, 6, and 8 |
 | TEST-003 | The main UI test asserts little beyond WebSocket construction | `src/main.test.ts` | 8 |
-| TEST-004 | Test category scripts cover filenames, not coherent contracts | `scripts/run-tests.ts` | 8 |
+| TEST-004 | Test category scripts cover sparse filename suffixes rather than coherent contracts, and the Windows `.cmd` child process fails with `EINVAL` | `scripts/run-tests.ts` | 8 |
 | TEST-005 | Acceptance and security tests inherit the production SQLite path, allowing one test run's checkpoint to contaminate later restart behavior and local user state | `server/acceptance.test.ts` and `server/security.test.ts` | 7 and 8 |
 | TEST-006 | Phase 4 SimServer fixtures invoke New Run without persistence, so the full suite fails once durable-before-switch is enforced | `server/recoveryPhase4.simServer.test.ts` | 7 |
+| TEST-007 | HTTP/config integration sends a live setting after an arbitrary 100 ms reset delay, racing asynchronous reset under full-suite load | `server/integration.test.ts` | 8 |
 | DOC-001 | README, AGENTS, and API docs describe behavior absent from code | current documentation | 9 |
 | DOC-002 | `AGENTS.md` describes `server/config.toml` as an existing defaults file, but the baseline checkout has no such file and `parseConfig` creates it as a startup side effect | `AGENTS.md`, `server/config.ts`, and the baseline tree | 9 |
 | DOC-003 | `AGENTS.md` requires `markdown-rules/rules.md`, but that policy file and directory are absent from the checkout | `AGENTS.md` and the baseline tree | 9 |
@@ -1551,33 +1563,33 @@ bind-failure, or other failure semantics needed by earlier phase gates.
 
 ### Detailed checklist
 
-- [ ] Verify the Phase 3 removal of every `if (!hasNative) return` pass and keep
+- [x] Verify the Phase 3 removal of every `if (!hasNative) return` pass and keep
   required-native tests separate from explicit-JS tests.
-- [ ] Verify required network suites hardened in Phases 1 and 6 fail normally
+- [x] Verify required network suites hardened in Phases 1 and 6 fail normally
   on bind errors.
-- [ ] Allow network-suite skipping only through an explicit environment
+- [x] Allow network-suite skipping only through an explicit environment
   opt-out whose use is visible in output.
-- [ ] Replace the old parity test with contract-specific kernel, worker-count,
+- [x] Replace the old parity test with contract-specific kernel, worker-count,
   recurrent-state, and deterministic replay tests.
-- [ ] Replace the monolithic fake-DOM main test with extracted module tests and
+- [x] Replace the monolithic fake-DOM main test with extracted module tests and
   a small startup smoke test.
-- [ ] Rework category scripts so names correspond to real suites rather than
+- [x] Rework category scripts so names correspond to real suites rather than
   sparse filename suffixes.
-- [ ] Ensure MT integration explicitly sets MT on; current defaults must not
+- [x] Ensure MT integration explicitly sets MT on; current defaults must not
   accidentally make the test serial.
-- [ ] Assert selected backend, worker count, and weight epoch in integration
+- [x] Assert selected backend, worker count, and weight epoch in integration
   tests.
-- [ ] Assert requested versus active backend/MT state, pool epoch, graph, seed,
+- [x] Assert requested versus active backend/MT state, pool epoch, graph, seed,
   and native-addon build ID come from the runtime that actually executed.
-- [ ] Build native once per CI job rather than repeatedly in build and test.
-- [ ] Run Rust unit tests, formatting, and clippy.
-- [ ] Run TypeScript, ESLint, Vitest layers, and Vite build.
-- [ ] Keep both Ubuntu and Windows as first-class paths in the existing CI
+- [x] Build native once per CI job rather than repeatedly in build and test.
+- [x] Run Rust unit tests, formatting, and clippy.
+- [x] Run TypeScript, ESLint, Vitest layers, and Vite build.
+- [x] Keep both Ubuntu and Windows as first-class paths in the existing CI
   matrix; build and load the addon and run native+MT assertions in the same job
   that compiled it.
-- [ ] Keep performance tests informational until a stable baseline is
+- [x] Keep performance tests informational until a stable baseline is
   recorded.
-- [ ] After baseline, set regression thresholds broad enough for shared CI but
+- [x] After baseline, set regression thresholds broad enough for shared CI but
   narrow enough to detect a disabled accelerator.
 
 ### Correct parity rules
@@ -1592,10 +1604,10 @@ bind-failure, or other failure semantics needed by earlier phase gates.
 
 ### CI acceptance gate
 
-- [ ] CI cannot be green when native failed to load in a native-required job.
-- [ ] CI cannot be green when a server system suite failed to bind.
-- [ ] At least one CI path runs native and MT simultaneously.
-- [ ] All four brain families run lifecycle/weight/worker-count tests; GRU,
+- [x] CI cannot be green when native failed to load in a native-required job.
+- [x] CI cannot be green when a server system suite failed to bind.
+- [x] At least one CI path runs native and MT simultaneously.
+- [x] All four brain families run lifecycle/weight/worker-count tests; GRU,
   LSTM, and RRU additionally run recurrent-history tests.
 
 ## Phase 9: Documentation and migration-debris cleanup
@@ -1853,77 +1865,101 @@ The recovery is complete only when:
 
 ## Live execution status
 
-- Current phase: Phase 7 bounded-memory persistence and actual resume is
-  complete. Phase 8 has not started.
-- Active checklist item: none. Every Phase 7 detailed-checklist, required-test,
-  and acceptance-gate item is complete with its required verification.
-- Last completed work: implemented and fully verified Phase 7 from committed
-  Phase 6 baseline `24b587a`; the Phase 7 worktree remains uncommitted.
-- Source implementation status: current-format saves use transactional SQLite
-  metadata plus one validated little-endian Float32 child row per genome;
-  exact generation-start resume, legacy read compatibility, durable Reset/New
-  Run, explicit startup selection, and streaming JSON export are active.
-- Current blocker: none.
-- Next action: await explicit owner direction before Phase 8 test and CI
-  reconstruction. Do not start Phase 8 from this handoff implicitly.
+- Current phase: Phase 8 test and CI reconstruction is complete. Phase 9 has not
+  started.
+- Active checklist item: none in Phase 8. Await owner review and explicit
+  direction before committing, pushing, or starting Phase 9.
+- Last completed work: reconstructed the test layers and CI contracts, repaired
+  the full-suite reset race exposed by the new manifest, and passed the complete
+  Phase 8 verification matrix.
+- Source implementation status: the fully verified Phase 8 worktree is
+  uncommitted and unstaged. It changes tests, test helpers, package scripts, CI,
+  narrow QA workflow documentation, and this plan; it does not change later-
+  phase production behavior.
+- Current blocker: none. The optional in-app browser spot check could not start
+  because the Codex browser runtime was denied access to its own Windows
+  `AppData` path. The local native+MT server and Vite client did launch and pass
+  HTTP health checks, all temporary processes were stopped, and Phase 9's final
+  manual-QA checklist remains intentionally untouched.
+- Next action: owner review of the Phase 8 worktree and commit message. Do not
+  start Phase 9 in this pass.
 - Current implementation HEAD:
-  `24b587a0cc541dcee7068d22d86e3a4946777c34`.
+  `308c6f0dd91eca8091bc75dcf08ca87904da2d50`.
 - Last fully verified HEAD:
-  `24b587a0cc541dcee7068d22d86e3a4946777c34`.
-- Verification scope note: `24b587a` remains the last committed, fully verified
-  HEAD. The uncommitted Phase 7 worktree described below is also fully verified
-  but is not yet represented by a new commit.
-- Last successful phase acceptance gate: Phase 7 bounded-memory persistence and
-  actual resume.
+  `308c6f0dd91eca8091bc75dcf08ca87904da2d50`.
+- Verification scope note: commit `308c6f0` remains the committed baseline; the
+  exact unstaged Phase 8 file set below passed all recorded verification. No
+  Phase 8 commit or push has occurred.
+- Last successful phase acceptance gate: Phase 8 test and CI reconstruction.
 - Exact dirty-file summary:
-  - content-modified tracked files (19): `README.md`,
-    `docs/todo/project-recovery-plan.md`, `server/acceptance.test.ts`,
-    `server/config.ts`, `server/httpApi.ts`, `server/index.ts`,
-    `server/integration.test.ts`, `server/persistence.test.ts`,
-    `server/persistence.ts`, `server/recoveryPhase0.characterization.test.ts`,
-    `server/recoveryPhase0Startup.characterization.test.ts`,
-    `server/recoveryPhase2.determinism.test.ts`,
-    `server/recoveryPhase4.simServer.test.ts`,
-    `server/recoveryPhase6.controls.test.ts`, `server/security.test.ts`,
-    `server/simServer.ts`, `src/protocol/settings.ts`,
-    `src/sim/SimCore.ts`, and `src/world.ts`;
+  - content-modified tracked files: `.github/workflows/CI.yml`, `README.md`,
+    `docs/todo/project-recovery-plan.md`, `package.json`,
+    `scripts/run-tests.ts`, `server/acceptance.test.ts`,
+    `server/integration.test.ts`, `server/performance.test.ts`,
+    `server/recoveryPhase1.lifecycle.test.ts`,
+    `server/recoveryPhase4.simServer.test.ts`, `server/security.test.ts`,
+    `server/system.test.ts`, and `src/main.test.ts`;
   - status-only artifact: Git reports `AGENTS.md` modified, but
     `git diff -- AGENTS.md` is empty and its worktree/HEAD blob IDs both equal
     `b7c033c5de793219e590a8382befadb417d77915`; it was not edited;
-  - untracked files (5): `scripts/measure-persistence.ts`,
-    `server/checkpoint.ts`, `server/recoveryPhase7.persistence.test.ts`,
-    `server/snapshotTypes.ts`, and `server/startupResume.ts`;
+  - untracked files: `scripts/ci-contract.test.ts`,
+    `scripts/test-categories.test.ts`, `scripts/test-categories.ts`,
+    `server/test/networkSuites.test.ts`, and
+    `server/test/networkSuites.ts`;
   - deleted tracked files: none;
   - staged files: none;
-  - branch/upstream divergence: `0 0` at `24b587a`.
-- Pre-change Phase 7 baseline passed 24 tests across 4 files. Command:
+  - branch/upstream divergence: `0 0` at `308c6f0`.
+- Pre-change focused baseline:
   `node .\node_modules\vitest\vitest.mjs run
-  server\persistence.test.ts
-  server\recoveryPhase0.characterization.test.ts
-  server\recoveryPhase0Startup.characterization.test.ts
-  server\recoveryPhase2.determinism.test.ts --reporter=dot`.
-- Focused Phase 7 contracts passed 39 tests across 5 files. Command:
-  `node .\node_modules\vitest\vitest.mjs run
-  server\recoveryPhase0.characterization.test.ts
-  server\recoveryPhase0Startup.characterization.test.ts
-  server\recoveryPhase2.determinism.test.ts
-  server\recoveryPhase6.controls.test.ts
-  server\recoveryPhase7.persistence.test.ts --reporter=dot`.
-- Current-format/legacy persistence coverage passed 18 tests with
-  `node .\node_modules\vitest\vitest.mjs run server\persistence.test.ts
-  --reporter=dot`.
-- Exact-boundary durability coverage passed 7 tests with
-  `node .\node_modules\vitest\vitest.mjs run
-  server\recoveryPhase7.persistence.test.ts --reporter=dot`.
-- Server integration coverage passed 8 tests across 4 files with
-  `node .\node_modules\vitest\vitest.mjs run server\integration.test.ts
+  src\brains\nativeBridge.test.ts
+  src\brains\nativeBridge.missing.test.ts
+  server\recoveryPhase3.native.test.ts
+  server\recoveryPhase4.brainPool.test.ts
+  server\recoveryPhase4.simServer.test.ts
+  server\inferenceMode.test.ts
+  server\recoveryPhase1.lifecycle.test.ts server\integration.test.ts
   server\acceptance.test.ts server\system.test.ts server\security.test.ts
-  --reporter=dot`.
-- The corrected durable Phase 4 fixture passed 6 tests with
+  src\main.test.ts --reporter=dot`; result: 12 files and 56 tests passed.
+- The pre-change category runner failed immediately on Windows with
+  `spawnSync ... node_modules\.bin\vitest.cmd EINVAL`. The repaired runner uses
+  `process.execPath` plus Vitest's ES-module entry point and an explicit file
+  manifest; no shell wrapper or filename-suffix discovery remains.
+- Network hardening passed 13 tests across 6 files with
   `node .\node_modules\vitest\vitest.mjs run
-  server\recoveryPhase4.simServer.test.ts --reporter=dot`.
-- Full JavaScript regression result: 57 files and 290 tests passed with
-  `node .\node_modules\vitest\vitest.mjs run --reporter=dot`.
+  server\test\networkSuites.test.ts
+  server\recoveryPhase1.lifecycle.test.ts server\integration.test.ts
+  server\acceptance.test.ts server\system.test.ts server\security.test.ts
+  --reporter=dot`. A separate run with
+  `SLITHER_SKIP_NETWORK_TESTS=1` visibly warned, ran 2 non-network tests, and
+  skipped exactly 3 TCP-bind tests.
+- Explicit category results passed: unit 32 files/131 tests; component 13/99;
+  integration 10/61 when included in the final manifest; system 1/1;
+  acceptance 1/1; regression 1/1; performance 1/2; security 1/2.
+- The complete manifest passed 60 files and 298 tests with
+  `node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts all
+  --reporter=dot`.
+- The required-native overlay passed 7 files and 45 tests with
+  `node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts
+  native-required --reporter=dot`. It loads the source-identified addon and
+  executes native+MT contracts rather than returning when native is missing.
+- Focused WebSocket/performance verification passed 7 tests across 2 files
+  with `node .\node_modules\vitest\vitest.mjs run
+  server\integration.test.ts server\performance.test.ts --reporter=verbose`.
+  It proves settings, move, and kill commands cross a real UI WebSocket and
+  appear in authoritative binary frames.
+- Performance diagnostics recorded 6.455 ms/world frame in isolation and
+  15.774 ms/frame under the concurrent full suite against a 40 ms budget.
+  Ten dense native batches took 2.291 ms isolated/2.188 ms concurrent, and six
+  MLP batches took 2.586 ms isolated/2.824 ms concurrent, each against a broad
+  200 ms shared-runner budget. CI retains `continue-on-error` for this layer
+  until Ubuntu/Windows history establishes a stable cross-runner baseline.
+- The addon was rebuilt once through the compiled napi-rs CLI entry point:
+  `node .\node_modules\@napi-rs\cli\dist\cli.js build --platform --release`
+  from `native/`. The loaded source identity is
+  `slither_native/0.1.0+51e5deda32c5.9f5ea40929585feb`.
+- `cargo test --manifest-path native\Cargo.toml --release` passed all 3 Rust
+  tests. `cargo fmt --manifest-path native\Cargo.toml -- --check` and
+  `cargo clippy --manifest-path native\Cargo.toml -- -D warnings` passed.
 - Strict TypeScript passed with
   `node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false`.
 - Repository-wide ESLint passed with
@@ -1933,18 +1969,20 @@ The recovery is complete only when:
   browser-externalization warning from `nativeBridge` remains.
 - `git diff --check` passed with only the preserved LF-to-CRLF working-copy
   warnings.
-- Bounded-memory measurement with
-  `node --expose-gc .\node_modules\tsx\dist\cli.mjs
-  scripts\measure-persistence.ts 500` saved 500 genomes/55,044,000 payload
-  bytes in 405.57 ms with RSS delta 25,669,632 bytes, heap delta 2,019,952
-  bytes, and external-memory delta 0.
-- The 1,000-genome measurement saved 110,088,000 payload bytes in 850.35 ms
-  with RSS delta 26,550,272 bytes, heap delta 4,365,000 bytes, and external
-  delta 110,128 bytes. Doubling payload size left RSS essentially flat and
-  retained only one genome-sized scratch allocation, so no background
-  persistence worker was justified for the exact generation boundary.
-- Native/Rust sources were unchanged in Phase 7. The prior three passing
-  release tests remain the last Rust result and were not rerun.
+- `scripts/ci-contract.test.ts` verifies Ubuntu/Windows and Node 22/24 remain in
+  the matrix, native is built exactly once per job, its identity is loaded in
+  that job, the native-required MT overlay runs there, every primary layer is
+  explicit, no network opt-out is set, and Rust/TypeScript/ESLint/Vite gates
+  remain present. The uncommitted workflow has not yet run remotely.
+- Local launch smoke started native+MT with two workers and the Vite client on
+  ports 5174/5173. `/health` reported the current seed, requested/active native,
+  requested MT, two active workers, and the same addon build ID; both endpoints
+  returned HTTP 200. The two exact temporary Node processes were stopped and
+  both endpoints were confirmed unreachable afterward.
+- Local roaming `npm`/`npx` shims are missing `npm-cli.js`/`npx-cli.js`; direct
+  commands from this plan were used. The raw napi-rs development launcher also
+  conflicts with Node 24 type stripping, so verification used the compiled
+  `dist/cli.js` entry point that the real `napi` executable targets.
 
 ## Handoff journal
 
@@ -3078,6 +3116,101 @@ The recovery is complete only when:
   memory persistence and actual resume. Await explicit owner direction before
   Phase 8.
 
+### 2026-07-22 — Phase 8 completion handoff
+
+- Completed every Phase 8 detailed-checklist and CI-acceptance item without
+  restoring deleted parity tests wholesale or changing Phase 9 production and
+  cleanup scope. Phase 9 has not started.
+- Current-source audit found that required-native behavior was already stronger
+  than the old defect description: the native bridge suite loads the addon in
+  `beforeAll`, asserts readiness, and has a subprocess test that proves a
+  missing addon exits with actionable build instructions. Existing Phase 4
+  tests already cover MLP/GRU/LSTM/RRU across JS/native and 1/2/4 worker
+  requests, stable recurrent ownership, complete recurrent histories, pool and
+  weight epochs, reset/fault paths, deterministic same-backend results, and
+  per-worker source build identity. Those contracts were retained and grouped;
+  the deleted broad parity tests were not copied back.
+- Repaired the remaining `TEST-002` paths. Acceptance, integration, system,
+  security, and the network-dependent lifecycle cases now propagate bind/start
+  errors normally. `server/test/networkSuites.ts` permits skipping only when
+  `SLITHER_SKIP_NETWORK_TESTS=1` and emits a visible warning; mixed suites keep
+  their non-network tests active. A focused opt-out run proved 2 tests ran and
+  exactly 3 bind tests skipped.
+- Replaced the 325-line main-entry fake DOM and obsolete Worker stub with a
+  small generic startup smoke that imports the real entry module and asserts
+  the resolved `ws://localhost:5174` connection. Extracted authoritative
+  control and WebSocket-client behavior remains in focused module tests.
+- Replaced suffix discovery with `scripts/test-categories.ts`, an explicit,
+  non-overlapping primary manifest for unit/component/integration/system/
+  acceptance/regression/performance/security plus an additive
+  `native-required` overlay. `scripts/test-categories.test.ts` recursively
+  discovers repository tests and fails on omissions or duplicate primary
+  assignments. The runner now invokes the Vitest ES module through
+  `process.execPath`, forwards CLI arguments, and works on Windows without the
+  former `.cmd` `EINVAL` failure.
+- Added `scripts/ci-contract.test.ts` and updated CI so each Ubuntu/Windows,
+  Node 22/24 matrix job builds native exactly once, verifies source identity,
+  runs Rust unit tests and the required native+MT overlay in the same job, then
+  runs every explicit JavaScript layer, Vite, TypeScript, and ESLint. The
+  separate Rust job still enforces formatting and clippy. No CI network opt-out
+  is set. Performance remains visible but informational while cross-runner
+  history accumulates.
+- Strengthened runtime diagnostics in the native MT `SimServer` integration:
+  requested and active backend/MT, requested and active worker counts,
+  pool/weight epochs, graph key, seed, addon readiness, source-derived build ID,
+  and every worker's matching build ID are asserted from the runtime that
+  executed.
+- Added a real WebSocket-to-binary-frame integration contract. It waits for a
+  post-reset two-snake frame, applies authoritative camera settings, observes
+  the changed serialized zoom, moves a selected snake and observes its new
+  serialized head, then kills it and observes the ID disappear. This closes the
+  live-settings/God-Mode system path without faking the hub.
+- Newly discovered and repaired `TEST-007`: the older config/HTTP integration
+  sent settings after an arbitrary 100 ms reset delay. The first concurrent
+  full-manifest run exposed the race with one timeout (59 files/297 tests
+  passed). The test now waits for the protocol-visible post-reset frame before
+  sending settings; its focused rerun and the next concurrent full manifest
+  both pass.
+- Expanded `TEST-004` with the observed Windows failure. Before repair,
+  `node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts unit` failed at
+  `spawnSync ... vitest.cmd EINVAL`; after repair, unit passed 32 files/131
+  tests and the complete manifest passed 60 files/298 tests.
+- Performance tests now print auditable measurements and their broad budgets.
+  Isolated and concurrent results are recorded in live status. The native
+  thresholds are over 68 times the observed concurrent duration, leaving ample
+  shared-runner headroom while still flagging a disabled or catastrophically
+  regressed accelerator; CI keeps the step informational until matrix history
+  is stable.
+- Rebuilt the addon once through napi-rs's compiled CLI, verified the exact
+  source build identity, and passed all 3 Rust release tests, rustfmt, and
+  clippy. The raw development launcher failed under Node 24's built-in type
+  stripping, and the machine's roaming npm/npx shims are missing their CLI
+  modules; neither wrapper was retried after the direct supported entry points
+  succeeded.
+- Final automated verification passed: the 7-file/45-test required-native
+  overlay, all 60 files/298 JavaScript tests, strict TypeScript,
+  repository-wide ESLint, Vite production build, Rust test/fmt/clippy, and diff
+  hygiene. Exact commands and layer counts are in live status.
+- Local launch smoke independently started the normal Vite client and a fresh
+  native+MT server with two workers. Health reported the active seed,
+  requested/active native backend, requested MT, two active workers, and the
+  source addon ID. In-app browser control then failed before navigation because
+  its own sandbox could not read `C:\Users\jlow8\AppData`; no repository
+  failure was observed. Both exact temporary processes were stopped and Phase
+  9's final manual-QA checkboxes remain untouched.
+- Added a narrow README QA note for the changed explicit suite commands, as
+  required when the Phase 8 command surface changes. Broader README/AGENTS/API
+  reconciliation remains Phase 9 work. `AGENTS.md` was not edited; its empty-
+  diff status artifact still has matching worktree/HEAD blob ID
+  `b7c033c5de793219e590a8382befadb417d77915`.
+- Current implementation HEAD and last fully verified committed HEAD remain
+  `308c6f0dd91eca8091bc75dcf08ca87904da2d50`. The verified Phase 8 worktree is
+  uncommitted, unstaged, and has the exact file list in live status; branch and
+  upstream remain synchronized at divergence `0 0`.
+- Current blocker: none. Last successful acceptance gate: Phase 8 test and CI
+  reconstruction. Await owner review; do not commit, push, or start Phase 9
+  without explicit direction.
+
 ## Verification command reference
 
 Use direct binaries when the npm/PowerShell wrapper obscures completion:
@@ -3086,10 +3219,16 @@ Use direct binaries when the npm/PowerShell wrapper obscures completion:
 node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false
 node .\node_modules\eslint\bin\eslint.js .
 node .\node_modules\vite\bin\vite.js build
-npm --prefix native run build
 cargo test --manifest-path native\Cargo.toml --release
-node .\node_modules\vitest\vitest.mjs run --reporter=dot
+node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts all --reporter=dot
+node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts native-required --reporter=dot
 git status --short --branch
+```
+
+When the npm shim cannot start, run the native build from `native/` with:
+
+```powershell
+node .\node_modules\@napi-rs\cli\dist\cli.js build --platform --release
 ```
 
 If a command is changed during Phase 8, update this reference and the README or

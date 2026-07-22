@@ -9,6 +9,15 @@ import { loadSimdKernels, requireDenseKernel, requireMlpKernel } from '../src/br
 /** Test suite label for server performance checks. */
 const SUITE = 'performance: world tick + serialize';
 
+/** Broad shared-runner budget for one world step plus serialization. */
+const WORLD_MS_PER_FRAME_BUDGET = 40;
+
+/** Broad shared-runner budget for ten native dense batches. */
+const DENSE_BATCH_BUDGET_MS = 200;
+
+/** Broad shared-runner budget for six native MLP batches. */
+const MLP_BATCH_BUDGET_MS = 200;
+
 /**
  * Build deterministic weights for SIMD perf tests.
  * @param length - Total weight count.
@@ -64,8 +73,13 @@ describe(SUITE, () => {
       }
       const elapsed = performance.now() - start;
       const msPerFrame = elapsed / frames;
-      // Generous budget to avoid CI flakiness.
-      expect(msPerFrame).toBeLessThan(40);
+      console.info('[performance.baseline.world]', {
+        frames,
+        elapsedMs: Number(elapsed.toFixed(3)),
+        msPerFrame: Number(msPerFrame.toFixed(3)),
+        budgetMsPerFrame: WORLD_MS_PER_FRAME_BUDGET
+      });
+      expect(msPerFrame).toBeLessThan(WORLD_MS_PER_FRAME_BUDGET);
     } finally {
       CFG.baselineBots.count = originalBaselineBots;
       resetCFGToDefaults();
@@ -99,7 +113,7 @@ describe(SUITE, () => {
     }
     const denseElapsed = performance.now() - denseStart;
     expect(sumAbs(denseOutputs)).toBeGreaterThan(0);
-    expect(denseElapsed).toBeLessThan(200);
+    expect(denseElapsed).toBeLessThan(DENSE_BATCH_BUDGET_MS);
 
     const mlpLayers = [64, 48, 16];
     const mlpCount = 256;
@@ -120,7 +134,15 @@ describe(SUITE, () => {
       );
     }
     const mlpElapsed = performance.now() - mlpStart;
+    console.info('[performance.baseline.native]', {
+      denseBatches: 10,
+      denseElapsedMs: Number(denseElapsed.toFixed(3)),
+      denseBudgetMs: DENSE_BATCH_BUDGET_MS,
+      mlpBatches: 6,
+      mlpElapsedMs: Number(mlpElapsed.toFixed(3)),
+      mlpBudgetMs: MLP_BATCH_BUDGET_MS
+    });
     expect(sumAbs(mlpOutputs)).toBeGreaterThan(0);
-    expect(mlpElapsed).toBeLessThan(200);
+    expect(mlpElapsed).toBeLessThan(MLP_BATCH_BUDGET_MS);
   });
 });
