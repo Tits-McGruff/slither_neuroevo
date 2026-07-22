@@ -249,9 +249,11 @@ The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM
 
 ## Import and export
 
-Population import/export lives in the Settings tab and writes a JSON file that includes the population, applied settings, the active graph spec, and Hall of Fame entries.
-In server mode, exports are pulled from a server snapshot; in worker mode, exports come from the local worker state.
-Imports reset the simulation to the file contents.
+Population import/export lives in the Settings tab and writes a JSON file that includes the population, applied settings, the active graph spec, and Hall of Fame entries. Exports are streamed from a server snapshot so large populations do not require one combined response buffer. Imports replace the population and settings, but an imported seed is retained as file metadata; it does not silently change the active run's seed.
+
+Automatic restart checkpoints are exact generation-boundary population checkpoints. They preserve the evolved population, generation, experiment configuration, seed, random-number state, and deterministic allocator state before the new generation is spawned. They are not arbitrary mid-tick world saves: transient snake positions, pellets, and recurrent activations are reconstructed from the saved generation-start boundary instead of being restored from the middle of a tick. Normal server startup resumes the latest valid checkpoint; use `--fresh` to start and durably record a new run without deleting older snapshots, or `--resume <snapshot-id>` to select a specific valid checkpoint.
+
+Imports reset the simulation to the file contents under the active run identity.
 Imports from older builds may be incompatible with the current v3 sensor layout. If you see input size mismatch errors, clear localStorage and delete `data/slither.db`, then re-export from a matching build.
 
 ## Preset recipes (QA-friendly)

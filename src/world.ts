@@ -14,6 +14,7 @@ import type { InferenceBackend } from './brains/types.ts';
 import type { SimProfiler } from './profiling.ts';
 import type { ArchDefinition } from './mlp.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData, PopulationExport } from './protocol/messages.ts';
+import { DEFAULT_CORE_SETTINGS } from './protocol/settings.ts';
 import {
   StatefulRng,
   deriveSeed,
@@ -153,8 +154,12 @@ export interface GenerationBoundaryState {
   kind: 'run-start' | 'generation';
   /** Generation whose population has been assigned. */
   generation: number;
+  /** Fixed step committed once generation construction completes. */
+  simulationStep: number;
   /** Normalized active run seed. */
   seed: number;
+  /** Evolutionary-lineage identifier independent from simulation randomness. */
+  runId: string;
   /** Every authoritative RNG continuation before construction draws. */
   rng: WorldRngState;
   /** Every deterministic generated-id continuation. */
@@ -167,18 +172,76 @@ export type GenerationBoundaryHook = (
   world: World
 ) => void;
 
+/** One typed population member accepted by exact-boundary reconstruction. */
+export interface WorldPopulationGenomeState {
+  /** Stable architecture key. */
+  archKey: string;
+  /** Runtime brain-family metadata. */
+  brainType: string;
+  /** Fitness retained at the stored boundary. */
+  fitness: number;
+  /** Float32 parameter buffer. */
+  weights: Float32Array;
+}
+
+/** Fitness-history record restored with an exact generation checkpoint. */
+export interface WorldFitnessHistoryEntry {
+  /** Generation summarized by the record. */
+  gen: number;
+  /** Best fitness in the generation. */
+  best: number;
+  /** Average fitness in the generation. */
+  avg: number;
+  /** Minimum fitness in the generation. */
+  min: number;
+  /** Number of detected species. */
+  speciesCount: number;
+  /** Size of the largest detected species. */
+  topSpeciesSize: number;
+  /** Average network weight. */
+  avgWeight: number;
+  /** Network-weight variance. */
+  weightVariance: number;
+}
+
+/** Population-assigned state used to reconstruct a generation without random initialization. */
+export interface WorldResumeState {
+  /** Generation whose initial construction must be replayed. */
+  generation: number;
+  /** Last authoritative fixed step represented by the checkpoint. */
+  simulationStep: number;
+  /** Dense typed population in durable slot order. */
+  population: readonly WorldPopulationGenomeState[];
+  /** Exact random continuation, absent only for read-only legacy compatibility. */
+  rng?: WorldRngState;
+  /** Exact generated-id continuation, absent only for legacy compatibility. */
+  allocators?: WorldAllocatorState;
+  /** Best fitness observed before the stored boundary. */
+  bestFitnessEver: number;
+  /** Bounded evolution history retained across restart. */
+  fitnessHistory: readonly WorldFitnessHistoryEntry[];
+  /** Pending Hall-of-Fame event retained at the boundary. */
+  lastHofEntry: HallOfFameEntry | null;
+  /** Whether RNG and allocator continuations provide exact reconstruction. */
+  exact: boolean;
+}
+
 /** Optional deterministic construction controls for a World. */
 export interface WorldConstructionOptions {
   /** Root seed from which every named stream is derived directly. */
   seed?: number;
+  /** Evolutionary-lineage identifier exposed at checkpoint boundaries. */
+  runId?: string;
   /** Immutable neural math backend prepared before World construction. */
   inferenceBackend?: InferenceBackend;
   /** Optional observer for exact generation checkpoint boundaries. */
   onGenerationBoundary?: GenerationBoundaryHook;
+  /** Optional generation-boundary state restored before any construction draw. */
+  resume?: WorldResumeState;
 }
 
 /** Fitness history record stored by the world for charts. */
-interface FitnessHistoryEntry {
+export interface FitnessHistoryEntry {
   gen: number;
   best: number;
   avg: number;
@@ -246,6 +309,8 @@ export interface ControllerRegistryLike {
 export class World {
   /** Normalized active seed for this simulation lineage. */
   seed: number;
+  /** Evolutionary-lineage identifier used by exact-boundary persistence. */
+  readonly runId: string;
   /** Immutable math backend attached to every neural brain in this World. */
   readonly inferenceBackend: InferenceBackend;
   /** Gameplay and world-construction random stream. */
@@ -345,6 +410,7 @@ export class World {
    */
   constructor(settings: WorldSettingsInput = {}, options: WorldConstructionOptions = {}) {
     this.seed = normalizeSeed(options.seed ?? 0);
+    this.runId = options.runId?.trim() || `world-${this.seed.toString(16).padStart(8, '0')}`;
     this.inferenceBackend = options.inferenceBackend ?? 'js';
     this.worldRng = new StatefulRng(deriveSeed(this.seed, 'world'));
     this.evolutionRng = new StatefulRng(deriveSeed(this.seed, 'evolution'));
@@ -360,13 +426,13 @@ export class World {
       : 1;
     this.settings = {
       ...settings,
-      snakeCount: settings.snakeCount ?? 55,
-      hiddenLayers: settings.hiddenLayers ?? 2,
-      neurons1: settings.neurons1 ?? 64,
-      neurons2: settings.neurons2 ?? 64,
-      neurons3: settings.neurons3 ?? 64,
-      neurons4: settings.neurons4 ?? 48,
-      neurons5: settings.neurons5 ?? 32,
+      snakeCount: settings.snakeCount ?? DEFAULT_CORE_SETTINGS.snakeCount,
+      hiddenLayers: settings.hiddenLayers ?? DEFAULT_CORE_SETTINGS.hiddenLayers,
+      neurons1: settings.neurons1 ?? DEFAULT_CORE_SETTINGS.neurons1,
+      neurons2: settings.neurons2 ?? DEFAULT_CORE_SETTINGS.neurons2,
+      neurons3: settings.neurons3 ?? DEFAULT_CORE_SETTINGS.neurons3,
+      neurons4: settings.neurons4 ?? DEFAULT_CORE_SETTINGS.neurons4,
+      neurons5: settings.neurons5 ?? DEFAULT_CORE_SETTINGS.neurons5,
       simSpeed,
       worldRadius: settings.worldRadius ?? CFG.worldRadius,
       observer: observerSettings,
@@ -427,9 +493,13 @@ export class World {
     this._nextExternalSnakeId = EXTERNAL_SNAKE_ID_START;
     this._nextBaselineBotId = BASELINE_BOT_ID_START;
     this._nextResurrectedSnakeId = RESURRECTED_SNAKE_ID_START;
-    this._initPopulation();
-    this._resetBaselineBotsForGen();
-    this._emitGenerationBoundary('run-start');
+    if (options.resume) {
+      this._restoreGenerationBoundary(options.resume);
+    } else {
+      this._initPopulation();
+      this._resetBaselineBotsForGen();
+      this._emitGenerationBoundary('run-start', 0);
+    }
     this._spawnAll();
     this._collGrid.build(this.snakes, CFG.collision.skipSegments);
     this._initPellets();
@@ -510,16 +580,86 @@ export class World {
    * Publish an exact population-assigned boundary before construction draws.
    * @param kind - Run-start or evolved-generation boundary kind.
    */
-  private _emitGenerationBoundary(kind: GenerationBoundaryState['kind']): void {
+  private _emitGenerationBoundary(
+    kind: GenerationBoundaryState['kind'],
+    simulationStep: number
+  ): void {
     if (!this.generationBoundaryHook) return;
     this.generationBoundaryHook({
       version: 1,
       kind,
       generation: this.generation,
+      simulationStep,
       seed: this.seed,
+      runId: this.runId,
       rng: this.exportRngState(),
       allocators: this.exportAllocatorState()
     }, this);
+  }
+
+  /**
+   * Restore a population-assigned generation boundary before any spawn draw.
+   * @param resume - Strict current checkpoint or bounded legacy compatibility state.
+   */
+  private _restoreGenerationBoundary(resume: WorldResumeState): void {
+    if (!Number.isSafeInteger(resume.generation) || resume.generation < 1) {
+      throw new TypeError('World resume generation is invalid');
+    }
+    if (!Number.isSafeInteger(resume.simulationStep) || resume.simulationStep < 0) {
+      throw new TypeError('World resume simulation step is invalid');
+    }
+    if (resume.population.length !== this.settings.snakeCount) {
+      throw new TypeError(
+        `World resume population ${resume.population.length} does not match snakeCount ${this.settings.snakeCount}`
+      );
+    }
+    const expectedWeights = enrichArchInfo(this.arch).totalCount;
+    const population: Genome[] = new Array(resume.population.length);
+    for (let slot = 0; slot < resume.population.length; slot++) {
+      const source = resume.population[slot];
+      if (!source) throw new TypeError(`World resume population slot ${slot} is missing`);
+      if (source.archKey !== this.archKey) {
+        throw new TypeError(
+          `World resume genome ${slot} architecture ${source.archKey} does not match ${this.archKey}`
+        );
+      }
+      if (source.brainType !== this.arch.spec.type) {
+        throw new TypeError(
+          `World resume genome ${slot} brain type ${source.brainType} does not match ${this.arch.spec.type}`
+        );
+      }
+      if (!(source.weights instanceof Float32Array) || source.weights.length !== expectedWeights) {
+        throw new TypeError(
+          `World resume genome ${slot} has ${source.weights?.length ?? 0} weights; expected ${expectedWeights}`
+        );
+      }
+      for (let index = 0; index < source.weights.length; index++) {
+        if (!Number.isFinite(source.weights[index])) {
+          throw new TypeError(`World resume genome ${slot} weight ${index} is not finite`);
+        }
+      }
+      if (!Number.isFinite(source.fitness)) {
+        throw new TypeError(`World resume genome ${slot} fitness is invalid`);
+      }
+      const genome = new Genome(source.archKey, source.weights, source.brainType);
+      genome.fitness = source.fitness;
+      population[slot] = genome;
+    }
+    if (!Number.isFinite(resume.bestFitnessEver)) {
+      throw new TypeError('World resume best fitness is invalid');
+    }
+    if (resume.exact && (!resume.rng || !resume.allocators)) {
+      throw new TypeError('Exact World resume requires RNG and allocator state');
+    }
+    this.population = population;
+    this.generation = resume.generation;
+    this.tickId = resume.simulationStep;
+    this.bestFitnessEver = resume.bestFitnessEver;
+    this.fitnessHistory = resume.fitnessHistory.map((entry) => ({ ...entry }));
+    this._lastHoFEntry = resume.lastHofEntry;
+    this._resetBaselineBotsForGen();
+    if (resume.rng) this.restoreRngState(resume.rng);
+    if (resume.allocators) this.restoreAllocatorState(resume.allocators);
   }
 
   /**
@@ -921,7 +1061,7 @@ export class World {
       );
       this._applyFixedStepControls();
       this._advanceFixedStepPhysics(baseDt);
-      this._finishFixedStep(baseDt, viewW, viewH);
+      this._finishFixedStep(baseDt, viewW, viewH, controllerTick);
       this.tickId = controllerTick;
     } finally {
       profiler?.endTick();
@@ -1145,7 +1285,12 @@ export class World {
    * @param viewW - Viewport width used for observer camera state.
    * @param viewH - Viewport height used for observer camera state.
    */
-  private _finishFixedStep(baseDt: number, viewW: number, viewH: number): void {
+  private _finishFixedStep(
+    baseDt: number,
+    viewW: number,
+    viewH: number,
+    controllerTick: number
+  ): void {
     this._updateFocus(baseDt);
     this._updateCamera(viewW, viewH);
     let bestPoints = -Infinity;
@@ -1173,7 +1318,7 @@ export class World {
       this.generationTime >= CFG.observer.earlyEndMinSeconds
     );
     if (this.generationTime >= CFG.generationSeconds || early) {
-      this._endGeneration();
+      this._endGeneration(controllerTick);
     }
   }
 
@@ -1466,7 +1611,7 @@ export class World {
    * and breeds new genomes via tournament selection, crossover and
    * mutation.  Resets state for the new generation.
    */
-  _endGeneration(): void {
+  _endGeneration(simulationStep = this.tickId): void {
     if (!this.population.length) return;
     const populationSnakes = this.snakes.slice(0, this.population.length);
     let maxPts = 0;
@@ -1561,7 +1706,7 @@ export class World {
     this.particles = new ParticleSystem(); // Reset particles
     this._clearTransientGenerationState();
     this._resetBaselineBotsForGen();
-    this._emitGenerationBoundary('generation');
+    this._emitGenerationBoundary('generation', simulationStep);
     this._spawnAll();
     this._initPellets();
     this._collGrid.build(this.snakes, CFG.collision.skipSegments);

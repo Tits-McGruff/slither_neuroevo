@@ -3,12 +3,12 @@
 ## Document control
 
 - Status: authoritative, owner-approved implementation plan; Phases 0 through
-  6 are complete, and Phase 7 has not started.
+  7 are complete, and Phase 8 has not started.
 - Created: 2026-07-21.
 - Branch: `exclusive-server-mode-refactor`.
 - Audit baseline commit: `cb276cce8dfc58a2fb3a3fdc3b60659626131ed0`.
-- Current implementation HEAD: `957b76f3734de3f634f12bc921fbaed52a62bb2a`.
-- Last fully verified HEAD: `957b76f3734de3f634f12bc921fbaed52a62bb2a`.
+- Current implementation HEAD: `24b587a0cc541dcee7068d22d86e3a4946777c34`.
+- Last fully verified HEAD: `24b587a0cc541dcee7068d22d86e3a4946777c34`.
 - Baseline worktree: clean before the two planning-document changes.
 - Current expected worktree changes are recorded under "Live execution status".
 - Scope owner: the repository owner.
@@ -93,6 +93,17 @@ progresses.
   controls and God Mode. Protocol 2, boundary-queued commands, canonical live
   config identity, extracted client controls, and server-result-driven UI state
   are complete. Phase 7 has not started.
+- 2026-07-22: Committed and pushed the verified Phase 6 work as `24b587a`,
+  synchronized the local branch with its upstream, and began Phase 7 from that
+  committed baseline. The content-identical `AGENTS.md` status artifact remains
+  intentionally untouched.
+- 2026-07-22: Completed Phase 7 with the normalized SQLite child-row format,
+  exact-boundary typed checkpoints, strict current/legacy readers,
+  deterministic startup reconstruction, explicit fresh/latest/id selection,
+  durable Reset/New Run, incremental HTTP JSON export, and bounded-memory
+  measurement harness. All 290 JavaScript tests, strict TypeScript,
+  repository-wide ESLint, the production build, and diff hygiene pass. Phase 8
+  was not started.
 
 ## How to resume this work
 
@@ -410,10 +421,13 @@ deleted files are evidence and reference material, not specifications to copy.
 | PER-003 | Startup reads snapshot settings but never restores saved genomes | `server/index.ts` | 7 |
 | PER-004 | HTTP export recreates the entire population as one JSON response | `server/httpApi.ts` | 7 |
 | PER-005 | Automatic checkpoints default to disabled and the current save hook runs after new-generation spawning/random draws | `server/config.ts`, `World._endGeneration`, and server generation-change handling | 2 and 7 |
+| PER-006 | Snapshot restore converts `brain.useMlp` from Boolean `true` to numeric `1`, changing canonical config identity and preventing exact resume | `src/protocol/settings.ts` and `server/settingsSnapshot.ts` | 7 |
 | TEST-001 | Native tests silently pass without native | `src/brains/nativeBridge.test.ts` | 3 and 8 |
 | TEST-002 | Network suites silently return on bind permission errors | server acceptance/integration/system/security suites | 1, 6, and 8 |
 | TEST-003 | The main UI test asserts little beyond WebSocket construction | `src/main.test.ts` | 8 |
 | TEST-004 | Test category scripts cover filenames, not coherent contracts | `scripts/run-tests.ts` | 8 |
+| TEST-005 | Acceptance and security tests inherit the production SQLite path, allowing one test run's checkpoint to contaminate later restart behavior and local user state | `server/acceptance.test.ts` and `server/security.test.ts` | 7 and 8 |
+| TEST-006 | Phase 4 SimServer fixtures invoke New Run without persistence, so the full suite fails once durable-before-switch is enforced | `server/recoveryPhase4.simServer.test.ts` | 7 |
 | DOC-001 | README, AGENTS, and API docs describe behavior absent from code | current documentation | 9 |
 | DOC-002 | `AGENTS.md` describes `server/config.toml` as an existing defaults file, but the baseline checkout has no such file and `parseConfig` creates it as a startup side effect | `AGENTS.md`, `server/config.ts`, and the baseline tree | 9 |
 | DOC-003 | `AGENTS.md` requires `markdown-rules/rules.md`, but that policy file and directory are absent from the checkout | `AGENTS.md` and the baseline tree | 9 |
@@ -1400,89 +1414,89 @@ valid alternatives that can be selected explicitly.
 
 ### Detailed checklist
 
-- [ ] Separate internal typed snapshot models from JSON transport DTOs.
-- [ ] Add idempotent schema migration for format/version fields and child
+- [x] Separate internal typed snapshot models from JSON transport DTOs.
+- [x] Add idempotent schema migration for format/version fields and child
   rows.
-- [ ] Enable and assert SQLite foreign-key enforcement.
-- [ ] Add prepared insert/select statements for genome rows.
-- [ ] Add transactional per-genome save.
-- [ ] Add typed per-genome load.
-- [ ] Encode Float32 BLOBs as little-endian and validate byte length, checksum,
+- [x] Enable and assert SQLite foreign-key enforcement.
+- [x] Add prepared insert/select statements for genome rows.
+- [x] Add transactional per-genome save.
+- [x] Add typed per-genome load.
+- [x] Encode Float32 BLOBs as little-endian and validate byte length, checksum,
   finiteness, graph parameter count, brain type, slot density, and population
   count on read.
-- [ ] Preserve legacy blob read.
-- [ ] Stop new writes to `genomes_blob`.
-- [ ] Avoid `World.exportPopulation` on automatic/internal save paths.
-- [ ] Capture the generation-boundary RNG state required for exact
+- [x] Preserve legacy blob read.
+- [x] Stop new writes to `genomes_blob`.
+- [x] Avoid `World.exportPopulation` on automatic/internal save paths.
+- [x] Capture the generation-boundary RNG state required for exact
   reconstruction of that generation's initial world.
-- [ ] Split the current post-spawn `_endGeneration`/server save flow at the
+- [x] Split the current post-spawn `_endGeneration`/server save flow at the
   exact pre-spawn checkpoint boundary defined above.
-- [ ] Include run ID, active seed, RNG version/state, allocator state, graph
+- [x] Include run ID, active seed, RNG version/state, allocator state, graph
   spec, settings, boundary type, and config identity.
-- [ ] Change the automatic-checkpoint default from disabled to every generation
+- [x] Change the automatic-checkpoint default from disabled to every generation
   when the bounded path is ready; retain a visible diagnostic opt-out.
-- [ ] Make normal startup select and validate the latest checkpoint candidate;
+- [x] Make normal startup select and validate the latest checkpoint candidate;
   do not silently skip a corrupt/incompatible latest candidate.
-- [ ] Add `--fresh`, `--resume latest`, and `--resume <snapshot-id>` behavior
+- [x] Add `--fresh`, `--resume latest`, and `--resume <snapshot-id>` behavior
   with the configuration precedence defined above.
-- [ ] Make a corrupt/incompatible latest checkpoint produce an actionable
+- [x] Make a corrupt/incompatible latest checkpoint produce an actionable
   error and list available alternatives.
-- [ ] Do not delete or overwrite older snapshots during migration.
-- [ ] Make Reset and New Run commit a generation-one run-start checkpoint
+- [x] Do not delete or overwrite older snapshots during migration.
+- [x] Make Reset and New Run commit a generation-one run-start checkpoint
   before switching current run state, without deleting saved history.
-- [ ] Update import so an imported seed is either applied explicitly or
+- [x] Update import so an imported seed is either applied explicitly or
   clearly treated as metadata; do not silently ignore it.
-- [ ] Make HTTP dependencies query current seed/hash rather than startup
+- [x] Make HTTP dependencies query current seed/hash rather than startup
   constants.
-- [ ] Stream large export responses incrementally if retaining JSON.
-- [ ] Preserve the current user-visible JSON export shape if practical while
+- [x] Stream large export responses incrementally if retaining JSON.
+- [x] Preserve the current user-visible JSON export shape if practical while
   serializing one genome at a time; do not require `Content-Length` if that
   would force whole-response buffering.
-- [ ] Avoid adding a new external file format without recording the user-facing
+- [x] Avoid adding a new external file format without recording the user-facing
   compatibility decision in this plan.
-- [ ] Apply explicit size/count limits with errors that identify the offending
+- [x] Apply explicit size/count limits with errors that identify the offending
   snapshot or genome.
-- [ ] For legacy gzip, report snapshot ID, compressed size, expected
+- [x] For legacy gzip, report snapshot ID, compressed size, expected
   uncompressed size/population where known, and enforce pre-decompression and
   bounded-output limits against corrupt or excessive data.
-- [ ] Measure save duration and peak memory with a synthetic large population.
-- [ ] Add a structural test proving automatic save consumes the typed
+- [x] Measure save duration and peak memory with a synthetic large population.
+- [x] Add a structural test proving automatic save consumes the typed
   per-genome path and never calls the population JSON-export DTO. Use a
   subprocess for process-memory measurement only if the direct harness is too
   noisy.
-- [ ] Only add a background persistence worker if measurement shows the
+- [x] Only add a background persistence worker if measurement shows the
   per-row synchronous transaction causes unacceptable tick stalls.
 
 ### Required tests
 
-- [ ] New-format round trip with multiple architectures' metadata.
-- [ ] Float32 weights round trip exactly.
-- [ ] BLOB byte order, byte-length, checksum, finite-value, and slot-continuity
+- [x] New-format round trip with multiple architectures' metadata.
+- [x] Float32 weights round trip exactly.
+- [x] BLOB byte order, byte-length, checksum, finite-value, and slot-continuity
   validation failures are reported clearly.
-- [ ] Foreign-key cascades work on an actual opened connection.
-- [ ] Hundreds of synthetic genomes save/load without a combined buffer path.
-- [ ] Transaction rollback leaves no partial snapshot.
-- [ ] Legacy blob snapshot still loads.
-- [ ] Corrupt metadata or genome row fails clearly.
-- [ ] Startup resumes saved genomes and generation.
-- [ ] Resumed generation start matches the checkpoint's reconstructed state.
-- [ ] `--fresh` ignores but preserves existing snapshots.
-- [ ] `--resume <snapshot-id>` selects an older valid alternative explicitly.
-- [ ] New Run is immediately restart-resumable even before completing its first
+- [x] Foreign-key cascades work on an actual opened connection.
+- [x] Hundreds of synthetic genomes save/load without a combined buffer path.
+- [x] Transaction rollback leaves no partial snapshot.
+- [x] Legacy blob snapshot still loads.
+- [x] Corrupt metadata or genome row fails clearly.
+- [x] Startup resumes saved genomes and generation.
+- [x] Resumed generation start matches the checkpoint's reconstructed state.
+- [x] `--fresh` ignores but preserves existing snapshots.
+- [x] `--resume <snapshot-id>` selects an older valid alternative explicitly.
+- [x] New Run is immediately restart-resumable even before completing its first
   evolved generation and cannot restore the prior run.
-- [ ] Checkpoint reconstruction begins before the first new-generation random
+- [x] Checkpoint reconstruction begins before the first new-generation random
   spawn draw with recurrent state in its defined zero condition.
-- [ ] A required checkpoint failure prevents the new run/generation from being
+- [x] A required checkpoint failure prevents the new run/generation from being
   advertised as durable or continuing silently.
-- [ ] Current seed/hash appear in save/export after reset or New Run.
-- [ ] Export path does not call one giant `JSON.stringify` or `Buffer.concat`.
+- [x] Current seed/hash appear in save/export after reset or New Run.
+- [x] Export path does not call one giant `JSON.stringify` or `Buffer.concat`.
 
 ### Acceptance gate
 
-- [ ] New saves have bounded serialization memory.
-- [ ] Restart restores the evolved population.
-- [ ] Legacy databases remain usable.
-- [ ] Documentation distinguishes population checkpoints from full mid-tick
+- [x] New saves have bounded serialization memory.
+- [x] Restart restores the evolved population.
+- [x] Legacy databases remain usable.
+- [x] Documentation distinguishes population checkpoints from full mid-tick
   saves.
 
 ## Phase 8: Test and CI reconstruction
@@ -1839,92 +1853,98 @@ The recovery is complete only when:
 
 ## Live execution status
 
-- Current phase: Phase 6 server-authoritative live controls and God Mode is
-  complete. Phase 7 has not started.
-- Active checklist item: none. Every Phase 6 detailed, required-test, and
-  acceptance-gate item is complete and verified.
-- Last completed work: implemented and fully verified the uncommitted Phase 6
-  worktree atop the pushed Phase 5 commit `957b76f`.
-- Source implementation status: Protocol 2 settings and God Mode commands are
-  server-authoritative, boundary-queued, normalized, revisioned, and broadcast.
-  Browser controls consume server results, and New Run remains explicitly
-  unavailable until Phase 7 provides its durability contract.
+- Current phase: Phase 7 bounded-memory persistence and actual resume is
+  complete. Phase 8 has not started.
+- Active checklist item: none. Every Phase 7 detailed-checklist, required-test,
+  and acceptance-gate item is complete with its required verification.
+- Last completed work: implemented and fully verified Phase 7 from committed
+  Phase 6 baseline `24b587a`; the Phase 7 worktree remains uncommitted.
+- Source implementation status: current-format saves use transactional SQLite
+  metadata plus one validated little-endian Float32 child row per genome;
+  exact generation-start resume, legacy read compatibility, durable Reset/New
+  Run, explicit startup selection, and streaming JSON export are active.
 - Current blocker: none.
-- Next action: wait for explicit owner direction before beginning Phase 7. Do
-  not commit or push the Phase 6 worktree without owner authorization.
+- Next action: await explicit owner direction before Phase 8 test and CI
+  reconstruction. Do not start Phase 8 from this handoff implicitly.
 - Current implementation HEAD:
-  `957b76f3734de3f634f12bc921fbaed52a62bb2a`.
+  `24b587a0cc541dcee7068d22d86e3a4946777c34`.
 - Last fully verified HEAD:
-  `957b76f3734de3f634f12bc921fbaed52a62bb2a`.
-- Verification scope note: `957b76f` remains the committed and fully verified
-  HEAD. The complete uncommitted Phase 6 worktree listed below is also fully
-  verified against that HEAD.
-- Last successful phase acceptance gate: Phase 6 server-authoritative live
-  controls and God Mode.
+  `24b587a0cc541dcee7068d22d86e3a4946777c34`.
+- Verification scope note: `24b587a` remains the last committed, fully verified
+  HEAD. The uncommitted Phase 7 worktree described below is also fully verified
+  but is not yet represented by a new commit.
+- Last successful phase acceptance gate: Phase 7 bounded-memory persistence and
+  actual resume.
 - Exact dirty-file summary:
-  - content-modified tracked files: 23 (`docs/todo/project-recovery-plan.md`,
-    12 files under `server/`, and 10 files under `src/`);
-  - untracked Phase 6 files: `server/configIdentity.ts`,
-    `server/hash.test.ts`, `server/recoveryPhase6.controls.test.ts`,
-    `src/net/authoritativeControls.ts`,
-    `src/net/authoritativeControls.test.ts`,
-    `src/protocol/settingDefinitions.ts`, and
-    `src/protocol/settings.test.ts`;
+  - content-modified tracked files (19): `README.md`,
+    `docs/todo/project-recovery-plan.md`, `server/acceptance.test.ts`,
+    `server/config.ts`, `server/httpApi.ts`, `server/index.ts`,
+    `server/integration.test.ts`, `server/persistence.test.ts`,
+    `server/persistence.ts`, `server/recoveryPhase0.characterization.test.ts`,
+    `server/recoveryPhase0Startup.characterization.test.ts`,
+    `server/recoveryPhase2.determinism.test.ts`,
+    `server/recoveryPhase4.simServer.test.ts`,
+    `server/recoveryPhase6.controls.test.ts`, `server/security.test.ts`,
+    `server/simServer.ts`, `src/protocol/settings.ts`,
+    `src/sim/SimCore.ts`, and `src/world.ts`;
   - status-only artifact: Git reports `AGENTS.md` modified, but
     `git diff -- AGENTS.md` is empty and its worktree/HEAD blob IDs both equal
     `b7c033c5de793219e590a8382befadb417d77915`; it was not edited;
+  - untracked files (5): `scripts/measure-persistence.ts`,
+    `server/checkpoint.ts`, `server/recoveryPhase7.persistence.test.ts`,
+    `server/snapshotTypes.ts`, and `server/startupResume.ts`;
   - deleted tracked files: none;
-  - staged: none.
-- Pre-change Phase 6 baseline: 9 files, 47 tests passed.
-- Latest focused Phase 6 result: 12 files, 68 tests passed. Command:
+  - staged files: none;
+  - branch/upstream divergence: `0 0` at `24b587a`.
+- Pre-change Phase 7 baseline passed 24 tests across 4 files. Command:
   `node .\node_modules\vitest\vitest.mjs run
-  src\protocol\settings.test.ts src\settings.test.ts
-  src\net\authoritativeControls.test.ts src\net\wsClient.test.ts
-  server\hash.test.ts server\protocol.test.ts
-  server\recoveryPhase6.controls.test.ts server\integration.test.ts
-  src\bots\baselineBots.test.ts src\sim\SimCore.test.ts src\world.test.ts
-  src\main.test.ts --reporter=dot`.
-- Last full JS test result: 56 files, 264 tests passed. Command:
-  `node .\node_modules\vitest\vitest.mjs run --reporter=dot`.
-- Last TypeScript result: passed against the completed Phase 6 worktree with
-  `node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false`.
-- Last ESLint result: repository-wide pass against the completed Phase 6
-  worktree with `node .\node_modules\eslint\bin\eslint.js .`.
-- Last client-build result: passed against the completed Phase 6 worktree with
-  `node .\node_modules\vite\bin\vite.js build`; the existing `node:module`
-  browser-externalization warning from `nativeBridge` remains.
-- Last diff-hygiene result: `git diff --check` passed with only the preserved
-  LF-to-CRLF working-copy warnings.
-- Pre-change Phase 5 baseline: 4 files, 31 tests passed. Command:
-  `node .\node_modules\vitest\vitest.mjs run src\sensors.test.ts
-  src\snake.test.ts src\recoveryPhase1.world.test.ts
-  server\controllerRegistry.test.ts --reporter=dot`.
-- Latest focused Phase 5 result: 6 files, 57 tests passed. Command:
-  `node .\node_modules\vitest\vitest.mjs run
-  src\recoveryPhase5.sensors.test.ts src\sensors.test.ts src\snake.test.ts
-  src\recoveryPhase1.world.test.ts server\authoritativeWorldDigest.test.ts
-  server\recoveryPhase2.determinism.test.ts --reporter=dot`.
-- Latest Phase 5 TypeScript result: passed.
-- Latest Phase 5 focused ESLint result: passed.
-- Last Rust test result: 3 release tests passed.
-- Pre-change Phase 4 baseline: 4 files, 11 tests passed. Command:
-  `node .\node_modules\vitest\vitest.mjs run server\brainPool.test.ts
+  server\persistence.test.ts
   server\recoveryPhase0.characterization.test.ts
-  server\recoveryPhase1.lifecycle.test.ts server\inferenceMode.test.ts
+  server\recoveryPhase0Startup.characterization.test.ts
+  server\recoveryPhase2.determinism.test.ts --reporter=dot`.
+- Focused Phase 7 contracts passed 39 tests across 5 files. Command:
+  `node .\node_modules\vitest\vitest.mjs run
+  server\recoveryPhase0.characterization.test.ts
+  server\recoveryPhase0Startup.characterization.test.ts
+  server\recoveryPhase2.determinism.test.ts
+  server\recoveryPhase6.controls.test.ts
+  server\recoveryPhase7.persistence.test.ts --reporter=dot`.
+- Current-format/legacy persistence coverage passed 18 tests with
+  `node .\node_modules\vitest\vitest.mjs run server\persistence.test.ts
   --reporter=dot`.
-- Latest focused Phase 4 pool result: 2 files, 21 tests passed. Command:
-  `node .\node_modules\vitest\vitest.mjs run server\brainPool.test.ts
-  server\recoveryPhase4.brainPool.test.ts --reporter=dot`.
-- Latest focused Phase 4 SimServer result: 1 file, 6 tests passed. Command:
+- Exact-boundary durability coverage passed 7 tests with
+  `node .\node_modules\vitest\vitest.mjs run
+  server\recoveryPhase7.persistence.test.ts --reporter=dot`.
+- Server integration coverage passed 8 tests across 4 files with
+  `node .\node_modules\vitest\vitest.mjs run server\integration.test.ts
+  server\acceptance.test.ts server\system.test.ts server\security.test.ts
+  --reporter=dot`.
+- The corrected durable Phase 4 fixture passed 6 tests with
   `node .\node_modules\vitest\vitest.mjs run
   server\recoveryPhase4.simServer.test.ts --reporter=dot`.
-- Pre-change Phase 3 baseline: 2 files, 9 tests passed.
-- Last focused Phase 3 result: 7 files, 42 tests passed against the final
-  rebuilt addon.
-- Last focused Phase 2 result: 2 files, 22 tests passed in the prior phase.
-- Last focused Phase 1 result: 5 files, 17 tests passed.
-- Loaded native build identifier:
-  `slither_native/0.1.0+51e5deda32c5.9f5ea40929585feb`.
+- Full JavaScript regression result: 57 files and 290 tests passed with
+  `node .\node_modules\vitest\vitest.mjs run --reporter=dot`.
+- Strict TypeScript passed with
+  `node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false`.
+- Repository-wide ESLint passed with
+  `node .\node_modules\eslint\bin\eslint.js .`.
+- The client production build passed with
+  `node .\node_modules\vite\bin\vite.js build`; the existing `node:module`
+  browser-externalization warning from `nativeBridge` remains.
+- `git diff --check` passed with only the preserved LF-to-CRLF working-copy
+  warnings.
+- Bounded-memory measurement with
+  `node --expose-gc .\node_modules\tsx\dist\cli.mjs
+  scripts\measure-persistence.ts 500` saved 500 genomes/55,044,000 payload
+  bytes in 405.57 ms with RSS delta 25,669,632 bytes, heap delta 2,019,952
+  bytes, and external-memory delta 0.
+- The 1,000-genome measurement saved 110,088,000 payload bytes in 850.35 ms
+  with RSS delta 26,550,272 bytes, heap delta 4,365,000 bytes, and external
+  delta 110,128 bytes. Doubling payload size left RSS essentially flat and
+  retained only one genome-sized scratch allocation, so no background
+  persistence worker was justified for the exact generation boundary.
+- Native/Rust sources were unchanged in Phase 7. The prior three passing
+  release tests remain the last Rust result and were not rerun.
 
 ## Handoff journal
 
@@ -2916,6 +2936,147 @@ The recovery is complete only when:
   also repaired by the verified implementation. No new blocker remains.
 - Last successful acceptance gate: Phase 6 server-authoritative live controls
   and God Mode. Await explicit owner direction before Phase 7.
+
+### 2026-07-22 — Phase 6 publish and Phase 7 start
+
+- Inspected the complete Phase 6 name/status and diff summary, staged only the
+  30 recorded Phase 6 paths, and excluded the content-identical `AGENTS.md`
+  status artifact. `git diff --cached --check` passed before commit.
+- Created commit `24b587a0cc541dcee7068d22d86e3a4946777c34` with subject
+  `feat: restore server-authoritative controls and God Mode` and the
+  owner-reviewed detailed body, including the Protocol 2 breaking-change
+  notice. Pushed it to `origin/exclusive-server-mode-refactor`.
+- Verified repository root `C:/Users/jlow8/source/repos/slither_neuroevo`,
+  branch `exclusive-server-mode-refactor`, HEAD `24b587a`, and upstream
+  divergence `0 0` after the push.
+- Re-read this authoritative plan completely and then the repository-root
+  `AGENTS.md`. This plan's stale-documentation warnings take precedence; the
+  superseded native plan and archive were not consulted.
+- Preserved the only pre-Phase-7 worktree artifact: Git reports `AGENTS.md`
+  modified, but its worktree and HEAD blob IDs remain identical at
+  `b7c033c5de793219e590a8382befadb417d77915` and its diff is empty.
+- Phase 7 is authorized and in progress. The first action is a current-source
+  audit of persistence schema migration, typed versus JSON models, legacy blob
+  limits, generation-boundary capture, startup selection/bootstrap, required
+  checkpoint durability, import/export, and HTTP streaming, followed by the
+  smallest direct persistence baseline. Phase 8 has not started.
+- The audit confirms the registered Phase 7 defects still match current source:
+  `saveSnapshot` maps every typed weight buffer to JSON, accumulates all genome
+  buffers, calls `Buffer.concat`, and gzip-compresses the combined population;
+  the legacy reader gunzips without an output cap and catches corruption;
+  automatic save runs only after spawn/pellets/focus; startup applies saved
+  settings but never the population/seed/RNG/allocator/generation; and HTTP
+  export calls one whole-payload `JSON.stringify`.
+- The existing Phase 2 boundary hook is correctly placed after population
+  assignment and transient-state clearing but before spawn, pellets, focus,
+  sensors, and inference. Phase 7 can extend that seam with simulation-step,
+  run/config, graph, history, and durability metadata rather than inventing a
+  second generation path.
+- Focused pre-change command:
+  `node .\node_modules\vitest\vitest.mjs run
+  server\persistence.test.ts
+  server\recoveryPhase0.characterization.test.ts
+  server\recoveryPhase0Startup.characterization.test.ts
+  server\recoveryPhase2.determinism.test.ts --reporter=dot`; result: 4 files
+  and 24 tests passed, including the two Phase 7-expiring characterizations.
+- No source discrepancy requires a new defect ID or owner consultation. The
+  implementation will use the planned SQLite child-row format and existing
+  JSON export extension; no new dependency or user-visible file format is
+  required.
+- Current blocker: none. Last successful acceptance gate remains Phase 6
+  server-authoritative live controls and God Mode.
+
+### 2026-07-22 — Phase 7 completion handoff
+
+- Completed every Phase 7 detailed-checklist, required-test, and acceptance-gate
+  item. Phase 8 has not started, and no Phase 8 production or harness design was
+  imported into this pass.
+- Added separate internal checkpoint types and builders in
+  `server/snapshotTypes.ts` and `server/checkpoint.ts`. Automatic and required
+  saves iterate typed genomes directly and do not call the population JSON DTO
+  path or create one whole-population byte buffer.
+- Migrated persistence idempotently to versioned parent metadata plus one
+  `snapshot_genomes` child row per dense population slot. Current writes use one
+  SQLite transaction, explicit little-endian Float32 encoding, SHA-256 checksums,
+  foreign keys, and one reusable genome-sized scratch buffer. Reads validate
+  version, boundary, population count, dense slots, architecture key, brain
+  type, parameter count, byte length, checksum, and finite values before
+  constructing typed genomes.
+- Preserved legacy `genomes_blob` as a read-only compatibility path. Legacy
+  loading now reports the snapshot ID and compressed/population size context,
+  applies compressed and bounded-output limits, and warns about the historical
+  combined allocation. New writes explicitly store `genomes_blob` as null and
+  never recreate the legacy format.
+- Split generation completion at the authoritative Phase 2 seam: the evolved
+  population, generation number, committed simulation step, run identity,
+  config/graph/settings identity, RNG streams, deterministic allocator state,
+  and zero recurrent-state condition are checkpointed before spawn, pellets,
+  focus selection, sensors, or inference. Resume bootstraps `World` directly at
+  that boundary without constructing and discarding a random population.
+- Normal startup now defaults to `--resume latest`; `--fresh`,
+  `--resume latest`, and `--resume <snapshot-id>` are explicit. A selected
+  corrupt or incompatible candidate fails with its snapshot ID/reason and valid
+  alternatives instead of silently skipping evolution. Experiment overrides
+  that conflict with resume require `--fresh`; operational bind/database/backend
+  options remain startup configuration.
+- Automatic checkpointing now defaults to every generation. Setting the
+  interval to zero remains a diagnostic opt-out and explicitly warns that crash
+  resume can lose progress. Fresh startup, Reset, and New Run always commit a
+  generation-one run-start checkpoint before switching or advertising the new
+  identity. A
+  required New Run failure retains the prior identity, leaves the previous
+  durable snapshot current, returns a negative protocol result, and enters the
+  defined faulted state.
+- `/api/save` creates a typed, non-resumable population-export snapshot; normal
+  resume selection ignores that boundary kind while explicit selection rejects
+  it clearly. `/api/export/latest` writes JSON incrementally with response
+  backpressure and no forced content length, emitting one genome at a time.
+  Save/export dependencies query the live seed and config hash. Import reports
+  that its seed is metadata-only and does not silently alter the active run.
+- Added `scripts/measure-persistence.ts`. An initial measurement exposed
+  retained per-genome temporary buffers in the draft implementation; replacing
+  them with one exactly sized scratch buffer flattened RSS while payload doubled
+  from 55,044,000 to 110,088,000 bytes. Final 500/1,000-genome measurements and
+  timings are recorded in live status. The observed generation-boundary cost
+  does not justify the complexity of a background persistence worker.
+- Converted the Phase 0 persistence/startup characterizations into positive
+  resume contracts, expanded `server/persistence.test.ts` to 18 strict format
+  tests, and added 7 exact durability/reconstruction tests in
+  `server/recoveryPhase7.persistence.test.ts`. Server integration tests now
+  verify live seed/hash behavior and explicit import-seed disposition.
+- Newly discovered and repaired `PER-006`: Boolean `brain.useMlp` was restored
+  as numeric `1`, changing canonical config identity. Shared setting coercion
+  now preserves its Boolean type.
+- Newly discovered and repaired `TEST-005`: acceptance and security fixtures
+  inherited the production SQLite path and could migrate or contaminate ignored
+  local state. They now use isolated in-memory databases and explicit fresh JS
+  startup. An early run opened the ignored local `data/slither.db`; it was not
+  deleted, reverted, or added to Git.
+- Newly discovered and repaired `TEST-006`: two Phase 4 server tests invoked
+  New Run without persistence. The full suite correctly failed under the new
+  durable-before-switch contract; the shared fixture now owns an in-memory
+  SQLite store and still verifies native-pool rebuild and fault recovery.
+- A legacy-database integration run exposed migration ordering in the draft:
+  the resumable index was initially created before older parent tables had the
+  new boundary column. Migration now adds all columns before creating the index.
+  This draft-only issue was fixed before the acceptance gate and is not a
+  remaining blocker.
+- Final verification passed: 57 Vitest files/290 tests, strict TypeScript,
+  repository-wide ESLint, the Vite production build, and `git diff --check`.
+  Focused persistence, exact-resume, server integration, and corrected Phase 4
+  fixture results are recorded verbatim in live status. Native/Rust code was
+  unchanged, so its prior three passing release tests were not rerun.
+- Added a narrow README clarification: restart snapshots are exact
+  generation-boundary population checkpoints, not full mid-tick saves, and
+  imported seeds remain metadata under the active run identity. Broader stale
+  documentation remains assigned to Phase 9.
+- Current implementation HEAD and last fully verified committed HEAD are both
+  `24b587a0cc541dcee7068d22d86e3a4946777c34`. The fully verified Phase 7
+  worktree is uncommitted, unstaged, and has the exact file list recorded in
+  live status. Branch/upstream divergence is `0 0`.
+- Current blocker: none. Last successful acceptance gate: Phase 7 bounded-
+  memory persistence and actual resume. Await explicit owner direction before
+  Phase 8.
 
 ## Verification command reference
 

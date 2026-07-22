@@ -1,9 +1,9 @@
 import { createServer, type Server } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { resetCFGToDefaults } from '../src/config.ts';
-import { World } from '../src/world.ts';
-import { WorldSerializer } from '../src/serializer.ts';
 import { normalizeSeed } from '../src/rng.ts';
+import { buildArch, enrichArchInfo } from '../src/mlp.ts';
+import { DEFAULT_CORE_SETTINGS, type CoreSettings } from '../src/protocol/settings.ts';
 import {
   getNativeAddonBuildIdentifier,
   getSimdKernelStatus,
@@ -14,13 +14,14 @@ import { createHttpHandler } from './httpApi.ts';
 import { createLogger } from './logger.ts';
 import { createPersistence, initDb } from './persistence.ts';
 import { PROTOCOL_VERSION, SERIALIZER_VERSION, type WelcomeMsg } from './protocol.ts';
-import { SimServer, applySettingsUpdates, coerceCoreSettings } from './simServer.ts';
+import { SimServer } from './simServer.ts';
 import { WsHub } from './wsHub.ts';
 import type { Logger } from './logger.ts';
 import { buildSensorSpec } from './sensorSpec.ts';
 import { createEntropySeed, createRunId, createSessionId } from './runIdentity.ts';
-import { buildAuthoritativeConfigHash } from './configIdentity.ts';
-import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
+import { buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
+import { prepareStartupResume, selectStartupSnapshot } from './startupResume.ts';
+import type { StartupResumeBootstrap } from './startupResume.ts';
 
 /** Minimal server handle returned by `startServer` for lifecycle management. */
 export interface RunningServer {
@@ -50,32 +51,41 @@ async function closeHttpServer(server: Server): Promise<void> {
  */
 export async function startServer(config: ServerConfig, logger?: Logger): Promise<RunningServer> {
   resetCFGToDefaults();
-  const worldSeed = Number.isFinite(config.seed)
-    ? normalizeSeed(config.seed as number)
-    : createEntropySeed();
   const sessionId = createSessionId();
-  const runId = createRunId();
   await prepareInferenceBackend(config.inferenceBackend);
   const db = initDb(config.dbPath);
   const persistence = createPersistence(db);
-  const latestSnapshot = persistence.loadLatestSnapshot();
-  const initialSettings = latestSnapshot?.settings
-    ? coerceCoreSettings(latestSnapshot.settings)
-    : {};
-  if (latestSnapshot?.updates) {
-    applySettingsUpdates(latestSnapshot.updates);
+  let resumeBootstrap: StartupResumeBootstrap | null = null;
+  try {
+    if (config.resume !== 'fresh') {
+      const selected = selectStartupSnapshot(persistence, config.resume);
+      if (selected) {
+        if (config.seed !== undefined) {
+          throw new Error('a configured seed conflicts with resume; use --fresh to start a new experiment');
+        }
+        resumeBootstrap = prepareStartupResume(selected);
+        if (!resumeBootstrap.exact) {
+          logger?.warn(
+            'persistence',
+            `snapshot ${resumeBootstrap.snapshotId} uses legacy population-only reconstruction; RNG continuation is unavailable`
+          );
+        }
+      }
+    }
+  } catch (error) {
+    db.close();
+    throw error;
   }
+  const initialSettings: Partial<CoreSettings> = resumeBootstrap?.settings ?? DEFAULT_CORE_SETTINGS;
+  const worldSeed = resumeBootstrap?.worldSeed ?? (
+    Number.isFinite(config.seed) ? normalizeSeed(config.seed as number) : createEntropySeed()
+  );
+  const runId = resumeBootstrap?.runId ?? createRunId();
+  const configRevision = resumeBootstrap?.configRevision ?? 0;
   const sensorSpec = buildSensorSpec();
-  const sampleWorld = new World(initialSettings, {
-    seed: worldSeed,
-    inferenceBackend: config.inferenceBackend
-  });
-  const cfgHash = buildAuthoritativeConfigHash(sampleWorld);
-  const sampleGraphKey = typeof sampleWorld.archKey === 'string'
-    ? sampleWorld.archKey
-    : 'initializing';
-  const sampleParameterCount = sampleWorld.population?.[0]?.weights.length ?? 0;
-  const frameByteLength = WorldSerializer.serialize(sampleWorld).byteLength;
+  const initialArch = buildArch(initialSettings as CoreSettings);
+  const initialArchInfo = enrichArchInfo(initialArch);
+  const cfgHash = resumeBootstrap?.expectedConfigHash ?? 'initializing';
   const welcome: WelcomeMsg = {
     type: 'welcome',
     protocolVersion: PROTOCOL_VERSION,
@@ -83,10 +93,10 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
     tickRate: config.tickRateHz,
     worldSeed,
     runId,
-    configRevision: 0,
+    configRevision,
     configHash: cfgHash,
     settings: {
-      core: buildCoreSettingsSnapshot(sampleWorld),
+      core: { ...DEFAULT_CORE_SETTINGS, ...initialSettings },
       updates: buildSettingsUpdatesSnapshot()
     },
     inferenceMode: {
@@ -96,15 +106,15 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
       activeWorkerCount: 0,
       poolEpoch: null,
       weightEpoch: null,
-      graphKey: sampleGraphKey,
-      parameterCount: sampleParameterCount,
+      graphKey: initialArch.key,
+      parameterCount: initialArchInfo.totalCount,
       seed: worldSeed,
       nativeAddonStatus: getSimdKernelStatus(),
       nativeAddonBuildIdentifier: getNativeAddonBuildIdentifier()
     },
     sensorSpec,
     serializerVersion: SERIALIZER_VERSION,
-    frameByteLength
+    frameByteLength: 7 * Float32Array.BYTES_PER_ELEMENT
   };
 
   let simServer: SimServer | null = null;
@@ -120,6 +130,7 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
         scheduler: simServer.getSchedulerDiagnostics(),
         fault: simServer.getFaultStatus(),
         run: simServer.getRunIdentity(),
+        persistence: simServer.getPersistenceStatus(),
         ...simServer.getConfigState()
       };
     },
@@ -129,6 +140,10 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
         ? simServer.importPopulation(data)
         : { ok: false, reason: 'world not ready' },
     persistence,
+    savePopulationExport: () => {
+      if (!simServer) throw new Error('world not ready');
+      return simServer.saveCurrentPopulationExport();
+    },
     getConfigHash: () => simServer?.getConfigHash() ?? cfgHash,
     getWorldSeed: () => simServer?.getRunIdentity().seed ?? worldSeed,
     logger
@@ -189,15 +204,38 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
     // succeeded. The ws package forwards HTTP bind errors through its own
     // EventEmitter, which would otherwise create a second uncaught error path.
     wsHub = new WsHub(httpServer, welcome);
-    simServer = new SimServer(
-      config,
-      wsHub,
-      persistence,
-      cfgHash,
-      worldSeed,
-      initialSettings,
-      runId
-    );
+    try {
+      simServer = new SimServer(
+        config,
+        wsHub,
+        persistence,
+        cfgHash,
+        worldSeed,
+        initialSettings,
+        runId,
+        {
+          ...(resumeBootstrap?.resume ? { resume: resumeBootstrap.resume } : {}),
+          ...(resumeBootstrap
+            ? {
+                snapshotId: resumeBootstrap.snapshotId,
+                exactResume: resumeBootstrap.exact,
+                configRevision: resumeBootstrap.configRevision,
+                expectedConfigHash: resumeBootstrap.expectedConfigHash
+              }
+            : {})
+        }
+      );
+    } catch (error) {
+      if (!resumeBootstrap) throw error;
+      const alternatives = persistence.listValidResumeSnapshots(5, resumeBootstrap.snapshotId);
+      const alternativeText = alternatives.length > 0
+        ? alternatives.map((item) => `${item.id} (gen ${item.gen}, ${item.boundaryKind})`).join(', ')
+        : 'none';
+      throw new Error(
+        `snapshot ${resumeBootstrap.snapshotId} reconstruction failed: ${error instanceof Error ? error.message : String(error)}; valid alternatives: ${alternativeText}`,
+        { cause: error }
+      );
+    }
     wsHub.setHandlers({
       onJoin: (connId, msg, clientType) =>
         simServer?.handleJoin(connId, msg.mode, clientType, msg.name),

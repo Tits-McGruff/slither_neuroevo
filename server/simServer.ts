@@ -1,6 +1,10 @@
 import { performance } from 'node:perf_hooks';
 import { CFG, resetCFGToDefaults, syncBrainInputSize } from '../src/config.ts';
-import { World } from '../src/world.ts';
+import {
+  World,
+  type GenerationBoundaryState,
+  type WorldResumeState
+} from '../src/world.ts';
 import { getByPath, setByPath } from '../src/utils.ts';
 import { validateGraph } from '../src/brains/graph/validate.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
@@ -41,7 +45,11 @@ import type {
 } from './protocol.ts';
 import type { PopulationImportData } from '../src/protocol/messages.ts';
 import { ControllerRegistry } from './controllerRegistry.ts';
-import type { Persistence, PopulationSnapshotPayload } from './persistence.ts';
+import type { Persistence } from './persistence.ts';
+import {
+  buildGenerationCheckpoint,
+  buildPopulationExportCheckpoint
+} from './checkpoint.ts';
 import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 import { WsHub } from './wsHub.ts';
 import { buildSensorSpec } from './sensorSpec.ts';
@@ -49,9 +57,8 @@ import type { ActiveInferenceBackend, InferenceModeRecord } from './inferenceMod
 import { createEntropySeed, createRunId } from './runIdentity.ts';
 import { buildAuthoritativeConfigHash } from './configIdentity.ts';
 import { normalizeSettingValue } from '../src/protocol/settingDefinitions.ts';
+import { WorldSerializer } from '../src/serializer.ts';
 
-/** SQLite error code indicating the database or disk is full. */
-const SQLITE_FULL_CODE = 'SQLITE_FULL';
 /** Environment variable that enables server profiling output. */
 const PROFILE_ENV_VAR = 'SLITHER_PROFILE';
 /** Interval in milliseconds between profiling reports. */
@@ -60,9 +67,6 @@ const PROFILE_REPORT_INTERVAL_MS = 1000;
 const SCHEDULER_DROP_LOG_INTERVAL_MS = 1000;
 /** Hard cap for commands waiting on an authoritative fixed-step boundary. */
 const MAX_PENDING_COMMANDS = 4096;
-/** Phase 6 reason returned until New Run gains a durable run-start checkpoint. */
-const NEW_RUN_UNAVAILABLE_REASON =
-  'New Run is unavailable until durable run-start checkpoints are implemented in Phase 7';
 
 /** Queued live-settings command awaiting the next fixed-step boundary. */
 interface PendingSettingsCommand {
@@ -87,16 +91,6 @@ interface PendingGodModeCommand {
 /** Authoritative commands that may mutate live world state. */
 type PendingAuthoritativeCommand = PendingSettingsCommand | PendingGodModeCommand;
 
-/**
- * Determine whether an error is a SQLite "full" error.
- * @param err - Error thrown by persistence.
- * @returns True when the error matches SQLITE_FULL.
- */
-function isSqliteFullError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  return (err as { code?: string }).code === SQLITE_FULL_CODE;
-}
-
 /** Public status for a simulation object that may be unusable after a failed step. */
 export interface SimulationFaultStatus {
   /** Whether authoritative stepping is prohibited. */
@@ -105,6 +99,40 @@ export interface SimulationFaultStatus {
   reason: string | null;
   /** Last successfully committed tick when the fault was recorded. */
   tick: number | null;
+}
+
+/** Optional startup state restored from one selected persistence row. */
+export interface SimServerBootstrap {
+  /** Population-assigned World reconstruction state. */
+  resume?: WorldResumeState;
+  /** Selected snapshot id used for durable-status reporting. */
+  snapshotId?: number;
+  /** Whether the selected snapshot supports exact reconstruction. */
+  exactResume?: boolean;
+  /** Restored monotonic configuration revision. */
+  configRevision?: number;
+  /** Strict expected current-format configuration hash. */
+  expectedConfigHash?: string | null;
+}
+
+/** Public durability status reported alongside health diagnostics. */
+export interface PersistenceCheckpointStatus {
+  /** Whether a persistence adapter remains attached. */
+  enabled: boolean;
+  /** Configured automatic generation interval. */
+  checkpointEveryGenerations: number;
+  /** Latest successfully committed resumable snapshot id. */
+  lastDurableSnapshotId: number | null;
+  /** Generation held by the latest durable resumable checkpoint. */
+  lastDurableGeneration: number | null;
+  /** Run held by the latest durable resumable checkpoint. */
+  lastDurableRunId: string | null;
+  /** Current in-memory generation, which may be ahead after a failure. */
+  inMemoryGeneration: number;
+  /** Current in-memory lineage id. */
+  inMemoryRunId: string;
+  /** Whether startup used exact continuation rather than legacy compatibility. */
+  exactStartupResume: boolean;
 }
 
 /** Server-side simulation loop and WS broadcasting. */
@@ -162,11 +190,19 @@ export class SimServer {
   private lastGeneration: number;
   /** Last generation recorded for HoF save. */
   private lastHofGenSaved: number;
+  /** Latest successfully committed resumable snapshot id. */
+  private lastDurableSnapshotId: number | null = null;
+  /** Generation held by the latest committed resumable checkpoint. */
+  private lastDurableGeneration: number | null = null;
+  /** Run held by the latest committed resumable checkpoint. */
+  private lastDurableRunId: string | null = null;
+  /** Config revision staged while a candidate World emits its run-start hook. */
+  private pendingCheckpointConfigRevision: number | null = null;
+  /** Whether startup reconstructed an exact current-format boundary. */
+  private exactStartupResume = false;
 
   /** Connection ids subscribed to viz streaming. */
   private vizConnections: Set<number>;
-  /** Reason persistence was disabled, if any. */
-  private persistenceDisabledReason: string | null = null;
   /** Optional profiler for per-tick timing breakdowns. */
   private profiler: SimProfiler | null = null;
   /** Optional worker pool for multi-threaded inference. */
@@ -197,6 +233,7 @@ export class SimServer {
    * @param worldSeed - Seed used for world initialization.
    * @param initialSettings - Optional core settings snapshot.
    * @param runId - Lineage id generated independently from simulation RNG.
+   * @param bootstrap - Optional selected checkpoint reconstruction state.
    */
   constructor(
     config: ServerConfig,
@@ -205,11 +242,26 @@ export class SimServer {
     cfgHash = '',
     worldSeed = 0,
     initialSettings: Partial<CoreSettings> = {},
-    runId = createRunId()
+    runId = createRunId(),
+    bootstrap: SimServerBootstrap = {}
   ) {
     this.wsHub = wsHub;
     this.tickRateHz = config.tickRateHz;
     this.uiFrameRateHz = config.uiFrameRateHz;
+    this.persistence = persistence ?? null;
+    this.configRevision = bootstrap.configRevision ?? 0;
+    this.pendingCheckpointConfigRevision = this.configRevision;
+    this.cfgHash = '';
+    this.worldSeed = worldSeed;
+    this.runId = runId;
+    this.checkpointEveryGenerations = Math.max(0, config.checkpointEveryGenerations);
+    this.lastHofGenSaved = 0;
+    this.exactStartupResume = bootstrap.exactResume === true;
+    if (this.checkpointEveryGenerations === 0) {
+      console.warn(
+        '[persistence] automatic generation checkpoints disabled; crash resume can lose progress'
+      );
+    }
 
     // Initialize Unified Core
     this.core = new SimCore({
@@ -218,6 +270,13 @@ export class SimServer {
       worldSeed,
       runId,
       inferenceBackend: config.inferenceBackend,
+      ...(bootstrap.resume ? { resume: bootstrap.resume } : {}),
+      ...(this.persistence
+        ? {
+            onGenerationBoundary: (boundary: GenerationBoundaryState, world: World) =>
+              this.persistGenerationBoundary(boundary, world)
+          }
+        : {}),
       onStepStarting: (_world, tickId) => this.drainPendingCommands(tickId),
       onStepCommitted: async (world) => this.synchronizeBrainPoolGeneration(world)
     });
@@ -243,20 +302,41 @@ export class SimServer {
       }
     );
 
-    this.persistence = persistence ?? null;
     void cfgHash;
-    this.cfgHash = buildAuthoritativeConfigHash(this.core.world);
+    const activeConfigHash = buildAuthoritativeConfigHash(this.core.world);
+    if (
+      bootstrap.expectedConfigHash &&
+      bootstrap.expectedConfigHash !== activeConfigHash
+    ) {
+      throw new Error(
+        `snapshot ${bootstrap.snapshotId ?? 'unknown'} configuration hash mismatch: expected ${bootstrap.expectedConfigHash}, reconstructed ${activeConfigHash}`
+      );
+    }
+    this.cfgHash = activeConfigHash;
     this.worldSeed = this.core.worldSeed;
     this.runId = this.core.runId;
-    this.checkpointEveryGenerations = Math.max(0, config.checkpointEveryGenerations);
+    this.pendingCheckpointConfigRevision = null;
+    if (bootstrap.snapshotId !== undefined) {
+      this.lastDurableSnapshotId = bootstrap.snapshotId;
+      this.lastDurableGeneration = this.core.world.generation;
+      this.lastDurableRunId = this.runId;
+    }
     this.lastGeneration = this.core.world.generation;
-    this.lastHofGenSaved = 0;
     this.vizConnections = new Set();
     this.requestedMt = config.mtEnabled === true;
     this.mtEnabled = this.requestedMt;
     this.mtWorkerCount = config.mtWorkers ?? 0;
     this.mtGeneration = this.core.world.generation;
     this.lastTickAt = performance.now();
+    const pendingHof = this.core.world._lastHoFEntry;
+    if (pendingHof && this.persistence) {
+      try {
+        this.persistence.saveHofEntry(pendingHof);
+        this.lastHofGenSaved = pendingHof.gen;
+      } catch (error) {
+        console.warn('[persistence] resumed hall-of-fame save failed', error);
+      }
+    }
     this.refreshWelcomeState();
   }
 
@@ -329,6 +409,23 @@ export class SimServer {
   }
 
   /**
+   * Return current checkpoint durability independently from in-memory state.
+   * @returns Persistence interval and latest committed resumable identity.
+   */
+  getPersistenceStatus(): PersistenceCheckpointStatus {
+    return {
+      enabled: this.persistence !== null,
+      checkpointEveryGenerations: this.checkpointEveryGenerations,
+      lastDurableSnapshotId: this.lastDurableSnapshotId,
+      lastDurableGeneration: this.lastDurableGeneration,
+      lastDurableRunId: this.lastDurableRunId,
+      inMemoryGeneration: this.core.world.generation,
+      inMemoryRunId: this.runId,
+      exactStartupResume: this.exactStartupResume
+    };
+  }
+
+  /**
    * Return the underlying world instance.
    * @returns World instance.
    */
@@ -358,6 +455,44 @@ export class SimServer {
    */
   getConfigHash(): string {
     return this.cfgHash;
+  }
+
+  /**
+   * Persist a manual population export without treating mid-generation state as resumable.
+   * @returns New SQLite snapshot id.
+   */
+  saveCurrentPopulationExport(): number {
+    if (!this.persistence) throw new Error('persistence is unavailable');
+    const checkpoint = buildPopulationExportCheckpoint(this.core.world, {
+      runId: this.runId,
+      configRevision: this.configRevision,
+      simulationStep: this.core.tickId
+    });
+    return this.persistence.saveCheckpoint(checkpoint);
+  }
+
+  /**
+   * Persist a scheduled exact boundary before World performs construction draws.
+   * @param boundary - Exact World RNG/allocator boundary.
+   * @param world - Candidate World whose population has already been assigned.
+   */
+  private persistGenerationBoundary(boundary: GenerationBoundaryState, world: World): void {
+    if (!this.persistence) {
+      if (boundary.kind === 'run-start') {
+        throw new Error('required run-start checkpoint cannot commit without persistence');
+      }
+      return;
+    }
+    const required = boundary.kind === 'run-start';
+    const scheduled = this.checkpointEveryGenerations > 0 &&
+      boundary.generation % this.checkpointEveryGenerations === 0;
+    if (!required && !scheduled) return;
+    const configRevision = this.pendingCheckpointConfigRevision ?? this.configRevision;
+    const checkpoint = buildGenerationCheckpoint(world, boundary, configRevision);
+    const snapshotId = this.persistence.saveCheckpoint(checkpoint);
+    this.lastDurableSnapshotId = snapshotId;
+    this.lastDurableGeneration = boundary.generation;
+    this.lastDurableRunId = boundary.runId;
   }
 
   /**
@@ -541,17 +676,37 @@ export class SimServer {
   }
 
   /**
-   * Expose New Run in Protocol 2 without acknowledging a crash-unsafe restart.
+   * Start and acknowledge New Run only after its run-start checkpoint commits.
    * @param connId - Requesting UI connection id.
    * @param msg - Strict Protocol 2 New Run request.
    */
-  handleNewRun(connId: number, msg: NewRunMsg): void {
-    this.wsHub.sendJsonTo(connId, {
-      type: 'newRunResult',
-      requestId: msg.requestId,
-      applied: false,
-      reason: NEW_RUN_UNAVAILABLE_REASON
-    });
+  async handleNewRun(connId: number, msg: NewRunMsg): Promise<void> {
+    if (!this.persistence) {
+      this.wsHub.sendJsonTo(connId, {
+        type: 'newRunResult',
+        requestId: msg.requestId,
+        applied: false,
+        reason: 'New Run requires durable persistence'
+      });
+      return;
+    }
+    try {
+      const identity = await this.startNewRun();
+      this.wsHub.sendJsonTo(connId, {
+        type: 'newRunResult',
+        requestId: msg.requestId,
+        applied: true,
+        worldSeed: identity.seed,
+        runId: identity.runId
+      });
+    } catch (error) {
+      this.wsHub.sendJsonTo(connId, {
+        type: 'newRunResult',
+        requestId: msg.requestId,
+        applied: false,
+        reason: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   /**
@@ -693,7 +848,8 @@ export class SimServer {
       configHash: this.cfgHash,
       settings: this.getAuthoritativeSettingsState(),
       inferenceMode: this.getInferenceMode(),
-      sensorSpec: buildSensorSpec()
+      sensorSpec: buildSensorSpec(),
+      frameByteLength: WorldSerializer.serialize(this.core.world).byteLength
     });
   }
 
@@ -705,19 +861,39 @@ export class SimServer {
   async handleReset(connId: number, msg: ResetMsg): Promise<void> {
     await this.runAtRecurrentResetBoundary(async () => {
       await this.disposeBrainPool();
+      const priorUpdates = buildSettingsUpdatesSnapshot();
+      const priorGraphSpec = CFG.brain.graphSpec
+        ? structuredClone(CFG.brain.graphSpec)
+        : null;
       const settings = coerceCoreSettings(msg.settings);
-      resetCFGToDefaults();
-      applySettingsUpdates(msg.updates);
-      applyGraphSpecOverride(msg.graphSpec, (reason) => {
-        this.wsHub.sendJsonTo(connId, { type: 'error', message: `reset failed: ${reason}` });
-      });
-      this.wsHub.updateSensorSpec(buildSensorSpec());
-
-      const identity = this.core.reset(settings, { runId: createRunId() });
+      const nextRevision = this.configRevision + 1;
+      let identity: SimulationRunIdentity;
+      try {
+        resetCFGToDefaults();
+        applySettingsUpdates(msg.updates);
+        applyGraphSpecOverride(msg.graphSpec, (reason) => {
+          throw new Error(reason);
+        });
+        this.pendingCheckpointConfigRevision = nextRevision;
+        identity = this.core.reset(settings, { runId: createRunId() });
+      } catch (error) {
+        resetCFGToDefaults();
+        applySettingsUpdates(priorUpdates);
+        CFG.brain.graphSpec = priorGraphSpec;
+        this.pendingCheckpointConfigRevision = null;
+        if (this.mtEnabled) await this.ensureBrainPool();
+        this.wsHub.sendJsonTo(connId, {
+          type: 'error',
+          message: `reset failed before durable transition: ${error instanceof Error ? error.message : String(error)}`
+        });
+        return;
+      }
+      this.pendingCheckpointConfigRevision = null;
       this.completeCoreRestart(identity);
       if (this.mtEnabled) await this.ensureBrainPool();
-      this.configRevision += 1;
+      this.configRevision = nextRevision;
       this.cfgHash = buildAuthoritativeConfigHash(this.core.world);
+      this.wsHub.updateSensorSpec(buildSensorSpec());
       this.clearFault();
       this.refreshWelcomeState();
     });
@@ -725,18 +901,23 @@ export class SimServer {
 
   /**
    * Start a generation-one run with a new entropy-derived seed and lineage id.
-   * This is an in-memory API only until the Phase 6 protocol and Phase 7
-   * required run-start checkpoint make external success acknowledgement safe.
-   * @returns Visible identity of the new in-memory run.
+   * @returns Visible identity of the new durably checkpointed run.
    */
   async startNewRun(): Promise<SimulationRunIdentity> {
+    if (!this.persistence) throw new Error('New Run requires durable persistence');
     return this.runAtRecurrentResetBoundary(async () => {
       await this.disposeBrainPool();
       const settings = buildCoreSettingsSnapshot(this.core.world);
-      const identity = this.core.newRun(settings, {
-        seed: createEntropySeed(this.worldSeed),
-        runId: createRunId()
-      });
+      this.pendingCheckpointConfigRevision = this.configRevision;
+      let identity: SimulationRunIdentity;
+      try {
+        identity = this.core.newRun(settings, {
+          seed: createEntropySeed(this.worldSeed),
+          runId: createRunId()
+        });
+      } finally {
+        this.pendingCheckpointConfigRevision = null;
+      }
       this.completeCoreRestart(identity);
       if (this.mtEnabled) await this.ensureBrainPool();
       this.clearFault();
@@ -752,6 +933,7 @@ export class SimServer {
   private completeCoreRestart(identity: SimulationRunIdentity): void {
     this.worldSeed = identity.seed;
     this.runId = identity.runId;
+    this.exactStartupResume = false;
     this.lastTickAt = performance.now();
     // Profiler Re-attach
     if (this.profiler) this.core.world.profiler = this.profiler;
@@ -1014,22 +1196,10 @@ export class SimServer {
   }
 
   /**
-   * Disable persistence after a non-recoverable storage failure.
-   * @param reason - Human-readable reason for disabling.
-   * @param err - Original error for logging.
-   */
-  private disablePersistence(reason: string, err: unknown): void {
-    if (this.persistenceDisabledReason) return;
-    this.persistenceDisabledReason = reason;
-    this.persistence = null;
-    console.warn(`[persistence] disabled (${reason})`, err);
-  }
-
-  /**
-   * Handle end-of-generation persistence checkpoints.
+   * Persist the Hall-of-Fame side table after the exact checkpoint hook has run.
    */
   private handleGenerationEnd(): void {
-    if (!this.persistence || this.persistenceDisabledReason) return;
+    if (!this.persistence) return;
     const currentGen = this.core.world.generation;
     if (currentGen === this.lastGeneration) return;
     this.lastGeneration = currentGen;
@@ -1040,43 +1210,9 @@ export class SimServer {
       try {
         this.persistence.saveHofEntry(hofEntry);
       } catch (err) {
-        if (isSqliteFullError(err)) {
-          this.disablePersistence('sqlite full during hall-of-fame save', err);
-          return;
-        }
         console.warn('[persistence] hof save failed', err);
       }
     }
-
-    if (this.checkpointEveryGenerations <= 0) return;
-    if (currentGen % this.checkpointEveryGenerations !== 0) return;
-    try {
-      const snapshot = this.buildSnapshotPayload();
-      this.persistence.saveSnapshot(snapshot);
-    } catch (err) {
-      if (isSqliteFullError(err)) {
-        this.disablePersistence('sqlite full during snapshot save', err);
-        return;
-      }
-      console.warn('[persistence] snapshot save failed', err);
-    }
-  }
-
-  /**
-   * Build a snapshot payload for persistence.
-   * @returns Snapshot payload.
-   */
-  private buildSnapshotPayload(): PopulationSnapshotPayload {
-    const exportData = this.core.world.exportPopulation();
-    const settings = buildCoreSettingsSnapshot(this.core.world);
-    const updates = buildSettingsUpdatesSnapshot();
-    return {
-      ...exportData,
-      cfgHash: this.cfgHash,
-      worldSeed: this.worldSeed,
-      settings,
-      updates
-    };
   }
 
   /**

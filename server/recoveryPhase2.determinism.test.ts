@@ -8,6 +8,7 @@ import type { ControllerRegistryLike, GenerationBoundaryState, World } from '../
 import { DEFAULT_CONFIG } from './config.ts';
 import { createEntropySeed, createRunId, createSessionId } from './runIdentity.ts';
 import { SimServer } from './simServer.ts';
+import { createPersistence, initDb } from './persistence.ts';
 import {
   captureAuthoritativeWorldDigest,
   findFirstAuthoritativeWorldDivergence
@@ -237,6 +238,8 @@ describe(SUITE, () => {
 
   it('passes the server seed into SimCore/World and starts a new entropy lineage', async () => {
     const wsHub = { sendJsonTo: () => undefined } as unknown as WsHub;
+    const db = initDb(':memory:');
+    const persistence = createPersistence(db);
     const server = new SimServer(
       {
         ...DEFAULT_CONFIG,
@@ -245,7 +248,7 @@ describe(SUITE, () => {
         inferenceBackend: 'js'
       },
       wsHub,
-      undefined,
+      persistence,
       'phase-2-config',
       0x12345678,
       SETTINGS,
@@ -264,6 +267,12 @@ describe(SUITE, () => {
     expect(identity.runId).not.toBe('server-run-before');
     expect(server.getWorld().seed).toBe(identity.seed);
     expect(captureAuthoritativeWorldDigest(server.getWorld()).digest).not.toBe(initial.digest);
+    const latest = persistence.loadResumeSnapshot('latest');
+    expect(latest?.compatibility).toBe('current');
+    if (!latest || latest.compatibility !== 'current') throw new Error('new-run checkpoint missing');
+    expect(latest.metadata.runId).toBe(identity.runId);
+    expect(latest.metadata.generation).toBe(1);
+    db.close();
   });
 
   it('evolution selection, crossover, mutation, and checkpoint boundary reproduce', () => {

@@ -3,6 +3,7 @@ import WebSocket, { type RawData } from 'ws';
 import { startServer } from './index.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 import { getSensorLayout } from '../src/protocol/sensors.ts';
+import type { PopulationSnapshotPayload } from './persistence.ts';
 
 /**
  * Parses WS text payloads into JSON objects when possible.
@@ -320,7 +321,7 @@ describe('server integration', () => {
       const saveResponse = await fetch(`${httpBase}/api/save`, { method: 'POST' });
       expect(saveResponse.ok).toBe(true);
       const exported = await fetch(`${httpBase}/api/export/latest`).then(async response =>
-        response.json() as Promise<{ cfgHash: string; worldSeed: number }>);
+        response.json() as Promise<PopulationSnapshotPayload>);
 
       expect(applied['configRevision']).toBe(2);
       expect(updatedHealth.configRevision).toBe(2);
@@ -330,6 +331,26 @@ describe('server integration', () => {
         (await fetch(`${httpBase}/health`).then(async response =>
           response.json() as Promise<{ run: { seed: number } }>)).run.seed
       );
+      const metadataOnlySeed = (exported.worldSeed + 1) >>> 0;
+      const imported = await fetch(`${httpBase}/api/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...exported, worldSeed: metadataOnlySeed })
+      }).then(async response => {
+        expect(response.ok).toBe(true);
+        return response.json() as Promise<{
+          importedWorldSeed: number;
+          activeWorldSeed: number;
+          seedApplied: boolean;
+          seedDisposition: string;
+        }>;
+      });
+      expect(imported).toMatchObject({
+        importedWorldSeed: metadataOnlySeed,
+        activeWorldSeed: exported.worldSeed,
+        seedApplied: false,
+        seedDisposition: expect.stringContaining('metadata-only')
+      });
     } finally {
       ws?.close();
       await server.close();

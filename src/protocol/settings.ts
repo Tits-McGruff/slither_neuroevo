@@ -153,6 +153,9 @@ export function coerceSettingsUpdateValue(
   if (path === 'sense.layoutVersion') {
     return 'v3';
   }
+  if (path === 'brain.useMlp') {
+    return value !== 0;
+  }
   const definition = SETTING_DEFINITION_BY_PATH.get(path);
   if (!definition) return value;
   const normalized = normalizeSettingValue(definition, value);
@@ -214,3 +217,15 @@ export interface CoreSettings {
   neurons4: number;
   neurons5: number;
 }
+
+/** Canonical generation-one core settings used when no snapshot overrides exist. */
+export const DEFAULT_CORE_SETTINGS: Readonly<CoreSettings> = Object.freeze({
+  snakeCount: 55,
+  simSpeed: 1,
+  hiddenLayers: 2,
+  neurons1: 64,
+  neurons2: 64,
+  neurons3: 64,
+  neurons4: 48,
+  neurons5: 32
+});

@@ -5,6 +5,8 @@ import type { InferenceBackend } from '../src/brains/types.ts';
 
 /** Allowed log levels for server output. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+/** Explicit startup population-selection mode. */
+export type ResumeSelection = 'latest' | 'fresh' | number;
 
 /** Server runtime configuration values derived from defaults, config, env, and CLI. */
 export interface ServerConfig {
@@ -29,6 +31,8 @@ export interface ServerConfig {
   mtWorkers: number;
   /** Immutable neural math backend selected before brain construction. */
   inferenceBackend: InferenceBackend;
+  /** Fresh startup, latest valid checkpoint, or one explicit snapshot id. */
+  resume: ResumeSelection;
   seed?: number;
 }
 
@@ -44,11 +48,12 @@ export const DEFAULT_CONFIG: ServerConfig = {
   maxActionsPerTick: 1,
   maxActionsPerSecond: 120,
   dbPath: './data/slither.db',
-  checkpointEveryGenerations: 0,
+  checkpointEveryGenerations: 1,
   logLevel: 'info',
   mtEnabled: false,
   mtWorkers: 0,
-  inferenceBackend: 'native'
+  inferenceBackend: 'native',
+  resume: 'latest'
 };
 
 /** Shape of a process environment map. */
@@ -98,6 +103,25 @@ function parseBoolValue(raw: string | undefined): boolean | undefined {
   if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
   if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
   return undefined;
+}
+
+/**
+ * Normalize a startup resume selector from TOML, environment, or CLI text.
+ * @param value - Raw selector value.
+ * @param warn - Optional warning callback for invalid non-CLI input.
+ * @returns Fresh, latest, or one positive snapshot id.
+ */
+function normalizeResumeSelection(
+  value: unknown,
+  warn?: (msg: string) => void
+): ResumeSelection {
+  if (value === undefined || value === null || value === '') return DEFAULT_CONFIG.resume;
+  if (value === 'latest' || value === 'fresh') return value;
+  const text = String(value).trim();
+  const parsed = typeof value === 'number' ? value : Number.parseInt(text, 10);
+  if (Number.isSafeInteger(parsed) && parsed > 0 && text === String(parsed)) return parsed;
+  warn?.(`resume selector "${String(value)}" is invalid; using ${DEFAULT_CONFIG.resume}.`);
+  return DEFAULT_CONFIG.resume;
 }
 
 /**
@@ -292,6 +316,7 @@ export function normalizeConfig(
       `inferenceBackend "${String(input.inferenceBackend)}" is invalid; using ${inferenceBackend}.`
     );
   }
+  const resume = normalizeResumeSelection(input.resume, warn);
 
   const output: ServerConfig = {
     host,
@@ -308,7 +333,8 @@ export function normalizeConfig(
     logLevel,
     mtEnabled,
     mtWorkers,
-    inferenceBackend
+    inferenceBackend,
+    resume
   };
   if (seed !== undefined) output.seed = seed;
   return output;
@@ -379,7 +405,8 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     seed: data['seed'],
     mtEnabled: data['mtEnabled'],
     mtWorkers: data['mtWorkers'],
-    inferenceBackend: data['inferenceBackend']
+    inferenceBackend: data['inferenceBackend'],
+    resume: data['resume']
   };
 }
 
@@ -461,5 +488,25 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
   if (mtWorkers !== undefined) input.mtWorkers = mtWorkers;
   const inferenceBackend = getArgValue(argv, '--backend') ?? env['INFERENCE_BACKEND'];
   if (inferenceBackend !== undefined) input.inferenceBackend = inferenceBackend;
+  const hasFresh = hasArgFlag(argv, '--fresh');
+  const hasResumeFlag = argv.some((arg) => arg === '--resume' || arg.startsWith('--resume='));
+  if (hasFresh && hasResumeFlag) {
+    throw new Error('--fresh and --resume are mutually exclusive');
+  }
+  const resumeRaw = getArgValue(argv, '--resume') ?? env['SERVER_RESUME'];
+  if (hasFresh) {
+    input.resume = 'fresh';
+  } else if (hasResumeFlag) {
+    if (!resumeRaw || resumeRaw.startsWith('--')) {
+      throw new Error('--resume requires "latest" or a positive snapshot id');
+    }
+    const selection = normalizeResumeSelection(resumeRaw);
+    if (selection === DEFAULT_CONFIG.resume && resumeRaw !== 'latest') {
+      throw new Error(`invalid --resume selection: ${resumeRaw}`);
+    }
+    input.resume = selection;
+  } else if (resumeRaw !== undefined) {
+    input.resume = resumeRaw;
+  }
   return normalizeConfig(input, warn);
 }

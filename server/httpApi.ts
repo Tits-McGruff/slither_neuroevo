@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { once } from 'node:events';
 import type { World } from '../src/world.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData } from '../src/protocol/messages.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateSnapshotPayload, type Persistence, type PopulationSnapshotPayload } from './persistence.ts';
-import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 import type { Logger } from './logger.ts';
 import type { InferenceModeRecord } from './inferenceMode.ts';
 import type { SchedulerDiagnostics, SimulationRunIdentity } from '../src/sim/SimCore.ts';
@@ -38,6 +38,8 @@ export interface HttpApiDeps {
   }>;
   /** Persistence adapter for snapshots and graph presets. */
   persistence: Persistence;
+  /** Persist the active population through the typed non-resumable export path. */
+  savePopulationExport: () => number;
   /** Returns the hash of the active server configuration. */
   getConfigHash: () => string;
   /** Returns the active world seed. */
@@ -199,14 +201,8 @@ async function routeRequest(
   }
 
   if (req.method === 'POST' && url.pathname === '/api/save') {
-    const world = deps.getWorld();
-    if (!world) {
-      sendJson(res, 503, { ok: false, message: 'world not ready' });
-      return;
-    }
     try {
-      const snapshot = buildSnapshotPayload(world, deps.getConfigHash(), deps.getWorldSeed());
-      const snapshotId = deps.persistence.saveSnapshot(snapshot);
+      const snapshotId = deps.savePopulationExport();
       sendJson(res, 200, { ok: true, snapshotId });
     } catch (err) {
       sendJson(res, 500, { ok: false, message: (err as Error).message });
@@ -215,12 +211,12 @@ async function routeRequest(
   }
 
   if (req.method === 'GET' && url.pathname === '/api/export/latest') {
-    const snapshot = deps.persistence.loadLatestSnapshot();
-    if (!snapshot) {
+    const snapshotId = deps.persistence.getLatestSnapshotId();
+    if (snapshotId === null) {
       sendJson(res, 404, { ok: false, message: 'no snapshots' });
       return;
     }
-    sendJson(res, 200, snapshot);
+    await sendJsonChunks(res, deps.persistence.exportSnapshotJsonChunks(snapshotId));
     return;
   }
 
@@ -256,7 +252,15 @@ async function routeRequest(
       sendJson(res, 400, { ok: false, message: result.reason ?? 'import failed' });
       return;
     }
-    sendJson(res, 200, { ok: true, used: result.used ?? 0, total: result.total ?? 0 });
+    sendJson(res, 200, {
+      ok: true,
+      used: result.used ?? 0,
+      total: result.total ?? 0,
+      importedWorldSeed: payload.worldSeed,
+      activeWorldSeed: deps.getWorldSeed(),
+      seedApplied: false,
+      seedDisposition: 'metadata-only; active run seed is unchanged'
+    });
     return;
   }
 
@@ -386,6 +390,25 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
 }
 
 /**
+ * Write a JSON chunk iterable while honoring Node response backpressure.
+ * @param res - HTTP response receiving the export.
+ * @param chunks - Incremental JSON chunks bounded to one genome at a time.
+ */
+async function sendJsonChunks(res: ServerResponse, chunks: Iterable<string>): Promise<void> {
+  const iterator = chunks[Symbol.iterator]();
+  const first = iterator.next();
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json');
+  let next = first;
+  while (!next.done) {
+    if (res.destroyed) throw new Error('export client disconnected');
+    if (!res.write(next.value)) await once(res, 'drain');
+    next = iterator.next();
+  }
+  res.end();
+}
+
+/**
  * Reads a JSON payload with a strict size limit.
  * @param req - Incoming request.
  * @param limitBytes - Maximum allowed payload size.
@@ -418,28 +441,4 @@ function extractPayload(body: unknown): PopulationSnapshotPayload {
     if (payload) return payload;
   }
   return body as PopulationSnapshotPayload;
-}
-
-/**
- * Builds a snapshot payload from the active world and config metadata.
- * @param world - World instance used for export.
- * @param cfgHash - Active configuration hash.
- * @param worldSeed - Seed used for world initialization.
- * @returns Snapshot payload to persist.
- */
-function buildSnapshotPayload(
-  world: World,
-  cfgHash: string,
-  worldSeed: number
-): PopulationSnapshotPayload {
-  const exportData = world.exportPopulation();
-  const settings = buildCoreSettingsSnapshot(world);
-  const updates = buildSettingsUpdatesSnapshot();
-  return {
-    ...exportData,
-    cfgHash,
-    worldSeed,
-    settings,
-    updates
-  };
 }

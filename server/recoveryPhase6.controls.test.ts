@@ -372,16 +372,16 @@ describe('Phase 6 authoritative controls', () => {
     ]);
   });
 
-  it('keeps Protocol 2 New Run explicitly unavailable until Phase 7 durability', () => {
+  it('rejects Protocol 2 New Run when durable persistence is unavailable', async () => {
     const { server, probe } = buildServer();
     const identityBefore = server.getRunIdentity();
-    server.handleNewRun(1, { type: 'newRun', requestId: 'new-run' });
+    await server.handleNewRun(1, { type: 'newRun', requestId: 'new-run' });
 
     expect(probe.direct.at(-1)?.message).toMatchObject({
       type: 'newRunResult',
       requestId: 'new-run',
       applied: false,
-      reason: expect.stringContaining('Phase 7')
+      reason: expect.stringContaining('durable persistence')
     });
     expect(server.getRunIdentity()).toEqual(identityBefore);
   });

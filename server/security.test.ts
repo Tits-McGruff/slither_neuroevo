@@ -100,6 +100,9 @@ async function startServerWithGuard() {
   const startPromise = startServer({
     ...DEFAULT_CONFIG,
     port: 0,
+    dbPath: ':memory:',
+    resume: 'fresh',
+    inferenceBackend: 'js',
     logLevel: 'error'
   }).catch((err) => {
     if (isEperm(err)) return null;

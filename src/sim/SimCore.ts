@@ -10,7 +10,8 @@ import {
   World,
   type BatchInferenceRunner,
   type ControllerRegistryLike,
-  type GenerationBoundaryHook
+  type GenerationBoundaryHook,
+  type WorldResumeState
 } from '../world.ts';
 import { WorldSerializer } from '../serializer.ts';
 import { CFG } from '../config.ts';
@@ -133,6 +134,8 @@ export interface SimCoreOptions {
   inferenceBackend?: InferenceBackend;
   /** Optional exact pre-spawn generation-boundary observer. */
   onGenerationBoundary?: GenerationBoundaryHook;
+  /** Optional generation-boundary state used instead of random initialization. */
+  resume?: WorldResumeState;
   /** Optional async boundary hook awaited before each fixed step. */
   onStepStarting?: StepStartingHook;
   /** Optional async observer awaited between committed fixed steps. */
@@ -229,11 +232,14 @@ export class SimCore {
     this.stepCommittedHook = options.onStepCommitted ?? null;
     this.world = new World(options.settings || {}, {
       seed: this.worldSeed,
+      runId: this.runId,
       inferenceBackend: this.inferenceBackend,
+      ...(options.resume ? { resume: options.resume } : {}),
       ...(this.generationBoundaryHook
         ? { onGenerationBoundary: this.generationBoundaryHook }
         : {})
     });
+    this.tickId = this.world.tickId;
     this.brainPool = options.brainPool || null;
     const tickRateHz = options.tickRateHz;
     if (typeof tickRateHz === 'number' && Number.isFinite(tickRateHz) && tickRateHz > 0) {
@@ -464,6 +470,7 @@ export class SimCore {
     const nextRunId = normalizeRunId(runId, nextSeed);
     const nextWorld = new World(settings, {
       seed: nextSeed,
+      runId: nextRunId,
       inferenceBackend: this.inferenceBackend,
       ...(this.generationBoundaryHook
         ? { onGenerationBoundary: this.generationBoundaryHook }

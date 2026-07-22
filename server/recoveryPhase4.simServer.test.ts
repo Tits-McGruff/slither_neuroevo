@@ -8,6 +8,7 @@ import type { StatsMsg, VizMsg } from './protocol.ts';
 import { captureAuthoritativeWorldDigest } from './test/authoritativeWorldDigest.ts';
 import { DEFAULT_CONFIG } from './config.ts';
 import { BrainPool } from './brainPool.ts';
+import { createPersistence, initDb } from './persistence.ts';
 import { SimServer } from './simServer.ts';
 import type { WsHub } from './wsHub.ts';
 
@@ -15,6 +16,8 @@ import type { WsHub } from './wsHub.ts';
 const SUITE = 'recovery Phase 4 — SimServer canonical MT integration';
 /** Servers awaiting worker cleanup if an assertion interrupts a test. */
 const activeServers = new Set<SimServer>();
+/** In-memory databases retained until their server fixtures have stopped. */
+const activeDatabases = new Set<{ close: () => void }>();
 
 /** Observable WebSocket side effects used by server failure assertions. */
 interface WsHubProbe {
@@ -59,6 +62,8 @@ beforeEach(() => {
 afterEach(async () => {
   await Promise.all(Array.from(activeServers, async (server) => server.stop()));
   activeServers.clear();
+  for (const database of activeDatabases) database.close();
+  activeDatabases.clear();
   resetCFGToDefaults();
 });
 
@@ -94,6 +99,8 @@ async function createMtServer(
 ): Promise<{ server: SimServer; access: SimServerAccess; probe: WsHubProbe }> {
   await prepareInferenceBackend(backend);
   const { hub, probe } = buildWsHub(hasFrameRecipients);
+  const database = initDb(':memory:');
+  activeDatabases.add(database);
   const server = new SimServer(
     {
       ...DEFAULT_CONFIG,
@@ -103,7 +110,7 @@ async function createMtServer(
       checkpointEveryGenerations: 0
     },
     hub,
-    undefined,
+    createPersistence(database),
     'phase4-config',
     0x4a3b2c1d,
     { snakeCount: 8, simSpeed: 1 },
