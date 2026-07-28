@@ -11,6 +11,7 @@ import { resetCFGToDefaults } from '../../src/config.ts';
 import { enrichArchInfo } from '../../src/mlp.ts';
 import { SimProfiler } from '../../src/profiling.ts';
 import { SimCore } from '../../src/sim/SimCore.ts';
+import { BrainPool } from '../../server/brainPool.ts';
 import {
   installDenseLongBodies,
   installStage2Scenario,
@@ -40,6 +41,8 @@ interface RuntimeOptions {
   measuredSteps: number;
   /** Serialize every Nth measured step; zero disables frames. */
   frameEvery: number;
+  /** Canonical Node inference workers; zero keeps the serial path. */
+  workers: number;
   /** Optional JSON artifact destination. */
   outputPath: string | null;
 }
@@ -92,6 +95,7 @@ function parseOptions(argv: readonly string[]): RuntimeOptions {
     warmupSteps: DEFAULT_WARMUP_STEPS,
     measuredSteps: DEFAULT_MEASURED_STEPS,
     frameEvery: 1,
+    workers: 0,
     outputPath: null
   };
   for (let index = 0; index < argv.length; index++) {
@@ -131,6 +135,11 @@ function parseOptions(argv: readonly string[]): RuntimeOptions {
         break;
       case '--frame-every':
         result.frameEvery = parseCount(value, option, true);
+        index++;
+        break;
+      case '--workers':
+        result.workers = parseCount(value, option, true);
+        if (result.workers > 8) throw new Error('--workers cannot exceed 8');
         index++;
         break;
       case '--output':
@@ -225,62 +234,88 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
     maxStepsPerPump: 1,
     tickRateHz: 60
   });
-  const installedBodyPoints = scenario.denseLongBodies ? installDenseLongBodies(core.world) : null;
-  for (let step = 0; step < options.warmupSteps; step++) {
-    await core.update(core.fixedDt);
-    await yieldEventLoop();
-  }
-
-  const profiler = new SimProfiler({ enabled: true, reportIntervalMs: 3_600_000 });
-  core.world.profiler = profiler;
-  const eventLoop = monitorEventLoopDelay({ resolution: 10 });
-  eventLoop.enable();
-  const stepMs: number[] = [];
-  const sensorMs: number[] = [];
-  const brainMs: number[] = [];
-  const physicsMs: number[] = [];
-  const framePackMs: number[] = [];
-  const frameBytes: number[] = [];
-  let peakRssBytes = process.memoryUsage().rss;
-  let peakHeapUsedBytes = process.memoryUsage().heapUsed;
-  let peakExternalBytes = process.memoryUsage().external;
-  const cpuBefore = process.cpuUsage();
-  const memoryBefore = process.memoryUsage();
-  const wallStarted = performance.now();
-  for (let step = 0; step < options.measuredSteps; step++) {
-    const started = performance.now();
-    const committed = await core.update(core.fixedDt);
-    const duration = performance.now() - started;
-    if (committed !== 1) throw new Error(`Expected one committed step, received ${committed}`);
-    stepMs.push(duration);
-    sensorMs.push(profiler.tickSensorsMs);
-    brainMs.push(profiler.tickBrainMs);
-    physicsMs.push(Math.max(0, duration - profiler.tickSensorsMs - profiler.tickBrainMs));
-    if (options.frameEvery > 0 && step % options.frameEvery === 0) {
-      const frameStarted = performance.now();
-      const frame = core.serialize();
-      framePackMs.push(performance.now() - frameStarted);
-      frameBytes.push(frame.byteLength);
+  let pool: BrainPool | null = null;
+  try {
+    if (options.workers > 0) {
+      const graph = enrichArchInfo(core.world.arch);
+      const packedWeights = new Float32Array(core.world.population.length * graph.totalCount);
+      for (let slot = 0; slot < core.world.population.length; slot++) {
+        packedWeights.set(core.world.population[slot]!.weights, slot * graph.totalCount);
+      }
+      pool = new BrainPool(options.workers, options.backend);
+      await pool.init({
+        spec: core.world.arch.spec,
+        specKey: core.world.archKey,
+        populationCount: core.world.population.length,
+        paramCount: graph.totalCount,
+        inputStride: core.world.arch.spec.nodes.find(node => node.type === 'Input')?.outputSize ?? 0,
+        outputStride: core.world.arch.spec.outputSize,
+        maxBatch: core.world.population.length,
+        weights: packedWeights
+      });
+      core.brainPool = pool;
     }
-    const memory = process.memoryUsage();
-    peakRssBytes = Math.max(peakRssBytes, memory.rss);
-    peakHeapUsedBytes = Math.max(peakHeapUsedBytes, memory.heapUsed);
-    peakExternalBytes = Math.max(peakExternalBytes, memory.external);
-    await yieldEventLoop();
-  }
-  const measuredWallMs = performance.now() - wallStarted;
-  const cpu = process.cpuUsage(cpuBefore);
-  const memoryAfter = process.memoryUsage();
-  eventLoop.disable();
-  const graph = enrichArchInfo(core.world.arch);
-  const nativeKernelNodesPerBrain = graph.nodes.filter(node => node.length > 0).length;
-  const brainCallCount = profiler.windowBrainCalls;
-  const collision = core.world.getCollisionGridDiagnostics();
-  return {
+    const installedBodyPoints = scenario.denseLongBodies ? installDenseLongBodies(core.world) : null;
+    for (let step = 0; step < options.warmupSteps; step++) {
+      await core.update(core.fixedDt);
+      await yieldEventLoop();
+    }
+
+    const profiler = new SimProfiler({ enabled: true, reportIntervalMs: 3_600_000 });
+    core.world.profiler = profiler;
+    const eventLoop = monitorEventLoopDelay({ resolution: 10 });
+    eventLoop.enable();
+    const stepMs: number[] = [];
+    const sensorMs: number[] = [];
+    const brainMs: number[] = [];
+    const physicsMs: number[] = [];
+    const framePackMs: number[] = [];
+    const frameBytes: number[] = [];
+    let serialPopulationEvaluations = 0;
+    let pooledPopulationEvaluations = 0;
+    let peakRssBytes = process.memoryUsage().rss;
+    let peakHeapUsedBytes = process.memoryUsage().heapUsed;
+    let peakExternalBytes = process.memoryUsage().external;
+    const cpuBefore = process.cpuUsage();
+    const memoryBefore = process.memoryUsage();
+    const wallStarted = performance.now();
+    for (let step = 0; step < options.measuredSteps; step++) {
+      const started = performance.now();
+      const committed = await core.update(core.fixedDt);
+      const duration = performance.now() - started;
+      if (committed !== 1) throw new Error(`Expected one committed step, received ${committed}`);
+      stepMs.push(duration);
+      sensorMs.push(profiler.tickSensorsMs);
+      brainMs.push(profiler.tickBrainMs);
+      physicsMs.push(Math.max(0, duration - profiler.tickSensorsMs - profiler.tickBrainMs));
+      serialPopulationEvaluations += core.world._serialControlCount;
+      pooledPopulationEvaluations += core.world._controlBatch.count;
+      if (options.frameEvery > 0 && step % options.frameEvery === 0) {
+        const frameStarted = performance.now();
+        const frame = core.serialize();
+        framePackMs.push(performance.now() - frameStarted);
+        frameBytes.push(frame.byteLength);
+      }
+      const memory = process.memoryUsage();
+      peakRssBytes = Math.max(peakRssBytes, memory.rss);
+      peakHeapUsedBytes = Math.max(peakHeapUsedBytes, memory.heapUsed);
+      peakExternalBytes = Math.max(peakExternalBytes, memory.external);
+      await yieldEventLoop();
+    }
+    const measuredWallMs = performance.now() - wallStarted;
+    const cpu = process.cpuUsage(cpuBefore);
+    const memoryAfter = process.memoryUsage();
+    eventLoop.disable();
+    const graph = enrichArchInfo(core.world.arch);
+    const nativeKernelNodesPerBrain = graph.nodes.filter(node => node.length > 0).length;
+    const brainCallCount = profiler.windowBrainCalls;
+    const populationEvaluations = serialPopulationEvaluations + pooledPopulationEvaluations;
+    const collision = core.world.getCollisionGridDiagnostics();
+    return {
     schema: 'slither-stage2-runtime-baseline',
     version: RESULT_VERSION,
     evidenceClass: 'new measured result',
-    caveat: 'Direct production SimCore/World path on the named host; not an end-to-end server, LAN, browser, or target-VM result.',
+    caveat: 'Direct production SimCore/World path, including the canonical BrainPool when selected; not an end-to-end server, LAN, browser, or target-VM result.',
     source: {
       commit: sourceCommit(),
       dirty: spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).stdout.trim().length > 0
@@ -312,6 +347,10 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
       measuredSteps: options.measuredSteps,
       fixedDtSeconds: core.fixedDt,
       frameEvery: options.frameEvery,
+      processMode: options.workers > 0 ? 'canonical-node-worker-pool' : 'serial',
+      requestedWorkers: options.workers,
+      activeWorkers: pool?.getActiveWorkerCount() ?? 0,
+      workerStatuses: pool?.getWorkerStatuses() ?? [],
       installedBodyPoints,
       graph: {
         key: graph.key,
@@ -341,8 +380,11 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
       generationTimeAtEnd: Number(core.world.generationTime.toFixed(9)),
       profilerBrainCalls: brainCallCount,
       profilerSensorCalls: profiler.windowSensorCalls,
+      serialPopulationEvaluations,
+      pooledPopulationEvaluations,
+      populationEvaluations,
       derivedNativeCrossings: options.backend === 'native'
-        ? brainCallCount * nativeKernelNodesPerBrain
+        ? populationEvaluations * nativeKernelNodesPerBrain
         : 0,
       nativeKernelNodesPerBrain,
       collisionGrid: collision,
@@ -369,7 +411,10 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
         peakExternalBytes
       }
     }
-  };
+    };
+  } finally {
+    await pool?.shutdown();
+  }
 }
 
 /** Execute the command-line runner. */
