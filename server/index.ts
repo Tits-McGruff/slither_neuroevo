@@ -128,6 +128,7 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
         clients: wsHub?.getClientCount() ?? 0,
         inferenceMode: simServer.getInferenceMode(),
         scheduler: simServer.getSchedulerDiagnostics(),
+        collisionGrid: simServer.getCollisionGridDiagnostics(),
         fault: simServer.getFaultStatus(),
         run: simServer.getRunIdentity(),
         persistence: simServer.getPersistenceStatus(),

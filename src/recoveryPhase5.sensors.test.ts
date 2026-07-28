@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CFG, resetCFGToDefaults } from './config.ts';
-import { POINTS_DELTA_SENSOR_DESCRIPTION } from './protocol/sensors.ts';
+import { getSensorLayout, POINTS_DELTA_SENSOR_DESCRIPTION } from './protocol/sensors.ts';
 import { Pellet, type Snake } from './snake.ts';
+import { angleToCenteredBin } from './sensors.ts';
 import {
   World,
   type BatchInferenceRunner,
@@ -26,6 +27,8 @@ interface SensorWorldFixture {
 
 /** Delivery paths that must share one score-observation boundary. */
 type DeliveryPath = 'external' | 'pooled' | 'serial';
+/** Controller paths that must all observe bodies through the production grid. */
+type BodyObservationPath = 'external' | 'baseline' | 'neural';
 
 beforeEach(() => {
   resetCFGToDefaults();
@@ -116,7 +119,91 @@ async function observeDeliveryPath(path: DeliveryPath): Promise<{
   return { delta: observed, marker: snake.pointsAtLastSensorSample };
 }
 
+/**
+ * Observe one nearby body through a complete production controller branch.
+ * @param path - Neural, baseline-bot, or external-controller observation branch.
+ * @returns Nearest-body scalar and forward hazard-bin values.
+ */
+async function observeRealBody(path: BodyObservationPath): Promise<{
+  nearestBody: number;
+  forwardHazard: number;
+}> {
+  CFG.baselineBots.count = path === 'baseline' ? 1 : 0;
+  const world = new World(
+    { snakeCount: path === 'baseline' ? 1 : 2 },
+    { seed: 7100 + path.length, inferenceBackend: 'js' }
+  );
+  const observer = path === 'baseline' ? world.baselineBots[0] : world.snakes[0];
+  const target = path === 'baseline' ? world.snakes[0] : world.snakes[1];
+  if (!observer || !target) throw new Error(`${path} body-sensor fixture is incomplete`);
+
+  observer.x = 0;
+  observer.y = 0;
+  observer.dir = 0;
+  observer.points = [
+    { x: 0, y: 0 },
+    { x: -CFG.snakeSpacing, y: 0 }
+  ];
+  target.x = 80;
+  target.y = 0;
+  target.points = [
+    { x: 80, y: -20 },
+    { x: 80, y: 20 }
+  ];
+  world._collGrid.build(world.snakes, CFG.collision.skipSegments, CFG.collision.cellSize);
+
+  const layout = getSensorLayout(CFG.sense.bubbleBins, 'v3');
+  const hazardIndex = layout.offsets.hazard + angleToCenteredBin(0, layout.bins);
+  let nearestBody = Number.NaN;
+  let forwardHazard = Number.NaN;
+  const capture = (sensors: Float32Array): void => {
+    nearestBody = sensors[16] ?? Number.NaN;
+    forwardHazard = sensors[hazardIndex] ?? Number.NaN;
+  };
+
+  if (path === 'external') {
+    target.controlMode = 'external-only';
+    const controllers: ControllerRegistryLike = {
+      isControlled: snakeId => snakeId === observer.id,
+      getAction: () => ({ turn: 0, boost: 0 }),
+      publishSensors: (snakeId, _tickId, sensors) => {
+        if (snakeId === observer.id) capture(sensors);
+      }
+    };
+    await world.step(1 / 60, 800, 600, controllers, 1);
+  } else if (path === 'neural') {
+    target.controlMode = 'external-only';
+    observer.brain.forward = sensors => {
+      capture(sensors);
+      return Float32Array.of(0, 0);
+    };
+    await world.step(1 / 60, 800, 600, undefined, 1);
+  } else {
+    const originalComputeSensors = observer.computeSensors.bind(observer);
+    observer.computeSensors = (sampleWorld, out) => {
+      const sensors = originalComputeSensors(sampleWorld, out);
+      capture(sensors);
+      return sensors;
+    };
+    await world.step(1 / 60, 800, 600, undefined, 1);
+  }
+
+  return { nearestBody, forwardHazard };
+}
+
 describe(SUITE, () => {
+  it('SENSE-001 exposes real body hazards to neural, baseline, and external observations', async () => {
+    const observations: Array<{ nearestBody: number; forwardHazard: number }> = [];
+    for (const path of ['neural', 'baseline', 'external'] as const) {
+      observations.push(await observeRealBody(path));
+    }
+
+    for (const observation of observations) {
+      expect(observation.nearestBody).toBeGreaterThan(-1);
+      expect(observation.forwardHazard).toBeLessThan(1);
+    }
+  });
+
   it('SNS-001 defines the first sample as score change since construction', () => {
     const { world, snake } = createSensorWorld();
     snake.pointsScore = 2.5;

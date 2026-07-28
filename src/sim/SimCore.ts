@@ -19,6 +19,7 @@ import { normalizeSeed } from '../rng.ts';
 import type { CoreSettings } from '../protocol/settings.ts';
 import type { Snake } from '../snake.ts';
 import type { InferenceBackend } from '../brains/types.ts';
+import type { SpatialHashDiagnostics } from '../spatialHash.ts';
 import type {
   FitnessData,
   FitnessHistoryEntry,
@@ -114,6 +115,8 @@ export interface CoreStats {
   baselineBotsAlive: number;
   baselineBotsTotal: number;
   fps: number;
+  /** Operational collision-index load and capacity diagnostics. */
+  collisionGrid: SpatialHashDiagnostics;
   fitnessData?: FitnessData;
   fitnessHistory?: FitnessHistoryEntry[];
   viz?: VizData;
@@ -416,6 +419,7 @@ export class SimCore {
       baselineBotsAlive,
       baselineBotsTotal,
       fps: this.fps,
+      collisionGrid: this.world.getCollisionGridDiagnostics(),
       fitnessData: {
         gen: this.world.generation,
         avgFitness: avgFit,

@@ -47,10 +47,22 @@ interface SnakeLike {
   sizeNorm: () => number;
 }
 
-/** Segment reference returned by collision grid queries. */
+/** Segment reference passed by collision-grid queries. */
 interface SegmentRef {
   s: SnakeLike;
   i: number;
+}
+
+/** Production callback-based collision-grid contract used by body sensing. */
+interface CollisionGridLike {
+  /** Current spatial cell size. */
+  cellSize?: number;
+  /** Visit segments stored in one raw cell coordinate. */
+  queryCell?: (
+    cx: number,
+    cy: number,
+    callback: (snake: SnakeLike, segmentIndex: number) => void
+  ) => void;
 }
 
 /** World interface required for sensor calculations. */
@@ -59,7 +71,7 @@ interface WorldLike {
   bestPointsThisGen: number;
   snakes?: SnakeLike[];
   pelletGrid?: { map?: Map<string, PelletLike[]>; cellSize?: number };
-  _collGrid?: { map?: Map<string, unknown>; cellSize?: number; query?: (cx: number, cy: number) => SegmentRef[] | null };
+  _collGrid?: CollisionGridLike;
 }
 
 /**
@@ -117,7 +129,7 @@ function _forEachNearbySegment(
   fn: (ref: SegmentRef) => void
 ): void {
   const grid = world._collGrid;
-  if (!grid || !grid.map || !grid.query) return;
+  if (!grid?.queryCell) return;
   const cs = Math.max(1, grid.cellSize || CFG.collision.cellSize);
   // Segment midpoints are hashed; pad by ~1.5 cells to reduce misses.
   const pad = cs * 1.5;
@@ -130,15 +142,12 @@ function _forEachNearbySegment(
   const maxChecks = Math.max(200, CFG.sense?.maxSegmentChecks ?? 1600);
   for (let cy = minCy; cy <= maxCy; cy++) {
     for (let cx = minCx; cx <= maxCx; cx++) {
-      const arr = grid.query(cx, cy);
-      if (!arr) continue;
-      for (let j = 0; j < arr.length; j++) {
-        const ref = arr[j];
-        if (!ref) continue;
-        fn(ref);
-        checks++;
+      grid.queryCell(cx, cy, (snake, segmentIndex) => {
         if (checks >= maxChecks) return;
-      }
+        fn({ s: snake, i: segmentIndex });
+        checks++;
+      });
+      if (checks >= maxChecks) return;
     }
   }
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { angleToCenteredBin, buildSensors, computeSensorRadii } from './sensors.ts';
 import { getSensorLayout } from './protocol/sensors.ts';
 import { CFG, resetCFGToDefaults } from './config.ts';
+import { FlatSpatialHash } from './spatialHash.ts';
 
 describe('sensors.ts', () => {
   /** Snapshot of default bubble bin count for cleanup. */
@@ -286,11 +287,9 @@ describe('sensors.ts', () => {
       points: [{ x: 70, y: 0 }, { x: 70, y: 0 }]
     });
     const world = makeWorld({ pellets: [], bestPointsThisGen: 5, snakes: [snake, other] });
-    world._collGrid = {
-      cellSize: 500,
-      map: new Map(),
-      query: () => [{ s: other, i: 1 }]
-    };
+    const grid = new FlatSpatialHash<typeof other>(2000, 2000, 500, 1);
+    grid.build([other]);
+    world._collGrid = grid;
 
     const sensors = buildSensors(world, snake);
     const layout = getSensorLayout(CFG.sense.bubbleBins, 'v3');
@@ -298,6 +297,31 @@ describe('sensors.ts', () => {
     const hazardValue = sensors[layout.offsets.hazard + hazardIdx];
 
     expect(hazardValue).toBeCloseTo(0, 4);
+  });
+
+  it('uses the production collision-grid contract for nearest-body and hazard values', () => {
+    configureV3(8);
+    const snake = makeSnake({ id: 1, radius: 10 });
+    const other = makeSnake({
+      id: 2,
+      radius: 10,
+      points: [{ x: 80, y: -20 }, { x: 80, y: 20 }]
+    });
+    const world = makeWorld({ pellets: [], bestPointsThisGen: 5, snakes: [snake, other] });
+    const grid = new FlatSpatialHash<typeof other>(2000, 2000, 70, 1);
+    grid.build([other]);
+    world._collGrid = grid;
+
+    const withBody = buildSensors(world, snake);
+    const layout = getSensorLayout(CFG.sense.bubbleBins, 'v3');
+    const hazardIndex = layout.offsets.hazard + angleToCenteredBin(0, layout.bins);
+    const nearestBodyIndex = 16;
+
+    world._collGrid = new FlatSpatialHash<typeof other>(2000, 2000, 70, 1);
+    const withoutBody = buildSensors(world, snake);
+
+    expect(withBody[nearestBodyIndex]).toBeGreaterThan(withoutBody[nearestBodyIndex] ?? -1);
+    expect(withBody[hazardIndex]).toBeLessThan(withoutBody[hazardIndex] ?? 1);
   });
 
   it('normalizes v2 wall clearance by rNear', () => {

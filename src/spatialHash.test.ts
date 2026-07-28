@@ -57,20 +57,92 @@ describe('spatialHash.ts', () => {
     expect(hits).toEqual([]);
   });
 
-  it('caps inserts at capacity', () => {
+  it('rejects an insertion that was not admitted instead of silently dropping it', () => {
     type SnakeLike = { id?: number | string; alive: boolean; points: Array<{ x: number; y: number }> };
     const grid = new FlatSpatialHash<SnakeLike>(100, 100, 10, 1);
     grid.reset();
     const snakeA: SnakeLike = { id: 'a', alive: true, points: [] };
     const snakeB: SnakeLike = { id: 'b', alive: true, points: [] };
     grid.add(0, 0, snakeA, 1);
-    grid.add(0, 0, snakeB, 2);
+    expect(() => grid.add(0, 0, snakeB, 2)).toThrow(/exceeded admitted capacity/);
 
     const hits: Array<[SnakeLike, number]> = [];
     grid.query(0, 0, (obj, idx) => hits.push([obj, idx]));
 
     expect(grid.count).toBe(1);
     expect(hits).toEqual([[snakeA, 1]]);
+    expect(grid.getDiagnostics().faultReason).toMatch(/exceeded admitted capacity/);
+  });
+
+  it('grows before a complete build so entries beyond the old capacity remain queryable', () => {
+    type SnakeLike = { alive: boolean; points: Array<{ x: number; y: number }> };
+    const grid = new FlatSpatialHash<SnakeLike>(200, 200, 10, 1, 8);
+    const snake: SnakeLike = {
+      alive: true,
+      points: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 20, y: 0 },
+        { x: 30, y: 0 }
+      ]
+    };
+
+    grid.build([snake]);
+
+    const hits: number[] = [];
+    for (const x of [5, 15, 25]) grid.query(x, 0, (_object, index) => hits.push(index));
+    expect(hits.sort((left, right) => left - right)).toEqual([1, 2, 3]);
+    expect(grid.getDiagnostics()).toMatchObject({
+      currentEntries: 3,
+      peakEntries: 3,
+      growths: 1,
+      rebuilds: 1,
+      faultReason: null
+    });
+  });
+
+  it('keeps every segment when a rebuild exceeds the former 200,000-entry ceiling', () => {
+    type SnakeLike = { alive: boolean; points: Array<{ x: number; y: number }> };
+    const oldCapacity = 200_000;
+    const point = { x: 0, y: 0 };
+    const snake: SnakeLike = {
+      alive: true,
+      points: new Array<{ x: number; y: number }>(oldCapacity + 2).fill(point)
+    };
+    const grid = new FlatSpatialHash<SnakeLike>(100, 100, 10, oldCapacity, oldCapacity * 2);
+
+    grid.build([snake]);
+
+    let visited = 0;
+    grid.query(0, 0, () => {
+      visited++;
+    });
+    expect(grid.count).toBe(oldCapacity + 1);
+    expect(visited).toBe(oldCapacity + 1);
+    expect(grid.getDiagnostics()).toMatchObject({
+      currentEntries: oldCapacity + 1,
+      growths: 1,
+      faultReason: null
+    });
+  });
+
+  it('fails a rebuild before clearing the prior grid when its maximum is unsafe', () => {
+    type SnakeLike = { alive: boolean; points: Array<{ x: number; y: number }> };
+    const grid = new FlatSpatialHash<SnakeLike>(100, 100, 10, 1, 2);
+    const prior: SnakeLike = {
+      alive: true,
+      points: [{ x: 0, y: 0 }, { x: 10, y: 0 }]
+    };
+    grid.build([prior]);
+    const oversized: SnakeLike = {
+      alive: true,
+      points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 0 }]
+    };
+
+    expect(() => grid.build([oversized])).toThrow(/requires 3 entries.*maximum 2/);
+    const hits: number[] = [];
+    grid.query(5, 0, (_object, index) => hits.push(index));
+    expect(hits).toEqual([1]);
   });
 
   it('build populates segments for alive snakes', () => {

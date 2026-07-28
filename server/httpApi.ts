@@ -8,6 +8,7 @@ import type { Logger } from './logger.ts';
 import type { InferenceModeRecord } from './inferenceMode.ts';
 import type { SchedulerDiagnostics, SimulationRunIdentity } from '../src/sim/SimCore.ts';
 import type { SimulationFaultStatus } from './simServer.ts';
+import type { SpatialHashDiagnostics } from '../src/spatialHash.ts';
 
 /** Hard limit for incoming request bodies to avoid memory pressure. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -22,6 +23,7 @@ export interface HttpApiDeps {
     clients: number;
     inferenceMode: InferenceModeRecord;
     scheduler: SchedulerDiagnostics;
+    collisionGrid: SpatialHashDiagnostics;
     fault: SimulationFaultStatus;
     run: SimulationRunIdentity;
     configRevision: number;

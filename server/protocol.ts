@@ -1,5 +1,6 @@
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../src/protocol/messages.ts';
 import type { SensorSpec as SensorSpecBase } from '../src/protocol/sensors.ts';
+import type { SpatialHashDiagnostics } from '../src/spatialHash.ts';
 import type {
   CoreSettings,
   LiveSettingsUpdate,
@@ -235,6 +236,8 @@ export interface StatsMsg {
   baselineBotsTotal: number;
   /** Latest server pump rate. */
   fps: number;
+  /** Operational collision-index load and capacity diagnostics. */
+  collisionGrid: SpatialHashDiagnostics;
   /** Optional current generation fitness summary. */
   fitnessData?: FitnessData;
   /** Optional bounded fitness history. */

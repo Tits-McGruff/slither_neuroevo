@@ -18,6 +18,7 @@ import {
 } from '../src/protocol/settings.ts';
 import { SimProfiler, formatSimProfilerReport } from '../src/profiling.ts';
 import type { Snake } from '../src/snake.ts';
+import type { SpatialHashDiagnostics } from '../src/spatialHash.ts';
 import type { ServerConfig } from './config.ts';
 import { BrainPool } from './brainPool.ts';
 import {
@@ -401,6 +402,14 @@ export class SimServer {
    */
   getSchedulerDiagnostics(): SchedulerDiagnostics {
     return this.core.getSchedulerDiagnostics();
+  }
+
+  /**
+   * Return current collision-index load, capacity, and admission diagnostics.
+   * @returns Operational spatial-index measurements.
+   */
+  getCollisionGridDiagnostics(): SpatialHashDiagnostics {
+    return this.core.world.getCollisionGridDiagnostics();
   }
 
   /**

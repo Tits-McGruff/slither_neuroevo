@@ -1,6 +1,7 @@
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../protocol/messages.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
 import type { SensorSpec } from '../protocol/sensors.ts';
+import type { SpatialHashDiagnostics } from '../spatialHash.ts';
 import type {
   CoreSettings,
   LiveSettingsUpdate,
@@ -54,6 +55,7 @@ export interface StatsMsg {
   baselineBotsAlive: number;
   baselineBotsTotal: number;
   fps: number;
+  collisionGrid: SpatialHashDiagnostics;
   fitnessData?: FitnessData;
   fitnessHistory?: FitnessHistoryEntry[];
   viz?: VizData;

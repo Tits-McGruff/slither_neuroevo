@@ -154,7 +154,19 @@ describe(SUITE, () => {
       aliveTotal: 3,
       baselineBotsAlive: 1,
       baselineBotsTotal: 1,
-      fps: 60
+      fps: 60,
+      collisionGrid: {
+        currentEntries: 10,
+        peakEntries: 12,
+        capacity: 100,
+        maxCapacity: 1000,
+        estimatedCapacityBytes: 1600,
+        rebuilds: 5,
+        growths: 0,
+        outOfBoundsEntries: 0,
+        admissionReason: 'test fixture',
+        faultReason: null
+      }
     };
     expect(stats.aliveTotal).toBe(3);
     // @ts-expect-error stats requires total fields

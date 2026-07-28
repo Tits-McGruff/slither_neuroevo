@@ -7,7 +7,7 @@ import { Snake, Pellet, pointSegmentDist2 } from './snake.ts';
 import type { ControlInput } from './snake.ts';
 import { clamp, lerp, TAU } from './utils.ts';
 import { hof } from './hallOfFame.ts';
-import { FlatSpatialHash } from './spatialHash.ts';
+import { FlatSpatialHash, type SpatialHashDiagnostics } from './spatialHash.ts';
 import { BaselineBotManager, type BaselineBotRngState } from './bots/baselineBots.ts';
 import { NullBrain } from './brains/nullBrain.ts';
 import type { InferenceBackend } from './brains/types.ts';
@@ -401,6 +401,14 @@ export class World {
   /** Access the world radius from current settings. */
   get worldRadius(): number {
     return this.settings.worldRadius;
+  }
+
+  /**
+   * Return operational collision-index measurements without exposing its storage.
+   * @returns Capacity, load, rebuild, admission, and fault diagnostics.
+   */
+  getCollisionGridDiagnostics(): SpatialHashDiagnostics {
+    return this._collGrid.getDiagnostics();
   }
 
   /**
@@ -1260,23 +1268,11 @@ export class World {
 
   /** Rebuild the segment collision grid from the current alive snake bodies. */
   private _rebuildCollisionGrid(): void {
-    const skip = Math.max(0, Math.floor(CFG.collision.skipSegments));
-    this._collGrid.reset(CFG.collision.cellSize);
-    for (const snake of this.snakes) {
-      if (!snake.alive) continue;
-      const points = snake.points;
-      for (let pointIndex = Math.max(1, skip); pointIndex < points.length; pointIndex++) {
-        const previous = points[pointIndex - 1];
-        const current = points[pointIndex];
-        if (!previous || !current) continue;
-        this._collGrid.add(
-          (previous.x + current.x) * 0.5,
-          (previous.y + current.y) * 0.5,
-          snake,
-          pointIndex
-        );
-      }
-    }
+    this._collGrid.build(
+      this.snakes,
+      CFG.collision.skipSegments,
+      CFG.collision.cellSize
+    );
   }
 
   /**
