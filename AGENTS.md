@@ -3,10 +3,14 @@
 ## Project scope and layout
 
 Slither Neuroevolution is a browser-based neuroevolution sandbox. The browser
-is a rendering and control client; the Node server owns every authoritative
-simulation decision. Loopback is the default, and deliberate use from other
-devices on the owner's trusted home LAN is supported. This repository does not
-provide authentication, TLS, or a hardened public deployment mode.
+is a rendering and control client. On the current branch, Node/TypeScript still
+owns the authoritative simulation; this is the temporary reference
+implementation during the approved forward migration. The approved target has
+one Rust-owned authoritative game, with Node limited to a thin HTTP,
+WebSocket, static-file, routing, and SQLite-metadata interface. Loopback is the
+default, and deliberate use from other devices on the owner's trusted home LAN
+is supported. This repository does not provide authentication, TLS, or a
+hardened public deployment mode.
 
 The main browser entry point is `index.html`, with UI behavior in `src/main.ts`,
 rendering in `src/render.ts`, and styling in `styles.css`. Server startup is in
@@ -21,14 +25,20 @@ through `vite.config.ts`. SQLite state defaults to the ignored
 creates it from current defaults on first startup when it is absent. Do not
 describe it as a tracked source file.
 
-Active plans live in `docs/todo/`. `docs/todo/project-recovery-plan.md` is the
-authoritative recovery record. `docs/todo/native_refactor_plan.md` is
-superseded, and `docs/todo/archive/` is historical and read-only. Durable
+Active plans live in `docs/todo/`.
+`docs/todo/rust-authoritative-runtime-plan.md`, revision
+`2026-07-29-draft-4`, is the owner-approved implementation plan.
+`docs/todo/rust-authoritative-runtime-implementation-log.md` is its short
+factual execution record. `docs/todo/project-recovery-plan.md`,
+`docs/todo/native_refactor_plan.md`, and `docs/todo/archive/` are superseded
+historical material and must not direct implementation. In particular, the
+old claim that the owner selected kernel-only Rust is false. Durable
 architecture choices live in `docs/decisions/`.
 
-## Authoritative runtime flow
+## Current reference runtime flow
 
-The production flow is:
+Until the approved Rust cutover passes its gates, the selected TypeScript
+reference/production flow is:
 
 ```text
 browser control
@@ -51,6 +61,10 @@ graph-preset endpoints.
 The browser has no local World or simulation worker. Do not reintroduce a
 browser fallback, optimistic authoritative state, or a second simulation loop.
 On disconnect, the UI reconnects and waits for server frames.
+
+The migration keeps this path as a selectable test oracle while Rust replaces
+it subsystem by subsystem. It is not an automatic fallback for the
+Rust-authoritative runtime.
 
 ## Fixed-step scheduling and World ordering
 
@@ -82,13 +96,22 @@ environment, completed-step count, and ordered action log. Compare JS and
 native kernels with explicit numeric tolerances; do not promise bit-identical
 long-horizon results across backends or platforms.
 
-## Native backend and worker threading
+## Approved Rust-authoritative migration and transitional native backend
 
-Rust is kernel-only. `native/src/simd_kernels.rs` implements Dense, MLP, GRU,
-LSTM, and RRU math exposed through `native/src/lib.rs`. Rust does not own world
-state, physics, sensors, evolution, persistence, rendering, or networking. See
-`docs/decisions/0001-native-kernels-and-threading.md` before changing this
-boundary.
+The kernel-only boundary is superseded. The approved destination is one
+Rust-owned authoritative game: persistent world state, fixed-step scheduling,
+sensors, heterogeneous neural inference, recurrent state, movement, food,
+collisions, controllers, evolution, generation transitions, RNG/allocator
+state, checkpoint construction, and binary frame packing all belong in Rust.
+Node remains the thin LAN/API/file/SQLite-metadata interface, and browser
+TypeScript remains the renderer, UI, camera presentation, and input collector.
+See `docs/todo/rust-authoritative-runtime-plan.md` and
+`docs/decisions/0002-rust-authoritative-runtime.md`.
+
+The current reference backend still exposes Dense, MLP, GRU, LSTM, and RRU
+kernels from `native/src/simd_kernels.rs` through `native/src/lib.rs`. Keep it
+working for characterization and differential tests, but do not extend the
+per-snake/per-layer N-API boundary as the final architecture.
 
 Normal startup selects the native backend. `src/brains/nativeBridge.ts`
 validates every required export and a source-derived build identifier before
@@ -198,11 +221,11 @@ checkpoint is durable.
 
 ## Persistence and export
 
-`server/persistence.ts` stores current checkpoints as versioned parent metadata
-plus one `snapshot_genomes` child row per dense population slot in a single
-SQLite transaction. Float32 weights use explicit little-endian bytes and a
-checksum. New writes never create a combined population blob or convert every
-weight array to JSON.
+The current TypeScript reference stores checkpoints as versioned parent
+metadata plus one `snapshot_genomes` child row per dense population slot in a
+single SQLite transaction. Its browser export/import path still materializes
+population JSON. Treat both as compatibility/reference evidence, not the
+approved destination.
 
 The old `genomes_blob` format is read-only compatibility. Its bounded reader
 warns that a legacy load may still allocate the combined population; never
@@ -214,12 +237,20 @@ simulation step, seed/run/config identity, authoritative RNG and allocator
 state, and the zero-recurrent-state boundary before spawn, pellets, focus,
 sensors, or inference.
 
-`POST /api/save` creates a non-resumable population-export snapshot.
-`GET /api/export/latest` streams JSON one genome at a time with backpressure.
-Population import replaces population/settings under the active run identity;
-an imported seed is metadata and is not applied silently. Normal startup uses
-the latest valid resumable checkpoint. `--fresh` starts a new durable run, and
-`--resume <id>` selects one compatible checkpoint explicitly.
+New checkpoint-v3 population payloads are immutable managed files containing
+packed binary data with per-payload raw or shuffled-Zstandard encoding.
+SQLite stores only metadata, current pointers, compact history, graph/config
+records, Hall-of-Fame indexes, and file references. Export is one ordinary
+direct browser download of a self-contained archive; import uploads the
+original file directly. Browser JavaScript never parses or reconstructs the
+population. Keep current/legacy readers until the owner's real databases and
+save files have been inventoried and migrated within the approved limits.
+
+Ordinary exact checkpoints remain generation-boundary saves, not mid-round
+world snapshots. Normal startup eventually uses the latest valid retained
+managed checkpoint and the approved recovery-branch rule. During migration,
+the current flags and readers remain available only as documented by the
+active stage.
 
 ## Local and trusted-LAN setup
 

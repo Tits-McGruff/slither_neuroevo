@@ -3652,18 +3652,18 @@ make the program unusable while Rust is being built.
 
 **Documentation correction after this draft is approved:**
 
-- [ ] Correct active instructions and user documentation to say that Rust will
+- [x] Correct active instructions and user documentation to say that Rust will
   own one authoritative game, Node is a thin interface, and the browser is a
   remote renderer/control surface.
-- [ ] Supersede the kernel-only ADR and mark the earlier recovery plan's false
+- [x] Supersede the kernel-only ADR and mark the earlier recovery plan's false
   owner-attribution plainly; preserve a factual historical record without
   pretending the owner selected that design.
-- [ ] Preserve trusted-LAN operation and the separate Protocol 2 RL client as
+- [x] Preserve trusted-LAN operation and the separate Protocol 2 RL client as
   required product surfaces.
-- [ ] Record the approved plan revision and Git commit in the short
+- [x] Record the approved plan revision and Git commit in the short
   implementation log. Keep that one factual record and do not invent owner
   decisions.
-- [ ] Preserve exact Git-history evidence before stating when the false
+- [x] Preserve exact Git-history evidence before stating when the false
   documents were introduced or what the old controller/commit `8330065` did:
   record repository identity, commands, commit IDs, diffs, relevant full file
   contents, and raw output. Keep current-document proof separate from those

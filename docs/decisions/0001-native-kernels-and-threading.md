@@ -1,8 +1,21 @@
-# ADR 0001: Keep Rust kernel-only and threading independent
+# ADR 0001: Superseded kernel-only Rust boundary
 
-- Status: accepted
+- Status: superseded and invalid as current guidance
 - Decision date: 2026-07-21
-- Last verified: 2026-07-22
+- Superseded: 2026-07-29 by approved plan
+  `2026-07-29-draft-4` and ADR 0002
+
+## Historical-record correction
+
+This ADR was written as though the repository owner had approved kernel-only
+Rust and rejected a Rust-owned game. The owner has explicitly stated that this
+attribution was false and approved the opposite forward architecture in
+`docs/todo/rust-authoritative-runtime-plan.md`.
+
+This file remains to show what the repository previously implemented and why
+later code has its current shape. It is not an accepted constraint, must not
+block the Rust-authoritative migration, and must not be cited as an owner
+decision. The text below is the superseded agent-authored decision.
 
 ## Context
 

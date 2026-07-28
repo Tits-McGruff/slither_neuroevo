@@ -2,7 +2,13 @@
 
 ## Document control
 
-- Status: authoritative, owner-approved implementation plan; Phases 0 through
+- Status: superseded historical record; do not implement. This document was
+  incorrectly described as owner-approved and falsely attributed the
+  kernel-only Rust boundary to the owner. The owner corrected that history and
+  approved `docs/todo/rust-authoritative-runtime-plan.md` revision
+  `2026-07-29-draft-4`, whose exact reviewed contents are in commit
+  `7971ed2ddbda86891c77def31d980aedf96b4236`.
+- Historical execution state when superseded: Phases 0 through
   8 are complete. Phase 9 implementation and the emergency Phase 10 LAN
   restoration passed their local automated gates and were published as
   `258ac69`. Remote CI then exposed `TEST-008`, a runner-capacity assumption in
@@ -19,14 +25,29 @@
 - Current expected worktree changes are recorded under "Live execution status".
 - Scope owner: the repository owner.
 - Execution owner: the Codex session currently implementing the checked phase.
-- Supersedes: `docs/todo/native_refactor_plan.md` and every implementation
-  proposal under `docs/todo/archive/`.
+- Historical scope claim only: this document previously said it superseded
+  `docs/todo/native_refactor_plan.md` and every proposal under
+  `docs/todo/archive/`. It no longer has authority over the approved plan.
 
 This plan exists so implementation can continue safely after a fresh context,
 an interruption, or a change of agent. It is deliberately more explicit than
 a normal task list. An implementing agent must update the live status,
 revision history, checkboxes, verification results, and handoff notes as work
 progresses.
+
+## 2026-07-29 factual correction
+
+The current file directly proves that it called itself “owner-approved,” said
+the owner locked kernel-only Rust, and said the owner explicitly rejected a
+complete Rust simulation. Those statements were not supported by an owner
+message and are false. They must not be repeated as project history.
+
+Git-history evidence for when those statements appeared is recorded separately
+in `docs/todo/evidence/2026-07-29-stage1-git-history.md`. Other historical
+approval claims in this document are not automatically validated by this
+correction and must be checked against their own evidence before being relied
+upon. The remaining text is preserved as historical implementation context,
+not current instructions.
 
 ## Revision history
 

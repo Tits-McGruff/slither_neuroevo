@@ -1,12 +1,14 @@
 # Slither-Native: The Exhaustive Refactor & Parity Documentation
 
 > [!CAUTION]
-> This plan is superseded and must not be implemented. On 2026-07-21 the
-> repository owner chose Rust N-API neural kernels, used by both single-thread
-> and MT inference, instead of a second full world/physics implementation.
-> The authoritative current plan is
-> [project-recovery-plan.md](./project-recovery-plan.md). This file remains
-> unchanged below this notice as historical context outside the archive.
+> This plan is superseded and must not be implemented wholesale. The former
+> notice falsely said the repository owner chose kernel-only Rust and rejected
+> a Rust-owned world. The owner instead approved the forward Rust-authoritative
+> migration in
+> [rust-authoritative-runtime-plan.md](./rust-authoritative-runtime-plan.md),
+> revision `2026-07-29-draft-4`. The TypeScript implementation must be studied
+> before each Rust replacement is written, but this old proposal is historical
+> context rather than the active implementation plan.
 
 ## Revision Notes (Phase 1 Final)
 

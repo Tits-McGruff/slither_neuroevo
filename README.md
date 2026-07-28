@@ -4,12 +4,12 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 
 ## Key Features
 
-- **Server-authoritative core**: One fixed-step `SimCore`/`World` pipeline owns physics, sensors, evolution, and command ordering.
-- **Native neural kernels**: The normal backend uses x86_64 Rust N-API kernels for Dense, MLP, GRU, LSTM, and RRU math. Rust does not implement the simulation world.
-- **Optional multi-threaded inference**: A server worker pool can use the same native kernels without changing backend semantics.
+- **Remote browser client**: The browser renders server frames and sends controls; it does not run a second game.
+- **Rust-authoritative migration**: The approved implementation is moving the complete authoritative game—world state, sensing, differently weighted brains, movement, collision, evolution, and frame packing—into Rust behind a thin Node interface.
+- **Current reference runtime**: Until cutover passes its correctness, Debian-VM, LAN-browser, RL-trainer, persistence, and recovery gates, the existing TypeScript `SimCore`/`World` remains available as the selected reference and test oracle.
 - **Deep Evolution**: Supports MLP, GRU, LSTM, and RRU architectures with complex genetic operators and a modular graph editor.
 - **Deterministic run controls**: Reset repeats a seed; New Run starts and checkpoints a different seed.
-- **Bounded persistence**: Current SQLite checkpoints store one validated binary row per population genome and retain read-only compatibility with legacy blobs.
+- **Bounded persistence target**: Managed immutable checkpoint files hold packed binary population data; SQLite holds small metadata/history/indexes. Browser import/export becomes direct file upload/download without population-sized JavaScript objects.
 
 ## Quick start
 
@@ -52,12 +52,14 @@ Note: This project uses ES modules, so opening `index.html` directly in a file b
 
 ### Architecture
 
-This application uses a pure client/server model. The Node server owns the
-simulation; the browser renders binary frames and submits controls over
-Protocol 2 WebSocket messages. There is no browser-local World, offline mode,
-or local simulation worker. The status pill shows the connected server, active
-seed, math backend, and whether inference is single-threaded or using workers.
-If the connection is lost, the browser reconnects in the background.
+This application uses a pure client/server model. The browser renders binary
+frames and submits controls over Protocol 2 WebSocket messages. There is no
+browser-local World, offline mode, or local simulation worker. The current
+branch still runs the authoritative game in Node/TypeScript while the approved
+Rust-owned engine is implemented and tested beside it. After cutover, Rust
+will own the game and Node will only route HTTP/WebSocket/file traffic and
+small SQLite metadata. The TypeScript game will remain a selected test oracle
+during stabilization, not an automatic production fallback.
 
 Loopback is the default, and deliberate use from a phone or another computer
 on the same trusted home LAN is supported. The project has no accounts,
