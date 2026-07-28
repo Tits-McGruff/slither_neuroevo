@@ -2,7 +2,7 @@
 
 ## Document control
 
-**Status:** Draft for review. Not approved for implementation.
+**Status:** Approved for implementation by the owner on 2026-07-29.
 
 **Revision:** `2026-07-29-draft-4`.
 
@@ -19,19 +19,20 @@ benchmark output, or retained compression fixtures. The current code and
 documents can therefore prove current structural behavior; historical commit
 claims and prior numerical observations are labelled separately below.
 
-**Implementation status:** No implementation has started under this revision.
-The owner has selected the product rules recorded in “Owner decisions recorded
-for draft 4,” but has explicitly withheld approval to implement this draft.
+**Implementation status:** Stage 1 has started. No evidence checkbox is complete
+until its listed proof exists.
 
-This plan remains a draft until the owner explicitly approves implementation.
-If approved, one factual implementation log will record the owner's go-ahead,
-this named revision, and the Git commit containing it. The owner is not asked
-to calculate, supply, or verify a hash or commit ID.
+The owner explicitly approved revision `2026-07-29-draft-4` in the 2026-07-29
+conversation. Commit `7971ed2ddbda86891c77def31d980aedf96b4236` contains the
+exact plan file as reviewed and approved. This later status update records the
+approval without changing that technical revision. The separate factual
+implementation log records the same approval and commit; no earlier draft is
+approved.
 
-**Change rule for this planning turn:** Revising this plan file is the only
-intended repository change. No production code, test code, configuration,
-schema, database, other documentation, generated file, dependency, or Git
-history is to be changed before the owner reviews the plan.
+**Draft 4 planning-turn boundary:** Before approval, revising this plan was the
+only intended repository change; no implementation file was changed. The
+owner's later approval ended that hold and now authorizes implementation
+through the staged evidence and exit gates below.
 
 **Migration direction:** Forward from the current branch. This plan does not
 use `git revert`, `git reset`, or restoration of an older tree as its
@@ -3617,9 +3618,9 @@ After Stage 2 baseline and Stage 7 target-VM data:
 
 ## Implementation stages
 
-All checkboxes are intentionally open. This is a draft and authorizes no
-implementation. After the owner approves a specific revision, a checkbox may
-be completed only when its listed evidence exists. Passing unit tests or
+All checkboxes were intentionally open when Draft 4 was approved. Approval
+authorizes implementation, but it does not complete any checkbox. A checkbox
+may be completed only when its listed evidence exists. Passing unit tests or
 finishing code is not, by itself, an exit gate.
 
 The critical path is intentionally short:
@@ -4899,11 +4900,12 @@ durable set. Cold backup copies both while stopped; hot backup holds an
 inventory reference and validates every immutable root. Export remains the
 portable one-experiment backup. Track 7D restores real copied backup sets.
 
-## Technical recommendations pending draft approval
+## Approved technical recommendations
 
 The owner decisions in the next section are settled inputs carried into Draft
-4. The technical implementation choices below remain part of the unapproved draft
-until the owner explicitly approves implementation.
+4. The owner approved the technical implementation choices below as part of
+revision `2026-07-29-draft-4`. Material changes still require review under the
+plain change-review rule.
 
 1. **One in-process Rust engine on background native threads.** This avoids a
    second service and extra per-step process messaging while keeping Node
@@ -4944,8 +4946,8 @@ until the owner explicitly approves implementation.
 ## Owner decisions recorded for Draft 4
 
 The owner selected the following rules in the 2026-07-28 message requesting
-Draft 3. Draft 4 carries all 22 forward unchanged. Recording them accurately
-does not approve implementation of this draft.
+Draft 3. Draft 4 carries all 22 forward unchanged, and the owner's 2026-07-29
+approval authorizes their implementation as part of this plan.
 
 1. Hold the last accepted player/RL input for 500 ms wall time, then use
    neutral steering and boost-off. Reserve exclusive ownership for 30 wall-
@@ -5026,14 +5028,15 @@ reported for review rather than treated as permission to choose a new rule.
 | `2026-07-23-draft-1` | 2026-07-23 | Superseded; do not implement | Correct broad Rust direction, but wrong browser JSON persistence, unbounded database policy, late cutover, and excessive governance. |
 | `2026-07-28-draft-2` | 2026-07-28 | Superseded; do not implement | Fixed direct transfer, browser memory, binary archives, retention/history, early Rust path and false owner history; still assumed SQLite checkpoint chunks and over-specified compression/integrity/Stage 3. |
 | `2026-07-28-draft-3` | 2026-07-28 | Superseded; do not implement | Selected managed checkpoint files after an explicit SQLite comparison, adaptive raw/compressed entries, minimal integrity layers, narrower Stage 3, and recorded all 22 owner decisions. |
-| `2026-07-29-draft-4` | 2026-07-29 | Draft; awaiting review; not approved | Adds independent browser-player transmission and welcome-allocation defects, removes the dual-persistence implementation detour, separates current-source/Git-history/prior-measurement evidence, and makes write-time archive validation explicitly measurement-gated while preserving Draft 3 architecture and all 22 owner decisions. |
+| `2026-07-29-draft-4` | 2026-07-29 | Approved for implementation; exact reviewed plan in `7971ed2ddbda86891c77def31d980aedf96b4236` | Adds independent browser-player transmission and welcome-allocation defects, removes the dual-persistence implementation detour, separates current-source/Git-history/prior-measurement evidence, and makes write-time archive validation explicitly measurement-gated while preserving Draft 3 architecture and all 22 owner decisions. |
 
-After approval, create one separate factual implementation log naming the
-approved revision and Git commit. Each stage needs only a compact row or short
-entry containing date/commit, evidence command or artifact, measured result,
-known issue/deviation, and any owner decision actually received. Do not use
-“complete,” “accepted,” “verified,” or “owner-approved” without the evidence or
-message that makes the word true.
+The separate factual log at
+`docs/todo/rust-authoritative-runtime-implementation-log.md` names the approved
+revision and Git commit. Each stage needs only a compact row or short entry
+containing date/commit, evidence command or artifact, measured result, known
+issue/deviation, and any owner decision actually received. Do not use
+“complete,” “accepted,” “verified,” or “owner-approved” without the evidence
+or message that makes the word true.
 
 ## Required command families after implementation begins
 
