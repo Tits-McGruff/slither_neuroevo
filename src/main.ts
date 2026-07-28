@@ -31,6 +31,11 @@ import {
   type WelcomeInferenceMode
 } from './net/wsClient.ts';
 import { createAuthoritativeControls } from './net/authoritativeControls.ts';
+import {
+  PlayerActionPump,
+  normalizePlayerActionRate,
+  type LatestPlayerAction
+} from './net/playerActionPump.ts';
 import { inferGraphSizes } from './brains/graph/editor.ts';
 import type { GraphSizeState } from './brains/graph/editor.ts';
 import { validateGraph } from './brains/graph/validate.ts';
@@ -140,6 +145,12 @@ let reconnectDelayMs = 1000;
 let lastPlayerName = '';
 /** Local storage key for the player nickname. */
 const PLAYER_NAME_KEY = 'slither_neuroevo_player_name';
+/** Local storage key for the opaque controller reclaim token. */
+const PLAYER_RESUME_TOKEN_KEY = 'slither_neuroevo_player_resume_token';
+/** Opaque token for reclaiming the current server-side controller lease. */
+let playerResumeToken = '';
+/** Whether the next successful handshake should immediately request reclaim. */
+let resumePlayerAfterReconnect = false;
 /** Timer id for reconnect scheduling. */
 let reconnectTimer: number | null = null;
 /** Whether settings controls are locked. */
@@ -154,8 +165,8 @@ let spectatorFollowSnakeId: number | null = null;
 let playerSensorTick = 0;
 /** Latest player sensor metadata for UI overlays. */
 let playerSensorMeta: { x: number; y: number; dir: number } | null = null;
-/** Current pointer position in world coordinates. */
-let pointerWorld: { x: number; y: number } | null = null;
+/** Latest pointer position relative to the canvas in screen pixels. */
+let pointerScreen: { x: number; y: number } | null = null;
 /** Whether boost is held down by input. */
 let boostHeld = false;
 /** Local storage key for graph spec persistence. */
@@ -378,6 +389,11 @@ function loadSavedPlayerName(): void {
       joinName.value = saved;
     } else if (saved) {
       lastPlayerName = saved;
+    }
+    const savedToken = localStorage.getItem(PLAYER_RESUME_TOKEN_KEY);
+    if (savedToken) {
+      playerResumeToken = savedToken;
+      resumePlayerAfterReconnect = true;
     }
   } catch {
     // Ignore storage failures in non-browser environments.
@@ -1272,8 +1288,16 @@ function enterSpectatorMode(): void {
   playerSnakeId = null;
   playerSensorTick = 0;
   playerSensorMeta = null;
-  pointerWorld = null;
+  pointerScreen = null;
   boostHeld = false;
+  resumePlayerAfterReconnect = false;
+  playerResumeToken = '';
+  playerActionPump.stop();
+  try {
+    localStorage.removeItem(PLAYER_RESUME_TOKEN_KEY);
+  } catch {
+    // Ignore storage failures in non-browser environments.
+  }
   proxyWorld.viewMode = 'overview';
   setJoinStatus('Spectating');
   updateJoinControls();
@@ -1302,7 +1326,7 @@ function enterPlayerMode(): void {
   setJoinStatus('Joining...');
   updateJoinControls();
   proxyWorld.viewMode = 'follow';
-  wsClient.sendJoin('player', name);
+  wsClient.sendJoin('player', name, playerResumeToken || undefined);
   wsClient.sendView({ mode: 'follow', viewW: cssW, viewH: cssH });
 }
 
@@ -3244,18 +3268,32 @@ function computeTurnInput(
 }
 
 /**
- * Send a player action message to the server.
+ * Build the newest browser-player command at transmission time.
+ * Pointer screen coordinates are converted using the latest camera and player pose.
+ * @returns Latest Protocol 2 action or null while ownership/state is incomplete.
  */
-function sendPlayerAction(): void {
-  if (!wsClient || !wsClient.isConnected()) return;
-  if (!isPlayerControlActive()) return;
+function buildLatestPlayerAction(): LatestPlayerAction | null {
+  if (!wsClient || !wsClient.isConnected() || !isPlayerControlActive()) return null;
   const meta = playerSensorMeta;
-  const target = pointerWorld;
+  const target = pointerScreen ? screenToWorld(pointerScreen.x, pointerScreen.y) : null;
   const turn = meta && target ? computeTurnInput(meta, target) : 0;
   const boost = boostHeld ? 1 : 0;
   const tick = playerSensorTick ? playerSensorTick + 1 : 0;
-  wsClient.sendAction(tick, playerSnakeId!, turn, boost);
+  return { tick, snakeId: playerSnakeId!, turn, boost };
 }
+
+/** Selected 30/60 Hz Stage 2 measurement candidate for temporary browser resends. */
+const playerActionRateHz = normalizePlayerActionRate(
+  new URLSearchParams(window.location.search).get('playerActionHz')
+);
+/** Browser-player sender independent from display and sensor message delivery. */
+const playerActionPump = new PlayerActionPump({
+  cadenceHz: playerActionRateHz,
+  isActive: isPlayerControlActive,
+  buildLatestAction: buildLatestPlayerAction,
+  sendAction: action =>
+    wsClient?.sendAction(action.tick, action.snakeId, action.turn, action.boost)
+});
 
 /**
  * Store a new frame buffer and update generation stats.
@@ -3495,11 +3533,20 @@ wsClient = createWsClient({
     };
     currentVizData = null;
     setConnectionStatus('server');
-    joinPending = false;
-    wsClient?.sendJoin('spectator');
+    if (resumePlayerAfterReconnect && lastPlayerName) {
+      joinPending = true;
+      proxyWorld.viewMode = 'follow';
+      wsClient?.sendJoin('player', lastPlayerName, playerResumeToken || undefined);
+      wsClient?.sendView({ mode: 'follow', viewW: cssW, viewH: cssH });
+      setJoinOverlayVisible(true);
+      setJoinStatus('Reclaiming previous snake...');
+    } else {
+      joinPending = false;
+      wsClient?.sendJoin('spectator');
+      setJoinOverlayVisible(true);
+      setJoinStatus('Enter a nickname to play');
+    }
     wsClient?.sendViz(activeTab === 'tab-viz');
-    setJoinOverlayVisible(true);
-    setJoinStatus('Enter a nickname to play');
     updateJoinControls();
     refreshSavedPresets().catch(() => { });
     const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
@@ -3508,6 +3555,9 @@ wsClient = createWsClient({
     }
   },
   onDisconnected: () => {
+    resumePlayerAfterReconnect =
+      playerSnakeId !== null || joinPending || playerResumeToken.length > 0;
+    playerActionPump.stop();
     authoritativeControls.dispose();
     setConnectionStatus('connecting');
     serverCfgHash = null;
@@ -3523,7 +3573,7 @@ wsClient = createWsClient({
     spectatorFollowSnakeId = null;
     playerSensorTick = 0;
     playerSensorMeta = null;
-    pointerWorld = null;
+    boostHeld = false;
     currentVizData = null;
     joinPending = false;
     setJoinOverlayVisible(true);
@@ -3601,9 +3651,37 @@ wsClient = createWsClient({
   },
   onAssign: (msg) => {
     playerSnakeId = msg.snakeId;
+    playerResumeToken = msg.resumeToken;
+    resumePlayerAfterReconnect = true;
+    try {
+      localStorage.setItem(PLAYER_RESUME_TOKEN_KEY, msg.resumeToken);
+    } catch {
+      // Ignore storage failures in non-browser environments.
+    }
     joinPending = false;
     setJoinOverlayVisible(false);
-    setJoinStatus('Connected');
+    setJoinStatus(msg.reclaimed ? 'Reconnected' : 'Connected');
+    updateJoinControls();
+    playerActionPump.start();
+    playerActionPump.requestImmediate();
+  },
+  onReclaimResult: (msg) => {
+    if (msg.reclaimed) return;
+    playerActionPump.stop();
+    playerResumeToken = '';
+    resumePlayerAfterReconnect = false;
+    joinPending = false;
+    try {
+      localStorage.removeItem(PLAYER_RESUME_TOKEN_KEY);
+    } catch {
+      // Ignore storage failures in non-browser environments.
+    }
+    setJoinOverlayVisible(true);
+    setJoinStatus(
+      msg.reason === 'expired'
+        ? 'Previous control expired; press Play to join again'
+        : `Could not reclaim previous snake (${msg.reason}); press Play to join`
+    );
     updateJoinControls();
   },
   onSensors: (msg) => {
@@ -3612,7 +3690,6 @@ wsClient = createWsClient({
     if (msg.meta) {
       playerSensorMeta = msg.meta;
     }
-    sendPlayerAction();
   },
   onSettingsApplied: (msg) => {
     if (msg.configRevision < serverConfigRevision) return;
@@ -3885,7 +3962,8 @@ canvas.addEventListener('mousedown', (e) => {
   if (isPlayerControlActive()) {
     if (e.button === 0) boostHeld = true;
     const rect = canvas.getBoundingClientRect();
-    pointerWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    pointerScreen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    playerActionPump.requestImmediate();
     return;
   }
   if (e.button === 0 && selectedSnake) {
@@ -3896,7 +3974,8 @@ canvas.addEventListener('mousedown', (e) => {
 canvas.addEventListener('mousemove', (e) => {
   if (isPlayerControlActive()) {
     const rect = canvas.getBoundingClientRect();
-    pointerWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    pointerScreen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    playerActionPump.requestImmediate();
     return;
   }
   if (isDragging && selectedSnake) {
@@ -3916,7 +3995,12 @@ canvas.addEventListener('mousemove', (e) => {
  */
 function finishGodModeDrag(e: MouseEvent): void {
   if (isPlayerControlActive()) {
-    if (e.button === 0) boostHeld = false;
+    if (e.button === 0) {
+      boostHeld = false;
+      const rect = canvas.getBoundingClientRect();
+      pointerScreen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      playerActionPump.requestImmediate();
+    }
     return;
   }
   if (!isDragging || e.button !== 0) return;
@@ -3933,7 +4017,8 @@ window.addEventListener('mouseup', finishGodModeDrag);
 canvas.addEventListener('mouseleave', () => {
   if (!isPlayerControlActive()) return;
   boostHeld = false;
-  pointerWorld = null;
+  pointerScreen = null;
+  playerActionPump.requestImmediate();
 });
 
 /**

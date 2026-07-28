@@ -16,6 +16,8 @@ export const PROTOCOL_VERSION = 2;
 export const SERIALIZER_VERSION = 1;
 /** Max player name length accepted during join. */
 const MAX_NAME_LENGTH = 24;
+/** Maximum opaque controller-resume token length accepted from trusted clients. */
+const MAX_RESUME_TOKEN_LENGTH = 256;
 /** Max request-id length accepted for correlated commands. */
 const MAX_REQUEST_ID_LENGTH = 64;
 /** Set of valid settings update paths for reset messages. */
@@ -55,6 +57,8 @@ export interface JoinMsg {
   mode: JoinMode;
   /** Optional player nickname. */
   name?: string;
+  /** Optional opaque token requesting reclaim of an existing controller lease. */
+  resumeToken?: string;
 }
 
 /** Client heartbeat message. */
@@ -256,6 +260,22 @@ export interface AssignMsg {
   snakeId: number;
   /** Controller class. */
   controller: 'player' | 'bot';
+  /** Opaque token used to reclaim this lease after a transient disconnect. */
+  resumeToken: string;
+  /** Whether this assignment reclaimed the same live snake. */
+  reclaimed?: boolean;
+}
+
+/** Explicit failed or successful reconnect result sent before any new assignment. */
+export interface ReclaimResultMsg {
+  /** Message discriminator. */
+  type: 'reclaimResult';
+  /** Whether an existing lease was reclaimed. */
+  reclaimed: boolean;
+  /** Stable result category. */
+  reason: 'reclaimed' | 'expired' | 'invalid' | 'ambiguous' | 'snake-unavailable';
+  /** Reclaimed snake id on success. */
+  snakeId?: number;
 }
 
 /** Sensor packet for a controlled snake. */
@@ -349,6 +369,7 @@ export type ServerMessage =
   | WelcomeMsg
   | StatsMsg
   | AssignMsg
+  | ReclaimResultMsg
   | SensorsMsg
   | ErrorMsg
   | SettingsAppliedMsg
@@ -433,12 +454,18 @@ export function isHello(msg: unknown): msg is HelloMsg {
  */
 export function isJoin(msg: unknown): msg is JoinMsg {
   if (!isRecord(msg)) return false;
-  if (!hasKeys(msg, ['type', 'mode', 'name'], ['type', 'mode'])) return false;
+  if (!hasKeys(msg, ['type', 'mode', 'name', 'resumeToken'], ['type', 'mode'])) return false;
   if (msg['type'] !== 'join') return false;
   if (msg['mode'] !== 'spectator' && msg['mode'] !== 'player') return false;
   if ('name' in msg) {
     if (typeof msg['name'] !== 'string') return false;
     if (msg['name'].length > MAX_NAME_LENGTH) return false;
+  }
+  if ('resumeToken' in msg) {
+    if (typeof msg['resumeToken'] !== 'string') return false;
+    if (msg['resumeToken'].length < 1 || msg['resumeToken'].length > MAX_RESUME_TOKEN_LENGTH) {
+      return false;
+    }
   }
   return true;
 }

@@ -76,6 +76,16 @@ export interface AssignMsg {
   type: 'assign';
   snakeId: number;
   controller: 'player' | 'bot';
+  resumeToken: string;
+  reclaimed?: boolean;
+}
+
+/** Explicit controller-lease reclaim result. */
+export interface ReclaimResultMsg {
+  type: 'reclaimResult';
+  reclaimed: boolean;
+  reason: 'reclaimed' | 'expired' | 'invalid' | 'ambiguous' | 'snake-unavailable';
+  snakeId?: number;
 }
 
 /** Sensor message payload for controlled snakes. */
@@ -168,6 +178,7 @@ export interface WsClientCallbacks {
   onFrame: (buffer: ArrayBuffer) => void;
   onStats: (msg: StatsMsg) => void;
   onAssign?: (msg: AssignMsg) => void;
+  onReclaimResult?: (msg: ReclaimResultMsg) => void;
   onSensors?: (msg: SensorsMsg) => void;
   onSettingsApplied?: (msg: SettingsAppliedMsg) => void;
   onGodModeResult?: (msg: GodModeResultMsg) => void;
@@ -179,7 +190,7 @@ export interface WsClientCallbacks {
 export interface WsClient {
   connect: (url: string) => void;
   disconnect: () => void;
-  sendJoin: (mode: 'spectator' | 'player', name?: string) => void;
+  sendJoin: (mode: 'spectator' | 'player', name?: string, resumeToken?: string) => void;
   sendAction: (tick: number, snakeId: number, turn: number, boost: number) => void;
   sendView: (payload: { viewW?: number; viewH?: number; mode?: 'overview' | 'follow' | 'toggle' }) => void;
   sendViz: (enabled: boolean) => void;
@@ -345,9 +356,18 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     clearHandshakeTimer();
   };
 
-  const sendJoin = (mode: 'spectator' | 'player', name?: string): void => {
+  const sendJoin = (
+    mode: 'spectator' | 'player',
+    name?: string,
+    resumeToken?: string
+  ): void => {
     if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
-    const payload = name ? { type: 'join', mode, name } : { type: 'join', mode };
+    const payload = {
+      type: 'join',
+      mode,
+      ...(name ? { name } : {}),
+      ...(resumeToken ? { resumeToken } : {})
+    };
     socket.send(JSON.stringify(payload));
   };
 
@@ -459,6 +479,9 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
         return;
       case 'assign':
         callbacks.onAssign?.(msg as unknown as AssignMsg);
+        return;
+      case 'reclaimResult':
+        callbacks.onReclaimResult?.(msg as unknown as ReclaimResultMsg);
         return;
       case 'sensors':
         callbacks.onSensors?.(msg as unknown as SensorsMsg);

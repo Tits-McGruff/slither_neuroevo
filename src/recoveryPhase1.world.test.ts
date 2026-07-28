@@ -134,6 +134,7 @@ function buildStepFixture(events: string[]): StepFixture {
       }
     },
     _collGrid: {
+      build: () => events.push('physics:grid-reset'),
       reset: (_cellSize: number) => events.push('physics:grid-reset'),
       add: () => undefined
     },

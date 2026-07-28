@@ -37,6 +37,35 @@ describe(SUITE, () => {
     expect(msg?.type).toBe('action');
   });
 
+  it('accepts a bounded opaque resume token on player join', () => {
+    expect(parseClientMessage({
+      type: 'join',
+      mode: 'player',
+      name: 'Ada',
+      resumeToken: 'opaque-reclaim-token'
+    })).toEqual({
+      type: 'join',
+      mode: 'player',
+      name: 'Ada',
+      resumeToken: 'opaque-reclaim-token'
+    });
+  });
+
+  it('rejects an empty or oversized resume token', () => {
+    expect(parseClientMessage({
+      type: 'join',
+      mode: 'player',
+      name: 'Ada',
+      resumeToken: ''
+    })).toBeNull();
+    expect(parseClientMessage({
+      type: 'join',
+      mode: 'player',
+      name: 'Ada',
+      resumeToken: 'x'.repeat(257)
+    })).toBeNull();
+  });
+
   it('accepts a valid view message', () => {
     const msg = parseClientMessage({
       type: 'view',

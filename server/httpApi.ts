@@ -9,6 +9,7 @@ import type { InferenceModeRecord } from './inferenceMode.ts';
 import type { SchedulerDiagnostics, SimulationRunIdentity } from '../src/sim/SimCore.ts';
 import type { SimulationFaultStatus } from './simServer.ts';
 import type { SpatialHashDiagnostics } from '../src/spatialHash.ts';
+import type { WsOutboundDiagnostics } from './wsHub.ts';
 
 /** Hard limit for incoming request bodies to avoid memory pressure. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -21,6 +22,7 @@ export interface HttpApiDeps {
   getStatus: () => {
     tick: number;
     clients: number;
+    outbound: WsOutboundDiagnostics;
     inferenceMode: InferenceModeRecord;
     scheduler: SchedulerDiagnostics;
     collisionGrid: SpatialHashDiagnostics;

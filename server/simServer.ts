@@ -71,6 +71,8 @@ const PROFILE_REPORT_INTERVAL_MS = 1000;
 const SCHEDULER_DROP_LOG_INTERVAL_MS = 1000;
 /** Hard cap for commands waiting on an authoritative fixed-step boundary. */
 const MAX_PENDING_COMMANDS = 4096;
+/** Maximum overdue steps completed before yielding when no browser player is attached. */
+const BACKGROUND_CATCH_UP_STEPS_PER_YIELD = 4;
 
 /** Queued live-settings command awaiting the next fixed-step boundary. */
 interface PendingSettingsCommand {
@@ -227,6 +229,8 @@ export class SimServer {
   private faultReason: string | null = null;
   /** Last committed tick when the failure was recorded. */
   private faultedAtTick: number | null = null;
+  /** Consecutive overdue fixed steps completed since the last Node event-loop yield. */
+  private overdueStepsSinceYield = 0;
 
   /**
    * Create a simulation server instance for a websocket hub.
@@ -281,8 +285,15 @@ export class SimServer {
               this.persistGenerationBoundary(boundary, world)
           }
         : {}),
-      onStepStarting: (_world, tickId) => this.drainPendingCommands(tickId),
-      onStepCommitted: async (world) => this.synchronizeBrainPoolGeneration(world)
+      onStepStarting: (_world, tickId) => {
+        this.controllers.setTickId(tickId);
+        this.controllers.refresh();
+        this.drainPendingCommands(tickId);
+      },
+      onStepCommitted: async (world) => {
+        await this.synchronizeBrainPoolGeneration(world);
+        await this.yieldDuringCatchUp();
+      }
     });
 
     if (process.env[PROFILE_ENV_VAR] === '1') {
@@ -293,7 +304,9 @@ export class SimServer {
     this.controllers = new ControllerRegistry(
       {
         maxActionsPerTick: config.maxActionsPerTick,
-        maxActionsPerSecond: config.maxActionsPerSecond
+        maxActionsPerSecond: config.maxActionsPerSecond,
+        inputHoldMs: config.controllerInputHoldMs,
+        disconnectGraceMs: config.controllerDisconnectGraceMs
       },
       {
         getSnakes: () =>
@@ -302,7 +315,8 @@ export class SimServer {
             alive: snake.alive,
             controllable: snake.baselineBotIndex == null
           })),
-        send: (connId, payload) => this.wsHub.sendJsonTo(connId, payload)
+        send: (connId, payload) => this.wsHub.sendJsonTo(connId, payload),
+        getLeaseScope: () => `${this.runId}:${this.worldSeed}`
       }
     );
 
@@ -369,7 +383,9 @@ export class SimServer {
     this.refreshWelcomeState();
 
     this.running = true;
-    this.nextTickAt = performance.now();
+    this.lastTickAt = performance.now();
+    this.nextTickAt = this.lastTickAt;
+    this.overdueStepsSinceYield = 0;
     this.startLoopIteration();
   }
 
@@ -595,7 +611,13 @@ export class SimServer {
    * @param clientType - Client type.
    * @param name - Optional player name.
    */
-  handleJoin(connId: number, mode: JoinMode, clientType: ClientType, name?: string): void {
+  handleJoin(
+    connId: number,
+    mode: JoinMode,
+    clientType: ClientType,
+    name?: string,
+    resumeToken?: string
+  ): void {
     if (mode !== 'player') {
       this.controllers.releaseSnake(connId);
       return;
@@ -605,16 +627,32 @@ export class SimServer {
       return;
     }
     const controller = clientType === 'bot' ? 'bot' : 'player';
+    const identityKey = `${controller}:${name.trim()}`;
     const existingId = this.controllers.getAssignedSnakeId(connId);
     if (existingId != null) {
       const existingSnake = this.core.world.snakes.find(snake => snake.id === existingId);
       if (existingSnake && existingSnake.alive) {
-        this.controllers.assignSnake(connId, controller, existingId);
+        this.controllers.assignSnake(connId, controller, existingId, identityKey);
         return;
       }
     }
+    const reclaim = this.controllers.reclaimSnake(
+      connId,
+      controller,
+      resumeToken,
+      identityKey
+    );
+    if (reclaim.reclaimed) return;
+    if (resumeToken || reclaim.reason === 'ambiguous') {
+      this.wsHub.sendJsonTo(connId, {
+        type: 'reclaimResult',
+        reclaimed: false,
+        reason: reclaim.reason
+      });
+      return;
+    }
     const spawned = this.core.world.spawnExternalSnake();
-    const snakeId = this.controllers.assignSnake(connId, controller, spawned.id);
+    const snakeId = this.controllers.assignSnake(connId, controller, spawned.id, identityKey);
     if (snakeId == null) {
       spawned.alive = false;
       this.wsHub.sendJsonTo(connId, { type: 'error', message: 'no available snakes' });
@@ -969,8 +1007,29 @@ export class SimServer {
    * @param connId - Connection id.
    */
   handleDisconnect(connId: number): void {
-    this.controllers.releaseSnake(connId);
+    this.controllers.disconnectConnection(connId);
     this.vizConnections.delete(connId);
+  }
+
+  /**
+   * Yield between overdue fixed steps so socket input can reach the next boundary.
+   * Browser players force a yield before every additional catch-up step; background
+   * operation yields after a small bounded group.
+   */
+  private async yieldDuringCatchUp(): Promise<void> {
+    const anotherStepIsDue =
+      this.core.accumulator + this.core.fixedDt * 1e-9 >= this.core.fixedDt;
+    if (!anotherStepIsDue) {
+      this.overdueStepsSinceYield = 0;
+      return;
+    }
+    this.overdueStepsSinceYield++;
+    const threshold = this.controllers.hasInteractiveController()
+      ? 1
+      : BACKGROUND_CATCH_UP_STEPS_PER_YIELD;
+    if (this.overdueStepsSinceYield < threshold) return;
+    this.overdueStepsSinceYield = 0;
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 
   /**
@@ -1167,10 +1226,7 @@ export class SimServer {
       if (pool) this.mtActive = true;
     }
 
-    // 2. Sync Controllers to current core state
-    this.controllers.setTickId(this.core.tickId);
-
-    // 3. Core Update
+    // 2. Core update. Controller wall time and step identity refresh before every fixed step.
     let dt = 1 / this.tickRateHz;
     if (this.lastTickAt > 0) {
       dt = (now - this.lastTickAt) / 1000;

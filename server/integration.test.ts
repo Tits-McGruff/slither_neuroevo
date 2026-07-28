@@ -284,6 +284,87 @@ describeNetworkSuite('server integration', () => {
     expect(sensorOrder.slice(0, 7)).toEqual(layout.order.slice(0, 7));
   }, 20000);
 
+  it('reclaims the same controller lease over a new socket within wall-time grace', async () => {
+    const server = await startIntegrationServer();
+    const sockets: WebSocket[] = [];
+    try {
+      const first = await new Promise<{ snakeId: number; resumeToken: string }>((resolve, reject) => {
+        const ws = new WebSocket(server.wsUrl);
+        sockets.push(ws);
+        const timeout = setTimeout(() => reject(new Error('timed out waiting for first assignment')), 5000);
+        ws.on('error', reject);
+        ws.on('message', (data: RawData, isBinary: boolean) => {
+          if (isBinary) return;
+          const msg = parseJsonMessage(data);
+          if (
+            msg?.['type'] === 'assign' &&
+            typeof msg['snakeId'] === 'number' &&
+            typeof msg['resumeToken'] === 'string'
+          ) {
+            clearTimeout(timeout);
+            resolve({ snakeId: msg['snakeId'], resumeToken: msg['resumeToken'] });
+          }
+        });
+        ws.on('open', () => {
+          ws.send(JSON.stringify({ type: 'hello', clientType: 'bot', version: 2 }));
+          ws.send(JSON.stringify({ type: 'join', mode: 'player', name: 'reclaim-bot' }));
+        });
+      });
+      await new Promise<void>((resolve) => {
+        sockets[0]!.once('close', () => resolve());
+        sockets[0]!.close();
+      });
+
+      const reclaimed = await new Promise<{
+        resultSeen: boolean;
+        snakeId: number;
+        resumeToken: string;
+      }>((resolve, reject) => {
+        const ws = new WebSocket(server.wsUrl);
+        sockets.push(ws);
+        let resultSeen = false;
+        const timeout = setTimeout(() => reject(new Error('timed out waiting for reclaim')), 5000);
+        ws.on('error', reject);
+        ws.on('message', (data: RawData, isBinary: boolean) => {
+          if (isBinary) return;
+          const msg = parseJsonMessage(data);
+          if (msg?.['type'] === 'reclaimResult' && msg['reclaimed'] === true) {
+            resultSeen = true;
+          }
+          if (
+            msg?.['type'] === 'assign' &&
+            msg['reclaimed'] === true &&
+            typeof msg['snakeId'] === 'number' &&
+            typeof msg['resumeToken'] === 'string'
+          ) {
+            clearTimeout(timeout);
+            resolve({
+              resultSeen,
+              snakeId: msg['snakeId'],
+              resumeToken: msg['resumeToken']
+            });
+          }
+        });
+        ws.on('open', () => {
+          ws.send(JSON.stringify({ type: 'hello', clientType: 'bot', version: 2 }));
+          ws.send(JSON.stringify({
+            type: 'join',
+            mode: 'player',
+            name: 'reclaim-bot',
+            resumeToken: first.resumeToken
+          }));
+        });
+      });
+
+      expect(reclaimed.resultSeen).toBe(true);
+      expect(reclaimed.snakeId).toBe(first.snakeId);
+      expect(reclaimed.resumeToken).not.toBe(first.resumeToken);
+    } finally {
+      for (const socket of sockets) socket.close();
+      await server.close();
+    }
+  }, 20000);
+
   it('supports trusted-LAN CORS requests and preflight without treating CORS as authentication', async () => {
     const server = await startIntegrationServer();
     const httpBase = `http://127.0.0.1:${server.port}`;

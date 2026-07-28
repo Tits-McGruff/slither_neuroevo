@@ -126,6 +126,14 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
       return {
         tick: simServer.getTickId(),
         clients: wsHub?.getClientCount() ?? 0,
+        outbound: wsHub?.getOutboundDiagnostics() ?? {
+          connections: 0,
+          reliableQueuedMessages: 0,
+          reliableQueuedBytes: 0,
+          pendingFrames: 0,
+          replacedFrames: 0,
+          reliableFailures: 0
+        },
         inferenceMode: simServer.getInferenceMode(),
         scheduler: simServer.getSchedulerDiagnostics(),
         collisionGrid: simServer.getCollisionGridDiagnostics(),
@@ -239,7 +247,7 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
     }
     wsHub.setHandlers({
       onJoin: (connId, msg, clientType) =>
-        simServer?.handleJoin(connId, msg.mode, clientType, msg.name),
+        simServer?.handleJoin(connId, msg.mode, clientType, msg.name, msg.resumeToken),
       onAction: (connId, msg) => simServer?.handleAction(connId, msg),
       onView: (connId, msg) => simServer?.handleView(connId, msg),
       onViz: (connId, msg) => simServer?.handleViz(connId, msg),

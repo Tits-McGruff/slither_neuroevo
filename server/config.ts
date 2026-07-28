@@ -22,6 +22,10 @@ export interface ServerConfig {
   uiFrameRateHz: number;
   maxActionsPerTick: number;
   maxActionsPerSecond: number;
+  /** Wall milliseconds to hold the newest accepted external action. */
+  controllerInputHoldMs: number;
+  /** Wall milliseconds to reserve disconnected controller ownership. */
+  controllerDisconnectGraceMs: number;
   dbPath: string;
   checkpointEveryGenerations: number;
   logLevel: LogLevel;
@@ -47,6 +51,8 @@ export const DEFAULT_CONFIG: ServerConfig = {
   uiFrameRateHz: 30,
   maxActionsPerTick: 1,
   maxActionsPerSecond: 120,
+  controllerInputHoldMs: 500,
+  controllerDisconnectGraceMs: 30_000,
   dbPath: './data/slither.db',
   checkpointEveryGenerations: 1,
   logLevel: 'info',
@@ -260,6 +266,22 @@ export function normalizeConfig(
     10000,
     warn
   );
+  const controllerInputHoldMs = coerceInt(
+    'controllerInputHoldMs',
+    input.controllerInputHoldMs,
+    DEFAULT_CONFIG.controllerInputHoldMs,
+    0,
+    60_000,
+    warn
+  );
+  const controllerDisconnectGraceMs = coerceInt(
+    'controllerDisconnectGraceMs',
+    input.controllerDisconnectGraceMs,
+    DEFAULT_CONFIG.controllerDisconnectGraceMs,
+    0,
+    10 * 60_000,
+    warn
+  );
   const checkpointEveryGenerations = coerceInt(
     'checkpointEveryGenerations',
     input.checkpointEveryGenerations,
@@ -329,6 +351,8 @@ export function normalizeConfig(
     uiFrameRateHz,
     maxActionsPerTick,
     maxActionsPerSecond,
+    controllerInputHoldMs,
+    controllerDisconnectGraceMs,
     dbPath,
     checkpointEveryGenerations,
     logLevel,
@@ -400,6 +424,8 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     uiFrameRateHz: data['uiFrameRateHz'],
     maxActionsPerTick: data['maxActionsPerTick'],
     maxActionsPerSecond: data['maxActionsPerSecond'],
+    controllerInputHoldMs: data['controllerInputHoldMs'],
+    controllerDisconnectGraceMs: data['controllerDisconnectGraceMs'],
     dbPath: data['dbPath'],
     checkpointEveryGenerations: data['checkpointEveryGenerations'],
     logLevel: data['logLevel'],
@@ -467,6 +493,16 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
     parseIntValue(getArgValue(argv, '--actions-per-second')) ??
     parseIntValue(env['ACTIONS_PER_SECOND']);
   if (maxActionsPerSecond !== undefined) input.maxActionsPerSecond = maxActionsPerSecond;
+  const controllerInputHoldMs =
+    parseIntValue(getArgValue(argv, '--input-hold-ms')) ??
+    parseIntValue(env['CONTROLLER_INPUT_HOLD_MS']);
+  if (controllerInputHoldMs !== undefined) input.controllerInputHoldMs = controllerInputHoldMs;
+  const controllerDisconnectGraceMs =
+    parseIntValue(getArgValue(argv, '--disconnect-grace-ms')) ??
+    parseIntValue(env['CONTROLLER_DISCONNECT_GRACE_MS']);
+  if (controllerDisconnectGraceMs !== undefined) {
+    input.controllerDisconnectGraceMs = controllerDisconnectGraceMs;
+  }
   const dbPath = getArgValue(argv, '--db-path') ?? env['DB_PATH'];
   if (dbPath) input.dbPath = dbPath;
   const checkpointEvery =
