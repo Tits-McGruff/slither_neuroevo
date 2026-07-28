@@ -19,8 +19,10 @@ benchmark output, or retained compression fixtures. The current code and
 documents can therefore prove current structural behavior; historical commit
 claims and prior numerical observations are labelled separately below.
 
-**Implementation status:** Stage 1 has started. No evidence checkbox is complete
-until its listed proof exists.
+**Implementation status:** Stage 1 reference repairs and correction fixtures
+are implemented and recorded below. The 30 Hz versus 60 Hz browser-player
+cadence measurement remains open for Stage 2; no later-stage exit gate is
+claimed.
 
 The owner explicitly approved revision `2026-07-29-draft-4` in the 2026-07-29
 conversation. Commit `7971ed2ddbda86891c77def31d980aedf96b4236` contains the
@@ -3679,36 +3681,39 @@ make the program unusable while Rust is being built.
   memory limit, fault before committing the step.
 - [x] Expose collision-grid capacity, current entries, peak entries, rebuilds,
   and admission/fault reasons in diagnostics.
-- [ ] Hold the last accepted player/RL input for 500 ms wall time, then use
+- [x] Hold the last accepted player/RL input for 500 ms wall time, then use
   neutral steering and boost-off. Reserve disconnected ownership for 30 wall-
   clock seconds. Make both values configurable.
-- [ ] Never run the brain during grace. At expiry, perform one explicit
+- [x] Never run the brain during grace. At expiry, perform one explicit
   external-to-neural ownership transition, invalidate the expired controller,
   and never mix its input with brain output. Keep these clocks independent of
   simulation speed and scheduler debt.
-- [ ] Reset the scheduler clock after asynchronous initialization so startup
+- [x] Reset the scheduler clock after asynchronous initialization so startup
   delay cannot appear as simulation debt.
-- [ ] Slice temporary TypeScript catch-up into bounded groups of complete
+- [x] Slice temporary TypeScript catch-up into bounded groups of complete
   fixed steps and return to the Node event loop between groups. With an
   interactive controller attached, service Node between every overdue step.
-- [ ] Refresh the current step/control identity at each fixed-step boundary so
+- [x] Refresh the current step/control identity at each fixed-step boundary so
   two legitimate observations in one old-style pump do not share a stale
   limiter state.
-- [ ] Prioritize assignment, reclaim, player/RL control, errors, import/export
+- [x] Prioritize assignment, reclaim, player/RL control, errors, import/export
   results, and lifecycle messages over replaceable display frames.
-- [ ] Retain at most the newest unsent display frame for each browser
+- [x] Retain at most the newest unsent display frame for each browser
   connection and make failure to enqueue/send a reliable message observable.
-- [ ] Keep player pointer input in screen coordinates and recompute steering
+- [x] Keep player pointer input in screen coordinates and recompute steering
   from the newest camera/player state, preventing stale world-space steering
   during lag.
-- [ ] Decouple browser-player transmission from `onSensors`. Maintain one
+- [x] Decouple browser-player transmission from `onSensors`. Maintain one
   latest desired action, update it on pointer/button/boost changes, immediately
   request a bounded-rate send for meaningful changes (especially boost press
-  and release), and periodically resend while ownership is active. Measure
-  30 Hz and 60 Hz candidates before choosing the configurable initial cadence;
-  replace unsent old values rather than queueing them. Do not change the
+  and release), and periodically resend while ownership is active. The
+  temporary implementation keeps both 30 Hz and 60 Hz selectable, replaces
+  unsent old values rather than queueing them, and does not change the
   observation-driven Protocol 2 RL client into this browser timer.
-- [ ] Keep these changes narrow and separable. Do not add another simulation,
+- [ ] Measure the 30 Hz and 60 Hz candidates before selecting the configurable
+  initial cadence. This remains a Stage 2 measurement, not an implied choice
+  made by the temporary 60 Hz default candidate.
+- [x] Keep these changes narrow and separable. Do not add another simulation,
   inference pool, client-side authority, or permanent TypeScript performance
   architecture.
 
@@ -3716,26 +3721,26 @@ make the program unusable while Rust is being built.
 
 - [x] A real nearby body changes nearest-body and hazard sensor values.
 - [x] Exceeding the old collision capacity never makes segments disappear.
-- [ ] Record a correction fixture showing that reversing snake-array order must
+- [x] Record a correction fixture showing that reversing snake-array order must
   not change the intended collision result. It may remain red against the
   temporary TypeScript path; Stage 5 must make it pass in Rust.
-- [ ] Record a correction fixture requiring high-population spawning not to
+- [x] Record a correction fixture requiring high-population spawning not to
   overlap complete bodies. Stage 5 owns the replacement rather than expanding
   Stage 1 into a TypeScript collision rewrite.
-- [ ] A disconnected player/RL snake never invokes neural control during the
+- [x] A disconnected player/RL snake never invokes neural control during the
   full grace window.
-- [ ] Assignment/reclaim/control/error traffic survives a saturated display
+- [x] Assignment/reclaim/control/error traffic survives a saturated display
   path and a dropped first lifecycle send is visible/recoverable.
-- [ ] During induced catch-up, fresh player steering can affect the next
+- [x] During induced catch-up, fresh player steering can affect the next
   eligible step and stale steering cannot persist indefinitely.
-- [ ] In a browser/server integration test, deliberately delay or suppress
+- [x] In a browser/server integration test, deliberately delay or suppress
   sensor messages while pointer and boost state continue changing. Prove fresh
   steering and boost release are still sent, accepted by the server, and can
   affect the next eligible fixed step. Repeat with display frames delayed or
   replaced.
-- [ ] Record the current external-join RNG contamination and the correction
+- [x] Record the current external-join RNG contamination and the correction
   fixture; Stage 3 separates streams and Stages 5–6 make it pass.
-- [ ] Record the Float32 aliasing fixture now; Stage 6 supplies the checked v1
+- [x] Record the Float32 aliasing fixture now; Stage 6 supplies the checked v1
   mapping/range that makes it pass.
 
 **Exit gate:** Active project records no longer bind future work to the
