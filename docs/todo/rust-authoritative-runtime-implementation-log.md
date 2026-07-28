@@ -24,4 +24,4 @@ plan or turn an unfinished stage into a completed one.
 | Date | Stage | Commit | Evidence/result | Known issue or deviation |
 |---|---|---|---|---|
 | 2026-07-29 | Approval and Stage 1 start | Plan: `7971ed2ddbda86891c77def31d980aedf96b4236` | Owner explicitly approved `2026-07-29-draft-4`; working tree began Stage 1 from implementation base `46c2f634c4cf48b1c1d30b7b55e3373495773d4e`. | None. No earlier draft is approved; no Stage 1 exit gate is yet claimed. |
-
+| 2026-07-29 | Stage 1 architecture record and Git-history evidence | `c489c7e` | Corrected active instructions/README, superseded ADR 0001 and the false recovery-plan authority, added ADR 0002, and retained exact Git commit/blob/command evidence in `docs/todo/evidence/2026-07-29-stage1-git-history.md`. The false-document, historical 10/20-tick controller, and commit `8330065` claims all reproduced from Git and remain distinct from current-source proof. | Runtime repairs and the Stage 1 exit gate remain open. |
