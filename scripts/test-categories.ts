@@ -3,6 +3,7 @@ export const PRIMARY_TEST_CATEGORIES = {
   unit: [
     'scripts/ci-contract.test.ts',
     'scripts/recoveryPhase10.lan.test.ts',
+    'scripts/stage2/fixtures.test.ts',
     'scripts/test-categories.test.ts',
     'server/authoritativeWorldDigest.test.ts',
     'server/hash.test.ts',
