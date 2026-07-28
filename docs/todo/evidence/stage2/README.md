@@ -26,6 +26,7 @@ node .\node_modules\tsx\dist\cli.mjs scripts\stage2\codec-baseline.ts --scenario
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\runtime-baseline.ts --scenario P2 --backend native --workers 4 --warmup-steps 20 --steps 180 --frame-every 1 --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\behavior-baseline.ts --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\graph-baseline.ts --db data\slither.db --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\create-current-db-fixture.ts --scenario P1 --output C:\temporary\stage2-p1.db
 ```
 
 The runtime runner uses the real `SimCore`, `World`, heterogeneous population,
@@ -65,8 +66,12 @@ small metadata are reported separately.
 |---|---:|---:|---:|---:|---:|---|---:|
 | P0 fresh | 2.82 MiB | 20.11998 | 5.030x | 7.678% | 14.646% | shuffled Zstd | 2.41 MiB |
 | P0 evolved-like, 25 operator generations | 2.82 MiB | 20.04202 | 5.011x | 28.55% | 23.12% | plain Zstd | 2.02 MiB |
+| P1 fresh | 15.40 MiB | 20.11916 | 5.030x | 7.676% | 14.675% | shuffled Zstd | 13.14 MiB |
+| P1 evolved-like, 25 operator generations | 15.40 MiB | 20.04165 | 5.010x | 22.42% | 23.91% | shuffled Zstd | 11.72 MiB |
 | P2 fresh | 84.53 MiB | 20.11 | 5.03x | 7.86% | 14.75% | shuffled Zstd | 72.06 MiB |
 | P2 evolved-like, 25 operator generations | 84.53 MiB | 20.03 | 5.01x | 12.20% | 16.99% | shuffled Zstd | 70.17 MiB |
+| P3 fresh | 461.10 MiB | 20.11236 | 5.028x | 7.86% | 14.75% | shuffled Zstd | 393.09 MiB |
+| P3 evolved-like, 25 operator generations | 461.10 MiB | 20.03389 | 5.008x | 11.15% | 16.82% | shuffled Zstd | 383.55 MiB |
 
 The P0 fresh fixture reproduced the prior planning percentages to rounding:
 7.68% plain and 14.65% shuffled. Its exact plain result was 2,733,420 bytes,
@@ -84,10 +89,12 @@ required.
 
 Derived from these measured payloads, 22 automatic P0 weight payloads would use
 about 44.4–53.0 MiB. Twenty-two P2 payloads would use about 1.51–1.55 GiB.
-Those are calculations from measured codec sizes, not complete-checkpoint disk
-measurements. They support the selected retention counts and 4 GiB automatic
-cap for P0/P2, subject to real full-checkpoint, Hall-of-Fame and VM free-disk
-measurement.
+Twenty-two P3 payloads would use about 8.24–8.45 GiB, so the 4 GiB byte cap,
+not the count limit, necessarily controls that capacity case. The protected
+four-checkpoint P3 minimum calculates to about 1.50–1.54 GiB. These are
+calculations from measured codec sizes, not complete-checkpoint disk
+measurements. They support the selected retention rules, subject to real full-
+checkpoint, Hall-of-Fame and VM free-disk measurement.
 
 ## Narrow SQLite byte-volume comparison
 
@@ -152,8 +159,7 @@ count from observed batch population counts.
 - integrated real-server/browser/LAN/RL P5 and cadence measurements;
 - sustained P4, P6 accelerated, P7 soak and P8 overnight-equivalent fixtures;
 - browser heap traces for current import/export;
-- P1/P3 codec fixtures and full managed-checkpoint container validation timing;
-- the permitted narrow SQLite byte-volume experiment and page-reuse behavior;
+- full managed-checkpoint container validation timing;
 - real owner save files outside the repository, if any;
 - Debian graph-ordering output from the exact retained database/spec fixture.
 
