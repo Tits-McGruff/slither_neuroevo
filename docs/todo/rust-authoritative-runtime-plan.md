@@ -3671,13 +3671,13 @@ make the program unusable while Rust is being built.
 
 **Minimum TypeScript reference repairs:**
 
-- [ ] Replace the broken body-sensor spatial-query adapter with the real query
+- [x] Replace the broken body-sensor spatial-query adapter with the real query
   contract and add a real-body regression test for neural, baseline, and
   external observations.
-- [ ] Replace silent collision-grid truncation with a checked grow/rebuild at a
+- [x] Replace silent collision-grid truncation with a checked grow/rebuild at a
   safe boundary. If the configured world cannot be represented inside its
   memory limit, fault before committing the step.
-- [ ] Expose collision-grid capacity, current entries, peak entries, rebuilds,
+- [x] Expose collision-grid capacity, current entries, peak entries, rebuilds,
   and admission/fault reasons in diagnostics.
 - [ ] Hold the last accepted player/RL input for 500 ms wall time, then use
   neutral steering and boost-off. Reserve disconnected ownership for 30 wall-
@@ -3714,8 +3714,8 @@ make the program unusable while Rust is being built.
 
 **Correction tests, not golden-master preservation:**
 
-- [ ] A real nearby body changes nearest-body and hazard sensor values.
-- [ ] Exceeding the old collision capacity never makes segments disappear.
+- [x] A real nearby body changes nearest-body and hazard sensor values.
+- [x] Exceeding the old collision capacity never makes segments disappear.
 - [ ] Record a correction fixture showing that reversing snake-array order must
   not change the intended collision result. It may remain red against the
   temporary TypeScript path; Stage 5 must make it pass in Rust.
