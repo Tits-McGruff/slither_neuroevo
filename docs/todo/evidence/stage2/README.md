@@ -89,6 +89,31 @@ measurements. They support the selected retention counts and 4 GiB automatic
 cap for P0/P2, subject to real full-checkpoint, Hall-of-Fame and VM free-disk
 measurement.
 
+## Narrow SQLite byte-volume comparison
+
+The approved disposable experiment wrote representative already-compressed P0
+and P2 byte volumes to one-megabyte SQLite BLOB rows with WAL, `synchronous =
+FULL`, and automatic checkpointing disabled. It built no checkpoint schema,
+reader, backup, pruning, recovery or export implementation.
+
+| Payload | Synchronous insert | Main-loop timer delay | WAL after commit | WAL/payload | WAL checkpoint | Read-back | Delete |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| P0, 2,527,124 bytes | 12.51 ms | 13.05 ms | 2.43 MiB | 1.009x | 7.60 ms | 3.33 ms | 4.00 ms |
+| P2, 75,563,269 bytes | 273.60 ms | 274.15 ms | 72.59 MiB | 1.007x | 201.04 ms | 104.35 ms | 55.44 ms |
+
+After deletion and checkpoint, the P2 database still occupied its prior file
+size with 18,472 free pages. Re-inserting the same volume added zero main-file
+pages, proving normal free-page reuse; only explicit `VACUUM` returned the file
+to its two-page baseline. The same synchronous work delayed a scheduled
+main-loop timer for essentially the operation duration.
+
+This is development-SSD evidence, not VM latency evidence. It confirms the
+written architectural comparison: population-sized SQLite transactions create
+population-sized WAL work and event-loop stalls if run on the main thread,
+while deletion does not return filesystem space without compaction. No
+correctness requirement has appeared that justifies replacing the selected
+immutable managed files with this more complicated payload-in-SQLite path.
+
 ## Initial Windows runtime measurements
 
 The following are single direct-engine runs on a Ryzen 7 5800X, Windows 11,
