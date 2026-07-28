@@ -7,6 +7,7 @@ import {
 } from '../src/net/playerActionPump.ts';
 import { World } from '../src/world.ts';
 import { ControllerRegistry } from './controllerRegistry.ts';
+import { parseClientMessage } from './protocol.ts';
 
 /** Minimal controllable clock for one trailing browser send. */
 class ControlClock implements PlayerActionPumpClock {
@@ -75,7 +76,7 @@ afterEach(() => {
 });
 
 describe('Stage 1 browser-player transmission correction', () => {
-  it('delivers steering and boost release while every sensor message is suppressed', async () => {
+  it('delivers steering and boost release while sensors are suppressed and display is stalled', async () => {
     const clock = new ControlClock();
     const world = new World({ snakeCount: 1 }, { seed: 9201 });
     world.snakes[0]!.alive = false;
@@ -107,6 +108,8 @@ describe('Stage 1 browser-player transmission correction', () => {
 
     let desiredTurn = 0.75;
     let desiredBoost = 1;
+    const transmitted: string[] = [];
+    let newestUnconsumedDisplayFrame = Uint8Array.of(1);
     const pump = new PlayerActionPump({
       cadenceHz: 60,
       isActive: () => true,
@@ -117,11 +120,16 @@ describe('Stage 1 browser-player transmission correction', () => {
         boost: desiredBoost
       }),
       sendAction: action => {
-        registry.handleAction(1, { type: 'action', ...action });
+        const payload = JSON.stringify({ type: 'action', ...action });
+        transmitted.push(payload);
+        const parsed = parseClientMessage(JSON.parse(payload) as unknown);
+        if (parsed?.type === 'action') registry.handleAction(1, parsed);
       },
       clock
     });
     pump.start();
+    newestUnconsumedDisplayFrame = Uint8Array.of(2);
+    newestUnconsumedDisplayFrame = Uint8Array.of(3);
     await world.step(1 / 60, 800, 600, registry, 1);
     expect(external.turnInput).toBe(0.75);
     expect(external.boostInput).toBe(1);
@@ -131,9 +139,16 @@ describe('Stage 1 browser-player transmission correction', () => {
     desiredTurn = -0.6;
     desiredBoost = 0;
     pump.requestImmediate();
+    newestUnconsumedDisplayFrame = Uint8Array.of(4);
     clock.advance(17);
     await world.step(1 / 60, 800, 600, registry, 2);
 
+    expect(transmitted.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.parse(transmitted.at(-1)!)).toMatchObject({
+      turn: -0.6,
+      boost: 0
+    });
+    expect(newestUnconsumedDisplayFrame).toEqual(Uint8Array.of(4));
     expect(external.turnInput).toBeCloseTo(-0.6, 6);
     expect(external.boostInput).toBe(0);
     pump.stop();

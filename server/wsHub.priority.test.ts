@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
-import type { AssignMsg } from './protocol.ts';
+import type { AssignMsg, ServerMessage } from './protocol.ts';
 import { WsHub, type ConnectionState } from './wsHub.ts';
 
 /** Fake `ws` socket with manually completed writes. */
@@ -70,7 +70,7 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
 }
 
 describe('WsHub lifecycle priority', () => {
-  it('sends reliable assignment before the newest unsent frame and replaces older frames', () => {
+  it('drains assignment, reclaim, control, and error traffic before the newest frame', () => {
     const { hub, socket } = buildFakeHub();
     const frame1 = Uint8Array.of(1);
     const frame2 = Uint8Array.of(2);
@@ -85,16 +85,39 @@ describe('WsHub lifecycle priority', () => {
       resumeToken: 'priority-token'
     };
     expect(hub.sendJsonTo(1, assign)).toBe(true);
+    const reliable: ServerMessage[] = [
+      {
+        type: 'reclaimResult',
+        reclaimed: true,
+        reason: 'reclaimed',
+        snakeId: 7
+      },
+      {
+        type: 'sensors',
+        tick: 4,
+        snakeId: 7,
+        sensors: [0.1, 0.2],
+        meta: { x: 1, y: 2, dir: 0.5 }
+      },
+      {
+        type: 'error',
+        message: 'visible lifecycle failure'
+      }
+    ];
+    for (const message of reliable) expect(hub.sendJsonTo(1, message)).toBe(true);
 
     expect(socket.sent).toHaveLength(1);
     expect(socket.sent[0]?.payload).toBe(frame1);
     socket.sent[0]!.complete();
-    expect(JSON.parse(String(socket.sent[1]?.payload))).toMatchObject({
-      type: 'assign',
-      snakeId: 7
-    });
-    socket.sent[1]!.complete();
-    expect(socket.sent[2]?.payload).toBe(frame3);
+    const expectedTypes = ['assign', 'reclaimResult', 'sensors', 'error'];
+    for (let index = 0; index < expectedTypes.length; index++) {
+      const sentIndex = index + 1;
+      expect(JSON.parse(String(socket.sent[sentIndex]?.payload))).toMatchObject({
+        type: expectedTypes[index]
+      });
+      socket.sent[sentIndex]!.complete();
+    }
+    expect(socket.sent[expectedTypes.length + 1]?.payload).toBe(frame3);
     expect(hub.getOutboundDiagnostics().replacedFrames).toBe(1);
   });
 

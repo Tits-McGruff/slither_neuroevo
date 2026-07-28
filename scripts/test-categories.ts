@@ -70,7 +70,10 @@ export const PRIMARY_TEST_CATEGORIES = {
   ],
   system: ['server/system.test.ts'],
   acceptance: ['server/acceptance.test.ts'],
-  regression: ['src/stack.regression.test.ts'],
+  regression: [
+    'src/stack.regression.test.ts',
+    'src/stage1.correctionFixtures.test.ts'
+  ],
   performance: ['server/performance.test.ts'],
   security: ['server/security.test.ts']
 } as const;
