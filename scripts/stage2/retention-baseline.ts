@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
 import {
   OWNER_RETENTION_DEFAULTS,
@@ -26,7 +27,11 @@ type ProjectionScenario = 'P0' | 'P1' | 'P2' | 'P3';
 /** Default number of 60-second generations in eight hours. */
 const DEFAULT_GENERATIONS = 480;
 /** Exact approved compact history record size. */
-const HISTORY_RECORD_BYTES = 56;
+export const HISTORY_RECORD_BYTES = 56;
+/** Deterministic observation points for the isolated history-row measurement. */
+const HISTORY_GROWTH_SAMPLES = [0, 1, 8, 64, 480] as const;
+/** Largest isolated history fixture accepted by the command-line runner. */
+const MAX_HISTORY_GENERATIONS = 1_000_000;
 /** Owner-selected initial Hall-of-Fame unique-genome count. */
 const DEFAULT_HOF_UNIQUE_LIMIT = 50;
 /** Safety ceiling for modeled checkpoint plus Hall-of-Fame payload bytes. */
@@ -56,7 +61,78 @@ interface RetentionBaselineOptions {
   retention: RetentionSettings;
   /** Optional JSON output destination. */
   outputPath: string | null;
+  /** Run only the isolated compact-history SQLite measurement. */
+  historyOnly: boolean;
+  /** Number of records written by the isolated compact-history measurement. */
+  historyGenerations: number;
 }
+
+/** One SQLite dbstat allocation summary, when the virtual table is available. */
+interface DbstatObject {
+  /** SQLite object name. */
+  name: string;
+  /** Number of pages owned by the object. */
+  pages: number;
+  /** Bytes allocated to the object pages. */
+  pageBytes: number;
+  /** Bytes used for SQLite payloads. */
+  payloadBytes: number;
+  /** Unused bytes within the object's pages. */
+  unusedBytes: number;
+}
+
+/** dbstat details for the compact history table and primary-key index. */
+interface HistoryDbstat {
+  /** Whether the linked SQLite build exposes dbstat. */
+  available: boolean;
+  /** Failure reason when dbstat is not compiled into SQLite. */
+  reason?: string;
+  /** Allocation summary for generation_history. */
+  table: DbstatObject | null;
+  /** Allocation summary for generation_history's PRIMARY KEY index. */
+  primaryKeyIndex: DbstatObject | null;
+}
+
+/** File and page state at one isolated compact-history measurement point. */
+interface HistoryStorageState {
+  /** Main SQLite database bytes. */
+  databaseBytes: number;
+  /** Write-ahead log bytes. */
+  walBytes: number;
+  /** Shared-memory sidecar bytes. */
+  shmBytes: number;
+  /** Main database page count. */
+  pageCount: number;
+  /** Reusable main-database page count. */
+  freelistCount: number;
+  /** Table/index allocation, if supported by this SQLite build. */
+  dbstat: HistoryDbstat;
+}
+
+/** One growth observation from the compact-history-only SQLite fixture. */
+interface HistoryGrowthSample {
+  /** Number of committed compact history records at the observation point. */
+  records: number;
+  /** Exact fixed-width logical history bytes. */
+  logicalBytes: number;
+  /** Physical SQLite state. */
+  storage: HistoryStorageState;
+}
+
+/** Isolated compact-history measurement options exposed for focused tests. */
+export interface HistoryStorageMeasurementOptions {
+  /** Final committed record count. */
+  generations: number;
+}
+
+/** Exact shared DDL for the target compact history row shape. */
+const HISTORY_TABLE_SQL = `
+CREATE TABLE generation_history (
+  run_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  record BLOB NOT NULL,
+  PRIMARY KEY (run_id, generation)
+);`;
 
 /** Minimal retained codec artifact fields consumed by this fixture. */
 interface CodecArtifact {
@@ -148,7 +224,9 @@ function parseOptions(argv: readonly string[]): RetentionBaselineOptions {
     hofUniqueLimit: DEFAULT_HOF_UNIQUE_LIMIT,
     maxModeledPayloadBytes: DEFAULT_MAX_MODELED_PAYLOAD_BYTES,
     retention: { ...OWNER_RETENTION_DEFAULTS },
-    outputPath: null
+    outputPath: null,
+    historyOnly: false,
+    historyGenerations: DEFAULT_GENERATIONS
   };
   for (let index = 0; index < argv.length; index++) {
     const option = argv[index];
@@ -184,6 +262,13 @@ function parseOptions(argv: readonly string[]): RetentionBaselineOptions {
       case '--output':
         if (!value) throw new Error('--output requires a path');
         options.outputPath = path.resolve(value);
+        index++;
+        break;
+      case '--history-only':
+        options.historyOnly = true;
+        break;
+      case '--history-generations':
+        options.historyGenerations = parseInteger(value, option, MAX_HISTORY_GENERATIONS);
         index++;
         break;
       default:
@@ -448,7 +533,7 @@ function deterministicPayload(length: number, seed: number): Buffer {
  * @param generation - Generation number.
  * @returns Fixed-width little-endian record.
  */
-function historyRecord(generation: number): Buffer {
+export function encodeHistoryRecord(generation: number): Buffer {
   const record = Buffer.alloc(HISTORY_RECORD_BYTES);
   record.writeBigUInt64LE(BigInt(generation), 0);
   record.writeDoubleLE(generation * 1.25, 8);
@@ -526,12 +611,7 @@ function createFixtureSchema(database: Database.Database): void {
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
       checkpoint_key TEXT NOT NULL REFERENCES checkpoints(checkpoint_key)
     );
-    CREATE TABLE generation_history (
-      run_id TEXT NOT NULL,
-      generation INTEGER NOT NULL,
-      record BLOB NOT NULL,
-      PRIMARY KEY (run_id, generation)
-    );
+    ${HISTORY_TABLE_SQL}
     CREATE TABLE hof_entries (
       run_id TEXT NOT NULL,
       generation INTEGER NOT NULL,
@@ -552,6 +632,193 @@ function createFixtureSchema(database: Database.Database): void {
   );
   insertDefinition.run('graph', 'stage2-graph-v1', Buffer.from('one stable graph definition'));
   insertDefinition.run('config', 'stage2-config-v1', Buffer.from('one stable config definition'));
+}
+
+/**
+ * Capture dbstat allocation for the exact compact-history table and its
+ * PRIMARY KEY index without treating dbstat support as a fixture prerequisite.
+ * @param database - Open disposable SQLite database.
+ * @returns Available dbstat detail or an explicit unsupported result.
+ */
+function captureHistoryDbstat(database: Database.Database): HistoryDbstat {
+  try {
+    const indexes = database.prepare(`PRAGMA index_list('generation_history')`).all() as Array<{
+      name: string;
+      origin: string;
+    }>;
+    const primaryKeyIndex = indexes.find(index => index.origin === 'pk')?.name;
+    if (!primaryKeyIndex) throw new Error('generation_history PRIMARY KEY index is absent');
+    const objects = database.prepare(`
+      SELECT name,
+             COUNT(*) AS pages,
+             SUM(pgsize) AS pageBytes,
+             SUM(payload) AS payloadBytes,
+             SUM(unused) AS unusedBytes
+        FROM dbstat
+       WHERE name IN (?, ?)
+       GROUP BY name
+       ORDER BY name
+    `).all('generation_history', primaryKeyIndex) as DbstatObject[];
+    return {
+      available: true,
+      table: objects.find(object => object.name === 'generation_history') ?? null,
+      primaryKeyIndex: objects.find(object => object.name === primaryKeyIndex) ?? null
+    };
+  } catch (error) {
+    return {
+      available: false,
+      reason: error instanceof Error ? error.message : String(error),
+      table: null,
+      primaryKeyIndex: null
+    };
+  }
+}
+
+/**
+ * Capture physical SQLite state for the isolated compact-history fixture.
+ * @param database - Open disposable SQLite database.
+ * @param databasePath - Main database path.
+ * @returns File, page and optional dbstat accounting.
+ */
+function captureHistoryStorageState(
+  database: Database.Database,
+  databasePath: string
+): HistoryStorageState {
+  return {
+    databaseBytes: fileSize(databasePath),
+    walBytes: fileSize(`${databasePath}-wal`),
+    shmBytes: fileSize(`${databasePath}-shm`),
+    pageCount: database.pragma('page_count', { simple: true }) as number,
+    freelistCount: database.pragma('freelist_count', { simple: true }) as number,
+    dbstat: captureHistoryDbstat(database)
+  };
+}
+
+/**
+ * Run the bounded, history-only SQLite measurement without creating a
+ * checkpoint archive, managed file, segment store, or production database.
+ * @param options - Final record count for the disposable fixture.
+ * @returns Machine-readable row-growth and WAL evidence.
+ */
+export function runHistoryStorageMeasurement(
+  options: HistoryStorageMeasurementOptions
+): Record<string, unknown> {
+  if (
+    !Number.isSafeInteger(options.generations) ||
+    options.generations < 1 ||
+    options.generations > MAX_HISTORY_GENERATIONS
+  ) {
+    throw new RangeError(
+      `history generations must be an integer from 1 to ${MAX_HISTORY_GENERATIONS}`
+    );
+  }
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slither-stage2-history-'));
+  const resolvedTemporaryRoot = path.resolve(temporaryRoot);
+  const resolvedSystemTemp = path.resolve(os.tmpdir());
+  let database: Database.Database | null = null;
+  try {
+    if (
+      path.dirname(resolvedTemporaryRoot) !== resolvedSystemTemp ||
+      !path.basename(resolvedTemporaryRoot).startsWith('slither-stage2-history-')
+    ) {
+      throw new Error(`unexpected temporary history fixture path ${resolvedTemporaryRoot}`);
+    }
+    const databasePath = path.join(resolvedTemporaryRoot, 'history.db');
+    const openedDatabase = new Database(databasePath);
+    database = openedDatabase;
+    openedDatabase.pragma('journal_mode = WAL');
+    openedDatabase.pragma('synchronous = FULL');
+    openedDatabase.pragma('wal_autocheckpoint = 1000');
+    openedDatabase.exec(HISTORY_TABLE_SQL);
+    openedDatabase.pragma('wal_checkpoint(TRUNCATE)');
+
+    const selectedSamples = new Set<number>([
+      ...HISTORY_GROWTH_SAMPLES.filter(sample => sample <= options.generations),
+      options.generations
+    ]);
+    const growthSamples: HistoryGrowthSample[] = [];
+    const captureSample = (records: number): void => {
+      growthSamples.push({
+        records,
+        logicalBytes: records * HISTORY_RECORD_BYTES,
+        storage: captureHistoryStorageState(openedDatabase, databasePath)
+      });
+    };
+    const appendTransactionsMs: number[] = [];
+    const insertHistory = openedDatabase.prepare(`
+      INSERT INTO generation_history(run_id, generation, record)
+      VALUES (?, ?, ?)
+    `);
+    const appendHistory = openedDatabase.transaction((generation: number) => {
+      insertHistory.run(CURRENT_RUN_ID, generation, encodeHistoryRecord(generation));
+    });
+
+    captureSample(0);
+    let peakWalBytes = growthSamples[0]!.storage.walBytes;
+    for (let generation = 1; generation <= options.generations; generation++) {
+      const started = performance.now();
+      appendHistory(generation);
+      appendTransactionsMs.push(performance.now() - started);
+      peakWalBytes = Math.max(peakWalBytes, fileSize(`${databasePath}-wal`));
+      if (selectedSamples.has(generation)) captureSample(generation);
+    }
+    const counts = openedDatabase.prepare(`
+      SELECT COUNT(*) AS records, COALESCE(SUM(LENGTH(record)), 0) AS logical_bytes
+        FROM generation_history
+    `).get() as { records: number; logical_bytes: number };
+    if (
+      counts.records !== options.generations ||
+      counts.logical_bytes !== options.generations * HISTORY_RECORD_BYTES
+    ) {
+      throw new Error('isolated compact history row/byte accounting mismatch');
+    }
+    const beforePassiveCheckpoint = captureHistoryStorageState(openedDatabase, databasePath);
+    const checkpointStarted = performance.now();
+    const passiveCheckpointResult = openedDatabase.pragma('wal_checkpoint(PASSIVE)');
+    const passiveCheckpointMs = performance.now() - checkpointStarted;
+    const afterPassiveCheckpoint = captureHistoryStorageState(openedDatabase, databasePath);
+
+    return {
+      fixtureKind: 'isolated compact-history SQLite row measurement; not a checkpoint, archive, segment, or production schema',
+      fixture: {
+        generations: options.generations,
+        recordBytes: HISTORY_RECORD_BYTES,
+        table: 'generation_history',
+        primaryKey: ['run_id', 'generation'],
+        encoding: 'eight-field little-endian binary record'
+      },
+      growthSamples,
+      appendTransactionMs: distribution(appendTransactionsMs),
+      wal: {
+        peakObservedBytes: peakWalBytes,
+        beforePassiveCheckpoint,
+        passiveCheckpointMs: Number(passiveCheckpointMs.toFixed(6)),
+        passiveCheckpointResult,
+        afterPassiveCheckpoint
+      },
+      accountingAssertions: {
+        exactRecordCount: true,
+        exactFixedWidthLogicalBytes: true,
+        requiredSamplesPresent: [0, 1, 8, 64, 480]
+          .filter(sample => sample <= options.generations)
+          .every(sample => growthSamples.some(observation => observation.records === sample))
+      },
+      limitations: {
+        scope:
+          'no checkpoint payload, managed file, Hall-of-Fame, deletion, segment, restore, or production persistence path is exercised',
+        durability:
+          'SQLite FULL transaction timing and passive checkpoint timing are not managed-checkpoint publication or directory-durability evidence',
+        target:
+          'this disposable local measurement is not target-VM evidence and does not select a production storage layout'
+      }
+    };
+  } finally {
+    try {
+      database?.close();
+    } finally {
+      fs.rmSync(resolvedTemporaryRoot, { recursive: true, force: true });
+    }
+  }
 }
 
 /**
@@ -782,7 +1049,7 @@ function runMaterializedFixture(
           checkpointBytes,
           newCandidate.createdOrdinal
         );
-        insertHistory.run(CURRENT_RUN_ID, generation, historyRecord(generation));
+        insertHistory.run(CURRENT_RUN_ID, generation, encodeHistoryRecord(generation));
         const hofMetadata = Buffer.alloc(32);
         hofMetadata.writeBigUInt64LE(BigInt(generation), 0);
         hofMetadata.writeDoubleLE(generation * 1.25, 8);
@@ -1046,23 +1313,96 @@ function runBaseline(options: RetentionBaselineOptions): Record<string, unknown>
   };
 }
 
+/**
+ * Wrap the isolated history-row fixture in a retained-evidence envelope.
+ * @param generations - Final compact-history record count.
+ * @returns Machine-readable Stage 2 measurement artifact.
+ */
+function runHistoryOnlyBaseline(generations: number): Record<string, unknown> {
+  return {
+    schema: 'slither-stage2-history-sqlite-overhead',
+    version: 1,
+    evidenceClass: 'new measured result',
+    caveat:
+      'Disposable compact-history SQLite measurement only. It is not checkpoint-v3, an archive, a segment implementation, restore evidence, durability evidence, or target-VM evidence.',
+    source: sourceIdentity(),
+    environment: {
+      capturedAt: new Date().toISOString(),
+      platform: process.platform,
+      architecture: process.arch,
+      osType: os.type(),
+      osRelease: os.release(),
+      osVersion: os.version(),
+      hostname: os.hostname(),
+      node: process.version,
+      sqlite: sqliteVersion()
+    },
+    measurement: runHistoryStorageMeasurement({ generations })
+  };
+}
+
+/**
+ * Publish one completed history-only JSON artifact without overwriting an
+ * existing destination. The final hard-link creation is the no-overwrite
+ * publication point; this is artifact safety, not a durability claim.
+ * @param outputPath - Final artifact path that must not already exist.
+ * @param json - Fully serialized artifact content.
+ */
+function writeHistoryArtifactNoOverwrite(outputPath: string, json: string): void {
+  const parent = path.dirname(outputPath);
+  const name = path.basename(outputPath);
+  fs.mkdirSync(parent, { recursive: true });
+  const temporaryDirectory = fs.mkdtempSync(path.join(parent, `.${name}.history-`));
+  const resolvedTemporaryDirectory = path.resolve(temporaryDirectory);
+  const resolvedParent = path.resolve(parent);
+  const temporaryFile = path.join(resolvedTemporaryDirectory, 'artifact.json');
+  try {
+    if (
+      path.dirname(resolvedTemporaryDirectory) !== resolvedParent ||
+      !path.basename(resolvedTemporaryDirectory).startsWith(`.${name}.history-`)
+    ) {
+      throw new Error(`unexpected history artifact temporary path ${resolvedTemporaryDirectory}`);
+    }
+    const descriptor = fs.openSync(temporaryFile, 'wx');
+    try {
+      fs.writeFileSync(descriptor, json, 'utf8');
+      fs.fsyncSync(descriptor);
+    } finally {
+      fs.closeSync(descriptor);
+    }
+    fs.linkSync(temporaryFile, outputPath);
+  } finally {
+    fs.rmSync(resolvedTemporaryDirectory, { recursive: true, force: true });
+  }
+}
+
 /** Execute the CLI. */
 function main(): void {
   const options = parseOptions(process.argv.slice(2));
-  const result = runBaseline(options);
+  const result = options.historyOnly
+    ? runHistoryOnlyBaseline(options.historyGenerations)
+    : runBaseline(options);
   const json = `${JSON.stringify(result, null, 2)}\n`;
   if (options.outputPath) {
-    fs.mkdirSync(path.dirname(options.outputPath), { recursive: true });
-    fs.writeFileSync(options.outputPath, json, 'utf8');
-    console.info(`[stage2.retention] wrote ${options.outputPath}`);
+    if (options.historyOnly) {
+      writeHistoryArtifactNoOverwrite(options.outputPath, json);
+      console.info(`[stage2.history] wrote ${options.outputPath}`);
+    } else {
+      fs.mkdirSync(path.dirname(options.outputPath), { recursive: true });
+      fs.writeFileSync(options.outputPath, json, 'utf8');
+      console.info(`[stage2.retention] wrote ${options.outputPath}`);
+    }
   } else {
     process.stdout.write(json);
   }
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error);
-  process.exitCode = 1;
+const invokedPath = process.argv[1];
+if (invokedPath && import.meta.url === pathToFileURL(path.resolve(invokedPath)).href) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error);
+    process.exitCode = 1;
+  }
 }
