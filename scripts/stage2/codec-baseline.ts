@@ -1,4 +1,4 @@
-/** Stage 2 packed-weight, legacy-JSON, and adaptive Zstandard measurements. */
+/** Stage 2 packed-weight, legacy-JSON, and archive-v1 codec measurements. */
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -207,9 +207,11 @@ function measureZstd(raw: Buffer, shuffled: boolean, checksum: boolean): CodecMe
 }
 
 /**
- * Measure adaptive per-genome storage without retaining all encoded buffers.
+ * Compare per-genome storage without retaining all encoded buffers.
+ * Plain Zstandard remains comparison evidence; the approved archive-v1
+ * numeric-entry choice is raw packed versus byte-shuffled Zstandard.
  * @param population - Dense population.
- * @returns Aggregate raw/plain/shuffled/adaptive sizes and timing.
+ * @returns Aggregate comparison and approved raw-or-shuffled sizes and timing.
  */
 function measurePerGenome(
   population: readonly { weights: Float32Array }[]
@@ -217,10 +219,13 @@ function measurePerGenome(
   let rawBytes = 0;
   let plainZstdBytes = 0;
   let shuffledZstdBytes = 0;
-  let adaptiveBytes = 0;
-  let rawSelections = 0;
-  let plainSelections = 0;
-  let shuffledSelections = 0;
+  let minimumAcrossMeasuredBytes = 0;
+  let approvedRawOrShuffledBytes = 0;
+  let minimumRawSelections = 0;
+  let minimumPlainSelections = 0;
+  let minimumShuffledSelections = 0;
+  let approvedRawSelections = 0;
+  let approvedShuffledSelections = 0;
   const started = performance.now();
   for (const genome of population) {
     const raw = Buffer.from(
@@ -234,20 +239,30 @@ function measurePerGenome(
     plainZstdBytes += plain.length;
     shuffledZstdBytes += shuffled.length;
     const smallest = Math.min(raw.length, plain.length, shuffled.length);
-    adaptiveBytes += smallest;
-    if (smallest === raw.length) rawSelections++;
-    else if (smallest === shuffled.length) shuffledSelections++;
-    else plainSelections++;
+    minimumAcrossMeasuredBytes += smallest;
+    if (smallest === raw.length) minimumRawSelections++;
+    else if (smallest === shuffled.length) minimumShuffledSelections++;
+    else minimumPlainSelections++;
+    const approvedSmallest = Math.min(raw.length, shuffled.length);
+    approvedRawOrShuffledBytes += approvedSmallest;
+    if (approvedSmallest === raw.length) approvedRawSelections++;
+    else approvedShuffledSelections++;
   }
   return {
     rawBytes,
     plainZstdBytes,
     shuffledZstdBytes,
-    adaptiveBytes,
-    adaptiveToRawRatio: rawBytes > 0 ? Number((adaptiveBytes / rawBytes).toFixed(8)) : 0,
-    rawSelections,
-    plainSelections,
-    shuffledSelections,
+    minimumAcrossMeasuredBytes,
+    minimumAcrossMeasuredToRawRatio:
+      rawBytes > 0 ? Number((minimumAcrossMeasuredBytes / rawBytes).toFixed(8)) : 0,
+    minimumRawSelections,
+    minimumPlainSelections,
+    minimumShuffledSelections,
+    approvedRawOrShuffledBytes,
+    approvedRawOrShuffledToRawRatio:
+      rawBytes > 0 ? Number((approvedRawOrShuffledBytes / rawBytes).toFixed(8)) : 0,
+    approvedRawSelections,
+    approvedShuffledSelections,
     encodeMs: Number((performance.now() - started).toFixed(6))
   };
 }
@@ -327,14 +342,18 @@ function runCodecBaseline(options: CodecOptions): Record<string, unknown> {
   const shuffled = measureZstd(raw, true, false);
   const plainChecksum = measureZstd(raw, false, true);
   const shuffledChecksum = measureZstd(raw, true, true);
-  const candidates = [
+  const measuredCandidates = [
     { encoding: 'raw-packed', bytes: raw.length },
     { encoding: plain.encoding, bytes: plain.encodedBytes },
     { encoding: shuffled.encoding, bytes: shuffled.encodedBytes }
   ].sort((left, right) => left.bytes - right.bytes);
+  const archiveV1Candidates = [
+    { encoding: 'raw-f32le-v1', bytes: raw.length },
+    { encoding: 'f32le-shuffle4-zstd-v1', bytes: shuffled.encodedBytes }
+  ].sort((left, right) => left.bytes - right.bytes);
   return {
     schema: 'slither-stage2-codec-baseline',
-    version: 1,
+    version: 2,
     evidenceClass: 'new measured result',
     caveat: 'Offline population-weight codec fixture; managed checkpoint container and full server memory are measured separately.',
     source: sourceIdentity(),
@@ -367,7 +386,8 @@ function runCodecBaseline(options: CodecOptions): Record<string, unknown> {
       shuffledZstd: shuffled,
       plainZstdWithFrameChecksum: plainChecksum,
       shuffledZstdWithFrameChecksum: shuffledChecksum,
-      selectedAdaptive: candidates[0]
+      smallestMeasuredComparison: measuredCandidates[0],
+      selectedArchiveV1: archiveV1Candidates[0]
     },
     perGenome: measurePerGenome(population),
     currentLegacyGzip: measureLegacyGzip(population)
