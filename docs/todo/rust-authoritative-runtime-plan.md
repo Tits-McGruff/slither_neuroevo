@@ -3844,7 +3844,7 @@ measures the production-shaped workload, not isolated shared-weight kernels.
 - [x] Inventory every current database table/column that grows per generation,
   including parent snapshots, per-slot weights, Hall-of-Fame genomes, fitness
   history, journals/WAL, and any repeated graph/settings data.
-- [ ] Inventory every current and legacy export representation and identify
+- [x] Inventory every current and legacy export representation and identify
   which existing user files must remain importable.
 - [ ] Inventory the owner's real existing database copies and save files before
   narrowing or retiring any compatibility reader; record format, size,

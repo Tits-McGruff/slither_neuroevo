@@ -15,6 +15,13 @@ machine results, not results from the required Ryzen 7 2700 Debian VM.
 - Raw JSON produced by the Stage 2 runners is a new measured result and records
   its source commit, dirty flag, machine and runtime.
 
+The source- and Git-history-backed compatibility matrix is retained in
+`persistence-format-inventory.md`. It inventories current format-2 SQLite,
+historical combined-gzip and all-parent JSON rows, current/older standalone
+JSON files, browser-local legacy state and the planned archive-v1 boundary.
+It also records the limited local owner-file search; actual files on the
+Debian VM, Unraid storage, other disks or browser profiles remain unexamined.
+
 ## Reproducible commands
 
 Run from the repository root with the direct `tsx` entry point:
