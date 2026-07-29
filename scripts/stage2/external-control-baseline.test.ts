@@ -1,6 +1,6 @@
 /** Contract tests for the bounded Stage 2 P5/P6 external-control measurement runner. */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetCFGToDefaults } from '../../src/config.ts';
 import {
   externalControlComposition,
@@ -8,7 +8,9 @@ import {
   p5Composition,
   p6Composition,
   parseOptions,
+  readHealth,
   schedulerDelta,
+  tickBoundaryPollDelayMs,
   viewerWarmupReadiness
 } from './external-control-baseline.ts';
 
@@ -33,6 +35,21 @@ function health(
       droppedSimulationSeconds
     },
     collisionGrid: {},
+    worldLoad: {
+      committedTick: tick,
+      generation: 1,
+      generationTime: 0,
+      populationGenomeCount: 0,
+      totalSnakes: 0,
+      aliveEvolvedPopulationSnakes: 0,
+      aliveBaselineBots: 0,
+      aliveExternallyOwnedSnakes: 0,
+      aliveNeuralModeNonBaselineUnownedSnakes: 0,
+      aliveOtherNonBaselineSnakes: 0,
+      aliveTotalSnakes: 0,
+      aliveBodyPointCount: 0,
+      pelletCount: 0
+    },
     outbound: {},
     fault: { faulted: false, reason: null, tick: null },
     inferenceMode: {},
@@ -46,6 +63,7 @@ function health(
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   resetCFGToDefaults();
 });
 
@@ -57,15 +75,26 @@ describe('Stage 2 P5/P6 external-control runner', () => {
       simSpeed: 1,
       viewer: true,
       checkpointEvery: 1_000_000,
-      playerHz: 30
+      playerHz: 30,
+      warmupMs: 2_000,
+      durationMs: 15_000,
+      warmupTick: null,
+      measurementSteps: null
     });
     expect(parseOptions([
       '--profile', 'p6', '--sim-speed', '12', '--viewer', 'on', '--checkpoint-every', '0'
     ])).toMatchObject({ profile: 'p6', simSpeed: 12, viewer: true, checkpointEvery: 0 });
     expect(parseOptions(['--profile', 'p6'])).toMatchObject({
       checkpointEvery: 1,
-      viewer: false
+      viewer: false,
+      warmupMs: null,
+      durationMs: null,
+      warmupTick: 300,
+      measurementSteps: 1_800
     });
+    expect(parseOptions([
+      '--profile', 'p6', '--warmup-tick', '600', '--measurement-steps', '3600'
+    ])).toMatchObject({ warmupTick: 600, measurementSteps: 3_600 });
     expect(() => parseOptions([
       '--profile', 'p6', '--checkpoint-every', '2'
     ])).toThrow('1 for the primary matrix or 0 for an explicit diagnostic');
@@ -73,6 +102,15 @@ describe('Stage 2 P5/P6 external-control runner', () => {
     expect(() => parseOptions(['--viewer', 'true'])).toThrow('on or off');
     expect(() => parseOptions(['--viewer', 'off'])).toThrow('P5 compatibility');
     expect(() => parseOptions(['--checkpoint-every', '-1'])).toThrow('0 to 1000000');
+    expect(() => parseOptions([
+      '--profile', 'p6', '--duration-ms', '1000'
+    ])).toThrow('common polled tick target');
+    expect(() => parseOptions([
+      '--profile', 'p6', '--warmup-ms', '0'
+    ])).toThrow('common polled tick target');
+    expect(() => parseOptions([
+      '--measurement-steps', '1800'
+    ])).toThrow('P5 compatibility');
   });
 
   it('keeps P5 compatibility and P6 isolation as distinct socket compositions', () => {
@@ -103,6 +141,37 @@ describe('Stage 2 P5/P6 external-control runner', () => {
     expect(viewerWarmupReadiness('p5')).toBe('first-frame-and-stats');
   });
 
+  it('paces authoritative-tick polling without busy polling or long overshoot sleeps', () => {
+    expect(tickBoundaryPollDelayMs(1_800, 60, 1)).toBe(1_000);
+    expect(tickBoundaryPollDelayMs(60, 60, 12)).toBeCloseTo(66.6666666667, 8);
+    expect(tickBoundaryPollDelayMs(1, 60, 12)).toBe(25);
+    expect(tickBoundaryPollDelayMs(Number.NaN, 0, Number.NaN)).toBe(25);
+  });
+
+  it('aborts a health request that exceeds its explicit wall-time bound', async () => {
+    const fetchMock = vi.fn((_input: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (!signal) {
+          reject(new Error('missing abort signal'));
+          return;
+        }
+        const rejectAbort = () => reject(new Error('mock fetch aborted'));
+        if (signal.aborted) {
+          rejectAbort();
+        } else {
+          signal.addEventListener('abort', rejectAbort, { once: true });
+        }
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      readHealth({ port: 1 } as Parameters<typeof readHealth>[0], 5)
+    ).rejects.toThrow('health request timed out');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it('subtracts scheduler counters including dropped debt and rejects inconsistent steps', () => {
     const delta = schedulerDelta(
       health(100, 100, 10, 10 / 6, 0.25),
@@ -125,6 +194,23 @@ describe('Stage 2 P5/P6 external-control runner', () => {
       4,
       60
     )).toThrow('tick/completed-step mismatch');
+  });
+
+  it('keeps exact step accounting when both health samples occur inside one scheduler pump', () => {
+    const delta = schedulerDelta(
+      health(100, 100, 10, 100 / 60, 1),
+      health(160, 160, 10, 160 / 60, 1),
+      4,
+      60
+    );
+    expect(delta).toMatchObject({
+      tick: 60,
+      completedSteps: 60,
+      wallSeconds: 0,
+      achievedMultiplier: null,
+      achievedToRequestedRatio: null
+    });
+    expect(delta.simulatedSeconds).toBeCloseTo(1, 12);
   });
 
   it('accepts ordinary floating-point accumulation across a 10-minute 12x run', () => {

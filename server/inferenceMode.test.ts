@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG } from './config.ts';
 import { startServer } from './index.ts';
 import type { InferenceModeRecord } from './inferenceMode.ts';
 import type { Logger } from './logger.ts';
-import type { SimulationFaultStatus } from './simServer.ts';
+import type { AuthoritativeWorldLoadDiagnostics, SimulationFaultStatus } from './simServer.ts';
 import type { SchedulerDiagnostics } from '../src/sim/SimCore.ts';
 
 /** Test suite label for native/diagnostic inference-mode integration. */
@@ -21,6 +21,8 @@ interface HealthResponse {
   inferenceMode: InferenceModeRecord;
   /** Current fixed-step scheduling measurements. */
   scheduler: SchedulerDiagnostics;
+  /** Read-only authoritative current-world load snapshot. */
+  worldLoad: AuthoritativeWorldLoadDiagnostics;
   /** Current authoritative simulation fault state. */
   fault: SimulationFaultStatus;
 }
@@ -87,6 +89,37 @@ describe(SUITE, () => {
       });
       expect(health.scheduler.achievedMultiplier).toBeGreaterThanOrEqual(0);
       expect(health.fault).toEqual({ faulted: false, reason: null, tick: null });
+      expect(health.worldLoad).toMatchObject({
+        generation: 1,
+        populationGenomeCount: 55,
+        totalSnakes: 65,
+        aliveExternallyOwnedSnakes: 0,
+        aliveOtherNonBaselineSnakes: 0
+      });
+      expect(health.worldLoad.committedTick).toBeGreaterThanOrEqual(0);
+      expect(health.worldLoad.committedTick).toBeLessThanOrEqual(health.tick);
+      expect(health.worldLoad.pelletCount).toBeGreaterThan(0);
+      expect(Number.isInteger(health.worldLoad.pelletCount)).toBe(true);
+      expect(health.worldLoad.aliveEvolvedPopulationSnakes).toBeGreaterThan(0);
+      expect(health.worldLoad.aliveEvolvedPopulationSnakes).toBeLessThanOrEqual(55);
+      expect(health.worldLoad.aliveBaselineBots).toBeGreaterThanOrEqual(0);
+      expect(health.worldLoad.aliveBaselineBots).toBeLessThanOrEqual(10);
+      expect(health.worldLoad.aliveNeuralModeNonBaselineUnownedSnakes).toBe(
+        health.worldLoad.aliveTotalSnakes - health.worldLoad.aliveBaselineBots
+      );
+      expect(health.worldLoad.aliveTotalSnakes).toBe(
+        health.worldLoad.aliveBaselineBots +
+        health.worldLoad.aliveExternallyOwnedSnakes +
+        health.worldLoad.aliveNeuralModeNonBaselineUnownedSnakes +
+        health.worldLoad.aliveOtherNonBaselineSnakes
+      );
+      expect(health.worldLoad.totalSnakes).toBeGreaterThanOrEqual(health.worldLoad.aliveTotalSnakes);
+      expect(health.worldLoad.populationGenomeCount).toBeGreaterThanOrEqual(
+        health.worldLoad.aliveEvolvedPopulationSnakes
+      );
+      expect(health.worldLoad.aliveBodyPointCount).toBeGreaterThanOrEqual(
+        health.worldLoad.aliveTotalSnakes
+      );
 
       const modeLog = logs.find(entry => entry.module === 'inference-mode');
       expect(modeLog).toBeDefined();

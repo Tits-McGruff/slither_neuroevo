@@ -141,6 +141,48 @@ export interface PersistenceCheckpointStatus {
   exactStartupResume: boolean;
 }
 
+/**
+ * Read-only authoritative world-load snapshot returned by `/health`.
+ * Population membership is a cross-cut identified by `populationSlot`; the
+ * remaining alive control categories are mutually exclusive and sum to
+ * `aliveTotalSnakes`.
+ */
+export interface AuthoritativeWorldLoadDiagnostics {
+  /** Fixed-step id at which this immutable snapshot was captured. */
+  committedTick: number;
+  /** Active evolutionary generation. */
+  generation: number;
+  /** Elapsed simulation seconds in the active generation. */
+  generationTime: number;
+  /** Number of genomes in the current evolved population. */
+  populationGenomeCount: number;
+  /** Number of retained snake records, alive or dead. */
+  totalSnakes: number;
+  /** Alive snakes holding a non-null evolved-population slot. */
+  aliveEvolvedPopulationSnakes: number;
+  /** Alive baseline-bot snakes, identified by a non-null baseline index. */
+  aliveBaselineBots: number;
+  /**
+   * Alive non-baseline snakes with an external controller lease at the last
+   * fixed-step boundary, including disconnect grace.
+   */
+  aliveExternallyOwnedSnakes: number;
+  /**
+   * Alive non-baseline, non-externally-owned snakes in neural control mode.
+   * This is an eligibility category, not proof that a neural inference ran on
+   * the most recent step.
+   */
+  aliveNeuralModeNonBaselineUnownedSnakes: number;
+  /** Alive non-baseline snakes outside the external-owner and neural-mode categories. */
+  aliveOtherNonBaselineSnakes: number;
+  /** Total alive snakes across every control category. */
+  aliveTotalSnakes: number;
+  /** Total body points across alive snakes only. */
+  aliveBodyPointCount: number;
+  /** Current authoritative pellet count. */
+  pelletCount: number;
+}
+
 /** Server-side simulation loop and WS broadcasting. */
 export class SimServer {
   /** Unified simulation core. */
@@ -176,6 +218,8 @@ export class SimServer {
 
   /** Controller registry for player and bot assignments. */
   private controllers: ControllerRegistry;
+  /** Latest fully committed/post-pump world-load snapshot served by health checks. */
+  private worldLoadDiagnostics!: AuthoritativeWorldLoadDiagnostics;
   /** Persistence adapter for snapshots and HoF. */
   private persistence: Persistence | null;
   /** Hash for the active configuration. */
@@ -290,7 +334,8 @@ export class SimServer {
         this.controllers.refresh();
         this.drainPendingCommands(tickId);
       },
-      onStepCommitted: async (world) => {
+      onStepCommitted: async (world, tickId) => {
+        this.refreshWorldLoadDiagnostics(world, tickId);
         await this.synchronizeBrainPoolGeneration(world);
         await this.yieldDuringCatchUp();
       }
@@ -319,6 +364,7 @@ export class SimServer {
         getLeaseScope: () => `${this.runId}:${this.worldSeed}`
       }
     );
+    this.refreshWorldLoadDiagnostics();
 
     void cfgHash;
     const activeConfigHash = buildAuthoritativeConfigHash(this.core.world);
@@ -426,6 +472,63 @@ export class SimServer {
    */
   getCollisionGridDiagnostics(): SpatialHashDiagnostics {
     return this.core.world.getCollisionGridDiagnostics();
+  }
+
+  /**
+   * Return a copy of the latest fully committed/post-pump world-load snapshot.
+   * @returns Immutable scalar health diagnostics without a live world scan.
+   */
+  getWorldLoadDiagnostics(): AuthoritativeWorldLoadDiagnostics {
+    return { ...this.worldLoadDiagnostics };
+  }
+
+  /**
+   * Capture one scalar world-load snapshot at a committed or post-pump boundary.
+   * This performs one O(snakes) scan but never serializes, clones, or mutates the World.
+   * @param world - Stable authoritative World at the selected boundary.
+   * @param committedTick - Fixed-step identity represented by the snapshot.
+   */
+  private refreshWorldLoadDiagnostics(
+    world = this.core.world,
+    committedTick = this.core.tickId
+  ): void {
+    let aliveEvolvedPopulationSnakes = 0;
+    let aliveBaselineBots = 0;
+    let aliveExternallyOwnedSnakes = 0;
+    let aliveNeuralModeNonBaselineUnownedSnakes = 0;
+    let aliveOtherNonBaselineSnakes = 0;
+    let aliveTotalSnakes = 0;
+    let aliveBodyPointCount = 0;
+    for (const snake of world.snakes) {
+      if (!snake.alive) continue;
+      aliveTotalSnakes++;
+      aliveBodyPointCount += snake.points.length;
+      if (snake.populationSlot !== null) aliveEvolvedPopulationSnakes++;
+      if (snake.baselineBotIndex !== null) {
+        aliveBaselineBots++;
+      } else if (this.controllers.isControlled(snake.id)) {
+        aliveExternallyOwnedSnakes++;
+      } else if (snake.controlMode === 'neural') {
+        aliveNeuralModeNonBaselineUnownedSnakes++;
+      } else {
+        aliveOtherNonBaselineSnakes++;
+      }
+    }
+    this.worldLoadDiagnostics = {
+      committedTick,
+      generation: world.generation,
+      generationTime: world.generationTime,
+      populationGenomeCount: world.population.length,
+      totalSnakes: world.snakes.length,
+      aliveEvolvedPopulationSnakes,
+      aliveBaselineBots,
+      aliveExternallyOwnedSnakes,
+      aliveNeuralModeNonBaselineUnownedSnakes,
+      aliveOtherNonBaselineSnakes,
+      aliveTotalSnakes,
+      aliveBodyPointCount,
+      pelletCount: world.pellets.length
+    };
   }
 
   /**
@@ -599,6 +702,7 @@ export class SimServer {
       this.lastHofGenSaved = 0;
       if (this.mtEnabled) await this.ensureBrainPool();
       this.clearFault();
+      this.refreshWorldLoadDiagnostics();
       this.refreshWelcomeState();
       return result;
     });
@@ -1000,6 +1104,7 @@ export class SimServer {
     this.lastHofGenSaved = 0;
     this.controllers.setTickId(this.core.tickId);
     this.controllers.reassignDeadSnakes(() => this.core.world.spawnExternalSnake().id);
+    this.refreshWorldLoadDiagnostics();
   }
 
   /**
@@ -1254,6 +1359,7 @@ export class SimServer {
 
     this.controllers.reassignDeadSnakes(() => this.core.world.spawnExternalSnake().id);
     this.handleGenerationEnd();
+    this.refreshWorldLoadDiagnostics();
 
     const shouldBroadcastFrame = now - this.lastFrameSentAt >= 1000 / this.uiFrameRateHz;
     if (shouldBroadcastFrame && this.wsHub.hasFrameRecipients()) {

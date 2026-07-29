@@ -10,6 +10,7 @@ import WebSocket, { type RawData } from 'ws';
 import { buildGenerationCheckpoint } from '../../server/checkpoint.ts';
 import { DEFAULT_CONFIG, type ServerConfig } from '../../server/config.ts';
 import { startServer, type RunningServer } from '../../server/index.ts';
+import type { AuthoritativeWorldLoadDiagnostics } from '../../server/simServer.ts';
 import {
   createPersistence,
   initDb,
@@ -40,10 +41,14 @@ interface ExternalControlOptions {
   viewer: boolean;
   /** Automatic generation checkpoint interval; zero is an explicit diagnostic exclusion. */
   checkpointEvery: number;
-  /** Warm-up after all clients are ready. */
-  warmupMs: number;
-  /** Measured wall duration. */
-  durationMs: number;
+  /** P5 wall-time warm-up after all clients are ready. */
+  warmupMs: number | null;
+  /** P5 measured wall duration. */
+  durationMs: number | null;
+  /** P6 absolute tick target at or beyond which the polled warm-up sample is taken. */
+  warmupTick: number | null;
+  /** P6 minimum number of authoritative fixed steps required between polled samples. */
+  measurementSteps: number | null;
   /** Canonical Node inference workers. */
   workers: number;
   /** Optional JSON destination. */
@@ -167,6 +172,8 @@ interface HealthSnapshot {
   };
   /** Current collision-grid diagnostics. */
   collisionGrid: Record<string, unknown>;
+  /** Current authoritative snake/body/pellet load without full-world serialization. */
+  worldLoad: AuthoritativeWorldLoadDiagnostics;
   /** Current outbound diagnostics. */
   outbound: Record<string, unknown>;
   /** Current fault state. */
@@ -186,6 +193,42 @@ interface HealthSnapshot {
   };
 }
 
+/** One polled authoritative-tick wait result used to bound a P6 measurement. */
+interface TickBoundaryWait {
+  /** Requested inclusive tick boundary. */
+  targetTick: number;
+  /** First health tick observed at or beyond the boundary. */
+  observedTick: number;
+  /** Health-poll overshoot beyond the requested boundary. */
+  overshootSteps: number;
+  /** Number of health requests made while waiting. */
+  pollCount: number;
+  /** Runner-monotonic wall time spent waiting. */
+  wallMs: number;
+  /** Health response at the observed boundary. */
+  health: HealthSnapshot;
+}
+
+/** Default timeout for an individual health request outside a longer bounded wait. */
+const HEALTH_REQUEST_TIMEOUT_MS = 30_000;
+
+/** Error raised when a health request exceeds its explicit wall-time bound. */
+class HealthRequestTimeoutError extends Error {
+  /** Wall-time request bound that expired. */
+  readonly timeoutMs: number;
+
+  /**
+   * Create a health-request timeout.
+   * @param timeoutMs - Expired request bound in milliseconds.
+   * @param cause - Underlying fetch abort.
+   */
+  constructor(timeoutMs: number, cause: unknown) {
+    super(`health request timed out after ${Math.ceil(timeoutMs)} ms`, { cause });
+    this.name = 'HealthRequestTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 /** Delta of cumulative scheduler counters across one measured interval. */
 export interface SchedulerDelta {
   /** Committed fixed steps during the interval. */
@@ -198,10 +241,10 @@ export interface SchedulerDelta {
   simulatedSeconds: number;
   /** Discarded catch-up debt during the interval. */
   droppedSimulationSeconds: number;
-  /** Measured simulated seconds per scheduler wall second. */
-  achievedMultiplier: number;
-  /** Achieved multiplier divided by the requested multiplier. */
-  achievedToRequestedRatio: number;
+  /** Measured simulated seconds per scheduler wall second, or null within one open pump. */
+  achievedMultiplier: number | null;
+  /** Achieved multiplier divided by the requested multiplier, or null with no wall delta. */
+  achievedToRequestedRatio: number | null;
 }
 
 /** Exact Protocol 2 socket composition for a P6 measurement. */
@@ -252,11 +295,17 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
     checkpointEvery: 1_000_000,
     warmupMs: 2_000,
     durationMs: 15_000,
+    warmupTick: null,
+    measurementSteps: null,
     workers: 0,
     outputPath: null
   };
   let checkpointExplicit = false;
   let viewerExplicit = false;
+  let wallWarmupExplicit = false;
+  let wallDurationExplicit = false;
+  let tickWarmupExplicit = false;
+  let measurementStepsExplicit = false;
   for (let index = 0; index < argv.length; index++) {
     const option = argv[index];
     const value = argv[index + 1];
@@ -306,10 +355,22 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
         break;
       case '--warmup-ms':
         options.warmupMs = parseInteger(value, option, 0, 60_000);
+        wallWarmupExplicit = true;
         index++;
         break;
       case '--duration-ms':
         options.durationMs = parseInteger(value, option, 1_000, 600_000);
+        wallDurationExplicit = true;
+        index++;
+        break;
+      case '--warmup-tick':
+        options.warmupTick = parseInteger(value, option, 1, 10_000_000);
+        tickWarmupExplicit = true;
+        index++;
+        break;
+      case '--measurement-steps':
+        options.measurementSteps = parseInteger(value, option, 60, 10_000_000);
+        measurementStepsExplicit = true;
         index++;
         break;
       case '--workers':
@@ -328,12 +389,26 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
   if (options.profile === 'p6') {
     if (!checkpointExplicit) options.checkpointEvery = 1;
     if (!viewerExplicit) options.viewer = false;
+    if (wallWarmupExplicit || wallDurationExplicit) {
+      throw new Error(
+        'P6 uses --warmup-tick and --measurement-steps to align around a common polled ' +
+        'tick target and require a minimum observed step span; wall-time warm-up/duration ' +
+        'are P5-only'
+      );
+    }
+    options.warmupMs = null;
+    options.durationMs = null;
+    if (!tickWarmupExplicit) options.warmupTick = 300;
+    if (!measurementStepsExplicit) options.measurementSteps = 1_800;
     if (options.checkpointEvery !== 0 && options.checkpointEvery !== 1) {
       throw new Error(
         'P6 --checkpoint-every must be 1 for the primary matrix or 0 for an explicit diagnostic'
       );
     }
   } else {
+    if (tickWarmupExplicit || measurementStepsExplicit) {
+      throw new Error('P5 compatibility uses --warmup-ms and --duration-ms, not P6 tick windows');
+    }
     if (viewerExplicit && !options.viewer) {
       throw new Error('P5 compatibility always includes its UI spectator; use --profile p6 --viewer off');
     }
@@ -482,9 +557,13 @@ export function schedulerDelta(
   const simulatedSeconds = after.scheduler.simulatedSeconds - before.scheduler.simulatedSeconds;
   const droppedSimulationSeconds =
     after.scheduler.droppedSimulationSeconds - before.scheduler.droppedSimulationSeconds;
-  if (tick < 0 || completedSteps < 0 || wallSeconds <= 0 || simulatedSeconds < 0 ||
+  if (tick < 0 || completedSteps < 0 || wallSeconds < 0 || simulatedSeconds < 0 ||
     droppedSimulationSeconds < 0) {
-    throw new Error('scheduler counters moved backwards or did not record positive wall time');
+    throw new Error(
+      'scheduler counters moved backwards: ' +
+      `tick=${tick}, completedSteps=${completedSteps}, wallSeconds=${wallSeconds}, ` +
+      `simulatedSeconds=${simulatedSeconds}, droppedSimulationSeconds=${droppedSimulationSeconds}`
+    );
   }
   if (tick !== completedSteps) {
     throw new Error(`tick/completed-step mismatch: tick=${tick}, completedSteps=${completedSteps}`);
@@ -499,7 +578,7 @@ export function schedulerDelta(
       `simulated seconds disagree with completed steps: ${simulatedSeconds} versus ${expectedSimulatedSeconds}`
     );
   }
-  const achievedMultiplier = simulatedSeconds / wallSeconds;
+  const achievedMultiplier = wallSeconds > 0 ? simulatedSeconds / wallSeconds : null;
   return {
     tick,
     completedSteps,
@@ -507,7 +586,8 @@ export function schedulerDelta(
     simulatedSeconds,
     droppedSimulationSeconds,
     achievedMultiplier,
-    achievedToRequestedRatio: achievedMultiplier / requestedMultiplier
+    achievedToRequestedRatio:
+      achievedMultiplier === null ? null : achievedMultiplier / requestedMultiplier
   };
 }
 
@@ -833,14 +913,140 @@ function createFixtureDatabase(
 }
 
 /**
- * Read one health snapshot.
+ * Read one health snapshot with an abortable wall-time bound.
  * @param server - Running server.
+ * @param timeoutMs - Maximum wall time allowed for the request.
  * @returns Parsed health result.
  */
-async function readHealth(server: RunningServer): Promise<HealthSnapshot> {
-  const response = await fetch(`http://127.0.0.1:${server.port}/health`);
-  if (!response.ok) throw new Error(`health returned HTTP ${response.status}`);
-  return await response.json() as HealthSnapshot;
+export async function readHealth(
+  server: RunningServer,
+  timeoutMs = HEALTH_REQUEST_TIMEOUT_MS
+): Promise<HealthSnapshot> {
+  const boundedTimeoutMs = Math.max(1, timeoutMs);
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, boundedTimeoutMs);
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.port}/health`, {
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`health returned HTTP ${response.status}`);
+    return await response.json() as HealthSnapshot;
+  } catch (error) {
+    if (timedOut) throw new HealthRequestTimeoutError(boundedTimeoutMs, error);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Choose the next bounded health-poll delay for an authoritative tick wait.
+ * @param remainingSteps - Steps still required to reach the boundary.
+ * @param tickRateHz - Fixed-step rate.
+ * @param requestedMultiplier - Requested scheduler multiplier.
+ * @returns Delay in milliseconds, bounded to avoid either busy polling or a long overshoot.
+ */
+export function tickBoundaryPollDelayMs(
+  remainingSteps: number,
+  tickRateHz: number,
+  requestedMultiplier: number
+): number {
+  const safeRemaining = Math.max(0, Number.isFinite(remainingSteps) ? remainingSteps : 0);
+  const safeTickRate = Math.max(1, Number.isFinite(tickRateHz) ? tickRateHz : 1);
+  const safeMultiplier = Math.max(
+    0.01,
+    Number.isFinite(requestedMultiplier) ? requestedMultiplier : 1
+  );
+  const idealRemainingMs = (safeRemaining / safeTickRate / safeMultiplier) * 1_000;
+  return Math.max(25, Math.min(1_000, idealRemainingMs * 0.8));
+}
+
+/**
+ * Wait until the real server reports an authoritative tick at or beyond one boundary.
+ * @param server - Running real server.
+ * @param targetTick - Inclusive authoritative target tick.
+ * @param tickRateHz - Fixed-step rate.
+ * @param requestedMultiplier - Requested scheduler multiplier used only to pace polling.
+ * @param initialHealth - Optional already-read starting health.
+ * @returns Boundary health plus polling and overshoot accounting.
+ */
+async function waitForTickBoundary(
+  server: RunningServer,
+  targetTick: number,
+  tickRateHz: number,
+  requestedMultiplier: number,
+  initialHealth?: HealthSnapshot
+): Promise<TickBoundaryWait> {
+  const startedAt = performance.now();
+  const estimatedInitialTick = initialHealth?.tick ?? 0;
+  const initialRemaining = Math.max(0, targetTick - estimatedInitialTick);
+  const timeoutMs = Math.min(
+    600_000,
+    Math.max(60_000, (initialRemaining / Math.max(1, tickRateHz)) * 20_000)
+  );
+  const deadlineAt = startedAt + timeoutMs;
+  let health: HealthSnapshot;
+  try {
+    health = initialHealth ?? await readHealth(server, deadlineAt - performance.now());
+  } catch (error) {
+    if (error instanceof HealthRequestTimeoutError) {
+      throw new Error(
+        `timed out waiting for authoritative tick ${targetTick}; latest tick unavailable ` +
+        'because the initial health request did not complete',
+        { cause: error }
+      );
+    }
+    throw error;
+  }
+  let pollCount = initialHealth ? 0 : 1;
+  while (health.tick < targetTick) {
+    if (health.fault.faulted) {
+      throw new Error(`simulation faulted while waiting for tick ${targetTick}: ${health.fault.reason ?? 'unknown'}`);
+    }
+    const remainingBeforeSleepMs = deadlineAt - performance.now();
+    if (remainingBeforeSleepMs <= 0) {
+      throw new Error(
+        `timed out waiting for authoritative tick ${targetTick}; latest tick ${health.tick}`
+      );
+    }
+    const delayMs = tickBoundaryPollDelayMs(
+      targetTick - health.tick,
+      tickRateHz,
+      requestedMultiplier
+    );
+    await new Promise(resolve => setTimeout(resolve, Math.min(delayMs, remainingBeforeSleepMs)));
+    const remainingRequestMs = deadlineAt - performance.now();
+    if (remainingRequestMs <= 0) {
+      throw new Error(
+        `timed out waiting for authoritative tick ${targetTick}; latest tick ${health.tick}`
+      );
+    }
+    try {
+      health = await readHealth(server, remainingRequestMs);
+    } catch (error) {
+      if (error instanceof HealthRequestTimeoutError) {
+        throw new Error(
+          `timed out waiting for authoritative tick ${targetTick}; latest tick ${health.tick}; ` +
+          'the next health request did not complete before the overall deadline',
+          { cause: error }
+        );
+      }
+      throw error;
+    }
+    pollCount++;
+  }
+  return {
+    targetTick,
+    observedTick: health.tick,
+    overshootSteps: health.tick - targetTick,
+    pollCount,
+    wallMs: Number((performance.now() - startedAt).toFixed(6)),
+    health
+  };
 }
 
 /**
@@ -907,12 +1113,27 @@ export async function runExternalControlBaseline(
       30_000,
       'external clients'
     );
-    if (options.warmupMs > 0) {
-      await new Promise(resolve => setTimeout(resolve, options.warmupMs));
-    }
-
-    const readinessHealth = await readHealth(server);
     const composition = externalControlComposition(options);
+    let warmupBoundary: TickBoundaryWait | null = null;
+    let readinessHealth: HealthSnapshot;
+    if (options.profile === 'p6') {
+      if (options.warmupTick === null) throw new Error('P6 warm-up tick is missing');
+      const connectedHealth = await readHealth(server);
+      warmupBoundary = await waitForTickBoundary(
+        server,
+        options.warmupTick,
+        config.tickRateHz,
+        options.simSpeed,
+        connectedHealth
+      );
+      readinessHealth = warmupBoundary.health;
+    } else {
+      if (options.warmupMs === null) throw new Error('P5 warm-up duration is missing');
+      if (options.warmupMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, options.warmupMs ?? 0));
+      }
+      readinessHealth = await readHealth(server);
+    }
     if (readinessHealth.clients !== composition.totalSockets) {
       throw new Error(
         `${options.profile.toUpperCase()} client composition mismatch: expected ` +
@@ -949,8 +1170,14 @@ export async function runExternalControlBaseline(
     let healthBefore: HealthSnapshot;
     let healthAfter: HealthSnapshot;
     let measuredWallMs: number;
+    let measurementBoundary: TickBoundaryWait | null = null;
     try {
-      healthBefore = await readHealth(server);
+      // P6 reuses the just-observed polled warm-up sample, so no additional
+      // asynchronous health request shifts the recorded start. The poll may
+      // already be beyond its target, and the recorded load remains evidence.
+      healthBefore = options.profile === 'p6'
+        ? readinessHealth
+        : await readHealth(server);
       if (healthBefore.clients !== composition.totalSockets) {
         throw new Error(
           `${options.profile.toUpperCase()} client composition changed before measurement: ` +
@@ -963,8 +1190,23 @@ export async function runExternalControlBaseline(
           `${healthBefore.persistence.checkpointEveryGenerations}`
         );
       }
-      await new Promise(resolve => setTimeout(resolve, options.durationMs));
-      healthAfter = await readHealth(server);
+      if (options.profile === 'p6') {
+        if (options.measurementSteps === null) {
+          throw new Error('P6 measurement step count is missing');
+        }
+        measurementBoundary = await waitForTickBoundary(
+          server,
+          healthBefore.tick + options.measurementSteps,
+          config.tickRateHz,
+          options.simSpeed,
+          healthBefore
+        );
+        healthAfter = measurementBoundary.health;
+      } else {
+        if (options.durationMs === null) throw new Error('P5 measurement duration is missing');
+        await new Promise(resolve => setTimeout(resolve, options.durationMs ?? 0));
+        healthAfter = await readHealth(server);
+      }
       measuredWallMs = performance.now() - measuredStartedAt;
     } finally {
       if (playerTimer) clearInterval(playerTimer);
@@ -989,6 +1231,16 @@ export async function runExternalControlBaseline(
       options.simSpeed,
       config.tickRateHz
     );
+    if (
+      options.profile === 'p6' &&
+      options.measurementSteps !== null &&
+      scheduler.completedSteps < options.measurementSteps
+    ) {
+      throw new Error(
+        `P6 minimum-step window ended early: requested ${options.measurementSteps}, ` +
+        `observed ${scheduler.completedSteps}`
+      );
+    }
     if (healthAfter.clients !== composition.totalSockets) {
       throw new Error(
         `${options.profile.toUpperCase()} client composition changed during measurement: ` +
@@ -1017,7 +1269,7 @@ export async function runExternalControlBaseline(
     const monotonicAchievedMultiplier = scheduler.simulatedSeconds / measuredWallSeconds;
     evidence = {
       schema: 'slither-stage2-external-control-baseline',
-      version: 2,
+      version: 3,
       evidenceClass: 'new measured result',
       caveat:
         'Real current server and Protocol 2 wire-compatible bot, but loopback Node clients are not the missing owner trainer project, a browser renderer, another LAN device, or the target Debian VM.',
@@ -1045,14 +1297,19 @@ export async function runExternalControlBaseline(
         playerHz: player ? options.playerHz : null,
         requestedSimSpeed: options.simSpeed,
         warmupMs: options.warmupMs,
+        warmupTick: options.warmupTick,
         requestedDurationMs: options.durationMs,
+        requestedMeasurementSteps: options.measurementSteps,
+        measurementMode: options.profile === 'p6'
+          ? 'minimum-polled-authoritative-steps'
+          : 'runner-monotonic-wall-time',
         requestedWorkers: options.workers,
         displayPublicationHz: config.uiFrameRateHz,
         botClient: 'Protocol 2 observation-driven synthetic compatibility client',
         viewerClient: viewer
           ? viewerWarmupReadiness(options.profile) === 'connected'
             ? 'one Protocol 2 UI spectator; measurement readiness waits only for its open ' +
-              'hello/join so a delayed first frame cannot postpone warm-up into a later world state'
+              'hello/join, and first frame/stats delivery is not a P6 warm-up condition'
             : 'one Protocol 2 UI spectator receiving complete frame v1 before P5 warm-up'
           : 'disabled; no UI player or spectator socket',
         checkpointPersistence: {
@@ -1071,11 +1328,64 @@ export async function runExternalControlBaseline(
         actionAcceptanceObservability: {
           configuredActionsPerSecondCap: config.maxActionsPerSecond,
           caveat:
-            'Observed Protocol 2 observations/actions are client sends, not proof that ControllerRegistry accepted or applied every action at 4x, 8x, or 12x; the current health endpoint exposes no accepted/applied action counters.'
+            'Observed Protocol 2 observations/actions are client sends, not proof that ControllerRegistry accepted or applied every action once sends approach or exceed the cap; the current health endpoint exposes no accepted/applied action counters.'
+        },
+        diagnosticInstrumentation: {
+          worldLoadCache:
+            'The measured server performs one O(snakes) scalar world-load scan at each ' +
+            'committed step and another after each completed pump. That diagnostic cost is ' +
+            'included in these results and is not assumed to be free.'
+        },
+        crossRunComparability: {
+          alignment:
+            options.profile === 'p6'
+              ? 'Runs use one absolute warm-up tick target and require at least the requested ' +
+                'number of observed authoritative steps. Actual start/end ticks, poll overshoot, ' +
+                'and world load are recorded for every run.'
+              : 'P5 is a historical wall-time compatibility profile, not a tick-aligned comparison.',
+          caveat:
+            options.profile === 'p6'
+              ? 'Independent launches can diverge before and during the sampled window because ' +
+                'external join and action delivery use wall/event-loop timing, viewer publication ' +
+                'changes scheduling, current external joins advance authoritative RNG, and health ' +
+                'polls observe only at-or-beyond boundaries. Clearing client telemetry cannot prove ' +
+                'that no pre-warm-up sensor or frame was already queued. The minimum-step window ' +
+                'normalizes requested simulated progress; it does not make trajectories, loads, or ' +
+                'client action timing identical.'
+              : 'P5 retains its historical client-readiness and wall-time behavior.'
         }
       },
       result: {
         measuredWallMs: Number(measuredWallMs.toFixed(6)),
+        tickWindow: {
+          mode: options.profile === 'p6'
+            ? 'minimum-polled-authoritative-steps'
+            : 'runner-monotonic-wall-time',
+          warmupBoundary: warmupBoundary
+            ? {
+                targetTick: warmupBoundary.targetTick,
+                observedTick: warmupBoundary.observedTick,
+                overshootSteps: warmupBoundary.overshootSteps,
+                healthPollCount: warmupBoundary.pollCount,
+                wallMs: warmupBoundary.wallMs,
+                worldLoad: warmupBoundary.health.worldLoad,
+                collisionGridEntries:
+                  warmupBoundary.health.collisionGrid['currentEntries'] ?? null
+              }
+            : null,
+          measurementStartTick: healthBefore.tick,
+          measurementTargetTick: measurementBoundary?.targetTick ?? null,
+          measurementEndTick: healthAfter.tick,
+          requestedMeasurementSteps: options.measurementSteps,
+          observedMeasurementSteps: scheduler.completedSteps,
+          measurementOvershootSteps: measurementBoundary?.overshootSteps ?? null,
+          measurementHealthPollCount: measurementBoundary?.pollCount ?? null,
+          minimumStepTargetReached:
+            options.profile === 'p6'
+              ? options.measurementSteps !== null &&
+                scheduler.completedSteps >= options.measurementSteps
+              : null
+        },
         monotonicWindow: {
           wallSeconds: Number(measuredWallSeconds.toFixed(9)),
           simulatedSecondsPerWallSecond: Number(monotonicAchievedMultiplier.toFixed(6)),
@@ -1089,8 +1399,20 @@ export async function runExternalControlBaseline(
           wallSeconds: Number(scheduler.wallSeconds.toFixed(9)),
           simulatedSeconds: Number(scheduler.simulatedSeconds.toFixed(9)),
           droppedSimulationSeconds: Number(scheduler.droppedSimulationSeconds.toFixed(9)),
-          achievedMultiplier: Number(scheduler.achievedMultiplier.toFixed(6)),
-          achievedToRequestedRatio: Number(scheduler.achievedToRequestedRatio.toFixed(6))
+          achievedMultiplier:
+            scheduler.achievedMultiplier === null
+              ? null
+              : Number(scheduler.achievedMultiplier.toFixed(6)),
+          achievedToRequestedRatio:
+            scheduler.achievedToRequestedRatio === null
+              ? null
+              : Number(scheduler.achievedToRequestedRatio.toFixed(6)),
+          wallCounterCaveat:
+            scheduler.wallSeconds === 0
+              ? 'Both health samples occurred inside one awaited scheduler pump. Tick and ' +
+                'simulated-time deltas remain exact, but the pump charged wall time before ' +
+                'the first sample; use monotonicWindow for interval speed.'
+              : null
         },
         persistenceProgress: {
           inMemoryGenerationBefore: healthBefore.persistence.inMemoryGeneration,

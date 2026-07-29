@@ -7,7 +7,7 @@ import { validateSnapshotPayload, type Persistence, type PopulationSnapshotPaylo
 import type { Logger } from './logger.ts';
 import type { InferenceModeRecord } from './inferenceMode.ts';
 import type { SchedulerDiagnostics, SimulationRunIdentity } from '../src/sim/SimCore.ts';
-import type { SimulationFaultStatus } from './simServer.ts';
+import type { AuthoritativeWorldLoadDiagnostics, SimulationFaultStatus } from './simServer.ts';
 import type { SpatialHashDiagnostics } from '../src/spatialHash.ts';
 import type { WsOutboundDiagnostics } from './wsHub.ts';
 
@@ -26,6 +26,7 @@ export interface HttpApiDeps {
     inferenceMode: InferenceModeRecord;
     scheduler: SchedulerDiagnostics;
     collisionGrid: SpatialHashDiagnostics;
+    worldLoad: AuthoritativeWorldLoadDiagnostics;
     fault: SimulationFaultStatus;
     run: SimulationRunIdentity;
     configRevision: number;

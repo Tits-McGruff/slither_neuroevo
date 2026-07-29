@@ -137,6 +137,7 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
         inferenceMode: simServer.getInferenceMode(),
         scheduler: simServer.getSchedulerDiagnostics(),
         collisionGrid: simServer.getCollisionGridDiagnostics(),
+        worldLoad: simServer.getWorldLoadDiagnostics(),
         fault: simServer.getFaultStatus(),
         run: simServer.getRunIdentity(),
         persistence: simServer.getPersistenceStatus(),
