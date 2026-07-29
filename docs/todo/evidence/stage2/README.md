@@ -29,6 +29,7 @@ node .\node_modules\tsx\dist\cli.mjs scripts\stage2\graph-baseline.ts --db data\
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\create-current-db-fixture.ts --scenario P1 --output C:\temporary\stage2-p1.db
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\browser-baseline-host.ts --db C:\temporary\stage2-p1.db --server-port 55194 --ui-port 55193 --ui-rate 30 --duration-ms 1800000
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\external-control-baseline.ts --scenario P1 --player-hz 60 --warmup-ms 2000 --duration-ms 15000 --workers 0 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\retention-baseline.ts --generations 480 --scenario P0 --output result.json
 ```
 
 The runtime runner uses the real `SimCore`, `World`, heterogeneous population,
@@ -133,6 +134,63 @@ four-checkpoint P3 minimum calculates to about 1.50–1.54 GiB. These are
 calculations from measured codec sizes, not complete-checkpoint disk
 measurements. They support the selected retention rules, subject to real full-
 checkpoint, Hall-of-Fame and VM free-disk measurement.
+
+## Accelerated 480-generation retention fixture
+
+The retained
+`windows-5800x/retention-p8-p0-480.json` artifact has SHA-256
+`72fd0d7fbdb28a105305970210e93d01c78a7869952556e049e26cf4e40347c5`.
+It was produced from clean source commit
+`e489b3cc9689dccb7feef21b7d522656cbb5dde4`.
+
+The fixture represents 480 60-second generations, or eight hours by generation
+count and checkpoint volume. It physically creates size-matched managed files
+and real SQLite checkpoint metadata, current-pointer, compact-history and
+Hall-of-Fame rows. The files are not checkpoint-v3 USTAR archives, are not
+importable, are not fsynced, and do not prove restore, publication durability
+or target-VM throughput.
+
+The materialized P0 run modeled 1,097,202,628 checkpoint-payload bytes,
+23,809,737 Hall-of-Fame payload bytes and 26,880 compact-history bytes. After
+automatic pruning:
+
+- 22 checkpoints used 50,079,788 bytes: one latest, seven other recent,
+  twelve milestones and two distinct prior-run anchors;
+- 460 superseded checkpoint files totaling 1,047,122,840 bytes were deleted;
+- 50 unique Hall-of-Fame genome files used 2,480,183 bytes, while all 480
+  compact Hall-of-Fame metadata rows remained;
+- 430 superseded Hall-of-Fame weight files totaling 21,329,554 bytes were
+  deleted;
+- all file-to-metadata, Hall-of-Fame, fixed-width-history and current-pointer
+  accounting assertions passed; and
+- the final SQLite database contained 480 compact 56-byte history records,
+  22 checkpoint references, 50 Hall-of-Fame genome references, 480
+  Hall-of-Fame entries and two immutable definition records.
+
+The metadata transaction p95 was 2.746 ms, p99 was 12.924 ms and maximum was
+118.624 ms on the development machine. Those are non-durable metadata timings,
+not complete checkpoint-publication latency. The final passive WAL checkpoint
+took 4.503 ms; peak WAL was not sampled. The fixture's short wall time benefits
+from copying one size-matched template repeatedly and is not archive encoding
+or storage-device throughput evidence.
+
+Derived from the retained evolved-codec artifacts, the approved automatic
+retention policy projects the following weight-payload state:
+
+| Workload | Unpruned 480-generation payload | Retained checkpoints | Retained weight payload |
+|---|---:|---:|---:|
+| P0 | 1.02 GiB | 22 | 47.76 MiB |
+| P1 | 5.49 GiB | 22 | 257.83 MiB |
+| P2 | 32.89 GiB | 22 | 1.51 GiB |
+| P3 | 179.79 GiB | 10 | 3.75 GiB |
+
+P1 through P3 are derived arithmetic rather than materialized retention runs.
+The figures cover genome-weight payloads, not complete checkpoint containers,
+recurrent/configuration state, SQLite metadata, filesystem allocation or
+pinned data. Pinned checkpoints and downloaded exports remain outside the
+automatic cap. The Hall-of-Fame fixture intentionally models every generation
+as a new qualifying unique genome; duplicate, non-qualifying, pinned and
+multi-run cases remain for later persistence tests.
 
 ## Narrow SQLite byte-volume comparison
 
@@ -309,7 +367,9 @@ count from observed batch population counts.
 - the same clean runners on the Ryzen 7 2700 Debian VM;
 - real browser/LAN/owner-trainer/target-VM P5 and cadence measurements (the
   current-server synthetic loopback baseline is retained above);
-- sustained P4, P6 accelerated, P7 soak and P8 overnight-equivalent fixtures;
+- sustained P4, P6 accelerated and P7 soak fixtures;
+- P8 full checkpoint-v3 publication, durability and restore testing beyond the
+  retained size-matched 480-generation retention fixture;
 - full managed-checkpoint container validation timing;
 - real owner save files outside the repository, if any;
 - Debian graph-ordering output from the exact retained database/spec fixture.

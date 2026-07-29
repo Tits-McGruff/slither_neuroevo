@@ -1,0 +1,586 @@
+{
+  "schema": "slither-stage2-retention-baseline",
+  "version": 1,
+  "evidenceClass": "new measured result plus separately labelled derived arithmetic",
+  "caveat": "The physical fixture writes size-matched payload files and real SQLite metadata/history/Hall-of-Fame rows. It is not checkpoint-v3, not USTAR, does not fsync payload files, does not prove restore or durability, and is not target-VM evidence.",
+  "source": {
+    "commit": "e489b3cc9689dccb7feef21b7d522656cbb5dde4",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-07-29T03:27:47.732Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "osType": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "osVersion": "Windows 11 Pro",
+    "hostname": "Beryllium",
+    "node": "v24.12.0",
+    "sqlite": {
+      "version": "3.49.2"
+    }
+  },
+  "approvedDefaults": {
+    "generations": 480,
+    "representedEightHoursAtSixtySecondGenerations": true,
+    "historyRecordBytes": 56,
+    "hallOfFameUniqueLimit": 50,
+    "retention": {
+      "recentCount": 8,
+      "milestoneCount": 12,
+      "milestoneInterval": 25,
+      "priorRunAnchorCount": 2,
+      "automaticByteCap": 4294967296
+    }
+  },
+  "projections": [
+    {
+      "evidenceClass": "derived arithmetic from retained measured codec bytes",
+      "scenario": {
+        "name": "P0",
+        "description": "55 evolved snakes, 10 baseline bots, default graph, 3,500 pellets",
+        "settings": {
+          "snakeCount": 55,
+          "simSpeed": 1,
+          "hiddenLayers": 2,
+          "neurons1": 64,
+          "neurons2": 64,
+          "neurons3": 64,
+          "neurons4": 48,
+          "neurons5": 32
+        },
+        "pelletCountTarget": 3500,
+        "bubbleBins": 16,
+        "baselineBotCount": 10,
+        "graphSpec": null,
+        "denseLongBodies": false
+      },
+      "codecArtifact": {
+        "path": "docs/todo/evidence/stage2/windows-5800x/codec-p0-evolved25.json",
+        "sha256": "41ef9f3961778e2ab11d39b8b80d91faf18b0933bd5f5abef7014cb54f47729c",
+        "bytes": 4428,
+        "source": {
+          "commit": "1e36cd7d2d04d8d0cf8fb231132a135306f17ed3",
+          "dirty": false
+        }
+      },
+      "checkpointWeightPayload": {
+        "encoding": "f32le-shuffle4-zstd-v1",
+        "rawBytes": 2960760,
+        "storedBytes": 2276354
+      },
+      "currentRunWithoutRetention": {
+        "checkpoints": 480,
+        "storedWeightPayloadBytes": 1092649920
+      },
+      "retainedAutomatic": {
+        "checkpoints": 22,
+        "storedWeightPayloadBytes": 50079788,
+        "protectedMinimumBytes": 9105416,
+        "classCounts": {
+          "prior-anchor": 2,
+          "milestone": 12,
+          "recent": 7,
+          "latest": 1
+        }
+      },
+      "compactHistory": {
+        "records": 480,
+        "logicalBytes": 26880
+      },
+      "hallOfFame": {
+        "uniqueGenomes": 50,
+        "rawWeightBytes": 2691600,
+        "derivedAverageApprovedStoredBytes": 49603.6,
+        "derivedStoredBytes": 2480180
+      }
+    },
+    {
+      "evidenceClass": "derived arithmetic from retained measured codec bytes",
+      "scenario": {
+        "name": "P1",
+        "description": "300 evolved snakes, 10 baseline bots, default graph, 3,500 pellets",
+        "settings": {
+          "snakeCount": 300,
+          "simSpeed": 1,
+          "hiddenLayers": 2,
+          "neurons1": 64,
+          "neurons2": 64,
+          "neurons3": 64,
+          "neurons4": 48,
+          "neurons5": 32
+        },
+        "pelletCountTarget": 3500,
+        "bubbleBins": 16,
+        "baselineBotCount": 10,
+        "graphSpec": null,
+        "denseLongBodies": false
+      },
+      "codecArtifact": {
+        "path": "docs/todo/evidence/stage2/windows-5800x/codec-p1-evolved25.json",
+        "sha256": "3f6803a9a37c02e14c66b5e0a095218ed98b985f168b1c9ce3bf9401f2ad6007",
+        "bytes": 4471,
+        "source": {
+          "commit": "1e36cd7d2d04d8d0cf8fb231132a135306f17ed3",
+          "dirty": false
+        }
+      },
+      "checkpointWeightPayload": {
+        "encoding": "f32le-shuffle4-zstd-v1",
+        "rawBytes": 16149600,
+        "storedBytes": 12288961
+      },
+      "currentRunWithoutRetention": {
+        "checkpoints": 480,
+        "storedWeightPayloadBytes": 5898701280
+      },
+      "retainedAutomatic": {
+        "checkpoints": 22,
+        "storedWeightPayloadBytes": 270357142,
+        "protectedMinimumBytes": 49155844,
+        "classCounts": {
+          "prior-anchor": 2,
+          "milestone": 12,
+          "recent": 7,
+          "latest": 1
+        }
+      },
+      "compactHistory": {
+        "records": 480,
+        "logicalBytes": 26880
+      },
+      "hallOfFame": {
+        "uniqueGenomes": 50,
+        "rawWeightBytes": 2691600,
+        "derivedAverageApprovedStoredBytes": 49459.73,
+        "derivedStoredBytes": 2472987
+      }
+    },
+    {
+      "evidenceClass": "derived arithmetic from retained measured codec bytes",
+      "scenario": {
+        "name": "P2",
+        "description": "55 evolved snakes, 10 baseline bots, 32-bin five-layer large GRU graph",
+        "settings": {
+          "snakeCount": 55,
+          "simSpeed": 1,
+          "hiddenLayers": 5,
+          "neurons1": 256,
+          "neurons2": 256,
+          "neurons3": 256,
+          "neurons4": 256,
+          "neurons5": 256
+        },
+        "pelletCountTarget": 3500,
+        "bubbleBins": 32,
+        "baselineBotCount": 10,
+        "graphSpec": {
+          "type": "graph",
+          "nodes": [
+            {
+              "id": "input",
+              "type": "Input",
+              "outputSize": 147
+            },
+            {
+              "id": "features",
+              "type": "MLP",
+              "inputSize": 147,
+              "hiddenSizes": [
+                256,
+                256,
+                256,
+                256
+              ],
+              "outputSize": 256
+            },
+            {
+              "id": "memory",
+              "type": "GRU",
+              "inputSize": 256,
+              "hiddenSize": 96
+            },
+            {
+              "id": "output",
+              "type": "Dense",
+              "inputSize": 96,
+              "outputSize": 2
+            }
+          ],
+          "edges": [
+            {
+              "from": "input",
+              "to": "features"
+            },
+            {
+              "from": "features",
+              "to": "memory"
+            },
+            {
+              "from": "memory",
+              "to": "output"
+            }
+          ],
+          "outputs": [
+            {
+              "nodeId": "output"
+            }
+          ],
+          "outputSize": 2
+        },
+        "denseLongBodies": false
+      },
+      "codecArtifact": {
+        "path": "docs/todo/evidence/stage2/windows-5800x/codec-p2-evolved25.json",
+        "sha256": "1c4b3c41faacc18f02f587495f0bd9a170061cb9c1bc9dbcb4f0ba914f7fd7fa",
+        "bytes": 5632,
+        "source": {
+          "commit": "1e36cd7d2d04d8d0cf8fb231132a135306f17ed3",
+          "dirty": false
+        }
+      },
+      "checkpointWeightPayload": {
+        "encoding": "f32le-shuffle4-zstd-v1",
+        "rawBytes": 88641080,
+        "storedBytes": 73583009
+      },
+      "currentRunWithoutRetention": {
+        "checkpoints": 480,
+        "storedWeightPayloadBytes": 35319844320
+      },
+      "retainedAutomatic": {
+        "checkpoints": 22,
+        "storedWeightPayloadBytes": 1618826198,
+        "protectedMinimumBytes": 294332036,
+        "classCounts": {
+          "prior-anchor": 2,
+          "milestone": 12,
+          "recent": 7,
+          "latest": 1
+        }
+      },
+      "compactHistory": {
+        "records": 480,
+        "logicalBytes": 26880
+      },
+      "hallOfFame": {
+        "uniqueGenomes": 50,
+        "rawWeightBytes": 80582800,
+        "derivedAverageApprovedStoredBytes": 1379889.673,
+        "derivedStoredBytes": 68994484
+      }
+    },
+    {
+      "evidenceClass": "derived arithmetic from retained measured codec bytes",
+      "scenario": {
+        "name": "P3",
+        "description": "300 evolved snakes, 10 baseline bots, 32-bin five-layer large GRU graph",
+        "settings": {
+          "snakeCount": 300,
+          "simSpeed": 1,
+          "hiddenLayers": 5,
+          "neurons1": 256,
+          "neurons2": 256,
+          "neurons3": 256,
+          "neurons4": 256,
+          "neurons5": 256
+        },
+        "pelletCountTarget": 3500,
+        "bubbleBins": 32,
+        "baselineBotCount": 10,
+        "graphSpec": {
+          "type": "graph",
+          "nodes": [
+            {
+              "id": "input",
+              "type": "Input",
+              "outputSize": 147
+            },
+            {
+              "id": "features",
+              "type": "MLP",
+              "inputSize": 147,
+              "hiddenSizes": [
+                256,
+                256,
+                256,
+                256
+              ],
+              "outputSize": 256
+            },
+            {
+              "id": "memory",
+              "type": "GRU",
+              "inputSize": 256,
+              "hiddenSize": 96
+            },
+            {
+              "id": "output",
+              "type": "Dense",
+              "inputSize": 96,
+              "outputSize": 2
+            }
+          ],
+          "edges": [
+            {
+              "from": "input",
+              "to": "features"
+            },
+            {
+              "from": "features",
+              "to": "memory"
+            },
+            {
+              "from": "memory",
+              "to": "output"
+            }
+          ],
+          "outputs": [
+            {
+              "nodeId": "output"
+            }
+          ],
+          "outputSize": 2
+        },
+        "denseLongBodies": false
+      },
+      "codecArtifact": {
+        "path": "docs/todo/evidence/stage2/windows-5800x/codec-p3-evolved25.json",
+        "sha256": "c937cd5e18a50982a41678750ac6133a02dc11045354846138bdc8f7c564fb33",
+        "bytes": 5507,
+        "source": {
+          "commit": "1e36cd7d2d04d8d0cf8fb231132a135306f17ed3",
+          "dirty": false
+        }
+      },
+      "checkpointWeightPayload": {
+        "encoding": "f32le-shuffle4-zstd-v1",
+        "rawBytes": 483496800,
+        "storedBytes": 402182864
+      },
+      "currentRunWithoutRetention": {
+        "checkpoints": 480,
+        "storedWeightPayloadBytes": 193047774720
+      },
+      "retainedAutomatic": {
+        "checkpoints": 10,
+        "storedWeightPayloadBytes": 4021828640,
+        "protectedMinimumBytes": 1608731456,
+        "classCounts": {
+          "prior-anchor": 2,
+          "recent": 7,
+          "latest": 1
+        }
+      },
+      "compactHistory": {
+        "records": 480,
+        "logicalBytes": 26880
+      },
+      "hallOfFame": {
+        "uniqueGenomes": 50,
+        "rawWeightBytes": 80582800,
+        "derivedAverageApprovedStoredBytes": 1380018.533,
+        "derivedStoredBytes": 69000927
+      }
+    }
+  ],
+  "materialized": {
+    "fixtureKind": "size-matched physical managed files plus SQLite metadata; not valid archives",
+    "scenario": {
+      "name": "P0",
+      "description": "55 evolved snakes, 10 baseline bots, default graph, 3,500 pellets",
+      "settings": {
+        "snakeCount": 55,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "pelletCountTarget": 3500,
+      "bubbleBins": 16,
+      "baselineBotCount": 10,
+      "graphSpec": null,
+      "denseLongBodies": false
+    },
+    "generations": 480,
+    "representedRoundSeconds": 60,
+    "representedWallHours": 8,
+    "selectedWeightEncoding": {
+      "encoding": "f32le-shuffle4-zstd-v1",
+      "bytes": 2276354
+    },
+    "retainedCodecArtifact": {
+      "path": "docs/todo/evidence/stage2/windows-5800x/codec-p0-evolved25.json",
+      "sha256": "41ef9f3961778e2ab11d39b8b80d91faf18b0933bd5f5abef7014cb54f47729c",
+      "bytes": 4428
+    },
+    "policy": {
+      "recentCount": 8,
+      "milestoneCount": 12,
+      "milestoneInterval": 25,
+      "priorRunAnchorCount": 2,
+      "automaticByteCap": 4294967296
+    },
+    "hallOfFameUniqueLimit": 50,
+    "modeledPayloadBytes": {
+      "checkpointPayloads": 1097202628,
+      "hallOfFamePayloads": 23809737,
+      "historyRecords": 26880,
+      "checkpointAndHallOfFameTotal": 1121012365,
+      "safetyLimit": 2147483648,
+      "excludedFromSafetyLimit": "template files, SQLite/SHM/WAL bytes, filesystem metadata and allocation overhead"
+    },
+    "managedCheckpointFiles": {
+      "final": {
+        "files": 22,
+        "bytes": 50079788
+      },
+      "peakBytesBeforePrune": 52356142,
+      "prunedFiles": 460,
+      "prunedBytes": 1047122840,
+      "deletionMs": {
+        "count": 460,
+        "min": 0.2791,
+        "p50": 0.42615,
+        "p95": 0.650935,
+        "p99": 0.754752,
+        "max": 3.0961,
+        "mean": 0.458568
+      },
+      "classes": [
+        {
+          "retention_class": "latest",
+          "count": 1,
+          "bytes": 2276354
+        },
+        {
+          "retention_class": "milestone",
+          "count": 12,
+          "bytes": 27316248
+        },
+        {
+          "retention_class": "prior-anchor",
+          "count": 2,
+          "bytes": 4552708
+        },
+        {
+          "retention_class": "recent",
+          "count": 7,
+          "bytes": 15934478
+        }
+      ]
+    },
+    "hallOfFameFiles": {
+      "final": {
+        "files": 50,
+        "bytes": 2480183
+      },
+      "peakBytesBeforePrune": 2529786,
+      "prunedFiles": 430,
+      "prunedBytes": 21329554,
+      "deletionMs": {
+        "count": 430,
+        "min": 0.1578,
+        "p50": 0.21245,
+        "p95": 0.3123,
+        "p99": 0.459375,
+        "max": 0.8697,
+        "mean": 0.225474
+      }
+    },
+    "sqlite": {
+      "metadataTransactionMs": {
+        "count": 480,
+        "min": 1.9676,
+        "p50": 2.21655,
+        "p95": 2.74609,
+        "p99": 12.923917,
+        "max": 118.6235,
+        "mean": 2.992128
+      },
+      "beforeWalCheckpoint": {
+        "databaseBytes": 217088,
+        "walBytes": 4181832,
+        "shmBytes": 32768,
+        "pageCount": 57,
+        "freelistCount": 0
+      },
+      "walCheckpointMs": 4.5033,
+      "walCheckpointResult": [
+        {
+          "busy": 0,
+          "log": 624,
+          "checkpointed": 624
+        }
+      ],
+      "afterWalCheckpoint": {
+        "databaseBytes": 233472,
+        "walBytes": 4181832,
+        "shmBytes": 32768,
+        "pageCount": 57,
+        "freelistCount": 0
+      },
+      "peakWalMeasured": false,
+      "counts": {
+        "checkpoints": {
+          "records": 22,
+          "bytes": 50079788
+        },
+        "history": {
+          "records": 480,
+          "logical_bytes": 26880
+        },
+        "hofEntries": {
+          "value": 480
+        },
+        "hofGenomes": {
+          "records": 50,
+          "bytes": 2480183
+        },
+        "definitions": {
+          "value": 2
+        },
+        "current": {
+          "checkpoint_key": "current-480",
+          "generation": 480
+        }
+      }
+    },
+    "accountingAssertions": {
+      "checkpointFilesMatchMetadata": true,
+      "hallOfFameFilesMatchMetadata": true,
+      "hallOfFameMetadataAndUniqueLimitMatch": true,
+      "historyIsExactFixedWidth": true,
+      "currentPointerIsLatestRetained": true
+    },
+    "limitations": {
+      "durability": "fixture payload copies are not fsynced or directory-synced; metadata transaction timing is not durable checkpoint publication latency",
+      "hallOfFame": "every generation is modeled as a new qualifying unique genome; duplicate hashes, non-qualifiers, pins and multiple-run scope are not exercised",
+      "wal": "only final WAL state and one final passive checkpoint are measured; peak WAL is not sampled"
+    },
+    "resource": {
+      "fixtureWallMs": 3427.1802,
+      "memoryBefore": {
+        "rss": 81633280,
+        "heapTotal": 13955072,
+        "heapUsed": 9058392,
+        "external": 5877274,
+        "arrayBuffers": 3391498
+      },
+      "memoryAfter": {
+        "rss": 81235968,
+        "heapTotal": 14741504,
+        "heapUsed": 9691224,
+        "external": 3708405,
+        "arrayBuffers": 1222589
+      },
+      "processMaxRssBeforeBytes": 81637376,
+      "processMaxRssAfterBytes": 86118400,
+      "freeDiskBeforeBytes": 319968030720,
+      "freeDiskAfterBytes": 319909662720
+    }
+  }
+}

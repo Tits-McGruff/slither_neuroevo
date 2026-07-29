@@ -2764,16 +2764,17 @@ set:
 
 | Workload | Twenty-two raw populations | At hypothetical 1.25:1 | At hypothetical 2:1 | Estimated automatic state after pruning |
 |---|---:|---:|---:|---|
-| P0 | 62.0 MiB | 49.6 MiB | 31.0 MiB | Prior provisional shuffled-Zstandard observation implies about 53.0 MiB, plus small records/WAL; Stage 2 must reproduce |
-| P1 | 338.8 MiB | 271.0 MiB | 169.4 MiB | Count limit; roughly 169–271 MiB plus small records/WAL |
-| P2 | 1.82 GiB | 1.45 GiB | 0.91 GiB | Count limit; roughly 0.91–1.45 GiB plus HoF/WAL |
-| P3 | 9.91 GiB | 7.93 GiB | 4.95 GiB | Byte limit; prune optional milestones/recents to at most 4 GiB |
+| P0 | 62.0 MiB | 49.6 MiB | 31.0 MiB | Retained evolved/fresh codec evidence gives 47.8–53.0 MiB for 22 weight payloads, plus container/state metadata |
+| P1 | 338.8 MiB | 271.0 MiB | 169.4 MiB | Retained evolved projection gives 257.8 MiB for 22 weight payloads, plus container/state metadata |
+| P2 | 1.82 GiB | 1.45 GiB | 0.91 GiB | Retained evolved projection gives 1.51 GiB for 22 weight payloads, plus Hall-of-Fame/container/state data |
+| P3 | 9.91 GiB | 7.93 GiB | 4.95 GiB | Byte cap removes all milestones; eight recent plus two anchors project to 3.75 GiB of evolved weight payload |
 
-The prior provisional P0 byte-shuffled level-3 result is 2.410 MiB of weight
-payload per checkpoint (before small container/state bytes), which would make
-22 such payloads about 53.0 MiB. It is not an artifact-backed Draft 4
-measurement. Stage 2 reproduces P0 and measures P1/P2/P3 evolved populations
-on the VM before these become reported storage results.
+Retained Stage 2 development-machine evidence measures P0 archive-v1 weight
+payloads at 2.1709 MiB for the evolved fixture and 2.4101 MiB for the fresh
+fixture, or 47.8–53.0 MiB for 22 payloads. The accelerated P0 retention fixture
+physically materializes the evolved-volume files and metadata; the P1, P2 and
+P3 figures above are indexed projections from retained evolved codec artifacts.
+They are not target-VM or full checkpoint-v3 measurements.
 
 For scale, 480 generation-summary records (eight hours of 60-second rounds) are
 only about 26.3 KiB before table overhead/compression. Fifty unique
@@ -3854,7 +3855,7 @@ measures the production-shaped workload, not isolated shared-weight kernels.
   read-as-text/parse/stringify duplication. Retain automation version, fixture
   files, raw memory traces, browser/OS environment, and screenshots/logs needed
   to reproduce the reported peak.
-- [ ] Produce deterministic accelerated fixtures representing at least an
+- [x] Produce deterministic accelerated fixtures representing at least an
   overnight number of checkpoints, histories, and Hall-of-Fame entries.
 - [ ] Record database logical bytes, file bytes, WAL bytes, free pages,
   deletion latency, page reuse, checkpoint latency, restore latency, and
