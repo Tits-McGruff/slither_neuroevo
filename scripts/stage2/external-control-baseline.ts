@@ -76,7 +76,7 @@ interface ControllerTelemetry {
   clientType: 'ui' | 'bot';
   /** Socket-open timestamp. */
   openedAtMs: number;
-  /** Assignment timestamp. */
+  /** First assignment timestamp; later replacement assignments do not overwrite it. */
   assignedAtMs: number | null;
   /** Assigned authoritative snake id. */
   snakeId: number | null;
@@ -640,7 +640,7 @@ function openController(
       return;
     }
     if (message['type'] === 'assign') {
-      telemetry.assignedAtMs = performance.now();
+      telemetry.assignedAtMs ??= performance.now();
       telemetry.snakeId = typeof message['snakeId'] === 'number' ? message['snakeId'] : null;
       telemetry.resumeToken =
         typeof message['resumeToken'] === 'string' ? message['resumeToken'] : null;
@@ -1021,7 +1021,9 @@ export async function runExternalControlBaseline(
               ? 'Legacy P5 compatibility baseline uses its historical large persistence-excluded interval.'
               : `Explicit ${options.profile.toUpperCase()} persistence-excluded diagnostic; it is not the primary retained P6 matrix.`
             : options.profile === 'p6'
-              ? 'Primary P6 matrix uses ordinary automatic generation checkpoints, including generation stalls.'
+              ? 'Primary P6 matrix keeps ordinary automatic checkpoints enabled every generation. ' +
+                'persistenceProgress records whether this measured window actually crossed a ' +
+                'generation boundary and published a later durable checkpoint.'
               : 'P5 compatibility run uses the explicitly requested automatic checkpoint interval.'
         },
         actionAcceptanceObservability: {
