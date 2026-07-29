@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import { spawnSync } from 'node:child_process';
 import WebSocket, { type RawData } from 'ws';
@@ -27,10 +28,18 @@ type ExternalScenario = Extract<Stage2ScenarioName, 'P0' | 'P1' | 'P2'>;
 
 /** Parsed benchmark options. */
 interface ExternalControlOptions {
+  /** Compatibility P5 or isolated P6 client composition. */
+  profile: 'p5' | 'p6';
   /** Named population/brain workload. */
   scenario: ExternalScenario;
-  /** Browser-player periodic action cadence. */
+  /** Browser-player periodic action cadence retained for P5 compatibility. */
   playerHz: 30 | 60;
+  /** Requested fixed-step multiplier for this P6 run. */
+  simSpeed: 1 | 2 | 4 | 8 | 12;
+  /** Whether exactly one UI spectator receives the current full frame. */
+  viewer: boolean;
+  /** Automatic generation checkpoint interval; zero is an explicit diagnostic exclusion. */
+  checkpointEvery: number;
   /** Warm-up after all clients are ready. */
   warmupMs: number;
   /** Measured wall duration. */
@@ -79,7 +88,7 @@ interface ControllerTelemetry {
   sensorTimesMs: number[];
   /** Action send timestamps. */
   actionTimesMs: number[];
-  /** Timer intervals for browser-player sends. */
+  /** Adjacent action-send intervals for this external controller. */
   actionIntervalsMs: number[];
   /** Latest action-to-next-sensor upper bounds. */
   actionToNextSensorMs: number[];
@@ -105,6 +114,8 @@ interface ViewerTelemetry {
   statsTimesMs: number[];
   /** Stats tick values. */
   statsTicks: number[];
+  /** Stats generation identities for reset-safe elapsed-time comparison. */
+  statsGenerations: number[];
   /** Stats generation-time values. */
   generationTimes: number[];
   /** Socket/protocol errors. */
@@ -162,6 +173,36 @@ interface HealthSnapshot {
   inferenceMode: Record<string, unknown>;
 }
 
+/** Delta of cumulative scheduler counters across one measured interval. */
+export interface SchedulerDelta {
+  /** Committed fixed steps during the interval. */
+  tick: number;
+  /** Scheduler completed-step counter during the interval. */
+  completedSteps: number;
+  /** Scheduler wall seconds during the interval. */
+  wallSeconds: number;
+  /** Committed simulation seconds during the interval. */
+  simulatedSeconds: number;
+  /** Discarded catch-up debt during the interval. */
+  droppedSimulationSeconds: number;
+  /** Measured simulated seconds per scheduler wall second. */
+  achievedMultiplier: number;
+  /** Achieved multiplier divided by the requested multiplier. */
+  achievedToRequestedRatio: number;
+}
+
+/** Exact Protocol 2 socket composition for a P6 measurement. */
+export interface ExternalControlComposition {
+  /** Observation-driven external trainer-compatible bot count. */
+  botControllers: 1;
+  /** Browser player controller count. */
+  uiPlayers: 0 | 1;
+  /** UI spectator count. */
+  uiSpectators: 0 | 1;
+  /** Total WebSocket clients created by the runner. */
+  totalSockets: 1 | 2 | 3;
+}
+
 /**
  * Parse a bounded integer CLI value.
  * @param value - Text after the flag.
@@ -188,19 +229,32 @@ function parseInteger(
  * @param argv - Arguments after the script path.
  * @returns Validated options.
  */
-function parseOptions(argv: readonly string[]): ExternalControlOptions {
+export function parseOptions(argv: readonly string[]): ExternalControlOptions {
   const options: ExternalControlOptions = {
+    profile: 'p5',
     scenario: 'P0',
     playerHz: 30,
+    simSpeed: 1,
+    viewer: true,
+    checkpointEvery: 1_000_000,
     warmupMs: 2_000,
     durationMs: 15_000,
     workers: 0,
     outputPath: null
   };
+  let checkpointExplicit = false;
+  let viewerExplicit = false;
   for (let index = 0; index < argv.length; index++) {
     const option = argv[index];
     const value = argv[index + 1];
     switch (option) {
+      case '--profile':
+        if (value !== 'p5' && value !== 'p6') {
+          throw new Error('--profile must be p5 or p6');
+        }
+        options.profile = value;
+        index++;
+        break;
       case '--scenario':
         if (value !== 'P0' && value !== 'P1' && value !== 'P2') {
           throw new Error('--scenario must be P0, P1, or P2');
@@ -215,6 +269,28 @@ function parseOptions(argv: readonly string[]): ExternalControlOptions {
         index++;
         break;
       }
+      case '--sim-speed': {
+        const parsed = parseInteger(value, option, 1, 12);
+        if (parsed !== 1 && parsed !== 2 && parsed !== 4 && parsed !== 8 && parsed !== 12) {
+          throw new Error('--sim-speed must be 1, 2, 4, 8, or 12');
+        }
+        options.simSpeed = parsed;
+        index++;
+        break;
+      }
+      case '--viewer':
+        if (value !== 'on' && value !== 'off') {
+          throw new Error('--viewer must be on or off');
+        }
+        options.viewer = value === 'on';
+        viewerExplicit = true;
+        index++;
+        break;
+      case '--checkpoint-every':
+        options.checkpointEvery = parseInteger(value, option, 0, 1_000_000);
+        checkpointExplicit = true;
+        index++;
+        break;
       case '--warmup-ms':
         options.warmupMs = parseInteger(value, option, 0, 60_000);
         index++;
@@ -236,7 +312,75 @@ function parseOptions(argv: readonly string[]): ExternalControlOptions {
         throw new Error(`Unknown option ${option ?? '<missing>'}`);
     }
   }
+  if (options.profile === 'p6') {
+    if (!checkpointExplicit) options.checkpointEvery = 1;
+    if (!viewerExplicit) options.viewer = false;
+    if (options.checkpointEvery !== 0 && options.checkpointEvery !== 1) {
+      throw new Error(
+        'P6 --checkpoint-every must be 1 for the primary matrix or 0 for an explicit diagnostic'
+      );
+    }
+  } else {
+    if (viewerExplicit && !options.viewer) {
+      throw new Error('P5 compatibility always includes its UI spectator; use --profile p6 --viewer off');
+    }
+    options.viewer = true;
+  }
   return options;
+}
+
+/**
+ * Describe the deliberately narrow P6 external-client composition.
+ * @param viewer - Whether a single UI spectator is included.
+ * @returns Exact controller and socket counts.
+ */
+export function p6Composition(viewer: boolean): ExternalControlComposition {
+  return {
+    botControllers: 1,
+    uiPlayers: 0,
+    uiSpectators: viewer ? 1 : 0,
+    totalSockets: viewer ? 2 : 1
+  };
+}
+
+/**
+ * Describe the legacy P5 compatibility client arrangement.
+ * @returns One browser player, one observation-driven bot, and one viewer.
+ */
+export function p5Composition(): ExternalControlComposition {
+  return {
+    botControllers: 1,
+    uiPlayers: 1,
+    uiSpectators: 1,
+    totalSockets: 3
+  };
+}
+
+/**
+ * Resolve the exact client arrangement for one profile.
+ * @param options - Parsed measurement options.
+ * @returns Exact external socket counts.
+ */
+export function externalControlComposition(
+  options: Pick<ExternalControlOptions, 'profile' | 'viewer'>
+): ExternalControlComposition {
+  return options.profile === 'p5' ? p5Composition() : p6Composition(options.viewer);
+}
+
+/**
+ * Install one scenario and apply its requested speed before any run-start
+ * checkpoint is built.
+ * @param scenarioName - Named Stage 2 population/brain workload.
+ * @param simSpeed - Allowed P6 requested multiplier.
+ * @returns Scenario settings ready for a World constructor.
+ */
+export function installExternalControlScenario(
+  scenarioName: ExternalScenario,
+  simSpeed: ExternalControlOptions['simSpeed']
+): ReturnType<typeof installStage2Scenario> {
+  const scenario = installStage2Scenario(scenarioName);
+  scenario.settings.simSpeed = simSpeed;
+  return scenario;
 }
 
 /**
@@ -283,6 +427,62 @@ function intervals(timestamps: readonly number[]): number[] {
 }
 
 /**
+ * Subtract cumulative scheduler counters and reject inconsistent accounting.
+ * @param before - Health captured immediately before the measured interval.
+ * @param after - Health captured immediately after the measured interval.
+ * @param requestedMultiplier - Requested P6 scheduler multiplier.
+ * @param tickRateHz - Authoritative fixed-step rate.
+ * @returns Interval-local scheduler counters and achieved speed.
+ */
+export function schedulerDelta(
+  before: HealthSnapshot,
+  after: HealthSnapshot,
+  requestedMultiplier: ExternalControlOptions['simSpeed'],
+  tickRateHz: number
+): SchedulerDelta {
+  if (before.scheduler.requestedMultiplier !== requestedMultiplier ||
+    after.scheduler.requestedMultiplier !== requestedMultiplier) {
+    throw new Error(
+      `scheduler requested multiplier changed: before=${before.scheduler.requestedMultiplier}, ` +
+      `after=${after.scheduler.requestedMultiplier}, expected=${requestedMultiplier}`
+    );
+  }
+  const tick = after.tick - before.tick;
+  const completedSteps = after.scheduler.completedSteps - before.scheduler.completedSteps;
+  const wallSeconds = after.scheduler.wallSeconds - before.scheduler.wallSeconds;
+  const simulatedSeconds = after.scheduler.simulatedSeconds - before.scheduler.simulatedSeconds;
+  const droppedSimulationSeconds =
+    after.scheduler.droppedSimulationSeconds - before.scheduler.droppedSimulationSeconds;
+  if (tick < 0 || completedSteps < 0 || wallSeconds <= 0 || simulatedSeconds < 0 ||
+    droppedSimulationSeconds < 0) {
+    throw new Error('scheduler counters moved backwards or did not record positive wall time');
+  }
+  if (tick !== completedSteps) {
+    throw new Error(`tick/completed-step mismatch: tick=${tick}, completedSteps=${completedSteps}`);
+  }
+  const expectedSimulatedSeconds = completedSteps / tickRateHz;
+  const simulatedSecondsTolerance = Math.max(
+    1e-9,
+    Math.abs(expectedSimulatedSeconds) * 1e-11
+  );
+  if (Math.abs(simulatedSeconds - expectedSimulatedSeconds) > simulatedSecondsTolerance) {
+    throw new Error(
+      `simulated seconds disagree with completed steps: ${simulatedSeconds} versus ${expectedSimulatedSeconds}`
+    );
+  }
+  const achievedMultiplier = simulatedSeconds / wallSeconds;
+  return {
+    tick,
+    completedSteps,
+    wallSeconds,
+    simulatedSeconds,
+    droppedSimulationSeconds,
+    achievedMultiplier,
+    achievedToRequestedRatio: achievedMultiplier / requestedMultiplier
+  };
+}
+
+/**
  * Clear controller samples while retaining assignment identity and errors.
  * @param telemetry - Controller telemetry to reset at the measurement boundary.
  */
@@ -305,6 +505,7 @@ function clearViewerSamples(telemetry: ViewerTelemetry): void {
   telemetry.frameBytes.length = 0;
   telemetry.statsTimesMs.length = 0;
   telemetry.statsTicks.length = 0;
+  telemetry.statsGenerations.length = 0;
   telemetry.generationTimes.length = 0;
 }
 
@@ -471,6 +672,7 @@ function openViewer(url: string): ViewerHandle {
     frameBytes: [],
     statsTimesMs: [],
     statsTicks: [],
+    statsGenerations: [],
     generationTimes: [],
     errors: []
   };
@@ -513,6 +715,7 @@ function openViewer(url: string): ViewerHandle {
     if (message['type'] === 'stats') {
       telemetry.statsTimesMs.push(now);
       if (typeof message['tick'] === 'number') telemetry.statsTicks.push(message['tick']);
+      if (typeof message['gen'] === 'number') telemetry.statsGenerations.push(message['gen']);
       if (typeof message['generationTime'] === 'number') {
         telemetry.generationTimes.push(message['generationTime']);
       }
@@ -563,13 +766,15 @@ async function closeSocket(socket: WebSocket): Promise<void> {
  */
 function createFixtureDatabase(
   databasePath: string,
-  scenarioName: ExternalScenario
+  scenarioName: ExternalScenario,
+  simSpeed: ExternalControlOptions['simSpeed'],
+  profile: ExternalControlOptions['profile']
 ): ReturnType<typeof installStage2Scenario> {
-  const scenario = installStage2Scenario(scenarioName);
+  const scenario = installExternalControlScenario(scenarioName, simSpeed);
   let checkpoint: PopulationCheckpoint | null = null;
   new World(scenario.settings, {
     seed: STAGE2_WORLD_SEED,
-    runId: `stage2-p5-${scenarioName.toLowerCase()}`,
+    runId: `stage2-${profile}-${scenarioName.toLowerCase()}-${simSpeed}x`,
     onGenerationBoundary: (boundary, candidate) => {
       checkpoint = buildGenerationCheckpoint(candidate, boundary, 0);
     }
@@ -601,29 +806,37 @@ async function readHealth(server: RunningServer): Promise<HealthSnapshot> {
  * @param options - Benchmark options.
  * @returns Evidence object.
  */
-async function runExternalControlBaseline(
+export async function runExternalControlBaseline(
   options: ExternalControlOptions
 ): Promise<Record<string, unknown>> {
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slither-stage2-p5-'));
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slither-stage2-external-'));
   const resolvedTemporaryRoot = path.resolve(temporaryRoot);
   const resolvedSystemTemp = path.resolve(os.tmpdir());
   if (
     path.dirname(resolvedTemporaryRoot) !== resolvedSystemTemp ||
-    !path.basename(resolvedTemporaryRoot).startsWith('slither-stage2-p5-')
+    !path.basename(resolvedTemporaryRoot).startsWith('slither-stage2-external-')
   ) {
     throw new Error(`Unexpected temporary path: ${resolvedTemporaryRoot}`);
   }
   const databasePath = path.join(temporaryRoot, 'fixture.db');
   let server: RunningServer | null = null;
   const sockets: WebSocket[] = [];
+  let primaryError: unknown = null;
+  const cleanupErrors: unknown[] = [];
+  let evidence: Record<string, unknown> | null = null;
   try {
-    const scenario = createFixtureDatabase(databasePath, options.scenario);
+    const scenario = createFixtureDatabase(
+      databasePath,
+      options.scenario,
+      options.simSpeed,
+      options.profile
+    );
     const config: ServerConfig = {
       ...DEFAULT_CONFIG,
       host: '127.0.0.1',
       port: 0,
       dbPath: databasePath,
-      checkpointEveryGenerations: 1_000_000,
+      checkpointEveryGenerations: options.checkpointEvery,
       logLevel: 'error',
       inferenceBackend: 'native',
       mtEnabled: options.workers > 0,
@@ -631,12 +844,16 @@ async function runExternalControlBaseline(
       resume: 'latest'
     };
     server = await startServer(config);
-    const player = openController(server.wsUrl, 'ui', 'stage2-browser-player');
+    const player = options.profile === 'p5'
+      ? openController(server.wsUrl, 'ui', 'stage2-browser-player')
+      : null;
     const bot = openController(server.wsUrl, 'bot', 'stage2-protocol2-bot');
-    const viewer = openViewer(server.wsUrl);
-    sockets.push(player.socket, bot.socket, viewer.socket);
+    const viewer = options.profile === 'p5' || options.viewer ? openViewer(server.wsUrl) : null;
+    sockets.push(bot.socket);
+    if (player) sockets.push(player.socket);
+    if (viewer) sockets.push(viewer.socket);
     await withTimeout(
-      Promise.all([player.ready, bot.ready, viewer.ready]),
+      Promise.all([bot.ready, ...(player ? [player.ready] : []), ...(viewer ? [viewer.ready] : [])]),
       30_000,
       'external clients'
     );
@@ -644,10 +861,17 @@ async function runExternalControlBaseline(
       await new Promise(resolve => setTimeout(resolve, options.warmupMs));
     }
 
-    const healthBefore = await readHealth(server);
-    clearControllerSamples(player.telemetry);
+    const readinessHealth = await readHealth(server);
+    const composition = externalControlComposition(options);
+    if (readinessHealth.clients !== composition.totalSockets) {
+      throw new Error(
+        `${options.profile.toUpperCase()} client composition mismatch: expected ` +
+        `${composition.totalSockets}, got ${readinessHealth.clients}`
+      );
+    }
+    if (player) clearControllerSamples(player.telemetry);
     clearControllerSamples(bot.telemetry);
-    clearViewerSamples(viewer.telemetry);
+    if (viewer) clearViewerSamples(viewer.telemetry);
     const eventLoop = monitorEventLoopDelay({ resolution: 10 });
     eventLoop.enable();
     const cpuBefore = process.cpuUsage();
@@ -662,7 +886,7 @@ async function runExternalControlBaseline(
       peakExternalBytes = Math.max(peakExternalBytes, memory.external);
     }, 50);
     let playerSequence = 0;
-    const playerTimer = setInterval(() => {
+    const playerTimer = player ? setInterval(() => {
       playerSequence++;
       sendAction(
         player.socket,
@@ -670,35 +894,67 @@ async function runExternalControlBaseline(
         Math.sin(playerSequence * 0.11),
         playerSequence % (options.playerHz * 2) < Math.floor(options.playerHz / 3) ? 1 : 0
       );
-    }, 1_000 / options.playerHz);
+    }, 1_000 / options.playerHz) : null;
     const measuredStartedAt = performance.now();
-    await new Promise(resolve => setTimeout(resolve, options.durationMs));
-    const measuredWallMs = performance.now() - measuredStartedAt;
-    clearInterval(playerTimer);
-    clearInterval(memoryTimer);
-    const healthAfter = await readHealth(server);
+    let healthBefore: HealthSnapshot;
+    let healthAfter: HealthSnapshot;
+    let measuredWallMs: number;
+    try {
+      healthBefore = await readHealth(server);
+      if (healthBefore.clients !== composition.totalSockets) {
+        throw new Error(
+          `${options.profile.toUpperCase()} client composition changed before measurement: ` +
+          `expected ${composition.totalSockets}, got ${healthBefore.clients}`
+        );
+      }
+      await new Promise(resolve => setTimeout(resolve, options.durationMs));
+      healthAfter = await readHealth(server);
+      measuredWallMs = performance.now() - measuredStartedAt;
+    } finally {
+      if (playerTimer) clearInterval(playerTimer);
+      clearInterval(memoryTimer);
+      eventLoop.disable();
+    }
     const cpu = process.cpuUsage(cpuBefore);
     const memoryAfter = process.memoryUsage();
-    eventLoop.disable();
 
     const clientErrors = [
-      ...player.telemetry.errors.map(error => `player: ${error}`),
+      ...(player ? player.telemetry.errors.map(error => `player: ${error}`) : []),
       ...bot.telemetry.errors.map(error => `bot: ${error}`),
-      ...viewer.telemetry.errors.map(error => `viewer: ${error}`)
+      ...(viewer ? viewer.telemetry.errors.map(error => `viewer: ${error}`) : [])
     ];
     if (clientErrors.length > 0) throw new Error(clientErrors.join('; '));
     if (healthAfter.fault.faulted) {
       throw new Error(`simulation faulted: ${healthAfter.fault.reason ?? 'unknown'}`);
     }
-    const tickDelta = healthAfter.tick - healthBefore.tick;
-    const simulatedSeconds = tickDelta / DEFAULT_CONFIG.tickRateHz;
-    const generationProgress =
-      viewer.telemetry.generationTimes.length > 1
-        ? viewer.telemetry.generationTimes.at(-1)! - viewer.telemetry.generationTimes[0]!
-        : 0;
-    return {
+    const scheduler = schedulerDelta(
+      healthBefore,
+      healthAfter,
+      options.simSpeed,
+      config.tickRateHz
+    );
+    if (healthAfter.clients !== composition.totalSockets) {
+      throw new Error(
+        `${options.profile.toUpperCase()} client composition changed during measurement: ` +
+        `expected ${composition.totalSockets}, got ${healthAfter.clients}`
+      );
+    }
+    if (viewer && (viewer.telemetry.frameTimesMs.length === 0 || viewer.telemetry.statsTimesMs.length === 0)) {
+      throw new Error('viewer-enabled run did not receive both a frame and stats sample');
+    }
+    const viewerGenerationProgressSeconds = viewer &&
+      viewer.telemetry.generationTimes.length > 1 &&
+      viewer.telemetry.generationTimes.length === viewer.telemetry.statsGenerations.length &&
+      new Set(viewer.telemetry.statsGenerations).size === 1
+      ? viewer.telemetry.generationTimes.at(-1)! - viewer.telemetry.generationTimes[0]!
+      : null;
+    const checkpointPersistenceExcluded = options.checkpointEvery === 0 ||
+      (options.profile === 'p5' && options.checkpointEvery === 1_000_000);
+    const measuredWallSeconds = measuredWallMs / 1_000;
+    const monotonicAchievedMultiplier = scheduler.simulatedSeconds / measuredWallSeconds;
+    evidence = {
       schema: 'slither-stage2-external-control-baseline',
-      version: 1,
+      version: 2,
       evidenceClass: 'new measured result',
       caveat:
         'Real current server and Protocol 2 wire-compatible bot, but loopback Node clients are not the missing owner trainer project, a browser renderer, another LAN device, or the target Debian VM.',
@@ -721,34 +977,67 @@ async function runExternalControlBaseline(
       workload: {
         scenario,
         seed: STAGE2_WORLD_SEED,
-        playerHz: options.playerHz,
+        profile: options.profile,
+        composition,
+        playerHz: player ? options.playerHz : null,
+        requestedSimSpeed: options.simSpeed,
         warmupMs: options.warmupMs,
         requestedDurationMs: options.durationMs,
         requestedWorkers: options.workers,
         displayPublicationHz: config.uiFrameRateHz,
-        playerClient: 'Protocol 2 UI socket with periodic latest-value action',
         botClient: 'Protocol 2 observation-driven synthetic compatibility client',
-        viewerClient: 'Protocol 2 UI spectator receiving complete frame v1'
+        viewerClient: viewer
+          ? 'one Protocol 2 UI spectator receiving complete frame v1'
+          : 'disabled; no UI player or spectator socket',
+        checkpointPersistence: {
+          included: !checkpointPersistenceExcluded,
+          configuredGenerationInterval: config.checkpointEveryGenerations,
+          reason: checkpointPersistenceExcluded
+            ? options.profile === 'p5' && options.checkpointEvery === 1_000_000
+              ? 'Legacy P5 compatibility baseline uses its historical large persistence-excluded interval.'
+              : `Explicit ${options.profile.toUpperCase()} persistence-excluded diagnostic; it is not the primary retained P6 matrix.`
+            : options.profile === 'p6'
+              ? 'Primary P6 matrix uses ordinary automatic generation checkpoints, including generation stalls.'
+              : 'P5 compatibility run uses the explicitly requested automatic checkpoint interval.'
+        },
+        actionAcceptanceObservability: {
+          configuredActionsPerSecondCap: config.maxActionsPerSecond,
+          caveat:
+            'Observed Protocol 2 observations/actions are client sends, not proof that ControllerRegistry accepted or applied every action at 4x, 8x, or 12x; the current health endpoint exposes no accepted/applied action counters.'
+        }
       },
       result: {
         measuredWallMs: Number(measuredWallMs.toFixed(6)),
-        tickDelta,
-        simulatedSeconds: Number(simulatedSeconds.toFixed(9)),
-        simulatedSecondsPerWallSecond: Number(
-          (simulatedSeconds / (measuredWallMs / 1_000)).toFixed(6)
-        ),
-        viewerGenerationProgressSeconds: Number(generationProgress.toFixed(9)),
-        player: {
-          assignmentLatencyMs:
-            player.telemetry.assignedAtMs === null
-              ? null
-              : Number((player.telemetry.assignedAtMs - player.telemetry.openedAtMs).toFixed(6)),
-          actionCount: player.telemetry.actionTimesMs.length,
-          sensorCount: player.telemetry.sensorTimesMs.length,
-          actionIntervalMs: distribution(player.telemetry.actionIntervalsMs),
-          sensorIntervalMs: distribution(intervals(player.telemetry.sensorTimesMs)),
-          actionToNextSensorMs: distribution(player.telemetry.actionToNextSensorMs)
+        monotonicWindow: {
+          wallSeconds: Number(measuredWallSeconds.toFixed(9)),
+          simulatedSecondsPerWallSecond: Number(monotonicAchievedMultiplier.toFixed(6)),
+          achievedToRequestedRatio: Number(
+            (monotonicAchievedMultiplier / options.simSpeed).toFixed(6)
+          )
         },
+        schedulerDelta: {
+          tick: scheduler.tick,
+          completedSteps: scheduler.completedSteps,
+          wallSeconds: Number(scheduler.wallSeconds.toFixed(9)),
+          simulatedSeconds: Number(scheduler.simulatedSeconds.toFixed(9)),
+          droppedSimulationSeconds: Number(scheduler.droppedSimulationSeconds.toFixed(9)),
+          achievedMultiplier: Number(scheduler.achievedMultiplier.toFixed(6)),
+          achievedToRequestedRatio: Number(scheduler.achievedToRequestedRatio.toFixed(6))
+        },
+        ...(player ? {
+          viewerGenerationProgressSeconds,
+          player: {
+            assignmentLatencyMs:
+              player.telemetry.assignedAtMs === null
+                ? null
+                : Number((player.telemetry.assignedAtMs - player.telemetry.openedAtMs).toFixed(6)),
+            actionCount: player.telemetry.actionTimesMs.length,
+            sensorCount: player.telemetry.sensorTimesMs.length,
+            actionIntervalMs: distribution(player.telemetry.actionIntervalsMs),
+            sensorIntervalMs: distribution(intervals(player.telemetry.sensorTimesMs)),
+            actionToNextSensorMs: distribution(player.telemetry.actionToNextSensorMs)
+          }
+        } : {}),
         bot: {
           assignmentLatencyMs:
             bot.telemetry.assignedAtMs === null
@@ -756,16 +1045,29 @@ async function runExternalControlBaseline(
               : Number((bot.telemetry.assignedAtMs - bot.telemetry.openedAtMs).toFixed(6)),
           actionCount: bot.telemetry.actionTimesMs.length,
           sensorCount: bot.telemetry.sensorTimesMs.length,
+          observationsPerWallSecond: Number(
+            (bot.telemetry.sensorTimesMs.length / measuredWallSeconds).toFixed(6)
+          ),
+          actionsSentPerWallSecond: Number(
+            (bot.telemetry.actionTimesMs.length / measuredWallSeconds).toFixed(6)
+          ),
           sensorIntervalMs: distribution(intervals(bot.telemetry.sensorTimesMs)),
           actionToNextSensorMs: distribution(bot.telemetry.actionToNextSensorMs),
           sensorToActionDispatchMs: distribution(bot.telemetry.sensorToActionDispatchMs)
         },
-        viewer: {
+        viewer: viewer ? {
+          enabled: true,
+          uiSocketConnected: true,
           frameCount: viewer.telemetry.frameTimesMs.length,
           frameIntervalMs: distribution(intervals(viewer.telemetry.frameTimesMs)),
           frameBytes: distribution(viewer.telemetry.frameBytes),
           statsCount: viewer.telemetry.statsTimesMs.length,
           statsIntervalMs: distribution(intervals(viewer.telemetry.statsTimesMs))
+        } : {
+          enabled: false,
+          uiSocketConnected: false,
+          frameCount: 0,
+          statsCount: 0
         },
         eventLoopDelayMs: {
           p50: Number((eventLoop.percentile(50) / 1_000_000).toFixed(6)),
@@ -791,12 +1093,40 @@ async function runExternalControlBaseline(
         healthAfter
       }
     };
+  } catch (error) {
+    primaryError = error;
   } finally {
-    if (server) await server.close();
-    await Promise.allSettled(sockets.map(closeSocket));
-    resetCFGToDefaults();
-    fs.rmSync(resolvedTemporaryRoot, { recursive: true, force: true });
+    if (server) {
+      try {
+        await server.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    const socketResults = await Promise.allSettled(sockets.map(closeSocket));
+    for (const result of socketResults) {
+      if (result.status === 'rejected') cleanupErrors.push(result.reason);
+    }
+    try {
+      resetCFGToDefaults();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    try {
+      fs.rmSync(resolvedTemporaryRoot, { recursive: true, force: true });
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
   }
+  if (primaryError !== null) {
+    if (cleanupErrors.length > 0) {
+      console.error('[stage2.external-control.cleanup]', cleanupErrors);
+    }
+    throw primaryError;
+  }
+  if (cleanupErrors.length > 0) throw cleanupErrors[0];
+  if (evidence === null) throw new Error('external-control measurement produced no evidence');
+  return evidence;
 }
 
 /** Execute the CLI. */
@@ -806,14 +1136,24 @@ async function main(): Promise<void> {
   const json = `${JSON.stringify(result, null, 2)}\n`;
   if (options.outputPath) {
     fs.mkdirSync(path.dirname(options.outputPath), { recursive: true });
-    fs.writeFileSync(options.outputPath, json, 'utf8');
+    try {
+      fs.writeFileSync(options.outputPath, json, { encoding: 'utf8', flag: 'wx' });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new Error(`Refusing to overwrite existing evidence file: ${options.outputPath}`);
+      }
+      throw error;
+    }
     console.info(`[stage2.external-control] wrote ${options.outputPath}`);
   } else {
     process.stdout.write(json);
   }
 }
 
-main().catch(error => {
-  console.error(error);
-  process.exitCode = 1;
-});
+const invokedPath = process.argv[1];
+if (invokedPath && import.meta.url === pathToFileURL(path.resolve(invokedPath)).href) {
+  main().catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
