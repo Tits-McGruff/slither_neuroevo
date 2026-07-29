@@ -27,6 +27,7 @@ node .\node_modules\tsx\dist\cli.mjs scripts\stage2\runtime-baseline.ts --scenar
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\behavior-baseline.ts --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\graph-baseline.ts --db data\slither.db --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\create-current-db-fixture.ts --scenario P1 --output C:\temporary\stage2-p1.db
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\browser-baseline-host.ts --db C:\temporary\stage2-p1.db --server-port 55194 --ui-port 55193 --ui-rate 30 --duration-ms 1800000
 ```
 
 The runtime runner uses the real `SimCore`, `World`, heterogeneous population,
@@ -149,6 +150,63 @@ while deletion does not return filesystem space without compaction. No
 correctness requirement has appeared that justifies replacing the selected
 immutable managed files with this more complicated payload-in-SQLite path.
 
+## Current browser import/export reproduction
+
+The current browser path was exercised through the built UI against a
+disposable real server and P1 database at the normal 30 Hz display publication
+rate. The production source was commit
+`ec1cc708423c4337f1d5f0ed73ac7a1f7b9ecdf8`; the tested built JavaScript asset
+had SHA-256
+`032ffa5518ca21938e02d79acbfb10d5df35638540ea71c944cd34db7988182c`.
+The delay while the browser tool awaited owner approval to monitor loopback was
+excluded from every timing below.
+
+The fixture contained 300 differently weighted evolved snakes with 16,149,600
+packed weight bytes. Its exact current server JSON export was 81,293,145 bytes
+(77.53 MiB), SHA-256
+`011b7b3b2ec30ea9d6b4f72fd4a15ade9d3a9cbe9eb75fd1159428ec1fb3cecf`.
+The large payload was temporary rather than committed.
+
+For browser export:
+
+- combined JavaScript heap plus backing storage began at 5,964,125 bytes;
+- it peaked at 256,485,515 bytes 6.222 seconds after the Export click:
+  168,733,600 used-heap bytes plus 87,751,915 backing-store bytes;
+- that is about 244.6 MiB in the two reported browser memory categories for a
+  population with only 15.4 MiB of packed weights;
+- the browser materialized the response, parsed it, rebuilt a population
+  object, stringified it again and created a Blob exactly as the current source
+  audit predicted; and
+- the in-app browser did not expose a download event within the bounded
+  50-second listener despite no page error or alert. This event observation is
+  not treated as proof that Chromium itself failed to write a file; the
+  population-sized memory peak proves the defect independently.
+
+For browser import, the exact 77.53 MiB JSON file was selected through the
+normal file picker:
+
+- the file-selection operation remained busy for 151.337 seconds before the
+  first heap sample could execute;
+- because the browser action itself blocked that interval, the trace does not
+  claim to contain the parse-time peak;
+- after the action released, combined reported heap and backing storage rose
+  from a 6,002,453-byte baseline to at least 48,878,389 bytes before failure;
+- the UI logged `TypeError: Failed to fetch` and displayed its failure alert;
+  and
+- a direct replay of the same body proved the server limit: it stopped after
+  53,018,624 uploaded bytes and returned HTTP 400 with
+  `{"ok":false,"message":"payload too large"}`.
+
+The retained raw traces are
+`windows-5800x/browser-current-export-p1.jsonl` and
+`windows-5800x/browser-current-import-p1.jsonl`. Their SHA-256 digests are
+`4be16b5eecd7246d8d868d7ef25e7c7310f119e46e7bb90448713a78893a472b`
+and
+`b4c02d6790dd1d33b9787b68c972acaf7db13b1c6545c73d18127a9e9aef1556`.
+The HTTP reproduction is retained separately beside them. These are Windows
+development-machine defect measurements, not acceptance results for the future
+direct compressed archive path.
+
 ## Initial Windows runtime measurements
 
 The following are single direct-engine runs on a Ryzen 7 5800X, Windows 11,
@@ -186,7 +244,6 @@ count from observed batch population counts.
 - the same clean runners on the Ryzen 7 2700 Debian VM;
 - integrated real-server/browser/LAN/RL P5 and cadence measurements;
 - sustained P4, P6 accelerated, P7 soak and P8 overnight-equivalent fixtures;
-- browser heap traces for current import/export;
 - full managed-checkpoint container validation timing;
 - real owner save files outside the repository, if any;
 - Debian graph-ordering output from the exact retained database/spec fixture.

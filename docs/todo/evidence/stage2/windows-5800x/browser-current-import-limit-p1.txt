@@ -1,0 +1,20 @@
+Evidence class: new measured result
+Source commit: ec1cc708423c4337f1d5f0ed73ac7a1f7b9ecdf8
+Fixture: P1 current JSON export
+Payload bytes: 81293145
+Payload SHA-256: 011B7B3B2EC30EA9D6B4F72FD4A15ADE9D3A9CBE9EB75FD1159428EC1FB3CECF
+
+Command:
+curl.exe --header "Content-Type: application/json" --data-binary "@current-p1-export.json" http://127.0.0.1:55194/api/import
+
+Observed:
+HTTP_STATUS=400
+UPLOADED=53018624
+TOTAL_SECONDS=0.858026
+
+Response body:
+{"ok":false,"message":"payload too large"}
+
+The transfer used a disposable loopback server and database. The 81,293,145-byte
+payload itself was temporary and was not committed. It is reproducible from the
+named P1 fixture. The retained SHA-256 identifies the exact measured payload.
