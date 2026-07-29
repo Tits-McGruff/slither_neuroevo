@@ -6,6 +6,7 @@ import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 import { crossover, enrichArchInfo, Genome, mutate, type ArchDefinition } from '../../src/mlp.ts';
 import type { CoreSettings } from '../../src/protocol/settings.ts';
 import { StatefulRng } from '../../src/rng.ts';
+import type { SpatialHashDiagnostics } from '../../src/spatialHash.ts';
 import type { World } from '../../src/world.ts';
 
 /** Standard workload identifiers from the approved migration plan. */
@@ -38,8 +39,26 @@ export interface Stage2Scenario {
 export const STAGE2_WORLD_SEED = 0x5a17c0de;
 /** Fixed seed for deterministic mutation/crossover fixture generation. */
 export const STAGE2_EVOLUTION_SEED = 0x0e701e5d;
+/** Historical collision-index entry ceiling exceeded by the P4 fixture. */
+export const P4_DENSE_COLLISION_ENTRY_THRESHOLD = 200_000;
 /** Body points per snake in the dense P4 fixture. */
 const P4_BODY_POINTS_PER_SNAKE = 700;
+
+/** One allocation/load snapshot used by Stage 2 dense-world evidence. */
+export interface Stage2WorldLoadSnapshot {
+  /** Number of currently alive snakes. */
+  aliveSnakes: number;
+  /** Number of snake records, including dead snakes retained by the world. */
+  totalSnakes: number;
+  /** Body points belonging to currently alive snakes. */
+  liveBodyPoints: number;
+  /** Body points across every retained snake record. */
+  totalBodyPoints: number;
+  /** Current authoritative pellet count. */
+  pellets: number;
+  /** Current collision-index load, capacity, and fault state. */
+  collisionGrid: SpatialHashDiagnostics;
+}
 
 /**
  * Construct the approved large-brain graph.
@@ -157,6 +176,47 @@ export function installDenseLongBodies(world: World): number {
   }
   world._collGrid.build(world.snakes, CFG.collision.skipSegments);
   return world.snakes.length * P4_BODY_POINTS_PER_SNAKE;
+}
+
+/**
+ * Capture the current dense-world load without changing authoritative state.
+ * @param world - World to inspect at one completed fixed-step boundary.
+ * @returns Alive/body/pellet counts plus collision-index diagnostics.
+ */
+export function captureStage2WorldLoad(world: World): Stage2WorldLoadSnapshot {
+  let aliveSnakes = 0;
+  let liveBodyPoints = 0;
+  let totalBodyPoints = 0;
+  for (const snake of world.snakes) {
+    totalBodyPoints += snake.points.length;
+    if (!snake.alive) continue;
+    aliveSnakes++;
+    liveBodyPoints += snake.points.length;
+  }
+  return {
+    aliveSnakes,
+    totalSnakes: world.snakes.length,
+    liveBodyPoints,
+    totalBodyPoints,
+    pellets: world.pellets.length,
+    collisionGrid: world.getCollisionGridDiagnostics()
+  };
+}
+
+/**
+ * Calculate the exact collision entries expected from the current Stage 2
+ * world and configured leading-segment skip.
+ * @param world - World whose current body arrays will be indexed.
+ * @returns Exact number of body points the collision grid should admit.
+ */
+export function expectedStage2CollisionEntries(world: World): number {
+  const skippedHeadPoints = Math.max(1, Math.floor(CFG.collision.skipSegments));
+  return world.snakes.reduce(
+    (sum, snake) => sum + (snake.alive
+      ? Math.max(0, snake.points.length - skippedHeadPoints)
+      : 0),
+    0
+  );
 }
 
 /**

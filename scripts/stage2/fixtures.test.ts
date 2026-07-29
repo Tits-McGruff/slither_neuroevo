@@ -7,10 +7,14 @@ import { Genome } from '../../src/mlp.ts';
 import { World } from '../../src/world.ts';
 import {
   buildLargeBrainGraph,
+  captureStage2WorldLoad,
   describePopulation,
   evolvePopulationFixture,
+  expectedStage2CollisionEntries,
+  installDenseLongBodies,
   installStage2Scenario,
   packPopulationWeights,
+  P4_DENSE_COLLISION_ENTRY_THRESHOLD,
   shuffleFloat32Bytes,
   STAGE2_WORLD_SEED,
   unshuffleFloat32Bytes
@@ -48,6 +52,21 @@ describe('Stage 2 fixtures', () => {
       new Genome('fixture', new Float32Array([1, -2.5]), 'graph')
     ]);
     expect(packed.toString('hex')).toBe('0000803f000020c0');
+  });
+
+  it('installs a P4 world above the historical collision-entry ceiling without truncation', () => {
+    const scenario = installStage2Scenario('P4');
+    const world = new World(scenario.settings, { seed: STAGE2_WORLD_SEED });
+    const installedBodyPoints = installDenseLongBodies(world);
+    const load = captureStage2WorldLoad(world);
+    const expectedCollisionEntries = expectedStage2CollisionEntries(world);
+    expect(installedBodyPoints).toBeGreaterThan(P4_DENSE_COLLISION_ENTRY_THRESHOLD);
+    expect(load.totalBodyPoints).toBe(installedBodyPoints);
+    expect(load.liveBodyPoints).toBe(installedBodyPoints);
+    expect(expectedCollisionEntries).toBeGreaterThan(P4_DENSE_COLLISION_ENTRY_THRESHOLD);
+    expect(load.collisionGrid.currentEntries).toBe(expectedCollisionEntries);
+    expect(load.collisionGrid.outOfBoundsEntries).toBe(0);
+    expect(load.collisionGrid.faultReason).toBeNull();
   });
 
   it('reproduces evolved-like operator fixtures from the same seed', () => {

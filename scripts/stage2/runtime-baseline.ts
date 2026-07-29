@@ -13,9 +13,13 @@ import { SimProfiler } from '../../src/profiling.ts';
 import { SimCore } from '../../src/sim/SimCore.ts';
 import { BrainPool } from '../../server/brainPool.ts';
 import {
+  captureStage2WorldLoad,
+  expectedStage2CollisionEntries,
   installDenseLongBodies,
   installStage2Scenario,
+  P4_DENSE_COLLISION_ENTRY_THRESHOLD,
   STAGE2_WORLD_SEED,
+  type Stage2WorldLoadSnapshot,
   type Stage2RecurrentKind,
   type Stage2ScenarioName
 } from './fixtures.ts';
@@ -41,6 +45,8 @@ interface RuntimeOptions {
   measuredSteps: number;
   /** Serialize every Nth measured step; zero disables frames. */
   frameEvery: number;
+  /** Retain a load/timing sample every N measured steps; zero disables it. */
+  sampleEverySteps: number;
   /** Canonical Node inference workers; zero keeps the serial path. */
   workers: number;
   /** Optional JSON artifact destination. */
@@ -63,6 +69,26 @@ interface Distribution {
   max: number;
   /** Arithmetic mean. */
   mean: number;
+}
+
+/** One bounded point in the optional dense-world load timeline. */
+interface RuntimeTimelineSample {
+  /** Completed measured-step count, with zero representing the measured start. */
+  measuredStep: number;
+  /** Wall milliseconds since the measured interval began. */
+  elapsedWallMs: number;
+  /** Fixed-step duration, or null for the measured-start sample. */
+  fixedStepMs: number | null;
+  /** Frame bytes packed during this step, or null when no frame was packed. */
+  frameBytes: number | null;
+  /** World and collision-index load at this completed boundary. */
+  load: Stage2WorldLoadSnapshot;
+  /** Resident bytes sampled at this boundary. */
+  rssBytes: number;
+  /** JavaScript heap bytes sampled at this boundary. */
+  heapUsedBytes: number;
+  /** External/backing-store bytes sampled at this boundary. */
+  externalBytes: number;
 }
 
 /**
@@ -88,6 +114,7 @@ function parseCount(value: string | undefined, name: string, allowZero = false):
  * @returns Validated benchmark options.
  */
 function parseOptions(argv: readonly string[]): RuntimeOptions {
+  let warmupExplicit = false;
   const result: RuntimeOptions = {
     scenario: 'P0',
     backend: 'native',
@@ -95,6 +122,7 @@ function parseOptions(argv: readonly string[]): RuntimeOptions {
     warmupSteps: DEFAULT_WARMUP_STEPS,
     measuredSteps: DEFAULT_MEASURED_STEPS,
     frameEvery: 1,
+    sampleEverySteps: 0,
     workers: 0,
     outputPath: null
   };
@@ -127,6 +155,7 @@ function parseOptions(argv: readonly string[]): RuntimeOptions {
       }
       case '--warmup-steps':
         result.warmupSteps = parseCount(value, option, true);
+        warmupExplicit = true;
         index++;
         break;
       case '--steps':
@@ -135,6 +164,10 @@ function parseOptions(argv: readonly string[]): RuntimeOptions {
         break;
       case '--frame-every':
         result.frameEvery = parseCount(value, option, true);
+        index++;
+        break;
+      case '--sample-every-steps':
+        result.sampleEverySteps = parseCount(value, option, true);
         index++;
         break;
       case '--workers':
@@ -150,6 +183,9 @@ function parseOptions(argv: readonly string[]): RuntimeOptions {
       default:
         throw new Error(`Unknown option ${option ?? '<missing>'}`);
     }
+  }
+  if (result.scenario === 'P4' && !warmupExplicit) {
+    result.warmupSteps = 0;
   }
   return result;
 }
@@ -256,6 +292,42 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
       core.brainPool = pool;
     }
     const installedBodyPoints = scenario.denseLongBodies ? installDenseLongBodies(core.world) : null;
+    const installedWorldLoad = scenario.denseLongBodies
+      ? captureStage2WorldLoad(core.world)
+      : null;
+    const expectedInstalledCollisionEntries = scenario.denseLongBodies
+      ? expectedStage2CollisionEntries(core.world)
+      : null;
+    if (scenario.denseLongBodies) {
+      if (
+        installedBodyPoints === null ||
+        installedBodyPoints <= P4_DENSE_COLLISION_ENTRY_THRESHOLD
+      ) {
+        throw new Error(
+          `P4 installed ${String(installedBodyPoints)} body points; expected more than ` +
+          `${P4_DENSE_COLLISION_ENTRY_THRESHOLD}`
+        );
+      }
+      if (
+        installedWorldLoad === null ||
+        installedWorldLoad.collisionGrid.currentEntries !==
+          expectedInstalledCollisionEntries
+      ) {
+        throw new Error(
+          `P4 collision index admitted ${String(installedWorldLoad?.collisionGrid.currentEntries)} ` +
+          `entries; expected ${String(expectedInstalledCollisionEntries)}`
+        );
+      }
+      if (installedWorldLoad.collisionGrid.outOfBoundsEntries !== 0) {
+        throw new Error(
+          `P4 collision index rejected ${installedWorldLoad.collisionGrid.outOfBoundsEntries} ` +
+          'out-of-bounds entries'
+        );
+      }
+      if (installedWorldLoad.collisionGrid.faultReason !== null) {
+        throw new Error(`P4 collision index faulted: ${installedWorldLoad.collisionGrid.faultReason}`);
+      }
+    }
     for (let step = 0; step < options.warmupSteps; step++) {
       await core.update(core.fixedDt);
       await yieldEventLoop();
@@ -264,7 +336,6 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
     const profiler = new SimProfiler({ enabled: true, reportIntervalMs: 3_600_000 });
     core.world.profiler = profiler;
     const eventLoop = monitorEventLoopDelay({ resolution: 10 });
-    eventLoop.enable();
     const stepMs: number[] = [];
     const sensorMs: number[] = [];
     const brainMs: number[] = [];
@@ -273,33 +344,94 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
     const frameBytes: number[] = [];
     let serialPopulationEvaluations = 0;
     let pooledPopulationEvaluations = 0;
-    let peakRssBytes = process.memoryUsage().rss;
-    let peakHeapUsedBytes = process.memoryUsage().heapUsed;
-    let peakExternalBytes = process.memoryUsage().external;
-    const cpuBefore = process.cpuUsage();
+    const timeline: RuntimeTimelineSample[] = [];
+    let denseThresholdLastStep: number | null = null;
+    let p4CollisionFaultFree = true;
+    let committedSteps = 0;
+    const measuredStartLoad = scenario.denseLongBodies || options.sampleEverySteps > 0
+      ? captureStage2WorldLoad(core.world)
+      : null;
+    if (
+      scenario.denseLongBodies &&
+      (measuredStartLoad?.collisionGrid.currentEntries ?? 0) >
+        P4_DENSE_COLLISION_ENTRY_THRESHOLD
+    ) {
+      denseThresholdLastStep = 0;
+    }
     const memoryBefore = process.memoryUsage();
+    let peakRssBytes = memoryBefore.rss;
+    let peakHeapUsedBytes = memoryBefore.heapUsed;
+    let peakExternalBytes = memoryBefore.external;
+    const cpuBefore = process.cpuUsage();
     const wallStarted = performance.now();
+    eventLoop.enable();
+    if (options.sampleEverySteps > 0) {
+      if (measuredStartLoad === null) {
+        throw new Error('timeline sampling requires a measured-start load snapshot');
+      }
+      timeline.push({
+        measuredStep: 0,
+        elapsedWallMs: 0,
+        fixedStepMs: null,
+        frameBytes: null,
+        load: measuredStartLoad,
+        rssBytes: memoryBefore.rss,
+        heapUsedBytes: memoryBefore.heapUsed,
+        externalBytes: memoryBefore.external
+      });
+    }
     for (let step = 0; step < options.measuredSteps; step++) {
       const started = performance.now();
       const committed = await core.update(core.fixedDt);
       const duration = performance.now() - started;
       if (committed !== 1) throw new Error(`Expected one committed step, received ${committed}`);
+      committedSteps += committed;
       stepMs.push(duration);
       sensorMs.push(profiler.tickSensorsMs);
       brainMs.push(profiler.tickBrainMs);
       physicsMs.push(Math.max(0, duration - profiler.tickSensorsMs - profiler.tickBrainMs));
       serialPopulationEvaluations += core.world._serialControlCount;
       pooledPopulationEvaluations += core.world._controlBatch.count;
-      if (options.frameEvery > 0 && step % options.frameEvery === 0) {
+      const measuredStep = step + 1;
+      let packedFrameBytes: number | null = null;
+      if (options.frameEvery > 0 && measuredStep % options.frameEvery === 0) {
         const frameStarted = performance.now();
         const frame = core.serialize();
         framePackMs.push(performance.now() - frameStarted);
         frameBytes.push(frame.byteLength);
+        packedFrameBytes = frame.byteLength;
       }
       const memory = process.memoryUsage();
       peakRssBytes = Math.max(peakRssBytes, memory.rss);
       peakHeapUsedBytes = Math.max(peakHeapUsedBytes, memory.heapUsed);
       peakExternalBytes = Math.max(peakExternalBytes, memory.external);
+      if (scenario.denseLongBodies) {
+        const stepCollision = core.world.getCollisionGridDiagnostics();
+        p4CollisionFaultFree &&= stepCollision.faultReason === null;
+        if (stepCollision.currentEntries > P4_DENSE_COLLISION_ENTRY_THRESHOLD) {
+          denseThresholdLastStep = measuredStep;
+        }
+      }
+      if (
+        options.sampleEverySteps > 0 &&
+        (
+          measuredStep === 1 ||
+          measuredStep % options.sampleEverySteps === 0 ||
+          measuredStep === options.measuredSteps
+        )
+      ) {
+        const load = captureStage2WorldLoad(core.world);
+        timeline.push({
+          measuredStep,
+          elapsedWallMs: Number((performance.now() - wallStarted).toFixed(6)),
+          fixedStepMs: Number(duration.toFixed(6)),
+          frameBytes: packedFrameBytes,
+          load,
+          rssBytes: memory.rss,
+          heapUsedBytes: memory.heapUsed,
+          externalBytes: memory.external
+        });
+      }
       await yieldEventLoop();
     }
     const measuredWallMs = performance.now() - wallStarted;
@@ -311,6 +443,23 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
     const brainCallCount = profiler.windowBrainCalls;
     const populationEvaluations = serialPopulationEvaluations + pooledPopulationEvaluations;
     const collision = core.world.getCollisionGridDiagnostics();
+    const assertions = {
+      allMeasuredStepsCommitted: committedSteps === options.measuredSteps,
+      p4InstalledBodyThresholdExceeded: !scenario.denseLongBodies ||
+        (installedBodyPoints ?? 0) > P4_DENSE_COLLISION_ENTRY_THRESHOLD,
+      p4InstalledCollisionThresholdExceeded: !scenario.denseLongBodies ||
+        (installedWorldLoad?.collisionGrid.currentEntries ?? 0) >
+          P4_DENSE_COLLISION_ENTRY_THRESHOLD,
+      p4InstalledCollisionEntriesExact: !scenario.denseLongBodies ||
+        installedWorldLoad?.collisionGrid.currentEntries ===
+          expectedInstalledCollisionEntries,
+      p4InstalledOutOfBoundsEntriesZero: !scenario.denseLongBodies ||
+        installedWorldLoad?.collisionGrid.outOfBoundsEntries === 0,
+      p4CollisionFaultFree: !scenario.denseLongBodies || p4CollisionFaultFree
+    };
+    if (!Object.values(assertions).every(Boolean)) {
+      throw new Error(`Stage 2 runtime assertions failed: ${JSON.stringify(assertions)}`);
+    }
     return {
     schema: 'slither-stage2-runtime-baseline',
     version: RESULT_VERSION,
@@ -347,11 +496,15 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
       measuredSteps: options.measuredSteps,
       fixedDtSeconds: core.fixedDt,
       frameEvery: options.frameEvery,
+      sampleEverySteps: options.sampleEverySteps,
+      command: [process.execPath, ...process.argv.slice(1)],
       processMode: options.workers > 0 ? 'canonical-node-worker-pool' : 'serial',
       requestedWorkers: options.workers,
       activeWorkers: pool?.getActiveWorkerCount() ?? 0,
       workerStatuses: pool?.getWorkerStatuses() ?? [],
       installedBodyPoints,
+      installedWorldLoad,
+      expectedInstalledCollisionEntries,
       graph: {
         key: graph.key,
         totalParams: graph.totalCount,
@@ -388,6 +541,22 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
         : 0,
       nativeKernelNodesPerBrain,
       collisionGrid: collision,
+      denseWorldTimeline: {
+        thresholdCollisionEntries: P4_DENSE_COLLISION_ENTRY_THRESHOLD,
+        denseThresholdLastStep,
+        denseThresholdMeaning: !scenario.denseLongBodies
+          ? 'Not a P4 dense-world fixture.'
+          : denseThresholdLastStep === null
+            ? 'The collision index was never above the threshold during the measured interval.'
+            : denseThresholdLastStep === 0
+              ? 'The collision index was above the threshold only at the measured start and fell below it during the first completed step.'
+              : `The last completed measured step above the threshold was ${denseThresholdLastStep}.`,
+        samples: timeline,
+        interpretation: scenario.denseLongBodies
+          ? 'The fixture is installed once. The timeline reports when ordinary deaths reduce load; it never reinflates bodies or disables collisions to manufacture sustained density.'
+          : 'Not a P4 dense-world fixture.'
+      },
+      assertions,
       eventLoopDelayMs: {
         min: Number((eventLoop.min / 1e6).toFixed(6)),
         mean: Number((eventLoop.mean / 1e6).toFixed(6)),
