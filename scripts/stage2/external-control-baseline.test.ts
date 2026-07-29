@@ -8,7 +8,8 @@ import {
   p5Composition,
   p6Composition,
   parseOptions,
-  schedulerDelta
+  schedulerDelta,
+  viewerWarmupReadiness
 } from './external-control-baseline.ts';
 
 /** Build the minimal scheduler health shape accepted by the delta helper. */
@@ -95,6 +96,11 @@ describe('Stage 2 P5/P6 external-control runner', () => {
     });
     expect(externalControlComposition({ profile: 'p5', viewer: false })).toEqual(p5Composition());
     expect(externalControlComposition({ profile: 'p6', viewer: false })).toEqual(p6Composition(false));
+  });
+
+  it('does not let delayed P6 frame publication postpone the warm-up boundary', () => {
+    expect(viewerWarmupReadiness('p6')).toBe('connected');
+    expect(viewerWarmupReadiness('p5')).toBe('first-frame-and-stats');
   });
 
   it('subtracts scheduler counters including dropped debt and rejects inconsistent steps', () => {

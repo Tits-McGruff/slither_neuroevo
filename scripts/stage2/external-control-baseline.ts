@@ -138,6 +138,8 @@ interface ViewerHandle {
   socket: WebSocket;
   /** Mutable telemetry. */
   telemetry: ViewerTelemetry;
+  /** Resolves as soon as the spectator socket is open and its hello/join were sent. */
+  connected: Promise<void>;
   /** Resolves after first binary frame and stats record. */
   ready: Promise<void>;
 }
@@ -376,6 +378,22 @@ export function externalControlComposition(
   options: Pick<ExternalControlOptions, 'profile' | 'viewer'>
 ): ExternalControlComposition {
   return options.profile === 'p5' ? p5Composition() : p6Composition(options.viewer);
+}
+
+/**
+ * Select which spectator milestone may hold the warm-up boundary.
+ *
+ * P5 keeps its historical compatibility behavior. P6 waits only for the
+ * spectator connection so delayed frame publication cannot give viewer-on
+ * cases a later, already-collapsed world than viewer-off cases.
+ *
+ * @param profile - Measurement profile.
+ * @returns Required spectator readiness milestone.
+ */
+export function viewerWarmupReadiness(
+  profile: ExternalControlOptions['profile']
+): 'connected' | 'first-frame-and-stats' {
+  return profile === 'p6' ? 'connected' : 'first-frame-and-stats';
 }
 
 /**
@@ -687,21 +705,34 @@ function openViewer(url: string): ViewerHandle {
     generationTimes: [],
     errors: []
   };
+  let resolveConnected: (() => void) | null = null;
+  let rejectConnected: ((error: Error) => void) | null = null;
+  const connected = new Promise<void>((resolve, reject) => {
+    resolveConnected = resolve;
+    rejectConnected = reject;
+  });
+  // Each profile awaits only one milestone. Mark both promises handled so an
+  // error after the earlier P6 connection milestone cannot become an
+  // unhandled rejection; telemetry still fails the completed run below.
+  void connected.catch(() => undefined);
   let resolveReady: (() => void) | null = null;
   let rejectReady: ((error: Error) => void) | null = null;
   const ready = new Promise<void>((resolve, reject) => {
     resolveReady = resolve;
     rejectReady = reject;
   });
+  void ready.catch(() => undefined);
   const maybeReady = (): void => {
     if (telemetry.frameTimesMs.length > 0 && telemetry.statsTimesMs.length > 0) resolveReady?.();
   };
   socket.on('open', () => {
     socket.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 2 }));
     socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+    resolveConnected?.();
   });
   socket.on('error', error => {
     telemetry.errors.push(error.message);
+    rejectConnected?.(error);
     rejectReady?.(error);
   });
   socket.on('message', (data: RawData, isBinary: boolean) => {
@@ -733,7 +764,7 @@ function openViewer(url: string): ViewerHandle {
       maybeReady();
     }
   });
-  return { socket, telemetry, ready };
+  return { socket, telemetry, connected, ready };
 }
 
 /**
@@ -864,7 +895,15 @@ export async function runExternalControlBaseline(
     if (player) sockets.push(player.socket);
     if (viewer) sockets.push(viewer.socket);
     await withTimeout(
-      Promise.all([bot.ready, ...(player ? [player.ready] : []), ...(viewer ? [viewer.ready] : [])]),
+      Promise.all([
+        bot.ready,
+        ...(player ? [player.ready] : []),
+        ...(viewer
+          ? [viewerWarmupReadiness(options.profile) === 'connected'
+              ? viewer.connected
+              : viewer.ready]
+          : [])
+      ]),
       30_000,
       'external clients'
     );
@@ -1011,7 +1050,10 @@ export async function runExternalControlBaseline(
         displayPublicationHz: config.uiFrameRateHz,
         botClient: 'Protocol 2 observation-driven synthetic compatibility client',
         viewerClient: viewer
-          ? 'one Protocol 2 UI spectator receiving complete frame v1'
+          ? viewerWarmupReadiness(options.profile) === 'connected'
+            ? 'one Protocol 2 UI spectator; measurement readiness waits only for its open ' +
+              'hello/join so a delayed first frame cannot postpone warm-up into a later world state'
+            : 'one Protocol 2 UI spectator receiving complete frame v1 before P5 warm-up'
           : 'disabled; no UI player or spectator socket',
         checkpointPersistence: {
           included: !checkpointPersistenceExcluded,
