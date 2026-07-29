@@ -92,10 +92,10 @@ recovery, or overnight-equivalent tests.
 All sizes below are exact weight payloads; future container, state, history and
 small metadata are reported separately.
 
-| Fixture | Raw | Decimal JSON bytes per Float32 | Decimal JSON/raw | Plain Zstd reduction | Shuffled Zstd reduction | Adaptive choice | Adaptive stored |
+| Fixture | Raw | Decimal JSON bytes per Float32 | Decimal JSON/raw | Plain Zstd reduction | Shuffled Zstd reduction | Archive-v1 choice | Archive-v1 stored |
 |---|---:|---:|---:|---:|---:|---|---:|
 | P0 fresh | 2.82 MiB | 20.11998 | 5.030x | 7.678% | 14.646% | shuffled Zstd | 2.41 MiB |
-| P0 evolved-like, 25 operator generations | 2.82 MiB | 20.04202 | 5.011x | 28.55% | 23.12% | plain Zstd | 2.02 MiB |
+| P0 evolved-like, 25 operator generations | 2.82 MiB | 20.04202 | 5.011x | 28.55% | 23.12% | shuffled Zstd | 2.17 MiB |
 | P1 fresh | 15.40 MiB | 20.11916 | 5.030x | 7.676% | 14.675% | shuffled Zstd | 13.14 MiB |
 | P1 evolved-like, 25 operator generations | 15.40 MiB | 20.04165 | 5.010x | 22.42% | 23.91% | shuffled Zstd | 11.72 MiB |
 | P2 fresh | 84.53 MiB | 20.11 | 5.03x | 7.86% | 14.75% | shuffled Zstd | 72.06 MiB |
@@ -110,15 +110,23 @@ not the prior unretained 2,733,479-byte claim. The exact JSON observation was
 fixtures; the plan must use the retained values rather than preserve the old
 approximately-20.03 claim indiscriminately.
 
-The evolved P0 fixture is an important reason to keep adaptive encoding:
-plain Zstandard beat shuffled Zstandard there. Each decoded result was
-bit-exact. Adding a Zstandard frame checksum added four bytes to each whole-
-population frame. Single-run timing is retained in raw JSON but is not yet a
-stable latency conclusion; repeated Windows and target-VM trials are still
-required.
+Plain Zstandard remains comparison evidence, but it is not an archive-v1
+numeric encoding selected by Draft 4. The first version of the Stage 2 runner
+incorrectly let that comparison win evolved P0's `selectedAdaptive` field.
+Version 2 corrects the label and selection: archive v1 chooses only
+`raw-f32le-v1` or `f32le-shuffle4-zstd-v1`. Evolved P0 therefore stores the
+2,276,354-byte shuffled result rather than the smaller 2,115,432-byte plain
+comparison. This correction was made before any production archive format was
+implemented or any retention fixture consumed the value.
 
-Derived from these measured payloads, 22 automatic P0 weight payloads would use
-about 44.4–53.0 MiB. Twenty-two P2 payloads would use about 1.51–1.55 GiB.
+Each decoded result was bit-exact. Adding a Zstandard frame checksum added four
+bytes to each whole-population frame. Single-run timing is retained in raw JSON
+but is not yet a stable latency conclusion; repeated Windows and target-VM
+trials are still required.
+
+Derived from the approved archive-v1 choices, 22 automatic P0 weight payloads
+would use about 47.8–53.0 MiB. Twenty-two P2 payloads would use about
+1.51–1.55 GiB.
 Twenty-two P3 payloads would use about 8.24–8.45 GiB, so the 4 GiB byte cap,
 not the count limit, necessarily controls that capacity case. The protected
 four-checkpoint P3 minimum calculates to about 1.50–1.54 GiB. These are

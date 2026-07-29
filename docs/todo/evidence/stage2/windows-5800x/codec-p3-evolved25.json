@@ -1,14 +1,14 @@
 {
   "schema": "slither-stage2-codec-baseline",
-  "version": 1,
+  "version": 2,
   "evidenceClass": "new measured result",
   "caveat": "Offline population-weight codec fixture; managed checkpoint container and full server memory are measured separately.",
   "source": {
-    "commit": "b69b2c5912ead03d66aa101051de270d3aff32c5",
+    "commit": "1e36cd7d2d04d8d0cf8fb231132a135306f17ed3",
     "dirty": false
   },
   "environment": {
-    "capturedAt": "2026-07-28T17:05:13.734Z",
+    "capturedAt": "2026-07-29T03:18:17.908Z",
     "platform": "win32",
     "architecture": "x64",
     "node": "v24.12.0",
@@ -117,8 +117,8 @@
       "encodedBytes": 429578061,
       "encodedToRawRatio": 0.8884817,
       "reductionPercent": 11.15183,
-      "encodeMs": 2020.3626,
-      "decodeMs": 766.3221,
+      "encodeMs": 1795.7409,
+      "decodeMs": 698.1309,
       "bitExact": true,
       "decodedSha256": "bb9a9791e56740eef19dd176782c562486fc49cfcd6aa2dd73839caa583dc3ba"
     },
@@ -128,8 +128,8 @@
       "encodedBytes": 402182864,
       "encodedToRawRatio": 0.83182115,
       "reductionPercent": 16.817885,
-      "encodeMs": 1976.4294,
-      "decodeMs": 1430.3708,
+      "encodeMs": 1721.9925,
+      "decodeMs": 1129.8504,
       "bitExact": true,
       "decodedSha256": "bb9a9791e56740eef19dd176782c562486fc49cfcd6aa2dd73839caa583dc3ba"
     },
@@ -139,8 +139,8 @@
       "encodedBytes": 429578065,
       "encodedToRawRatio": 0.88848171,
       "reductionPercent": 11.151829,
-      "encodeMs": 2293.4765,
-      "decodeMs": 800.7183,
+      "encodeMs": 1872.2635,
+      "decodeMs": 760.9389,
       "bitExact": true,
       "decodedSha256": "bb9a9791e56740eef19dd176782c562486fc49cfcd6aa2dd73839caa583dc3ba"
     },
@@ -150,13 +150,17 @@
       "encodedBytes": 402182868,
       "encodedToRawRatio": 0.83182116,
       "reductionPercent": 16.817884,
-      "encodeMs": 2000.1968,
-      "decodeMs": 1426.922,
+      "encodeMs": 1807.2202,
+      "decodeMs": 1169.1922,
       "bitExact": true,
       "decodedSha256": "bb9a9791e56740eef19dd176782c562486fc49cfcd6aa2dd73839caa583dc3ba"
     },
-    "selectedAdaptive": {
+    "smallestMeasuredComparison": {
       "encoding": "shuffle-zstd-level-3",
+      "bytes": 402182864
+    },
+    "selectedArchiveV1": {
+      "encoding": "f32le-shuffle4-zstd-v1",
       "bytes": 402182864
     }
   },
@@ -164,12 +168,16 @@
     "rawBytes": 483496800,
     "plainZstdBytes": 447338607,
     "shuffledZstdBytes": 414005560,
-    "adaptiveBytes": 414005560,
-    "adaptiveToRawRatio": 0.85627363,
-    "rawSelections": 0,
-    "plainSelections": 0,
-    "shuffledSelections": 300,
-    "encodeMs": 3550.5579
+    "minimumAcrossMeasuredBytes": 414005560,
+    "minimumAcrossMeasuredToRawRatio": 0.85627363,
+    "minimumRawSelections": 0,
+    "minimumPlainSelections": 0,
+    "minimumShuffledSelections": 300,
+    "approvedRawOrShuffledBytes": 414005560,
+    "approvedRawOrShuffledToRawRatio": 0.85627363,
+    "approvedRawSelections": 0,
+    "approvedShuffledSelections": 300,
+    "encodeMs": 2948.2469
   },
   "currentLegacyGzip": {
     "measured": false,
