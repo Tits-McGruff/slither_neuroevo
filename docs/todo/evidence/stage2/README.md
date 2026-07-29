@@ -201,6 +201,28 @@ automatic cap. The Hall-of-Fame fixture intentionally models every generation
 as a new qualifying unique genome; duplicate, non-qualifying, pinned and
 multi-run cases remain for later persistence tests.
 
+## Narrow compact-history SQLite overhead
+
+The isolated compact-history artifact
+`windows-5800x/history-sqlite-overhead-p8-480.json`, SHA-256
+`963cbd053c61cc4bcf9ff0264d421493bc15682487e6ac622ab4eeaf3da5b2cb`,
+was reproduced from clean source commit
+`d60cd578c2bc92cef8b0dda3d446a1c673fe7bb6` on Windows with
+SQLite 3.49.2. It inserted 480 approved eight-field generation summaries as
+56-byte little-endian records, one `synchronous=FULL` transaction per row.
+
+The 480 records contain 26,880 logical bytes. The final main database was
+77,824 bytes across 19 pages with no freelist pages, while the peak WAL file
+was 4,120,032 bytes. Per-append transaction p50/p95/p99/max was
+1.971/2.176/2.903/6.132 ms. A passive checkpoint copied all 36 frames in
+2.559 ms but did not truncate the reusable WAL file.
+
+This is a disposable fixed-record SQLite measurement, not the production
+schema, a checkpoint, archive, managed-file store, restore, durability,
+retention, overnight, or target-VM test. It shows that full per-generation
+summary history remains logically small, while separate `synchronous=FULL`
+SQLite transactions can create much larger reusable WAL allocation.
+
 ## Managed-checkpoint write-validation comparison
 
 The retained artifacts are:
@@ -452,6 +474,77 @@ target Debian VM. The earlier wait for owner approval to let the browser tool
 observe a loopback address/port is outside the runner and outside every timing
 reported here.
 
+## Current real-server P6 accelerated-control matrix
+
+The retained P6 matrix used clean source commit
+`d60cd578c2bc92cef8b0dda3d446a1c673fe7bb6`, the current real server,
+the native serial backend, and a Protocol 2 wire-compatible loopback bot. It
+covered P0 and P2 at requested 1x, 2x, 4x, 8x, and 12x, first without a display
+client and then with one complete-frame-v1 spectator. There was no browser
+player. Each independently launched run waited until at least tick 300 and
+then measured at least 1,800 committed steps, or 30 simulated seconds.
+Observed starts were ticks 300–307 and observed spans were 1,800–1,808 steps.
+Automatic generation checkpoints were configured every generation.
+
+The cells below show committed simulated seconds per runner-monotonic wall
+second followed by discarded simulated-time debt. Off/on values are separate
+trials in that order; they are not a causal measurement of spectator cost.
+
+| Requested speed | P0 off/on achieved | P0 off/on debt | P2 off/on achieved | P2 off/on debt |
+|---|---:|---:|---:|---:|
+| 1x | 1.000x / 1.000x | 0 / 0 s | 1.021x / 1.016x | 0 / 0 s |
+| 2x | 2.096x / 2.088x | 0.850 / 1.050 s | 1.834x / 1.665x | 5.517 / 9.383 s |
+| 4x | 2.254x / 2.378x | 23.850 / 21.800 s | 1.745x / 1.744x | 39.550 / 39.617 s |
+| 8x | 2.508x / 2.343x | 71.100 / 76.850 s | 1.568x / 1.956x | 128.800 / 98.783 s |
+| 12x | 2.353x / 2.508x | 125.433 / 116.983 s | 1.648x / 1.766x | 192.867 / 180.317 s |
+
+Only the 1x P0 and P2 windows completed with zero reported dropped debt. Those
+short fixed-step windows are not a headroom or sustained-capacity result. The
+apparent greater-than-2x P0 results began with 1.269–1.683 seconds of pending
+debt and also discarded 0.850–1.050 seconds, so they do not prove clean or
+sustained 2x capacity. Requested 4x and above missed the requested rate
+substantially in every trial. P0 began with 50–55 live snakes and ended with
+27–34; P2 began with 46–57 and ended with 18–24. Those load differences,
+connection-driven RNG contamination, action/event-loop timing, and polling
+overshoot prohibit a causal viewer comparison or an exact scaling curve.
+
+The spectator runs nevertheless reproduce current frame-publication
+starvation. P0 and P2 delivered about 16.7–16.9 frames per wall second at 1x.
+At requested 4x and above, P0 delivered about 1.17–1.25 and P2 about
+0.87–0.97 complete frames per wall second. This is a same-process Node
+spectator that counts messages and bytes, not browser parsing/rendering, LAN
+latency, or player-input responsiveness.
+
+The separate P0 12x boundary run measured 18,004 steps, 300.067 simulated
+seconds, and 81.664 runner-monotonic wall seconds. It achieved 3.674x while
+discarding 683.133 simulated seconds of scheduler debt. Generation, current
+SQLite durable generation, and current SQLite snapshot id all advanced from
+1 to 2 and the server reported the durable generation caught up. This proves
+only that one current interval-one SQLite generation checkpoint completed in
+that run. It does not isolate checkpoint latency, test restore or crash
+recovery, exercise checkpoint-v3 or managed files, or prove fsync/power-loss
+durability.
+
+All artifacts report no simulation fault and retain actual start/end ticks,
+poll overshoot, world-load counts, collision load, event-loop delay, process
+memory, frames, and bot observations/actions. Bot action counts are sends, not
+proof that the server accepted or applied each action; the current health API
+has no accepted/applied counters. The measurement build also performs an
+O(snakes) scalar diagnostic scan at each committed step and after each pump;
+that cost is included, not assumed free.
+
+These are single Windows 11/Ryzen 7 5800X/Node 24 loopback trials. They are not
+the real browser, owner trainer, trusted LAN, Debian VM, or Ryzen 7 2700
+acceptance results. The earlier owner-approval wait for loopback monitoring is
+outside the runner and every timing above.
+
+The 21 raw JSON artifacts are retained under
+`windows-5800x/p6/`. Their individual hashes are in
+`windows-5800x/p6/SHA256SUMS.txt`, whose SHA-256 is
+`92b07e08727019e2832433c11c84d4d005f435c49ca769f527432af4ed3358dc`.
+The extended boundary JSON has SHA-256
+`549f0b0f43d61483615364a6b3bef6e2b7e106ca622b3855bdff5a784c11ee54`.
+
 ## Initial Windows runtime measurements
 
 The following are single direct-engine runs on a Ryzen 7 5800X, Windows 11,
@@ -503,7 +596,7 @@ count from observed batch population counts.
 - real browser/LAN/owner-trainer/target-VM P5 and cadence measurements (the
   current-server synthetic loopback baseline is retained above);
 - sustained P4 (the retained 600-step artifact is an honest load-collapse
-  curve), P6 accelerated and P7 soak fixtures;
+  curve), repeated/target-VM P6 capacity and P7 soak fixtures;
 - P8 full checkpoint-v3 publication, durability and restore testing beyond the
   retained size-matched 480-generation retention fixture;
 - repeat the selected checkpoint-v3 publication/restore policy in Rust on the
