@@ -1,0 +1,2025 @@
+{
+  "schema": "slither-stage2-runtime-baseline",
+  "version": 1,
+  "evidenceClass": "new measured result",
+  "caveat": "Direct production SimCore/World path, including the canonical BrainPool when selected; not an end-to-end server, LAN, browser, or target-VM result.",
+  "source": {
+    "commit": "821b95e5e4ec8743711d9441a94f9cb070c019f3",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-07-29T04:48:42.845Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "osType": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "osVersion": "Windows 11 Pro",
+    "hostname": "Beryllium",
+    "locale": "en-AU",
+    "node": "v24.12.0",
+    "v8": "13.6.233.17-node.37",
+    "zlib": "1.3.1-470d3a2",
+    "zstd": "1.5.7",
+    "cpuModel": "AMD Ryzen 7 5800X 8-Core Processor             ",
+    "logicalCpuCount": 16,
+    "totalMemoryBytes": 68627632128
+  },
+  "workload": {
+    "scenario": {
+      "name": "P4",
+      "description": "300 evolved snakes with 700-point bodies and 12,000 pellets",
+      "settings": {
+        "snakeCount": 300,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "pelletCountTarget": 12000,
+      "bubbleBins": 16,
+      "baselineBotCount": 10,
+      "graphSpec": null,
+      "denseLongBodies": true
+    },
+    "seed": 1511506142,
+    "backend": "native",
+    "nativeAddonBuildIdentifier": "slither_native/0.1.0+3fe2e0063f8d.250d6b1948e7fc4d",
+    "recurrentKind": "GRU",
+    "warmupSteps": 0,
+    "measuredSteps": 600,
+    "fixedDtSeconds": 0.016666666666666666,
+    "frameEvery": 1,
+    "sampleEverySteps": 10,
+    "command": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\jlow8\\source\\repos\\slither_neuroevo\\scripts\\stage2\\runtime-baseline.ts",
+      "--scenario",
+      "P4",
+      "--backend",
+      "native",
+      "--workers",
+      "0",
+      "--steps",
+      "600",
+      "--frame-every",
+      "1",
+      "--sample-every-steps",
+      "10",
+      "--output",
+      "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage2-runtime-p4-native-dense-600.json"
+    ],
+    "processMode": "serial",
+    "requestedWorkers": 0,
+    "activeWorkers": 0,
+    "workerStatuses": [],
+    "installedBodyPoints": 217000,
+    "installedWorldLoad": {
+      "aliveSnakes": 310,
+      "totalSnakes": 310,
+      "liveBodyPoints": 217000,
+      "totalBodyPoints": 217000,
+      "pellets": 12000,
+      "collisionGrid": {
+        "currentEntries": 216690,
+        "peakEntries": 216690,
+        "capacity": 300000,
+        "maxCapacity": 33554432,
+        "estimatedCapacityBytes": 4800000,
+        "rebuilds": 2,
+        "growths": 1,
+        "outOfBoundsEntries": 0,
+        "admissionReason": "collision-grid rebuild grew capacity from 200000 to 300000 entries",
+        "faultReason": null
+      }
+    },
+    "expectedInstalledCollisionEntries": 216690,
+    "graph": {
+      "key": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+      "totalParams": 13458,
+      "totalStateFloats": 16,
+      "order": [
+        "input",
+        "mlp",
+        "gru",
+        "head"
+      ],
+      "outputs": [
+        {
+          "nodeId": "head"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "input",
+          "type": "Input",
+          "offset": 0,
+          "length": 0,
+          "inputSize": 83,
+          "outputSize": 83,
+          "isRecurrent": false
+        },
+        {
+          "id": "mlp",
+          "type": "MLP",
+          "offset": 0,
+          "length": 9536,
+          "inputSize": 83,
+          "outputSize": 64,
+          "isRecurrent": false,
+          "hiddenSizes": [
+            64
+          ]
+        },
+        {
+          "id": "gru",
+          "type": "GRU",
+          "offset": 9536,
+          "length": 3888,
+          "inputSize": 64,
+          "outputSize": 16,
+          "isRecurrent": true,
+          "hiddenSize": 16
+        },
+        {
+          "id": "head",
+          "type": "Dense",
+          "offset": 13424,
+          "length": 34,
+          "inputSize": 16,
+          "outputSize": 2,
+          "isRecurrent": false
+        }
+      ]
+    }
+  },
+  "result": {
+    "measuredWallMs": 6513.4235,
+    "simulatedSeconds": 10,
+    "simulatedSecondsPerWallSecond": 1.535291,
+    "completedStepsPerWallSecond": 92.117456,
+    "fixedStepMs": {
+      "count": 600,
+      "min": 3.1968,
+      "p50": 5.84895,
+      "p95": 20.826795,
+      "p99": 31.492654,
+      "max": 266.0475,
+      "mean": 7.961155
+    },
+    "sensorsPerStepMs": {
+      "count": 600,
+      "min": 1.5893,
+      "p50": 3.38975,
+      "p95": 12.735145,
+      "p99": 20.513394,
+      "max": 164.9445,
+      "mean": 4.778657
+    },
+    "brainPerStepMs": {
+      "count": 600,
+      "min": 0.0856,
+      "p50": 0.16265,
+      "p95": 0.439915,
+      "p99": 0.739762,
+      "max": 6.868,
+      "mean": 0.210305
+    },
+    "remainingPhysicsPerStepMs": {
+      "count": 600,
+      "min": 1.5038,
+      "p50": 2.268,
+      "p95": 7.43641,
+      "p99": 11.495873,
+      "max": 94.235,
+      "mean": 2.972193
+    },
+    "framePackMs": {
+      "count": 600,
+      "min": 1.6411,
+      "p50": 2.66895,
+      "p95": 3.904865,
+      "p99": 4.654454,
+      "max": 9.3566,
+      "mean": 2.78303
+    },
+    "frameBytes": {
+      "count": 600,
+      "min": 2141788,
+      "p50": 2159992,
+      "p95": 2169865.8,
+      "p99": 2170900.36,
+      "max": 2171132,
+      "mean": 2156968.093333
+    },
+    "aliveAtEnd": 8,
+    "totalSnakesAtEnd": 310,
+    "generationAtEnd": 1,
+    "generationTimeAtEnd": 10,
+    "profilerBrainCalls": 8160,
+    "profilerSensorCalls": 8160,
+    "serialPopulationEvaluations": 8160,
+    "pooledPopulationEvaluations": 0,
+    "populationEvaluations": 8160,
+    "derivedNativeCrossings": 24480,
+    "nativeKernelNodesPerBrain": 3,
+    "collisionGrid": {
+      "currentEntries": 9905,
+      "peakEntries": 216799,
+      "capacity": 300000,
+      "maxCapacity": 33554432,
+      "estimatedCapacityBytes": 4800000,
+      "rebuilds": 1802,
+      "growths": 1,
+      "outOfBoundsEntries": 991557,
+      "admissionReason": "collision-grid rebuild admitted 11922 entries",
+      "faultReason": null
+    },
+    "denseWorldTimeline": {
+      "thresholdCollisionEntries": 200000,
+      "denseThresholdLastStep": 0,
+      "denseThresholdMeaning": "The collision index was above the threshold only at the measured start and fell below it during the first completed step.",
+      "samples": [
+        {
+          "measuredStep": 0,
+          "elapsedWallMs": 0,
+          "fixedStepMs": null,
+          "frameBytes": null,
+          "load": {
+            "aliveSnakes": 310,
+            "totalSnakes": 310,
+            "liveBodyPoints": 217000,
+            "totalBodyPoints": 217000,
+            "pellets": 12000,
+            "collisionGrid": {
+              "currentEntries": 216690,
+              "peakEntries": 216690,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 2,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild grew capacity from 200000 to 300000 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 184709120,
+          "heapUsedBytes": 40699768,
+          "externalBytes": 56872219
+        },
+        {
+          "measuredStep": 1,
+          "elapsedWallMs": 275.6081,
+          "fixedStepMs": 266.0475,
+          "frameBytes": 2155924,
+          "load": {
+            "aliveSnakes": 52,
+            "totalSnakes": 310,
+            "liveBodyPoints": 37381,
+            "totalBodyPoints": 218090,
+            "pellets": 92759,
+            "collisionGrid": {
+              "currentEntries": 37329,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 5,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 37329 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 243056640,
+          "heapUsedBytes": 62362752,
+          "externalBytes": 59326493
+        },
+        {
+          "measuredStep": 10,
+          "elapsedWallMs": 603.8114,
+          "fixedStepMs": 26.8939,
+          "frameBytes": 2161572,
+          "load": {
+            "aliveSnakes": 42,
+            "totalSnakes": 310,
+            "liveBodyPoints": 30617,
+            "totalBodyPoints": 218757,
+            "pellets": 95763,
+            "collisionGrid": {
+              "currentEntries": 30575,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 32,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 30575 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 329711616,
+          "heapUsedBytes": 86510480,
+          "externalBytes": 66490897
+        },
+        {
+          "measuredStep": 20,
+          "elapsedWallMs": 896.189,
+          "fixedStepMs": 20.6025,
+          "frameBytes": 2164784,
+          "load": {
+            "aliveSnakes": 35,
+            "totalSnakes": 310,
+            "liveBodyPoints": 26319,
+            "totalBodyPoints": 219659,
+            "pellets": 97654,
+            "collisionGrid": {
+              "currentEntries": 26284,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 62,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 26284 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 332034048,
+          "heapUsedBytes": 108007760,
+          "externalBytes": 68667837
+        },
+        {
+          "measuredStep": 30,
+          "elapsedWallMs": 1134.197,
+          "fixedStepMs": 19.9255,
+          "frameBytes": 2166836,
+          "load": {
+            "aliveSnakes": 30,
+            "totalSnakes": 310,
+            "liveBodyPoints": 23243,
+            "totalBodyPoints": 220404,
+            "pellets": 98995,
+            "collisionGrid": {
+              "currentEntries": 23213,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 92,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 23213 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 332042240,
+          "heapUsedBytes": 99744616,
+          "externalBytes": 68680949
+        },
+        {
+          "measuredStep": 40,
+          "elapsedWallMs": 1377.4297,
+          "fixedStepMs": 16.3585,
+          "frameBytes": 2168720,
+          "load": {
+            "aliveSnakes": 26,
+            "totalSnakes": 310,
+            "liveBodyPoints": 20607,
+            "totalBodyPoints": 220920,
+            "pellets": 100150,
+            "collisionGrid": {
+              "currentEntries": 20581,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 122,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 20581 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 330321920,
+          "heapUsedBytes": 84787336,
+          "externalBytes": 66521277
+        },
+        {
+          "measuredStep": 50,
+          "elapsedWallMs": 1574.2799,
+          "fixedStepMs": 15.3549,
+          "frameBytes": 2168968,
+          "load": {
+            "aliveSnakes": 24,
+            "totalSnakes": 310,
+            "liveBodyPoints": 19676,
+            "totalBodyPoints": 221571,
+            "pellets": 100538,
+            "collisionGrid": {
+              "currentEntries": 19652,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 152,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 19652 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 326500352,
+          "heapUsedBytes": 65814328,
+          "externalBytes": 62185345
+        },
+        {
+          "measuredStep": 60,
+          "elapsedWallMs": 1723.1999,
+          "fixedStepMs": 12.6208,
+          "frameBytes": 2168548,
+          "load": {
+            "aliveSnakes": 22,
+            "totalSnakes": 310,
+            "liveBodyPoints": 18404,
+            "totalBodyPoints": 222112,
+            "pellets": 101029,
+            "collisionGrid": {
+              "currentEntries": 18382,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 182,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 18382 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 333144064,
+          "heapUsedBytes": 89066304,
+          "externalBytes": 68691237
+        },
+        {
+          "measuredStep": 70,
+          "elapsedWallMs": 1852.5501,
+          "fixedStepMs": 11.0328,
+          "frameBytes": 2169492,
+          "load": {
+            "aliveSnakes": 19,
+            "totalSnakes": 310,
+            "liveBodyPoints": 16209,
+            "totalBodyPoints": 222501,
+            "pellets": 101959,
+            "collisionGrid": {
+              "currentEntries": 16190,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 212,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 16190 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 339787776,
+          "heapUsedBytes": 105438032,
+          "externalBytes": 75202345
+        },
+        {
+          "measuredStep": 80,
+          "elapsedWallMs": 1988.7733,
+          "fixedStepMs": 8.3855,
+          "frameBytes": 2170356,
+          "load": {
+            "aliveSnakes": 17,
+            "totalSnakes": 310,
+            "liveBodyPoints": 14745,
+            "totalBodyPoints": 222736,
+            "pellets": 102591,
+            "collisionGrid": {
+              "currentEntries": 14728,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 242,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 14728 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 344363008,
+          "heapUsedBytes": 112383168,
+          "externalBytes": 79545917
+        },
+        {
+          "measuredStep": 90,
+          "elapsedWallMs": 2100.8687,
+          "fixedStepMs": 9.0026,
+          "frameBytes": 2170784,
+          "load": {
+            "aliveSnakes": 16,
+            "totalSnakes": 310,
+            "liveBodyPoints": 14105,
+            "totalBodyPoints": 222961,
+            "pellets": 102870,
+            "collisionGrid": {
+              "currentEntries": 14089,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 272,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 14089 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 346902528,
+          "heapUsedBytes": 109640048,
+          "externalBytes": 81727905
+        },
+        {
+          "measuredStep": 100,
+          "elapsedWallMs": 2225.3525,
+          "fixedStepMs": 7.2824,
+          "frameBytes": 2170316,
+          "load": {
+            "aliveSnakes": 16,
+            "totalSnakes": 310,
+            "liveBodyPoints": 14329,
+            "totalBodyPoints": 223185,
+            "pellets": 102757,
+            "collisionGrid": {
+              "currentEntries": 14313,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 302,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 14313 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 344465408,
+          "heapUsedBytes": 104755232,
+          "externalBytes": 79553181
+        },
+        {
+          "measuredStep": 110,
+          "elapsedWallMs": 2320.9855,
+          "fixedStepMs": 6.7481,
+          "frameBytes": 2169712,
+          "load": {
+            "aliveSnakes": 16,
+            "totalSnakes": 310,
+            "liveBodyPoints": 14566,
+            "totalBodyPoints": 223422,
+            "pellets": 102632,
+            "collisionGrid": {
+              "currentEntries": 14550,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 332,
+              "growths": 1,
+              "outOfBoundsEntries": 0,
+              "admissionReason": "collision-grid rebuild admitted 14550 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 342417408,
+          "heapUsedBytes": 99931816,
+          "externalBytes": 77377393
+        },
+        {
+          "measuredStep": 120,
+          "elapsedWallMs": 2428.0465,
+          "fixedStepMs": 9.2051,
+          "frameBytes": 2169104,
+          "load": {
+            "aliveSnakes": 16,
+            "totalSnakes": 310,
+            "liveBodyPoints": 14875,
+            "totalBodyPoints": 223731,
+            "pellets": 102478,
+            "collisionGrid": {
+              "currentEntries": 14851,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 362,
+              "growths": 1,
+              "outOfBoundsEntries": 75,
+              "admissionReason": "collision-grid rebuild admitted 14859 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 340373504,
+          "heapUsedBytes": 95937680,
+          "externalBytes": 75202241
+        },
+        {
+          "measuredStep": 130,
+          "elapsedWallMs": 2542.2107,
+          "fixedStepMs": 6.593,
+          "frameBytes": 2169520,
+          "load": {
+            "aliveSnakes": 15,
+            "totalSnakes": 310,
+            "liveBodyPoints": 14216,
+            "totalBodyPoints": 223968,
+            "pellets": 102764,
+            "collisionGrid": {
+              "currentEntries": 14177,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 392,
+              "growths": 1,
+              "outOfBoundsEntries": 507,
+              "admissionReason": "collision-grid rebuild admitted 14201 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 338219008,
+          "heapUsedBytes": 88438296,
+          "externalBytes": 73033553
+        },
+        {
+          "measuredStep": 140,
+          "elapsedWallMs": 2647.7004,
+          "fixedStepMs": 8.2749,
+          "frameBytes": 2169076,
+          "load": {
+            "aliveSnakes": 15,
+            "totalSnakes": 310,
+            "liveBodyPoints": 14408,
+            "totalBodyPoints": 224160,
+            "pellets": 102665,
+            "collisionGrid": {
+              "currentEntries": 14339,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 422,
+              "growths": 1,
+              "outOfBoundsEntries": 1578,
+              "admissionReason": "collision-grid rebuild admitted 14393 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 336056320,
+          "heapUsedBytes": 82972728,
+          "externalBytes": 70862857
+        },
+        {
+          "measuredStep": 150,
+          "elapsedWallMs": 2758.5266,
+          "fixedStepMs": 7.9969,
+          "frameBytes": 2168536,
+          "load": {
+            "aliveSnakes": 15,
+            "totalSnakes": 310,
+            "liveBodyPoints": 14603,
+            "totalBodyPoints": 224355,
+            "pellets": 102560,
+            "collisionGrid": {
+              "currentEntries": 14511,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 452,
+              "growths": 1,
+              "outOfBoundsEntries": 3496,
+              "admissionReason": "collision-grid rebuild admitted 14588 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 334041088,
+          "heapUsedBytes": 78154200,
+          "externalBytes": 68691253
+        },
+        {
+          "measuredStep": 160,
+          "elapsedWallMs": 2853.4885,
+          "fixedStepMs": 6.9284,
+          "frameBytes": 2168132,
+          "load": {
+            "aliveSnakes": 15,
+            "totalSnakes": 310,
+            "liveBodyPoints": 14840,
+            "totalBodyPoints": 224592,
+            "pellets": 102445,
+            "collisionGrid": {
+              "currentEntries": 14728,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 482,
+              "growths": 1,
+              "outOfBoundsEntries": 6076,
+              "admissionReason": "collision-grid rebuild admitted 14825 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 331870208,
+          "heapUsedBytes": 73378056,
+          "externalBytes": 66520929
+        },
+        {
+          "measuredStep": 170,
+          "elapsedWallMs": 2961.1063,
+          "fixedStepMs": 7.2356,
+          "frameBytes": 2167572,
+          "load": {
+            "aliveSnakes": 15,
+            "totalSnakes": 310,
+            "liveBodyPoints": 15105,
+            "totalBodyPoints": 224857,
+            "pellets": 102311,
+            "collisionGrid": {
+              "currentEntries": 14930,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 512,
+              "growths": 1,
+              "outOfBoundsEntries": 9798,
+              "admissionReason": "collision-grid rebuild admitted 15090 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 329814016,
+          "heapUsedBytes": 68454256,
+          "externalBytes": 64350993
+        },
+        {
+          "measuredStep": 180,
+          "elapsedWallMs": 3058.5442,
+          "fixedStepMs": 6.8663,
+          "frameBytes": 2167336,
+          "load": {
+            "aliveSnakes": 14,
+            "totalSnakes": 310,
+            "liveBodyPoints": 14377,
+            "totalBodyPoints": 225137,
+            "pellets": 102592,
+            "collisionGrid": {
+              "currentEntries": 14159,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 542,
+              "growths": 1,
+              "outOfBoundsEntries": 15269,
+              "admissionReason": "collision-grid rebuild admitted 14363 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 327655424,
+          "heapUsedBytes": 63258344,
+          "externalBytes": 62182745
+        },
+        {
+          "measuredStep": 190,
+          "elapsedWallMs": 3145.2899,
+          "fixedStepMs": 6.379,
+          "frameBytes": 2166884,
+          "load": {
+            "aliveSnakes": 14,
+            "totalSnakes": 310,
+            "liveBodyPoints": 14588,
+            "totalBodyPoints": 225348,
+            "pellets": 102485,
+            "collisionGrid": {
+              "currentEntries": 14349,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 572,
+              "growths": 1,
+              "outOfBoundsEntries": 21656,
+              "admissionReason": "collision-grid rebuild admitted 14574 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 349429760,
+          "heapUsedBytes": 111005584,
+          "externalBytes": 83853361
+        },
+        {
+          "measuredStep": 200,
+          "elapsedWallMs": 3239.8029,
+          "fixedStepMs": 7.9602,
+          "frameBytes": 2162740,
+          "load": {
+            "aliveSnakes": 13,
+            "totalSnakes": 310,
+            "liveBodyPoints": 13299,
+            "totalBodyPoints": 225571,
+            "pellets": 102795,
+            "collisionGrid": {
+              "currentEntries": 13286,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 602,
+              "growths": 1,
+              "outOfBoundsEntries": 24965,
+              "admissionReason": "collision-grid rebuild admitted 13286 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 345141248,
+          "heapUsedBytes": 98909224,
+          "externalBytes": 79492373
+        },
+        {
+          "measuredStep": 210,
+          "elapsedWallMs": 3339.2817,
+          "fixedStepMs": 5.5079,
+          "frameBytes": 2162036,
+          "load": {
+            "aliveSnakes": 12,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12335,
+            "totalBodyPoints": 225703,
+            "pellets": 103147,
+            "collisionGrid": {
+              "currentEntries": 12323,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 632,
+              "growths": 1,
+              "outOfBoundsEntries": 24965,
+              "admissionReason": "collision-grid rebuild admitted 12323 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 338595840,
+          "heapUsedBytes": 81429440,
+          "externalBytes": 72982709
+        },
+        {
+          "measuredStep": 220,
+          "elapsedWallMs": 3430.4608,
+          "fixedStepMs": 7.7106,
+          "frameBytes": 2161728,
+          "load": {
+            "aliveSnakes": 12,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12519,
+            "totalBodyPoints": 225887,
+            "pellets": 103058,
+            "collisionGrid": {
+              "currentEntries": 12485,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 662,
+              "growths": 1,
+              "outOfBoundsEntries": 25410,
+              "admissionReason": "collision-grid rebuild admitted 12507 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 327970816,
+          "heapUsedBytes": 62730568,
+          "externalBytes": 62171461
+        },
+        {
+          "measuredStep": 230,
+          "elapsedWallMs": 3529.3636,
+          "fixedStepMs": 5.7187,
+          "frameBytes": 2161256,
+          "load": {
+            "aliveSnakes": 12,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12665,
+            "totalBodyPoints": 226033,
+            "pellets": 102976,
+            "collisionGrid": {
+              "currentEntries": 12619,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 692,
+              "growths": 1,
+              "outOfBoundsEntries": 26224,
+              "admissionReason": "collision-grid rebuild admitted 12653 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 349597696,
+          "heapUsedBytes": 101283744,
+          "externalBytes": 83786417
+        },
+        {
+          "measuredStep": 240,
+          "elapsedWallMs": 3621.0748,
+          "fixedStepMs": 5.3496,
+          "frameBytes": 2160972,
+          "load": {
+            "aliveSnakes": 12,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12842,
+            "totalBodyPoints": 226210,
+            "pellets": 102891,
+            "collisionGrid": {
+              "currentEntries": 12743,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 722,
+              "growths": 1,
+              "outOfBoundsEntries": 27958,
+              "admissionReason": "collision-grid rebuild admitted 12830 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 341078016,
+          "heapUsedBytes": 85971192,
+          "externalBytes": 75136813
+        },
+        {
+          "measuredStep": 250,
+          "elapsedWallMs": 3702.3349,
+          "fixedStepMs": 5.5171,
+          "frameBytes": 2161480,
+          "load": {
+            "aliveSnakes": 11,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12152,
+            "totalBodyPoints": 226307,
+            "pellets": 103194,
+            "collisionGrid": {
+              "currentEntries": 12013,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 752,
+              "growths": 1,
+              "outOfBoundsEntries": 31240,
+              "admissionReason": "collision-grid rebuild admitted 12141 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 332431360,
+          "heapUsedBytes": 69595928,
+          "externalBytes": 66494069
+        },
+        {
+          "measuredStep": 260,
+          "elapsedWallMs": 3795.156,
+          "fixedStepMs": 5.5663,
+          "frameBytes": 2161200,
+          "load": {
+            "aliveSnakes": 11,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12317,
+            "totalBodyPoints": 226472,
+            "pellets": 103114,
+            "collisionGrid": {
+              "currentEntries": 12120,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 782,
+              "growths": 1,
+              "outOfBoundsEntries": 35985,
+              "admissionReason": "collision-grid rebuild admitted 12306 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 354058240,
+          "heapUsedBytes": 105274144,
+          "externalBytes": 88107173
+        },
+        {
+          "measuredStep": 270,
+          "elapsedWallMs": 3891.04,
+          "fixedStepMs": 6.2627,
+          "frameBytes": 2160844,
+          "load": {
+            "aliveSnakes": 11,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12490,
+            "totalBodyPoints": 226645,
+            "pellets": 103027,
+            "collisionGrid": {
+              "currentEntries": 12226,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 812,
+              "growths": 1,
+              "outOfBoundsEntries": 42674,
+              "admissionReason": "collision-grid rebuild admitted 12479 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 341164032,
+          "heapUsedBytes": 84076248,
+          "externalBytes": 75135641
+        },
+        {
+          "measuredStep": 280,
+          "elapsedWallMs": 3976.1263,
+          "fixedStepMs": 4.6679,
+          "frameBytes": 2160656,
+          "load": {
+            "aliveSnakes": 11,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12584,
+            "totalBodyPoints": 226739,
+            "pellets": 102980,
+            "collisionGrid": {
+              "currentEntries": 12282,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 842,
+              "growths": 1,
+              "outOfBoundsEntries": 50961,
+              "admissionReason": "collision-grid rebuild admitted 12573 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 330350592,
+          "heapUsedBytes": 66201776,
+          "externalBytes": 64330057
+        },
+        {
+          "measuredStep": 290,
+          "elapsedWallMs": 4056.6469,
+          "fixedStepMs": 5.021,
+          "frameBytes": 2160452,
+          "load": {
+            "aliveSnakes": 11,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12696,
+            "totalBodyPoints": 226851,
+            "pellets": 102925,
+            "collisionGrid": {
+              "currentEntries": 12357,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 872,
+              "growths": 1,
+              "outOfBoundsEntries": 60232,
+              "admissionReason": "collision-grid rebuild admitted 12685 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 351977472,
+          "heapUsedBytes": 101883768,
+          "externalBytes": 85935541
+        },
+        {
+          "measuredStep": 300,
+          "elapsedWallMs": 4147.3975,
+          "fixedStepMs": 6.8042,
+          "frameBytes": 2160208,
+          "load": {
+            "aliveSnakes": 11,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12808,
+            "totalBodyPoints": 226963,
+            "pellets": 102868,
+            "collisionGrid": {
+              "currentEntries": 12439,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 902,
+              "growths": 1,
+              "outOfBoundsEntries": 70538,
+              "admissionReason": "collision-grid rebuild admitted 12797 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 339005440,
+          "heapUsedBytes": 80224568,
+          "externalBytes": 72969841
+        },
+        {
+          "measuredStep": 310,
+          "elapsedWallMs": 4223.8629,
+          "fixedStepMs": 4.2501,
+          "frameBytes": 2159884,
+          "load": {
+            "aliveSnakes": 11,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12965,
+            "totalBodyPoints": 227120,
+            "pellets": 102789,
+            "collisionGrid": {
+              "currentEntries": 12538,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 932,
+              "growths": 1,
+              "outOfBoundsEntries": 82056,
+              "admissionReason": "collision-grid rebuild admitted 12954 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 360632320,
+          "heapUsedBytes": 115768688,
+          "externalBytes": 94570481
+        },
+        {
+          "measuredStep": 320,
+          "elapsedWallMs": 4297.526,
+          "fixedStepMs": 5.7791,
+          "frameBytes": 2159512,
+          "load": {
+            "aliveSnakes": 11,
+            "totalSnakes": 310,
+            "liveBodyPoints": 13116,
+            "totalBodyPoints": 227271,
+            "pellets": 102710,
+            "collisionGrid": {
+              "currentEntries": 12638,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 962,
+              "growths": 1,
+              "outOfBoundsEntries": 95274,
+              "admissionReason": "collision-grid rebuild admitted 13105 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 347668480,
+          "heapUsedBytes": 95762736,
+          "externalBytes": 81604929
+        },
+        {
+          "measuredStep": 330,
+          "elapsedWallMs": 4378.8458,
+          "fixedStepMs": 5.096,
+          "frameBytes": 2159060,
+          "load": {
+            "aliveSnakes": 11,
+            "totalSnakes": 310,
+            "liveBodyPoints": 13397,
+            "totalBodyPoints": 227552,
+            "pellets": 102575,
+            "collisionGrid": {
+              "currentEntries": 12783,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 992,
+              "growths": 1,
+              "outOfBoundsEntries": 111522,
+              "admissionReason": "collision-grid rebuild admitted 13386 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 336867328,
+          "heapUsedBytes": 77683352,
+          "externalBytes": 70802909
+        },
+        {
+          "measuredStep": 340,
+          "elapsedWallMs": 4461.6594,
+          "fixedStepMs": 4.921,
+          "frameBytes": 2158556,
+          "load": {
+            "aliveSnakes": 11,
+            "totalSnakes": 310,
+            "liveBodyPoints": 13609,
+            "totalBodyPoints": 227764,
+            "pellets": 102465,
+            "collisionGrid": {
+              "currentEntries": 12960,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1022,
+              "growths": 1,
+              "outOfBoundsEntries": 130089,
+              "admissionReason": "collision-grid rebuild admitted 13598 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 358510592,
+          "heapUsedBytes": 114724760,
+          "externalBytes": 92390885
+        },
+        {
+          "measuredStep": 350,
+          "elapsedWallMs": 4546.5128,
+          "fixedStepMs": 5.4563,
+          "frameBytes": 2158244,
+          "load": {
+            "aliveSnakes": 11,
+            "totalSnakes": 310,
+            "liveBodyPoints": 13800,
+            "totalBodyPoints": 227955,
+            "pellets": 102373,
+            "collisionGrid": {
+              "currentEntries": 13089,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1052,
+              "growths": 1,
+              "outOfBoundsEntries": 150262,
+              "admissionReason": "collision-grid rebuild admitted 13789 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 347746304,
+          "heapUsedBytes": 96171472,
+          "externalBytes": 81590549
+        },
+        {
+          "measuredStep": 360,
+          "elapsedWallMs": 4635.6311,
+          "fixedStepMs": 5.8666,
+          "frameBytes": 2152484,
+          "load": {
+            "aliveSnakes": 10,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12269,
+            "totalBodyPoints": 228142,
+            "pellets": 102699,
+            "collisionGrid": {
+              "currentEntries": 11903,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1082,
+              "growths": 1,
+              "outOfBoundsEntries": 168864,
+              "admissionReason": "collision-grid rebuild admitted 12259 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 336953344,
+          "heapUsedBytes": 76928040,
+          "externalBytes": 70774081
+        },
+        {
+          "measuredStep": 370,
+          "elapsedWallMs": 4717.2901,
+          "fixedStepMs": 6.1563,
+          "frameBytes": 2152124,
+          "load": {
+            "aliveSnakes": 10,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12509,
+            "totalBodyPoints": 228382,
+            "pellets": 102585,
+            "collisionGrid": {
+              "currentEntries": 12095,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1112,
+              "growths": 1,
+              "outOfBoundsEntries": 180256,
+              "admissionReason": "collision-grid rebuild admitted 12499 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 358510592,
+          "heapUsedBytes": 110409368,
+          "externalBytes": 92296421
+        },
+        {
+          "measuredStep": 380,
+          "elapsedWallMs": 4793.4449,
+          "fixedStepMs": 4.3296,
+          "frameBytes": 2151884,
+          "load": {
+            "aliveSnakes": 10,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12639,
+            "totalBodyPoints": 228512,
+            "pellets": 102521,
+            "collisionGrid": {
+              "currentEntries": 12159,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1142,
+              "growths": 1,
+              "outOfBoundsEntries": 193623,
+              "admissionReason": "collision-grid rebuild admitted 12629 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 345579520,
+          "heapUsedBytes": 89413376,
+          "externalBytes": 79367729
+        },
+        {
+          "measuredStep": 390,
+          "elapsedWallMs": 4876.3549,
+          "fixedStepMs": 4.5859,
+          "frameBytes": 2151600,
+          "load": {
+            "aliveSnakes": 10,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12761,
+            "totalBodyPoints": 228634,
+            "pellets": 102458,
+            "collisionGrid": {
+              "currentEntries": 12232,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1172,
+              "growths": 1,
+              "outOfBoundsEntries": 208423,
+              "admissionReason": "collision-grid rebuild admitted 12751 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 330690560,
+          "heapUsedBytes": 66033736,
+          "externalBytes": 64302953
+        },
+        {
+          "measuredStep": 400,
+          "elapsedWallMs": 4954.5998,
+          "fixedStepMs": 5.6788,
+          "frameBytes": 2151252,
+          "load": {
+            "aliveSnakes": 10,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12890,
+            "totalBodyPoints": 228763,
+            "pellets": 102389,
+            "collisionGrid": {
+              "currentEntries": 12307,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1202,
+              "growths": 1,
+              "outOfBoundsEntries": 224785,
+              "admissionReason": "collision-grid rebuild admitted 12880 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 352243712,
+          "heapUsedBytes": 99272160,
+          "externalBytes": 85816721
+        },
+        {
+          "measuredStep": 410,
+          "elapsedWallMs": 5025.1988,
+          "fixedStepMs": 4.0771,
+          "frameBytes": 2151020,
+          "load": {
+            "aliveSnakes": 10,
+            "totalSnakes": 310,
+            "liveBodyPoints": 13026,
+            "totalBodyPoints": 228899,
+            "pellets": 102323,
+            "collisionGrid": {
+              "currentEntries": 12383,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1232,
+              "growths": 1,
+              "outOfBoundsEntries": 243054,
+              "admissionReason": "collision-grid rebuild admitted 13016 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 337235968,
+          "heapUsedBytes": 76309968,
+          "externalBytes": 70754593
+        },
+        {
+          "measuredStep": 420,
+          "elapsedWallMs": 5095.1957,
+          "fixedStepMs": 4.3124,
+          "frameBytes": 2150748,
+          "load": {
+            "aliveSnakes": 10,
+            "totalSnakes": 310,
+            "liveBodyPoints": 13132,
+            "totalBodyPoints": 229005,
+            "pellets": 102267,
+            "collisionGrid": {
+              "currentEntries": 12445,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1262,
+              "growths": 1,
+              "outOfBoundsEntries": 262561,
+              "admissionReason": "collision-grid rebuild admitted 13122 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 358789120,
+          "heapUsedBytes": 109982112,
+          "externalBytes": 92263449
+        },
+        {
+          "measuredStep": 430,
+          "elapsedWallMs": 5174.5359,
+          "fixedStepMs": 4.73,
+          "frameBytes": 2150508,
+          "load": {
+            "aliveSnakes": 10,
+            "totalSnakes": 310,
+            "liveBodyPoints": 13267,
+            "totalBodyPoints": 229140,
+            "pellets": 102201,
+            "collisionGrid": {
+              "currentEntries": 12488,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1292,
+              "growths": 1,
+              "outOfBoundsEntries": 283898,
+              "admissionReason": "collision-grid rebuild admitted 13257 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 345862144,
+          "heapUsedBytes": 89909520,
+          "externalBytes": 79354345
+        },
+        {
+          "measuredStep": 440,
+          "elapsedWallMs": 5259.1124,
+          "fixedStepMs": 3.7891,
+          "frameBytes": 2147520,
+          "load": {
+            "aliveSnakes": 9,
+            "totalSnakes": 310,
+            "liveBodyPoints": 12005,
+            "totalBodyPoints": 229266,
+            "pellets": 102558,
+            "collisionGrid": {
+              "currentEntries": 11142,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1322,
+              "growths": 1,
+              "outOfBoundsEntries": 308366,
+              "admissionReason": "collision-grid rebuild admitted 11996 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 330768384,
+          "heapUsedBytes": 65688664,
+          "externalBytes": 64290621
+        },
+        {
+          "measuredStep": 450,
+          "elapsedWallMs": 5319.3254,
+          "fixedStepMs": 3.755,
+          "frameBytes": 2144284,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 10682,
+            "totalBodyPoints": 229362,
+            "pellets": 102927,
+            "collisionGrid": {
+              "currentEntries": 9741,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1352,
+              "growths": 1,
+              "outOfBoundsEntries": 335220,
+              "admissionReason": "collision-grid rebuild admitted 10674 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 352301056,
+          "heapUsedBytes": 93795176,
+          "externalBytes": 85737449
+        },
+        {
+          "measuredStep": 460,
+          "elapsedWallMs": 5386.653,
+          "fixedStepMs": 4.5301,
+          "frameBytes": 2144104,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 10762,
+            "totalBodyPoints": 229442,
+            "pellets": 102886,
+            "collisionGrid": {
+              "currentEntries": 9766,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1382,
+              "growths": 1,
+              "outOfBoundsEntries": 363957,
+              "admissionReason": "collision-grid rebuild admitted 10754 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 330842112,
+          "heapUsedBytes": 65114040,
+          "externalBytes": 64280453
+        },
+        {
+          "measuredStep": 470,
+          "elapsedWallMs": 5455.0961,
+          "fixedStepMs": 3.8862,
+          "frameBytes": 2143980,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 10834,
+            "totalBodyPoints": 229514,
+            "pellets": 102851,
+            "collisionGrid": {
+              "currentEntries": 9793,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1412,
+              "growths": 1,
+              "outOfBoundsEntries": 394202,
+              "admissionReason": "collision-grid rebuild admitted 10826 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 352309248,
+          "heapUsedBytes": 92643480,
+          "externalBytes": 85720845
+        },
+        {
+          "measuredStep": 480,
+          "elapsedWallMs": 5540.5825,
+          "fixedStepMs": 4.7906,
+          "frameBytes": 2143824,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 10902,
+            "totalBodyPoints": 229582,
+            "pellets": 102816,
+            "collisionGrid": {
+              "currentEntries": 9811,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1442,
+              "growths": 1,
+              "outOfBoundsEntries": 426037,
+              "admissionReason": "collision-grid rebuild admitted 10894 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 331059200,
+          "heapUsedBytes": 65280240,
+          "externalBytes": 64279533
+        },
+        {
+          "measuredStep": 490,
+          "elapsedWallMs": 5620.4158,
+          "fixedStepMs": 5.8592,
+          "frameBytes": 2143688,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 10975,
+            "totalBodyPoints": 229655,
+            "pellets": 102780,
+            "collisionGrid": {
+              "currentEntries": 9826,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1472,
+              "growths": 1,
+              "outOfBoundsEntries": 459481,
+              "admissionReason": "collision-grid rebuild admitted 10967 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 352522240,
+          "heapUsedBytes": 93469984,
+          "externalBytes": 85717229
+        },
+        {
+          "measuredStep": 500,
+          "elapsedWallMs": 5695.4356,
+          "fixedStepMs": 3.7506,
+          "frameBytes": 2143536,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 11046,
+            "totalBodyPoints": 229726,
+            "pellets": 102744,
+            "collisionGrid": {
+              "currentEntries": 9838,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1502,
+              "growths": 1,
+              "outOfBoundsEntries": 494522,
+              "admissionReason": "collision-grid rebuild admitted 11038 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 333205504,
+          "heapUsedBytes": 68294368,
+          "externalBytes": 66422269
+        },
+        {
+          "measuredStep": 510,
+          "elapsedWallMs": 5772.8512,
+          "fixedStepMs": 4.1512,
+          "frameBytes": 2143360,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 11159,
+            "totalBodyPoints": 229839,
+            "pellets": 102690,
+            "collisionGrid": {
+              "currentEntries": 9858,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1532,
+              "growths": 1,
+              "outOfBoundsEntries": 531724,
+              "admissionReason": "collision-grid rebuild admitted 11151 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 354680832,
+          "heapUsedBytes": 96840784,
+          "externalBytes": 87856829
+        },
+        {
+          "measuredStep": 520,
+          "elapsedWallMs": 5845.2571,
+          "fixedStepMs": 4.2992,
+          "frameBytes": 2143136,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 11266,
+            "totalBodyPoints": 229946,
+            "pellets": 102636,
+            "collisionGrid": {
+              "currentEntries": 9868,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1562,
+              "growths": 1,
+              "outOfBoundsEntries": 572400,
+              "admissionReason": "collision-grid rebuild admitted 11258 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 335376384,
+          "heapUsedBytes": 71226824,
+          "externalBytes": 68563873
+        },
+        {
+          "measuredStep": 530,
+          "elapsedWallMs": 5913.3734,
+          "fixedStepMs": 4.3788,
+          "frameBytes": 2142900,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 11389,
+            "totalBodyPoints": 230069,
+            "pellets": 102575,
+            "collisionGrid": {
+              "currentEntries": 9870,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1592,
+              "growths": 1,
+              "outOfBoundsEntries": 616004,
+              "admissionReason": "collision-grid rebuild admitted 11381 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 356839424,
+          "heapUsedBytes": 100140576,
+          "externalBytes": 89993805
+        },
+        {
+          "measuredStep": 540,
+          "elapsedWallMs": 5991.3984,
+          "fixedStepMs": 3.9428,
+          "frameBytes": 2142780,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 11509,
+            "totalBodyPoints": 230189,
+            "pellets": 102521,
+            "collisionGrid": {
+              "currentEntries": 9886,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1622,
+              "growths": 1,
+              "outOfBoundsEntries": 662981,
+              "admissionReason": "collision-grid rebuild admitted 11501 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 337551360,
+          "heapUsedBytes": 74404520,
+          "externalBytes": 70704813
+        },
+        {
+          "measuredStep": 550,
+          "elapsedWallMs": 6071.6305,
+          "fixedStepMs": 4.5634,
+          "frameBytes": 2142456,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 11631,
+            "totalBodyPoints": 230311,
+            "pellets": 102456,
+            "collisionGrid": {
+              "currentEntries": 9892,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1652,
+              "growths": 1,
+              "outOfBoundsEntries": 713594,
+              "admissionReason": "collision-grid rebuild admitted 11623 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 359014400,
+          "heapUsedBytes": 103500592,
+          "externalBytes": 92130573
+        },
+        {
+          "measuredStep": 560,
+          "elapsedWallMs": 6151.6923,
+          "fixedStepMs": 5.0389,
+          "frameBytes": 2142360,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 11694,
+            "totalBodyPoints": 230374,
+            "pellets": 102426,
+            "collisionGrid": {
+              "currentEntries": 9895,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1682,
+              "growths": 1,
+              "outOfBoundsEntries": 766520,
+              "admissionReason": "collision-grid rebuild admitted 11686 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 339701760,
+          "heapUsedBytes": 77515488,
+          "externalBytes": 72844673
+        },
+        {
+          "measuredStep": 570,
+          "elapsedWallMs": 6230.8199,
+          "fixedStepMs": 4.6966,
+          "frameBytes": 2142240,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 11724,
+            "totalBodyPoints": 230404,
+            "pellets": 102408,
+            "collisionGrid": {
+              "currentEntries": 9899,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1712,
+              "growths": 1,
+              "outOfBoundsEntries": 820736,
+              "admissionReason": "collision-grid rebuild admitted 11716 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 361168896,
+          "heapUsedBytes": 106945752,
+          "externalBytes": 94267745
+        },
+        {
+          "measuredStep": 580,
+          "elapsedWallMs": 6319.7356,
+          "fixedStepMs": 5.0357,
+          "frameBytes": 2142188,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 11770,
+            "totalBodyPoints": 230450,
+            "pellets": 102387,
+            "collisionGrid": {
+              "currentEntries": 9905,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1742,
+              "growths": 1,
+              "outOfBoundsEntries": 875741,
+              "admissionReason": "collision-grid rebuild admitted 11762 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 341856256,
+          "heapUsedBytes": 80574336,
+          "externalBytes": 74985805
+        },
+        {
+          "measuredStep": 590,
+          "elapsedWallMs": 6407.1797,
+          "fixedStepMs": 4.2477,
+          "frameBytes": 2141968,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 11840,
+            "totalBodyPoints": 230520,
+            "pellets": 102348,
+            "collisionGrid": {
+              "currentEntries": 9905,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1772,
+              "growths": 1,
+              "outOfBoundsEntries": 932432,
+              "admissionReason": "collision-grid rebuild admitted 11832 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 363294720,
+          "heapUsedBytes": 109766880,
+          "externalBytes": 96406521
+        },
+        {
+          "measuredStep": 600,
+          "elapsedWallMs": 6513.3206,
+          "fixedStepMs": 6.0991,
+          "frameBytes": 2141788,
+          "load": {
+            "aliveSnakes": 8,
+            "totalSnakes": 310,
+            "liveBodyPoints": 11930,
+            "totalBodyPoints": 230610,
+            "pellets": 102303,
+            "collisionGrid": {
+              "currentEntries": 9905,
+              "peakEntries": 216799,
+              "capacity": 300000,
+              "maxCapacity": 33554432,
+              "estimatedCapacityBytes": 4800000,
+              "rebuilds": 1802,
+              "growths": 1,
+              "outOfBoundsEntries": 991557,
+              "admissionReason": "collision-grid rebuild admitted 11922 entries",
+              "faultReason": null
+            }
+          },
+          "rssBytes": 344125440,
+          "heapUsedBytes": 83451304,
+          "externalBytes": 77124873
+        }
+      ],
+      "interpretation": "The fixture is installed once. The timeline reports when ordinary deaths reduce load; it never reinflates bodies or disables collisions to manufacture sustained density."
+    },
+    "assertions": {
+      "allMeasuredStepsCommitted": true,
+      "p4InstalledBodyThresholdExceeded": true,
+      "p4InstalledCollisionThresholdExceeded": true,
+      "p4InstalledCollisionEntriesExact": true,
+      "p4InstalledOutOfBoundsEntriesZero": true,
+      "p4CollisionFaultFree": true
+    },
+    "eventLoopDelayMs": {
+      "min": 9.248768,
+      "mean": 15.951469,
+      "p95": 25.329663,
+      "p99": 37.421055,
+      "max": 48.758783
+    },
+    "cpu": {
+      "userMicros": 6828000,
+      "systemMicros": 172000,
+      "totalMicros": 7000000,
+      "averageLogicalCoreUtilization": 1.074704
+    },
+    "memory": {
+      "before": {
+        "rss": 184709120,
+        "heapTotal": 94240768,
+        "heapUsed": 40699768,
+        "external": 56872219,
+        "arrayBuffers": 54386443
+      },
+      "after": {
+        "rss": 344125440,
+        "heapTotal": 195268608,
+        "heapUsed": 83465752,
+        "external": 77124873,
+        "arrayBuffers": 74507985
+      },
+      "peakRssBytes": 369479680,
+      "peakHeapUsedBytes": 120308280,
+      "peakExternalBytes": 102891317
+    }
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "schema": "slither-stage2-sqlite-legacy-slice",
+  "version": 1,
+  "evidenceClass": "new measured result",
+  "caveat": "Disposable fixture and fresh reader child only. Exact reconstruction plus returned chunk caps prove the JavaScript-facing result, not bounded allocation inside SQLite or better-sqlite3 native code. This result does not satisfy proof of bounded native allocation and does not authorize this query path for production. This is not a production legacy reader, migration, checkpoint schema, export path, or database benchmark.",
+  "source": {
+    "commit": "821b95e5e4ec8743711d9441a94f9cb070c019f3",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-07-29T04:48:49.823Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "osType": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "node": "v24.12.0",
+    "v8": "13.6.233.17-node.37",
+    "sqlite": "3.49.2",
+    "betterSqlite3": "11.10.0"
+  },
+  "fixture": {
+    "payloadBytesPerColumn": 2527124,
+    "totalLogicalBytes": 5054248,
+    "blobSha256": "c343bb68f1084ce61232a8d410bc5490f46906dacef085d4570ead8502909fb1",
+    "textSha256": "caf3de778b5d1dcc3376ef8d8815074cb9b298a1ec36e11256a779b09007fd19",
+    "databaseBytes": 5074944,
+    "sqliteEncoding": "UTF-8",
+    "contentNote": "deterministic high-entropy BLOB and deterministic valid JSON UTF-8 TEXT with multibyte code points; no owner data"
+  },
+  "readerProcess": {
+    "timeoutMs": 60000,
+    "timeoutPolicy": "bounded child process; timeout fails with a clear diagnosis and the verified disposable root is removed in finally"
+  },
+  "result": {
+    "schema": "slither-stage2-sqlite-legacy-slice-child",
+    "version": 1,
+    "caveat": "Exact hashes and returned Buffer caps prove the JavaScript-facing chunk result. Boundary-only memory samples do not prove SQLite or better-sqlite3 native internals never allocate a full value while evaluating substr. This result does not authorize this query path for production.",
+    "databasePath": "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage2-sqlite-slice-wlDPPu\\legacy-columns.db",
+    "chunkBytes": 65536,
+    "reads": {
+      "blob": {
+        "role": "blob",
+        "logicalBytes": 2527124,
+        "chunks": 39,
+        "largestReturnedChunkBytes": 65536,
+        "sha256": "c343bb68f1084ce61232a8d410bc5490f46906dacef085d4570ead8502909fb1",
+        "allChunksBounded": true,
+        "durationMs": 102.5732
+      },
+      "text": {
+        "role": "text",
+        "logicalBytes": 2527124,
+        "chunks": 39,
+        "largestReturnedChunkBytes": 65536,
+        "sha256": "caf3de778b5d1dcc3376ef8d8815074cb9b298a1ec36e11256a779b09007fd19",
+        "allChunksBounded": true,
+        "durationMs": 87.7258
+      }
+    },
+    "memory": {
+      "before": {
+        "rss": 74018816,
+        "heapTotal": 13168640,
+        "heapUsed": 9229072,
+        "external": 3560123,
+        "arrayBuffers": 1074347
+      },
+      "after": {
+        "rss": 79872000,
+        "heapTotal": 13168640,
+        "heapUsed": 9284200,
+        "external": 8614411,
+        "arrayBuffers": 6128595
+      },
+      "sampledBoundaryMaximumRssBytes": 79872000,
+      "sampledBoundaryMaximumHeapUsedBytes": 9284424,
+      "sampledBoundaryMaximumExternalBytes": 8614411
+    },
+    "assertions": {
+      "chunkQueriesUseBoundedSubstrCast": true,
+      "chunkPathContainsNoFullColumnSelect": true,
+      "exactBlob": true,
+      "exactText": true,
+      "boundedBlob": true,
+      "boundedText": true,
+      "sqliteEncodingIsUtf8": true
+    },
+    "conclusion": {
+      "boundedNativeAllocationProved": false,
+      "productionQueryPathAuthorized": false,
+      "requiredProductionDecision": "Use a separately reviewed native incremental-BLOB path, or document and enforce a stricter legacy compatibility ceiling before production use."
+    }
+  }
+}

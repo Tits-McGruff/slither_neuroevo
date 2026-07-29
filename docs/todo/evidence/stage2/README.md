@@ -314,6 +314,31 @@ while deletion does not return filesystem space without compaction. No
 correctness requirement has appeared that justifies replacing the selected
 immutable managed files with this more complicated payload-in-SQLite path.
 
+### Legacy SQLite BLOB/TEXT slicing probe
+
+The clean-source disposable probe in
+`windows-5800x/sqlite-legacy-slice-p0.json` tested the proposed compatibility
+access pattern separately from the byte-volume comparison. On
+`better-sqlite3` 11.10.0 and SQLite 3.49.2 it reconstructed one 2,527,124-byte
+high-entropy BLOB and one 2,527,124-byte valid multibyte UTF-8 JSON TEXT value
+through 39 `substr(CAST(... AS BLOB), offset, length)` queries apiece. Every
+JavaScript-visible result was at most 65,536 bytes, and the reconstructed
+SHA-256 values matched the generated sources exactly. The BLOB and TEXT loops
+took 102.5732 ms and 87.7258 ms, respectively, on the Windows development
+machine.
+
+This result does **not** prove bounded native allocation. Memory was observable
+only before and after each complete role, not while SQLite evaluated each
+`substr`; sampled RSS rose from 74,018,816 to 79,872,000 bytes. Consequently,
+the artifact records both `boundedNativeAllocationProved: false` and
+`productionQueryPathAuthorized: false`. Production legacy conversion must use
+a separately reviewed native incremental-BLOB path or an explicitly reviewed
+strict compatibility ceiling. The probe created and removed only a disposable
+temporary database and did not read owner data.
+
+The artifact SHA-256 is
+`a55a71d808d4371ad5d69347d79692d34bf65358ec78dccb024dd08e7c80d7cc`.
+
 ## Current browser import/export reproduction
 
 The current browser path was exercised through the built UI against a
@@ -445,11 +470,24 @@ Node 24.12.0. They are useful starting evidence, not Debian acceptance results.
 | P2 native, 4 Node workers | 1.43x | 11.24 ms | 14.05 ms | 14.95 ms | 6.93 ms | 2.69 ms |
 | P3 native serial, capacity sample | 0.18x | 94.96 ms | 104.29 ms | 106.95 ms | 56.44 ms | 32.91 ms |
 | P4 native dense fixture | 0.37x | 24.44 ms | 120.70 ms | 173.36 ms | 25.79 ms | 0.92 ms |
+| P4 native 600-step collapse timeline | 1.54x | 5.85 ms | 20.83 ms | 31.49 ms | 4.78 ms | 0.21 ms |
 
 The P4 run starts with 217,000 body points and then rapidly loses snakes, so it
 proves the initial collision/frame spike and current full-frame scale, not
 sustained dense-world capacity. Its mean frame was about 2.06 MiB and its p99
 step was 173.36 ms.
+
+The separate 600-step P4 timeline starts with all 310 snakes alive, 217,000
+body points and exactly 216,690 collision-index entries. Its first completed
+step took 266.05 ms and left 52 snakes and 37,329 indexed segments. It ended
+after ten simulated seconds with eight snakes and 9,905 indexed segments.
+The faster 1.54x average and 31.49-ms p99 therefore describe the collapsed
+world, not sustained P4 capacity. The fixture is installed only once; it does
+not reinflate bodies or disable collisions to manufacture a favorable result.
+The retained 62-point timeline includes collision load, body count, alive
+count, frame size, RSS and fixed-step duration. The artifact is
+`windows-5800x/runtime-p4-native-dense-600.json`, SHA-256
+`fb8bdeaed0a8864dde8c084e847f5be081ab48c24fcda5137737f23088b63ba6`.
 
 These results reproduce the product failure on the faster development CPU:
 P1, P3 and the dense initial P4 state cannot sustain 1x. P1 remains about
@@ -464,7 +502,8 @@ count from observed batch population counts.
 - the same clean runners on the Ryzen 7 2700 Debian VM;
 - real browser/LAN/owner-trainer/target-VM P5 and cadence measurements (the
   current-server synthetic loopback baseline is retained above);
-- sustained P4, P6 accelerated and P7 soak fixtures;
+- sustained P4 (the retained 600-step artifact is an honest load-collapse
+  curve), P6 accelerated and P7 soak fixtures;
 - P8 full checkpoint-v3 publication, durability and restore testing beyond the
   retained size-matched 480-generation retention fixture;
 - repeat the selected checkpoint-v3 publication/restore policy in Rust on the

@@ -2950,11 +2950,19 @@ For format-null/0 `payload_json`, it reads bounded byte slices such as
 `substr(CAST(payload_json AS BLOB), offset, length)` into a Rust streaming JSON
 sequence visitor that holds at most one bounded genome. It never selects the
 complete population-sized TEXT value into JavaScript.
-Stage 2 first proves that this SQLite access pattern is genuinely bounded on
-the supported `better-sqlite3` version; otherwise the reader uses a separately
-reviewed native incremental-BLOB path or documents a stricter compatible
-ceiling. A4/A8 record peak memory for v2 rows, database `genomes_blob`, old
-parent `payload_json`, compressed files, and legacy JSON separately.
+
+The retained Stage 2 probe on `better-sqlite3` 11.10.0 reconstructed
+2,527,124-byte BLOB and multibyte UTF-8 TEXT fixtures exactly through
+65,536-byte JavaScript-visible slices. It could sample memory only at
+whole-role boundaries and therefore did **not** prove that SQLite or
+`better-sqlite3` avoids a population-sized native allocation while evaluating
+`substr`. The artifact explicitly leaves this query path unauthorized for
+production. Stage 6B must instead use a separately reviewed native
+incremental-BLOB path, or propose a strict legacy compatibility ceiling with
+evidence and review; it must not promote the disposable query merely because
+the returned JavaScript Buffers were bounded. A4/A8 record peak memory for v2
+rows, database `genomes_blob`, old parent `payload_json`, compressed files, and
+legacy JSON separately.
 
 Compatibility readers never update or delete a legacy row/BLOB/file. A
 dedicated conversion opens the source database read-only and writes a separate
