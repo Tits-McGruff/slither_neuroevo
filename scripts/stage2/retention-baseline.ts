@@ -29,8 +29,8 @@ const DEFAULT_GENERATIONS = 480;
 const HISTORY_RECORD_BYTES = 56;
 /** Owner-selected initial Hall-of-Fame unique-genome count. */
 const DEFAULT_HOF_UNIQUE_LIMIT = 50;
-/** Safety ceiling for one disposable fixture's cumulative logical file writes. */
-const DEFAULT_MAX_MATERIALIZED_BYTES = 2 * 1024 * 1024 * 1024;
+/** Safety ceiling for modeled checkpoint plus Hall-of-Fame payload bytes. */
+const DEFAULT_MAX_MODELED_PAYLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 /** Stable current-run identity used by the fixture. */
 const CURRENT_RUN_ID = 'stage2-retention-current';
 /** Retained codec evidence directory. */
@@ -50,8 +50,8 @@ interface RetentionBaselineOptions {
   materializeScenario: ProjectionScenario;
   /** Hall-of-Fame unique-genome limit. */
   hofUniqueLimit: number;
-  /** Maximum allowed cumulative fixture file bytes. */
-  maxMaterializedBytes: number;
+  /** Maximum modeled checkpoint plus Hall-of-Fame payload bytes. */
+  maxModeledPayloadBytes: number;
   /** Retention policy, including the automatic cap. */
   retention: RetentionSettings;
   /** Optional JSON output destination. */
@@ -146,7 +146,7 @@ function parseOptions(argv: readonly string[]): RetentionBaselineOptions {
     generations: DEFAULT_GENERATIONS,
     materializeScenario: 'P0',
     hofUniqueLimit: DEFAULT_HOF_UNIQUE_LIMIT,
-    maxMaterializedBytes: DEFAULT_MAX_MATERIALIZED_BYTES,
+    maxModeledPayloadBytes: DEFAULT_MAX_MODELED_PAYLOAD_BYTES,
     retention: { ...OWNER_RETENTION_DEFAULTS },
     outputPath: null
   };
@@ -177,8 +177,8 @@ function parseOptions(argv: readonly string[]): RetentionBaselineOptions {
         );
         index++;
         break;
-      case '--max-materialized-bytes':
-        options.maxMaterializedBytes = parseInteger(value, option, Number.MAX_SAFE_INTEGER);
+      case '--max-modeled-payload-bytes':
+        options.maxModeledPayloadBytes = parseInteger(value, option, Number.MAX_SAFE_INTEGER);
         index++;
         break;
       case '--output':
@@ -593,11 +593,11 @@ function runMaterializedFixture(
   const cumulativeMaterializedBytes = cumulativeCheckpointBytes + cumulativeHofBytes;
   if (
     !Number.isSafeInteger(cumulativeMaterializedBytes) ||
-    cumulativeMaterializedBytes > options.maxMaterializedBytes
+    cumulativeMaterializedBytes > options.maxModeledPayloadBytes
   ) {
     throw new RangeError(
-      `fixture would materialize ${cumulativeMaterializedBytes} logical bytes, ` +
-      `above the ${options.maxMaterializedBytes}-byte safety limit`
+      `fixture models ${cumulativeMaterializedBytes} checkpoint/Hall-of-Fame payload bytes, ` +
+      `above the ${options.maxModeledPayloadBytes}-byte safety limit`
     );
   }
 
@@ -613,77 +613,85 @@ function runMaterializedFixture(
   const checkpointDirectory = path.join(resolvedTemporaryRoot, 'checkpoints');
   const hofDirectory = path.join(resolvedTemporaryRoot, 'hof');
   const templateDirectory = path.join(resolvedTemporaryRoot, 'templates');
-  fs.mkdirSync(checkpointDirectory);
-  fs.mkdirSync(hofDirectory);
-  fs.mkdirSync(templateDirectory);
-  const checkpointTemplatePath = path.join(templateDirectory, 'checkpoint-payload.bin');
-  fs.writeFileSync(checkpointTemplatePath, deterministicPayload(checkpointBytes, 0x51e7c0de));
-  const maximumHofBytes = Math.ceil(aggregateHofBytes / populationCount);
-  const hofTemplatePath = path.join(templateDirectory, 'hof-genome.bin');
-  fs.writeFileSync(hofTemplatePath, deterministicPayload(maximumHofBytes, 0x70f0face));
-
-  const databasePath = path.join(resolvedTemporaryRoot, 'metadata.db');
-  const database = new Database(databasePath);
-  const transactionTimesMs: number[] = [];
-  const checkpointDeletionTimesMs: number[] = [];
-  const hofDeletionTimesMs: number[] = [];
-  let activeCandidates: RetentionCandidate[] = [];
-  let currentCheckpointBytes = 0;
-  let peakCheckpointBytes = 0;
-  let currentHofBytes = 0;
-  let peakHofBytes = 0;
-  let prunedCheckpointCount = 0;
-  let prunedCheckpointBytes = 0;
-  let prunedHofCount = 0;
-  let prunedHofBytes = 0;
-  const memoryBefore = process.memoryUsage();
-  const maxRssBeforeKiB = process.resourceUsage().maxRSS;
-  const statfsBefore = fs.statfsSync(resolvedTemporaryRoot);
-  const freeDiskBefore = statfsBefore.bavail * statfsBefore.bsize;
-  const fixtureStarted = performance.now();
-
+  let database: Database.Database | null = null;
   try {
-    createFixtureSchema(database);
-    const insertCheckpoint = database.prepare(`
+    fs.mkdirSync(checkpointDirectory);
+    fs.mkdirSync(hofDirectory);
+    fs.mkdirSync(templateDirectory);
+    const checkpointTemplatePath = path.join(templateDirectory, 'checkpoint-payload.bin');
+    fs.writeFileSync(
+      checkpointTemplatePath,
+      deterministicPayload(checkpointBytes, 0x51e7c0de)
+    );
+    const maximumHofBytes = Math.ceil(aggregateHofBytes / populationCount);
+    const hofTemplatePath = path.join(templateDirectory, 'hof-genome.bin');
+    fs.writeFileSync(
+      hofTemplatePath,
+      deterministicPayload(maximumHofBytes, 0x70f0face)
+    );
+
+    const databasePath = path.join(resolvedTemporaryRoot, 'metadata.db');
+    const openedDatabase = new Database(databasePath);
+    database = openedDatabase;
+    const transactionTimesMs: number[] = [];
+    const checkpointDeletionTimesMs: number[] = [];
+    const hofDeletionTimesMs: number[] = [];
+    let activeCandidates: RetentionCandidate[] = [];
+    let currentCheckpointBytes = 0;
+    let peakCheckpointBytes = 0;
+    let currentHofBytes = 0;
+    let peakHofBytes = 0;
+    let prunedCheckpointCount = 0;
+    let prunedCheckpointBytes = 0;
+    let prunedHofCount = 0;
+    let prunedHofBytes = 0;
+    const memoryBefore = process.memoryUsage();
+    const maxRssBeforeKiB = process.resourceUsage().maxRSS;
+    const statfsBefore = fs.statfsSync(resolvedTemporaryRoot);
+    const freeDiskBefore = statfsBefore.bavail * statfsBefore.bsize;
+    const fixtureStarted = performance.now();
+
+    createFixtureSchema(openedDatabase);
+    const insertCheckpoint = openedDatabase.prepare(`
       INSERT INTO checkpoints(
         checkpoint_key, run_id, generation, retention_class,
         file_name, file_bytes, created_ordinal
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    const updateCheckpointClass = database.prepare(
+    const updateCheckpointClass = openedDatabase.prepare(
       'UPDATE checkpoints SET retention_class = ? WHERE checkpoint_key = ?'
     );
-    const deleteCheckpoint = database.prepare(
+    const deleteCheckpoint = openedDatabase.prepare(
       'DELETE FROM checkpoints WHERE checkpoint_key = ?'
     );
-    const upsertCurrent = database.prepare(`
+    const upsertCurrent = openedDatabase.prepare(`
       INSERT INTO current_checkpoint(singleton, checkpoint_key)
       VALUES (1, ?)
       ON CONFLICT(singleton) DO UPDATE SET checkpoint_key = excluded.checkpoint_key
     `);
-    const insertHistory = database.prepare(`
+    const insertHistory = openedDatabase.prepare(`
       INSERT INTO generation_history(run_id, generation, record)
       VALUES (?, ?, ?)
     `);
-    const insertHofEntry = database.prepare(`
+    const insertHofEntry = openedDatabase.prepare(`
       INSERT INTO hof_entries(
         run_id, generation, score, genome_key, weights_retained, metadata
       ) VALUES (?, ?, ?, ?, 1, ?)
     `);
-    const insertHofGenome = database.prepare(`
+    const insertHofGenome = openedDatabase.prepare(`
       INSERT INTO hof_genomes(genome_key, file_name, file_bytes)
       VALUES (?, ?, ?)
     `);
-    const releaseHofWeights = database.prepare(`
+    const releaseHofWeights = openedDatabase.prepare(`
       UPDATE hof_entries
          SET genome_key = NULL, weights_retained = 0
        WHERE run_id = ? AND generation = ?
     `);
-    const deleteHofGenome = database.prepare(
+    const deleteHofGenome = openedDatabase.prepare(
       'DELETE FROM hof_genomes WHERE genome_key = ?'
     );
 
-    const initialTransaction = database.transaction(() => {
+    const initialTransaction = openedDatabase.transaction(() => {
       for (let anchor = 1; anchor <= options.retention.priorRunAnchorCount; anchor++) {
         const key = `prior-anchor-${anchor}`;
         const fileName = `${key}.payload-fixture`;
@@ -755,7 +763,7 @@ function runMaterializedFixture(
       const outgoingHofGeneration = generation - options.hofUniqueLimit;
       let outgoingHof: { genome_key: string; file_name: string; file_bytes: number } | null = null;
       if (outgoingHofGeneration > 0) {
-        outgoingHof = database.prepare(`
+        outgoingHof = openedDatabase.prepare(`
           SELECT g.genome_key, g.file_name, g.file_bytes
             FROM hof_entries AS e
             JOIN hof_genomes AS g ON g.genome_key = e.genome_key
@@ -764,7 +772,7 @@ function runMaterializedFixture(
       }
 
       const transactionStarted = performance.now();
-      const commit = database.transaction(() => {
+      const commit = openedDatabase.transaction(() => {
         insertCheckpoint.run(
           newCandidate.key,
           newCandidate.runId,
@@ -832,44 +840,84 @@ function runMaterializedFixture(
       databaseBytes: fileSize(databasePath),
       walBytes: fileSize(`${databasePath}-wal`),
       shmBytes: fileSize(`${databasePath}-shm`),
-      pageCount: database.pragma('page_count', { simple: true }) as number,
-      freelistCount: database.pragma('freelist_count', { simple: true }) as number
+      pageCount: openedDatabase.pragma('page_count', { simple: true }) as number,
+      freelistCount: openedDatabase.pragma('freelist_count', { simple: true }) as number
     };
     const walCheckpointStarted = performance.now();
-    const walCheckpointResult = database.pragma('wal_checkpoint(PASSIVE)');
+    const walCheckpointResult = openedDatabase.pragma('wal_checkpoint(PASSIVE)');
     const walCheckpointMs = performance.now() - walCheckpointStarted;
     const afterWalCheckpoint = {
       databaseBytes: fileSize(databasePath),
       walBytes: fileSize(`${databasePath}-wal`),
       shmBytes: fileSize(`${databasePath}-shm`),
-      pageCount: database.pragma('page_count', { simple: true }) as number,
-      freelistCount: database.pragma('freelist_count', { simple: true }) as number
+      pageCount: openedDatabase.pragma('page_count', { simple: true }) as number,
+      freelistCount: openedDatabase.pragma('freelist_count', { simple: true }) as number
     };
     const checkpointTotals = directoryTotals(checkpointDirectory);
     const hofTotals = directoryTotals(hofDirectory);
-    const checkpointClasses = database.prepare(`
+    const checkpointClasses = openedDatabase.prepare(`
       SELECT retention_class, COUNT(*) AS count, SUM(file_bytes) AS bytes
         FROM checkpoints
        GROUP BY retention_class
        ORDER BY retention_class
     `).all();
     const databaseCounts = {
-      checkpoints: database.prepare('SELECT COUNT(*) AS value FROM checkpoints').get(),
-      history: database.prepare(`
+      checkpoints: openedDatabase.prepare(`
+        SELECT COUNT(*) AS records, COALESCE(SUM(file_bytes), 0) AS bytes
+          FROM checkpoints
+      `).get() as { records: number; bytes: number },
+      history: openedDatabase.prepare(`
         SELECT COUNT(*) AS records, SUM(LENGTH(record)) AS logical_bytes
           FROM generation_history
-      `).get(),
-      hofEntries: database.prepare('SELECT COUNT(*) AS value FROM hof_entries').get(),
-      hofGenomes: database.prepare(`
-        SELECT COUNT(*) AS records, SUM(file_bytes) AS bytes FROM hof_genomes
-      `).get(),
-      definitions: database.prepare('SELECT COUNT(*) AS value FROM definitions').get(),
-      current: database.prepare(`
+      `).get() as { records: number; logical_bytes: number },
+      hofEntries: openedDatabase.prepare(
+        'SELECT COUNT(*) AS value FROM hof_entries'
+      ).get() as { value: number },
+      hofGenomes: openedDatabase.prepare(`
+        SELECT COUNT(*) AS records, COALESCE(SUM(file_bytes), 0) AS bytes
+          FROM hof_genomes
+      `).get() as { records: number; bytes: number },
+      definitions: openedDatabase.prepare(
+        'SELECT COUNT(*) AS value FROM definitions'
+      ).get() as { value: number },
+      current: openedDatabase.prepare(`
         SELECT c.checkpoint_key, p.generation
           FROM current_checkpoint AS c
           JOIN checkpoints AS p ON p.checkpoint_key = c.checkpoint_key
-      `).get()
+      `).get() as { checkpoint_key: string; generation: number }
     };
+    if (
+      checkpointTotals.files !== databaseCounts.checkpoints.records ||
+      checkpointTotals.bytes !== databaseCounts.checkpoints.bytes ||
+      checkpointTotals.bytes !== currentCheckpointBytes
+    ) {
+      throw new Error('managed checkpoint file/metadata accounting mismatch');
+    }
+    if (
+      hofTotals.files !== databaseCounts.hofGenomes.records ||
+      hofTotals.bytes !== databaseCounts.hofGenomes.bytes ||
+      hofTotals.bytes !== currentHofBytes
+    ) {
+      throw new Error('Hall-of-Fame file/metadata accounting mismatch');
+    }
+    if (
+      databaseCounts.history.records !== options.generations ||
+      databaseCounts.history.logical_bytes !== options.generations * HISTORY_RECORD_BYTES
+    ) {
+      throw new Error('compact history row/byte accounting mismatch');
+    }
+    if (
+      databaseCounts.hofEntries.value !== options.generations ||
+      databaseCounts.hofGenomes.records !== Math.min(options.generations, options.hofUniqueLimit)
+    ) {
+      throw new Error('Hall-of-Fame metadata/retained-unique accounting mismatch');
+    }
+    if (
+      databaseCounts.current.checkpoint_key !== `current-${options.generations}` ||
+      databaseCounts.current.generation !== options.generations
+    ) {
+      throw new Error('current pointer does not identify the latest retained checkpoint');
+    }
     const statfsAfter = fs.statfsSync(resolvedTemporaryRoot);
     const memoryAfter = process.memoryUsage();
     return {
@@ -886,11 +934,14 @@ function runMaterializedFixture(
       },
       policy: options.retention,
       hallOfFameUniqueLimit: options.hofUniqueLimit,
-      logicalBytesMaterialized: {
+      modeledPayloadBytes: {
         checkpointPayloads: cumulativeCheckpointBytes,
         hallOfFamePayloads: cumulativeHofBytes,
         historyRecords: options.generations * HISTORY_RECORD_BYTES,
-        checkpointAndHallOfFameTotal: cumulativeMaterializedBytes
+        checkpointAndHallOfFameTotal: cumulativeMaterializedBytes,
+        safetyLimit: options.maxModeledPayloadBytes,
+        excludedFromSafetyLimit:
+          'template files, SQLite/SHM/WAL bytes, filesystem metadata and allocation overhead'
       },
       managedCheckpointFiles: {
         final: checkpointTotals,
@@ -908,12 +959,28 @@ function runMaterializedFixture(
         deletionMs: distribution(hofDeletionTimesMs)
       },
       sqlite: {
-        transactionMs: distribution(transactionTimesMs),
+        metadataTransactionMs: distribution(transactionTimesMs),
         beforeWalCheckpoint,
         walCheckpointMs: Number(walCheckpointMs.toFixed(6)),
         walCheckpointResult,
         afterWalCheckpoint,
+        peakWalMeasured: false,
         counts: databaseCounts
+      },
+      accountingAssertions: {
+        checkpointFilesMatchMetadata: true,
+        hallOfFameFilesMatchMetadata: true,
+        hallOfFameMetadataAndUniqueLimitMatch: true,
+        historyIsExactFixedWidth: true,
+        currentPointerIsLatestRetained: true
+      },
+      limitations: {
+        durability:
+          'fixture payload copies are not fsynced or directory-synced; metadata transaction timing is not durable checkpoint publication latency',
+        hallOfFame:
+          'every generation is modeled as a new qualifying unique genome; duplicate hashes, non-qualifiers, pins and multiple-run scope are not exercised',
+        wal:
+          'only final WAL state and one final passive checkpoint are measured; peak WAL is not sampled'
       },
       resource: {
         fixtureWallMs: Number((performance.now() - fixtureStarted).toFixed(6)),
@@ -926,8 +993,11 @@ function runMaterializedFixture(
       }
     };
   } finally {
-    database.close();
-    fs.rmSync(resolvedTemporaryRoot, { recursive: true, force: true });
+    try {
+      database?.close();
+    } finally {
+      fs.rmSync(resolvedTemporaryRoot, { recursive: true, force: true });
+    }
   }
 }
 
@@ -951,7 +1021,7 @@ function runBaseline(options: RetentionBaselineOptions): Record<string, unknown>
     version: 1,
     evidenceClass: 'new measured result plus separately labelled derived arithmetic',
     caveat:
-      'The physical fixture writes size-matched payload files and real SQLite metadata/history/Hall-of-Fame rows. It is not checkpoint-v3, not USTAR, not a durability failpoint test, and not target-VM evidence.',
+      'The physical fixture writes size-matched payload files and real SQLite metadata/history/Hall-of-Fame rows. It is not checkpoint-v3, not USTAR, does not fsync payload files, does not prove restore or durability, and is not target-VM evidence.',
     source: sourceIdentity(),
     environment: {
       capturedAt: new Date().toISOString(),

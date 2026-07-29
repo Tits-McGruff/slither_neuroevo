@@ -342,6 +342,9 @@ function runCodecBaseline(options: CodecOptions): Record<string, unknown> {
   const shuffled = measureZstd(raw, true, false);
   const plainChecksum = measureZstd(raw, false, true);
   const shuffledChecksum = measureZstd(raw, true, true);
+  if (!shuffled.bitExact || !shuffledChecksum.bitExact) {
+    throw new Error('approved shuffled-Zstandard codec failed bit-exact round trip');
+  }
   const measuredCandidates = [
     { encoding: 'raw-packed', bytes: raw.length },
     { encoding: plain.encoding, bytes: plain.encodedBytes },

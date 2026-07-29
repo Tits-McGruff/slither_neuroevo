@@ -124,4 +124,37 @@ describe('Stage 2 checkpoint retention policy', () => {
     expect(result.automaticBytes).toBe(2_200);
     expect(result.pinnedBytes).toBe(9_000);
   });
+
+  it('keeps only the latest anchor from each of the two most recent prior runs', () => {
+    const candidates = [
+      candidate('run-a-old', 10, 100, {
+        runId: 'run-a',
+        createdOrdinal: 1_000,
+        priorRunAnchor: true
+      }),
+      candidate('run-b-latest', 20, 100, {
+        runId: 'run-b',
+        createdOrdinal: 2_000,
+        priorRunAnchor: true
+      }),
+      candidate('run-a-latest', 30, 100, {
+        runId: 'run-a',
+        createdOrdinal: 3_000,
+        priorRunAnchor: true
+      }),
+      candidate('run-c-latest', 40, 100, {
+        runId: 'run-c',
+        createdOrdinal: 500,
+        priorRunAnchor: true
+      }),
+      candidate('current-1', 1)
+    ];
+    const result = selectRetainedCheckpoints(candidates, 'current');
+    const anchors = result.kept
+      .filter(item => item.retentionClass === 'prior-anchor')
+      .map(item => item.key);
+
+    expect(anchors).toEqual(['run-b-latest', 'run-a-latest']);
+    expect(result.pruned.map(item => item.key)).toEqual(['run-c-latest', 'run-a-old']);
+  });
 });

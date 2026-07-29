@@ -155,8 +155,21 @@ export function selectRetainedCheckpoints(
       right.generation - left.generation ||
       right.createdOrdinal - left.createdOrdinal
     ));
-  const anchors = candidates
-    .filter(candidate => !candidate.pinned && candidate.priorRunAnchor)
+  const latestAnchorByRun = new Map<string, RetentionCandidate>();
+  for (const candidate of candidates) {
+    if (
+      candidate.pinned ||
+      !candidate.priorRunAnchor ||
+      candidate.runId === currentRunId
+    ) {
+      continue;
+    }
+    const previous = latestAnchorByRun.get(candidate.runId);
+    if (!previous || candidate.createdOrdinal > previous.createdOrdinal) {
+      latestAnchorByRun.set(candidate.runId, candidate);
+    }
+  }
+  const anchors = [...latestAnchorByRun.values()]
     .sort((left, right) => right.createdOrdinal - left.createdOrdinal)
     .slice(0, settings.priorRunAnchorCount);
   const recent = currentAutomatic.slice(0, settings.recentCount);
