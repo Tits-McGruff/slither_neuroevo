@@ -344,3 +344,187 @@ ESLint. A separate Rust job enforces rustfmt and Clippy.
 - Preserve `bestPointsThisGen` initialization before the first sensor pass.
 - Treat `populationSlot`, snake-array index, visible snake ID, baseline-bot
   slot, and external controller ID as different identities.
+
+## Subagent orchestration
+
+Use subagents proactively and aggressively by default. Do not wait for the user
+to request delegation and do not ask whether subagents should be used.
+
+### When delegation is required
+
+Spawn subagents before substantial work whenever a task has two or more
+independent workstreams, touches multiple subsystems, requires repository
+exploration, involves debugging or auditing, includes implementation plus
+testing or review, or would otherwise fill the main thread with large amounts
+of search output, logs, test output, or intermediate analysis.
+
+Use the maximum safe parallelism available for independent work. Create one
+subagent per distinct workstream up to the active concurrency limit. If all
+slots are occupied, queue the remaining work, collect completed results, close
+completed threads where appropriate, and continue spawning until every useful
+independent workstream has been covered.
+
+For repository-wide plans, audits, migrations, and difficult bugs, default to
+several specialised subagents rather than one general subagent. Suitable
+divisions include:
+
+* current-code and call-path audit;
+* architecture and ownership review;
+* correctness, concurrency, and edge-case review;
+* tests, fixtures, and regression coverage;
+* performance, allocation, and benchmark review;
+* persistence, compatibility, and migration review;
+* documentation and Git-history verification.
+
+For implementation work, divide changes only where agents can work without
+conflicting ownership. Suitable divisions include implementation of separate
+modules, fixture creation, test development, benchmark construction,
+compatibility analysis, and independent review.
+
+### Work that should usually be delegated
+
+Prefer subagents for:
+
+* read-heavy repository exploration;
+* tracing call graphs and data ownership;
+* searching for all callers, implementations, tests, and configuration paths;
+* checking separate subsystems in parallel;
+* Git-history investigation;
+* test and fixture analysis;
+* running independent test groups;
+* inspecting logs and benchmark output;
+* compatibility and migration analysis;
+* security, correctness, race, performance, and maintainability reviews;
+* validating claims made by the main agent or another subagent;
+* reviewing completed implementation before it is treated as finished.
+
+Do not spawn a subagent for a truly trivial task where delegation would take
+more work than completing it directly.
+
+### Main-agent responsibilities
+
+The main agent remains the orchestrator and is responsible for the complete
+result. It must:
+
+1. identify the independent workstreams;
+2. give every subagent a bounded, specific assignment;
+3. state the relevant files, questions, constraints, and required evidence;
+4. prevent duplicated investigation unless independent verification is
+   intentional;
+5. monitor active agents and provide follow-up instructions when needed;
+6. wait for all relevant agents before finalising the task;
+7. inspect and reconcile their findings rather than copying summaries
+   uncritically;
+8. resolve disagreements using source code, tests, commands, or other direct
+   evidence;
+9. integrate compatible changes;
+10. run or delegate final validation;
+11. report the combined result, remaining uncertainty, and evidence.
+
+Subagents provide evidence and recommendations. They do not independently
+redefine product requirements, owner decisions, architecture, persistence
+meaning, compatibility promises, or user-visible behaviour.
+
+### Subagent prompts and returned evidence
+
+Every delegated assignment must include:
+
+* one clearly bounded objective;
+* the exact subsystem, files, or questions in scope;
+* important requirements and known decisions;
+* whether the assignment is read-only or permits edits;
+* files or areas the agent must not modify;
+* expected tests or commands;
+* the evidence required in its response;
+* a request to report uncertainty and unresolved issues plainly.
+
+Require concise returned summaries containing relevant file paths and symbols,
+commands run, test results, defects found, changes made, and unresolved risks.
+Keep raw logs and noisy intermediate output in the subagent thread rather than
+copying them wholesale into the main thread.
+
+### Parallel editing rules
+
+Run read-only investigations freely in parallel.
+
+For write work, assign exclusive ownership of files or clearly separated
+modules. Do not allow two agents to edit the same file concurrently. When work
+overlaps, keep one agent read-only or have the main agent perform the
+integration after collecting recommendations.
+
+A subagent must inspect the current file immediately before editing it and must
+not overwrite concurrent changes. It must report every file it changed.
+
+The main agent reviews all subagent edits and owns final integration. Parallel
+implementation is not complete merely because each individual agent reports
+success.
+
+### Independent review and validation
+
+For every non-trivial implementation, use at least one subagent that did not
+write the implementation to review the resulting diff for correctness,
+regressions, missed call sites, and violations of the approved plan.
+
+Use a separate test or validation subagent when tests, benchmarks, migration
+fixtures, persistence checks, or platform-specific validation can run
+independently.
+
+When practical, use independent subagents to verify high-impact claims
+concerning concurrency, persistence, compatibility, data loss, determinism,
+performance, or security.
+
+A subagent’s successful unit test or local check is evidence only for the
+behaviour it exercised. The main agent must still run or collect the complete
+required validation before declaring the task finished.
+
+### Scope and safety
+
+Delegation does not expand the authorised task. Subagents inherit all
+applicable repository instructions, owner decisions, safety rules, approval
+boundaries, and scope restrictions.
+
+Subagents must not revert the repository, discard current work, rewrite
+unrelated code, change product rules, create or push commits, open pull
+requests, delete user data, weaken tests, or bypass required review unless the
+user’s request explicitly authorises that action.
+
+If a subagent fails, stalls, produces unsupported claims, or cannot access
+required material, replace it, narrow its task, or perform that work directly.
+Do not omit the work silently.
+
+Subagents should not recursively create further subagents unless the main agent
+explicitly assigns orchestration to them. Keep one clear main orchestrator
+responsible for thread allocation, file ownership, integration, and the final
+answer.
+
+### Subagent model selection
+
+When the subagent interface permits explicit model selection, choose the model
+and reasoning effort according to the assignment.
+
+* Use gpt-5.6-sol for architecture, difficult debugging, implementation
+  planning, concurrency and persistence reasoning, high-impact review,
+  reconciliation of conflicting findings, and decisions where an error would
+  be costly.
+* Use gpt-5.6-terra for repository exploration, call-path tracing, test
+  analysis, fixture construction, documentation checks, bounded implementation
+  work, and most supporting reviews.
+* Use gpt-5.6-luna for mechanical, high-volume, low-ambiguity work such as
+  locating symbols, categorising files, extracting structured facts,
+  summarising repetitive logs, and running clearly specified checks.
+* Escalate a Luna or Terra assignment to Sol when it encounters ambiguity,
+  conflicting evidence, cross-subsystem design, a possible data-loss or
+  concurrency defect, or a conclusion that materially affects the final
+  result.
+* Do not use Luna as the sole reviewer of architecture, persistence,
+  determinism, concurrency, security, migration compatibility, destructive
+  operations, or data-loss risks.
+* For high-impact work, use an independent Sol review even when Terra or Luna
+  performed the initial investigation or implementation.
+* When the active Codex runtime does not permit explicit per-subagent model
+  selection, still divide the work into appropriate subagents and use the
+  strongest available reasoning setting for high-impact assignments.
+* Do not claim that a particular model or reasoning effort was used unless the
+  runtime exposes evidence confirming it.
+* The main agent remains responsible for assignment design, evidence review,
+  reconciliation, integration, and the final result.
