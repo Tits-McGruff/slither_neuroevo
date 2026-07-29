@@ -34,7 +34,13 @@ function health(
     collisionGrid: {},
     outbound: {},
     fault: { faulted: false, reason: null, tick: null },
-    inferenceMode: {}
+    inferenceMode: {},
+    persistence: {
+      checkpointEveryGenerations: 1,
+      lastDurableSnapshotId: 1,
+      lastDurableGeneration: 1,
+      inMemoryGeneration: 1
+    }
   };
 }
 

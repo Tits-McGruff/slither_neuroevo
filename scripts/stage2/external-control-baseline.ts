@@ -171,6 +171,17 @@ interface HealthSnapshot {
   fault: { faulted: boolean; reason: string | null; tick: number | null };
   /** Active inference mode. */
   inferenceMode: Record<string, unknown>;
+  /** Current in-memory and latest durable generation identities. */
+  persistence: {
+    /** Configured automatic checkpoint interval. */
+    checkpointEveryGenerations: number;
+    /** Latest durable resumable snapshot id. */
+    lastDurableSnapshotId: number | null;
+    /** Latest durable resumable generation. */
+    lastDurableGeneration: number | null;
+    /** Current in-memory generation. */
+    inMemoryGeneration: number;
+  };
 }
 
 /** Delta of cumulative scheduler counters across one measured interval. */
@@ -907,6 +918,12 @@ export async function runExternalControlBaseline(
           `expected ${composition.totalSockets}, got ${healthBefore.clients}`
         );
       }
+      if (healthBefore.persistence.checkpointEveryGenerations !== options.checkpointEvery) {
+        throw new Error(
+          `persistence checkpoint interval mismatch: expected ${options.checkpointEvery}, got ` +
+          `${healthBefore.persistence.checkpointEveryGenerations}`
+        );
+      }
       await new Promise(resolve => setTimeout(resolve, options.durationMs));
       healthAfter = await readHealth(server);
       measuredWallMs = performance.now() - measuredStartedAt;
@@ -937,6 +954,13 @@ export async function runExternalControlBaseline(
       throw new Error(
         `${options.profile.toUpperCase()} client composition changed during measurement: ` +
         `expected ${composition.totalSockets}, got ${healthAfter.clients}`
+      );
+    }
+    if (healthAfter.persistence.checkpointEveryGenerations !== options.checkpointEvery) {
+      throw new Error(
+        `persistence checkpoint interval changed during measurement: expected ` +
+        `${options.checkpointEvery}, got ` +
+        `${healthAfter.persistence.checkpointEveryGenerations}`
       );
     }
     if (viewer && (viewer.telemetry.frameTimesMs.length === 0 || viewer.telemetry.statsTimesMs.length === 0)) {
@@ -1023,6 +1047,25 @@ export async function runExternalControlBaseline(
           droppedSimulationSeconds: Number(scheduler.droppedSimulationSeconds.toFixed(9)),
           achievedMultiplier: Number(scheduler.achievedMultiplier.toFixed(6)),
           achievedToRequestedRatio: Number(scheduler.achievedToRequestedRatio.toFixed(6))
+        },
+        persistenceProgress: {
+          inMemoryGenerationBefore: healthBefore.persistence.inMemoryGeneration,
+          inMemoryGenerationAfter: healthAfter.persistence.inMemoryGeneration,
+          generationsAdvanced:
+            healthAfter.persistence.inMemoryGeneration -
+            healthBefore.persistence.inMemoryGeneration,
+          durableGenerationBefore: healthBefore.persistence.lastDurableGeneration,
+          durableGenerationAfter: healthAfter.persistence.lastDurableGeneration,
+          durableSnapshotIdBefore: healthBefore.persistence.lastDurableSnapshotId,
+          durableSnapshotIdAfter: healthAfter.persistence.lastDurableSnapshotId,
+          durableCheckpointAdvanced:
+            healthBefore.persistence.lastDurableSnapshotId !== null &&
+            healthAfter.persistence.lastDurableSnapshotId !== null &&
+            healthAfter.persistence.lastDurableSnapshotId >
+              healthBefore.persistence.lastDurableSnapshotId,
+          durableGenerationCaughtUp:
+            healthAfter.persistence.lastDurableGeneration ===
+            healthAfter.persistence.inMemoryGeneration
         },
         ...(player ? {
           viewerGenerationProgressSeconds,
