@@ -69,6 +69,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'server/stage1.controllerGrace.test.ts',
     'server/stage1.schedulerYield.test.ts',
     'server/wsHub.priority.test.ts',
+    'scripts/stage2/sqlite-legacy-slice.test.ts',
     'src/brains/graph.integration.test.ts',
     'src/main.test.ts'
   ],
