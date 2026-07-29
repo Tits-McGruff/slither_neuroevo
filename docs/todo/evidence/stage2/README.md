@@ -159,6 +159,9 @@ rate. The production source was commit
 `ec1cc708423c4337f1d5f0ed73ac7a1f7b9ecdf8`; the tested built JavaScript asset
 had SHA-256
 `032ffa5518ca21938e02d79acbfb10d5df35638540ea71c944cd34db7988182c`.
+Browser automation used the Codex in-app Browser plugin version
+`26.721.41059` on the Windows environment recorded by the retained source and
+runtime artifacts.
 The delay while the browser tool awaited owner approval to monitor loopback was
 excluded from every timing below.
 

@@ -3757,10 +3757,10 @@ measures the production-shaped workload, not isolated shared-weight kernels.
 
 **Behavior inventory and fixtures:**
 
-- [ ] Trace current `World`, `Snake`, `SimCore`, graph, controller, protocol,
+- [x] Trace current `World`, `Snake`, `SimCore`, graph, controller, protocol,
   persistence, Hall-of-Fame, and browser save flows before writing their Rust
   replacements.
-- [ ] Capture the cross-cutting fixed-seed fixtures needed before the Rust
+- [x] Capture the cross-cutting fixed-seed fixtures needed before the Rust
   spine: configuration normalization, graph ordering/offsets, RNG streams,
   sensor layout, one complete heterogeneous brain sequence, one world step,
   one generation boundary, frame v1, and checkpoint identity.
@@ -3768,20 +3768,20 @@ measures the production-shaped workload, not isolated shared-weight kernels.
   fixtures immediately before the stage that ports each feature. Stage 2
   inventories their source paths and extraction method; it does not front-load
   an exhaustive fixture-writing project before Rust work can start.
-- [ ] Label each fixture `preserve` or `known defect—replace with stated
+- [x] Label each fixture `preserve` or `known defect—replace with stated
   rule`. Broken body sensing, truncating collision storage, array-order bias,
   unsafe overlap, immediate takeover, stale catch-up input, unreliable
   lifecycle traffic, sensor-gated browser action transmission,
   connection-driven RNG draws, and Float32 ID aliasing are correction
   fixtures, not golden masters.
-- [ ] Reproduce the three retained Git-history claims separately from
+- [x] Reproduce the three retained Git-history claims separately from
   current-source findings: introduction of the false owner-history documents,
   commit `3989d26`'s ten-/twenty-tick controller behavior, and the reported
   contents/defects of commit `8330065`. Preserve repository identity, exact
   commands, commit IDs, diffs, relevant file contents, and raw output in the
   factual implementation record. If a claim does not reproduce, correct the
   plan rather than repeating it.
-- [ ] Demonstrate current kill-credit behavior with head-to-body,
+- [x] Demonstrate current kill-credit behavior with head-to-body,
   simultaneous head-head, already-dead body owner, multiple candidate bodies
   and exact-tie examples before finalizing the selected working credit rule.
 - [ ] Inventory real graph/preset IDs and record the current Windows and target
@@ -3792,7 +3792,7 @@ measures the production-shaped workload, not isolated shared-weight kernels.
 
 **Production-shaped performance baselines:**
 
-- [ ] Build one repeatable runner that records seed, graph, settings, process
+- [x] Build one repeatable runner that records seed, graph, settings, process
   mode, worker count, display mode, controller mode, duration, and raw results.
 - [ ] Measure default 55-snake play, a many-snake case, a large-brain case,
   dense long bodies/pellets, player control over LAN, the existing Protocol 2
@@ -3801,7 +3801,7 @@ measures the production-shaped workload, not isolated shared-weight kernels.
   fixed-step p50/p95/p99/max, subsystem time, Node event-loop delay, control
   and lifecycle latency, frame bytes/rate, collision-index load, CPU, RSS,
   Rust allocations where measurable, and dropped/capped wall debt.
-- [ ] Measure the real current count-one N-API production path separately from
+- [x] Measure the real current count-one N-API production path separately from
   homogeneous kernel demonstrations, including crossings per controller
   update and full server-process throughput.
 - [ ] Preserve raw benchmark output and environment details for the Ryzen 7
@@ -3813,7 +3813,7 @@ measures the production-shaped workload, not isolated shared-weight kernels.
 
 **Persistence and save-growth baseline:**
 
-- [ ] Inventory every current database table/column that grows per generation,
+- [x] Inventory every current database table/column that grows per generation,
   including parent snapshots, per-slot weights, Hall-of-Fame genomes, fitness
   history, journals/WAL, and any repeated graph/settings data.
 - [ ] Inventory every current and legacy export representation and identify
@@ -3833,7 +3833,7 @@ measures the production-shaped workload, not isolated shared-weight kernels.
   save format/size, browser-memory peak, high-speed tunnelling threshold, and
   Ryzen/VM throughput. A failed reproduction updates the plan's dependent
   estimate or design assumption.
-- [ ] If empirical confirmation remains useful, run only a narrow disposable
+- [x] If empirical confirmation remains useful, run only a narrow disposable
   SQLite BLOB/chunk byte-volume experiment using representative compressed
   payloads. Record bytes written, transaction latency, WAL amplification,
   read-back throughput, deletion/page reuse, and main-event-loop impact if the
@@ -3849,7 +3849,7 @@ measures the production-shaped workload, not isolated shared-weight kernels.
   that meets the checkpoint gate without restoring redundant digest layers.
 - [ ] Measure archive encode/decode throughput and peak memory, including the
   Ryzen 7 2700 target rather than only the development machine.
-- [ ] Measure current browser heap and responsiveness during export/import,
+- [x] Measure current browser heap and responsiveness during export/import,
   demonstrating the complete-response parse/stringify/Blob and
   read-as-text/parse/stringify duplication. Retain automation version, fixture
   files, raw memory traces, browser/OS environment, and screenshots/logs needed
