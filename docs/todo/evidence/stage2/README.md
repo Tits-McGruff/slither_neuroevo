@@ -57,6 +57,34 @@ overnight accumulation, Hall-of-Fame growth, evolved compression, WAL growth or
 vacuum behavior because the inspected database contains only two run-start
 checkpoints.
 
+## Reproduced unbounded P1 checkpoint growth
+
+An intended browser test launch accidentally remained attached to its shell
+while the disposable simulation server continued running. The UI process
+failed before serving a page, so this is not browser evidence. It is, however,
+a real current-server P1 checkpoint-growth run. The retained database inventory
+and raw process logs identify the source and preserve that distinction.
+
+From the generation-one checkpoint to generation 128:
+
+- 127 additional automatic generation checkpoints accumulated over 8.906
+  hours;
+- the disposable database grew from 16,338,944 bytes to 2,155,540,480 bytes
+  (2.008 GiB);
+- 38,400 genome rows held 2,067,148,800 raw weight bytes (1.925 GiB);
+- the mean observed file growth was about 16.84 MB per additional checkpoint,
+  or 229.1 MiB per wall-clock hour;
+- SQLite reported 526,321 pages and zero free-list pages because no snapshot
+  was pruned; and
+- scheduler logs repeatedly reported dropped wall-clock debt, so this is not a
+  claim that P1 met real-time performance.
+
+This was an accidental, uncontrolled development-machine soak, not the
+approved P8 target-VM acceptance run. It directly reproduces the current
+unbounded full-population accumulation mechanism and its practical disk
+effect. It does not replace the selected managed-file retention, compaction,
+recovery, or overnight-equivalent tests.
+
 ## Newly reproduced codec results
 
 All sizes below are exact weight payloads; future container, state, history and
