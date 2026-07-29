@@ -30,6 +30,8 @@ node .\node_modules\tsx\dist\cli.mjs scripts\stage2\create-current-db-fixture.ts
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\browser-baseline-host.ts --db C:\temporary\stage2-p1.db --server-port 55194 --ui-port 55193 --ui-rate 30 --duration-ms 1800000
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\external-control-baseline.ts --scenario P1 --player-hz 60 --warmup-ms 2000 --duration-ms 15000 --workers 0 --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\retention-baseline.ts --generations 480 --scenario P0 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P0 --fixture evolved --evolution-generations 25 --trials 7 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P2 --fixture evolved --evolution-generations 25 --trials 7 --output result.json
 ```
 
 The runtime runner uses the real `SimCore`, `World`, heterogeneous population,
@@ -191,6 +193,94 @@ pinned data. Pinned checkpoints and downloaded exports remain outside the
 automatic cap. The Hall-of-Fame fixture intentionally models every generation
 as a new qualifying unique genome; duplicate, non-qualifying, pinned and
 multi-run cases remain for later persistence tests.
+
+## Managed-checkpoint write-validation comparison
+
+The retained artifacts are:
+
+- `windows-5800x/checkpoint-validation-p0-evolved25.json`, SHA-256
+  `efa57db87552c61452ebb48240d49c562c50b33ecb254a4d4a5a2cfd40bb7e96`;
+- `windows-5800x/checkpoint-validation-p2-evolved25.json`, SHA-256
+  `59bbd3013ea85bb65b0894b24633305f2293b115ede99f9047ad1d3f2055caed`.
+
+Both were produced from clean source commit
+`ac905db49bbb912bf49cf3a91b36934c72932229`. They use a disposable Node
+prototype of the selected bounded shuffled-Zstandard entries inside a strict
+USTAR container. This is Stage 2 measurement code, not the production Rust
+checkpoint contract, a restore implementation, a SQLite payload schema, an
+HTTP path or proof of durability on the target VM.
+
+The evolved-25 fixtures exactly match the retained codec artifacts' population
+architecture, raw byte counts and logical SHA-256 values. Each of four
+write-validation variants completed seven accepted trials:
+
+| Fixture | Raw weights | 1 MiB blocks | Stored candidate | Archive bytes | Reduction from raw weights |
+|---|---:|---:|---:|---:|---:|
+| P0 | 2,960,760 | 3 | 2,416,675 | 2,426,368 | 18.143% including container |
+| P2 | 88,641,080 | 85 | 75,641,920 | 75,652,096 | 14.657% including container |
+
+The bounded blocks cost 140,321 bytes more than P0's retained whole-frame
+selected encoding and 2,058,911 bytes more than P2's. That is a measured
+bounded-memory/compression-ratio trade-off rather than evidence that the
+previous whole-population frame is a safe production decoder.
+
+| Fixture/variant | Hash + compression p95 | File fsync p95 | Validation p95 | Publication barrier p95 |
+|---|---:|---:|---:|---:|
+| P0 single pass | 24.870 ms | 3.556 ms | — | 33.613 ms |
+| P0 lightweight scan | — | — | 2.079 ms | 34.541 ms |
+| P0 full decode | — | — | 20.285 ms | 50.803 ms |
+| P2 single pass | 520.061 ms | 28.610 ms | — | 587.623 ms |
+| P2 lightweight scan | — | — | 9.581 ms | 594.904 ms |
+| P2 full decode | — | — | 408.597 ms | 965.716 ms |
+
+The lightweight scan read only 6,296 P0 bytes or 6,322 P2 bytes; full
+validation read the complete 2,426,368-byte or 75,652,096-byte archive. The
+frame-checksum variants added exactly four bytes per compressed block: 12
+bytes for P0 and 340 bytes for P2. Timing differences between checksum-off and
+checksum-on trials are too small and noisy to claim a speed effect.
+
+The retained fault matrix distinguishes the mechanisms:
+
+- truncating the terminal blocks fails the strict scan with `USTAR_TRAILER`;
+- corrupting a header fails with `USTAR_HEADER_CHECKSUM`;
+- corrupting an unchecked compressed payload passes the structural scan but
+  fails full decode with `LOGICAL_ROLE_MISMATCH`;
+- corrupting the root text fails with `LOGICAL_ROOT_MISMATCH`; and
+- corrupting a checksummed compressed payload still requires a decode before
+  it fails, then reports `SHUFFLED_BLOCK_DECODE`.
+
+The selected provisional Stage 3 policy is therefore:
+
+- ordinary automatic generation checkpoints use one pass that calculates
+  logical hashes and counts while encoding, completes the codec and container,
+  flushes and fsyncs the file, checks its final length, atomically renames it,
+  and fsyncs the parent directory on Debian;
+- Zstandard frame checksums remain off because they add no creation-time
+  detection without a decode and the logical role hash already verifies
+  decoded content;
+- an automatic checkpoint does not require a second lightweight scan because
+  that scan does not verify payloads; strict scanning remains mandatory when
+  startup, import or restore consumes an archive;
+- manual exports and pinned checkpoints receive full post-write decode once
+  those paths exist; whether periodic milestones should also receive it remains
+  measurement-gated on the production Rust codec and target VM; and
+- recovery to a previous retained valid checkpoint is the protection against a
+  latent codec or storage fault discovered on restore.
+
+This is the simplest policy supported by the development-machine evidence. It
+does not prove the target checkpoint-latency gate: P2's single-pass p95 was
+587.623 ms on a Ryzen 7 5800X, so performance on the Ryzen 7 2700 remains
+unknown. Windows regular-file fsync succeeded, but Windows parent-directory
+fsync returned `EPERM`; the required Debian directory-fsync behavior remains
+open. The observed peak process RSS, 185.65 MiB for P0 and 715.69 MiB for P2,
+also includes the TypeScript `World`, evolved population and packed source
+buffer, so it is not a prediction of Rust engine memory.
+
+All temporary benchmark files were removed and every artifact assertion
+passed. Free-space sampling after cleanup differed from the initial reading by
+4,096 bytes for P0 and 565,248 bytes for P2; filesystem free-space readings
+are not a byte-exact leak or reclamation test. No owner database or save file
+was written.
 
 ## Narrow SQLite byte-volume comparison
 
@@ -370,7 +460,9 @@ count from observed batch population counts.
 - sustained P4, P6 accelerated and P7 soak fixtures;
 - P8 full checkpoint-v3 publication, durability and restore testing beyond the
   retained size-matched 480-generation retention fixture;
-- full managed-checkpoint container validation timing;
+- repeat the selected checkpoint-v3 publication/restore policy in Rust on the
+  target Debian VM, including parent-directory fsync, state restoration and the
+  target checkpoint-latency barrier;
 - real owner save files outside the repository, if any;
 - Debian graph-ordering output from the exact retained database/spec fixture.
 

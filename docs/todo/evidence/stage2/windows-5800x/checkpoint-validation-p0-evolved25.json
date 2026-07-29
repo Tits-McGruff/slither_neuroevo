@@ -1,0 +1,1645 @@
+{
+  "schema": "slither-stage2-managed-checkpoint-validation",
+  "version": 1,
+  "evidenceClass": "new measured development-machine result",
+  "caveat": "Disposable Node built-in USTAR/Zstandard measurement only. It is not a production checkpoint-v3 writer, not wired to SQLite or authority, does not construct restored Rust state, and is not Ryzen 7 2700 Debian evidence.",
+  "source": {
+    "commit": "ac905db49bbb912bf49cf3a91b36934c72932229",
+    "dirty": false
+  },
+  "command": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Users\\jlow8\\source\\repos\\slither_neuroevo\\scripts\\stage2\\managed-checkpoint-validation.ts",
+    "--scenario",
+    "P0",
+    "--fixture",
+    "evolved",
+    "--evolution-generations",
+    "25",
+    "--trials",
+    "7",
+    "--output",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage2-checkpoint-capture-ac905db\\checkpoint-validation-p0-evolved25.json"
+  ],
+  "environment": {
+    "capturedAt": "2026-07-29T04:11:31.864Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "osType": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "osVersion": "Windows 11 Pro",
+    "hostname": "Beryllium",
+    "cpuModel": "AMD Ryzen 7 5800X 8-Core Processor             ",
+    "logicalCpuCount": 16,
+    "totalMemoryBytes": 68627632128,
+    "node": "v24.12.0",
+    "zstd": "1.5.7",
+    "tempFilesystem": {
+      "root": "C:\\",
+      "type": 0,
+      "blockSize": 4096,
+      "freeBytesBefore": 324433596416,
+      "freeBytesAfterFixtureCleanup": 324433592320
+    }
+  },
+  "fixture": {
+    "scenario": {
+      "name": "P0",
+      "description": "55 evolved snakes, 10 baseline bots, default graph, 3,500 pellets",
+      "settings": {
+        "snakeCount": 55,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "pelletCountTarget": 3500,
+      "bubbleBins": 16,
+      "baselineBotCount": 10,
+      "graphSpec": null,
+      "denseLongBodies": false
+    },
+    "fixtureKind": "evolved",
+    "evolutionGenerations": 25,
+    "seed": 1511506142,
+    "populationCount": 55,
+    "weightsPerGenome": 13458,
+    "totalWeightCount": 740190,
+    "rawWeightBytes": 2960760,
+    "rawWeightSha256": "ce057b230124c8f36d4ed4507394477726614e7633da70d530a592b2efa65178",
+    "architectureKey": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+    "populationIndexBytes": 2656,
+    "checkpointJsonBytes": 741
+  },
+  "prototype": {
+    "format": "strict-ustar-v1-prototype",
+    "benchmarkOnly": true,
+    "logicalRoles": [
+      "checkpoint",
+      "population-index",
+      "population-weights",
+      "population-recurrent"
+    ],
+    "logicalRootExcludesManifestToAvoidSelfReference": true,
+    "blockBytes": 1048576,
+    "frameCount": 3,
+    "adaptiveEncodings": [
+      "raw-f32le-v1",
+      "f32le-shuffle4-zstd-v1"
+    ],
+    "selectedEncodings": [
+      "f32le-shuffle4-zstd-v1"
+    ],
+    "oneLogicalRootAcrossVariants": true
+  },
+  "variants": {
+    "single-pass": {
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "archiveBytes": {
+        "count": 7,
+        "min": 2426368,
+        "p50": 2426368,
+        "p95": 2426368,
+        "max": 2426368,
+        "mean": 2426368
+      },
+      "candidateBytes": {
+        "count": 7,
+        "min": 2416675,
+        "p50": 2416675,
+        "p95": 2416675,
+        "max": 2416675,
+        "mean": 2416675
+      },
+      "candidateEncodeAndLogicalHashMs": {
+        "count": 7,
+        "min": 19.5315,
+        "p50": 22.5171,
+        "p95": 24.86954,
+        "max": 25.0247,
+        "mean": 22.486929
+      },
+      "archiveAssemblyMs": {
+        "count": 7,
+        "min": 2.9972,
+        "p50": 3.5261,
+        "p95": 6.5597,
+        "max": 6.689,
+        "mean": 4.453557
+      },
+      "fileFsyncMs": {
+        "count": 7,
+        "min": 2.7846,
+        "p50": 3.3252,
+        "p95": 3.55631,
+        "max": 3.56,
+        "mean": 3.300871
+      },
+      "validationMs": {
+        "count": 7,
+        "min": 0.0006,
+        "p50": 0.0018,
+        "p95": 0.00376,
+        "max": 0.0043,
+        "mean": 0.001871
+      },
+      "renameMs": {
+        "count": 7,
+        "min": 0.3926,
+        "p50": 0.5136,
+        "p95": 0.65347,
+        "max": 0.6631,
+        "mean": 0.522057
+      },
+      "totalBarrierMs": {
+        "count": 7,
+        "min": 26.8875,
+        "p50": 32.4935,
+        "p95": 33.61313,
+        "max": 33.7115,
+        "mean": 31.775029
+      },
+      "validationReadBytes": {
+        "count": 7,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "sampledPeakRssBytes": {
+        "count": 7,
+        "min": 136585216,
+        "p50": 156651520,
+        "p95": 187772108.8,
+        "max": 193613824,
+        "mean": 159415149.714286
+      }
+    },
+    "frame-checksum": {
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "archiveBytes": {
+        "count": 7,
+        "min": 2426368,
+        "p50": 2426368,
+        "p95": 2426368,
+        "max": 2426368,
+        "mean": 2426368
+      },
+      "candidateBytes": {
+        "count": 7,
+        "min": 2416687,
+        "p50": 2416687,
+        "p95": 2416687,
+        "max": 2416687,
+        "mean": 2416687
+      },
+      "candidateEncodeAndLogicalHashMs": {
+        "count": 7,
+        "min": 19.7723,
+        "p50": 20.8295,
+        "p95": 23.95036,
+        "max": 24.1819,
+        "mean": 21.494971
+      },
+      "archiveAssemblyMs": {
+        "count": 7,
+        "min": 2.3171,
+        "p50": 2.7357,
+        "p95": 4.81612,
+        "max": 5.5411,
+        "mean": 3.079557
+      },
+      "fileFsyncMs": {
+        "count": 7,
+        "min": 2.6961,
+        "p50": 2.768,
+        "p95": 3.01546,
+        "max": 3.085,
+        "mean": 2.800929
+      },
+      "validationMs": {
+        "count": 7,
+        "min": 0.0007,
+        "p50": 0.0009,
+        "p95": 0.00121,
+        "max": 0.0013,
+        "mean": 0.0009
+      },
+      "renameMs": {
+        "count": 7,
+        "min": 0.3501,
+        "p50": 0.4488,
+        "p95": 0.69805,
+        "max": 0.793,
+        "mean": 0.4666
+      },
+      "totalBarrierMs": {
+        "count": 7,
+        "min": 26.0533,
+        "p50": 27.9652,
+        "p95": 32.8076,
+        "max": 34.1594,
+        "mean": 28.716543
+      },
+      "validationReadBytes": {
+        "count": 7,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "sampledPeakRssBytes": {
+        "count": 7,
+        "min": 154505216,
+        "p50": 156168192,
+        "p95": 168527462.4,
+        "max": 173690880,
+        "mean": 158277046.857143
+      }
+    },
+    "lightweight-scan": {
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "archiveBytes": {
+        "count": 7,
+        "min": 2426368,
+        "p50": 2426368,
+        "p95": 2426368,
+        "max": 2426368,
+        "mean": 2426368
+      },
+      "candidateBytes": {
+        "count": 7,
+        "min": 2416675,
+        "p50": 2416675,
+        "p95": 2416675,
+        "max": 2416675,
+        "mean": 2416675
+      },
+      "candidateEncodeAndLogicalHashMs": {
+        "count": 7,
+        "min": 18.4365,
+        "p50": 20.587,
+        "p95": 23.65312,
+        "max": 24.4648,
+        "mean": 20.587043
+      },
+      "archiveAssemblyMs": {
+        "count": 7,
+        "min": 2.2252,
+        "p50": 2.6095,
+        "p95": 3.46259,
+        "max": 3.53,
+        "mean": 2.827657
+      },
+      "fileFsyncMs": {
+        "count": 7,
+        "min": 2.6383,
+        "p50": 2.855,
+        "p95": 4.11307,
+        "max": 4.5991,
+        "mean": 3.080043
+      },
+      "validationMs": {
+        "count": 7,
+        "min": 0.599,
+        "p50": 0.8433,
+        "p95": 2.07895,
+        "max": 2.4805,
+        "mean": 1.043743
+      },
+      "renameMs": {
+        "count": 7,
+        "min": 0.3027,
+        "p50": 0.4902,
+        "p95": 0.53185,
+        "max": 0.5386,
+        "mean": 0.450614
+      },
+      "totalBarrierMs": {
+        "count": 7,
+        "min": 25.3783,
+        "p50": 28.5351,
+        "p95": 34.54145,
+        "max": 34.8173,
+        "mean": 29.229057
+      },
+      "validationReadBytes": {
+        "count": 7,
+        "min": 6296,
+        "p50": 6296,
+        "p95": 6296,
+        "max": 6296,
+        "mean": 6296
+      },
+      "sampledPeakRssBytes": {
+        "count": 7,
+        "min": 153563136,
+        "p50": 155013120,
+        "p95": 174542028.8,
+        "max": 174927872,
+        "mean": 160398189.714286
+      }
+    },
+    "full-decode": {
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "archiveBytes": {
+        "count": 7,
+        "min": 2426368,
+        "p50": 2426368,
+        "p95": 2426368,
+        "max": 2426368,
+        "mean": 2426368
+      },
+      "candidateBytes": {
+        "count": 7,
+        "min": 2416675,
+        "p50": 2416675,
+        "p95": 2416675,
+        "max": 2416675,
+        "mean": 2416675
+      },
+      "candidateEncodeAndLogicalHashMs": {
+        "count": 7,
+        "min": 17.7789,
+        "p50": 20.8112,
+        "p95": 23.39685,
+        "max": 23.6883,
+        "mean": 20.493229
+      },
+      "archiveAssemblyMs": {
+        "count": 7,
+        "min": 2.1819,
+        "p50": 2.938,
+        "p95": 3.9444,
+        "max": 4.1796,
+        "mean": 3.0587
+      },
+      "fileFsyncMs": {
+        "count": 7,
+        "min": 2.7109,
+        "p50": 2.9482,
+        "p95": 3.08005,
+        "max": 3.1081,
+        "mean": 2.951071
+      },
+      "validationMs": {
+        "count": 7,
+        "min": 13.0602,
+        "p50": 16.0515,
+        "p95": 20.28471,
+        "max": 21.1449,
+        "mean": 16.128829
+      },
+      "renameMs": {
+        "count": 7,
+        "min": 0.3649,
+        "p50": 0.4822,
+        "p95": 3.0293,
+        "max": 4.0598,
+        "mean": 0.990871
+      },
+      "totalBarrierMs": {
+        "count": 7,
+        "min": 37.3946,
+        "p50": 45.0945,
+        "p95": 50.8026,
+        "max": 51.2601,
+        "mean": 45.212157
+      },
+      "validationReadBytes": {
+        "count": 7,
+        "min": 2426368,
+        "p50": 2426368,
+        "p95": 2426368,
+        "max": 2426368,
+        "mean": 2426368
+      },
+      "sampledPeakRssBytes": {
+        "count": 7,
+        "min": 163172352,
+        "p50": 173555712,
+        "p95": 193255014.4,
+        "max": 193613824,
+        "mean": 178386066.285714
+      }
+    }
+  },
+  "rawTrials": [
+    {
+      "variant": "single-pass",
+      "trial": 1,
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 23.6118,
+        "archiveAssembly": 3.5261,
+        "fileFsync": 3.5008,
+        "validation": 0.0043,
+        "rename": 0.4266,
+        "directorySync": 0.0957,
+        "totalBarrier": 32.4935
+      },
+      "sampledMemoryPeak": {
+        "rss": 136585216,
+        "heapUsed": 21068504,
+        "external": 30890030,
+        "arrayBuffers": 28369640
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0957,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "frame-checksum",
+      "trial": 1,
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416687,
+        "selectedWeightEntry": 2416687,
+        "archive": 2426368,
+        "applicationWritten": 4843055,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 20.8295,
+        "archiveAssembly": 3.1245,
+        "fileFsync": 2.768,
+        "validation": 0.001,
+        "rename": 0.3501,
+        "directorySync": 0.0962,
+        "totalBarrier": 27.9883
+      },
+      "sampledMemoryPeak": {
+        "rss": 155013120,
+        "heapUsed": 13299816,
+        "external": 42187075,
+        "arrayBuffers": 39666685
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0962,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "lightweight-scan",
+      "trial": 1,
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 6296,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 24.4648,
+        "archiveAssembly": 3.3053,
+        "fileFsync": 2.855,
+        "validation": 2.4805,
+        "rename": 0.5089,
+        "directorySync": 0.0903,
+        "totalBarrier": 34.8173
+      },
+      "sampledMemoryPeak": {
+        "rss": 155013120,
+        "heapUsed": 13316928,
+        "external": 42187075,
+        "arrayBuffers": 39666685
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0903,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "full-decode",
+      "trial": 1,
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 2426368,
+        "decodedDuringValidation": 2964157
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 21.0739,
+        "archiveAssembly": 4.1796,
+        "fileFsync": 3.0008,
+        "validation": 21.1449,
+        "rename": 0.376,
+        "directorySync": 0.0965,
+        "totalBarrier": 51.2601
+      },
+      "sampledMemoryPeak": {
+        "rss": 163172352,
+        "heapUsed": 12132376,
+        "external": 47912903,
+        "arrayBuffers": 45392513
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0965,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "frame-checksum",
+      "trial": 2,
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416687,
+        "selectedWeightEntry": 2416687,
+        "archive": 2426368,
+        "applicationWritten": 4843055,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 24.1819,
+        "archiveAssembly": 5.5411,
+        "fileFsync": 2.8532,
+        "validation": 0.0013,
+        "rename": 0.4628,
+        "directorySync": 0.0977,
+        "totalBarrier": 34.1594
+      },
+      "sampledMemoryPeak": {
+        "rss": 156385280,
+        "heapUsed": 11926384,
+        "external": 47619770,
+        "arrayBuffers": 45104889
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0977,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "lightweight-scan",
+      "trial": 2,
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 6296,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 21.5475,
+        "archiveAssembly": 3.0099,
+        "fileFsync": 2.979,
+        "validation": 1.142,
+        "rename": 0.4902,
+        "directorySync": 0.1013,
+        "totalBarrier": 30.0991
+      },
+      "sampledMemoryPeak": {
+        "rss": 154554368,
+        "heapUsed": 12025040,
+        "external": 42202901,
+        "arrayBuffers": 39688020
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.1013,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "full-decode",
+      "trial": 2,
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 2426368,
+        "decodedDuringValidation": 2964157
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 22.7168,
+        "archiveAssembly": 2.938,
+        "fileFsync": 3.0146,
+        "validation": 17.5055,
+        "rename": 0.6248,
+        "directorySync": 0.1154,
+        "totalBarrier": 47.825
+      },
+      "sampledMemoryPeak": {
+        "rss": 173555712,
+        "heapUsed": 12238888,
+        "external": 53491742,
+        "arrayBuffers": 50976861
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.1154,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "single-pass",
+      "trial": 2,
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 22.1584,
+        "archiveAssembly": 6.689,
+        "fileFsync": 3.2676,
+        "validation": 0.0025,
+        "rename": 0.5136,
+        "directorySync": 0.0958,
+        "totalBarrier": 33.7115
+      },
+      "sampledMemoryPeak": {
+        "rss": 160817152,
+        "heapUsed": 12000880,
+        "external": 50780841,
+        "arrayBuffers": 47212433
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0958,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "lightweight-scan",
+      "trial": 3,
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 6296,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 18.8288,
+        "archiveAssembly": 2.5888,
+        "fileFsync": 2.9726,
+        "validation": 0.6868,
+        "rename": 0.3358,
+        "directorySync": 0.0769,
+        "totalBarrier": 26.2269
+      },
+      "sampledMemoryPeak": {
+        "rss": 153563136,
+        "heapUsed": 12054536,
+        "external": 50780841,
+        "arrayBuffers": 38639432
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0769,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "full-decode",
+      "trial": 3,
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 2426368,
+        "decodedDuringValidation": 2964157
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 18.3654,
+        "archiveAssembly": 2.6808,
+        "fileFsync": 2.9482,
+        "validation": 16.0515,
+        "rename": 0.3649,
+        "directorySync": 0.0953,
+        "totalBarrier": 41.3798
+      },
+      "sampledMemoryPeak": {
+        "rss": 172204032,
+        "heapUsed": 12231976,
+        "external": 52443154,
+        "arrayBuffers": 49928273
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0953,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "single-pass",
+      "trial": 3,
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 22.5171,
+        "archiveAssembly": 5.3748,
+        "fileFsync": 3.5477,
+        "validation": 0.0006,
+        "rename": 0.3926,
+        "directorySync": 0.0982,
+        "totalBarrier": 32.6433
+      },
+      "sampledMemoryPeak": {
+        "rss": 156491776,
+        "heapUsed": 12011952,
+        "external": 48673273,
+        "arrayBuffers": 45104865
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0982,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "frame-checksum",
+      "trial": 3,
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416687,
+        "selectedWeightEntry": 2416687,
+        "archive": 2426368,
+        "applicationWritten": 4843055,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 23.4101,
+        "archiveAssembly": 2.4217,
+        "fileFsync": 2.6961,
+        "validation": 0.0009,
+        "rename": 0.352,
+        "directorySync": 0.095,
+        "totalBarrier": 29.6534
+      },
+      "sampledMemoryPeak": {
+        "rss": 154505216,
+        "heapUsed": 11989224,
+        "external": 48673273,
+        "arrayBuffers": 38626301
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.095,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "full-decode",
+      "trial": 4,
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 2426368,
+        "decodedDuringValidation": 2964157
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 23.6883,
+        "archiveAssembly": 3.3956,
+        "fileFsync": 2.9449,
+        "validation": 18.2776,
+        "rename": 0.562,
+        "directorySync": 0.1111,
+        "totalBarrier": 49.7351
+      },
+      "sampledMemoryPeak": {
+        "rss": 172281856,
+        "heapUsed": 12152368,
+        "external": 52430023,
+        "arrayBuffers": 49915142
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.1111,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "single-pass",
+      "trial": 4,
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 25.0247,
+        "archiveAssembly": 3.1732,
+        "fileFsync": 3.56,
+        "validation": 0.0022,
+        "rename": 0.534,
+        "directorySync": 0.1172,
+        "totalBarrier": 33.3836
+      },
+      "sampledMemoryPeak": {
+        "rss": 156651520,
+        "heapUsed": 12005392,
+        "external": 47617511,
+        "arrayBuffers": 45102630
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.1172,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "frame-checksum",
+      "trial": 4,
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416687,
+        "selectedWeightEntry": 2416687,
+        "archive": 2426368,
+        "applicationWritten": 4843055,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 21.9005,
+        "archiveAssembly": 2.3171,
+        "fileFsync": 2.6968,
+        "validation": 0.0007,
+        "rename": 0.383,
+        "directorySync": 0.0963,
+        "totalBarrier": 27.9652
+      },
+      "sampledMemoryPeak": {
+        "rss": 155697152,
+        "heapUsed": 12029328,
+        "external": 42189758,
+        "arrayBuffers": 39674877
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0963,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "lightweight-scan",
+      "trial": 4,
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 6296,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 20.587,
+        "archiveAssembly": 3.53,
+        "fileFsync": 4.5991,
+        "validation": 0.6656,
+        "rename": 0.5386,
+        "directorySync": 0.076,
+        "totalBarrier": 33.8978
+      },
+      "sampledMemoryPeak": {
+        "rss": 173641728,
+        "heapUsed": 12196208,
+        "external": 53491742,
+        "arrayBuffers": 50963718
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.076,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "single-pass",
+      "trial": 5,
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 19.5315,
+        "archiveAssembly": 2.9972,
+        "fileFsync": 2.7846,
+        "validation": 0.0007,
+        "rename": 0.631,
+        "directorySync": 0.1788,
+        "totalBarrier": 26.8875
+      },
+      "sampledMemoryPeak": {
+        "rss": 137605120,
+        "heapUsed": 11937248,
+        "external": 53491742,
+        "arrayBuffers": 29442267
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.1788,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "frame-checksum",
+      "trial": 5,
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416687,
+        "selectedWeightEntry": 2416687,
+        "archive": 2426368,
+        "applicationWritten": 4843055,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 19.7723,
+        "archiveAssembly": 2.4527,
+        "fileFsync": 2.8026,
+        "validation": 0.0007,
+        "rename": 0.4765,
+        "directorySync": 0.1067,
+        "totalBarrier": 26.0533
+      },
+      "sampledMemoryPeak": {
+        "rss": 156168192,
+        "heapUsed": 12105456,
+        "external": 43246001,
+        "arrayBuffers": 40731120
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.1067,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "lightweight-scan",
+      "trial": 5,
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 6296,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 21.7592,
+        "archiveAssembly": 2.5249,
+        "fileFsync": 2.8049,
+        "validation": 0.599,
+        "rename": 0.3027,
+        "directorySync": 0.0774,
+        "totalBarrier": 28.5351
+      },
+      "sampledMemoryPeak": {
+        "rss": 156168192,
+        "heapUsed": 12123080,
+        "external": 43246001,
+        "arrayBuffers": 40731120
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0774,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "full-decode",
+      "trial": 5,
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 2426368,
+        "decodedDuringValidation": 2964157
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 20.8112,
+        "archiveAssembly": 3.2359,
+        "fileFsync": 2.93,
+        "validation": 13.3441,
+        "rename": 4.0598,
+        "directorySync": 0.0917,
+        "totalBarrier": 45.0945
+      },
+      "sampledMemoryPeak": {
+        "rss": 181456896,
+        "heapUsed": 12406432,
+        "external": 62954621,
+        "arrayBuffers": 60439740
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.0917,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "frame-checksum",
+      "trial": 6,
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416687,
+        "selectedWeightEntry": 2416687,
+        "archive": 2426368,
+        "applicationWritten": 4843055,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 19.9719,
+        "archiveAssembly": 2.7357,
+        "fileFsync": 3.085,
+        "validation": 0.0008,
+        "rename": 0.793,
+        "directorySync": 0.2157,
+        "totalBarrier": 27.7243
+      },
+      "sampledMemoryPeak": {
+        "rss": 156479488,
+        "heapUsed": 12004744,
+        "external": 62954621,
+        "arrayBuffers": 45109142
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.2157,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "lightweight-scan",
+      "trial": 6,
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 6296,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 18.4855,
+        "archiveAssembly": 2.6095,
+        "fileFsync": 2.6383,
+        "validation": 0.8433,
+        "rename": 0.462,
+        "directorySync": 0.089,
+        "totalBarrier": 25.6489
+      },
+      "sampledMemoryPeak": {
+        "rss": 174927872,
+        "heapUsed": 12282048,
+        "external": 58926007,
+        "arrayBuffers": 56411126
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.089,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "full-decode",
+      "trial": 6,
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 2426368,
+        "decodedDuringValidation": 2964157
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 19.0181,
+        "archiveAssembly": 2.7991,
+        "fileFsync": 3.1081,
+        "validation": 13.0602,
+        "rename": 0.4664,
+        "directorySync": 0.1048,
+        "totalBarrier": 43.796
+      },
+      "sampledMemoryPeak": {
+        "rss": 192417792,
+        "heapUsed": 12395864,
+        "external": 69161321,
+        "arrayBuffers": 66646440
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.1048,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "single-pass",
+      "trial": 6,
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 20.0575,
+        "archiveAssembly": 6.258,
+        "fileFsync": 3.3252,
+        "validation": 0.0018,
+        "rename": 0.6631,
+        "directorySync": 0.2148,
+        "totalBarrier": 31.1061
+      },
+      "sampledMemoryPeak": {
+        "rss": 174141440,
+        "heapUsed": 12217760,
+        "external": 57863252,
+        "arrayBuffers": 55348371
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.2148,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "lightweight-scan",
+      "trial": 7,
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 6296,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 18.4365,
+        "archiveAssembly": 2.2252,
+        "fileFsync": 2.7114,
+        "validation": 0.889,
+        "rename": 0.5161,
+        "directorySync": 0.1067,
+        "totalBarrier": 25.3783
+      },
+      "sampledMemoryPeak": {
+        "rss": 154918912,
+        "heapUsed": 12138936,
+        "external": 42194697,
+        "arrayBuffers": 39679816
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.1067,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "full-decode",
+      "trial": 7,
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 2426368,
+        "decodedDuringValidation": 2964157
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 17.7789,
+        "archiveAssembly": 2.1819,
+        "fileFsync": 2.7109,
+        "validation": 13.518,
+        "rename": 0.4822,
+        "directorySync": 0.1034,
+        "totalBarrier": 37.3946
+      },
+      "sampledMemoryPeak": {
+        "rss": 193613824,
+        "heapUsed": 12533304,
+        "external": 70218763,
+        "arrayBuffers": 67703882
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.1034,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "single-pass",
+      "trial": 7,
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416675,
+        "selectedWeightEntry": 2416675,
+        "archive": 2426368,
+        "applicationWritten": 4843043,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 24.5075,
+        "archiveAssembly": 3.1566,
+        "fileFsync": 3.1202,
+        "validation": 0.001,
+        "rename": 0.4935,
+        "directorySync": 0.1162,
+        "totalBarrier": 32.1997
+      },
+      "sampledMemoryPeak": {
+        "rss": 193613824,
+        "heapUsed": 12550056,
+        "external": 70218763,
+        "arrayBuffers": 67703882
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.1162,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    },
+    {
+      "variant": "frame-checksum",
+      "trial": 7,
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 3,
+      "logicalRoot": "e96f3c9ead47f36fac7d87721443c11fdf3f041317d11ae76f7eff411b8f1b65",
+      "bytes": {
+        "rawWeights": 2960760,
+        "shuffledCandidate": 2416687,
+        "selectedWeightEntry": 2416687,
+        "archive": 2426368,
+        "applicationWritten": 4843055,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 20.3986,
+        "archiveAssembly": 2.9641,
+        "fileFsync": 2.7048,
+        "validation": 0.0009,
+        "rename": 0.4488,
+        "directorySync": 0.1122,
+        "totalBarrier": 27.4719
+      },
+      "sampledMemoryPeak": {
+        "rss": 173690880,
+        "heapUsed": 12172360,
+        "external": 57153180,
+        "arrayBuffers": 54638299
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": false,
+        "elapsedMs": 0.1122,
+        "errorCode": "EPERM"
+      },
+      "accepted": true
+    }
+  ],
+  "faultMatrix": [
+    {
+      "mutation": "truncate-one-terminal-block",
+      "lightweight": {
+        "accepted": false,
+        "code": "USTAR_TRAILER"
+      },
+      "fullDecode": {
+        "accepted": false,
+        "code": "USTAR_TRAILER"
+      }
+    },
+    {
+      "mutation": "corrupt-first-header",
+      "lightweight": {
+        "accepted": false,
+        "code": "USTAR_HEADER_CHECKSUM"
+      },
+      "fullDecode": {
+        "accepted": false,
+        "code": "USTAR_HEADER_CHECKSUM"
+      }
+    },
+    {
+      "mutation": "corrupt-weight-payload",
+      "lightweight": {
+        "accepted": true,
+        "code": null
+      },
+      "fullDecode": {
+        "accepted": false,
+        "code": "LOGICAL_ROLE_MISMATCH"
+      }
+    },
+    {
+      "mutation": "corrupt-manifest-root-text",
+      "lightweight": {
+        "accepted": false,
+        "code": "LOGICAL_ROOT_MISMATCH"
+      },
+      "fullDecode": {
+        "accepted": false,
+        "code": "LOGICAL_ROOT_MISMATCH"
+      }
+    },
+    {
+      "mutation": "corrupt-checksummed-weight-payload",
+      "lightweight": {
+        "accepted": true,
+        "code": null
+      },
+      "fullDecode": {
+        "accepted": false,
+        "code": "SHUFFLED_BLOCK_DECODE"
+      }
+    }
+  ],
+  "assertions": {
+    "everyTrialAccepted": true,
+    "oneLogicalRootAcrossVariants": true,
+    "selectedEncodingConsistentAcrossVariants": true,
+    "everyFullDecodeReadLogicalPopulation": true,
+    "truncationAndHeaderCaughtByLightweightScan": true,
+    "payloadCorruptionRequiresDecode": true,
+    "manifestRootCorruptionCaughtWithoutPayloadDecode": true,
+    "frameChecksumProducesCodecLevelCorruptionDiagnosis": true,
+    "temporaryDirectoryEmptyBeforeRootRemoval": true
+  },
+  "resource": {
+    "processMaxRssBeforeBytes": 79548416,
+    "processMaxRssAfterBytes": 194666496,
+    "requiredTemporaryHeadroomBytes": 78951904
+  },
+  "diagnosticValue": {
+    "singlePass": "Detects writer/codec completion errors, file fsync failure and final-length mismatch; latent stored corruption remains discoverable only on a later decode.",
+    "frameChecksum": "For this injected bit flip, the checksummed frame failed at codec decode while the unchecked frame decoded and then failed its logical SHA-256. It performs no extra write-time read and is not claimed to improve every corruption diagnosis.",
+    "lightweightScan": "Reopens headers, padding, role set, final manifest, declared stored lengths, aggregate counts, logical-root declaration and exact trailer without reading numeric payloads.",
+    "fullDecode": "Reads and bounded-decodes every role, recomputes the single per-role logical hashes and root, and verifies population bits by SHA-256."
+  },
+  "limitations": {
+    "production": "The real writer/reader remains Rust Stage 3 work; Node never becomes the production archive codec.",
+    "memory": "The named TypeScript reference fixture already owns per-genome weights and this harness packs one contiguous raw population buffer. Codec scratch is block-bounded, but this is not a Rust-state RSS measurement.",
+    "zstdAdmission": "The prototype checks its decoded block envelope before Node decompression but cannot preflight the Zstandard frame window. The Rust importer must cap declared content/window before allocation.",
+    "durability": "File fsync and same-filesystem rename are measured. Windows Node directory fsync is reported unsupported rather than described as a power-loss guarantee; Debian parent-directory fsync remains mandatory.",
+    "scope": "No SQLite pointer, persistence worker, restored world, retention, import/export HTTP, legacy compatibility, recovery branch, exhaustive malformed-input corpus or crash-state matrix is implemented here.",
+    "target": "Final policy selection and the archive throughput/RSS gate still require the Rust implementation and Ryzen 7 2700 Debian measurements."
+  }
+}

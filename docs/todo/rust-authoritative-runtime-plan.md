@@ -2345,6 +2345,33 @@ hashes, footer tables, canonical tar metadata, or a mandatory second full
 decode for every automatic checkpoint unless measurement identifies a distinct
 failure that the minimum layers do not cover.
 
+The retained development-machine comparison was produced from clean source
+commit `ac905db49bbb912bf49cf3a91b36934c72932229`. The P0 artifact has SHA-256
+`efa57db87552c61452ebb48240d49c562c50b33ecb254a4d4a5a2cfd40bb7e96`; the P2
+artifact has SHA-256
+`59bbd3013ea85bb65b0894b24633305f2293b115ede99f9047ad1d3f2055caed`.
+On the Windows Ryzen 7 5800X, P0 single-pass publication had 33.613 ms p95,
+lightweight scanning added 2.079 ms p95, and full decode produced a 50.803 ms
+publication-barrier p95. P2 single-pass publication had 587.623 ms p95,
+lightweight scanning added 9.581 ms p95, and full decode produced a 965.716 ms
+publication-barrier p95. The strict fault matrix proved that a structural scan
+does not verify compressed payload content, and a Zstandard checksum is not
+checked until decoding occurs.
+
+The minimum Stage 3 policy selected from that evidence is one-pass logical
+hash/count generation, codec/container completion, file flush and fsync, final
+length check, atomic rename, and Debian parent-directory fsync for ordinary
+automatic checkpoints. It leaves the optional Zstandard frame checksum off and
+does not add a payload-blind second scan to automatic publication. Strict
+validation remains mandatory when startup/import/restore consumes an archive;
+manual exports and pinned checkpoints receive a full post-write decode when
+implemented. Periodic-milestone full decode remains measurement-gated. The
+retained prior checkpoint and recovery-branch rule protect against a latent
+fault discovered during restore. These are disposable Node measurements, not
+the production Rust codec or target-VM proof: P2's development-machine result,
+Windows directory-fsync `EPERM`, and process RSS still require Rust/Debian
+measurement before any final latency, durability or memory gate can pass.
+
 The importer rejects duplicate logical roles, absolute/backslash/parent paths,
 links, devices, sparse/extension records not supported by v1, impossible
 counts, overlapping/out-of-range indexes, unsorted population slots,
@@ -3843,7 +3870,7 @@ measures the production-shaped workload, not isolated shared-weight kernels.
   GC, crash-recovery, export, or equivalent P0/P2/P3 persistence system.
   Complete checkpoint/backup/prune/recovery/interruption/overnight tests apply
   only to managed files.
-- [ ] Measure the write-validation choices on named P0/P2 managed checkpoints:
+- [x] Measure the write-validation choices on named P0/P2 managed checkpoints:
   single-pass publication, optional Zstandard frame checksum, lightweight
   container/entry scan, and full decode limited to manual export/pin/milestone
   classes. Record latency, I/O, diagnosis value, and choose the simplest policy
