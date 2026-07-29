@@ -74,6 +74,27 @@ function fileSize(filePath: string): number {
 }
 
 /**
+ * Hash a potentially multi-gigabyte file without materializing it in memory.
+ * @param filePath - Existing file to hash.
+ * @returns Lowercase SHA-256 digest.
+ */
+function sha256File(filePath: string): string {
+  const hash = createHash('sha256');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  const file = fs.openSync(filePath, 'r');
+  try {
+    let bytesRead = 0;
+    do {
+      bytesRead = fs.readSync(file, buffer, 0, buffer.length, null);
+      if (bytesRead > 0) hash.update(buffer.subarray(0, bytesRead));
+    } while (bytesRead > 0);
+  } finally {
+    fs.closeSync(file);
+  }
+  return hash.digest('hex');
+}
+
+/**
  * Quote one SQLite identifier.
  * @param identifier - Trusted identifier returned by SQLite itself.
  * @returns Double-quoted SQL identifier.
@@ -114,7 +135,6 @@ function hasTable(db: Database.Database, table: string): boolean {
  */
 function inventoryDatabase(databasePath: string): Record<string, unknown> {
   if (!fs.existsSync(databasePath)) throw new Error(`Database does not exist: ${databasePath}`);
-  const bytes = fs.readFileSync(databasePath);
   const stat = fs.statSync(databasePath);
   const db = new Database(databasePath, { readonly: true, fileMustExist: true });
   try {
@@ -201,7 +221,7 @@ function inventoryDatabase(databasePath: string): Record<string, unknown> {
       source: sourceIdentity(),
       artifact: {
         path: databasePath,
-        sha256: createHash('sha256').update(bytes).digest('hex'),
+        sha256: sha256File(databasePath),
         sizeBytes: stat.size,
         createdAt: stat.birthtime.toISOString(),
         modifiedAt: stat.mtime.toISOString(),
