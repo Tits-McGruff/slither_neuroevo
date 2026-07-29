@@ -28,6 +28,7 @@ node .\node_modules\tsx\dist\cli.mjs scripts\stage2\behavior-baseline.ts --outpu
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\graph-baseline.ts --db data\slither.db --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\create-current-db-fixture.ts --scenario P1 --output C:\temporary\stage2-p1.db
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\browser-baseline-host.ts --db C:\temporary\stage2-p1.db --server-port 55194 --ui-port 55193 --ui-rate 30 --duration-ms 1800000
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\external-control-baseline.ts --scenario P1 --player-hz 60 --warmup-ms 2000 --duration-ms 15000 --workers 0 --output result.json
 ```
 
 The runtime runner uses the real `SimCore`, `World`, heterogeneous population,
@@ -207,6 +208,59 @@ The HTTP reproduction is retained separately beside them. These are Windows
 development-machine defect measurements, not acceptance results for the future
 direct compressed archive path.
 
+## Current real-server external-control measurements
+
+The real current server was run with three simultaneous Protocol 2 loopback
+clients: a periodic latest-value UI controller, an observation-driven
+wire-compatible bot, and a spectator receiving complete frame-v1 buffers.
+Each measurement used a disposable database, the native serial backend, two
+seconds of warm-up and fifteen seconds of runner-monotonic measured wall time.
+The source was clean commit
+`24dca58a4fa36fcfc183ca8e21d0df2bc007bfc6`.
+
+| Workload/cadence | Sim seconds per wall second | Player actions | Player-send p95 | Bot sensor p95 | Display frames | Frame-interval p95 | Event-loop p95 | Peak RSS | Dropped sim debt |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| P0, requested 30 Hz | 1.0035x | 347 | 54.33 ms | 30.98 ms | 260 | 70.67 ms | 31.64 ms | 162.5 MiB | 0 s |
+| P0, requested 60 Hz | 1.0024x | 521 | 33.59 ms | 31.38 ms | 262 | 72.75 ms | 32.26 ms | 163.1 MiB | 0 s |
+| P1, requested 30 Hz | 0.6365x | 349 | 61.45 ms | 41.03 ms | 5 | 3,870.71 ms | 41.55 ms | 280.3 MiB | 6.900 s |
+| P1, requested 60 Hz | 0.6261x | 542 | 44.20 ms | 44.35 ms | 5 | 3,895.29 ms | 43.71 ms | 282.5 MiB | 7.033 s |
+
+The periodic client did not sustain either requested cadence even on P0:
+347/521 actions over fifteen seconds are about 23.1/34.7 sends per second.
+P1 reproduced the owner-visible failure more severely. It advanced only
+0.63–0.64 simulated seconds per wall second, discarded about seven simulated
+seconds of scheduler debt, and delivered just five display frames during each
+fifteen-second measurement. Requesting 60 Hz produced fresher timer callbacks
+than requesting 30 Hz but did not repair the overloaded server and slightly
+reduced simulated throughput in these single runs. These results do not select
+the final browser cadence.
+
+The retained `actionToNextSensorMs` field is only a latest-action-to-next-
+sensor receipt upper bound. In overloaded P1, several player actions can occur
+between sensor deliveries, so its near-zero percentile records the action
+nearest a delayed sensor rather than end-to-end command-to-step latency. It is
+not used as proof of acceptable control latency. The Rust vertical slice must
+add authoritative accepted-action and applied-step correlation.
+
+The raw artifacts are
+`windows-5800x/external-p5-p0-30hz.json`,
+`windows-5800x/external-p5-p0-60hz.json`,
+`windows-5800x/external-p5-p1-30hz.json`, and
+`windows-5800x/external-p5-p1-60hz.json`. Their SHA-256 digests are,
+respectively,
+`cd3036ba73ce7aa76ece95fe5775918a46353262ad2835a9823fb6d680ae7621`,
+`d56f675b73456d8f3385363b35c7c1652419dbb3b2a7b14d74680176e77da925`,
+`22c46fae875ba9a61d7b4f54509a212e8b5e0fbd74c2fdf0169026739b2e4367`,
+and
+`942bebdcdae6e2c7cee1e8e06518fa2f18a154656647ec86467ff502cf37e786`.
+
+This is a real-server compatibility baseline, not the full P5 gate. The
+clients run in the same Node process on loopback: they are not the actual
+browser renderer, the owner's separate RL trainer, another LAN device, or the
+target Debian VM. The earlier wait for owner approval to let the browser tool
+observe a loopback address/port is outside the runner and outside every timing
+reported here.
+
 ## Initial Windows runtime measurements
 
 The following are single direct-engine runs on a Ryzen 7 5800X, Windows 11,
@@ -242,7 +296,8 @@ count from observed batch population counts.
 ## Still open before the Stage 2 exit gate
 
 - the same clean runners on the Ryzen 7 2700 Debian VM;
-- integrated real-server/browser/LAN/RL P5 and cadence measurements;
+- real browser/LAN/owner-trainer/target-VM P5 and cadence measurements (the
+  current-server synthetic loopback baseline is retained above);
 - sustained P4, P6 accelerated, P7 soak and P8 overnight-equivalent fixtures;
 - full managed-checkpoint container validation timing;
 - real owner save files outside the repository, if any;
