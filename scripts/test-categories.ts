@@ -4,6 +4,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/ci-contract.test.ts',
     'scripts/recoveryPhase10.lan.test.ts',
     'scripts/stage2/fixtures.test.ts',
+    'scripts/stage2/managedCheckpointFormat.test.ts',
     'scripts/stage2/retentionPolicy.test.ts',
     'scripts/test-categories.test.ts',
     'server/authoritativeWorldDigest.test.ts',
