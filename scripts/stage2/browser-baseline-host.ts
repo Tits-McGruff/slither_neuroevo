@@ -14,6 +14,8 @@ interface BrowserHostOptions {
   serverPort: number;
   /** Static browser port. */
   uiPort: number;
+  /** Display-frame publication rate used by the isolated browser fixture. */
+  uiFrameRateHz: number;
   /** Maximum lifetime before automatic cleanup. */
   durationMs: number;
 }
@@ -53,6 +55,7 @@ function parseOptions(argv: readonly string[]): BrowserHostOptions {
   let databasePath: string | null = null;
   let serverPort = 5174;
   let uiPort = 5173;
+  let uiFrameRateHz = 30;
   let durationMs = 10 * 60 * 1000;
   for (let index = 0; index < argv.length; index++) {
     const option = argv[index];
@@ -68,6 +71,9 @@ function parseOptions(argv: readonly string[]): BrowserHostOptions {
       case '--ui-port':
         uiPort = parsePositiveInteger(value, '--ui-port', 65_535);
         break;
+      case '--ui-rate':
+        uiFrameRateHz = parsePositiveInteger(value, '--ui-rate', 240);
+        break;
       case '--duration-ms':
         durationMs = parsePositiveInteger(value, '--duration-ms', 60 * 60 * 1000);
         break;
@@ -79,7 +85,7 @@ function parseOptions(argv: readonly string[]): BrowserHostOptions {
   if (!databasePath) throw new Error('--db is required');
   if (!existsSync(databasePath)) throw new Error(`Database does not exist: ${databasePath}`);
   if (serverPort === uiPort) throw new Error('server and UI ports must differ');
-  return { databasePath, serverPort, uiPort, durationMs };
+  return { databasePath, serverPort, uiPort, uiFrameRateHz, durationMs };
 }
 
 /**
@@ -182,6 +188,7 @@ async function main(): Promise<void> {
     uiHost: '127.0.0.1',
     uiPort: options.uiPort,
     publicWsUrl: `ws://127.0.0.1:${options.serverPort}`,
+    uiFrameRateHz: options.uiFrameRateHz,
     dbPath: options.databasePath,
     checkpointEveryGenerations: 1_000_000,
     logLevel: 'warn',
@@ -215,6 +222,7 @@ async function main(): Promise<void> {
       uiUrl: `http://127.0.0.1:${options.uiPort}/`,
       serverUrl: `http://127.0.0.1:${options.serverPort}/`,
       databasePath: options.databasePath,
+      uiFrameRateHz: options.uiFrameRateHz,
       durationMs: options.durationMs
     }));
   } catch (error) {
