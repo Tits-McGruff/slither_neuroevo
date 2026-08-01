@@ -35,12 +35,23 @@ describe('spatialHash.ts', () => {
 
     grid.add(1000, 0, { id: 3, alive: true, points: [] }, 0);
     expect(grid.count).toBe(0);
+    expect(grid.getDiagnostics()).toMatchObject({
+      currentEntries: 0,
+      outOfBoundsEntries: 1,
+      faultReason: null
+    });
 
     let hit = false;
     grid.query(1000, 0, () => {
       hit = true;
     });
     expect(hit).toBe(false);
+
+    grid.reset();
+    expect(grid.getDiagnostics()).toMatchObject({
+      currentEntries: 0,
+      outOfBoundsEntries: 1
+    });
   });
 
   it('reset clears entries', () => {

@@ -25,11 +25,13 @@ import {
 } from './fixtures.ts';
 
 /** Schema version for machine-readable runtime evidence. */
-const RESULT_VERSION = 1;
+const RESULT_VERSION = 2;
 /** Default measured fixed steps. */
 const DEFAULT_MEASURED_STEPS = 120;
 /** Default warm-up fixed steps. */
 const DEFAULT_WARMUP_STEPS = 30;
+/** Provenance declaration supplied by the benchmark operator. */
+type EvidenceEnvironment = 'development' | 'owner-target-vm';
 
 /** Parsed runtime benchmark options. */
 interface RuntimeOptions {
@@ -51,6 +53,8 @@ interface RuntimeOptions {
   workers: number;
   /** Optional JSON artifact destination. */
   outputPath: string | null;
+  /** Explicit provenance declaration; a matching hardware profile is not host identity. */
+  evidenceEnvironment: EvidenceEnvironment;
 }
 
 /** Quantile summary for one numeric sample. */
@@ -124,7 +128,8 @@ function parseOptions(argv: readonly string[]): RuntimeOptions {
     frameEvery: 1,
     sampleEverySteps: 0,
     workers: 0,
-    outputPath: null
+    outputPath: null,
+    evidenceEnvironment: 'development'
   };
   for (let index = 0; index < argv.length; index++) {
     const option = argv[index];
@@ -178,6 +183,13 @@ function parseOptions(argv: readonly string[]): RuntimeOptions {
       case '--output':
         if (!value) throw new Error('--output requires a path');
         result.outputPath = path.resolve(value);
+        index++;
+        break;
+      case '--environment':
+        if (value !== 'development' && value !== 'owner-target-vm') {
+          throw new Error('--environment must be development or owner-target-vm');
+        }
+        result.evidenceEnvironment = value;
         index++;
         break;
       default:
@@ -238,12 +250,97 @@ function roundedDistribution(summary: Distribution): Distribution {
 }
 
 /**
- * Return the checked-out Git commit without mutating the repository.
- * @returns Commit identity or an explicit unavailable marker.
+ * Return checked-out source identity without taking optional Git locks.
+ * @returns Commit identity and dirty flag.
  */
-function sourceCommit(): string {
-  const result = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
-  return result.status === 0 ? result.stdout.trim() : 'unavailable';
+function sourceIdentity(): { commit: string; dirty: boolean } {
+  const gitEnvironment = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+    env: gitEnvironment
+  });
+  const status = spawnSync('git', ['status', '--porcelain'], {
+    encoding: 'utf8',
+    env: gitEnvironment
+  });
+  return {
+    commit: commit.status === 0 ? commit.stdout.trim() : 'unavailable',
+    dirty: status.status !== 0 || status.stdout.trim().length > 0
+  };
+}
+
+/**
+ * Read the Linux distribution identifier without invoking another process.
+ * @returns `/etc/os-release` ID, or null outside Linux or when unavailable.
+ */
+function linuxDistributionId(): string | null {
+  if (process.platform !== 'linux') return null;
+  try {
+    const idLine = fs.readFileSync('/etc/os-release', 'utf8')
+      .split(/\r?\n/u)
+      .find(line => line.startsWith('ID='));
+    if (!idLine) return null;
+    return idLine.slice(3).trim().replace(/^['"]|['"]$/gu, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Capture and validate the explicit owner-target evidence declaration.
+ * @param declaration - Operator-provided provenance class.
+ * @returns Individual environment facts and their combined validation result.
+ */
+function captureEnvironmentProvenance(declaration: EvidenceEnvironment): {
+  declaration: EvidenceEnvironment;
+  platformIsLinux: boolean;
+  distributionId: string | null;
+  distributionIsDebian: boolean;
+  hostname: string;
+  hostnameIsOxygen: boolean;
+  cpuModel: string;
+  cpuModelMatches: boolean;
+  logicalCpuCount: number;
+  logicalCpuCountMatches: boolean;
+  totalMemoryBytes: number;
+  memoryAllocationMatches: boolean;
+  ownerTargetVmValidated: boolean;
+} {
+  const platformIsLinux = process.platform === 'linux';
+  const distributionId = linuxDistributionId();
+  const hostname = os.hostname();
+  const cpuModel = os.cpus()[0]?.model ?? 'unknown';
+  const logicalCpuCount = os.cpus().length;
+  const totalMemoryBytes = os.totalmem();
+  const facts = {
+    declaration,
+    platformIsLinux,
+    distributionId,
+    distributionIsDebian: distributionId === 'debian',
+    hostname,
+    hostnameIsOxygen: hostname.toLowerCase().split('.')[0] === 'oxygen',
+    cpuModel,
+    cpuModelMatches: cpuModel.includes('AMD Ryzen 7 2700'),
+    logicalCpuCount,
+    logicalCpuCountMatches: logicalCpuCount === 8,
+    totalMemoryBytes,
+    memoryAllocationMatches: totalMemoryBytes >= 15 * 1024 * 1024 * 1024,
+    ownerTargetVmValidated: false
+  };
+  facts.ownerTargetVmValidated =
+    declaration === 'owner-target-vm' &&
+    facts.platformIsLinux &&
+    facts.distributionIsDebian &&
+    facts.hostnameIsOxygen &&
+    facts.cpuModelMatches &&
+    facts.logicalCpuCountMatches &&
+    facts.memoryAllocationMatches;
+  if (declaration === 'owner-target-vm' && !facts.ownerTargetVmValidated) {
+    throw new Error(
+      `--environment owner-target-vm did not match oxygen Debian/Ryzen/8-vCPU/15-GiB facts: ${JSON.stringify(facts)}`
+    );
+  }
+  return facts;
 }
 
 /**
@@ -260,6 +357,8 @@ function yieldEventLoop(): Promise<void> {
  * @returns Machine-readable result.
  */
 async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<string, unknown>> {
+  const provenance = captureEnvironmentProvenance(options.evidenceEnvironment);
+  const source = sourceIdentity();
   const scenario = installStage2Scenario(options.scenario, options.recurrentKind);
   await prepareInferenceBackend(options.backend);
   const core = new SimCore({
@@ -347,9 +446,13 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
     const timeline: RuntimeTimelineSample[] = [];
     let denseThresholdLastStep: number | null = null;
     let p4CollisionFaultFree = true;
+    let p4FirstOutOfBoundsMeasuredStep: number | null = null;
     let committedSteps = 0;
     const measuredStartLoad = scenario.denseLongBodies || options.sampleEverySteps > 0
       ? captureStage2WorldLoad(core.world)
+      : null;
+    const p4OutOfBoundsAtMeasuredStart = scenario.denseLongBodies
+      ? measuredStartLoad?.collisionGrid.outOfBoundsEntries ?? null
       : null;
     if (
       scenario.denseLongBodies &&
@@ -408,6 +511,13 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
       if (scenario.denseLongBodies) {
         const stepCollision = core.world.getCollisionGridDiagnostics();
         p4CollisionFaultFree &&= stepCollision.faultReason === null;
+        if (
+          p4FirstOutOfBoundsMeasuredStep === null &&
+          p4OutOfBoundsAtMeasuredStart !== null &&
+          stepCollision.outOfBoundsEntries > p4OutOfBoundsAtMeasuredStart
+        ) {
+          p4FirstOutOfBoundsMeasuredStep = measuredStep;
+        }
         if (stepCollision.currentEntries > P4_DENSE_COLLISION_ENTRY_THRESHOLD) {
           denseThresholdLastStep = measuredStep;
         }
@@ -443,6 +553,13 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
     const brainCallCount = profiler.windowBrainCalls;
     const populationEvaluations = serialPopulationEvaluations + pooledPopulationEvaluations;
     const collision = core.world.getCollisionGridDiagnostics();
+    const p4OutOfBoundsAtMeasuredEnd = scenario.denseLongBodies
+      ? collision.outOfBoundsEntries
+      : null;
+    const p4OutOfBoundsAccumulatedDuringMeasuredSteps =
+      p4OutOfBoundsAtMeasuredStart !== null && p4OutOfBoundsAtMeasuredEnd !== null
+        ? p4OutOfBoundsAtMeasuredEnd - p4OutOfBoundsAtMeasuredStart
+        : null;
     const assertions = {
       allMeasuredStepsCommitted: committedSteps === options.measuredSteps,
       p4InstalledBodyThresholdExceeded: !scenario.denseLongBodies ||
@@ -463,12 +580,13 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
     return {
     schema: 'slither-stage2-runtime-baseline',
     version: RESULT_VERSION,
-    evidenceClass: 'new measured result',
-    caveat: 'Direct production SimCore/World path, including the canonical BrainPool when selected; not an end-to-end server, LAN, browser, or target-VM result.',
-    source: {
-      commit: sourceCommit(),
-      dirty: spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).stdout.trim().length > 0
-    },
+    evidenceClass: provenance.ownerTargetVmValidated
+      ? 'new measured target-VM current-TypeScript result'
+      : 'new measured development-machine current-TypeScript result',
+    caveat: provenance.ownerTargetVmValidated
+      ? 'Direct production SimCore/World path measured on the oxygen Ryzen 7 2700 Debian VM, including the canonical BrainPool when selected; not an end-to-end server, LAN, browser, RL trainer, or Rust-authoritative result.'
+      : 'Direct production SimCore/World path, including the canonical BrainPool when selected; not an end-to-end server, LAN, browser, RL trainer, target-VM, or Rust-authoritative result.',
+    source,
     environment: {
       capturedAt: new Date().toISOString(),
       platform: process.platform,
@@ -477,6 +595,7 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
       osRelease: os.release(),
       osVersion: os.version(),
       hostname: os.hostname(),
+      provenance,
       locale: Intl.DateTimeFormat().resolvedOptions().locale,
       node: process.version,
       v8: process.versions.v8,
@@ -551,6 +670,15 @@ async function runRuntimeBaseline(options: RuntimeOptions): Promise<Record<strin
             : denseThresholdLastStep === 0
               ? 'The collision index was above the threshold only at the measured start and fell below it during the first completed step.'
               : `The last completed measured step above the threshold was ${denseThresholdLastStep}.`,
+        outOfBounds: {
+          atMeasuredStart: p4OutOfBoundsAtMeasuredStart,
+          atMeasuredEnd: p4OutOfBoundsAtMeasuredEnd,
+          accumulatedDuringMeasuredSteps: p4OutOfBoundsAccumulatedDuringMeasuredSteps,
+          firstObservedMeasuredStep: p4FirstOutOfBoundsMeasuredStep,
+          meaning: scenario.denseLongBodies
+            ? 'The counter is cumulative rejected segment-midpoint insertions since collision-grid construction, not the number currently missing. Any measured increase means segments were omitted from the current TypeScript collision index without a capacity fault.'
+            : 'Not a P4 dense-world fixture.'
+        },
         samples: timeline,
         interpretation: scenario.denseLongBodies
           ? 'The fixture is installed once. The timeline reports when ordinary deaths reduce load; it never reinflates bodies or disables collisions to manufacture sustained density.'
