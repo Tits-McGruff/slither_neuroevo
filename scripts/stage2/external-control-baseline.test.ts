@@ -1,5 +1,6 @@
 /** Contract tests for the bounded Stage 2 P5/P6 external-control measurement runner. */
 
+import os from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetCFGToDefaults } from '../../src/config.ts';
 import {
@@ -82,8 +83,15 @@ describe('Stage 2 P5/P6 external-control runner', () => {
       warmupMs: 2_000,
       durationMs: 15_000,
       warmupTick: null,
-      measurementSteps: null
+      measurementSteps: null,
+      evidenceEnvironment: 'development'
     });
+    expect(parseOptions(['--environment', 'owner-target-vm'])).toMatchObject({
+      evidenceEnvironment: 'owner-target-vm'
+    });
+    expect(() => parseOptions(['--environment', 'similar-machine'])).toThrow(
+      'development or owner-target-vm'
+    );
     expect(parseOptions([
       '--profile', 'p6', '--sim-speed', '12', '--viewer', 'on', '--checkpoint-every', '0'
     ])).toMatchObject({ profile: 'p6', simSpeed: 12, viewer: true, checkpointEvery: 0 });
@@ -157,6 +165,13 @@ describe('Stage 2 P5/P6 external-control runner', () => {
     expect(externalControlComposition({ profile: 'p6', viewer: false })).toEqual(p6Composition(false));
     expect(p7Composition()).toEqual(p5Composition());
     expect(externalControlComposition({ profile: 'p7', viewer: true })).toEqual(p7Composition());
+  });
+
+  it('rejects a false owner-target declaration before starting the server', async () => {
+    vi.spyOn(os, 'hostname').mockReturnValue('not-oxygen');
+    await expect(runExternalControlBaseline(parseOptions([
+      '--environment', 'owner-target-vm'
+    ]))).rejects.toThrow('--environment owner-target-vm did not match');
   });
 
   it('does not let delayed P6 frame publication postpone the warm-up boundary', () => {

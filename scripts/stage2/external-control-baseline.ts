@@ -27,6 +27,38 @@ import {
 
 /** Supported external-control workloads. */
 type ExternalScenario = Extract<Stage2ScenarioName, 'P0' | 'P1' | 'P2'>;
+/** Provenance declaration supplied by the benchmark operator. */
+type EvidenceEnvironment = 'development' | 'owner-target-vm';
+
+/** Explicit environment facts retained with target-sensitive evidence. */
+interface EnvironmentProvenance {
+  /** Operator-provided provenance class. */
+  declaration: EvidenceEnvironment;
+  /** Whether Node reports Linux. */
+  platformIsLinux: boolean;
+  /** Linux distribution ID from `/etc/os-release`. */
+  distributionId: string | null;
+  /** Whether the distribution ID is Debian. */
+  distributionIsDebian: boolean;
+  /** Reported hostname. */
+  hostname: string;
+  /** Whether the short hostname is oxygen. */
+  hostnameIsOxygen: boolean;
+  /** First reported CPU model. */
+  cpuModel: string;
+  /** Whether the CPU model is the Ryzen 7 2700 target. */
+  cpuModelMatches: boolean;
+  /** Visible logical processor count. */
+  logicalCpuCount: number;
+  /** Whether eight logical processors are visible. */
+  logicalCpuCountMatches: boolean;
+  /** Total memory visible to Node. */
+  totalMemoryBytes: number;
+  /** Whether at least 15 GiB of the 16-GiB allocation is visible. */
+  memoryAllocationMatches: boolean;
+  /** True only when explicit declaration and every target fact agree. */
+  ownerTargetVmValidated: boolean;
+}
 
 /** Parsed benchmark options. */
 interface ExternalControlOptions {
@@ -62,6 +94,8 @@ interface ExternalControlOptions {
   manualSaveEveryMs: number;
   /** Explicit test-only escape hatch for a sub-30-minute P7 integration run. */
   p7TestOnlyShort: boolean;
+  /** Explicit provenance declaration; hardware similarity alone is not host identity. */
+  evidenceEnvironment: EvidenceEnvironment;
 }
 
 /** Maximum retained event timestamps per client; totals remain separate. */
@@ -344,7 +378,8 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
     sampleEveryMs: P7_SAMPLE_EVERY_MS,
     reconnectEveryMs: 180_000,
     manualSaveEveryMs: 300_000,
-    p7TestOnlyShort: false
+    p7TestOnlyShort: false,
+    evidenceEnvironment: 'development'
   };
   let checkpointExplicit = false;
   let viewerExplicit = false;
@@ -446,6 +481,13 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
       case '--output':
         if (!value) throw new Error('--output requires a path');
         options.outputPath = path.resolve(value);
+        index++;
+        break;
+      case '--environment':
+        if (value !== 'development' && value !== 'owner-target-vm') {
+          throw new Error('--environment must be development or owner-target-vm');
+        }
+        options.evidenceEnvironment = value;
         index++;
         break;
       default:
@@ -738,12 +780,81 @@ function clearViewerSamples(telemetry: ViewerTelemetry): void {
  * @returns Commit and dirty flag.
  */
 function sourceIdentity(): { commit: string; dirty: boolean } {
-  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
-  const status = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+  const gitEnvironment = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+    env: gitEnvironment
+  });
+  const status = spawnSync('git', ['status', '--porcelain'], {
+    encoding: 'utf8',
+    env: gitEnvironment
+  });
   return {
     commit: commit.status === 0 ? commit.stdout.trim() : 'unavailable',
     dirty: status.status !== 0 || status.stdout.trim().length > 0
   };
+}
+
+/**
+ * Read the Linux distribution identifier without invoking another process.
+ * @returns `/etc/os-release` ID, or null outside Linux or when unavailable.
+ */
+function linuxDistributionId(): string | null {
+  if (process.platform !== 'linux') return null;
+  try {
+    const idLine = fs.readFileSync('/etc/os-release', 'utf8')
+      .split(/\r?\n/u)
+      .find(line => line.startsWith('ID='));
+    if (!idLine) return null;
+    return idLine.slice(3).trim().replace(/^['"]|['"]$/gu, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Capture and validate the explicit owner-target evidence declaration.
+ * @param declaration - Operator-provided provenance class.
+ * @returns Individual environment facts and their combined validation result.
+ */
+function captureEnvironmentProvenance(
+  declaration: EvidenceEnvironment
+): EnvironmentProvenance {
+  const platformIsLinux = process.platform === 'linux';
+  const distributionId = linuxDistributionId();
+  const hostname = os.hostname();
+  const cpuModel = os.cpus()[0]?.model ?? 'unknown';
+  const logicalCpuCount = os.cpus().length;
+  const totalMemoryBytes = os.totalmem();
+  const facts: EnvironmentProvenance = {
+    declaration,
+    platformIsLinux,
+    distributionId,
+    distributionIsDebian: distributionId === 'debian',
+    hostname,
+    hostnameIsOxygen: hostname.toLowerCase().split('.')[0] === 'oxygen',
+    cpuModel,
+    cpuModelMatches: cpuModel.includes('AMD Ryzen 7 2700'),
+    logicalCpuCount,
+    logicalCpuCountMatches: logicalCpuCount === 8,
+    totalMemoryBytes,
+    memoryAllocationMatches: totalMemoryBytes >= 15 * 1024 * 1024 * 1024,
+    ownerTargetVmValidated: false
+  };
+  facts.ownerTargetVmValidated =
+    declaration === 'owner-target-vm' &&
+    facts.platformIsLinux &&
+    facts.distributionIsDebian &&
+    facts.hostnameIsOxygen &&
+    facts.cpuModelMatches &&
+    facts.logicalCpuCountMatches &&
+    facts.memoryAllocationMatches;
+  if (declaration === 'owner-target-vm' && !facts.ownerTargetVmValidated) {
+    throw new Error(
+      `--environment owner-target-vm did not match oxygen Debian/Ryzen/8-vCPU/15-GiB facts: ${JSON.stringify(facts)}`
+    );
+  }
+  return facts;
 }
 
 /**
@@ -1282,7 +1393,8 @@ async function waitForTickBoundary(
 export async function runExternalControlBaseline(
   options: ExternalControlOptions
 ): Promise<Record<string, unknown>> {
-  if (options.profile === 'p7') return runP7Soak(options);
+  const provenance = captureEnvironmentProvenance(options.evidenceEnvironment);
+  if (options.profile === 'p7') return runP7Soak(options, provenance);
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slither-stage2-external-'));
   const resolvedTemporaryRoot = path.resolve(temporaryRoot);
   const resolvedSystemTemp = path.resolve(os.tmpdir());
@@ -1495,10 +1607,13 @@ export async function runExternalControlBaseline(
     const monotonicAchievedMultiplier = scheduler.simulatedSeconds / measuredWallSeconds;
     evidence = {
       schema: 'slither-stage2-external-control-baseline',
-      version: 3,
-      evidenceClass: 'new measured result',
-      caveat:
-        'Real current server and Protocol 2 wire-compatible bot, but loopback Node clients are not the missing owner trainer project, a browser renderer, another LAN device, or the target Debian VM.',
+      version: 4,
+      evidenceClass: provenance.ownerTargetVmValidated
+        ? 'new measured target-VM current-server result'
+        : 'new measured development-machine current-server result',
+      caveat: provenance.ownerTargetVmValidated
+        ? 'Real current server measured on the oxygen Ryzen 7 2700 Debian VM with Protocol 2 wire-compatible loopback clients. Those synthetic clients are not the owner trainer, a browser renderer, or another LAN device.'
+        : 'Real current server and Protocol 2 wire-compatible bot, but loopback Node clients are not the owner trainer, a browser renderer, another LAN device, or the target Debian VM.',
       source: sourceIdentity(),
       environment: {
         capturedAt: new Date().toISOString(),
@@ -1508,6 +1623,7 @@ export async function runExternalControlBaseline(
         osRelease: os.release(),
         osVersion: os.version(),
         hostname: os.hostname(),
+        provenance,
         locale: Intl.DateTimeFormat().resolvedOptions().locale,
         node: process.version,
         v8: process.versions.v8,
@@ -1765,7 +1881,10 @@ export async function runExternalControlBaseline(
 }
 
 /** Run the bounded current-reference P7 soak without claiming target-VM or production-Rust coverage. */
-async function runP7Soak(options: ExternalControlOptions): Promise<Record<string, unknown>> {
+async function runP7Soak(
+  options: ExternalControlOptions,
+  provenance: EnvironmentProvenance
+): Promise<Record<string, unknown>> {
   const temporaryRoot = path.resolve(fs.mkdtempSync(path.join(os.tmpdir(), 'slither-stage2-p7-')));
   const systemTemp = path.resolve(os.tmpdir());
   if (path.dirname(temporaryRoot) !== systemTemp || !path.basename(temporaryRoot).startsWith('slither-stage2-p7-')) {
@@ -2146,15 +2265,22 @@ async function runP7Soak(options: ExternalControlOptions): Promise<Record<string
       ? (samples.at(-1)!['health'] as HealthSnapshot).persistence
       : firstPersistence;
   return {
-    schema: 'slither-stage2-p7-current-server-soak', version: 1,
-    evidenceClass: options.p7TestOnlyShort ? 'test-only short diagnostic' : 'new measured result',
-    caveat: 'Current TypeScript server plus loopback synthetic clients in one process. Combined runner/server memory, sampled queue maxima, and current SQLite saves are not Rust, LAN browser, owner trainer, target-VM, retention, or production persistence evidence.',
+    schema: 'slither-stage2-p7-current-server-soak', version: 2,
+    evidenceClass: options.p7TestOnlyShort
+      ? 'test-only short diagnostic'
+      : provenance.ownerTargetVmValidated
+        ? 'new measured target-VM current-server soak result'
+        : 'new measured development-machine current-server soak result',
+    caveat: provenance.ownerTargetVmValidated
+      ? 'Current TypeScript server plus loopback synthetic clients measured on the oxygen Ryzen 7 2700 Debian VM. Combined runner/server memory, sampled queue maxima, and current SQLite saves are not Rust, LAN browser, owner trainer, managed retention, or production persistence evidence.'
+      : 'Current TypeScript server plus loopback synthetic clients in one process. Combined runner/server memory, sampled queue maxima, and current SQLite saves are not Rust, LAN browser, owner trainer, target-VM, retention, or production persistence evidence.',
     source: sourceIdentity(),
     environment: {
       capturedAt: new Date().toISOString(),
       platform: process.platform,
       architecture: process.arch,
       osRelease: os.release(),
+      provenance,
       node: process.version,
       cpuModel: os.cpus()[0]?.model ?? 'unknown',
       logicalCpuCount: os.cpus().length,
@@ -2210,6 +2336,7 @@ async function runP7Soak(options: ExternalControlOptions): Promise<Record<string
       finalStorage,
       resourcesAfterCleanup,
       fullP7SoakEligible:
+        !options.p7TestOnlyShort &&
         durationMs >= P7_MIN_DURATION_MS &&
         measuredWallMs >= P7_MIN_DURATION_MS &&
         warmupMs === P7_WARMUP_MS &&
