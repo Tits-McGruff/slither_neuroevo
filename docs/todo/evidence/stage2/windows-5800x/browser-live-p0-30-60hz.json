@@ -1,0 +1,201 @@
+{
+  "schema": "slither-stage2-live-browser-control-summary",
+  "version": 1,
+  "evidenceClass": "new measured result summarized from bounded in-app-browser CDP windows",
+  "source": {
+    "commit": "5b9b4930664f9e004b24dc0c896c5d103f0a78b9",
+    "dirtyBeforeBuild": false,
+    "buildCommand": "node .\\node_modules\\vite\\bin\\vite.js build --configLoader runner",
+    "buildResult": "24 modules transformed; production build passed"
+  },
+  "environment": {
+    "capturedAtLocalDate": "2026-08-01",
+    "platform": "Windows x64 development machine",
+    "cpu": "AMD Ryzen 7 5800X 8-Core Processor",
+    "node": "v24.12.0",
+    "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+    "viewport": {
+      "width": 1280,
+      "height": 720,
+      "devicePixelRatio": 1,
+      "visibility": "visible"
+    }
+  },
+  "fixture": {
+    "scenario": "P0",
+    "snakeCount": 55,
+    "baselineBotCount": 10,
+    "pelletCountTarget": 3500,
+    "brainInputCount": 83,
+    "brainParameterCount": 13458,
+    "serverBackend": "native",
+    "serverWorkers": 0,
+    "serverUiFrameRateHz": 30,
+    "transport": "actual built browser UI to current server on loopback",
+    "database": "disposable current-format fixture removed after the run"
+  },
+  "browserConnection": {
+    "pageTitle": "Neuroevolution Slither Sim",
+    "welcomeStatus": "Server · seed 1511506142 · native single-thread",
+    "playerNickname": "Stage2Browser",
+    "initialConnectionRenderedWorld": true,
+    "initialConnectedPhaseWarningOrErrorCount": 0,
+    "reclaimAfterReload": "Reconnected",
+    "note": "Later log history contains expected WebSocket warnings from deliberately allowing each finite host to stop; it is not used for a zero-warning claim."
+  },
+  "candidate60Hz": {
+    "actionWindow": {
+      "actionFrames": 409,
+      "timestampSpanSeconds": 6.974239000002854,
+      "ratePerSecond": 58.50100634633156,
+      "intervalMilliseconds": {
+        "p50": 16.959000029601157,
+        "p95": 19.6519999881275,
+        "p99": 21.259000001009554,
+        "max": 23.071999952662736
+      }
+    },
+    "controlledDrag": {
+      "capturedActionFrames": 18,
+      "boostOn": {
+        "tick": 7935,
+        "snakeId": 100000,
+        "turn": 1,
+        "boost": 1,
+        "cdpTimestamp": 441150.48752
+      },
+      "firstBoostOffAfterOn": {
+        "tick": 7936,
+        "snakeId": 100000,
+        "turn": 1,
+        "boost": 0,
+        "cdpTimestamp": 441150.504709,
+        "millisecondsAfterBoostOn": 17.189000034704804
+      },
+      "laterLatestSteering": {
+        "tick": 7951,
+        "turn": 0.8476020608509338,
+        "boost": 0
+      }
+    },
+    "displayWindow": {
+      "binaryFrames": 48,
+      "timestampSpanSeconds": 2.0185480000218377,
+      "ratePerSecond": 23.28406359397524,
+      "intervalMilliseconds": {
+        "p50": 44.091999996453524,
+        "p95": 51.900000020395964,
+        "p99": 53.81599999964237,
+        "max": 64.75600000703707
+      },
+      "cdpBinaryPayloadCharacters": {
+        "min": 103264,
+        "max": 103344,
+        "warning": "CDP exposes encoded payload characters here; these values are not claimed as wire or decoded frame bytes."
+      }
+    }
+  },
+  "candidate30Hz": {
+    "actionWindow": {
+      "actionFrames": 237,
+      "timestampSpanSeconds": 7.983502999995835,
+      "ratePerSecond": 29.56095839133813,
+      "intervalMilliseconds": {
+        "p50": 33.531000022776425,
+        "p95": 35.75899999123067,
+        "p99": 37.80200000619516,
+        "max": 42.69199998816475
+      }
+    },
+    "subCadenceSyntheticTap": {
+      "capturedActionFrames": 10,
+      "boostOnFrames": 0,
+      "latestRelease": {
+        "tick": 13735,
+        "snakeId": 100001,
+        "turn": 1,
+        "boost": 0
+      },
+      "finding": "A synthetic press/release shorter than one 30 Hz interval was coalesced to the newest boost-off value, so the server did not observe boost-on. This is a selection limitation, not a finalized product rule."
+    },
+    "controlledLongerDrag": {
+      "capturedActionFrames": 12,
+      "boostOn": {
+        "tick": 15201,
+        "snakeId": 100001,
+        "turn": 0.5871202814880201,
+        "boost": 1,
+        "cdpTimestamp": 441271.579353
+      },
+      "firstBoostOffAfterOn": {
+        "tick": 15202,
+        "snakeId": 100001,
+        "turn": 0.5642018377221875,
+        "boost": 0,
+        "cdpTimestamp": 441271.613139,
+        "millisecondsAfterBoostOn": 33.78600004315376
+      },
+      "laterLatestSteering": {
+        "tick": 15220,
+        "turn": 0.2951761603936162,
+        "boost": 0
+      }
+    },
+    "displayWindow": {
+      "binaryFrames": 35,
+      "timestampSpanSeconds": 2.0244519999832846,
+      "ratePerSecond": 16.794668384471812,
+      "intervalMilliseconds": {
+        "p50": 61.26600003335625,
+        "p95": 65.45200000982732,
+        "p99": 75.64799999818206,
+        "max": 90.48799995798618
+      },
+      "cdpBinaryPayloadCharacters": {
+        "min": 102524,
+        "max": 102684,
+        "warning": "CDP exposes encoded payload characters here; these values are not claimed as wire or decoded frame bytes."
+      }
+    }
+  },
+  "nearFinalServerHealth": {
+    "tick": 16964,
+    "clients": 1,
+    "achievedMultiplier": 0.9999693049981169,
+    "droppedSimulationSeconds": 0,
+    "pendingSimulationSeconds": 0.008678766666672548,
+    "generation": 2,
+    "generationTime": 102.83333333332878,
+    "aliveTotalSnakes": 12,
+    "aliveBodyPointCount": 665,
+    "collisionEntries": 653,
+    "reliableQueuedMessages": 0,
+    "reliableFailuresForActiveConnection": 0,
+    "pendingFrames": 0
+  },
+  "singleBrowserMemorySample": {
+    "jsHeapUsedBytes": 8952336,
+    "jsHeapTotalBytes": 21852160,
+    "domNodes": 2603,
+    "documents": 1,
+    "frames": 1,
+    "warning": "This is one CDP sample, not a peak, slope, browser-process RSS, export/import memory measurement, or leak result."
+  },
+  "interpretation": {
+    "supported": [
+      "The built browser connected to and rendered the disposable current P0 server.",
+      "Browser-player action production remained independent and periodic at both configured candidates.",
+      "A realistic drag sent steering plus boost-on and a later boost-off at both candidates.",
+      "The current reference maintained approximately 1x scheduler progress with zero reported dropped simulated-time debt near the final sample."
+    ],
+    "notSupported": [
+      "A final choice between 30 Hz and 60 Hz.",
+      "Trusted-LAN, laptop, desktop, owner-trainer, Debian VM, or Ryzen 7 2700 performance.",
+      "Authoritative accepted-action or applied-fixed-step latency.",
+      "A causal comparison between the two short display windows, which occurred at different world states.",
+      "Meeting the final display target: both sampled frame windows were below 25 fps and had p95 intervals above 40 ms.",
+      "Raw event-stream preservation, browser-memory peaks, or screenshot evidence."
+    ]
+  },
+  "timingBoundary": "Browser CDP monotonic timestamps define every interval. Codex permission prompts, tool waits, model analysis time, host startup and deliberate host downtime are outside each bounded event window."
+}

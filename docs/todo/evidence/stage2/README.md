@@ -475,6 +475,54 @@ target Debian VM. The earlier wait for owner approval to let the browser tool
 observe a loopback address/port is outside the runner and outside every timing
 reported here.
 
+## Actual local-browser control cadence
+
+The built browser from clean source commit
+`5b9b4930664f9e004b24dc0c896c5d103f0a78b9` was exercised through Chrome 150
+in the in-app browser at 1280×720 and device-pixel ratio 1. It connected to a
+disposable current P0 server on loopback, rendered the world, joined a player,
+and reclaimed that player after a reload. A bounded developer-network trace
+measured the browser's actual WebSocket action and display messages.
+
+| Browser candidate/window | Observed rate | Interval p50 | p95 | p99 | Max |
+|---|---:|---:|---:|---:|---:|
+| 60 Hz player actions, 409 messages | 58.50/s | 16.96 ms | 19.65 ms | 21.26 ms | 23.07 ms |
+| 30 Hz player actions, 237 messages | 29.56/s | 33.53 ms | 35.76 ms | 37.80 ms | 42.69 ms |
+| Display frames during the 60 Hz session, 48 frames | 23.28/s | 44.09 ms | 51.90 ms | 53.82 ms | 64.76 ms |
+| Display frames during the 30 Hz session, 35 frames | 16.79/s | 61.27 ms | 65.45 ms | 75.65 ms | 90.49 ms |
+
+A controlled 60 Hz drag emitted steering plus boost-on and then boost-off
+17.189 ms later. A longer controlled 30 Hz drag emitted boost-on and then
+boost-off 33.786 ms later. In both cases later periodic sends retained the
+newest boost-off and recomputed steering values. A synthetic 30 Hz press and
+release shorter than one cadence interval was coalesced to boost-off, so the
+server did not observe boost-on. That is a measured candidate limitation to
+review alongside the real LAN workload, not a silently finalized rule.
+
+Near the final 30 Hz window the current server reported 0.999969x scheduler
+progress, zero dropped simulated-time debt and empty sampled outbound queues.
+Only twelve snakes were then alive, so that point is not a full-population
+capacity result. A single browser heap sample reported 8,952,336 used bytes;
+it is not a peak, slope, process-RSS or leak result.
+
+The two short display windows occurred at different world states and are not
+a causal comparison between player cadences. Both were below the final 25-fps
+equivalent target and had p95 intervals above 40 ms, so this current-reference
+browser run does not pass the future Rust display gate. CDP reported encoded
+binary-payload character counts rather than decoded or wire bytes; no frame-
+byte claim is made. Action messages prove browser sends, not authoritative
+acceptance or next-step application. Deliberate finite-host shutdowns produced
+expected reconnect warnings after the bounded windows.
+
+The summarized artifact is
+`windows-5800x/browser-live-p0-30-60hz.json`, SHA-256
+`c6d33fc7c0d1f9ce8d72d435e76d6f5d6bf96d17e88e6b57420d81b555000187`.
+It retains the exact event-window results and limitations, but not the raw CDP
+stream or screenshot. This is actual browser evidence on same-machine
+loopback, not trusted-LAN laptop/desktop, owner-trainer, Debian VM or Ryzen 7
+2700 evidence. Tool and permission waits are outside the CDP monotonic event
+windows.
+
 ## Current real-server P6 accelerated-control matrix
 
 The retained P6 matrix used clean source commit
@@ -668,8 +716,9 @@ count from observed batch population counts.
 ## Still open before the Stage 2 exit gate
 
 - the same clean runners on the Ryzen 7 2700 Debian VM;
-- real browser/LAN/owner-trainer/target-VM P5 and cadence measurements (the
-  current-server synthetic loopback baseline is retained above);
+- trusted-LAN laptop/desktop browser, owner-trainer and target-VM P5/cadence
+  measurements beyond the actual local-browser and synthetic-loopback results
+  retained above;
 - sustained P4 (the retained 600-step artifact is an honest load-collapse
   curve), repeated/target-VM P6 capacity, and target-VM/browser/trainer P7
   repetition beyond the current-reference loopback soak retained above;
