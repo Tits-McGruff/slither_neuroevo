@@ -45,6 +45,8 @@ type FixtureKind = 'fresh' | 'evolved';
 type ValidationPolicy = 'none' | 'lightweight-scan' | 'full-decode';
 /** Named write-validation choices from Draft 4. */
 type VariantName = 'single-pass' | 'frame-checksum' | 'lightweight-scan' | 'full-decode';
+/** Provenance declaration supplied by the benchmark operator. */
+type EvidenceEnvironment = 'development' | 'owner-target-vm';
 
 /** Default independently decoded Float32 block size. */
 const DEFAULT_BLOCK_BYTES = 1024 * 1024;
@@ -94,6 +96,8 @@ interface RunnerOptions {
   blockBytes: number;
   /** Optional retained JSON destination. */
   outputPath: string | null;
+  /** Explicit provenance declaration; hardware checks alone never infer owner-host identity. */
+  evidenceEnvironment: EvidenceEnvironment;
 }
 
 /** One validation choice. */
@@ -416,7 +420,8 @@ function parseOptions(argv: readonly string[]): RunnerOptions {
     evolutionGenerations: DEFAULT_EVOLUTION_GENERATIONS,
     trials: DEFAULT_TRIALS,
     blockBytes: DEFAULT_BLOCK_BYTES,
-    outputPath: null
+    outputPath: null,
+    evidenceEnvironment: 'development'
   };
   for (let index = 0; index < argv.length; index++) {
     const option = argv[index];
@@ -454,6 +459,13 @@ function parseOptions(argv: readonly string[]): RunnerOptions {
         options.outputPath = path.resolve(value);
         index++;
         break;
+      case '--environment':
+        if (value !== 'development' && value !== 'owner-target-vm') {
+          throw new Error('--environment must be development or owner-target-vm');
+        }
+        options.evidenceEnvironment = value;
+        index++;
+        break;
       default:
         throw new Error(`unknown option ${option ?? '<missing>'}`);
     }
@@ -466,12 +478,94 @@ function parseOptions(argv: readonly string[]): RunnerOptions {
  * @returns Commit and dirty flag.
  */
 function sourceIdentity(): { commit: string; dirty: boolean } {
-  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
-  const status = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+  const gitEnvironment = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+    env: gitEnvironment
+  });
+  const status = spawnSync('git', ['status', '--porcelain'], {
+    encoding: 'utf8',
+    env: gitEnvironment
+  });
   return {
     commit: commit.status === 0 ? commit.stdout.trim() : 'unavailable',
     dirty: status.status !== 0 || status.stdout.trim().length > 0
   };
+}
+
+/**
+ * Read the Linux distribution identifier without invoking another process.
+ * @returns `/etc/os-release` ID, or null outside Linux or when unavailable.
+ */
+function linuxDistributionId(): string | null {
+  if (process.platform !== 'linux') return null;
+  try {
+    const idLine = fs.readFileSync('/etc/os-release', 'utf8')
+      .split(/\r?\n/u)
+      .find(line => line.startsWith('ID='));
+    if (!idLine) return null;
+    return idLine.slice(3).trim().replace(/^['"]|['"]$/gu, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Capture and validate the explicit owner-target evidence declaration.
+ * Hardware similarity never establishes that a run occurred on the owner's VM.
+ * @param declaration - Operator-provided provenance class.
+ * @returns Individual environment facts and their combined validation result.
+ */
+function captureEnvironmentProvenance(declaration: EvidenceEnvironment): {
+  declaration: EvidenceEnvironment;
+  platformIsLinux: boolean;
+  distributionId: string | null;
+  distributionIsDebian: boolean;
+  hostname: string;
+  hostnameIsOxygen: boolean;
+  cpuModel: string;
+  cpuModelMatches: boolean;
+  logicalCpuCount: number;
+  logicalCpuCountMatches: boolean;
+  totalMemoryBytes: number;
+  memoryAllocationMatches: boolean;
+  ownerTargetVmValidated: boolean;
+} {
+  const platformIsLinux = process.platform === 'linux';
+  const distributionId = linuxDistributionId();
+  const hostname = os.hostname();
+  const cpuModel = os.cpus()[0]?.model ?? 'unknown';
+  const logicalCpuCount = os.cpus().length;
+  const totalMemoryBytes = os.totalmem();
+  const facts = {
+    declaration,
+    platformIsLinux,
+    distributionId,
+    distributionIsDebian: distributionId === 'debian',
+    hostname,
+    hostnameIsOxygen: hostname.toLowerCase().split('.')[0] === 'oxygen',
+    cpuModel,
+    cpuModelMatches: cpuModel.includes('AMD Ryzen 7 2700'),
+    logicalCpuCount,
+    logicalCpuCountMatches: logicalCpuCount === 8,
+    totalMemoryBytes,
+    memoryAllocationMatches: totalMemoryBytes >= 15 * 1024 * 1024 * 1024,
+    ownerTargetVmValidated: false
+  };
+  facts.ownerTargetVmValidated =
+    declaration === 'owner-target-vm' &&
+    facts.platformIsLinux &&
+    facts.distributionIsDebian &&
+    facts.hostnameIsOxygen &&
+    facts.cpuModelMatches &&
+    facts.logicalCpuCountMatches &&
+    facts.memoryAllocationMatches;
+  if (declaration === 'owner-target-vm' && !facts.ownerTargetVmValidated) {
+    throw new Error(
+      `--environment owner-target-vm did not match oxygen Debian/Ryzen/8-vCPU/15-GiB facts: ${JSON.stringify(facts)}`
+    );
+  }
+  return facts;
 }
 
 /**
@@ -1204,7 +1298,7 @@ function syncDirectory(directory: string): DirectorySyncResult {
     };
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code ?? 'UNKNOWN';
-    if (process.platform !== 'win32') throw error;
+    if (process.platform !== 'win32' || code !== 'EPERM') throw error;
     return {
       attempted: true,
       supported: false,
@@ -1634,6 +1728,7 @@ function runBenchmark(
   options: RunnerOptions,
   source: { commit: string; dirty: boolean }
 ): Record<string, unknown> {
+  const provenance = captureEnvironmentProvenance(options.evidenceEnvironment);
   const prefix = 'slither-stage2-checkpoint-validation-';
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const resolvedRoot = path.resolve(temporaryRoot);
@@ -1733,6 +1828,12 @@ function runBenchmark(
     }
     const temporaryDirectoryEmpty = fs.readdirSync(resolvedRoot).length === 0;
     const freeDiskAfterCleanup = fs.statfsSync(resolvedRoot);
+    const everyDirectorySyncSucceeded = trialResults.every(
+      result =>
+        result.directorySync.attempted &&
+        result.directorySync.supported &&
+        result.directorySync.errorCode === null
+    );
     const assertions = {
       everyTrialAccepted:
         trialResults.length === options.trials * VARIANTS.length &&
@@ -1762,10 +1863,13 @@ function runBenchmark(
     enforceAssertions(assertions);
     return {
       schema: 'slither-stage2-managed-checkpoint-validation',
-      version: 1,
-      evidenceClass: 'new measured development-machine result',
-      caveat:
-        'Disposable Node built-in USTAR/Zstandard measurement only. It is not a production checkpoint-v3 writer, not wired to SQLite or authority, does not construct restored Rust state, and is not Ryzen 7 2700 Debian evidence.',
+      version: 2,
+      evidenceClass: provenance.ownerTargetVmValidated
+        ? 'new measured target-VM prototype result'
+        : 'new measured development-machine result',
+      caveat: provenance.ownerTargetVmValidated
+        ? 'Disposable Node built-in USTAR/Zstandard measurement captured on the Ryzen 7 2700 Debian target VM. It is not the production Rust checkpoint-v3 writer, is not wired to SQLite or authority, and does not construct restored Rust state.'
+        : 'Disposable Node built-in USTAR/Zstandard measurement only. It is not a production checkpoint-v3 writer, not wired to SQLite or authority, does not construct restored Rust state, and is not Ryzen 7 2700 Debian evidence.',
       source,
       command: process.argv,
       environment: {
@@ -1775,10 +1879,11 @@ function runBenchmark(
         osType: os.type(),
         osRelease: os.release(),
         osVersion: os.version(),
-        hostname: os.hostname(),
-        cpuModel: os.cpus()[0]?.model ?? 'unknown',
-        logicalCpuCount: os.cpus().length,
-        totalMemoryBytes: os.totalmem(),
+        provenance,
+        hostname: provenance.hostname,
+        cpuModel: provenance.cpuModel,
+        logicalCpuCount: provenance.logicalCpuCount,
+        totalMemoryBytes: provenance.totalMemoryBytes,
         node: process.version,
         zstd: process.versions.zstd ?? null,
         tempFilesystem: {
@@ -1844,11 +1949,17 @@ function runBenchmark(
         zstdAdmission:
           'The prototype checks its decoded block envelope before Node decompression but cannot preflight the Zstandard frame window. The Rust importer must cap declared content/window before allocation.',
         durability:
-          'File fsync and same-filesystem rename are measured. Windows Node directory fsync is reported unsupported rather than described as a power-loss guarantee; Debian parent-directory fsync remains mandatory.',
+          everyDirectorySyncSucceeded
+            ? `File fsync, same-filesystem rename and parent-directory fsync succeeded in all ${trialResults.length} measured trials. This prototype timing is not a power-loss durability test.`
+            : process.platform === 'win32'
+              ? 'File fsync and same-filesystem rename succeeded, while Windows Node returned EPERM for parent-directory fsync. That limitation is retained rather than described as a power-loss guarantee; every other sync error is fatal, and Debian parent-directory fsync remains mandatory.'
+              : 'At least one measured parent-directory fsync was unsupported or failed. The production writer cannot claim durable publication until that failure is resolved.',
         scope:
           'No SQLite pointer, persistence worker, restored world, retention, import/export HTTP, legacy compatibility, recovery branch, exhaustive malformed-input corpus or crash-state matrix is implemented here.',
         target:
-          'Final policy selection and the archive throughput/RSS gate still require the Rust implementation and Ryzen 7 2700 Debian measurements.'
+          provenance.ownerTargetVmValidated
+            ? 'This artifact supplies Ryzen 7 2700 Debian prototype timing. Final policy selection and the archive throughput/RSS gate still require the production Rust implementation.'
+            : 'Final policy selection and the archive throughput/RSS gate still require the Rust implementation and Ryzen 7 2700 Debian measurements.'
       }
     };
   } finally {
