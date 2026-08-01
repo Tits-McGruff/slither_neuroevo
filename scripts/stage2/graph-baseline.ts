@@ -62,8 +62,9 @@ function compareCodeUnits(left: string, right: string): number {
  * @returns Commit and dirty flag.
  */
 function sourceIdentity(): { commit: string; dirty: boolean } {
-  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
-  const status = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+  const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', env });
+  const status = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8', env });
   return {
     commit: commit.status === 0 ? commit.stdout.trim() : 'unavailable',
     dirty: status.status !== 0 || status.stdout.trim().length > 0

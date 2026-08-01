@@ -27,7 +27,7 @@ Debian VM, Unraid storage, other disks or browser profiles remain unexamined.
 Run from the repository root with the direct `tsx` entry point:
 
 ```powershell
-node .\node_modules\tsx\dist\cli.mjs scripts\stage2\database-baseline.ts --db data\slither.db --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\database-baseline.ts --db C:\temporary\slither-inspection-copy.db --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\codec-baseline.ts --scenario P0 --fixture fresh --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\codec-baseline.ts --scenario P2 --fixture evolved --evolution-generations 25 --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\runtime-baseline.ts --scenario P2 --backend native --workers 4 --warmup-steps 20 --steps 180 --frame-every 1 --output result.json
@@ -41,6 +41,15 @@ node .\node_modules\tsx\dist\cli.mjs scripts\stage2\retention-baseline.ts --gene
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P0 --fixture evolved --evolution-generations 25 --trials 7 --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P2 --fixture evolved --evolution-generations 25 --trials 7 --output result.json
 ```
+
+Always run `database-baseline.ts` against a stable inspection copy made after
+the service is stopped, or through SQLite's supported backup operation. When a
+source uses WAL, capture its main database plus any existing `-wal` and `-shm`
+files as one source set before preparing the inspection copy. SQLite can create
+new shared-state sidecars even when `better-sqlite3` uses a read-only,
+query-only connection. The inventory does not migrate rows or change logical
+database contents, but opening the owner's only copy directly would not satisfy
+strict filesystem preservation.
 
 The runtime runner uses the real `SimCore`, `World`, heterogeneous population,
 sensors, recurrent brains, physics and frame-v1 serializer. A positive worker

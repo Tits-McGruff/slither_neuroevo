@@ -6,6 +6,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 
+/** Maximum Hall-of-Fame rows described individually in one inventory artifact. */
+const HALL_OF_FAME_DETAIL_LIMIT = 100;
+
 /** Command-line options for the database inventory. */
 interface DatabaseOptions {
   /** Existing database path. */
@@ -108,12 +111,52 @@ function quoteIdentifier(identifier: string): string {
  * @returns Commit and dirty-worktree flag.
  */
 function sourceIdentity(): { commit: string; dirty: boolean } {
-  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
-  const status = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+  const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', env });
+  const status = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8', env });
   return {
     commit: commit.status === 0 ? commit.stdout.trim() : 'unavailable',
     dirty: status.status !== 0 || status.stdout.trim().length > 0
   };
+}
+
+/**
+ * Return the declared columns of one table.
+ * @param db - Read-only database.
+ * @param table - Existing table name returned by SQLite.
+ * @returns Ordered column descriptions.
+ */
+function tableColumns(db: Database.Database, table: string): TableColumn[] {
+  return db.prepare(`PRAGMA table_info(${quoteIdentifier(table)})`).all() as TableColumn[];
+}
+
+/**
+ * Select an optional column without requiring a schema migration.
+ * @param columns - Columns present in the inspected table.
+ * @param name - Desired source and result name.
+ * @returns SQL projection returning the column or null.
+ */
+function optionalColumn(columns: ReadonlySet<string>, name: string): string {
+  const quoted = quoteIdentifier(name);
+  return columns.has(name) ? quoted : `NULL AS ${quoted}`;
+}
+
+/**
+ * Select the byte length of an optional variable-width column.
+ * @param columns - Columns present in the inspected table.
+ * @param name - Desired source column.
+ * @param alias - Result column name.
+ * @returns SQL projection returning the byte length or null.
+ */
+function optionalLengthColumn(
+  columns: ReadonlySet<string>,
+  name: string,
+  alias: string
+): string {
+  const quotedAlias = quoteIdentifier(alias);
+  return columns.has(name)
+    ? `LENGTH(${quoteIdentifier(name)}) AS ${quotedAlias}`
+    : `NULL AS ${quotedAlias}`;
 }
 
 /**
@@ -129,8 +172,10 @@ function hasTable(db: Database.Database, table: string): boolean {
 }
 
 /**
- * Inventory one current database without changing pages or journal state.
- * @param databasePath - Existing database.
+ * Inventory one database without changing its logical contents. SQLite can
+ * still create WAL shared-state sidecars for a read-only connection, so owner
+ * artifacts must be copied before this probe is run.
+ * @param databasePath - Existing disposable inspection copy.
  * @returns Machine-readable inventory.
  */
 function inventoryDatabase(databasePath: string): Record<string, unknown> {
@@ -138,6 +183,7 @@ function inventoryDatabase(databasePath: string): Record<string, unknown> {
   const stat = fs.statSync(databasePath);
   const db = new Database(databasePath, { readonly: true, fileMustExist: true });
   try {
+    db.pragma('query_only = ON');
     const tableRows = db.prepare(
       `SELECT name, sql
          FROM sqlite_schema
@@ -145,7 +191,7 @@ function inventoryDatabase(databasePath: string): Record<string, unknown> {
         ORDER BY name`
     ).all() as Array<{ name: string; sql: string }>;
     const tables = tableRows.map(row => {
-      const columns = db.prepare(`PRAGMA table_info(${quoteIdentifier(row.name)})`).all() as TableColumn[];
+      const columns = tableColumns(db, row.name);
       const count = (db.prepare(
         `SELECT COUNT(*) AS count FROM ${quoteIdentifier(row.name)}`
       ).get() as { count: number }).count;
@@ -189,15 +235,24 @@ function inventoryDatabase(databasePath: string): Record<string, unknown> {
         reason: error instanceof Error ? error.message : String(error)
       };
     }
-    const currentSnapshots = hasTable(db, 'population_snapshots')
+    const snapshotColumns = hasTable(db, 'population_snapshots')
+      ? tableColumns(db, 'population_snapshots')
+      : [];
+    const snapshotColumnNames = new Set(snapshotColumns.map(column => column.name));
+    const currentSnapshots = snapshotColumns.length > 0
       ? db.prepare(
-        `SELECT id, created_at, gen, format_version, boundary_kind,
-                population_count, LENGTH(payload_json) AS payload_json_bytes,
-                LENGTH(settings_json) AS settings_json_bytes,
-                LENGTH(updates_json) AS updates_json_bytes,
-                LENGTH(genomes_blob) AS legacy_blob_bytes
+        `SELECT ${optionalColumn(snapshotColumnNames, 'id')},
+                ${optionalColumn(snapshotColumnNames, 'created_at')},
+                ${optionalColumn(snapshotColumnNames, 'gen')},
+                ${optionalColumn(snapshotColumnNames, 'format_version')},
+                ${optionalColumn(snapshotColumnNames, 'boundary_kind')},
+                ${optionalColumn(snapshotColumnNames, 'population_count')},
+                ${optionalLengthColumn(snapshotColumnNames, 'payload_json', 'payload_json_bytes')},
+                ${optionalLengthColumn(snapshotColumnNames, 'settings_json', 'settings_json_bytes')},
+                ${optionalLengthColumn(snapshotColumnNames, 'updates_json', 'updates_json_bytes')},
+                ${optionalLengthColumn(snapshotColumnNames, 'genomes_blob', 'legacy_blob_bytes')}
            FROM population_snapshots
-          ORDER BY id`
+          ORDER BY ${snapshotColumnNames.has('id') ? quoteIdentifier('id') : 'rowid'}`
       ).all()
       : [];
     const snapshotGenomes = hasTable(db, 'snapshot_genomes')
@@ -213,11 +268,32 @@ function inventoryDatabase(databasePath: string): Record<string, unknown> {
           ORDER BY snapshot_id`
       ).all()
       : [];
+    const hallOfFameTotalRows = hasTable(db, 'hof_entries')
+      ? (db.prepare('SELECT COUNT(*) AS count FROM hof_entries').get() as { count: number }).count
+      : 0;
+    const hallOfFameRows = hallOfFameTotalRows > 0
+      ? db.prepare(
+        `SELECT id, created_at, gen, seed, fitness, points, length,
+                LENGTH(genome_json) AS genome_json_bytes,
+                CASE WHEN json_valid(genome_json)
+                     THEN json_extract(genome_json, '$.archKey') END AS arch_key,
+                CASE WHEN json_valid(genome_json)
+                     THEN json_extract(genome_json, '$.brainType') END AS brain_type,
+                CASE WHEN json_valid(genome_json)
+                     THEN json_array_length(genome_json, '$.weights') END AS weight_count,
+                COALESCE(json_valid(genome_json), 0) AS json_valid
+           FROM hof_entries
+          ORDER BY id
+          LIMIT ?`
+      ).all(HALL_OF_FAME_DETAIL_LIMIT)
+      : [];
     return {
       schema: 'slither-stage2-database-baseline',
-      version: 1,
+      version: 2,
       evidenceClass: 'new measured result',
       accessMode: 'read-only',
+      sourcePreservationRequirement:
+        'Run against a copied database: SQLite may create -wal/-shm shared-state sidecars even for a query-only connection.',
       source: sourceIdentity(),
       artifact: {
         path: databasePath,
@@ -238,8 +314,21 @@ function inventoryDatabase(databasePath: string): Record<string, unknown> {
       },
       tables,
       dbstat,
+      snapshotStorageShape: {
+        parentColumns: snapshotColumns.map(column => column.name),
+        hasFormatVersionColumn: snapshotColumnNames.has('format_version'),
+        hasLegacyCombinedBlobColumn: snapshotColumnNames.has('genomes_blob'),
+        hasPerGenomeChildTable: hasTable(db, 'snapshot_genomes')
+      },
       currentSnapshots,
-      snapshotGenomes
+      snapshotGenomes,
+      hallOfFameDetails: {
+        limit: HALL_OF_FAME_DETAIL_LIMIT,
+        totalRows: hallOfFameTotalRows,
+        returnedRows: hallOfFameRows.length,
+        omittedRows: Math.max(0, hallOfFameTotalRows - hallOfFameRows.length),
+        rows: hallOfFameRows
+      }
     };
   } finally {
     db.close();
