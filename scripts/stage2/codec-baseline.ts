@@ -2,6 +2,7 @@
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { spawnSync } from 'node:child_process';
@@ -23,6 +24,8 @@ import {
 const CURRENT_LEGACY_DECOMPRESSED_LIMIT = 512 * 1024 * 1024;
 /** Zstandard compression level selected by the approved provisional design. */
 const ZSTD_LEVEL = 3;
+/** Provenance declaration supplied by the benchmark operator. */
+type EvidenceEnvironment = 'development' | 'owner-target-vm';
 
 /** Codec runner options. */
 interface CodecOptions {
@@ -34,6 +37,8 @@ interface CodecOptions {
   evolutionGenerations: number;
   /** Optional artifact destination. */
   outputPath: string | null;
+  /** Explicit provenance declaration; hardware similarity alone is not host identity. */
+  evidenceEnvironment: EvidenceEnvironment;
 }
 
 /** One encode/decode measurement. */
@@ -82,7 +87,8 @@ function parseOptions(argv: readonly string[]): CodecOptions {
     scenario: 'P0',
     fixture: 'fresh',
     evolutionGenerations: 25,
-    outputPath: null
+    outputPath: null,
+    evidenceEnvironment: 'development'
   };
   for (let index = 0; index < argv.length; index++) {
     const option = argv[index];
@@ -111,6 +117,13 @@ function parseOptions(argv: readonly string[]): CodecOptions {
         result.outputPath = path.resolve(value);
         index++;
         break;
+      case '--environment':
+        if (value !== 'development' && value !== 'owner-target-vm') {
+          throw new Error('--environment must be development or owner-target-vm');
+        }
+        result.evidenceEnvironment = value;
+        index++;
+        break;
       default:
         throw new Error(`Unknown option ${option ?? '<missing>'}`);
     }
@@ -123,12 +136,93 @@ function parseOptions(argv: readonly string[]): CodecOptions {
  * @returns Commit and dirty-worktree flag.
  */
 function sourceIdentity(): { commit: string; dirty: boolean } {
-  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
-  const status = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+  const gitEnvironment = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+    env: gitEnvironment
+  });
+  const status = spawnSync('git', ['status', '--porcelain'], {
+    encoding: 'utf8',
+    env: gitEnvironment
+  });
   return {
     commit: commit.status === 0 ? commit.stdout.trim() : 'unavailable',
     dirty: status.status !== 0 || status.stdout.trim().length > 0
   };
+}
+
+/**
+ * Read the Linux distribution identifier without invoking another process.
+ * @returns `/etc/os-release` ID, or null outside Linux or when unavailable.
+ */
+function linuxDistributionId(): string | null {
+  if (process.platform !== 'linux') return null;
+  try {
+    const idLine = fs.readFileSync('/etc/os-release', 'utf8')
+      .split(/\r?\n/u)
+      .find(line => line.startsWith('ID='));
+    if (!idLine) return null;
+    return idLine.slice(3).trim().replace(/^['"]|['"]$/gu, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Capture and validate the explicit owner-target evidence declaration.
+ * @param declaration - Operator-provided provenance class.
+ * @returns Individual environment facts and their combined validation result.
+ */
+function captureEnvironmentProvenance(declaration: EvidenceEnvironment): {
+  declaration: EvidenceEnvironment;
+  platformIsLinux: boolean;
+  distributionId: string | null;
+  distributionIsDebian: boolean;
+  hostname: string;
+  hostnameIsOxygen: boolean;
+  cpuModel: string;
+  cpuModelMatches: boolean;
+  logicalCpuCount: number;
+  logicalCpuCountMatches: boolean;
+  totalMemoryBytes: number;
+  memoryAllocationMatches: boolean;
+  ownerTargetVmValidated: boolean;
+} {
+  const platformIsLinux = process.platform === 'linux';
+  const distributionId = linuxDistributionId();
+  const hostname = os.hostname();
+  const cpuModel = os.cpus()[0]?.model ?? 'unknown';
+  const logicalCpuCount = os.cpus().length;
+  const totalMemoryBytes = os.totalmem();
+  const facts = {
+    declaration,
+    platformIsLinux,
+    distributionId,
+    distributionIsDebian: distributionId === 'debian',
+    hostname,
+    hostnameIsOxygen: hostname.toLowerCase().split('.')[0] === 'oxygen',
+    cpuModel,
+    cpuModelMatches: cpuModel.includes('AMD Ryzen 7 2700'),
+    logicalCpuCount,
+    logicalCpuCountMatches: logicalCpuCount === 8,
+    totalMemoryBytes,
+    memoryAllocationMatches: totalMemoryBytes >= 15 * 1024 * 1024 * 1024,
+    ownerTargetVmValidated: false
+  };
+  facts.ownerTargetVmValidated =
+    declaration === 'owner-target-vm' &&
+    facts.platformIsLinux &&
+    facts.distributionIsDebian &&
+    facts.hostnameIsOxygen &&
+    facts.cpuModelMatches &&
+    facts.logicalCpuCountMatches &&
+    facts.memoryAllocationMatches;
+  if (declaration === 'owner-target-vm' && !facts.ownerTargetVmValidated) {
+    throw new Error(
+      `--environment owner-target-vm did not match oxygen Debian/Ryzen/8-vCPU/15-GiB facts: ${JSON.stringify(facts)}`
+    );
+  }
+  return facts;
 }
 
 /**
@@ -327,6 +421,7 @@ function measureLegacyGzip(
  * @returns Machine-readable evidence.
  */
 function runCodecBaseline(options: CodecOptions): Record<string, unknown> {
+  const provenance = captureEnvironmentProvenance(options.evidenceEnvironment);
   const scenario = installStage2Scenario(options.scenario);
   const world = new World(scenario.settings, {
     seed: STAGE2_WORLD_SEED,
@@ -356,14 +451,19 @@ function runCodecBaseline(options: CodecOptions): Record<string, unknown> {
   ].sort((left, right) => left.bytes - right.bytes);
   return {
     schema: 'slither-stage2-codec-baseline',
-    version: 2,
-    evidenceClass: 'new measured result',
-    caveat: 'Offline population-weight codec fixture; managed checkpoint container and full server memory are measured separately.',
+    version: 3,
+    evidenceClass: provenance.ownerTargetVmValidated
+      ? 'new measured target-VM codec result'
+      : 'new measured development-machine codec result',
+    caveat: provenance.ownerTargetVmValidated
+      ? 'Offline population-weight codec fixture measured on the oxygen Ryzen 7 2700 Debian VM; managed checkpoint container and full server memory are measured separately.'
+      : 'Offline population-weight codec fixture; managed checkpoint container, full server memory, and target-VM performance are measured separately.',
     source: sourceIdentity(),
     environment: {
       capturedAt: new Date().toISOString(),
       platform: process.platform,
       architecture: process.arch,
+      provenance,
       node: process.version,
       zlib: process.versions.zlib,
       zstd: process.versions.zstd ?? null

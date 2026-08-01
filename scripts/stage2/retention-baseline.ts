@@ -283,8 +283,15 @@ function parseOptions(argv: readonly string[]): RetentionBaselineOptions {
  * @returns Commit and dirty flag.
  */
 function sourceIdentity(): { commit: string; dirty: boolean } {
-  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
-  const status = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+  const gitEnvironment = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+    env: gitEnvironment
+  });
+  const status = spawnSync('git', ['status', '--porcelain'], {
+    encoding: 'utf8',
+    env: gitEnvironment
+  });
   return {
     commit: commit.status === 0 ? commit.stdout.trim() : 'unavailable',
     dirty: status.status !== 0 || status.stdout.trim().length > 0
@@ -370,8 +377,11 @@ function loadCodecArtifact(scenario: ProjectionScenario): LoadedCodecArtifact {
   }
   const bytes = fs.readFileSync(absolutePath);
   const data = JSON.parse(bytes.toString('utf8')) as CodecArtifact;
-  if (data.schema !== 'slither-stage2-codec-baseline' || data.version !== 2) {
-    throw new Error(`${relativePath} is not codec evidence version 2`);
+  if (
+    data.schema !== 'slither-stage2-codec-baseline' ||
+    (data.version !== 2 && data.version !== 3)
+  ) {
+    throw new Error(`${relativePath} is not supported codec evidence version 2 or 3`);
   }
   if (data.fixture.scenario.name !== scenario) {
     throw new Error(`${relativePath} contains scenario ${data.fixture.scenario.name}`);
