@@ -7,8 +7,11 @@ import {
   installExternalControlScenario,
   p5Composition,
   p6Composition,
+  p7Composition,
   parseOptions,
   readHealth,
+  rssSlopeBytesPerMinute,
+  runExternalControlBaseline,
   schedulerDelta,
   tickBoundaryPollDelayMs,
   viewerWarmupReadiness
@@ -111,6 +114,24 @@ describe('Stage 2 P5/P6 external-control runner', () => {
     expect(() => parseOptions([
       '--measurement-steps', '1800'
     ])).toThrow('P5 compatibility');
+    expect(() => parseOptions([
+      '--profile', 'p5', '--sample-every-ms', '1000'
+    ])).toThrow('P7-only');
+    expect(() => parseOptions([
+      '--profile', 'p6', '--p7-test-short'
+    ])).toThrow('P7-only');
+    expect(parseOptions([
+      '--profile', 'p7', '--p7-test-short', '--duration-ms', '3000', '--warmup-ms', '1000',
+      '--reconnect-every-ms', '1000', '--manual-save-every-ms', '1000'
+    ])).toMatchObject({
+      profile: 'p7',
+      scenario: 'P0',
+      checkpointEvery: 1,
+      viewer: true,
+      p7TestOnlyShort: true
+    });
+    expect(() => parseOptions(['--profile', 'p7', '--duration-ms', '3000'])).toThrow('test-only');
+    expect(() => parseOptions(['--profile', 'p7', '--scenario', 'P1'])).toThrow('P0-only');
   });
 
   it('keeps P5 compatibility and P6 isolation as distinct socket compositions', () => {
@@ -134,6 +155,8 @@ describe('Stage 2 P5/P6 external-control runner', () => {
     });
     expect(externalControlComposition({ profile: 'p5', viewer: false })).toEqual(p5Composition());
     expect(externalControlComposition({ profile: 'p6', viewer: false })).toEqual(p6Composition(false));
+    expect(p7Composition()).toEqual(p5Composition());
+    expect(externalControlComposition({ profile: 'p7', viewer: true })).toEqual(p7Composition());
   });
 
   it('does not let delayed P6 frame publication postpone the warm-up boundary', () => {
@@ -244,4 +267,67 @@ describe('Stage 2 P5/P6 external-control runner', () => {
     expect(scenario.settings.simSpeed).toBe(8);
     expect(scenario.settings.snakeCount).toBe(300);
   });
+
+  it('calculates a post-warmup RSS slope from bounded scalar samples only', () => {
+    expect(rssSlopeBytesPerMinute([
+      { elapsedMs: 0, rssBytes: 100 },
+      { elapsedMs: 600_000, rssBytes: 200 },
+      { elapsedMs: 1_200_000, rssBytes: 300 }
+    ], 600_000)).toBeCloseTo(10, 12);
+    expect(rssSlopeBytesPerMinute([{ elapsedMs: 600_000, rssBytes: 200 }], 600_000)).toBeNull();
+  });
+
+  it('runs an explicit short P7 diagnostic with viewer, save, reclaim, and bounded samples', async () => {
+    const capturedErrors: unknown[][] = [];
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      capturedErrors.push(args);
+    });
+    let artifact: {
+      outcome: string;
+      result: {
+        samples: unknown[];
+        saves: unknown[];
+        reconnects: Array<{
+          resultSeen: boolean;
+          assignmentReclaimed: boolean;
+          sameSnake: boolean;
+          rotatedToken: boolean;
+        }>;
+        sampleCountBound: number;
+        fullP7SoakEligible: boolean;
+        finalStorage: { snapshotCount: number; genomeRowCount: number } | null;
+        controllers: { viewerFramesReceived: number; viewerStatsReceived: number };
+      };
+    };
+    try {
+      artifact = await runExternalControlBaseline(parseOptions([
+        '--profile', 'p7', '--p7-test-short', '--duration-ms', '3200', '--warmup-ms', '1000',
+        '--sample-every-ms', '1000', '--reconnect-every-ms', '1000', '--manual-save-every-ms', '1000'
+      ])) as typeof artifact;
+    } finally {
+      errorSpy.mockRestore();
+    }
+    expect(capturedErrors.every(args => (
+      args[0] === '[ws.reliable_send_failed]' &&
+      typeof args[1] === 'object' &&
+      args[1] !== null &&
+      'reason' in args[1] &&
+      args[1].reason === 'socket is not open'
+    ))).toBe(true);
+    expect(artifact.outcome).toBe('completed');
+    expect(artifact.result.fullP7SoakEligible).toBe(false);
+    expect(artifact.result.samples.length).toBeLessThanOrEqual(artifact.result.sampleCountBound);
+    expect(artifact.result.saves.length).toBeGreaterThan(0);
+    expect(artifact.result.reconnects.length).toBeGreaterThan(0);
+    expect(artifact.result.reconnects.every(reconnect => (
+      reconnect.resultSeen &&
+      reconnect.assignmentReclaimed &&
+      reconnect.sameSnake &&
+      reconnect.rotatedToken
+    ))).toBe(true);
+    expect(artifact.result.finalStorage?.snapshotCount).toBeGreaterThan(1);
+    expect(artifact.result.finalStorage?.genomeRowCount).toBeGreaterThan(55);
+    expect(artifact.result.controllers.viewerFramesReceived).toBeGreaterThan(0);
+    expect(artifact.result.controllers.viewerStatsReceived).toBeGreaterThan(0);
+  }, 30_000);
 });

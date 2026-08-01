@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import zlib from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CFG, resetCFGToDefaults } from '../src/config.ts';
@@ -15,6 +17,14 @@ import {
 
 /** Test suite label for bounded current-format persistence. */
 const SUITE = 'Phase 7 bounded persistence';
+/** Retained deterministic format-null all-parent compatibility fixture. */
+const LEGACY_ALL_PARENT_FIXTURE_URL = new URL(
+  './test/fixtures/legacy-all-parent-v0.json',
+  import.meta.url
+);
+/** SHA-256 of the fixture text after normalizing checkout line endings to LF. */
+const LEGACY_ALL_PARENT_FIXTURE_SHA256 =
+  'd37dd3b910806e962e29df1630bbe798cb17a1f20119fcbce5a4a49f109bea49';
 
 /** Database type returned by the production initializer. */
 type TestDb = ReturnType<typeof initDb>;
@@ -128,6 +138,15 @@ function encodeLegacyGenomes(genomes: unknown[]): Buffer {
     records.push(prefix, json);
   }
   return zlib.gzipSync(Buffer.concat(records));
+}
+
+/**
+ * Hash fixture text independently of Git's platform-specific checkout line endings.
+ * @param source - Exact fixture text read from disk or SQLite.
+ * @returns Lowercase SHA-256 after CRLF-to-LF normalization.
+ */
+function normalizedTextSha256(source: string): string {
+  return createHash('sha256').update(source.replace(/\r\n/gu, '\n'), 'utf8').digest('hex');
 }
 
 beforeEach(() => {
@@ -396,6 +415,99 @@ describe(SUITE, () => {
     expect(loaded?.compatibility).toBe('legacy');
     expect(loaded?.genomes).toHaveLength(2);
     expect(loaded?.genomes[0]?.archKey).toBe(fixture.world.archKey);
+    db.close();
+  });
+
+  it('loads an all-parent legacy JSON row without rewriting its source or creating children', () => {
+    const fixtureBefore = readFileSync(LEGACY_ALL_PARENT_FIXTURE_URL, 'utf8');
+    expect(normalizedTextSha256(fixtureBefore)).toBe(LEGACY_ALL_PARENT_FIXTURE_SHA256);
+    const payload = JSON.parse(fixtureBefore) as {
+      generation: number;
+      archKey: string;
+      genomes: Array<{
+        archKey: string;
+        brainType: string;
+        fitness: number;
+        weights: number[];
+      }>;
+      cfgHash: string;
+      worldSeed: number;
+    };
+    const db = initDb(':memory:');
+    const persistence = createPersistence(db);
+    const inserted = db.prepare(
+      `INSERT INTO population_snapshots (
+         created_at, gen, payload_json, settings_json, updates_json, genomes_blob,
+         format_version, boundary_kind, population_count
+       ) VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL)`
+    ).run(1_700_000_000_000, payload.generation, fixtureBefore);
+    const id = Number(inserted.lastInsertRowid);
+    const selectSourceRow = db.prepare(
+      `SELECT id, created_at, gen, payload_json, settings_json, updates_json,
+              genomes_blob, format_version, boundary_kind, population_count
+         FROM population_snapshots WHERE id = ?`
+    );
+    const sourceRowBefore = selectSourceRow.get(id) as Record<string, unknown>;
+    expect(sourceRowBefore).toMatchObject({
+      id,
+      gen: payload.generation,
+      payload_json: fixtureBefore,
+      genomes_blob: null,
+      format_version: null,
+      boundary_kind: null,
+      population_count: null
+    });
+    const sourceDigestBefore = normalizedTextSha256(String(sourceRowBefore['payload_json']));
+    expect(sourceDigestBefore).toBe(LEGACY_ALL_PARENT_FIXTURE_SHA256);
+    const childCountBefore = db.prepare(
+      'SELECT COUNT(*) AS count FROM snapshot_genomes WHERE snapshot_id = ?'
+    ).get(id) as { count: number };
+    expect(childCountBefore.count).toBe(0);
+
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const loaded = persistence.loadResumeSnapshot(id);
+    expect(loaded?.compatibility).toBe('legacy');
+    if (!loaded || loaded.compatibility !== 'legacy') {
+      throw new Error('all-parent legacy snapshot missing');
+    }
+    expect(loaded.payload).toEqual(payload);
+    expect(loaded.genomes).toHaveLength(payload.genomes.length);
+    for (let slot = 0; slot < payload.genomes.length; slot++) {
+      const expected = payload.genomes[slot]!;
+      const actual = loaded.genomes[slot]!;
+      expect(actual).toMatchObject({
+        slot,
+        archKey: expected.archKey,
+        brainType: expected.brainType,
+        fitness: expected.fitness
+      });
+      expect(encodeWeightsLittleEndian(actual.weights)).toEqual(
+        encodeWeightsLittleEndian(new Float32Array(expected.weights))
+      );
+    }
+    expect(warning).toHaveBeenCalledWith(
+      '[persistence] loading read-only legacy snapshot',
+      expect.objectContaining({
+        snapshotId: id,
+        compressedBytes: 0,
+        populationCount: payload.genomes.length
+      })
+    );
+
+    const sourceRowAfter = selectSourceRow.get(id) as Record<string, unknown>;
+    expect(sourceRowAfter).toEqual(sourceRowBefore);
+    expect(normalizedTextSha256(String(sourceRowAfter['payload_json']))).toBe(sourceDigestBefore);
+    const childCountAfter = db.prepare(
+      'SELECT COUNT(*) AS count FROM snapshot_genomes WHERE snapshot_id = ?'
+    ).get(id) as { count: number };
+    expect(childCountAfter.count).toBe(0);
+    const parentCount = db.prepare(
+      'SELECT COUNT(*) AS count FROM population_snapshots'
+    ).get() as { count: number };
+    expect(parentCount.count).toBe(1);
+    const fixtureAfter = readFileSync(LEGACY_ALL_PARENT_FIXTURE_URL, 'utf8');
+    expect(fixtureAfter).toBe(fixtureBefore);
+    expect(normalizedTextSha256(fixtureAfter)).toBe(LEGACY_ALL_PARENT_FIXTURE_SHA256);
     db.close();
   });
 

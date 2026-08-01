@@ -36,6 +36,7 @@ node .\node_modules\tsx\dist\cli.mjs scripts\stage2\graph-baseline.ts --db data\
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\create-current-db-fixture.ts --scenario P1 --output C:\temporary\stage2-p1.db
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\browser-baseline-host.ts --db C:\temporary\stage2-p1.db --server-port 55194 --ui-port 55193 --ui-rate 30 --duration-ms 1800000
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\external-control-baseline.ts --scenario P1 --player-hz 60 --warmup-ms 2000 --duration-ms 15000 --workers 0 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\external-control-baseline.ts --profile p7 --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\retention-baseline.ts --generations 480 --scenario P0 --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P0 --fixture evolved --evolution-generations 25 --trials 7 --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P2 --fixture evolved --evolution-generations 25 --trials 7 --output result.json
@@ -545,6 +546,80 @@ The 21 raw JSON artifacts are retained under
 The extended boundary JSON has SHA-256
 `549f0b0f43d61483615364a6b3bef6e2b7e106ca622b3855bdff5a784c11ee54`.
 
+## Current real-server P7 30-minute soak
+
+The retained
+`windows-5800x/p7-current-server-p0-30hz-30min.json` artifact has SHA-256
+`6d6482e02fd94dd62b1c80b739065a2dfa394648a585a84555d28dc4e612ef06`.
+It ran the current TypeScript server and native serial kernels with a P0 world,
+one periodic 30 Hz UI-style controller, one observation-driven Protocol 2 bot,
+one complete-frame-v1 spectator, automatic generation checkpoints, five
+scheduled current-reference saves, and nine controller disconnect/reclaim
+cycles. The harness used only a disposable database and temporary directory.
+
+The run completed 1,800,011.251 ms of runner-monotonic measured wall time and
+set its full-P7 eligibility flag. Timing began only after the loopback server
+and all three clients were ready, so the earlier Codex/browser permission wait
+for observing a loopback address and port is not part of the result. The 359
+bounded five-second samples show:
+
+- the final sample reported 107,755 completed fixed steps, 1,795.917 simulated
+  seconds over 1,795.923 scheduler wall seconds, 0.999997x achieved speed and
+  zero dropped simulated-time debt;
+- the world advanced from generation 1 to generation 9 without a reported
+  simulation fault;
+- all nine reconnects received both reclaim confirmations, retained the
+  currently assigned snake, and rotated the resume token;
+- all five explicit saves returned HTTP 200 plus positive snapshot IDs, with
+  16.266–57.409 ms observed request duration and 37.635 ms mean;
+- the final disposable database held fourteen snapshots and 770 genome rows:
+  one run-start checkpoint, eight generation checkpoints and five explicit
+  current-reference saves, each with 55 genome rows;
+- the client sent 54,000 player actions (29.9998/s), while the bot received and
+  answered 107,924 observations (59.9574/s). The spectator received 29,038
+  frames (16.1321/s) and 1,781 stats messages (0.9894/s);
+- sampled process RSS peaked at 286,683,136 bytes. After the ten-minute warm-up,
+  its linear slope was 349,724 bytes/minute and final RSS was 17,338,368 bytes
+  below the warm-window median, within the provisional one-MiB/minute and
+  64-MiB plateau thresholds for this current-reference process;
+- the largest sampled event-loop p95/p99/max windows were
+  34.570/47.251/122.094 ms; sampled collision entries peaked at 1,227 and body
+  points at 1,241 with no grid fault;
+- the database grew from 3,043,328 bytes at the first sample to 46,325,760
+  bytes after close, peak sampled WAL was 6,917,512 bytes, and the final
+  database had no free-list pages; and
+- every sampled active connection reported zero queued reliable messages,
+  reliable bytes and pending frames. The warm and final active-resource samples
+  were stable at eight TCP sockets, and after cleanup only the runner's two
+  pipe and three timeout resources remained.
+
+This artifact was captured from parent commit
+`074cab3562c4842db5b8376aa4863e0803cc3868` with `source.dirty = true`, so it
+is not labelled clean-source evidence. The exact measured runner and focused
+test bytes have SHA-256
+`3ec3e957695c293857d5c48b4d6fb6c26e475c665e3ab0bc5552a3f20ec3b461`
+and
+`1756fe7b43b639449b99682bc4a0ee7efde46a7d6080eec274ca116e6886ace3`.
+The dirty state contained the reviewed P7 harness, focused legacy fixture and
+pending factual-log edits; the artifact itself records the native addon build
+identifier and complete environment. A later clean-source target-VM run is
+still required.
+
+The result does not prove browser rendering, trusted-LAN latency, the owner's
+trainer, Debian/Ryzen 7 2700 performance, Rust-authoritative behavior, managed
+checkpoint retention, accepted-action/application timing, fixed-step
+percentiles or subsystem timing. The bounded P7 result records frame counts but
+not frame-byte or frame-interval distributions; the shorter P5/P6 artifacts
+retain those distributions, and the later target/browser runs must record them
+again. Five-second queue samples can miss shorter spikes. During intentional
+socket replacement and final teardown, the current reference emitted
+`ws.reliable_send_failed` messages for already closed sockets. The focused
+test verifies that only this known close-race form is suppressed; because
+health aggregates only active connection lifetimes, this artifact does not
+claim zero teardown send failures. It proves successful reclaim outcomes in
+spite of that reference-path race, not that the race is acceptable in the
+future Rust path.
+
 ## Initial Windows runtime measurements
 
 The following are single direct-engine runs on a Ryzen 7 5800X, Windows 11,
@@ -596,7 +671,8 @@ count from observed batch population counts.
 - real browser/LAN/owner-trainer/target-VM P5 and cadence measurements (the
   current-server synthetic loopback baseline is retained above);
 - sustained P4 (the retained 600-step artifact is an honest load-collapse
-  curve), repeated/target-VM P6 capacity and P7 soak fixtures;
+  curve), repeated/target-VM P6 capacity, and target-VM/browser/trainer P7
+  repetition beyond the current-reference loopback soak retained above;
 - P8 full checkpoint-v3 publication, durability and restore testing beyond the
   retained size-matched 480-generation retention fixture;
 - repeat the selected checkpoint-v3 publication/restore policy in Rust on the

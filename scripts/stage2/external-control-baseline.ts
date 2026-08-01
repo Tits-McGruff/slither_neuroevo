@@ -6,6 +6,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import { spawnSync } from 'node:child_process';
+import Database from 'better-sqlite3';
 import WebSocket, { type RawData } from 'ws';
 import { buildGenerationCheckpoint } from '../../server/checkpoint.ts';
 import { DEFAULT_CONFIG, type ServerConfig } from '../../server/config.ts';
@@ -30,7 +31,7 @@ type ExternalScenario = Extract<Stage2ScenarioName, 'P0' | 'P1' | 'P2'>;
 /** Parsed benchmark options. */
 interface ExternalControlOptions {
   /** Compatibility P5 or isolated P6 client composition. */
-  profile: 'p5' | 'p6';
+  profile: 'p5' | 'p6' | 'p7';
   /** Named population/brain workload. */
   scenario: ExternalScenario;
   /** Browser-player periodic action cadence retained for P5 compatibility. */
@@ -53,7 +54,24 @@ interface ExternalControlOptions {
   workers: number;
   /** Optional JSON destination. */
   outputPath: string | null;
+  /** P7 bounded health/resource sample cadence. */
+  sampleEveryMs: number;
+  /** P7 reconnect cadence for the token-bearing UI controller. */
+  reconnectEveryMs: number;
+  /** P7 legacy-reference manual save cadence. */
+  manualSaveEveryMs: number;
+  /** Explicit test-only escape hatch for a sub-30-minute P7 integration run. */
+  p7TestOnlyShort: boolean;
 }
+
+/** Maximum retained event timestamps per client; totals remain separate. */
+const TELEMETRY_SAMPLE_CAP = 4096;
+/** Normal P7 wall duration. */
+export const P7_MIN_DURATION_MS = 30 * 60 * 1000;
+/** P7 warm-window boundary inside the same 30-minute measurement. */
+export const P7_WARMUP_MS = 10 * 60 * 1000;
+/** Default bounded P7 scalar sampling cadence. */
+export const P7_SAMPLE_EVERY_MS = 5_000;
 
 /** Quantile and mean summary. */
 interface Distribution {
@@ -105,6 +123,20 @@ interface ControllerTelemetry {
   lastObservedActionAtMs: number | null;
   /** Socket/protocol errors. */
   errors: string[];
+  /** Total sensor messages, including samples discarded from the bounded array. */
+  sensorCountTotal: number;
+  /** Total action sends, including samples discarded from the bounded array. */
+  actionCountTotal: number;
+  /** Explicit reclaim results received by a reconnecting controller. */
+  reclaimResults: Array<{ reclaimed: boolean; reason: string }>;
+  /** Whether the latest assignment explicitly confirms a same-snake reclaim. */
+  assignmentReclaimed: boolean;
+  /** Monotonic close time, or null while this socket remains open. */
+  closedAtMs: number | null;
+  /** WebSocket close code, when observed. */
+  closeCode: number | null;
+  /** UTF-8 close reason, when observed. */
+  closeReason: string | null;
 }
 
 /** Mutable viewer telemetry. */
@@ -125,6 +157,16 @@ interface ViewerTelemetry {
   generationTimes: number[];
   /** Socket/protocol errors. */
   errors: string[];
+  /** Total binary frames, including samples discarded from the bounded arrays. */
+  frameCountTotal: number;
+  /** Total stats messages, including samples discarded from the bounded arrays. */
+  statsCountTotal: number;
+  /** Monotonic close time, or null while this socket remains open. */
+  closedAtMs: number | null;
+  /** WebSocket close code, when observed. */
+  closeCode: number | null;
+  /** UTF-8 close reason, when observed. */
+  closeReason: string | null;
 }
 
 /** Open client and readiness promise. */
@@ -298,7 +340,11 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
     warmupTick: null,
     measurementSteps: null,
     workers: 0,
-    outputPath: null
+    outputPath: null,
+    sampleEveryMs: P7_SAMPLE_EVERY_MS,
+    reconnectEveryMs: 180_000,
+    manualSaveEveryMs: 300_000,
+    p7TestOnlyShort: false
   };
   let checkpointExplicit = false;
   let viewerExplicit = false;
@@ -306,13 +352,14 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
   let wallDurationExplicit = false;
   let tickWarmupExplicit = false;
   let measurementStepsExplicit = false;
+  let p7OnlyOptionExplicit = false;
   for (let index = 0; index < argv.length; index++) {
     const option = argv[index];
     const value = argv[index + 1];
     switch (option) {
       case '--profile':
-        if (value !== 'p5' && value !== 'p6') {
-          throw new Error('--profile must be p5 or p6');
+        if (value !== 'p5' && value !== 'p6' && value !== 'p7') {
+          throw new Error('--profile must be p5, p6, or p7');
         }
         options.profile = value;
         index++;
@@ -354,12 +401,12 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
         index++;
         break;
       case '--warmup-ms':
-        options.warmupMs = parseInteger(value, option, 0, 60_000);
+        options.warmupMs = parseInteger(value, option, 0, P7_MIN_DURATION_MS);
         wallWarmupExplicit = true;
         index++;
         break;
       case '--duration-ms':
-        options.durationMs = parseInteger(value, option, 1_000, 600_000);
+        options.durationMs = parseInteger(value, option, 1_000, P7_MIN_DURATION_MS * 2);
         wallDurationExplicit = true;
         index++;
         break;
@@ -377,6 +424,25 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
         options.workers = parseInteger(value, option, 0, 8);
         index++;
         break;
+      case '--sample-every-ms':
+        options.sampleEveryMs = parseInteger(value, option, 1_000, 60_000);
+        p7OnlyOptionExplicit = true;
+        index++;
+        break;
+      case '--reconnect-every-ms':
+        options.reconnectEveryMs = parseInteger(value, option, 1_000, P7_MIN_DURATION_MS);
+        p7OnlyOptionExplicit = true;
+        index++;
+        break;
+      case '--manual-save-every-ms':
+        options.manualSaveEveryMs = parseInteger(value, option, 1_000, P7_MIN_DURATION_MS);
+        p7OnlyOptionExplicit = true;
+        index++;
+        break;
+      case '--p7-test-short':
+        options.p7TestOnlyShort = true;
+        p7OnlyOptionExplicit = true;
+        break;
       case '--output':
         if (!value) throw new Error('--output requires a path');
         options.outputPath = path.resolve(value);
@@ -387,6 +453,7 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
     }
   }
   if (options.profile === 'p6') {
+    if (p7OnlyOptionExplicit) throw new Error('P7-only options require --profile p7');
     if (!checkpointExplicit) options.checkpointEvery = 1;
     if (!viewerExplicit) options.viewer = false;
     if (wallWarmupExplicit || wallDurationExplicit) {
@@ -405,7 +472,8 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
         'P6 --checkpoint-every must be 1 for the primary matrix or 0 for an explicit diagnostic'
       );
     }
-  } else {
+  } else if (options.profile === 'p5') {
+    if (p7OnlyOptionExplicit) throw new Error('P7-only options require --profile p7');
     if (tickWarmupExplicit || measurementStepsExplicit) {
       throw new Error('P5 compatibility uses --warmup-ms and --duration-ms, not P6 tick windows');
     }
@@ -413,6 +481,37 @@ export function parseOptions(argv: readonly string[]): ExternalControlOptions {
       throw new Error('P5 compatibility always includes its UI spectator; use --profile p6 --viewer off');
     }
     options.viewer = true;
+    if (options.warmupMs !== null && options.warmupMs > 60_000) {
+      throw new Error('P5 --warmup-ms must be at most 60000');
+    }
+    if (options.durationMs !== null && options.durationMs > 600_000) {
+      throw new Error('P5 --duration-ms must be at most 600000');
+    }
+  } else {
+    if (tickWarmupExplicit || measurementStepsExplicit) {
+      throw new Error('P7 uses wall duration/samples, not P6 tick windows');
+    }
+    if (options.scenario !== 'P0') throw new Error('P7 current-server soak is P0-only initially');
+    if (options.simSpeed !== 1) throw new Error('P7 current-server soak requires --sim-speed 1');
+    if (!viewerExplicit) options.viewer = true;
+    if (!options.viewer) throw new Error('P7 requires one frame-v1 spectator');
+    if (!checkpointExplicit) options.checkpointEvery = 1;
+    if (options.checkpointEvery !== 1) throw new Error('P7 requires automatic checkpoints every generation');
+    options.warmupTick = null;
+    options.measurementSteps = null;
+    if (!wallWarmupExplicit) options.warmupMs = P7_WARMUP_MS;
+    if (!wallDurationExplicit) options.durationMs = P7_MIN_DURATION_MS;
+    if (options.durationMs === null || options.warmupMs === null) throw new Error('P7 wall timing is missing');
+    if (!options.p7TestOnlyShort && options.durationMs < P7_MIN_DURATION_MS) {
+      throw new Error('P7 requires at least 1800000 ms; --p7-test-short is test-only and not evidence');
+    }
+    if (options.warmupMs >= options.durationMs) throw new Error('P7 warmup must be inside the measurement duration');
+    if (options.reconnectEveryMs >= options.durationMs) {
+      throw new Error('P7 reconnect cadence must produce at least one reconnect');
+    }
+    if (options.manualSaveEveryMs >= options.durationMs) {
+      throw new Error('P7 save cadence must produce at least one legacy reference save');
+    }
   }
   return options;
 }
@@ -444,6 +543,11 @@ export function p5Composition(): ExternalControlComposition {
   };
 }
 
+/** P7 keeps one player, one bot, and one frame-v1 spectator throughout the soak. */
+export function p7Composition(): ExternalControlComposition {
+  return p5Composition();
+}
+
 /**
  * Resolve the exact client arrangement for one profile.
  * @param options - Parsed measurement options.
@@ -452,7 +556,9 @@ export function p5Composition(): ExternalControlComposition {
 export function externalControlComposition(
   options: Pick<ExternalControlOptions, 'profile' | 'viewer'>
 ): ExternalControlComposition {
-  return options.profile === 'p5' ? p5Composition() : p6Composition(options.viewer);
+  return options.profile === 'p5' || options.profile === 'p7'
+    ? p5Composition()
+    : p6Composition(options.viewer);
 }
 
 /**
@@ -530,6 +636,11 @@ function intervals(timestamps: readonly number[]): number[] {
   return result;
 }
 
+/** Retain a bounded representative event series without growing a long soak heap. */
+function pushBounded<T>(values: T[], value: T): void {
+  if (values.length < TELEMETRY_SAMPLE_CAP) values.push(value);
+}
+
 /**
  * Subtract cumulative scheduler counters and reject inconsistent accounting.
  * @param before - Health captured immediately before the measured interval.
@@ -603,6 +714,8 @@ function clearControllerSamples(telemetry: ControllerTelemetry): void {
   telemetry.sensorToActionDispatchMs.length = 0;
   telemetry.lastActionAtMs = null;
   telemetry.lastObservedActionAtMs = null;
+  telemetry.sensorCountTotal = 0;
+  telemetry.actionCountTotal = 0;
 }
 
 /**
@@ -616,6 +729,8 @@ function clearViewerSamples(telemetry: ViewerTelemetry): void {
   telemetry.statsTicks.length = 0;
   telemetry.statsGenerations.length = 0;
   telemetry.generationTimes.length = 0;
+  telemetry.frameCountTotal = 0;
+  telemetry.statsCountTotal = 0;
 }
 
 /**
@@ -664,7 +779,7 @@ function sendAction(
   if (snakeId === null || socket.readyState !== WebSocket.OPEN) return;
   const now = performance.now();
   if (telemetry.lastActionAtMs !== null) {
-    telemetry.actionIntervalsMs.push(now - telemetry.lastActionAtMs);
+    pushBounded(telemetry.actionIntervalsMs, now - telemetry.lastActionAtMs);
   }
   socket.send(JSON.stringify({
     type: 'action',
@@ -674,7 +789,8 @@ function sendAction(
     boost
   }));
   telemetry.lastActionAtMs = now;
-  telemetry.actionTimesMs.push(now);
+  telemetry.actionCountTotal++;
+  pushBounded(telemetry.actionTimesMs, now);
 }
 
 /**
@@ -687,7 +803,8 @@ function sendAction(
 function openController(
   url: string,
   clientType: 'ui' | 'bot',
-  name: string
+  name: string,
+  resumeToken?: string
 ): ControllerHandle {
   const socket = new WebSocket(url);
   const telemetry: ControllerTelemetry = {
@@ -705,7 +822,14 @@ function openController(
     sensorToActionDispatchMs: [],
     lastActionAtMs: null,
     lastObservedActionAtMs: null,
-    errors: []
+    errors: [],
+    sensorCountTotal: 0,
+    actionCountTotal: 0,
+    reclaimResults: [],
+    assignmentReclaimed: false,
+    closedAtMs: null,
+    closeCode: null,
+    closeReason: null
   };
   let resolveReady: (() => void) | null = null;
   let rejectReady: ((error: Error) => void) | null = null;
@@ -718,11 +842,16 @@ function openController(
   };
   socket.on('open', () => {
     socket.send(JSON.stringify({ type: 'hello', clientType, version: 2 }));
-    socket.send(JSON.stringify({ type: 'join', mode: 'player', name }));
+    socket.send(JSON.stringify({ type: 'join', mode: 'player', name, ...(resumeToken ? { resumeToken } : {}) }));
   });
   socket.on('error', error => {
     telemetry.errors.push(error.message);
     rejectReady?.(error);
+  });
+  socket.on('close', (code, reason) => {
+    telemetry.closedAtMs = performance.now();
+    telemetry.closeCode = code;
+    telemetry.closeReason = reason.toString('utf8');
   });
   socket.on('message', (data: RawData, isBinary: boolean) => {
     if (isBinary) return;
@@ -742,26 +871,35 @@ function openController(
       telemetry.snakeId = typeof message['snakeId'] === 'number' ? message['snakeId'] : null;
       telemetry.resumeToken =
         typeof message['resumeToken'] === 'string' ? message['resumeToken'] : null;
+      telemetry.assignmentReclaimed = message['reclaimed'] === true;
       maybeReady();
+      return;
+    }
+    if (message['type'] === 'reclaimResult') {
+      pushBounded(telemetry.reclaimResults, {
+        reclaimed: message['reclaimed'] === true,
+        reason: typeof message['reason'] === 'string' ? message['reason'] : 'unknown'
+      });
       return;
     }
     if (message['type'] !== 'sensors') return;
     const now = performance.now();
     telemetry.latestSensorTick =
       typeof message['tick'] === 'number' ? Math.floor(message['tick']) : telemetry.latestSensorTick;
-    telemetry.sensorTimesMs.push(now);
+    telemetry.sensorCountTotal++;
+    pushBounded(telemetry.sensorTimesMs, now);
     if (
       telemetry.lastActionAtMs !== null &&
       telemetry.lastActionAtMs !== telemetry.lastObservedActionAtMs
     ) {
-      telemetry.actionToNextSensorMs.push(now - telemetry.lastActionAtMs);
+      pushBounded(telemetry.actionToNextSensorMs, now - telemetry.lastActionAtMs);
       telemetry.lastObservedActionAtMs = telemetry.lastActionAtMs;
     }
     if (clientType === 'bot') {
       const started = performance.now();
-      const phase = telemetry.sensorTimesMs.length;
+      const phase = telemetry.sensorCountTotal;
       sendAction(socket, telemetry, Math.sin(phase * 0.17), phase % 20 < 5 ? 1 : 0);
-      telemetry.sensorToActionDispatchMs.push(performance.now() - started);
+      pushBounded(telemetry.sensorToActionDispatchMs, performance.now() - started);
     }
     maybeReady();
   });
@@ -783,7 +921,12 @@ function openViewer(url: string): ViewerHandle {
     statsTicks: [],
     statsGenerations: [],
     generationTimes: [],
-    errors: []
+    errors: [],
+    frameCountTotal: 0,
+    statsCountTotal: 0,
+    closedAtMs: null,
+    closeCode: null,
+    closeReason: null
   };
   let resolveConnected: (() => void) | null = null;
   let rejectConnected: ((error: Error) => void) | null = null;
@@ -815,11 +958,17 @@ function openViewer(url: string): ViewerHandle {
     rejectConnected?.(error);
     rejectReady?.(error);
   });
+  socket.on('close', (code, reason) => {
+    telemetry.closedAtMs = performance.now();
+    telemetry.closeCode = code;
+    telemetry.closeReason = reason.toString('utf8');
+  });
   socket.on('message', (data: RawData, isBinary: boolean) => {
     const now = performance.now();
     if (isBinary) {
-      telemetry.frameTimesMs.push(now);
-      telemetry.frameBytes.push(data.byteLength);
+      telemetry.frameCountTotal++;
+      pushBounded(telemetry.frameTimesMs, now);
+      pushBounded(telemetry.frameBytes, data.byteLength);
       maybeReady();
       return;
     }
@@ -835,11 +984,12 @@ function openViewer(url: string): ViewerHandle {
       return;
     }
     if (message['type'] === 'stats') {
-      telemetry.statsTimesMs.push(now);
-      if (typeof message['tick'] === 'number') telemetry.statsTicks.push(message['tick']);
-      if (typeof message['gen'] === 'number') telemetry.statsGenerations.push(message['gen']);
+      telemetry.statsCountTotal++;
+      pushBounded(telemetry.statsTimesMs, now);
+      if (typeof message['tick'] === 'number') pushBounded(telemetry.statsTicks, message['tick']);
+      if (typeof message['gen'] === 'number') pushBounded(telemetry.statsGenerations, message['gen']);
       if (typeof message['generationTime'] === 'number') {
-        telemetry.generationTimes.push(message['generationTime']);
+        pushBounded(telemetry.generationTimes, message['generationTime']);
       }
       maybeReady();
     }
@@ -878,6 +1028,81 @@ async function closeSocket(socket: WebSocket): Promise<void> {
   socket.close();
   await Promise.race([closed, new Promise<void>(resolve => setTimeout(resolve, 1_000))]);
   if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+}
+
+/** Return an absent sidecar file as zero bytes. */
+function optionalFileBytes(filePath: string): number {
+  try {
+    return fs.statSync(filePath).size;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+    throw error;
+  }
+}
+
+/** Count active resource type names when this Node runtime provides the diagnostic API. */
+function activeResourceTypes(): Record<string, number> | null {
+  const values = process.getActiveResourcesInfo?.();
+  if (!values) return null;
+  const counts: Record<string, number> = {};
+  for (const value of values) counts[value] = (counts[value] ?? 0) + 1;
+  return counts;
+}
+
+/** Fit a least-squares bytes-per-minute slope over bounded scalar samples. */
+export function rssSlopeBytesPerMinute(
+  samples: readonly { elapsedMs: number; rssBytes: number }[],
+  startElapsedMs: number
+): number | null {
+  const window = samples.filter(sample => sample.elapsedMs >= startElapsedMs);
+  if (window.length < 2) return null;
+  const meanX = window.reduce((sum, sample) => sum + sample.elapsedMs / 60_000, 0) / window.length;
+  const meanY = window.reduce((sum, sample) => sum + sample.rssBytes, 0) / window.length;
+  let numerator = 0;
+  let denominator = 0;
+  for (const sample of window) {
+    const x = sample.elapsedMs / 60_000 - meanX;
+    numerator += x * (sample.rssBytes - meanY);
+    denominator += x * x;
+  }
+  return denominator === 0 ? null : numerator / denominator;
+}
+
+/** Pause without measuring any tool/permission wait outside this already-running server fixture. */
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+/** Perform one current-reference legacy save with a bounded wall-time deadline. */
+async function requestLegacySave(
+  server: RunningServer,
+  timeoutMs = HEALTH_REQUEST_TIMEOUT_MS
+): Promise<{
+  status: number;
+  responseOk: boolean;
+  body: { ok?: boolean; snapshotId?: number; message?: string };
+}> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.port}/api/save`,
+      { method: 'POST', signal: controller.signal }
+    );
+    const body = await response.json() as {
+      ok?: boolean;
+      snapshotId?: number;
+      message?: string;
+    };
+    return { status: response.status, responseOk: response.ok, body };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`P7 legacy save timed out after ${timeoutMs} ms`, { cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /**
@@ -1057,6 +1282,7 @@ async function waitForTickBoundary(
 export async function runExternalControlBaseline(
   options: ExternalControlOptions
 ): Promise<Record<string, unknown>> {
+  if (options.profile === 'p7') return runP7Soak(options);
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slither-stage2-external-'));
   const resolvedTemporaryRoot = path.resolve(temporaryRoot);
   const resolvedSystemTemp = path.resolve(os.tmpdir());
@@ -1440,8 +1666,8 @@ export async function runExternalControlBaseline(
               player.telemetry.assignedAtMs === null
                 ? null
                 : Number((player.telemetry.assignedAtMs - player.telemetry.openedAtMs).toFixed(6)),
-            actionCount: player.telemetry.actionTimesMs.length,
-            sensorCount: player.telemetry.sensorTimesMs.length,
+            actionCount: player.telemetry.actionCountTotal,
+            sensorCount: player.telemetry.sensorCountTotal,
             actionIntervalMs: distribution(player.telemetry.actionIntervalsMs),
             sensorIntervalMs: distribution(intervals(player.telemetry.sensorTimesMs)),
             actionToNextSensorMs: distribution(player.telemetry.actionToNextSensorMs)
@@ -1452,13 +1678,13 @@ export async function runExternalControlBaseline(
             bot.telemetry.assignedAtMs === null
               ? null
               : Number((bot.telemetry.assignedAtMs - bot.telemetry.openedAtMs).toFixed(6)),
-          actionCount: bot.telemetry.actionTimesMs.length,
-          sensorCount: bot.telemetry.sensorTimesMs.length,
+          actionCount: bot.telemetry.actionCountTotal,
+          sensorCount: bot.telemetry.sensorCountTotal,
           observationsPerWallSecond: Number(
-            (bot.telemetry.sensorTimesMs.length / measuredWallSeconds).toFixed(6)
+            (bot.telemetry.sensorCountTotal / measuredWallSeconds).toFixed(6)
           ),
           actionsSentPerWallSecond: Number(
-            (bot.telemetry.actionTimesMs.length / measuredWallSeconds).toFixed(6)
+            (bot.telemetry.actionCountTotal / measuredWallSeconds).toFixed(6)
           ),
           sensorIntervalMs: distribution(intervals(bot.telemetry.sensorTimesMs)),
           actionToNextSensorMs: distribution(bot.telemetry.actionToNextSensorMs),
@@ -1467,10 +1693,10 @@ export async function runExternalControlBaseline(
         viewer: viewer ? {
           enabled: true,
           uiSocketConnected: true,
-          frameCount: viewer.telemetry.frameTimesMs.length,
+          frameCount: viewer.telemetry.frameCountTotal,
           frameIntervalMs: distribution(intervals(viewer.telemetry.frameTimesMs)),
           frameBytes: distribution(viewer.telemetry.frameBytes),
-          statsCount: viewer.telemetry.statsTimesMs.length,
+          statsCount: viewer.telemetry.statsCountTotal,
           statsIntervalMs: distribution(intervals(viewer.telemetry.statsTimesMs))
         } : {
           enabled: false,
@@ -1538,6 +1764,459 @@ export async function runExternalControlBaseline(
   return evidence;
 }
 
+/** Run the bounded current-reference P7 soak without claiming target-VM or production-Rust coverage. */
+async function runP7Soak(options: ExternalControlOptions): Promise<Record<string, unknown>> {
+  const temporaryRoot = path.resolve(fs.mkdtempSync(path.join(os.tmpdir(), 'slither-stage2-p7-')));
+  const systemTemp = path.resolve(os.tmpdir());
+  if (path.dirname(temporaryRoot) !== systemTemp || !path.basename(temporaryRoot).startsWith('slither-stage2-p7-')) {
+    throw new Error(`Unexpected P7 temporary root: ${temporaryRoot}`);
+  }
+  const databasePath = path.join(temporaryRoot, 'fixture.db');
+  const samples: Array<Record<string, unknown>> = [];
+  const saves: Array<Record<string, unknown>> = [];
+  const reconnects: Array<Record<string, unknown>> = [];
+  let server: RunningServer | null = null;
+  let player: ControllerHandle | null = null;
+  let bot: ControllerHandle | null = null;
+  let viewer: ViewerHandle | null = null;
+  let outcome: 'completed' | 'faulted' | 'failed' | 'timeout' | 'cleanup-failed' = 'completed';
+  let terminalReason: string | null = null;
+  let startedAt = 0;
+  let measuredWallMs = 0;
+  let memoryBefore: NodeJS.MemoryUsage | null = null;
+  let eventLoop: ReturnType<typeof monitorEventLoopDelay> | null = null;
+  let initialHealth: HealthSnapshot | null = null;
+  let finalStorage: Record<string, unknown> | null = null;
+  let resourcesAfterCleanup: Record<string, number> | null = null;
+  let scenario: ReturnType<typeof installStage2Scenario> | null = null;
+  let memoryTimer: NodeJS.Timeout | null = null;
+  let peakRssBytes = 0;
+  let peakHeapUsedBytes = 0;
+  let peakExternalBytes = 0;
+  let postWarmupCounts: {
+    botSensors: number;
+    viewerFrames: number;
+    viewerStats: number;
+  } | null = null;
+  const priorPlayer = { actions: 0, sensors: 0, errors: [] as string[] };
+  try {
+    scenario = createFixtureDatabase(databasePath, 'P0', 1, 'p7');
+    server = await startServer({
+      ...DEFAULT_CONFIG,
+      host: '127.0.0.1', port: 0, dbPath: databasePath,
+      checkpointEveryGenerations: 1, logLevel: 'error', inferenceBackend: 'native',
+      mtEnabled: options.workers > 0, mtWorkers: options.workers, resume: 'latest'
+    });
+    player = openController(server.wsUrl, 'ui', 'stage2-p7-player');
+    bot = openController(server.wsUrl, 'bot', 'stage2-p7-bot');
+    viewer = openViewer(server.wsUrl);
+    await withTimeout(Promise.all([player.ready, bot.ready, viewer.ready]), 30_000, 'P7 clients');
+    initialHealth = await readHealth(server);
+    if (initialHealth.clients !== p7Composition().totalSockets) {
+      throw new Error(
+        `P7 client composition mismatch: expected ${p7Composition().totalSockets}, ` +
+        `got ${initialHealth.clients}`
+      );
+    }
+    clearControllerSamples(player.telemetry);
+    clearControllerSamples(bot.telemetry);
+    clearViewerSamples(viewer.telemetry);
+    // Timing begins only after local server/client readiness. Tool permission waits cannot enter this window.
+    startedAt = performance.now();
+    memoryBefore = process.memoryUsage();
+    peakRssBytes = memoryBefore.rss;
+    peakHeapUsedBytes = memoryBefore.heapUsed;
+    peakExternalBytes = memoryBefore.external;
+    memoryTimer = setInterval(() => {
+      const memory = process.memoryUsage();
+      peakRssBytes = Math.max(peakRssBytes, memory.rss);
+      peakHeapUsedBytes = Math.max(peakHeapUsedBytes, memory.heapUsed);
+      peakExternalBytes = Math.max(peakExternalBytes, memory.external);
+    }, 250);
+    eventLoop = monitorEventLoopDelay({ resolution: 10 });
+    eventLoop.enable();
+    let previousCpu = process.cpuUsage();
+    let nextSample = 0;
+    let nextReconnect = options.reconnectEveryMs;
+    let nextSave = options.manualSaveEveryMs;
+    let playerSequence = 0;
+    let nextAction = 0;
+    while (performance.now() - startedAt < (options.durationMs ?? 0)) {
+      const elapsedMs = performance.now() - startedAt;
+      if (
+        postWarmupCounts === null &&
+        elapsedMs >= (options.warmupMs ?? 0) &&
+        bot &&
+        viewer
+      ) {
+        postWarmupCounts = {
+          botSensors: bot.telemetry.sensorCountTotal,
+          viewerFrames: viewer.telemetry.frameCountTotal,
+          viewerStats: viewer.telemetry.statsCountTotal
+        };
+      }
+      if (elapsedMs >= nextAction && player) {
+        playerSequence++;
+        sendAction(player.socket, player.telemetry, Math.sin(playerSequence * 0.11), playerSequence % 20 < 6 ? 1 : 0);
+        nextAction += 1000 / options.playerHz;
+      }
+      if (elapsedMs >= nextSample && server) {
+        const health = await readHealth(server);
+        const memory = process.memoryUsage();
+        const currentCpu = process.cpuUsage();
+        samples.push({
+          elapsedMs: Number(elapsedMs.toFixed(3)), tick: health.tick, health,
+          memory, databaseBytes: optionalFileBytes(databasePath), walBytes: optionalFileBytes(`${databasePath}-wal`),
+          shmBytes: optionalFileBytes(`${databasePath}-shm`), activeResourceTypes: activeResourceTypes(),
+          cpuMicros: {
+            user: currentCpu.user - previousCpu.user,
+            system: currentCpu.system - previousCpu.system
+          },
+          eventLoopMs: {
+            p50: Number((eventLoop.percentile(50) / 1e6).toFixed(6)),
+            p95: Number((eventLoop.percentile(95) / 1e6).toFixed(6)),
+            p99: Number((eventLoop.percentile(99) / 1e6).toFixed(6)),
+            max: Number((eventLoop.max / 1e6).toFixed(6))
+          }
+        });
+        previousCpu = currentCpu;
+        eventLoop.reset();
+        nextSample = elapsedMs + options.sampleEveryMs;
+        if (health.clients !== p7Composition().totalSockets) {
+          outcome = 'failed';
+          terminalReason =
+            `P7 client count changed: expected ${p7Composition().totalSockets}, ` +
+            `got ${health.clients}`;
+          break;
+        }
+        if (
+          (player && player.telemetry.closedAtMs !== null) ||
+          (bot && bot.telemetry.closedAtMs !== null) ||
+          (viewer && viewer.telemetry.closedAtMs !== null)
+        ) {
+          outcome = 'failed';
+          terminalReason = 'P7 observed an unexpected active-client disconnect';
+          break;
+        }
+        if (health.fault.faulted) {
+          outcome = 'faulted'; terminalReason = health.fault.reason ?? 'unknown simulation fault'; break;
+        }
+      }
+      if (elapsedMs >= nextReconnect && player && server) {
+        const token = player.telemetry.resumeToken;
+        const priorSnakeId = player.telemetry.snakeId;
+        const oldPlayer = player;
+        priorPlayer.actions += oldPlayer.telemetry.actionCountTotal;
+        priorPlayer.sensors += oldPlayer.telemetry.sensorCountTotal;
+        priorPlayer.errors.push(...oldPlayer.telemetry.errors);
+        await closeSocket(oldPlayer.socket);
+        player = openController(server.wsUrl, 'ui', 'stage2-p7-player', token ?? undefined);
+        await withTimeout(player.ready, 30_000, 'P7 player reclaim');
+        const resultSeen = player.telemetry.reclaimResults.some(result => result.reclaimed);
+        const assignmentReclaimed = player.telemetry.assignmentReclaimed;
+        const sameSnake = priorSnakeId !== null && player.telemetry.snakeId === priorSnakeId;
+        const rotatedToken = token !== null && player.telemetry.resumeToken !== token;
+        const reclaimed = resultSeen && assignmentReclaimed && sameSnake && rotatedToken;
+        reconnects.push({
+          elapsedMs: Number(elapsedMs.toFixed(3)),
+          priorTokenPresent: token !== null,
+          priorSnakeId,
+          assignedSnakeId: player.telemetry.snakeId,
+          resultSeen,
+          assignmentReclaimed,
+          sameSnake,
+          rotatedToken,
+          reclaimed,
+          reclaimResults: player.telemetry.reclaimResults
+        });
+        if (!reclaimed) {
+          outcome = 'failed';
+          terminalReason =
+            'P7 reconnect did not receive both reclaim confirmations for the same snake and a rotated token';
+          break;
+        }
+        nextReconnect += options.reconnectEveryMs;
+      }
+      if (elapsedMs >= nextSave && server) {
+        const saveStarted = performance.now();
+        const save = await requestLegacySave(server);
+        saves.push({ elapsedMs: Number(elapsedMs.toFixed(3)), status: save.status, ok: save.body.ok === true,
+          snapshotId: save.body.snapshotId ?? null, message: save.body.message ?? null,
+          durationMs: Number((performance.now() - saveStarted).toFixed(6)),
+          behavior: 'legacy current-reference non-resumable population save; not future pin/export behavior' });
+        if (!save.responseOk || save.body.ok !== true) {
+          outcome = 'failed';
+          terminalReason =
+            `P7 legacy save failed: ${save.body.message ?? save.status}`;
+          break;
+        }
+        if (
+          !Number.isSafeInteger(save.body.snapshotId) ||
+          Number(save.body.snapshotId) < 1
+        ) {
+          outcome = 'failed';
+          terminalReason = 'P7 legacy save succeeded without a valid snapshot id';
+          break;
+        }
+        nextSave += options.manualSaveEveryMs;
+      }
+      await sleep(Math.min(20, Math.max(5, Math.floor(500 / options.playerHz))));
+    }
+    measuredWallMs = performance.now() - startedAt;
+    if (outcome === 'completed' && server) {
+      const finalHealth = await readHealth(server);
+      if (
+        finalHealth.clients !== p7Composition().totalSockets ||
+        finalHealth.fault.faulted ||
+        (player && player.telemetry.closedAtMs !== null) ||
+        (bot && bot.telemetry.closedAtMs !== null) ||
+        (viewer && viewer.telemetry.closedAtMs !== null)
+      ) {
+        outcome = finalHealth.fault.faulted ? 'faulted' : 'failed';
+        terminalReason = finalHealth.fault.faulted
+          ? finalHealth.fault.reason ?? 'unknown simulation fault'
+          : 'P7 final liveness check found a disconnected external client';
+      }
+    }
+    const clientErrors = [
+      ...priorPlayer.errors.map(error => `player: ${error}`),
+      ...(player?.telemetry.errors.map(error => `player: ${error}`) ?? []),
+      ...(bot?.telemetry.errors.map(error => `bot: ${error}`) ?? []),
+      ...(viewer?.telemetry.errors.map(error => `viewer: ${error}`) ?? [])
+    ];
+    if (outcome === 'completed' && clientErrors.length > 0) {
+      outcome = 'failed';
+      terminalReason = clientErrors.join('; ');
+    }
+    if (
+      outcome === 'completed' &&
+      (!viewer || viewer.telemetry.frameCountTotal === 0 || viewer.telemetry.statsCountTotal === 0)
+    ) {
+      outcome = 'failed';
+      terminalReason = 'P7 spectator did not retain both frame and stats liveness';
+    }
+    if (outcome === 'completed' && (saves.length === 0 || reconnects.length === 0)) {
+      outcome = 'failed';
+      terminalReason = 'P7 completed without the required save and reconnect events';
+    }
+    if (outcome === 'completed' && samples.length < 2) {
+      outcome = 'failed';
+      terminalReason = 'P7 completed without enough bounded scalar samples';
+    }
+    if (
+      outcome === 'completed' &&
+      (
+        postWarmupCounts === null ||
+        !bot ||
+        !viewer ||
+        bot.telemetry.sensorCountTotal <= postWarmupCounts.botSensors ||
+        viewer.telemetry.frameCountTotal <= postWarmupCounts.viewerFrames ||
+        viewer.telemetry.statsCountTotal <= postWarmupCounts.viewerStats
+      )
+    ) {
+      outcome = 'failed';
+      terminalReason =
+        'P7 bot observations and viewer frame/stats streams did not all progress after warm-up';
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    outcome = /timed out|timeout/iu.test(message) ? 'timeout' : 'failed';
+    terminalReason = message;
+  } finally {
+    if (startedAt > 0 && measuredWallMs === 0) measuredWallMs = performance.now() - startedAt;
+    if (memoryTimer) clearInterval(memoryTimer);
+    if (eventLoop) eventLoop.disable();
+    const closeResults: PromiseSettledResult<unknown>[] = [];
+    if (server) closeResults.push(await server.close().then(() => ({ status: 'fulfilled', value: undefined } as const), reason => ({ status: 'rejected', reason } as const)));
+    closeResults.push(...await Promise.allSettled([
+      ...(player ? [closeSocket(player.socket)] : []), ...(bot ? [closeSocket(bot.socket)] : []),
+      ...(viewer ? [closeSocket(viewer.socket)] : [])
+    ]));
+    const cleanupFailure = closeResults.find(result => result.status === 'rejected');
+    if (cleanupFailure) { outcome = 'cleanup-failed'; terminalReason ??= String((cleanupFailure as PromiseRejectedResult).reason); }
+    try {
+      const databaseBytes = optionalFileBytes(databasePath);
+      const walBytes = optionalFileBytes(`${databasePath}-wal`);
+      const shmBytes = optionalFileBytes(`${databasePath}-shm`);
+      if (databaseBytes > 0) {
+        const database = new Database(databasePath, { readonly: true, fileMustExist: true });
+        try {
+          finalStorage = {
+            databaseBytes,
+            walBytes,
+            shmBytes,
+            pageCount: database.pragma('page_count', { simple: true }) as number,
+            freelistCount: database.pragma('freelist_count', { simple: true }) as number,
+            snapshotCount: (
+              database.prepare('SELECT COUNT(*) AS count FROM population_snapshots').get() as
+                { count: number }
+            ).count,
+            genomeRowCount: (
+              database.prepare('SELECT COUNT(*) AS count FROM snapshot_genomes').get() as
+                { count: number }
+            ).count
+          };
+          if (outcome === 'completed') {
+            const snapshotCount = Number(finalStorage['snapshotCount']);
+            const genomeRowCount = Number(finalStorage['genomeRowCount']);
+            const expectedSnapshots = 1 + saves.length;
+            const expectedGenomeRows =
+              expectedSnapshots * (scenario?.settings.snakeCount ?? 0);
+            if (
+              snapshotCount < expectedSnapshots ||
+              genomeRowCount < expectedGenomeRows
+            ) {
+              outcome = 'failed';
+              terminalReason =
+                'P7 final SQLite counts do not contain the run-start plus every ' +
+                'successful manual save';
+            }
+          }
+        } finally {
+          database.close();
+        }
+      }
+    } catch (error) {
+      outcome = 'cleanup-failed';
+      terminalReason ??=
+        `P7 final database inspection failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    try {
+      resetCFGToDefaults();
+    } catch (error) {
+      outcome = 'cleanup-failed';
+      terminalReason ??=
+        `P7 config reset failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    try {
+      fs.rmSync(temporaryRoot, { recursive: true, force: true });
+    } catch (error) {
+      outcome = 'cleanup-failed';
+      terminalReason ??=
+        `P7 temporary cleanup failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    resourcesAfterCleanup = activeResourceTypes();
+  }
+  const memoryAfter = process.memoryUsage();
+  const rssSamples = samples.map(sample => {
+    const memory = sample['memory'] as NodeJS.MemoryUsage;
+    return { elapsedMs: sample['elapsedMs'] as number, rssBytes: memory.rss };
+  });
+  const durationMs = options.durationMs ?? 0;
+  const warmupMs = options.warmupMs ?? 0;
+  const warmRss = rssSamples
+    .filter(sample => sample.elapsedMs >= warmupMs)
+    .map(sample => sample.rssBytes)
+    .sort((left, right) => left - right);
+  const warmRssMedian = warmRss.length === 0
+    ? null
+    : warmRss.length % 2 === 1
+      ? warmRss[(warmRss.length - 1) / 2]!
+      : (warmRss[warmRss.length / 2 - 1]! + warmRss[warmRss.length / 2]!) / 2;
+  const finalRssMinusWarmMedian = warmRssMedian === null
+    ? null
+    : memoryAfter.rss - warmRssMedian;
+  const sampledOutboundMaxima = {
+    reliableQueuedMessages: Math.max(
+      0,
+      ...samples.map(sample => Number(
+        ((sample['health'] as HealthSnapshot).outbound['reliableQueuedMessages']) ?? 0
+      ))
+    ),
+    reliableQueuedBytes: Math.max(
+      0,
+      ...samples.map(sample => Number(
+        ((sample['health'] as HealthSnapshot).outbound['reliableQueuedBytes']) ?? 0
+      ))
+    ),
+    pendingFrames: Math.max(
+      0,
+      ...samples.map(sample => Number(
+        ((sample['health'] as HealthSnapshot).outbound['pendingFrames']) ?? 0
+      ))
+    )
+  };
+  const playerActions =
+    priorPlayer.actions + (player?.telemetry.actionCountTotal ?? 0);
+  const playerSensors =
+    priorPlayer.sensors + (player?.telemetry.sensorCountTotal ?? 0);
+  const firstPersistence = initialHealth?.persistence ?? null;
+  const lastPersistence =
+    samples.length > 0
+      ? (samples.at(-1)!['health'] as HealthSnapshot).persistence
+      : firstPersistence;
+  return {
+    schema: 'slither-stage2-p7-current-server-soak', version: 1,
+    evidenceClass: options.p7TestOnlyShort ? 'test-only short diagnostic' : 'new measured result',
+    caveat: 'Current TypeScript server plus loopback synthetic clients in one process. Combined runner/server memory, sampled queue maxima, and current SQLite saves are not Rust, LAN browser, owner trainer, target-VM, retention, or production persistence evidence.',
+    source: sourceIdentity(),
+    environment: {
+      capturedAt: new Date().toISOString(),
+      platform: process.platform,
+      architecture: process.arch,
+      osRelease: os.release(),
+      node: process.version,
+      cpuModel: os.cpus()[0]?.model ?? 'unknown',
+      logicalCpuCount: os.cpus().length,
+      totalMemoryBytes: os.totalmem()
+    },
+    outcome,
+    terminalReason,
+    workload: { profile: 'p7', scenario, simSpeed: 1, durationMs, warmupMs, sampleEveryMs: options.sampleEveryMs,
+      reconnectEveryMs: options.reconnectEveryMs,
+      manualSaveEveryMs: options.manualSaveEveryMs,
+      playerHz: options.playerHz,
+      testOnlyShort: options.p7TestOnlyShort,
+      legacyManualSave: true },
+    result: { samples, saves, reconnects, memoryBefore, memoryAfter,
+      measuredWallMs: Number(measuredWallMs.toFixed(6)),
+      sampledMemoryPeaks: {
+        cadenceMs: 250,
+        rssBytes: peakRssBytes,
+        heapUsedBytes: peakHeapUsedBytes,
+        externalBytes: peakExternalBytes,
+        caveat:
+          'Timer samples can still miss shorter spikes; the values include runner and ' +
+          'in-process current server memory.'
+      },
+      sampleCountBound: Math.ceil(durationMs / options.sampleEveryMs) + 2,
+      sampledQueueMaximumCaveat:
+        'Queue depth maxima are only periodic health samples. Replacement/failure counters are ' +
+        'connection-lifetime values for connections still active at each sample, so reconnecting ' +
+        'a client can remove its earlier counters from later aggregate health values.',
+      sampledOutboundMaxima,
+      rssSlopeBytesPerMinuteAfterWarmup: rssSlopeBytesPerMinute(rssSamples, warmupMs),
+      finalRssMinusWarmWindowMedianBytes: finalRssMinusWarmMedian,
+      controllers: {
+        playerActionsSent: playerActions,
+        playerSensorsReceived: playerSensors,
+        botActionsSent: bot?.telemetry.actionCountTotal ?? 0,
+        botSensorsReceived: bot?.telemetry.sensorCountTotal ?? 0,
+        viewerFramesReceived: viewer?.telemetry.frameCountTotal ?? 0,
+        viewerStatsReceived: viewer?.telemetry.statsCountTotal ?? 0,
+        caveat:
+          'Action counts are client sends, not proof of ControllerRegistry acceptance or fixed-step application.'
+      },
+      persistenceProgress: {
+        before: firstPersistence,
+        after: lastPersistence,
+        durableSnapshotAdvanced:
+          firstPersistence?.lastDurableSnapshotId !== null &&
+          firstPersistence?.lastDurableSnapshotId !== undefined &&
+          lastPersistence?.lastDurableSnapshotId !== null &&
+          lastPersistence?.lastDurableSnapshotId !== undefined &&
+          lastPersistence.lastDurableSnapshotId > firstPersistence.lastDurableSnapshotId
+      },
+      finalStorage,
+      resourcesAfterCleanup,
+      fullP7SoakEligible:
+        durationMs >= P7_MIN_DURATION_MS &&
+        measuredWallMs >= P7_MIN_DURATION_MS &&
+        warmupMs === P7_WARMUP_MS &&
+        samples.length >= 2 }
+  };
+}
+
 /** Execute the CLI. */
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
@@ -1556,6 +2235,12 @@ async function main(): Promise<void> {
     console.info(`[stage2.external-control] wrote ${options.outputPath}`);
   } else {
     process.stdout.write(json);
+  }
+  if (
+    options.profile === 'p7' &&
+    (result as { outcome?: unknown }).outcome !== 'completed'
+  ) {
+    process.exitCode = 1;
   }
 }
 

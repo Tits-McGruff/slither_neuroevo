@@ -1,0 +1,30 @@
+{
+  "generation": 7,
+  "archKey": "legacy-all-parent-v0-arch",
+  "genomes": [
+    {
+      "archKey": "legacy-all-parent-v0-arch",
+      "brainType": "graph",
+      "fitness": 12.5,
+      "weights": [
+        0.1,
+        -3.141592653589793,
+        1.401298464324817e-45,
+        3.4028234663852886e38
+      ]
+    },
+    {
+      "archKey": "legacy-all-parent-v0-arch",
+      "brainType": "mlp",
+      "fitness": -4.25,
+      "weights": [
+        -0.2,
+        1.0000000596046448,
+        16777217,
+        -12345.6789012345
+      ]
+    }
+  ],
+  "cfgHash": "legacy-all-parent-v0-config",
+  "worldSeed": 305419896
+}

@@ -21,10 +21,11 @@ claims and prior numerical observations are labelled separately below.
 
 **Implementation status:** Stage 1 reference repairs and correction fixtures
 are implemented and recorded below. Stage 2 has retained local Windows
-behavior/runtime, browser-persistence, database-growth, retention, codec, and
-synthetic-loopback P6 evidence. The real 30 Hz versus 60 Hz browser-player
-choice, owner trainer, trusted-LAN run, target Debian VM, and remaining soak
-and persistence gates are still open. No Stage 2 or later-stage exit gate is
+behavior/runtime, browser-persistence, database-growth, retention, codec,
+synthetic-loopback P6 evidence, and one 30-minute P7 current-reference
+loopback soak. The real 30 Hz versus 60 Hz browser-player choice, owner trainer,
+trusted-LAN run, target Debian VM, sustained-load work, and production
+persistence gates are still open. No Stage 2 or later-stage exit gate is
 claimed.
 
 The owner explicitly approved revision `2026-07-29-draft-4` in the 2026-07-29
