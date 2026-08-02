@@ -12,7 +12,9 @@ import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 /** Options for the graph inventory. */
 interface GraphOptions {
   /** Existing SQLite database. */
-  databasePath: string;
+  databasePath: string | null;
+  /** Retained JSON graph fixture, mutually exclusive with `databasePath`. */
+  fixturePath: string | null;
   /** Optional output artifact. */
   outputPath: string | null;
 }
@@ -27,24 +29,119 @@ interface GraphCandidate {
   storedKey: string | null;
 }
 
+/** Immutable, text-based source for a reproducible graph inventory. */
+interface GraphFixture {
+  /** Fixture format identifier. */
+  schema: 'slither-stage2-graph-fixture';
+  /** Fixture format version. */
+  version: 1;
+  /** Honest provenance for either extracted database rows or a synthetic case. */
+  source:
+    | {
+      /** Fixture content was extracted from a retained database. */
+      kind: 'database';
+      /** SHA-256 of the original database bytes. */
+      sha256: string;
+    }
+    | {
+      /** Fixture was constructed to exercise a named compatibility risk. */
+      kind: 'synthetic';
+      /** Stable human-readable fixture identity. */
+      fixtureId: string;
+      /** Short statement of the behavior exercised by the fixture. */
+      purpose: string;
+    };
+  /** Graphs and their original row provenance. */
+  graphs: Array<{
+    /** Original rows containing this exact graph spec. */
+    sources: string[];
+    /** Graph definition in its retained JSON form. */
+    spec: GraphSpec;
+    /** Architecture key stored with the graph, when present. */
+    storedKey?: string | null;
+  }>;
+}
+
+/** Fully loaded graph input with enough metadata for the output artifact. */
+interface GraphInput {
+  /** Parsed graph candidates. */
+  candidates: GraphCandidate[];
+  /** Tagged source identity retained in the output schema. */
+  source:
+    | {
+      /** Live read-only SQLite input. */
+      kind: 'database';
+      /** Resolved database path. */
+      path: string;
+      /** SHA-256 of the exact database bytes. */
+      sha256: string;
+    }
+    | {
+      /** Immutable JSON fixture input. */
+      kind: 'fixture';
+      /** Resolved fixture path. */
+      path: string;
+      /** SHA-256 of the exact fixture bytes. */
+      sha256: string;
+      /** Exact fixture byte count. */
+      byteLength: number;
+      /** Retained fixture format identifier. */
+      schema: GraphFixture['schema'];
+      /** Retained fixture format version. */
+      version: GraphFixture['version'];
+      /** Provenance declared inside the hashed fixture. */
+      provenance: GraphFixture['source'];
+    };
+}
+
+/** Lowercase or uppercase hexadecimal SHA-256 text. */
+const SHA256_PATTERN = /^[0-9a-f]{64}$/iu;
+
 /**
  * Parse graph inventory options.
  * @param argv - Arguments after script path.
  * @returns Validated options.
  */
 function parseOptions(argv: readonly string[]): GraphOptions {
-  let databasePath = path.resolve('data', 'slither.db');
+  let databasePath: string | null = null;
+  let fixturePath: string | null = null;
   let outputPath: string | null = null;
+  let databaseSupplied = false;
+  let fixtureSupplied = false;
+  let outputSupplied = false;
   for (let index = 0; index < argv.length; index++) {
     const option = argv[index];
     const value = argv[index + 1];
     if (!value) throw new Error(`${option ?? '<missing>'} requires a value`);
-    if (option === '--db') databasePath = path.resolve(value);
-    else if (option === '--output') outputPath = path.resolve(value);
+    if (option === '--db') {
+      if (databaseSupplied) throw new Error('--db may be supplied only once');
+      if (fixtureSupplied) throw new Error('--db and --fixture cannot be used together');
+      databaseSupplied = true;
+      databasePath = path.resolve(value);
+    } else if (option === '--fixture') {
+      if (fixtureSupplied) throw new Error('--fixture may be supplied only once');
+      if (databaseSupplied) throw new Error('--db and --fixture cannot be used together');
+      fixtureSupplied = true;
+      fixturePath = path.resolve(value);
+    } else if (option === '--output') {
+      if (outputSupplied) throw new Error('--output may be supplied only once');
+      outputSupplied = true;
+      outputPath = path.resolve(value);
+    }
     else throw new Error(`Unknown option ${option}`);
     index++;
   }
-  return { databasePath, outputPath };
+  if (!databaseSupplied && !fixtureSupplied) databasePath = path.resolve('data', 'slither.db');
+  return { databasePath, fixturePath, outputPath };
+}
+
+/**
+ * Determine whether a parsed JSON value is a non-null object.
+ * @param value - Parsed JSON value.
+ * @returns True for record-like objects.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -124,13 +221,114 @@ function loadGraphs(databasePath: string): GraphCandidate[] {
 }
 
 /**
+ * Load a retained text fixture without depending on a local SQLite database.
+ * @param fixturePath - UTF-8 JSON fixture path.
+ * @returns Candidates and hashes needed to identify the exact fixture bytes.
+ */
+function loadFixture(fixturePath: string): GraphInput {
+  const bytes = fs.readFileSync(fixturePath);
+  const parsedValue: unknown = JSON.parse(bytes.toString('utf8'));
+  if (!isRecord(parsedValue)) throw new Error(`Graph fixture root must be an object: ${fixturePath}`);
+  const parsed = parsedValue as Partial<GraphFixture>;
+  if (parsed.schema !== 'slither-stage2-graph-fixture' || parsed.version !== 1) {
+    throw new Error(`Unsupported graph fixture: ${fixturePath}`);
+  }
+  if (!isRecord(parsed.source)) {
+    throw new Error(`Graph fixture is missing tagged source provenance: ${fixturePath}`);
+  }
+  if (parsed.source.kind === 'database') {
+    if (typeof parsed.source.sha256 !== 'string' || !SHA256_PATTERN.test(parsed.source.sha256)) {
+      throw new Error(`Graph fixture database source requires a 64-hex SHA-256: ${fixturePath}`);
+    }
+  } else if (parsed.source.kind === 'synthetic') {
+    if (
+      typeof parsed.source.fixtureId !== 'string' ||
+      parsed.source.fixtureId.trim().length === 0 ||
+      typeof parsed.source.purpose !== 'string' ||
+      parsed.source.purpose.trim().length === 0
+    ) {
+      throw new Error(`Graph fixture synthetic source requires fixtureId and purpose: ${fixturePath}`);
+    }
+  } else {
+    throw new Error(`Graph fixture has unknown source provenance: ${fixturePath}`);
+  }
+  if (!Array.isArray(parsed.graphs) || parsed.graphs.length === 0) {
+    throw new Error(`Graph fixture must contain at least one graph: ${fixturePath}`);
+  }
+  const candidates: GraphCandidate[] = [];
+  for (const [graphIndex, graph] of parsed.graphs.entries()) {
+    if (
+      !isRecord(graph) ||
+      !Array.isArray(graph.sources) ||
+      graph.sources.length === 0 ||
+      !graph.sources.every(source => typeof source === 'string' && source.trim().length > 0)
+    ) {
+      throw new Error(`Graph fixture has invalid sources: ${fixturePath}`);
+    }
+    if (
+      !isRecord(graph.spec) ||
+      graph.spec.type !== 'graph' ||
+      !Array.isArray(graph.spec.nodes) ||
+      !Array.isArray(graph.spec.edges) ||
+      !Array.isArray(graph.spec.outputs) ||
+      typeof graph.spec.outputSize !== 'number'
+    ) {
+      throw new Error(`Graph fixture has invalid graph spec: ${fixturePath}`);
+    }
+    if (graph.storedKey != null && typeof graph.storedKey !== 'string') {
+      throw new Error(`Graph fixture has invalid storedKey: ${fixturePath}`);
+    }
+    try {
+      compileGraph(graph.spec as GraphSpec);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`Graph fixture graph ${graphIndex} does not compile: ${reason}`);
+    }
+    for (const source of graph.sources) {
+      candidates.push({ source, spec: graph.spec as GraphSpec, storedKey: graph.storedKey ?? null });
+    }
+  }
+  return {
+    candidates,
+    source: {
+      kind: 'fixture',
+      path: fixturePath,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      byteLength: bytes.length,
+      schema: parsed.schema,
+      version: parsed.version,
+      provenance: parsed.source
+    }
+  };
+}
+
+/**
+ * Load either the historical SQLite source or a retained graph fixture.
+ * @param options - Parsed command-line options.
+ * @returns Candidates and source identity.
+ */
+function loadGraphInput(options: GraphOptions): GraphInput {
+  if (options.fixturePath) return loadFixture(options.fixturePath);
+  if (!options.databasePath) throw new Error('Either --db or --fixture is required');
+  const databaseBytes = fs.readFileSync(options.databasePath);
+  return {
+    candidates: loadGraphs(options.databasePath),
+    source: {
+      kind: 'database',
+      path: options.databasePath,
+      sha256: createHash('sha256').update(databaseBytes).digest('hex')
+    }
+  };
+}
+
+/**
  * Capture graph layout and locale-sensitive ordering evidence.
  * @param options - Database and output paths.
  * @returns Evidence object.
  */
 function captureGraphBaseline(options: GraphOptions): Record<string, unknown> {
-  const databaseBytes = fs.readFileSync(options.databasePath);
-  const candidates = loadGraphs(options.databasePath);
+  const input = loadGraphInput(options);
+  const { candidates } = input;
   const unique = new Map<string, GraphCandidate & { sources: string[] }>();
   for (const candidate of candidates) {
     const digest = createHash('sha256').update(JSON.stringify(candidate.spec)).digest('hex');
@@ -141,7 +339,7 @@ function captureGraphBaseline(options: GraphOptions): Record<string, unknown> {
   const probe = ['a', 'A', 'ä', 'z', 'Z', '10', '2', 'é', 'e\u0301', '_', '-'];
   return {
     schema: 'slither-stage2-graph-baseline',
-    version: 1,
+    version: 2,
     evidenceClass: 'new reproducible fixture',
     source: sourceIdentity(),
     environment: {
@@ -154,9 +352,8 @@ function captureGraphBaseline(options: GraphOptions): Record<string, unknown> {
       node: process.version,
       icu: process.versions.icu
     },
-    database: {
-      path: options.databasePath,
-      sha256: createHash('sha256').update(databaseBytes).digest('hex'),
+    input: {
+      ...input.source,
       graphBearingRows: candidates.length,
       uniqueGraphSpecs: unique.size
     },
