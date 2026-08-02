@@ -20,14 +20,18 @@ documents can therefore prove current structural behavior; historical commit
 claims and prior numerical observations are labelled separately below.
 
 **Implementation status:** Stage 1 reference repairs and correction fixtures
-are implemented and recorded below. Stage 2 has retained local Windows
-behavior/runtime, browser-persistence, database-growth, retention, codec,
-synthetic-loopback P6 evidence, and one 30-minute P7 current-reference
-loopback soak. An actual local browser now has bounded 30 Hz/60 Hz action and
-display traces, but the real LAN browser-player choice, owner trainer,
-trusted-LAN run, target Debian VM, sustained-load work, and production
-persistence gates are still open. No Stage 2 or later-stage exit gate is
-claimed.
+are implemented and recorded below. Stage 2 retains local Windows evidence
+and Oxygen Ryzen 7 2700/Debian measurements for the current-reference P0–P4
+runtime, real-server synthetic-loopback P5, evolved P0/P2 codecs and managed-
+checkpoint prototypes, graph ordering, and the scoped owner database/save
+inventory. A real desktop browser also connected to Oxygen over the trusted
+LAN and exercised P0 player control. These measurements reproduce the current
+P1/P2 failure; they do not prove that the future Rust path meets its mandatory
+targets. The owner trainer audit found Protocol 1 while the current server
+requires Protocol 2. Complete accepted/applied control timing, P1/P2 LAN-
+browser load, trainer coordination, target P6/P7, sustained P4, production
+Rust persistence/restore/recovery, and P8 growth remain open. No Stage 2 or
+later-stage exit gate is claimed.
 
 The owner explicitly approved revision `2026-07-29-draft-4` in the 2026-07-29
 conversation. Commit `7971ed2ddbda86891c77def31d980aedf96b4236` contains the
@@ -3829,7 +3833,12 @@ measures the production-shaped workload, not isolated shared-weight kernels.
   Debian ordering, node offsets, Concat input order, parameter count, and
   architecture key. Retain the exact graph/save fixture, Node/OS/locale
   versions, commands, and both raw outputs; do not claim a real cross-OS
-  difference unless the artifacts show one.
+  difference unless the artifacts show one. The retained Windows and Oxygen
+  raw outputs embed the complete graph spec and matching input-database SHA and
+  agree exactly, so the prior claimed difference did not reproduce. The exact
+  input database bytes or deterministic generator are not retained, so this
+  checkbox remains open; `localeCompare` also remains a structural
+  portability risk.
 
 **Production-shaped performance baselines:**
 
@@ -3845,8 +3854,10 @@ measures the production-shaped workload, not isolated shared-weight kernels.
 - [x] Measure the real current count-one N-API production path separately from
   homogeneous kernel demonstrations, including crossings per controller
   update and full server-process throughput.
-- [ ] Preserve raw benchmark output and environment details for the Ryzen 7
-  2700 Debian VM with its eight available threads and 16 GiB RAM.
+- [x] Preserve raw benchmark output and environment details for the Ryzen 7
+  2700 Debian VM with its eight available threads and 16 GiB RAM. The retained
+  current-reference and prototype artifacts do not stand in for future Rust
+  measurements.
 - [ ] Treat P0/P1/P2 target feasibility as unproven until these VM results
   exist. If a mandatory target later remains unreachable after profiling and
   reasonable optimization, report the limiting subsystem and measured capacity
@@ -3859,13 +3870,21 @@ measures the production-shaped workload, not isolated shared-weight kernels.
   history, journals/WAL, and any repeated graph/settings data.
 - [x] Inventory every current and legacy export representation and identify
   which existing user files must remain importable.
-- [ ] Inventory the owner's real existing database copies and save files before
+- [x] Inventory the owner's real existing database copies and save files before
   narrowing or retiring any compatibility reader; record format, size,
   provenance and whether it can support exact or only compatible restoration.
+  The owner-specified `/opt/apps/slither_neuroevo/` scope contains a pre-format
+  database with no snapshots and two decimal-JSON Hall-of-Fame genomes, so it
+  supports compatible extraction but not exact resume. No standalone save or
+  archive was found there; client download folders and other backups were not
+  searched.
 - [ ] Measure raw packed Float32, decimal JSON, current legacy gzip, per-genome
   compression, raw-versus-shuffled-Zstandard adaptive payload choice, and
   whole-checkpoint compression on fresh/evolved default and large-brain
-  populations.
+  populations. Windows fixtures cover fresh/evolved P0–P3 numeric codec cases;
+  Oxygen covers evolved P0/P2 payloads and whole managed-checkpoint prototypes.
+  Fresh whole-checkpoint coverage is not retained, so this checkbox remains
+  open. These are Node measurement fixtures, not production Rust archive code.
 - [ ] Reproduce every material prior numerical observation with named fixtures
   and retain the database/save/input bytes, generator or extraction script,
   command, codec/runtime versions, raw output, and environment. This includes
@@ -3889,7 +3908,12 @@ measures the production-shaped workload, not isolated shared-weight kernels.
   classes. Record latency, I/O, diagnosis value, and choose the simplest policy
   that meets the checkpoint gate without restoring redundant digest layers.
 - [ ] Measure archive encode/decode throughput and peak memory, including the
-  Ryzen 7 2700 target rather than only the development machine.
+  Ryzen 7 2700 target rather than only the development machine. The disposable
+  Oxygen P0/P2 Node prototype establishes a target baseline for publication,
+  scan/full decode, RSS, file fsync, rename, and parent-directory fsync. The
+  checkbox remains open until the production Rust archive repeats the
+  throughput/RSS measurement; restore and power-loss durability are later
+  gates.
 - [x] Measure current browser heap and responsiveness during export/import,
   demonstrating the complete-response parse/stringify/Blob and
   read-as-text/parse/stringify duplication. Retain automation version, fixture

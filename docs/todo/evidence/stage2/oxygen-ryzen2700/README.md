@@ -192,10 +192,10 @@ Chromium 150 desktop-browser run
 against the real current server on Oxygen over the home LAN. The browser
 loaded the Vite UI from `192.168.0.200`, joined a P0 snake, reclaimed its
 assignment after a reload, rendered frames, and transmitted 396 real player
-actions over 6.776742 seconds. The measured rate was 58.288 actions/s; action
-interval p50/p95/p99/max was 16.988/20.534/23.108/23.476 ms. Pointer movement
-produced 41 distinct turn values. A captured boost-on was followed by
-boost-off 18.207 ms later.
+actions spanning 395 inter-send intervals over 6.776742 seconds. The measured
+inter-send cadence was 58.288 intervals/s; action interval p50/p95/p99/max was
+16.988/20.534/23.108/23.476 ms. Pointer movement produced 41 distinct turn
+values. A captured boost-on was followed by boost-off 18.207 ms later.
 
 The CDP WebSocket send observation proves that changed steering and boost
 release left browser JavaScript on the socket whose recorded endpoint was
@@ -341,8 +341,13 @@ cross-platform difference for this saved fixture is therefore corrected.
 The current compiler's use of `localeCompare` remains a structural portability
 risk: equal output from one locale/ICU pair does not prove stable ordering on
 every supported environment. The Rust contract still needs explicit portable
-ordering and compatibility checks; the actual retained fixture must not be
-described as having failed this comparison.
+ordering and compatibility checks; the retained outputs must not be described
+as having failed this comparison.
+
+The two raw outputs embed the complete graph spec and the same input-database
+SHA, but this evidence directory does not retain the exact source database
+bytes or a deterministic generator for them. The Stage 2 fixture-retention
+checkbox therefore remains open despite the matching outputs.
 
 ## Disclosed audit side effects
 

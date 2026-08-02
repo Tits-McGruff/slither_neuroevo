@@ -1,8 +1,9 @@
 # Stage 2 evidence index
 
-This directory holds reproducible evidence for the approved Rust-authoritative
-migration. Raw JSON is retained under `windows-5800x/`. These are development-
-machine results, not results from the required Ryzen 7 2700 Debian VM.
+This directory holds evidence for the approved Rust-authoritative migration.
+Development-machine JSON is retained under `windows-5800x/`; target-VM JSON
+and its detailed provenance index are under `oxygen-ryzen2700/`. Each result
+retains its own scope and must not be generalized to a boundary it did not run.
 
 ## Evidence classes
 
@@ -19,8 +20,10 @@ The source- and Git-history-backed compatibility matrix is retained in
 `persistence-format-inventory.md`. It inventories current format-2 SQLite,
 historical combined-gzip and all-parent JSON rows, current/older standalone
 JSON files, browser-local legacy state and the planned archive-v1 boundary.
-It also records the limited local owner-file search; actual files on the
-Debian VM, Unraid storage, other disks or browser profiles remain unexamined.
+It also records the limited local owner-file search. The owner-specified
+`/opt/apps/slither_neuroevo/` scope on Oxygen is now inventoried, while client
+download folders, unrelated backup locations, other disks, and browser
+profiles remain unexamined.
 
 ## Reproducible commands
 
@@ -722,22 +725,54 @@ path still performs three native layer calls per differently weighted
 population evaluation. The worker artifacts retain the exact derived crossing
 count from observed batch population counts.
 
+## Oxygen target-VM evidence
+
+The detailed [Oxygen Ryzen 7 2700 index](oxygen-ryzen2700/README.md) covers 24
+retained JSON artifacts from Debian 13 with eight logical CPUs and 15.62 GiB
+RAM. Direct current-reference native-serial measurements reached 1.220x for
+P0, 0.228x for P1, 0.672x for P2, and 0.126x for P3. Four Node workers brought
+P2 to 0.906x but retained a poor tail. These results reproduce the user's
+slow-motion failure on the actual VM; they are not future Rust results.
+
+The Oxygen bundle also retains real-server synthetic P0/P1/P2 control runs,
+evolved P0/P2 codec and managed-checkpoint prototypes, a Debian graph output,
+and a read-only inventory of the owner database. The retained graph outputs
+match across Windows and Debian for the tested graph and input SHA, although
+the exact input database bytes are not retained. Prototype checkpoint single-
+pass p95 was 44.69 ms for P0 and 712.91 ms for P2, including file and parent-
+directory fsync. Production Rust restore and power-loss behavior remain open.
+
+A manually assembled measurement summary records a real desktop Chromium
+browser connecting to Oxygen over the trusted LAN, reclaiming a P0 snake, and
+sending steering/boost commands near the 60-Hz candidate. It also records an
+accidental nine-hour P0 survival observation. Raw browser/tool transcripts
+were not retained, so the summary is not self-validating runner output. The
+same disposable run's stable 41.4-MB database was dominated by 142 repeated
+decimal-JSON Hall-of-Fame genomes despite having only one population
+checkpoint, independently confirming that growth defect.
+
+The owner-database audit disclosed small filesystem side effects in the
+detailed Oxygen index rather than silently removing them. The main database
+remained unchanged. No standalone save/archive was found under the scoped
+server directory, but that does not prove client downloads or other backups do
+not exist.
+
 ## Still open before the Stage 2 exit gate
 
-- the same clean runners on the Ryzen 7 2700 Debian VM;
-- trusted-LAN laptop/desktop browser, owner-trainer and target-VM P5/cadence
-  measurements beyond the actual local-browser and synthetic-loopback results
-  retained above;
-- sustained P4 (the retained 600-step artifact is an honest load-collapse
-  curve), repeated/target-VM P6 capacity, and target-VM/browser/trainer P7
-  repetition beyond the current-reference loopback soak retained above;
+- accepted/applied-action and next-fixed-step correlation, sensor/display
+  suppression and lifecycle-priority testing through the real LAN path, P1/P2
+  browser load, the laptop, and final 30-Hz-versus-60-Hz selection;
+- the owner trainer path. Its audited current revision speaks Protocol 1 while
+  the server requires Protocol 2, so compatibility needs a coordinated change;
+- sustained P4 (the retained artifacts are honest load-collapse curves),
+  target-VM P6 capacity, and a controlled target-VM/browser/trainer P7 soak
+  beyond the accidental P0 survival observation;
 - P8 full checkpoint-v3 publication, durability and restore testing beyond the
   retained size-matched 480-generation retention fixture;
 - repeat the selected checkpoint-v3 publication/restore policy in Rust on the
   target Debian VM, including parent-directory fsync, state restoration and the
   target checkpoint-latency barrier;
-- real owner save files outside the repository, if any;
-- Debian graph-ordering output from the exact retained database/spec fixture.
+- real owner save files outside the searched server directory, if any.
 
-No current Windows number is presented as proof that P0, P1 or P2 already meets
-the target VM gate.
+No current-reference number is presented as proof that the future Rust engine
+already meets P0, P1, or P2.
