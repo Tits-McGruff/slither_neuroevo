@@ -1,0 +1,327 @@
+{
+  "schema": "slither-stage2-runtime-baseline",
+  "version": 2,
+  "evidenceClass": "new measured target-VM current-TypeScript result",
+  "caveat": "Direct production SimCore/World path measured on the oxygen Ryzen 7 2700 Debian VM, including the canonical BrainPool when selected; not an end-to-end server, LAN, browser, RL trainer, or Rust-authoritative result.",
+  "source": {
+    "commit": "93e22c1e92c725b52c5e0ed4d224c9ffc61c44c7",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-08-01T18:50:38.361Z",
+    "platform": "linux",
+    "architecture": "x64",
+    "osType": "Linux",
+    "osRelease": "6.12.94+deb13-amd64",
+    "osVersion": "#1 SMP PREEMPT_DYNAMIC Debian 6.12.94-1 (2026-06-20)",
+    "hostname": "oxygen",
+    "provenance": {
+      "declaration": "owner-target-vm",
+      "platformIsLinux": true,
+      "distributionId": "debian",
+      "distributionIsDebian": true,
+      "hostname": "oxygen",
+      "hostnameIsOxygen": true,
+      "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+      "cpuModelMatches": true,
+      "logicalCpuCount": 8,
+      "logicalCpuCountMatches": true,
+      "totalMemoryBytes": 16775352320,
+      "memoryAllocationMatches": true,
+      "ownerTargetVmValidated": true
+    },
+    "locale": "en-AU",
+    "node": "v24.12.0",
+    "v8": "13.6.233.17-node.37",
+    "zlib": "1.3.1-470d3a2",
+    "zstd": "1.5.7",
+    "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+    "logicalCpuCount": 8,
+    "totalMemoryBytes": 16775352320
+  },
+  "workload": {
+    "scenario": {
+      "name": "P0",
+      "description": "55 evolved snakes, 10 baseline bots, default graph, 3,500 pellets",
+      "settings": {
+        "snakeCount": 55,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "pelletCountTarget": 3500,
+      "bubbleBins": 16,
+      "baselineBotCount": 10,
+      "graphSpec": null,
+      "denseLongBodies": false
+    },
+    "seed": 1511506142,
+    "backend": "native",
+    "nativeAddonBuildIdentifier": "slither_native/0.1.0+e79ebd578699.2299894198bc853c",
+    "recurrentKind": "GRU",
+    "warmupSteps": 30,
+    "measuredSteps": 180,
+    "fixedDtSeconds": 0.016666666666666666,
+    "frameEvery": 1,
+    "sampleEverySteps": 0,
+    "command": [
+      "/home/james/.nvm/versions/node/v24.12.0/bin/node",
+      "/tmp/slither-stage2-e79ebd5/scripts/stage2/runtime-baseline.ts",
+      "--scenario",
+      "P0",
+      "--backend",
+      "native",
+      "--workers",
+      "4",
+      "--warmup-steps",
+      "30",
+      "--steps",
+      "180",
+      "--frame-every",
+      "1",
+      "--environment",
+      "owner-target-vm",
+      "--output",
+      "/tmp/slither-stage2-results-cd9ab28/runtime-p0-native-workers4.json"
+    ],
+    "processMode": "canonical-node-worker-pool",
+    "requestedWorkers": 4,
+    "activeWorkers": 4,
+    "workerStatuses": [
+      {
+        "workerId": 0,
+        "poolEpoch": 1,
+        "weightEpoch": 1,
+        "activeBackend": "native",
+        "nativeAddonBuildIdentifier": "slither_native/0.1.0+e79ebd578699.2299894198bc853c",
+        "ownedSlotCount": 14
+      },
+      {
+        "workerId": 1,
+        "poolEpoch": 1,
+        "weightEpoch": 1,
+        "activeBackend": "native",
+        "nativeAddonBuildIdentifier": "slither_native/0.1.0+e79ebd578699.2299894198bc853c",
+        "ownedSlotCount": 14
+      },
+      {
+        "workerId": 2,
+        "poolEpoch": 1,
+        "weightEpoch": 1,
+        "activeBackend": "native",
+        "nativeAddonBuildIdentifier": "slither_native/0.1.0+e79ebd578699.2299894198bc853c",
+        "ownedSlotCount": 14
+      },
+      {
+        "workerId": 3,
+        "poolEpoch": 1,
+        "weightEpoch": 1,
+        "activeBackend": "native",
+        "nativeAddonBuildIdentifier": "slither_native/0.1.0+e79ebd578699.2299894198bc853c",
+        "ownedSlotCount": 13
+      }
+    ],
+    "installedBodyPoints": null,
+    "installedWorldLoad": null,
+    "expectedInstalledCollisionEntries": null,
+    "graph": {
+      "key": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+      "totalParams": 13458,
+      "totalStateFloats": 16,
+      "order": [
+        "input",
+        "mlp",
+        "gru",
+        "head"
+      ],
+      "outputs": [
+        {
+          "nodeId": "head"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "input",
+          "type": "Input",
+          "offset": 0,
+          "length": 0,
+          "inputSize": 83,
+          "outputSize": 83,
+          "isRecurrent": false
+        },
+        {
+          "id": "mlp",
+          "type": "MLP",
+          "offset": 0,
+          "length": 9536,
+          "inputSize": 83,
+          "outputSize": 64,
+          "isRecurrent": false,
+          "hiddenSizes": [
+            64
+          ]
+        },
+        {
+          "id": "gru",
+          "type": "GRU",
+          "offset": 9536,
+          "length": 3888,
+          "inputSize": 64,
+          "outputSize": 16,
+          "isRecurrent": true,
+          "hiddenSize": 16
+        },
+        {
+          "id": "head",
+          "type": "Dense",
+          "offset": 13424,
+          "length": 34,
+          "inputSize": 16,
+          "outputSize": 2,
+          "isRecurrent": false
+        }
+      ]
+    }
+  },
+  "result": {
+    "measuredWallMs": 2932.045516,
+    "simulatedSeconds": 3,
+    "simulatedSecondsPerWallSecond": 1.023176,
+    "completedStepsPerWallSecond": 61.390589,
+    "fixedStepMs": {
+      "count": 180,
+      "min": 13.483183,
+      "p50": 15.879934,
+      "p95": 18.49379,
+      "p99": 20.428804,
+      "max": 22.857717,
+      "mean": 16.024203
+    },
+    "sensorsPerStepMs": {
+      "count": 180,
+      "min": 10.01561,
+      "p50": 11.87408,
+      "p95": 13.548494,
+      "p99": 15.611652,
+      "max": 17.918156,
+      "mean": 11.949849
+    },
+    "brainPerStepMs": {
+      "count": 180,
+      "min": 0.512561,
+      "p50": 0.593007,
+      "p95": 0.923335,
+      "p99": 2.747276,
+      "max": 3.109138,
+      "mean": 0.671283
+    },
+    "remainingPhysicsPerStepMs": {
+      "count": 180,
+      "min": 2.677966,
+      "p50": 3.359412,
+      "p95": 4.075196,
+      "p99": 4.564776,
+      "max": 4.901187,
+      "mean": 3.403072
+    },
+    "framePackMs": {
+      "count": 180,
+      "min": 0.090892,
+      "p50": 0.148297,
+      "p95": 0.212731,
+      "p99": 0.335028,
+      "max": 2.12017,
+      "mean": 0.163058
+    },
+    "frameBytes": {
+      "count": 180,
+      "min": 74472,
+      "p50": 74670,
+      "p95": 74864.8,
+      "p99": 74924.84,
+      "max": 74936,
+      "mean": 74681.066667
+    },
+    "aliveAtEnd": 55,
+    "totalSnakesAtEnd": 65,
+    "generationAtEnd": 1,
+    "generationTimeAtEnd": 3.5,
+    "profilerBrainCalls": 180,
+    "profilerSensorCalls": 8578,
+    "serialPopulationEvaluations": 0,
+    "pooledPopulationEvaluations": 8578,
+    "populationEvaluations": 8578,
+    "derivedNativeCrossings": 25734,
+    "nativeKernelNodesPerBrain": 3,
+    "collisionGrid": {
+      "currentEntries": 339,
+      "peakEntries": 339,
+      "capacity": 200000,
+      "maxCapacity": 33554432,
+      "estimatedCapacityBytes": 3200000,
+      "rebuilds": 631,
+      "growths": 0,
+      "outOfBoundsEntries": 0,
+      "admissionReason": "collision-grid rebuild admitted 339 entries",
+      "faultReason": null
+    },
+    "denseWorldTimeline": {
+      "thresholdCollisionEntries": 200000,
+      "denseThresholdLastStep": null,
+      "denseThresholdMeaning": "Not a P4 dense-world fixture.",
+      "outOfBounds": {
+        "atMeasuredStart": null,
+        "atMeasuredEnd": null,
+        "accumulatedDuringMeasuredSteps": null,
+        "firstObservedMeasuredStep": null,
+        "meaning": "Not a P4 dense-world fixture."
+      },
+      "samples": [],
+      "interpretation": "Not a P4 dense-world fixture."
+    },
+    "assertions": {
+      "allMeasuredStepsCommitted": true,
+      "p4InstalledBodyThresholdExceeded": true,
+      "p4InstalledCollisionThresholdExceeded": true,
+      "p4InstalledCollisionEntriesExact": true,
+      "p4InstalledOutOfBoundsEntriesZero": true,
+      "p4CollisionFaultFree": true
+    },
+    "eventLoopDelayMs": {
+      "min": 13.467648,
+      "mean": 16.278648,
+      "p95": 18.743295,
+      "p99": 20.578303,
+      "max": 23.330815
+    },
+    "cpu": {
+      "userMicros": 3229826,
+      "systemMicros": 56231,
+      "totalMicros": 3286057,
+      "averageLogicalCoreUtilization": 1.120739
+    },
+    "memory": {
+      "before": {
+        "rss": 293695488,
+        "heapTotal": 32858112,
+        "heapUsed": 21013720,
+        "external": 18488690,
+        "arrayBuffers": 18946648
+      },
+      "after": {
+        "rss": 309161984,
+        "heapTotal": 50421760,
+        "heapUsed": 21032360,
+        "external": 18713522,
+        "arrayBuffers": 19171440
+      },
+      "peakRssBytes": 309161984,
+      "peakHeapUsedBytes": 26149568,
+      "peakExternalBytes": 18788418
+    }
+  }
+}

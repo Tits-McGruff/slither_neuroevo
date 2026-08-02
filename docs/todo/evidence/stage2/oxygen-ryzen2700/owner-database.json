@@ -1,0 +1,414 @@
+{
+  "schema": "slither-stage2-database-baseline",
+  "version": 2,
+  "evidenceClass": "new measured result",
+  "accessMode": "read-only",
+  "sourcePreservationRequirement": "Run against a copied database: SQLite may create -wal/-shm shared-state sidecars even for a query-only connection.",
+  "source": {
+    "commit": "e79ebd5786991a62e02315dc83d3e3b8784273b0",
+    "dirty": false
+  },
+  "artifact": {
+    "path": "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-owner-oxygen-54f736b19be9.db",
+    "sha256": "54f736b19be9df7e4f9195205361fb064390c4e8453870b521cde837f8f3dc2d",
+    "sizeBytes": 11726848,
+    "createdAt": "2026-08-01T17:54:46.717Z",
+    "modifiedAt": "2026-08-01T17:54:46.976Z",
+    "walBytes": 0,
+    "shmBytes": 32768
+  },
+  "sqlite": {
+    "libraryVersion": "3.49.2",
+    "journalMode": "wal",
+    "pageSize": 4096,
+    "pageCount": 2863,
+    "freelistCount": 0,
+    "autoVacuum": 0
+  },
+  "tables": [
+    {
+      "name": "graph_presets",
+      "rowCount": 0,
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "created_at",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "spec_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "variableLengthLogicalBytes": [
+        {
+          "column": "name",
+          "declaredType": "TEXT",
+          "bytes": 0
+        },
+        {
+          "column": "spec_json",
+          "declaredType": "TEXT",
+          "bytes": 0
+        }
+      ],
+      "schemaSql": "CREATE TABLE graph_presets (\n  id INTEGER PRIMARY KEY,\n  created_at INTEGER,\n  name TEXT,\n  spec_json TEXT\n)"
+    },
+    {
+      "name": "hof_entries",
+      "rowCount": 2,
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "created_at",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "gen",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "seed",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "fitness",
+          "type": "REAL",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "points",
+          "type": "REAL",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "length",
+          "type": "REAL",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 7,
+          "name": "genome_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "variableLengthLogicalBytes": [
+        {
+          "column": "genome_json",
+          "declaredType": "TEXT",
+          "bytes": 11675171
+        }
+      ],
+      "schemaSql": "CREATE TABLE hof_entries (\n  id INTEGER PRIMARY KEY,\n  created_at INTEGER,\n  gen INTEGER,\n  seed INTEGER,\n  fitness REAL,\n  points REAL,\n  length REAL,\n  genome_json TEXT,\n  UNIQUE(gen, seed, fitness)\n)"
+    },
+    {
+      "name": "players",
+      "rowCount": 0,
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "name",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "created_at",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "variableLengthLogicalBytes": [
+        {
+          "column": "id",
+          "declaredType": "TEXT",
+          "bytes": 0
+        },
+        {
+          "column": "name",
+          "declaredType": "TEXT",
+          "bytes": 0
+        }
+      ],
+      "schemaSql": "CREATE TABLE players (\n  id TEXT PRIMARY KEY,\n  name TEXT,\n  created_at INTEGER\n)"
+    },
+    {
+      "name": "population_snapshots",
+      "rowCount": 0,
+      "columns": [
+        {
+          "cid": 0,
+          "name": "id",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 1
+        },
+        {
+          "cid": 1,
+          "name": "created_at",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 2,
+          "name": "gen",
+          "type": "INTEGER",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 3,
+          "name": "payload_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 4,
+          "name": "settings_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 5,
+          "name": "updates_json",
+          "type": "TEXT",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        },
+        {
+          "cid": 6,
+          "name": "genomes_blob",
+          "type": "BLOB",
+          "notnull": 0,
+          "dflt_value": null,
+          "pk": 0
+        }
+      ],
+      "variableLengthLogicalBytes": [
+        {
+          "column": "payload_json",
+          "declaredType": "TEXT",
+          "bytes": 0
+        },
+        {
+          "column": "settings_json",
+          "declaredType": "TEXT",
+          "bytes": 0
+        },
+        {
+          "column": "updates_json",
+          "declaredType": "TEXT",
+          "bytes": 0
+        },
+        {
+          "column": "genomes_blob",
+          "declaredType": "BLOB",
+          "bytes": 0
+        }
+      ],
+      "schemaSql": "CREATE TABLE population_snapshots (\n  id INTEGER PRIMARY KEY,\n  created_at INTEGER,\n  gen INTEGER,\n  payload_json TEXT,\n  settings_json TEXT,\n  updates_json TEXT,\n  genomes_blob BLOB\n)"
+    }
+  ],
+  "dbstat": {
+    "available": true,
+    "objects": [
+      {
+        "name": "graph_presets",
+        "pages": 1,
+        "page_bytes": 4096,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "name": "hof_entries",
+        "pages": 2854,
+        "page_bytes": 11689984,
+        "payload_bytes": 11675241,
+        "unused_bytes": 3302
+      },
+      {
+        "name": "idx_graph_presets_name",
+        "pages": 1,
+        "page_bytes": 4096,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "name": "idx_hof_gen",
+        "pages": 1,
+        "page_bytes": 4096,
+        "payload_bytes": 7,
+        "unused_bytes": 4075
+      },
+      {
+        "name": "idx_snap_gen",
+        "pages": 1,
+        "page_bytes": 4096,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "name": "players",
+        "pages": 1,
+        "page_bytes": 4096,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "name": "population_snapshots",
+        "pages": 1,
+        "page_bytes": 4096,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "name": "sqlite_autoindex_hof_entries_1",
+        "pages": 1,
+        "page_bytes": 4096,
+        "payload_bytes": 28,
+        "unused_bytes": 4054
+      },
+      {
+        "name": "sqlite_autoindex_players_1",
+        "pages": 1,
+        "page_bytes": 4096,
+        "payload_bytes": 0,
+        "unused_bytes": 4088
+      },
+      {
+        "name": "sqlite_schema",
+        "pages": 1,
+        "page_bytes": 4096,
+        "payload_bytes": 1109,
+        "unused_bytes": 2840
+      }
+    ]
+  },
+  "snapshotStorageShape": {
+    "parentColumns": [
+      "id",
+      "created_at",
+      "gen",
+      "payload_json",
+      "settings_json",
+      "updates_json",
+      "genomes_blob"
+    ],
+    "hasFormatVersionColumn": false,
+    "hasLegacyCombinedBlobColumn": true,
+    "hasPerGenomeChildTable": false
+  },
+  "currentSnapshots": [],
+  "snapshotGenomes": [],
+  "hallOfFameDetails": {
+    "limit": 100,
+    "totalRows": 2,
+    "returnedRows": 2,
+    "omittedRows": 0,
+    "rows": [
+      {
+        "id": 1,
+        "created_at": 1770429372784,
+        "gen": 1,
+        "seed": 16,
+        "fitness": 5823.75629362489,
+        "points": 1656.3764484060498,
+        "length": 27,
+        "genome_json_bytes": 270763,
+        "arch_key": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+        "brain_type": "graph",
+        "weight_count": 13458,
+        "json_valid": 1
+      },
+      {
+        "id": 2,
+        "created_at": 1770429479049,
+        "gen": 1,
+        "seed": 1,
+        "fitness": 1654.9240000000018,
+        "points": 154.0925741370479,
+        "length": 9,
+        "genome_json_bytes": 11404408,
+        "arch_key": "graph|out:2|nodes:input:Input:83;mlp:MLP:83x512x512x512x2|edges:input->mlp:0:0|outs:mlp:0",
+        "brain_type": "graph",
+        "weight_count": 569346,
+        "json_valid": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,1075 @@
+{
+  "schema": "slither-stage2-managed-checkpoint-validation",
+  "version": 2,
+  "evidenceClass": "new measured target-VM prototype result",
+  "caveat": "Disposable Node built-in USTAR/Zstandard measurement captured on the Ryzen 7 2700 Debian target VM. It is not the production Rust checkpoint-v3 writer, is not wired to SQLite or authority, and does not construct restored Rust state.",
+  "source": {
+    "commit": "cd9ab281117f55a97e080dd8e3c60c3075f2dd6f",
+    "dirty": false
+  },
+  "command": [
+    "/home/james/.nvm/versions/node/v24.12.0/bin/node",
+    "/tmp/slither-stage2-e79ebd5/scripts/stage2/managed-checkpoint-validation.ts",
+    "--scenario",
+    "P2",
+    "--fixture",
+    "evolved",
+    "--evolution-generations",
+    "25",
+    "--trials",
+    "3",
+    "--environment",
+    "owner-target-vm",
+    "--output",
+    "/tmp/slither-stage2-results-cd9ab28/checkpoint-p2-evolved25.json"
+  ],
+  "environment": {
+    "capturedAt": "2026-08-01T18:42:46.877Z",
+    "platform": "linux",
+    "architecture": "x64",
+    "osType": "Linux",
+    "osRelease": "6.12.94+deb13-amd64",
+    "osVersion": "#1 SMP PREEMPT_DYNAMIC Debian 6.12.94-1 (2026-06-20)",
+    "provenance": {
+      "declaration": "owner-target-vm",
+      "platformIsLinux": true,
+      "distributionId": "debian",
+      "distributionIsDebian": true,
+      "hostname": "oxygen",
+      "hostnameIsOxygen": true,
+      "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+      "cpuModelMatches": true,
+      "logicalCpuCount": 8,
+      "logicalCpuCountMatches": true,
+      "totalMemoryBytes": 16775352320,
+      "memoryAllocationMatches": true,
+      "ownerTargetVmValidated": true
+    },
+    "hostname": "oxygen",
+    "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+    "logicalCpuCount": 8,
+    "totalMemoryBytes": 16775352320,
+    "node": "v24.12.0",
+    "zstd": "1.5.7",
+    "tempFilesystem": {
+      "root": "/",
+      "type": 16914836,
+      "blockSize": 4096,
+      "freeBytesBefore": 7473225728,
+      "freeBytesAfterFixtureCleanup": 7473225728
+    }
+  },
+  "fixture": {
+    "scenario": {
+      "name": "P2",
+      "description": "55 evolved snakes, 10 baseline bots, 32-bin five-layer large GRU graph",
+      "settings": {
+        "snakeCount": 55,
+        "simSpeed": 1,
+        "hiddenLayers": 5,
+        "neurons1": 256,
+        "neurons2": 256,
+        "neurons3": 256,
+        "neurons4": 256,
+        "neurons5": 256
+      },
+      "pelletCountTarget": 3500,
+      "bubbleBins": 32,
+      "baselineBotCount": 10,
+      "graphSpec": {
+        "type": "graph",
+        "nodes": [
+          {
+            "id": "input",
+            "type": "Input",
+            "outputSize": 147
+          },
+          {
+            "id": "features",
+            "type": "MLP",
+            "inputSize": 147,
+            "hiddenSizes": [
+              256,
+              256,
+              256,
+              256
+            ],
+            "outputSize": 256
+          },
+          {
+            "id": "memory",
+            "type": "GRU",
+            "inputSize": 256,
+            "hiddenSize": 96
+          },
+          {
+            "id": "output",
+            "type": "Dense",
+            "inputSize": 96,
+            "outputSize": 2
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "features"
+          },
+          {
+            "from": "features",
+            "to": "memory"
+          },
+          {
+            "from": "memory",
+            "to": "output"
+          }
+        ],
+        "outputs": [
+          {
+            "nodeId": "output"
+          }
+        ],
+        "outputSize": 2
+      },
+      "denseLongBodies": false
+    },
+    "fixtureKind": "evolved",
+    "evolutionGenerations": 25,
+    "seed": 1511506142,
+    "populationCount": 55,
+    "weightsPerGenome": 402914,
+    "totalWeightCount": 22160270,
+    "rawWeightBytes": 88641080,
+    "rawWeightSha256": "7855c555233904f781af94d3b55af9458f41e7a78cfc8a296bb5dc64959f6ee2",
+    "architectureKey": "graph|out:2|nodes:features:MLP:147x256x256x256x256x256;input:Input:147;memory:GRU:256x96;output:Dense:96x2|edges:features->memory:0:0;input->features:0:0;memory->output:0:0|outs:output:0",
+    "populationIndexBytes": 2656,
+    "checkpointJsonBytes": 1198
+  },
+  "prototype": {
+    "format": "strict-ustar-v1-prototype",
+    "benchmarkOnly": true,
+    "logicalRoles": [
+      "checkpoint",
+      "population-index",
+      "population-weights",
+      "population-recurrent"
+    ],
+    "logicalRootExcludesManifestToAvoidSelfReference": true,
+    "blockBytes": 1048576,
+    "frameCount": 85,
+    "adaptiveEncodings": [
+      "raw-f32le-v1",
+      "f32le-shuffle4-zstd-v1"
+    ],
+    "selectedEncodings": [
+      "f32le-shuffle4-zstd-v1"
+    ],
+    "oneLogicalRootAcrossVariants": true
+  },
+  "variants": {
+    "single-pass": {
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "archiveBytes": {
+        "count": 3,
+        "min": 75652096,
+        "p50": 75652096,
+        "p95": 75652096,
+        "max": 75652096,
+        "mean": 75652096
+      },
+      "candidateBytes": {
+        "count": 3,
+        "min": 75641920,
+        "p50": 75641920,
+        "p95": 75641920,
+        "max": 75641920,
+        "mean": 75641920
+      },
+      "candidateEncodeAndLogicalHashMs": {
+        "count": 3,
+        "min": 587.862566,
+        "p50": 609.910395,
+        "p95": 627.074199,
+        "max": 628.981288,
+        "mean": 608.918083
+      },
+      "archiveAssemblyMs": {
+        "count": 3,
+        "min": 68.109732,
+        "p50": 70.048184,
+        "p95": 82.999395,
+        "max": 84.438418,
+        "mean": 74.198778
+      },
+      "fileFsyncMs": {
+        "count": 3,
+        "min": 0.00511,
+        "p50": 0.00537,
+        "p95": 0.014632,
+        "max": 0.015661,
+        "mean": 0.008714
+      },
+      "validationMs": {
+        "count": 3,
+        "min": 0.00128,
+        "p50": 0.00193,
+        "p95": 0.004306,
+        "max": 0.00457,
+        "mean": 0.002593
+      },
+      "renameMs": {
+        "count": 3,
+        "min": 0.026421,
+        "p50": 0.030321,
+        "p95": 0.049805,
+        "max": 0.05197,
+        "mean": 0.036237
+      },
+      "totalBarrierMs": {
+        "count": 3,
+        "min": 669.755655,
+        "p50": 708.657863,
+        "p95": 712.913906,
+        "max": 713.3868,
+        "mean": 697.266773
+      },
+      "validationReadBytes": {
+        "count": 3,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "sampledPeakRssBytes": {
+        "count": 3,
+        "min": 763334656,
+        "p50": 768471040,
+        "p95": 773285478.4,
+        "max": 773820416,
+        "mean": 768542037.333333
+      }
+    },
+    "frame-checksum": {
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "archiveBytes": {
+        "count": 3,
+        "min": 75652096,
+        "p50": 75652096,
+        "p95": 75652096,
+        "max": 75652096,
+        "mean": 75652096
+      },
+      "candidateBytes": {
+        "count": 3,
+        "min": 75642260,
+        "p50": 75642260,
+        "p95": 75642260,
+        "max": 75642260,
+        "mean": 75642260
+      },
+      "candidateEncodeAndLogicalHashMs": {
+        "count": 3,
+        "min": 597.826121,
+        "p50": 621.989088,
+        "p95": 625.1617,
+        "max": 625.514212,
+        "mean": 615.109807
+      },
+      "archiveAssemblyMs": {
+        "count": 3,
+        "min": 72.378766,
+        "p50": 74.129747,
+        "p95": 81.125073,
+        "max": 81.902332,
+        "mean": 76.136948
+      },
+      "fileFsyncMs": {
+        "count": 3,
+        "min": 0.00436,
+        "p50": 0.00529,
+        "p95": 0.005435,
+        "max": 0.005451,
+        "mean": 0.005034
+      },
+      "validationMs": {
+        "count": 3,
+        "min": 0.00135,
+        "p50": 0.00251,
+        "p95": 0.002987,
+        "max": 0.00304,
+        "mean": 0.0023
+      },
+      "renameMs": {
+        "count": 3,
+        "min": 0.02983,
+        "p50": 0.033941,
+        "p95": 0.03727,
+        "max": 0.03764,
+        "mean": 0.033804
+      },
+      "totalBarrierMs": {
+        "count": 3,
+        "min": 686.021116,
+        "p50": 712.601912,
+        "p95": 718.153325,
+        "max": 718.770149,
+        "mean": 705.797726
+      },
+      "validationReadBytes": {
+        "count": 3,
+        "min": 0,
+        "p50": 0,
+        "p95": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "sampledPeakRssBytes": {
+        "count": 3,
+        "min": 763363328,
+        "p50": 772804608,
+        "p95": 775783219.2,
+        "max": 776114176,
+        "mean": 770760704
+      }
+    },
+    "lightweight-scan": {
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "archiveBytes": {
+        "count": 3,
+        "min": 75652096,
+        "p50": 75652096,
+        "p95": 75652096,
+        "max": 75652096,
+        "mean": 75652096
+      },
+      "candidateBytes": {
+        "count": 3,
+        "min": 75641920,
+        "p50": 75641920,
+        "p95": 75641920,
+        "max": 75641920,
+        "mean": 75641920
+      },
+      "candidateEncodeAndLogicalHashMs": {
+        "count": 3,
+        "min": 573.175776,
+        "p50": 621.429489,
+        "p95": 623.774018,
+        "max": 624.034521,
+        "mean": 606.213262
+      },
+      "archiveAssemblyMs": {
+        "count": 3,
+        "min": 70.992889,
+        "p50": 76.426267,
+        "p95": 76.948714,
+        "max": 77.006764,
+        "mean": 74.80864
+      },
+      "fileFsyncMs": {
+        "count": 3,
+        "min": 0.00408,
+        "p50": 0.00413,
+        "p95": 0.005156,
+        "max": 0.00527,
+        "mean": 0.004493
+      },
+      "validationMs": {
+        "count": 3,
+        "min": 1.402979,
+        "p50": 1.723945,
+        "p95": 2.200985,
+        "max": 2.25399,
+        "mean": 1.793638
+      },
+      "renameMs": {
+        "count": 3,
+        "min": 0.028531,
+        "p50": 0.0384,
+        "p95": 0.03976,
+        "max": 0.039911,
+        "mean": 0.035614
+      },
+      "totalBarrierMs": {
+        "count": 3,
+        "min": 659.324985,
+        "p50": 713.778271,
+        "p95": 717.589837,
+        "max": 718.013344,
+        "mean": 697.038867
+      },
+      "validationReadBytes": {
+        "count": 3,
+        "min": 6322,
+        "p50": 6322,
+        "p95": 6322,
+        "max": 6322,
+        "mean": 6322
+      },
+      "sampledPeakRssBytes": {
+        "count": 3,
+        "min": 763334656,
+        "p50": 775065600,
+        "p95": 776374272,
+        "max": 776519680,
+        "mean": 771639978.666667
+      }
+    },
+    "full-decode": {
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "archiveBytes": {
+        "count": 3,
+        "min": 75652096,
+        "p50": 75652096,
+        "p95": 75652096,
+        "max": 75652096,
+        "mean": 75652096
+      },
+      "candidateBytes": {
+        "count": 3,
+        "min": 75641920,
+        "p50": 75641920,
+        "p95": 75641920,
+        "max": 75641920,
+        "mean": 75641920
+      },
+      "candidateEncodeAndLogicalHashMs": {
+        "count": 3,
+        "min": 592.241704,
+        "p50": 599.093787,
+        "p95": 605.751197,
+        "max": 606.490909,
+        "mean": 599.275467
+      },
+      "archiveAssemblyMs": {
+        "count": 3,
+        "min": 67.549094,
+        "p50": 71.120482,
+        "p95": 71.21192,
+        "max": 71.22208,
+        "mean": 69.963885
+      },
+      "fileFsyncMs": {
+        "count": 3,
+        "min": 0.00451,
+        "p50": 0.004941,
+        "p95": 0.005228,
+        "max": 0.00526,
+        "mean": 0.004904
+      },
+      "validationMs": {
+        "count": 3,
+        "min": 377.264808,
+        "p50": 404.022441,
+        "p95": 408.579244,
+        "max": 409.085555,
+        "mean": 396.790935
+      },
+      "renameMs": {
+        "count": 3,
+        "min": 0.077391,
+        "p50": 0.080061,
+        "p95": 0.087342,
+        "max": 0.088151,
+        "mean": 0.081868
+      },
+      "totalBarrierMs": {
+        "count": 3,
+        "min": 1050.574316,
+        "p50": 1088.834979,
+        "p95": 1100.457681,
+        "max": 1101.749092,
+        "mean": 1080.386129
+      },
+      "validationReadBytes": {
+        "count": 3,
+        "min": 75652096,
+        "p50": 75652096,
+        "p95": 75652096,
+        "max": 75652096,
+        "mean": 75652096
+      },
+      "sampledPeakRssBytes": {
+        "count": 3,
+        "min": 763334656,
+        "p50": 767168512,
+        "p95": 767492915.2,
+        "max": 767528960,
+        "mean": 766010709.333333
+      }
+    }
+  },
+  "rawTrials": [
+    {
+      "variant": "single-pass",
+      "trial": 1,
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75641920,
+        "selectedWeightEntry": 75641920,
+        "archive": 75652096,
+        "applicationWritten": 151294016,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 628.981288,
+        "archiveAssembly": 70.048184,
+        "fileFsync": 0.015661,
+        "validation": 0.00457,
+        "rename": 0.05197,
+        "directorySync": 0.030051,
+        "totalBarrier": 713.3868
+      },
+      "sampledMemoryPeak": {
+        "rss": 768471040,
+        "heapUsed": 21558904,
+        "external": 542354201,
+        "arrayBuffers": 539935277
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.030051,
+        "errorCode": null
+      },
+      "accepted": true
+    },
+    {
+      "variant": "frame-checksum",
+      "trial": 1,
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75642260,
+        "selectedWeightEntry": 75642260,
+        "archive": 75652096,
+        "applicationWritten": 151294356,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 621.989088,
+        "archiveAssembly": 81.902332,
+        "fileFsync": 0.00436,
+        "validation": 0.00251,
+        "rename": 0.033941,
+        "directorySync": 0.02545,
+        "totalBarrier": 718.770149
+      },
+      "sampledMemoryPeak": {
+        "rss": 776114176,
+        "heapUsed": 11984296,
+        "external": 545053307,
+        "arrayBuffers": 542634383
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.02545,
+        "errorCode": null
+      },
+      "accepted": true
+    },
+    {
+      "variant": "lightweight-scan",
+      "trial": 1,
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75641920,
+        "selectedWeightEntry": 75641920,
+        "archive": 75652096,
+        "applicationWritten": 151294016,
+        "validationRead": 6322,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 624.034521,
+        "archiveAssembly": 77.006764,
+        "fileFsync": 0.00413,
+        "validation": 2.25399,
+        "rename": 0.039911,
+        "directorySync": 0.0233,
+        "totalBarrier": 718.013344
+      },
+      "sampledMemoryPeak": {
+        "rss": 776519680,
+        "heapUsed": 12027816,
+        "external": 546101845,
+        "arrayBuffers": 543682921
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.0233,
+        "errorCode": null
+      },
+      "accepted": true
+    },
+    {
+      "variant": "full-decode",
+      "trial": 1,
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75641920,
+        "selectedWeightEntry": 75641920,
+        "archive": 75652096,
+        "applicationWritten": 151294016,
+        "validationRead": 75652096,
+        "decodedDuringValidation": 88644934
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 599.093787,
+        "archiveAssembly": 71.22208,
+        "fileFsync": 0.00451,
+        "validation": 404.022441,
+        "rename": 0.077391,
+        "directorySync": 0.040421,
+        "totalBarrier": 1088.834979
+      },
+      "sampledMemoryPeak": {
+        "rss": 767168512,
+        "heapUsed": 12212064,
+        "external": 559852701,
+        "arrayBuffers": 557433777
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.040421,
+        "errorCode": null
+      },
+      "accepted": true
+    },
+    {
+      "variant": "frame-checksum",
+      "trial": 2,
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75642260,
+        "selectedWeightEntry": 75642260,
+        "archive": 75652096,
+        "applicationWritten": 151294356,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 625.514212,
+        "archiveAssembly": 72.378766,
+        "fileFsync": 0.00529,
+        "validation": 0.00304,
+        "rename": 0.03764,
+        "directorySync": 0.027321,
+        "totalBarrier": 712.601912
+      },
+      "sampledMemoryPeak": {
+        "rss": 772804608,
+        "heapUsed": 12147056,
+        "external": 542363015,
+        "arrayBuffers": 539944091
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.027321,
+        "errorCode": null
+      },
+      "accepted": true
+    },
+    {
+      "variant": "lightweight-scan",
+      "trial": 2,
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75641920,
+        "selectedWeightEntry": 75641920,
+        "archive": 75652096,
+        "applicationWritten": 151294016,
+        "validationRead": 6322,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 621.429489,
+        "archiveAssembly": 76.426267,
+        "fileFsync": 0.00527,
+        "validation": 1.402979,
+        "rename": 0.028531,
+        "directorySync": 0.01785,
+        "totalBarrier": 713.778271
+      },
+      "sampledMemoryPeak": {
+        "rss": 775065600,
+        "heapUsed": 12296712,
+        "external": 546100603,
+        "arrayBuffers": 541974794
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.01785,
+        "errorCode": null
+      },
+      "accepted": true
+    },
+    {
+      "variant": "full-decode",
+      "trial": 2,
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75641920,
+        "selectedWeightEntry": 75641920,
+        "archive": 75652096,
+        "applicationWritten": 151294016,
+        "validationRead": 75652096,
+        "decodedDuringValidation": 88644934
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 606.490909,
+        "archiveAssembly": 71.120482,
+        "fileFsync": 0.004941,
+        "validation": 409.085555,
+        "rename": 0.080061,
+        "directorySync": 0.040051,
+        "totalBarrier": 1101.749092
+      },
+      "sampledMemoryPeak": {
+        "rss": 763334656,
+        "heapUsed": 12345504,
+        "external": 557277223,
+        "arrayBuffers": 554858299
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.040051,
+        "errorCode": null
+      },
+      "accepted": true
+    },
+    {
+      "variant": "single-pass",
+      "trial": 2,
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75641920,
+        "selectedWeightEntry": 75641920,
+        "archive": 75652096,
+        "applicationWritten": 151294016,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 609.910395,
+        "archiveAssembly": 84.438418,
+        "fileFsync": 0.00537,
+        "validation": 0.00193,
+        "rename": 0.030321,
+        "directorySync": 0.02171,
+        "totalBarrier": 708.657863
+      },
+      "sampledMemoryPeak": {
+        "rss": 763334656,
+        "heapUsed": 12114872,
+        "external": 538149078,
+        "arrayBuffers": 533360173
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.02171,
+        "errorCode": null
+      },
+      "accepted": true
+    },
+    {
+      "variant": "lightweight-scan",
+      "trial": 3,
+      "frameChecksum": false,
+      "validationPolicy": "lightweight-scan",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75641920,
+        "selectedWeightEntry": 75641920,
+        "archive": 75652096,
+        "applicationWritten": 151294016,
+        "validationRead": 6322,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 573.175776,
+        "archiveAssembly": 70.992889,
+        "fileFsync": 0.00408,
+        "validation": 1.723945,
+        "rename": 0.0384,
+        "directorySync": 0.023691,
+        "totalBarrier": 659.324985
+      },
+      "sampledMemoryPeak": {
+        "rss": 763334656,
+        "heapUsed": 12125448,
+        "external": 535788053,
+        "arrayBuffers": 533369129
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.023691,
+        "errorCode": null
+      },
+      "accepted": true
+    },
+    {
+      "variant": "full-decode",
+      "trial": 3,
+      "frameChecksum": false,
+      "validationPolicy": "full-decode",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75641920,
+        "selectedWeightEntry": 75641920,
+        "archive": 75652096,
+        "applicationWritten": 151294016,
+        "validationRead": 75652096,
+        "decodedDuringValidation": 88644934
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 592.241704,
+        "archiveAssembly": 67.549094,
+        "fileFsync": 0.00526,
+        "validation": 377.264808,
+        "rename": 0.088151,
+        "directorySync": 0.044011,
+        "totalBarrier": 1050.574316
+      },
+      "sampledMemoryPeak": {
+        "rss": 767528960,
+        "heapUsed": 12224816,
+        "external": 552062825,
+        "arrayBuffers": 549643901
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.044011,
+        "errorCode": null
+      },
+      "accepted": true
+    },
+    {
+      "variant": "single-pass",
+      "trial": 3,
+      "frameChecksum": false,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75641920,
+        "selectedWeightEntry": 75641920,
+        "archive": 75652096,
+        "applicationWritten": 151294016,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 587.862566,
+        "archiveAssembly": 68.109732,
+        "fileFsync": 0.00511,
+        "validation": 0.00128,
+        "rename": 0.026421,
+        "directorySync": 0.01898,
+        "totalBarrier": 669.755655
+      },
+      "sampledMemoryPeak": {
+        "rss": 773820416,
+        "heapUsed": 12148888,
+        "external": 542362847,
+        "arrayBuffers": 539943923
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.01898,
+        "errorCode": null
+      },
+      "accepted": true
+    },
+    {
+      "variant": "frame-checksum",
+      "trial": 3,
+      "frameChecksum": true,
+      "validationPolicy": "none",
+      "selectedEncoding": "f32le-shuffle4-zstd-v1",
+      "compressedBlocks": 85,
+      "logicalRoot": "5771bdb7ca1add2f1611a47721526bcd5205bb3cc73d8937c007abe267999aec",
+      "bytes": {
+        "rawWeights": 88641080,
+        "shuffledCandidate": 75642260,
+        "selectedWeightEntry": 75642260,
+        "archive": 75652096,
+        "applicationWritten": 151294356,
+        "validationRead": 0,
+        "decodedDuringValidation": 0
+      },
+      "timingsMs": {
+        "candidateEncodeAndLogicalHash": 597.826121,
+        "archiveAssembly": 74.129747,
+        "fileFsync": 0.005451,
+        "validation": 0.00135,
+        "rename": 0.02983,
+        "directorySync": 0.022861,
+        "totalBarrier": 686.021116
+      },
+      "sampledMemoryPeak": {
+        "rss": 763363328,
+        "heapUsed": 12227024,
+        "external": 535779891,
+        "arrayBuffers": 533360967
+      },
+      "directorySync": {
+        "attempted": true,
+        "supported": true,
+        "elapsedMs": 0.022861,
+        "errorCode": null
+      },
+      "accepted": true
+    }
+  ],
+  "faultMatrix": [
+    {
+      "mutation": "truncate-one-terminal-block",
+      "lightweight": {
+        "accepted": false,
+        "code": "USTAR_TRAILER"
+      },
+      "fullDecode": {
+        "accepted": false,
+        "code": "USTAR_TRAILER"
+      }
+    },
+    {
+      "mutation": "corrupt-first-header",
+      "lightweight": {
+        "accepted": false,
+        "code": "USTAR_HEADER_CHECKSUM"
+      },
+      "fullDecode": {
+        "accepted": false,
+        "code": "USTAR_HEADER_CHECKSUM"
+      }
+    },
+    {
+      "mutation": "corrupt-weight-payload",
+      "lightweight": {
+        "accepted": true,
+        "code": null
+      },
+      "fullDecode": {
+        "accepted": false,
+        "code": "LOGICAL_ROLE_MISMATCH"
+      }
+    },
+    {
+      "mutation": "corrupt-manifest-root-text",
+      "lightweight": {
+        "accepted": false,
+        "code": "LOGICAL_ROOT_MISMATCH"
+      },
+      "fullDecode": {
+        "accepted": false,
+        "code": "LOGICAL_ROOT_MISMATCH"
+      }
+    },
+    {
+      "mutation": "corrupt-checksummed-weight-payload",
+      "lightweight": {
+        "accepted": true,
+        "code": null
+      },
+      "fullDecode": {
+        "accepted": false,
+        "code": "SHUFFLED_BLOCK_DECODE"
+      }
+    }
+  ],
+  "assertions": {
+    "everyTrialAccepted": true,
+    "oneLogicalRootAcrossVariants": true,
+    "selectedEncodingConsistentAcrossVariants": true,
+    "everyFullDecodeReadLogicalPopulation": true,
+    "truncationAndHeaderCaughtByLightweightScan": true,
+    "payloadCorruptionRequiresDecode": true,
+    "manifestRootCorruptionCaughtWithoutPayloadDecode": true,
+    "frameChecksumProducesCodecLevelCorruptionDiagnosis": true,
+    "temporaryDirectoryEmptyBeforeRootRemoval": true
+  },
+  "resource": {
+    "processMaxRssBeforeBytes": 102379520,
+    "processMaxRssAfterBytes": 776519680,
+    "requiredTemporaryHeadroomBytes": 421673184
+  },
+  "diagnosticValue": {
+    "singlePass": "Detects writer/codec completion errors, file fsync failure and final-length mismatch; latent stored corruption remains discoverable only on a later decode.",
+    "frameChecksum": "For this injected bit flip, the checksummed frame failed at codec decode while the unchecked frame decoded and then failed its logical SHA-256. It performs no extra write-time read and is not claimed to improve every corruption diagnosis.",
+    "lightweightScan": "Reopens headers, padding, role set, final manifest, declared stored lengths, aggregate counts, logical-root declaration and exact trailer without reading numeric payloads.",
+    "fullDecode": "Reads and bounded-decodes every role, recomputes the single per-role logical hashes and root, and verifies population bits by SHA-256."
+  },
+  "limitations": {
+    "production": "The real writer/reader remains Rust Stage 3 work; Node never becomes the production archive codec.",
+    "memory": "The named TypeScript reference fixture already owns per-genome weights and this harness packs one contiguous raw population buffer. Codec scratch is block-bounded, but this is not a Rust-state RSS measurement.",
+    "zstdAdmission": "The prototype checks its decoded block envelope before Node decompression but cannot preflight the Zstandard frame window. The Rust importer must cap declared content/window before allocation.",
+    "durability": "File fsync, same-filesystem rename and parent-directory fsync succeeded in all 12 measured trials. This prototype timing is not a power-loss durability test.",
+    "scope": "No SQLite pointer, persistence worker, restored world, retention, import/export HTTP, legacy compatibility, recovery branch, exhaustive malformed-input corpus or crash-state matrix is implemented here.",
+    "target": "This artifact supplies Ryzen 7 2700 Debian prototype timing. Final policy selection and the archive throughput/RSS gate still require the production Rust implementation."
+  }
+}

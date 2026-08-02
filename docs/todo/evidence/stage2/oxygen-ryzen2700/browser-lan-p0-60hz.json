@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "classification": "new target-VM current-server and real-browser LAN measurement",
+  "evidenceForm": "manually assembled measurement summary; raw CDP, health, process, and SQLite command transcripts were not retained",
+  "capturedAt": "2026-08-02T14:23:00+10:00",
+  "finalizedAfterGracefulStopAt": "2026-08-02T14:27:00+10:00",
+  "source": {
+    "commit": "284ed4484f242be3c1dee2d8aa78ba514f48eac7",
+    "cleanTrackedWorktree": true,
+    "runtimeOwnership": "current TypeScript-authoritative reference",
+    "rustAuthoritativeRuntimeImplemented": false
+  },
+  "serverEnvironment": {
+    "classification": "owner-target-vm",
+    "hostname": "oxygen",
+    "os": "Debian GNU/Linux 13 (trixie)",
+    "kernel": "6.12.94+deb13-amd64",
+    "architecture": "x86_64",
+    "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+    "logicalCpuCount": 8,
+    "totalMemoryBytes": 16775352320,
+    "serverUrlFromBrowser": "http://192.168.0.200:5174",
+    "uiUrlFromBrowser": "http://192.168.0.200:5173/",
+    "bindAddress": "0.0.0.0",
+    "backend": "native",
+    "nodeInferenceWorkers": 0,
+    "workload": "P0"
+  },
+  "browserEnvironment": {
+    "machineRole": "owner desktop on the trusted LAN",
+    "platform": "Win32",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+    "browserJavaScriptHeapAtFinalSample": {
+      "usedBytes": 19835497,
+      "totalBytes": 71187913,
+      "limitBytes": 4395630592
+    },
+    "laptopTested": false
+  },
+  "procedure": {
+    "server": "real server/index.ts process in an isolated /tmp checkout and disposable database",
+    "ui": "real Vite-served index.html and src/main.ts loaded through the in-app Chromium browser",
+    "network": "desktop browser to oxygen over the trusted LAN; not loopback",
+    "steps": [
+      "Loaded the UI at oxygen's LAN address and entered nickname stage2-lan-browser.",
+      "Selected Play and confirmed one externally owned snake in the server health response.",
+      "Reloaded the browser and observed a successful Reconnected state and assignment reclaim.",
+      "Captured real WebSocket frames while moving the pointer and pressing and releasing the mouse button on the game canvas.",
+      "Read final server health and an active-process database sample.",
+      "Gracefully stopped the temporary server and UI, confirmed ports 5173 and 5174 were clear, then hashed and queried the stable disposable database read-only."
+    ]
+  },
+  "browserPlayerWebSocket": {
+    "capturedActionFrameCount": 396,
+    "captureDurationMs": 6776.742000016384,
+    "measuredSendRateHz": 58.28759601576171,
+    "actionIntervalMs": {
+      "min": 15.731999999843538,
+      "p50": 16.98799995938316,
+      "p95": 20.534000010229647,
+      "p99": 23.107999993953854,
+      "max": 23.47600000211969
+    },
+    "snakeId": 100140,
+    "firstTick": 1959819,
+    "lastTick": 1960225,
+    "distinctTurnValueCount": 41,
+    "minimumTurn": -1,
+    "maximumTurn": 1,
+    "boostZeroFrameCount": 395,
+    "boostOneFrameCount": 1,
+    "boostPress": {
+      "sequence": 4102,
+      "timestamp": 491095.138034,
+      "tick": 1960182,
+      "turn": 0.49122952684398236,
+      "boost": 1
+    },
+    "firstFollowingBoostRelease": {
+      "sequence": 4104,
+      "timestamp": 491095.156241,
+      "elapsedAfterPressMs": 18.206999986432493,
+      "tick": 1960183,
+      "turn": 0.6922688881852197,
+      "boost": 0
+    },
+    "receivedFrameCountInSameBoundedCapture": 604,
+    "receivedPayloadCharactersInSameBoundedCapture": 22959709,
+    "interpretation": "The real browser player produced fresh commands on the approximately 60 Hz candidate cadence across the trusted LAN, including changed steering and a prompt boost release. This capture is consistent with the current source's independent timer, but it did not suppress sensor delivery and therefore is not measurement proof of independence. WebSocket send observation proves that commands left browser JavaScript; it does not by itself identify the exact fixed step that applied each command."
+  },
+  "longRunningP0Reference": {
+    "processElapsed": "09:08:27",
+    "schedulerWallSeconds": 32876.981684942446,
+    "schedulerSimulatedSeconds": 32869.66666629469,
+    "achievedMultiplier": 0.9997775033390274,
+    "completedSteps": 1972180,
+    "droppedSimulationSeconds": 7.299999999999999,
+    "generation": 142,
+    "generationTimeSeconds": 26.21666666666646,
+    "serverResidentSetBytes": 71749632,
+    "viteResidentSetBytes": 106098688,
+    "connectedClients": 1,
+    "aliveExternallyOwnedSnakes": 1,
+    "reliableQueuedMessages": 0,
+    "pendingFrames": 0,
+    "replacedFrames": 0,
+    "reliableFailures": 0,
+    "simulationFaulted": false,
+    "interpretation": "This accidental nine-hour continuation is a useful P0 long-duration survival observation for the current reference only. It was not a controlled soak with interval samples, is not P1/P2 capacity evidence, and does not validate the future Rust engine."
+  },
+  "disposableDatabaseGrowth": {
+    "databasePath": "/tmp/slither-lan-browser-284ed44.db",
+    "stableDatabaseSha256": "4b3012acbc958b06999035eb8cb4f588a57625f140b76ec1878a7a8373d97449",
+    "stableDatabaseBytesAfterGracefulStop": 41385984,
+    "walBytesAfterGracefulStop": 0,
+    "shmBytesAfterGracefulStop": 0,
+    "activeProcessFileSample": {
+      "databaseBytes": 40583168,
+      "walBytes": 4342512,
+      "shmBytes": 32768
+    },
+    "configuredCheckpointEveryGenerationsRequested": 1000000,
+    "configuredCheckpointEveryGenerationsResolved": 100000,
+    "populationSnapshotRows": 1,
+    "snapshotGenerationMinimum": 1,
+    "snapshotGenerationMaximum": 1,
+    "snapshotGenomeRows": 55,
+    "snapshotGenomeWeightCount": 740190,
+    "snapshotGenomeWeightBytes": 2960760,
+    "hallOfFameRows": 142,
+    "hallOfFameGenerationMinimum": 1,
+    "hallOfFameGenerationMaximum": 142,
+    "hallOfFameGenomeJsonBytes": 38188674,
+    "averageHallOfFameGenomeJsonBytes": 268934.323943662,
+    "sqliteAllocatedBytesByObject": {
+      "hof_entries": 38346752,
+      "snapshot_genomes": 2990080,
+      "population_snapshots": 8192
+    },
+    "pageCount": 10104,
+    "freeListPageCount": 0,
+    "interpretation": "The 41.4 MB stable main database was dominated by 142 per-generation decimal-JSON Hall-of-Fame genomes, not by automatic full-population checkpoint accumulation in this run. This directly exercises and confirms the repeated decimal best-genome storage growth defect while leaving the approved managed-checkpoint retention design unchanged."
+  },
+  "limitations": [
+    "The browser was the owner's desktop, not the laptop.",
+    "The external PyRL trainer was not connected; the audited trainer revision speaks Protocol 1 while this server requires Protocol 2.",
+    "The workload was P0. P1 and P2 remain mandatory target-VM acceptance workloads.",
+    "The capture proves browser sends and server connectivity but does not expose an authoritative accepted-action or applied-step counter.",
+    "Raw browser-event, health-response, process-list, and SQLite command transcripts were not retained, so this summary is not a self-validating raw runner artifact.",
+    "The test used the current TypeScript-authoritative reference and cannot validate the future Rust-authoritative runtime.",
+    "The long-duration run was not a planned power-loss, restart, import/export, retention-pruning, or recovery test.",
+    "The browser heap sample is a point-in-time reading, not a peak or allocation trace."
+  ]
+}

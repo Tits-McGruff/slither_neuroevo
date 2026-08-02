@@ -1,0 +1,294 @@
+{
+  "schema": "slither-stage2-runtime-baseline",
+  "version": 2,
+  "evidenceClass": "new measured target-VM current-TypeScript result",
+  "caveat": "Direct production SimCore/World path measured on the oxygen Ryzen 7 2700 Debian VM, including the canonical BrainPool when selected; not an end-to-end server, LAN, browser, RL trainer, or Rust-authoritative result.",
+  "source": {
+    "commit": "93e22c1e92c725b52c5e0ed4d224c9ffc61c44c7",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-08-01T18:51:11.588Z",
+    "platform": "linux",
+    "architecture": "x64",
+    "osType": "Linux",
+    "osRelease": "6.12.94+deb13-amd64",
+    "osVersion": "#1 SMP PREEMPT_DYNAMIC Debian 6.12.94-1 (2026-06-20)",
+    "hostname": "oxygen",
+    "provenance": {
+      "declaration": "owner-target-vm",
+      "platformIsLinux": true,
+      "distributionId": "debian",
+      "distributionIsDebian": true,
+      "hostname": "oxygen",
+      "hostnameIsOxygen": true,
+      "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+      "cpuModelMatches": true,
+      "logicalCpuCount": 8,
+      "logicalCpuCountMatches": true,
+      "totalMemoryBytes": 16775352320,
+      "memoryAllocationMatches": true,
+      "ownerTargetVmValidated": true
+    },
+    "locale": "en-AU",
+    "node": "v24.12.0",
+    "v8": "13.6.233.17-node.37",
+    "zlib": "1.3.1-470d3a2",
+    "zstd": "1.5.7",
+    "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+    "logicalCpuCount": 8,
+    "totalMemoryBytes": 16775352320
+  },
+  "workload": {
+    "scenario": {
+      "name": "P1",
+      "description": "300 evolved snakes, 10 baseline bots, default graph, 3,500 pellets",
+      "settings": {
+        "snakeCount": 300,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "pelletCountTarget": 3500,
+      "bubbleBins": 16,
+      "baselineBotCount": 10,
+      "graphSpec": null,
+      "denseLongBodies": false
+    },
+    "seed": 1511506142,
+    "backend": "js",
+    "nativeAddonBuildIdentifier": null,
+    "recurrentKind": "GRU",
+    "warmupSteps": 20,
+    "measuredSteps": 180,
+    "fixedDtSeconds": 0.016666666666666666,
+    "frameEvery": 1,
+    "sampleEverySteps": 0,
+    "command": [
+      "/home/james/.nvm/versions/node/v24.12.0/bin/node",
+      "/tmp/slither-stage2-e79ebd5/scripts/stage2/runtime-baseline.ts",
+      "--scenario",
+      "P1",
+      "--backend",
+      "js",
+      "--workers",
+      "0",
+      "--warmup-steps",
+      "20",
+      "--steps",
+      "180",
+      "--frame-every",
+      "1",
+      "--environment",
+      "owner-target-vm",
+      "--output",
+      "/tmp/slither-stage2-results-cd9ab28/runtime-p1-js-serial.json"
+    ],
+    "processMode": "serial",
+    "requestedWorkers": 0,
+    "activeWorkers": 0,
+    "workerStatuses": [],
+    "installedBodyPoints": null,
+    "installedWorldLoad": null,
+    "expectedInstalledCollisionEntries": null,
+    "graph": {
+      "key": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+      "totalParams": 13458,
+      "totalStateFloats": 16,
+      "order": [
+        "input",
+        "mlp",
+        "gru",
+        "head"
+      ],
+      "outputs": [
+        {
+          "nodeId": "head"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "input",
+          "type": "Input",
+          "offset": 0,
+          "length": 0,
+          "inputSize": 83,
+          "outputSize": 83,
+          "isRecurrent": false
+        },
+        {
+          "id": "mlp",
+          "type": "MLP",
+          "offset": 0,
+          "length": 9536,
+          "inputSize": 83,
+          "outputSize": 64,
+          "isRecurrent": false,
+          "hiddenSizes": [
+            64
+          ]
+        },
+        {
+          "id": "gru",
+          "type": "GRU",
+          "offset": 9536,
+          "length": 3888,
+          "inputSize": 64,
+          "outputSize": 16,
+          "isRecurrent": true,
+          "hiddenSize": 16
+        },
+        {
+          "id": "head",
+          "type": "Dense",
+          "offset": 13424,
+          "length": 34,
+          "inputSize": 16,
+          "outputSize": 2,
+          "isRecurrent": false
+        }
+      ]
+    }
+  },
+  "result": {
+    "measuredWallMs": 13867.559777,
+    "simulatedSeconds": 3,
+    "simulatedSecondsPerWallSecond": 0.216332,
+    "completedStepsPerWallSecond": 12.979933,
+    "fixedStepMs": {
+      "count": 180,
+      "min": 54.172287,
+      "p50": 76.797245,
+      "p95": 95.013364,
+      "p99": 106.214121,
+      "max": 140.155852,
+      "mean": 76.629241
+    },
+    "sensorsPerStepMs": {
+      "count": 180,
+      "min": 44.961166,
+      "p50": 63.742673,
+      "p95": 80.454105,
+      "p99": 89.347091,
+      "max": 124.256976,
+      "mean": 63.997497
+    },
+    "brainPerStepMs": {
+      "count": 180,
+      "min": 5.015656,
+      "p50": 7.07829,
+      "p95": 9.34855,
+      "p99": 10.295375,
+      "max": 11.015875,
+      "mean": 7.132549
+    },
+    "remainingPhysicsPerStepMs": {
+      "count": 180,
+      "min": 3.904876,
+      "p50": 5.471101,
+      "p95": 6.706887,
+      "p99": 7.605646,
+      "max": 8.761651,
+      "mean": 5.499195
+    },
+    "framePackMs": {
+      "count": 180,
+      "min": 0.116972,
+      "p50": 0.168257,
+      "p95": 0.236856,
+      "p99": 0.478969,
+      "max": 1.488588,
+      "mean": 0.183774
+    },
+    "frameBytes": {
+      "count": 180,
+      "min": 87276,
+      "p50": 89128,
+      "p95": 91160.2,
+      "p99": 91231.36,
+      "max": 91272,
+      "mean": 89195.422222
+    },
+    "aliveAtEnd": 178,
+    "totalSnakesAtEnd": 310,
+    "generationAtEnd": 1,
+    "generationTimeAtEnd": 3.333333333,
+    "profilerBrainCalls": 39654,
+    "profilerSensorCalls": 39654,
+    "serialPopulationEvaluations": 39654,
+    "pooledPopulationEvaluations": 0,
+    "populationEvaluations": 39654,
+    "derivedNativeCrossings": 0,
+    "nativeKernelNodesPerBrain": 3,
+    "collisionGrid": {
+      "currentEntries": 1248,
+      "peakEntries": 1311,
+      "capacity": 200000,
+      "maxCapacity": 33554432,
+      "estimatedCapacityBytes": 3200000,
+      "rebuilds": 601,
+      "growths": 0,
+      "outOfBoundsEntries": 0,
+      "admissionReason": "collision-grid rebuild admitted 1248 entries",
+      "faultReason": null
+    },
+    "denseWorldTimeline": {
+      "thresholdCollisionEntries": 200000,
+      "denseThresholdLastStep": null,
+      "denseThresholdMeaning": "Not a P4 dense-world fixture.",
+      "outOfBounds": {
+        "atMeasuredStart": null,
+        "atMeasuredEnd": null,
+        "accumulatedDuringMeasuredSteps": null,
+        "firstObservedMeasuredStep": null,
+        "meaning": "Not a P4 dense-world fixture."
+      },
+      "samples": [],
+      "interpretation": "Not a P4 dense-world fixture."
+    },
+    "assertions": {
+      "allMeasuredStepsCommitted": true,
+      "p4InstalledBodyThresholdExceeded": true,
+      "p4InstalledCollisionThresholdExceeded": true,
+      "p4InstalledCollisionEntriesExact": true,
+      "p4InstalledOutOfBoundsEntriesZero": true,
+      "p4CollisionFaultFree": true
+    },
+    "eventLoopDelayMs": {
+      "min": 54.427648,
+      "mean": 76.932216,
+      "p95": 95.289343,
+      "p99": 105.250815,
+      "max": 140.509183
+    },
+    "cpu": {
+      "userMicros": 14025414,
+      "systemMicros": 56457,
+      "totalMicros": 14081871,
+      "averageLogicalCoreUtilization": 1.015454
+    },
+    "memory": {
+      "before": {
+        "rss": 195022848,
+        "heapTotal": 53305344,
+        "heapUsed": 18545296,
+        "external": 53673507,
+        "arrayBuffers": 51151785
+      },
+      "after": {
+        "rss": 238665728,
+        "heapTotal": 92626944,
+        "heapUsed": 35070208,
+        "external": 53929259,
+        "arrayBuffers": 51407497
+      },
+      "peakRssBytes": 238931968,
+      "peakHeapUsedBytes": 49636840,
+      "peakExternalBytes": 56667691
+    }
+  }
+}
