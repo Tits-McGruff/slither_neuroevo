@@ -747,6 +747,7 @@ export class SimServer {
       identityKey
     );
     if (reclaim.reclaimed) return;
+    if (reclaim.reason === 'delivery-failed') return;
     if (resumeToken || reclaim.reason === 'ambiguous') {
       this.wsHub.sendJsonTo(connId, {
         type: 'reclaimResult',

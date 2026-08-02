@@ -98,6 +98,7 @@ describe('Stage 1 browser-player transmission correction', () => {
           })),
         send: (_connId, message) => {
           if (message.type === 'sensors') suppressedSensors++;
+          return true;
         },
         nowMs: clock.nowMs,
         createResumeToken: () => 'browser-control-token'

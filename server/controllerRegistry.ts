@@ -28,8 +28,8 @@ export interface ControllerRegistryOptions {
 export interface ControllerRegistryDeps {
   /** Return the current authoritative snake roster. */
   getSnakes: () => Array<{ id: number; alive: boolean; controllable: boolean }>;
-  /** Route one reliable controller/lifecycle message. */
-  send: (connId: number, payload: ServerMessage) => void;
+  /** Route one reliable controller/lifecycle message and report queue acceptance. */
+  send: (connId: number, payload: ServerMessage) => boolean;
   /** Monotonic elapsed-time source, injectable for deterministic tests. */
   nowMs?: () => number;
   /** Opaque token source independent from every simulation RNG stream. */
@@ -42,8 +42,8 @@ export interface ControllerRegistryDeps {
 export interface ControllerReclaimResult {
   /** Whether the existing live lease was rebound. */
   reclaimed: boolean;
-  /** Stable result category. */
-  reason: ReclaimResultMsg['reason'];
+  /** Stable result category, including an internal outbound-delivery failure. */
+  reason: ReclaimResultMsg['reason'] | 'delivery-failed';
   /** Reclaimed snake id on success. */
   snakeId?: number;
 }
@@ -243,10 +243,10 @@ export class ControllerRegistry {
       actionsThisSecond: 0,
       droppedActions: 0
     };
+    if (!this.sendAssignment(state, false)) return null;
     this.byConn.set(connId, state);
     this.bySnake.set(assignedId, state);
     this.byToken.set(state.resumeToken, state);
-    this.sendAssignment(state, false);
     return assignedId;
   }
 
@@ -298,10 +298,23 @@ export class ControllerRegistry {
       return { reclaimed: false, reason: 'snake-unavailable' };
     }
 
-    this.releaseSnake(connId);
+    if (this.byConn.get(connId) !== state) this.releaseSnake(connId);
+    const nextResumeToken = this.createUniqueToken();
+    const result: ReclaimResultMsg = {
+      type: 'reclaimResult',
+      reclaimed: true,
+      reason: 'reclaimed',
+      snakeId: state.snakeId
+    };
+    if (
+      !this.send(connId, result) ||
+      !this.sendAssignment(state, true, connId, nextResumeToken)
+    ) {
+      return { reclaimed: false, reason: 'delivery-failed' };
+    }
     if (state.connId !== null) this.byConn.delete(state.connId);
     this.byToken.delete(state.resumeToken);
-    state.resumeToken = this.createUniqueToken();
+    state.resumeToken = nextResumeToken;
     state.connId = connId;
     state.disconnectedAtMs = null;
     state.lastTurn = 0;
@@ -312,15 +325,8 @@ export class ControllerRegistry {
     state.actionSecondStartMs = now;
     state.actionsThisSecond = 0;
     this.byConn.set(connId, state);
+    this.bySnake.set(state.snakeId, state);
     this.byToken.set(state.resumeToken, state);
-    const result: ReclaimResultMsg = {
-      type: 'reclaimResult',
-      reclaimed: true,
-      reason: 'reclaimed',
-      snakeId: state.snakeId
-    };
-    this.send(connId, result);
-    this.sendAssignment(state, true);
     return { reclaimed: true, reason: 'reclaimed', snakeId: state.snakeId };
   }
 
@@ -368,8 +374,13 @@ export class ControllerRegistry {
         continue;
       }
       const now = this.nowMs();
+      const nextResumeToken = this.createUniqueToken();
+      if (!this.sendAssignment(state, false, state.connId, nextResumeToken, nextId)) {
+        this.removeState(state, now, true);
+        continue;
+      }
       this.byToken.delete(state.resumeToken);
-      state.resumeToken = this.createUniqueToken();
+      state.resumeToken = nextResumeToken;
       state.snakeId = nextId;
       state.lastTurn = 0;
       state.lastBoost = 0;
@@ -382,7 +393,6 @@ export class ControllerRegistry {
       state.droppedActions = 0;
       this.bySnake.set(nextId, state);
       this.byToken.set(state.resumeToken, state);
-      this.sendAssignment(state, false);
     }
   }
 
@@ -451,15 +461,16 @@ export class ControllerRegistry {
    * @param tickId - Tick id for the sensor sample.
    * @param sensors - Sensor values.
    * @param meta - Pose metadata for browser steering.
+   * @returns True only when the payload entered the reliable outbound path.
    */
   publishSensors(
     snakeId: number,
     tickId: number,
     sensors: Float32Array,
     meta: { x: number; y: number; dir: number }
-  ): void {
+  ): boolean {
     const state = this.bySnake.get(snakeId);
-    if (!state || state.connId === null) return;
+    if (!state || state.connId === null) return false;
     const msg: SensorsMsg = {
       type: 'sensors',
       tick: tickId,
@@ -467,7 +478,10 @@ export class ControllerRegistry {
       sensors: Array.from(sensors),
       meta
     };
-    this.send(state.connId, msg);
+    const connId = state.connId;
+    if (this.send(connId, msg)) return true;
+    this.disconnectConnection(connId);
+    return false;
   }
 
   /**
@@ -475,16 +489,22 @@ export class ControllerRegistry {
    * @param state - Controller lease to announce.
    * @param reclaimed - Whether this is a successful same-snake reclaim.
    */
-  private sendAssignment(state: ControllerState, reclaimed: boolean): void {
-    if (state.connId === null) return;
+  private sendAssignment(
+    state: ControllerState,
+    reclaimed: boolean,
+    connId: number | null = state.connId,
+    resumeToken = state.resumeToken,
+    snakeId = state.snakeId
+  ): boolean {
+    if (connId === null) return false;
     const assignMsg: AssignMsg = {
       type: 'assign',
-      snakeId: state.snakeId,
+      snakeId,
       controller: state.controllerType,
-      resumeToken: state.resumeToken,
+      resumeToken,
       ...(reclaimed ? { reclaimed: true } : {})
     };
-    this.send(state.connId, assignMsg);
+    return this.send(connId, assignMsg);
   }
 
   /**

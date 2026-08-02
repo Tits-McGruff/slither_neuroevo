@@ -302,7 +302,7 @@ export interface ControllerRegistryLike {
     tickId: number,
     sensors: Float32Array,
     meta: { x: number; y: number; dir: number }
-  ) => void;
+  ) => boolean;
 }
 
 /** Main simulation world containing population state, pellets, and snakes. */
@@ -1394,15 +1394,18 @@ export class World {
     for (const sn of this.snakes) {
       if (!sn.alive) continue;
       if (!controllers.isControlled(sn.id)) continue;
-      let sensors: Float32Array;
-      if (profiler) {
-        const start = profiler.now();
-        sensors = sn.sampleSensors(this);
-        profiler.recordSensors(profiler.now() - start);
-      } else {
-        sensors = sn.sampleSensors(this);
-      }
-      controllers.publishSensors(sn.id, tickId, sensors, { x: sn.x, y: sn.y, dir: sn.dir });
+      const sensorStart = profiler?.now();
+      const deliver = (sensors: Float32Array): boolean => {
+        if (profiler && sensorStart !== undefined) {
+          profiler.recordSensors(profiler.now() - sensorStart);
+        }
+        return controllers.publishSensors(sn.id, tickId, sensors, {
+          x: sn.x,
+          y: sn.y,
+          dir: sn.dir
+        });
+      };
+      sn.sampleSensors(this, undefined, deliver);
     }
   }
   /**

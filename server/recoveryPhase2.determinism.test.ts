@@ -119,7 +119,7 @@ function createActionLogController(): ControllerRegistryLike {
       turn: ((tickId % ACTION_POSITION_COUNT) - 4) / 4,
       boost: tickId % 19 === 0 ? 1 : 0
     }),
-    publishSensors: () => undefined
+    publishSensors: () => true
   };
 }
 

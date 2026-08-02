@@ -94,6 +94,7 @@ async function observeDeliveryPath(path: DeliveryPath): Promise<{
       getAction: () => ({ turn: 0, boost: 0 }),
       publishSensors: (_snakeId, _tickId, sensors) => {
         observed = scoreDelta(sensors);
+        return true;
       }
     };
     await world.step(1 / 60, 800, 600, controllers, 1);
@@ -168,6 +169,7 @@ async function observeRealBody(path: BodyObservationPath): Promise<{
       getAction: () => ({ turn: 0, boost: 0 }),
       publishSensors: (snakeId, _tickId, sensors) => {
         if (snakeId === observer.id) capture(sensors);
+        return true;
       }
     };
     await world.step(1 / 60, 800, 600, controllers, 1);
@@ -222,6 +224,19 @@ describe(SUITE, () => {
     expect(scoreDelta(snake.computeSensors(world))).toBeCloseTo(0.4, 6);
     expect(snake.pointsAtLastSensorSample).toBe(0);
     expect(scoreDelta(snake.sampleSensors(world))).toBeCloseTo(0.4, 6);
+    expect(snake.pointsAtLastSensorSample).toBe(4);
+    expect(scoreDelta(snake.sampleSensors(world))).toBe(0);
+  });
+
+  it('accumulates score changes until an external delivery is accepted', () => {
+    const { world, snake } = createSensorWorld();
+    snake.pointsScore = 2;
+
+    expect(scoreDelta(snake.sampleSensors(world, undefined, () => false))).toBeCloseTo(0.2, 6);
+    expect(snake.pointsAtLastSensorSample).toBe(0);
+
+    snake.pointsScore = 4;
+    expect(scoreDelta(snake.sampleSensors(world, undefined, () => true))).toBeCloseTo(0.4, 6);
     expect(snake.pointsAtLastSensorSample).toBe(4);
     expect(scoreDelta(snake.sampleSensors(world))).toBe(0);
   });

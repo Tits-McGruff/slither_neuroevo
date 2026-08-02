@@ -66,8 +66,13 @@ function buildStepSnake(
       events.push(`${kind}:needs-control`);
       return true;
     },
-    sampleSensors: (_world: World) => {
+    sampleSensors: (
+      _world: World,
+      _out?: Float32Array,
+      deliver?: (sample: Float32Array) => boolean
+    ) => {
       events.push(`${kind}:sensors`);
+      deliver?.(sensors);
       return sensors;
     },
     brain: {
@@ -150,7 +155,10 @@ function buildStepFixture(events: string[]): StepFixture {
       events.push('external:get-action');
       return { turn: -0.5, boost: 0 };
     },
-    publishSensors: () => events.push('external:publish-sensors')
+    publishSensors: () => {
+      events.push('external:publish-sensors');
+      return true;
+    }
   };
   return { world, controllers };
 }

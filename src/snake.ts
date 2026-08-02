@@ -519,11 +519,19 @@ export class Snake {
    * Build one delivered observation and commit its score boundary exactly once.
    * @param world - World state sampled for the observation.
    * @param out - Optional output buffer to reuse.
+   * @param deliver - Optional synchronous delivery attempt for external observations.
    * @returns Sensor vector containing score change since the prior delivery.
    */
-  sampleSensors(world: WorldLike, out?: Float32Array): Float32Array {
+  sampleSensors(
+    world: WorldLike,
+    out?: Float32Array,
+    deliver?: (sensors: Float32Array) => boolean
+  ): Float32Array {
+    const sampledPointsScore = this.pointsScore;
     const sensors = this.computeSensors(world, out);
-    this.pointsAtLastSensorSample = this.pointsScore;
+    if (!deliver || deliver(sensors)) {
+      this.pointsAtLastSensorSample = sampledPointsScore;
+    }
     return sensors;
   }
   /**
