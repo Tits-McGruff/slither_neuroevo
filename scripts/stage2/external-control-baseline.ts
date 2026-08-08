@@ -125,6 +125,30 @@ interface Distribution {
   mean: number;
 }
 
+/** Mutable maxima for the memory fields reported by the Stage 2 runners. */
+interface MemoryPeaks {
+  /** Greatest resident-set size observed so far. */
+  peakRssBytes: number;
+  /** Greatest V8 heap-used value observed so far. */
+  peakHeapUsedBytes: number;
+  /** Greatest Node external-memory value observed so far. */
+  peakExternalBytes: number;
+}
+
+/**
+ * Fold one Node memory observation into the runner's reported maxima.
+ * @param peaks - Mutable peak values accumulated for the measurement.
+ * @param memory - Initial, periodic, or final Node memory observation.
+ */
+export function includeMemoryUsageInPeaks(
+  peaks: MemoryPeaks,
+  memory: Pick<NodeJS.MemoryUsage, 'rss' | 'heapUsed' | 'external'>
+): void {
+  peaks.peakRssBytes = Math.max(peaks.peakRssBytes, memory.rss);
+  peaks.peakHeapUsedBytes = Math.max(peaks.peakHeapUsedBytes, memory.heapUsed);
+  peaks.peakExternalBytes = Math.max(peaks.peakExternalBytes, memory.external);
+}
+
 /** Mutable controller telemetry collected by one socket. */
 interface ControllerTelemetry {
   /** Client label. */
@@ -1485,14 +1509,14 @@ export async function runExternalControlBaseline(
     eventLoop.enable();
     const cpuBefore = process.cpuUsage();
     const memoryBefore = process.memoryUsage();
-    let peakRssBytes = memoryBefore.rss;
-    let peakHeapUsedBytes = memoryBefore.heapUsed;
-    let peakExternalBytes = memoryBefore.external;
+    const memoryPeaks: MemoryPeaks = {
+      peakRssBytes: 0,
+      peakHeapUsedBytes: 0,
+      peakExternalBytes: 0
+    };
+    includeMemoryUsageInPeaks(memoryPeaks, memoryBefore);
     const memoryTimer = setInterval(() => {
-      const memory = process.memoryUsage();
-      peakRssBytes = Math.max(peakRssBytes, memory.rss);
-      peakHeapUsedBytes = Math.max(peakHeapUsedBytes, memory.heapUsed);
-      peakExternalBytes = Math.max(peakExternalBytes, memory.external);
+      includeMemoryUsageInPeaks(memoryPeaks, process.memoryUsage());
     }, 50);
     let playerSequence = 0;
     const playerTimer = player ? setInterval(() => {
@@ -1553,6 +1577,7 @@ export async function runExternalControlBaseline(
     }
     const cpu = process.cpuUsage(cpuBefore);
     const memoryAfter = process.memoryUsage();
+    includeMemoryUsageInPeaks(memoryPeaks, memoryAfter);
 
     const clientErrors = [
       ...(player ? player.telemetry.errors.map(error => `player: ${error}`) : []),
@@ -1836,9 +1861,13 @@ export async function runExternalControlBaseline(
         memory: {
           before: memoryBefore,
           after: memoryAfter,
-          peakRssBytes,
-          peakHeapUsedBytes,
-          peakExternalBytes
+          peakRssBytes: memoryPeaks.peakRssBytes,
+          peakHeapUsedBytes: memoryPeaks.peakHeapUsedBytes,
+          peakExternalBytes: memoryPeaks.peakExternalBytes,
+          peakSampleCadenceMs: 50,
+          peakSampleCaveat:
+            'The 50 ms timer plus initial and final observations can still miss shorter ' +
+            'spikes; the values include runner and in-process current server memory.'
         },
         healthBefore,
         healthAfter
@@ -1909,9 +1938,11 @@ async function runP7Soak(
   let resourcesAfterCleanup: Record<string, number> | null = null;
   let scenario: ReturnType<typeof installStage2Scenario> | null = null;
   let memoryTimer: NodeJS.Timeout | null = null;
-  let peakRssBytes = 0;
-  let peakHeapUsedBytes = 0;
-  let peakExternalBytes = 0;
+  const memoryPeaks: MemoryPeaks = {
+    peakRssBytes: 0,
+    peakHeapUsedBytes: 0,
+    peakExternalBytes: 0
+  };
   let postWarmupCounts: {
     botSensors: number;
     viewerFrames: number;
@@ -1943,14 +1974,9 @@ async function runP7Soak(
     // Timing begins only after local server/client readiness. Tool permission waits cannot enter this window.
     startedAt = performance.now();
     memoryBefore = process.memoryUsage();
-    peakRssBytes = memoryBefore.rss;
-    peakHeapUsedBytes = memoryBefore.heapUsed;
-    peakExternalBytes = memoryBefore.external;
+    includeMemoryUsageInPeaks(memoryPeaks, memoryBefore);
     memoryTimer = setInterval(() => {
-      const memory = process.memoryUsage();
-      peakRssBytes = Math.max(peakRssBytes, memory.rss);
-      peakHeapUsedBytes = Math.max(peakHeapUsedBytes, memory.heapUsed);
-      peakExternalBytes = Math.max(peakExternalBytes, memory.external);
+      includeMemoryUsageInPeaks(memoryPeaks, process.memoryUsage());
     }, 250);
     eventLoop = monitorEventLoopDelay({ resolution: 10 });
     eventLoop.enable();
@@ -1982,6 +2008,7 @@ async function runP7Soak(
       if (elapsedMs >= nextSample && server) {
         const health = await readHealth(server);
         const memory = process.memoryUsage();
+        includeMemoryUsageInPeaks(memoryPeaks, memory);
         const currentCpu = process.cpuUsage();
         samples.push({
           elapsedMs: Number(elapsedMs.toFixed(3)), tick: health.tick, health,
@@ -2217,6 +2244,7 @@ async function runP7Soak(
     resourcesAfterCleanup = activeResourceTypes();
   }
   const memoryAfter = process.memoryUsage();
+  includeMemoryUsageInPeaks(memoryPeaks, memoryAfter);
   const rssSamples = samples.map(sample => {
     const memory = sample['memory'] as NodeJS.MemoryUsage;
     return { elapsedMs: sample['elapsedMs'] as number, rssBytes: memory.rss };
@@ -2298,12 +2326,13 @@ async function runP7Soak(
       measuredWallMs: Number(measuredWallMs.toFixed(6)),
       sampledMemoryPeaks: {
         cadenceMs: 250,
-        rssBytes: peakRssBytes,
-        heapUsedBytes: peakHeapUsedBytes,
-        externalBytes: peakExternalBytes,
+        rssBytes: memoryPeaks.peakRssBytes,
+        heapUsedBytes: memoryPeaks.peakHeapUsedBytes,
+        externalBytes: memoryPeaks.peakExternalBytes,
         caveat:
-          'Timer samples can still miss shorter spikes; the values include runner and ' +
-          'in-process current server memory.'
+          'The 250 ms timer, retained scalar samples, and initial/final observations can ' +
+          'still miss shorter spikes; the values include runner and in-process current ' +
+          'server memory.'
       },
       sampleCountBound: Math.ceil(durationMs / options.sampleEveryMs) + 2,
       sampledQueueMaximumCaveat:

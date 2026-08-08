@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetCFGToDefaults } from '../../src/config.ts';
 import {
   externalControlComposition,
+  includeMemoryUsageInPeaks,
   installExternalControlScenario,
   p5Composition,
   p6Composition,
@@ -292,6 +293,51 @@ describe('Stage 2 P5/P6 external-control runner', () => {
     expect(rssSlopeBytesPerMinute([{ elapsedMs: 600_000, rssBytes: 200 }], 600_000)).toBeNull();
   });
 
+  it('includes a final memory observation when it exceeds the initial and periodic peaks', () => {
+    const peaks = {
+      peakRssBytes: 0,
+      peakHeapUsedBytes: 0,
+      peakExternalBytes: 0
+    };
+    includeMemoryUsageInPeaks(peaks, { rss: 100, heapUsed: 80, external: 30 });
+    includeMemoryUsageInPeaks(peaks, { rss: 120, heapUsed: 90, external: 40 });
+    includeMemoryUsageInPeaks(peaks, { rss: 150, heapUsed: 110, external: 60 });
+
+    expect(peaks).toEqual({
+      peakRssBytes: 150,
+      peakHeapUsedBytes: 110,
+      peakExternalBytes: 60
+    });
+  });
+
+  it('reports endpoint-inclusive peaks and sampling limits from the shared P5/P6 path', async () => {
+    const artifact = await runExternalControlBaseline(parseOptions([
+      '--profile', 'p6', '--warmup-tick', '1', '--measurement-steps', '60',
+      '--checkpoint-every', '0'
+    ])) as {
+      result: {
+        memory: {
+          before: NodeJS.MemoryUsage;
+          after: NodeJS.MemoryUsage;
+          peakRssBytes: number;
+          peakHeapUsedBytes: number;
+          peakExternalBytes: number;
+          peakSampleCadenceMs: number;
+          peakSampleCaveat: string;
+        };
+      };
+    };
+    const memory = artifact.result.memory;
+
+    expect(memory.peakSampleCadenceMs).toBe(50);
+    expect(memory.peakSampleCaveat).toContain('can still miss shorter spikes');
+    for (const observation of [memory.before, memory.after]) {
+      expect(memory.peakRssBytes).toBeGreaterThanOrEqual(observation.rss);
+      expect(memory.peakHeapUsedBytes).toBeGreaterThanOrEqual(observation.heapUsed);
+      expect(memory.peakExternalBytes).toBeGreaterThanOrEqual(observation.external);
+    }
+  }, 30_000);
+
   it('runs an explicit short P7 diagnostic with viewer, save, reclaim, and bounded samples', async () => {
     const capturedErrors: unknown[][] = [];
     const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
@@ -300,7 +346,7 @@ describe('Stage 2 P5/P6 external-control runner', () => {
     let artifact: {
       outcome: string;
       result: {
-        samples: unknown[];
+        samples: Array<{ memory: NodeJS.MemoryUsage }>;
         saves: unknown[];
         reconnects: Array<{
           resultSeen: boolean;
@@ -312,6 +358,13 @@ describe('Stage 2 P5/P6 external-control runner', () => {
         fullP7SoakEligible: boolean;
         finalStorage: { snapshotCount: number; genomeRowCount: number } | null;
         controllers: { viewerFramesReceived: number; viewerStatsReceived: number };
+        memoryBefore: NodeJS.MemoryUsage | null;
+        memoryAfter: NodeJS.MemoryUsage;
+        sampledMemoryPeaks: {
+          rssBytes: number;
+          heapUsedBytes: number;
+          externalBytes: number;
+        };
       };
     };
     try {
@@ -344,5 +397,22 @@ describe('Stage 2 P5/P6 external-control runner', () => {
     expect(artifact.result.finalStorage?.genomeRowCount).toBeGreaterThan(55);
     expect(artifact.result.controllers.viewerFramesReceived).toBeGreaterThan(0);
     expect(artifact.result.controllers.viewerStatsReceived).toBeGreaterThan(0);
+    if (artifact.result.memoryBefore === null) {
+      throw new Error('completed P7 diagnostic did not retain its initial memory observation');
+    }
+    const retainedMemory = [
+      artifact.result.memoryBefore,
+      artifact.result.memoryAfter,
+      ...artifact.result.samples.map(sample => sample.memory)
+    ];
+    for (const observation of retainedMemory) {
+      expect(artifact.result.sampledMemoryPeaks.rssBytes).toBeGreaterThanOrEqual(observation.rss);
+      expect(artifact.result.sampledMemoryPeaks.heapUsedBytes).toBeGreaterThanOrEqual(
+        observation.heapUsed
+      );
+      expect(artifact.result.sampledMemoryPeaks.externalBytes).toBeGreaterThanOrEqual(
+        observation.external
+      );
+    }
   }, 30_000);
 });
