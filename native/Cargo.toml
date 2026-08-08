@@ -6,19 +6,24 @@ name = "slither_native"
 version = "0.1.0"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+engine-test-hooks = []
 
 [dependencies]
 napi = "3.0.0"
 napi-derive = "3.0.0"
+sha2 = "0.10"
 
 [build-dependencies]
 napi-build = "2"
+sha2 = "0.10"
 
 [profile.release]
 opt-level = 3         # Maximum optimizations (Default for release)
 lto = "fat"           # Aggressive Link-Time Optimization for speed
 codegen-units = 1     # Slower compile, but better optimization
-panic = "abort"       # Removes stack unwinding code to reduce binary size and overhead
+panic = "unwind"      # Required so caught Rust panics fault the engine instead of aborting Node
 debug = true          # KEPT: Needed for samply/flamegraph reports
 strip = false         # KEPT: Ensures symbols aren't deleted so you can read function names

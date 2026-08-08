@@ -1,0 +1,20 @@
+//! Rust-owned authoritative simulation components.
+
+/// Versioned coarse-command and bounded-queue contracts.
+pub mod contract;
+/// Background coordinator implementation; only its lifecycle is public.
+mod coordinator;
+/// Bounded engine faults and stable error codes.
+pub mod error;
+/// Deterministic graph validation, layout, and compilation contracts.
+pub mod graph;
+/// Bounded inbound/outbound queues and coalesced wake contracts.
+pub mod queues;
+/// Versioned deterministic random-number generation shared by engine state.
+pub mod rng;
+/// One-shot owner of the background coordinator lifecycle.
+pub mod runtime;
+/// Owned persistent-state and generation-boundary admission contracts.
+pub mod state;
+
+pub use coordinator::LifecycleState;

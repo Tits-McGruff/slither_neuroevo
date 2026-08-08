@@ -9,6 +9,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/test-categories.test.ts',
     'server/authoritativeWorldDigest.test.ts',
     'server/hash.test.ts',
+    'server/rustEngine/nativeSourceIdentity.test.ts',
     'server/stage1.controllerConfig.test.ts',
     'server/test/networkSuites.test.ts',
     'src/BrainViz.test.ts',
@@ -65,11 +66,14 @@ export const PRIMARY_TEST_CATEGORIES = {
     'server/recoveryPhase4.simServer.test.ts',
     'server/recoveryPhase6.controls.test.ts',
     'server/recoveryPhase7.persistence.test.ts',
+    'server/rustEngine/nativeSourceIdentity.native.test.ts',
     'server/stage1.browserControl.integration.test.ts',
     'server/stage1.controllerGrace.test.ts',
     'server/stage1.schedulerYield.test.ts',
     'server/wsHub.priority.test.ts',
+    'scripts/stage2/database-baseline.test.ts',
     'scripts/stage2/external-control-baseline.test.ts',
+    'scripts/stage2/graph-baseline.test.ts',
     'scripts/stage2/retention-baseline.test.ts',
     'scripts/stage2/sqlite-legacy-slice.test.ts',
     'src/brains/graph.integration.test.ts',
@@ -102,6 +106,7 @@ export const PRIMARY_TEST_CATEGORY_ORDER = [
 
 /** Required-native overlay that must fail when the addon or native MT path is unavailable. */
 export const NATIVE_REQUIRED_TEST_FILES = [
+  'server/rustEngine/nativeSourceIdentity.native.test.ts',
   'src/brains/nativeBridge.test.ts',
   'server/brainPool.test.ts',
   'server/inferenceMode.test.ts',

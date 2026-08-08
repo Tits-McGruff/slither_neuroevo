@@ -1024,6 +1024,9 @@ pub fn rru_step_native(
 mod tests {
     use super::*;
 
+    // Keep the reference helper's arguments aligned with the kernel contract
+    // so each dimension and stride remains explicit in the differential test.
+    #[allow(clippy::too_many_arguments)]
     fn dense_forward_reference(
         weights: &[f32],
         inputs: &[f32],
@@ -1083,14 +1086,14 @@ mod tests {
             for l in 1..layer_count {
                 let in_size = to_usize(layer_sizes[l - 1]);
                 let out_size = to_usize(layer_sizes[l]);
-                for o in 0..out_size {
+                for output in next.iter_mut().take(out_size) {
                     let mut sum = 0.0_f32;
                     for i in 0..in_size {
                         sum += weights[w_index + i] * cur[i];
                     }
                     let bias = weights[w_index + in_size];
                     w_index += in_size + 1;
-                    next[o] = (sum + bias).tanh();
+                    *output = (sum + bias).tanh();
                 }
                 mem::swap(&mut cur, &mut next);
             }
@@ -1100,9 +1103,7 @@ mod tests {
             for o in 0..output_stride {
                 outputs[output_base + o] = 0.0;
             }
-            for o in 0..out_limit {
-                outputs[output_base + o] = cur[o];
-            }
+            outputs[output_base..output_base + out_limit].copy_from_slice(&cur[..out_limit]);
         }
     }
 
@@ -1194,6 +1195,8 @@ mod tests {
         }
     }
 
+    // This mirrors the GRU kernel's explicit state and scratch-buffer surface.
+    #[allow(clippy::too_many_arguments)]
     fn gru_step_reference(
         weights: &[f32],
         inputs: &[f32],
@@ -1221,9 +1224,8 @@ mod tests {
         for b in 0..batch_count {
             let input_base = b * input_stride;
             let state_base = b * hidden_size;
-            for j in 0..hidden_size {
-                h_prev[state_base + j] = h[state_base + j];
-            }
+            h_prev[state_base..state_base + hidden_size]
+                .copy_from_slice(&h[state_base..state_base + hidden_size]);
             for j in 0..hidden_size {
                 let mut sum_z = 0.0_f32;
                 let mut sum_r = 0.0_f32;
@@ -1263,6 +1265,8 @@ mod tests {
         }
     }
 
+    // This mirrors the LSTM kernel's explicit hidden/cell state contract.
+    #[allow(clippy::too_many_arguments)]
     fn lstm_step_reference(
         weights: &[f32],
         inputs: &[f32],
@@ -1293,10 +1297,10 @@ mod tests {
         for b in 0..batch_count {
             let input_base = b * input_stride;
             let state_base = b * hidden_size;
-            for j in 0..hidden_size {
-                h_prev[state_base + j] = h[state_base + j];
-                c_prev[state_base + j] = c[state_base + j];
-            }
+            h_prev[state_base..state_base + hidden_size]
+                .copy_from_slice(&h[state_base..state_base + hidden_size]);
+            c_prev[state_base..state_base + hidden_size]
+                .copy_from_slice(&c[state_base..state_base + hidden_size]);
             for j in 0..hidden_size {
                 let wi_row = wi + j * in_size;
                 let wf_row = wf + j * in_size;
@@ -1340,6 +1344,8 @@ mod tests {
         }
     }
 
+    // This mirrors the RRU kernel's explicit state and scratch-buffer surface.
+    #[allow(clippy::too_many_arguments)]
     fn rru_step_reference(
         weights: &[f32],
         inputs: &[f32],
@@ -1362,9 +1368,8 @@ mod tests {
         for b in 0..batch_count {
             let input_base = b * input_stride;
             let state_base = b * hidden_size;
-            for j in 0..hidden_size {
-                h_prev[state_base + j] = h[state_base + j];
-            }
+            h_prev[state_base..state_base + hidden_size]
+                .copy_from_slice(&h[state_base..state_base + hidden_size]);
             for j in 0..hidden_size {
                 let wc_row = wc + j * in_size;
                 let wr_row = wr + j * in_size;
