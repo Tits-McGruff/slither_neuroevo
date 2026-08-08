@@ -36,6 +36,8 @@ node .\node_modules\tsx\dist\cli.mjs scripts\stage2\codec-baseline.ts --scenario
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\runtime-baseline.ts --scenario P2 --backend native --workers 4 --warmup-steps 20 --steps 180 --frame-every 1 --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\behavior-baseline.ts --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\graph-baseline.ts --db data\slither.db --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\graph-baseline.ts --fixture scripts\stage2\graph-fixtures\current-snapshot-graphs.v1.json --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\graph-baseline.ts --fixture scripts\stage2\graph-fixtures\legacy-locale-concat-order.v1.json --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\create-current-db-fixture.ts --scenario P1 --output C:\temporary\stage2-p1.db
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\browser-baseline-host.ts --db C:\temporary\stage2-p1.db --server-port 55194 --ui-port 55193 --ui-rate 30 --duration-ms 1800000
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\external-control-baseline.ts --scenario P1 --player-hz 60 --warmup-ms 2000 --duration-ms 15000 --workers 0 --output result.json
@@ -43,6 +45,7 @@ node .\node_modules\tsx\dist\cli.mjs scripts\stage2\external-control-baseline.ts
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\retention-baseline.ts --generations 480 --scenario P0 --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P0 --fixture evolved --evolution-generations 25 --trials 7 --output result.json
 node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P2 --fixture evolved --evolution-generations 25 --trials 7 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P2 --fixture fresh --trials 3 --environment owner-target-vm --output result.json
 ```
 
 Always run `database-baseline.ts` against a stable inspection copy made after
@@ -727,20 +730,41 @@ count from observed batch population counts.
 
 ## Oxygen target-VM evidence
 
-The detailed [Oxygen Ryzen 7 2700 index](oxygen-ryzen2700/README.md) covers 24
-retained JSON artifacts from Debian 13 with eight logical CPUs and 15.62 GiB
-RAM. Direct current-reference native-serial measurements reached 1.220x for
-P0, 0.228x for P1, 0.672x for P2, and 0.126x for P3. Four Node workers brought
-P2 to 0.906x but retained a poor tail. These results reproduce the user's
-slow-motion failure on the actual VM; they are not future Rust results.
+The detailed [Oxygen Ryzen 7 2700 index](oxygen-ryzen2700/README.md) covers 29
+root JSON artifacts plus 30 independently indexed P6 artifacts (59 total)
+from Debian 13 with eight logical CPUs and 15.62 GiB RAM. Direct current-
+reference native-serial measurements reached 1.220x for P0, 0.228x for P1,
+0.672x for P2, and 0.126x for P3. Four Node workers brought P2 to 0.906x but
+retained a poor tail. These results reproduce the user's slow-motion failure
+on the actual VM; they are not future Rust results.
 
 The Oxygen bundle also retains real-server synthetic P0/P1/P2 control runs,
-evolved P0/P2 codec and managed-checkpoint prototypes, a Debian graph output,
-and a read-only inventory of the owner database. The retained graph outputs
-match across Windows and Debian for the tested graph and input SHA, although
-the exact input database bytes are not retained. Prototype checkpoint single-
-pass p95 was 44.69 ms for P0 and 712.91 ms for P2, including file and parent-
-directory fsync. Production Rust restore and power-loss behavior remain open.
+fresh and evolved P0/P2 managed-checkpoint prototypes, paired Debian graph-v2
+outputs, and a read-only inventory of the owner database. The exact retained
+default and adversarial graph fixtures produced identical compiled layouts on
+Windows and Debian for the tested Node/ICU/locale pair; this corrects the prior
+claimed difference without removing the structural `localeCompare` risk. The
+owner database also contains a large Hall-of-Fame architecture whose exact
+graph definition has not yet been retained as a replay fixture.
+
+Prototype checkpoint single-pass p95 was 44.69 ms for evolved P0 and 712.91 ms
+for evolved P2. Fresh generation-one P0/P2 p95 was 37.65/787.63 ms. These
+figures include file and parent-directory fsync on Oxygen but remain disposable
+Node prototypes; production Rust restore and power-loss behavior remain open.
+
+The nested P6 matrix runs P0/P1/P2 at 1x, 2x, 4x, 8x and 12x with a synthetic
+loopback bot and the same workload plus an unrendered spectator. P0 alone held
+1x cleanly. P1 achieved only 0.793x/0.867x at requested 1x, while P2's nominal
+1.033x/1.064x still included discarded debt and 70--79 ms event-loop p95. The
+declining populations make these capacity characterizations, not full-load
+acceptance results.
+
+The clean Oxygen P7 artifact ran the current P0 server for 30 minutes at about
+1x, advanced generation 1 to 10, completed five legacy saves and nine reclaims,
+and ended with 15 current SQLite snapshots. Its sampled post-warm RSS slope was
+about 0.204 MiB/minute. It is synthetic loopback/current-reference evidence,
+not a real browser/trainer/LAN, managed-retention, Rust, accepted-action, or
+complete P7 result.
 
 A manually assembled measurement summary records a real desktop Chromium
 browser connecting to Oxygen over the trusted LAN, reclaiming a P0 snake, and
@@ -764,9 +788,10 @@ not exist.
   browser load, the laptop, and final 30-Hz-versus-60-Hz selection;
 - the owner trainer path. Its audited current revision speaks Protocol 1 while
   the server requires Protocol 2, so compatibility needs a coordinated change;
-- sustained P4 (the retained artifacts are honest load-collapse curves),
-  target-VM P6 capacity, and a controlled target-VM/browser/trainer P7 soak
-  beyond the accidental P0 survival observation;
+- sustained P4 (the retained artifacts are honest load-collapse curves), P6
+  full-load/browser/LAN/trainer capacity beyond the synthetic declining-load
+  matrix, and a controlled target-VM/browser/trainer P7 soak beyond the clean
+  synthetic-loopback P0 run;
 - P8 full checkpoint-v3 publication, durability and restore testing beyond the
   retained size-matched 480-generation retention fixture;
 - repeat the selected checkpoint-v3 publication/restore policy in Rust on the

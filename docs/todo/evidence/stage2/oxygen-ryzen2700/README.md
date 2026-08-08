@@ -1,10 +1,11 @@
 # Oxygen Ryzen 7 2700 evidence index
 
-This directory contains 24 retained JSON artifacts from `oxygen`, the owner's
-Debian VM. It characterizes the current TypeScript-authoritative reference,
-the real current server with synthetic external clients, and disposable
-checkpoint/codec prototypes. It is not evidence that the Rust-authoritative
-runtime is implemented, and it does not close Stage 2.
+This directory contains 29 retained root JSON artifacts from `oxygen`, the
+owner's Debian VM, plus 30 separately indexed P6 JSON artifacts in `p6/` (59
+JSON artifacts total). It characterizes the current TypeScript-authoritative
+reference, the real current server with synthetic external clients, and
+disposable checkpoint/codec prototypes. It is not evidence that the
+Rust-authoritative runtime is implemented, and it does not close Stage 2.
 
 ## Evidence labels used here
 
@@ -72,9 +73,13 @@ is retained as a limitation rather than hidden.
 | `runtime-*.json` | `93e22c1e92c725b52c5e0ed4d224c9ffc61c44c7` | New target-VM measurement | Direct `SimCore`/`World`, not the real server, LAN browser, trainer, or Rust-authoritative runtime |
 | `external-p5-*.json` | `284ed4484f242be3c1dee2d8aa78ba514f48eac7` | New target-VM current-server measurement | Real server with synthetic Protocol 2 clients over loopback, not the browser, LAN, or owner trainer |
 | `browser-lan-p0-60hz.json` | `284ed4484f242be3c1dee2d8aa78ba514f48eac7` | Target-VM/current-server and real-browser LAN measurement summary with external provenance | Real desktop browser and P0 only; no sensor suppression, accepted/applied-step correlation, laptop, owner trainer, or Rust runtime |
-| `checkpoint-validation-*.json` | `cd9ab281117f55a97e080dd8e3c60c3075f2dd6f` | New target-VM prototype measurement | Disposable Node USTAR/Zstandard prototype, not production Rust, SQLite authority, restore, or power-loss proof |
+| `checkpoint-validation-*-evolved25.json` | `cd9ab281117f55a97e080dd8e3c60c3075f2dd6f` | New target-VM prototype measurement | Disposable Node USTAR/Zstandard prototype, not production Rust, SQLite authority, restore, or power-loss proof |
+| `checkpoint-validation-*-fresh.json` | `284ed4484f242be3c1dee2d8aa78ba514f48eac7` | New target-VM prototype measurement | Fresh generation-one population timing in the same disposable Node prototype; not production Rust or restored authority |
 | `codec-*.json` | `4cd1c004b78cf5d192eb7d69b35c9d052f25db7c` | New target-VM codec measurement | Offline weight payloads only, not the managed checkpoint container, full server memory, or production Rust codec |
-| `graph-debian.json` | `e79ebd5786991a62e02315dc83d3e3b8784273b0` | Reproducible fixture on Debian | One graph and one locale/runtime pair cannot prove all-platform ordering |
+| `graph-debian.json` | `e79ebd5786991a62e02315dc83d3e3b8784273b0` | Earlier reproducible Debian fixture | One graph and one locale/runtime pair cannot prove all-platform ordering |
+| `graph-*-debian-v2.json` | `b500175f1f10bbfc9155919b084854d463af4f04` | Reproducible Debian fixture, paired with Windows v2 outputs | No difference reproduced on this Windows/Debian, Node/ICU/locale pair; `localeCompare` remains structurally non-portable |
+| `p6/p6-*.json` | `284ed4484f242be3c1dee2d8aa78ba514f48eac7` | New target-VM current-server measurement | Synthetic loopback bot and optional unrendered spectator; no browser, LAN, trainer, or accepted/applied-action proof |
+| `external-p7-p0-30min.json` | `284ed4484f242be3c1dee2d8aa78ba514f48eac7` | New target-VM current-server soak measurement | Synthetic loopback clients and legacy SQLite saves; not browser/LAN/trainer/Rust/managed-retention evidence |
 | `owner-database.json` | `e79ebd5786991a62e02315dc83d3e3b8784273b0` | New measurement of a stable owner-database copy | External provenance connects the local inspection copy to the remote path; it is not an exact-resume checkpoint or a search of client download folders |
 
 ## Current reference runtime
@@ -262,10 +267,15 @@ copy, and codec scratch; it is not a future Rust-state measurement.
 |---|---:|---:|---:|---:|---:|---:|---:|
 | P0 evolved-25 | 2.82 MiB | 2.31 MiB | 41.64/44.69 ms | 43.95 ms | 48.90 ms | 66.57 ms | 195.1 MiB |
 | P2 evolved-25 | 84.53 MiB | 72.15 MiB | 708.66/712.91 ms | 718.15 ms | 717.59 ms | 1,100.46 ms | 740.5 MiB |
+| P0 fresh generation one | 2.82 MiB | 2.42 MiB | 28.06/37.65 ms | 32.57 ms | 38.57 ms | 53.54 ms | 200.6 MiB |
+| P2 fresh generation one | 84.53 MiB | 71.87 MiB | 630.81/787.63 ms | 743.63 ms | 672.16 ms | 1,015.38 ms | 612.0 MiB |
 
 All 12 measured publications per fixture completed file fsync, atomic rename,
 and parent-directory fsync, and temporary fixture cleanup restored the sampled
-free space. This is useful target timing, not a power-loss durability test.
+free space. The fresh P0 and P2 fixtures use the generation-one population
+(zero deterministic evolution generations); each likewise passed all 12
+prototype publications and the same fault matrix. This is useful target timing,
+not a power-loss durability test.
 
 The strict fault matrix shows why a payload-blind scan is not a replacement
 for restore validation. A lightweight scan rejected a truncated trailer, a
@@ -324,30 +334,89 @@ save. This does not search browser download directories on other machines.
 Compatibility readers therefore cannot be retired merely because this server
 directory lacks an exported file.
 
+## P6 accelerated current-server matrix
+
+`p6/` is a nested, independently check-summed matrix of 30 runs: P0, P1, and
+P2 at requested 1x, 2x, 4x, 8x, and 12x, each with a synthetic loopback bot
+and with the same bot plus an unrendered complete-frame-v1 spectator. The
+matrix uses the actual current server on Oxygen with native serial kernels,
+automatic current-reference checkpoints enabled, a tick-300+ warm-up, and at
+least 1,800 subsequent committed steps (30 simulated seconds). Its own
+[`p6/README.md`](p6/README.md) and [`p6/SHA256SUMS.txt`](p6/SHA256SUMS.txt)
+remain the source of the per-run tables and 30-file nested manifest.
+
+P0 is the only clean 1x pair: it reached 1.001x/1.000x (viewer off/on) with no
+discarded scheduler debt. P1 materially failed 1x at 0.793x/0.867x and P2
+averaged 1.033x/1.064x but still recorded 1.18/0.07 seconds of discarded debt
+and 79.1/70.3 ms event-loop p95. At 2x through 12x, every scenario discarded
+substantial simulation debt and frame publication starved. These are
+declining-load measurements: the tick-300 warm-up already missed the initial
+population spike, especially P1's configured 311 snakes, and populations
+continued to shrink during the window.
+
+The bot's actions are socket sends, not proof that the server accepted an
+action or applied it to a fixed step. Neither client is a browser, crosses the
+trusted LAN, renders a frame, or represents the owner's trainer. Viewer-off
+and viewer-on are independent launches, so apparent viewer-on improvements do
+not establish a spectator benefit.
+
+## P7 30-minute current-server soak
+
+`external-p7-p0-30min.json` is a clean 30-minute P0 target-VM run of the
+current TypeScript-authoritative server with native serial kernels. It used a
+30 Hz synthetic loopback player, an observation-driven synthetic loopback bot,
+and a loopback frame-v1 spectator; it sampled health/resources every five
+seconds throughout the run and used the final twenty minutes as the post-warm
+window for slope and activity calculations. The 1,800,003 ms run retained 360
+samples, 54,000 player sends, 108,001 bot sends, 51,740 received spectator
+frames, five successful legacy manual saves, and nine successful assignment
+reclaims.
+
+All sampled health states were OK: no simulation fault, dropped scheduler
+debt, collision-grid out-of-bounds entry, reliable failure, reliable queued
+message, or pending frame was reported. The run progressed from generation 1
+to 10 and durable snapshot 1 to 15. Its sampled peak combined runner/server
+RSS was 309.36 MiB (308.36 MiB final); final current-reference SQLite storage
+was 47.55 MiB with 15 snapshots and 825 genome rows. The largest sampled
+event-loop p95 was 36.96 ms and the largest observed event-loop delay was
+177.47 ms. The estimated post-warm-window RSS slope was 208.98 KiB/minute;
+timer samples can miss shorter spikes.
+
+This is a clean bounded current-reference measurement, not the full P7 gate:
+it has no real browser or trusted-LAN traffic, owner trainer, accepted/applied
+action proof, Rust-authoritative runtime, managed-file retention, production
+checkpoint-v3 behavior, or production restore/recovery proof. The five saves
+are explicitly legacy current-reference non-resumable population saves.
+
 ## Graph ordering comparison
 
-`graph-debian.json` and the retained Windows
-`../windows-5800x/graph-windows.json` used the same database fixture, SHA-256
-`9b8774387cff7aa82e64dbf75f4807d06ada9072814d24b71b8c76c4fe4bd8a4`.
-The Windows artifact used source `6949ae3`; the Debian artifact used
-`e79ebd5`. Both ran Node 24.12.0, ICU 77.1, and locale `en-AU`.
+The clean source `b500175` produced paired v2 outputs for the retained current
+database snapshot fixture and a synthetic locale-sensitive Concat fixture:
+`graph-current-snapshot-debian-v2.json` and
+`graph-legacy-locale-debian-v2.json`, with the corresponding Windows files in
+`../windows-5800x/`. Both platforms used Node 24.12.0, ICU 77.1, and locale
+`en-AU`.
 
-No Windows-versus-Debian ordering difference reproduced. The locale probe,
-compiled node order (`input`, `mlp`, `gru`, `head`), parameter offsets, total
-13,458 parameters, 16 recurrent-state floats, stored architecture key, and
-computed architecture key all match. Any prior claim of an observed
-cross-platform difference for this saved fixture is therefore corrected.
+No Windows-versus-Debian difference reproduced. The current snapshot fixture
+matched its stored graph key, compiled order (`input`, `mlp`, `gru`, `head`),
+13,458 parameters, and 16 recurrent-state values. The deliberately difficult
+legacy fixture also matched exactly: its locale ordering and 46-parameter
+compiled graph, including implicit Concat input order, were identical on both
+systems. The Debian root hashes are
+`cae75694242f4f7763289a866e8531e60f9916300b4d678f67b2b28dee1c9db8` and
+`e210c59e4916b0b7f1675b02b4f2a9f47903ef4896995d7f4f49b7e05653f5ed`.
 
-The current compiler's use of `localeCompare` remains a structural portability
-risk: equal output from one locale/ICU pair does not prove stable ordering on
-every supported environment. The Rust contract still needs explicit portable
-ordering and compatibility checks; the retained outputs must not be described
-as having failed this comparison.
-
-The two raw outputs embed the complete graph spec and the same input-database
-SHA, but this evidence directory does not retain the exact source database
-bytes or a deterministic generator for them. The Stage 2 fixture-retention
-checkbox therefore remains open despite the matching outputs.
+The current compiler's `localeCompare` use remains a structural portability
+risk: equal output from one Windows/Debian, Node/ICU, and locale pair does not
+prove stable ordering on every supported environment. The Rust contract still
+needs explicit portable ordering and compatibility checks. The exact default
+graph fixture is retained at
+`scripts/stage2/graph-fixtures/current-snapshot-graphs.v1.json`; its SHA-256 is
+`3588820b9787204bec0f80df9d5b9a1faa368ac1d26e89b86c35604a3999894e`.
+The separate owner-database inventory retains two Hall-of-Fame architecture
+keys but not their full graph specs or source database bytes. The default key
+is covered by the fixture; the owner's `83x512x512x512x2` MLP is not yet an
+exact replay fixture, so the complete real-owner graph inventory remains open.
 
 ## Disclosed audit side effects
 
@@ -388,7 +457,11 @@ node ./node_modules/tsx/dist/cli.mjs scripts/stage2/runtime-baseline.ts --scenar
 node ./node_modules/tsx/dist/cli.mjs scripts/stage2/external-control-baseline.ts --scenario P1 --player-hz 60 --warmup-ms 2000 --duration-ms 15000 --workers 0 --environment owner-target-vm --output result.json
 node ./node_modules/tsx/dist/cli.mjs scripts/stage2/codec-baseline.ts --scenario P2 --fixture evolved --evolution-generations 25 --environment owner-target-vm --output result.json
 node ./node_modules/tsx/dist/cli.mjs scripts/stage2/managed-checkpoint-validation.ts --scenario P2 --fixture evolved --evolution-generations 25 --trials 3 --environment owner-target-vm --output result.json
-node ./node_modules/tsx/dist/cli.mjs scripts/stage2/graph-baseline.ts --db /tmp/stable-graph-fixture.db --output result.json
+node ./node_modules/tsx/dist/cli.mjs scripts/stage2/managed-checkpoint-validation.ts --scenario P2 --fixture fresh --trials 3 --environment owner-target-vm --output result.json
+node ./node_modules/tsx/dist/cli.mjs scripts/stage2/external-control-baseline.ts --profile p6 --scenario P2 --sim-speed 12 --viewer on --warmup-tick 300 --measurement-steps 1800 --checkpoint-every 1 --environment owner-target-vm --output result.json
+node ./node_modules/tsx/dist/cli.mjs scripts/stage2/external-control-baseline.ts --profile p7 --scenario P0 --sim-speed 1 --viewer on --checkpoint-every 1 --duration-ms 1800000 --warmup-ms 600000 --sample-every-ms 5000 --reconnect-every-ms 180000 --manual-save-every-ms 300000 --environment owner-target-vm --output result.json
+node ./node_modules/tsx/dist/cli.mjs scripts/stage2/graph-baseline.ts --fixture scripts/stage2/graph-fixtures/current-snapshot-graphs.v1.json --output result.json
+node ./node_modules/tsx/dist/cli.mjs scripts/stage2/graph-baseline.ts --fixture scripts/stage2/graph-fixtures/legacy-locale-concat-order.v1.json --output result.json
 ```
 
 Run `database-baseline.ts` only against a stable inspection copy made while the
@@ -399,36 +472,23 @@ inventory.
 
 ## Artifact SHA-256
 
-These hashes cover the raw files present when this index was written. If an
-artifact is rerun, its hash and the relevant prose must be updated together or
-replaced by a checked-in `SHA256SUMS.txt` manifest.
+`SHA256SUMS.txt` is the authoritative manifest for all and only the 29 JSON
+files at this directory's root. It is filename-sorted, UTF-8 without a BOM,
+and LF-terminated. Verify it from this directory with:
 
-```text
-7a42572059edebb5c32828c33cae4858e6882ab3a0b9f4c2dffda6228dc5669b  checkpoint-validation-p0-evolved25.json
-c82310ba7444e4645d0cdc8a02c8c6c09029ecbdf66b1cdd4cc23787422e078b  checkpoint-validation-p2-evolved25.json
-af89fc9183c6d4ac48e53e67248ff33d133a31087cf38c97d41461ba8db28f6f  codec-p0-evolved25.json
-a3241c9152a3d1f1d501b151ffcac7accdadc002c3fe136d3f6b395ce168268a  codec-p2-evolved25.json
-c6e49cb46287d48ce249310cc6f198110e20bd4503e393186bc95e76ddfc7445  external-p5-p0-30hz.json
-21ef00a7e318264715eb3414b6f284cba8e9edd6487c1c83c8b5b7ec4af770fa  external-p5-p0-60hz.json
-019007b822993b64fb958dc31a2a5d80b891209836370e82f8ac6e285116f724  external-p5-p1-30hz.json
-35d34cf5b0261c12b1bc65bad770b4a2ef3606297f2c81f892612ac1590ed299  external-p5-p1-60hz.json
-bdd1fac78a2f43bb2cd032c97df4a2e84d447982c9d547d93c504ef0c9383a83  external-p5-p2-30hz.json
-1d838e651975801b39d671b752c2b5598e23e3bb40fd5b0606619a1b4a359c4a  external-p5-p2-60hz.json
-469031c6e9d9057c05bd96af2162b7f4e723b321d039bc3f0651c28819ad6038  browser-lan-p0-60hz.json
-51a80c08d6d052ad412fa529d52d9ea9820385fed640dbb1ba34b705c485016a  graph-debian.json
-eee093d5cfd08701194853e4eec1d64283e1c715b25bf4bc848e20d9a8dec34f  owner-database.json
-770d5be6d5dae38de3830446d39f0137e8171323c517a97a8957fdf73ccc169a  runtime-p0-js-serial.json
-8988d97c0e6a0b17ad46d92d8570c2bd046d7293b0efa22d68ce54d72f5d5f4f  runtime-p0-native-serial.json
-1f2ec098ff370009e3ab9381beb0f65fe98ce299480c9135dc6e8455fbc1b6a2  runtime-p0-native-workers4.json
-50f181a73eb15e5af56cc4534e3bf3f3de6528e2d9e3d7691296f342535144f1  runtime-p1-js-serial.json
-8f47d67cf5d6162020dc579b3cb356be187e95384eb1908b88ac06ec45c0d662  runtime-p1-native-serial.json
-73cee2f102282e5ecb9186bb781d0ddc13dad2e0bd3a04d24ac0c9a7aeb73eb1  runtime-p1-native-workers4.json
-6294ec1c9e890b09953313a9fbd60c242de915e79137811d81760023fcd837c7  runtime-p2-js-serial.json
-a1652251d53323701213aef607ec7bbca1bbf701093e489d8f708092781dfb49  runtime-p2-native-serial.json
-05dd7265d25db7e577d06030ea6e151176a746f3db1c0eb127f906950d2e339b  runtime-p2-native-workers4.json
-32bd47b8e15590e60d2c811e184897f36513c38623246bd015de8f5a64681386  runtime-p3-native-serial.json
-07d294490b1760113bb1cee5b77b2003e55571ed19a9720f730461cf0d52a9c6  runtime-p4-native-dense-600.json
+```powershell
+Get-Content .\SHA256SUMS.txt | ForEach-Object {
+  $parts = $_ -split '  ', 2
+  if ((Get-FileHash -LiteralPath $parts[1] -Algorithm SHA256).Hash.ToLowerInvariant() -ne $parts[0]) {
+    throw "SHA-256 mismatch: $($parts[1])"
+  }
+}
 ```
+
+The 30 nested P6 JSON files are deliberately excluded from this root manifest;
+verify them against `p6/SHA256SUMS.txt` using the same command after changing
+to `p6/`. If an artifact is rerun, update its applicable manifest and the
+relevant prose together.
 
 ## Open gates
 
@@ -444,12 +504,15 @@ open:
   that its current commit sends Protocol 1 while this server requires Protocol
   2, so this needs a coordinated trainer change rather than weakening the
   server contract;
-- P6 accelerated 1x/2x/4x/8x/12x curves through the actual server on Oxygen,
-  both headless and with a LAN spectator;
-- P7 controlled target-VM/browser/trainer soak with interval samples,
-  intentional reconnects, memory, handles, queues, database/WAL, and durable-
-  checkpoint behavior. The accidental nine-hour P0 survival observation does
-  not close this gate;
+- P6 has a synthetic-loopback accelerated matrix through the actual server on
+  Oxygen, but still needs browser and trusted-LAN measurements, real trainer
+  coverage, accepted/applied-action observability, and a stable full-load
+  result rather than declining-load windows;
+- P7 has a clean bounded 30-minute Oxygen P0 current-reference loopback run,
+  but still needs the controlled browser/trainer/LAN soak, production managed
+  retention and checkpoint-v3 behavior, restore/recovery, and full gate
+  coverage. The accidental nine-hour P0 survival observation also does not
+  close this gate;
 - P8 direct browser download/upload, bounded browser and server memory,
   retention, recovery branches, corruption cases, and overnight-equivalent
   growth using the production managed-file implementation; and

@@ -22,16 +22,17 @@ claims and prior numerical observations are labelled separately below.
 **Implementation status:** Stage 1 reference repairs and correction fixtures
 are implemented and recorded below. Stage 2 retains local Windows evidence
 and Oxygen Ryzen 7 2700/Debian measurements for the current-reference P0–P4
-runtime, real-server synthetic-loopback P5, evolved P0/P2 codecs and managed-
-checkpoint prototypes, graph ordering, and the scoped owner database/save
-inventory. A real desktop browser also connected to Oxygen over the trusted
-LAN and exercised P0 player control. These measurements reproduce the current
-P1/P2 failure; they do not prove that the future Rust path meets its mandatory
-targets. The owner trainer audit found Protocol 1 while the current server
-requires Protocol 2. Complete accepted/applied control timing, P1/P2 LAN-
-browser load, trainer coordination, target P6/P7, sustained P4, production
-Rust persistence/restore/recovery, and P8 growth remain open. No Stage 2 or
-later-stage exit gate is claimed.
+runtime, real-server synthetic-loopback P5/P6, a clean 30-minute synthetic P7
+run, fresh/evolved P0/P2 codec and managed-checkpoint prototypes, reproducible
+graph fixtures, and the scoped owner database/save inventory. A real desktop
+browser also connected to Oxygen over the trusted LAN and exercised P0 player
+control. These measurements reproduce the current P1/P2 failure; they do not
+prove that the future Rust path meets its mandatory targets. The owner trainer
+audit found Protocol 1 while the current server requires Protocol 2. Complete
+accepted/applied control timing, full-load P1/P2 LAN-browser and P6 coverage,
+trainer coordination, a browser/trainer/managed-retention P7, sustained P4,
+production Rust persistence/restore/recovery, and P8 growth remain open. No
+Stage 2 or later-stage exit gate is claimed.
 
 The owner explicitly approved revision `2026-07-29-draft-4` in the 2026-07-29
 conversation. Commit `7971ed2ddbda86891c77def31d980aedf96b4236` contains the
@@ -3835,10 +3836,13 @@ measures the production-shaped workload, not isolated shared-weight kernels.
   versions, commands, and both raw outputs; do not claim a real cross-OS
   difference unless the artifacts show one. The retained Windows and Oxygen
   raw outputs embed the complete graph spec and matching input-database SHA and
-  agree exactly, so the prior claimed difference did not reproduce. The exact
-  input database bytes or deterministic generator are not retained, so this
-  checkbox remains open; `localeCompare` also remains a structural
-  portability risk.
+  agree exactly, so the prior claimed difference did not reproduce. Exact
+  replay fixtures for that default graph and an adversarial implicit-Concat
+  graph are now retained. The scoped owner database also contains a second,
+  large-MLP Hall-of-Fame architecture whose architecture key is retained but
+  whose exact graph/save replay fixture and cross-platform layout output are
+  not, so this checkbox remains open; `localeCompare` also remains a
+  structural portability risk.
 
 **Production-shaped performance baselines:**
 
@@ -3878,13 +3882,13 @@ measures the production-shaped workload, not isolated shared-weight kernels.
   supports compatible extraction but not exact resume. No standalone save or
   archive was found there; client download folders and other backups were not
   searched.
-- [ ] Measure raw packed Float32, decimal JSON, current legacy gzip, per-genome
+- [x] Measure raw packed Float32, decimal JSON, current legacy gzip, per-genome
   compression, raw-versus-shuffled-Zstandard adaptive payload choice, and
   whole-checkpoint compression on fresh/evolved default and large-brain
   populations. Windows fixtures cover fresh/evolved P0–P3 numeric codec cases;
-  Oxygen covers evolved P0/P2 payloads and whole managed-checkpoint prototypes.
-  Fresh whole-checkpoint coverage is not retained, so this checkbox remains
-  open. These are Node measurement fixtures, not production Rust archive code.
+  Oxygen covers fresh/evolved P0/P2 payloads and whole managed-checkpoint
+  prototypes. These are Node measurement fixtures, not production Rust archive
+  code; the separate production-Rust throughput/restore gates remain open.
 - [ ] Reproduce every material prior numerical observation with named fixtures
   and retain the database/save/input bytes, generator or extraction script,
   command, codec/runtime versions, raw output, and environment. This includes

@@ -1,0 +1,209 @@
+{
+  "schema": "slither-stage2-graph-baseline",
+  "version": 2,
+  "evidenceClass": "new reproducible fixture",
+  "source": {
+    "commit": "b500175f1f10bbfc9155919b084854d463af4f04",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-08-02T08:02:59.160Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "osType": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "locale": "en-AU",
+    "node": "v24.12.0",
+    "icu": "77.1"
+  },
+  "input": {
+    "kind": "fixture",
+    "path": "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-graph-win-f863cfdb955e4626b7237e8d51029d1f\\scripts\\stage2\\graph-fixtures\\current-snapshot-graphs.v1.json",
+    "sha256": "3588820b9787204bec0f80df9d5b9a1faa368ac1d26e89b86c35604a3999894e",
+    "byteLength": 802,
+    "schema": "slither-stage2-graph-fixture",
+    "version": 1,
+    "provenance": {
+      "kind": "database",
+      "sha256": "9b8774387cff7aa82e64dbf75f4807d06ada9072814d24b71b8c76c4fe4bd8a4"
+    },
+    "graphBearingRows": 2,
+    "uniqueGraphSpecs": 1
+  },
+  "orderingProbe": {
+    "input": [
+      "a",
+      "A",
+      "ä",
+      "z",
+      "Z",
+      "10",
+      "2",
+      "é",
+      "é",
+      "_",
+      "-"
+    ],
+    "localeCompare": [
+      "_",
+      "-",
+      "10",
+      "2",
+      "a",
+      "A",
+      "ä",
+      "é",
+      "é",
+      "z",
+      "Z"
+    ],
+    "codeUnit": [
+      "-",
+      "10",
+      "2",
+      "A",
+      "Z",
+      "_",
+      "a",
+      "é",
+      "z",
+      "ä",
+      "é"
+    ],
+    "note": "The current compiler uses localeCompare; code-unit order is the proposed portable replacement."
+  },
+  "graphs": [
+    {
+      "sources": [
+        "population_snapshots.id=1",
+        "population_snapshots.id=2"
+      ],
+      "specSha256": "cd9e0457e7c0628043e644e43f7a69514a5bb5236cc7633a300cae78e18a8e74",
+      "spec": {
+        "type": "graph",
+        "nodes": [
+          {
+            "id": "input",
+            "type": "Input",
+            "outputSize": 83
+          },
+          {
+            "id": "mlp",
+            "type": "MLP",
+            "inputSize": 83,
+            "outputSize": 64,
+            "hiddenSizes": [
+              64
+            ]
+          },
+          {
+            "id": "gru",
+            "type": "GRU",
+            "inputSize": 64,
+            "hiddenSize": 16
+          },
+          {
+            "id": "head",
+            "type": "Dense",
+            "inputSize": 16,
+            "outputSize": 2
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "mlp"
+          },
+          {
+            "from": "mlp",
+            "to": "gru"
+          },
+          {
+            "from": "gru",
+            "to": "head"
+          }
+        ],
+        "outputs": [
+          {
+            "nodeId": "head"
+          }
+        ],
+        "outputSize": 2
+      },
+      "storedKey": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+      "computedKey": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+      "storedKeyMatches": true,
+      "order": [
+        "input",
+        "mlp",
+        "gru",
+        "head"
+      ],
+      "totalParams": 13458,
+      "totalStateSize": 16,
+      "outputs": [
+        {
+          "nodeId": "head"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "input",
+          "type": "Input",
+          "inputSize": 83,
+          "outputSize": 83,
+          "paramOffset": 0,
+          "paramLength": 0,
+          "inputs": []
+        },
+        {
+          "id": "mlp",
+          "type": "MLP",
+          "inputSize": 83,
+          "outputSize": 64,
+          "paramOffset": 0,
+          "paramLength": 9536,
+          "inputs": [
+            {
+              "fromId": "input",
+              "fromPort": 0
+            }
+          ],
+          "hiddenSizes": [
+            64
+          ]
+        },
+        {
+          "id": "gru",
+          "type": "GRU",
+          "inputSize": 64,
+          "outputSize": 16,
+          "paramOffset": 9536,
+          "paramLength": 3888,
+          "inputs": [
+            {
+              "fromId": "mlp",
+              "fromPort": 0
+            }
+          ],
+          "hiddenSize": 16
+        },
+        {
+          "id": "head",
+          "type": "Dense",
+          "inputSize": 16,
+          "outputSize": 2,
+          "paramOffset": 13424,
+          "paramLength": 34,
+          "inputs": [
+            {
+              "fromId": "gru",
+              "fromPort": 0
+            }
+          ]
+        }
+      ],
+      "concatInputs": []
+    }
+  ]
+}
