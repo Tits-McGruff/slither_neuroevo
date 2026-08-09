@@ -21,6 +21,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use std::ops::Deref;
 
 /// Canonical graph-layout version implemented by this compiler.
 pub const CANONICAL_GRAPH_LAYOUT_VERSION: u32 = 1;
@@ -280,6 +281,47 @@ impl CompiledGraph {
             encoded.push(HEX[(byte & 0x0f) as usize] as char);
         }
         encoded
+    }
+}
+
+/// One inseparable source graph and its deterministically derived runtime layout.
+///
+/// The source definition remains available for checkpoint-v3 construction while
+/// execution uses only the compiled metadata.  The fields deliberately stay
+/// private: callers cannot pair an arbitrary specification with an unrelated
+/// parameter layout.
+#[derive(Debug)]
+pub struct GraphBundle {
+    spec: GraphSpec,
+    compiled: CompiledGraph,
+}
+
+impl GraphBundle {
+    /// Compile an owned source graph and retain both the original definition and result.
+    pub fn compile(spec: GraphSpec, limits: &GraphLimits) -> Result<Self, GraphError> {
+        let compiled = compile_graph(&spec, limits)?;
+        Ok(Self { spec, compiled })
+    }
+
+    /// Return the original owned source graph without exposing mutation.
+    #[must_use]
+    pub fn spec(&self) -> &GraphSpec {
+        &self.spec
+    }
+
+    /// Return the canonical runtime layout derived from [`Self::spec`].
+    #[must_use]
+    pub fn compiled(&self) -> &CompiledGraph {
+        &self.compiled
+    }
+}
+
+impl Deref for GraphBundle {
+    type Target = CompiledGraph;
+
+    /// Borrow the immutable compiled layout for existing calculation helpers.
+    fn deref(&self) -> &Self::Target {
+        self.compiled()
     }
 }
 
@@ -1514,6 +1556,49 @@ mod tests {
         assert!(graph
             .canonical_layout_bytes
             .starts_with(CANONICAL_GRAPH_LAYOUT_DOMAIN));
+    }
+
+    #[test]
+    fn graph_bundle_retains_noncanonical_source_and_exact_derived_layout() {
+        let source = GraphSpec {
+            nodes: vec![
+                GraphNodeSpec {
+                    id: "head".into(),
+                    kind: GraphNodeKind::Dense {
+                        input_size: 2,
+                        output_size: 2,
+                    },
+                },
+                GraphNodeSpec {
+                    id: "input".into(),
+                    kind: GraphNodeKind::Input { output_size: 2 },
+                },
+            ],
+            edges: vec![edge("input", "head")],
+            outputs: vec![output("head")],
+            output_size: 2,
+        };
+        let expected_source = source.clone();
+        let bundle = GraphBundle::compile(source, &test_limits()).unwrap();
+        let independently_compiled = compile_test_graph(&expected_source).unwrap();
+
+        assert_eq!(bundle.spec(), &expected_source);
+        assert_eq!(bundle.compiled(), &independently_compiled);
+        assert_eq!(bundle.compiled().order, ["input", "head"]);
+        assert_ne!(
+            bundle
+                .spec()
+                .nodes
+                .iter()
+                .map(|node| node.id.as_str())
+                .collect::<Vec<_>>(),
+            bundle
+                .compiled()
+                .order
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

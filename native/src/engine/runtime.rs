@@ -14,6 +14,7 @@ use super::error::{EngineError, EngineErrorCode};
 use super::queues::{
     DrainResult, InboundMetrics, InboundQueue, OutputMetrics, OutputQueue, WakeMetrics, WakeSink,
 };
+use super::state::AuthoritativeState;
 
 /// Small health snapshot that never copies authoritative world state.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,10 +38,29 @@ pub struct EngineHealth {
 /// Non-throwaway, N-API-independent owner of the Stage 3 coordinator spine.
 pub struct EngineRuntime {
     init: EngineInit,
+    mode: RuntimeMode,
     inbound: Arc<InboundQueue>,
     output: Arc<OutputQueue>,
     coordinator: Arc<CoordinatorState>,
     thread: Mutex<Option<JoinHandle<()>>>,
+}
+
+/// Explicit separation between the temporary probe bridge and real Rust authority.
+enum RuntimeMode {
+    /// Own one validated state skeleton before the coordinator can start.
+    Authoritative(Arc<Mutex<AuthoritativeState>>),
+    /// Exercise only the coarse bridge; no game state exists in this mode.
+    ExperimentalProbe,
+}
+
+impl RuntimeMode {
+    /// Return a stable diagnostic name without exposing authoritative state.
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Authoritative(_) => "authoritative",
+            Self::ExperimentalProbe => "experimental-probe",
+        }
+    }
 }
 
 impl std::fmt::Debug for EngineRuntime {
@@ -48,22 +68,82 @@ impl std::fmt::Debug for EngineRuntime {
         formatter
             .debug_struct("EngineRuntime")
             .field("init", &self.init)
+            .field("mode", &self.mode.name())
             .field("health", &self.health())
             .finish_non_exhaustive()
     }
 }
 
 impl EngineRuntime {
-    /// Validate configuration and create an unstarted runtime.
-    pub fn new(init: EngineInit, wake_sink: Arc<dyn WakeSink>) -> Result<Self, EngineError> {
+    /// Validate configuration and create an unstarted runtime that already owns authority.
+    pub fn new_authoritative(
+        init: EngineInit,
+        state: AuthoritativeState,
+        wake_sink: Arc<dyn WakeSink>,
+    ) -> Result<Self, EngineError> {
         init.validate()?;
-        Ok(Self {
+        Ok(Self::new_with_validated_mode(
             init,
+            RuntimeMode::Authoritative(Arc::new(Mutex::new(state))),
+            wake_sink,
+        ))
+    }
+
+    /// Create the explicitly non-authoritative runtime used only by the probe bridge.
+    pub(crate) fn new_experimental_probe(
+        init: EngineInit,
+        wake_sink: Arc<dyn WakeSink>,
+    ) -> Result<Self, EngineError> {
+        init.validate()?;
+        Ok(Self::new_with_validated_mode(
+            init,
+            RuntimeMode::ExperimentalProbe,
+            wake_sink,
+        ))
+    }
+
+    /// Construct one explicit runtime mode after its shared configuration passed validation.
+    fn new_with_validated_mode(
+        init: EngineInit,
+        mode: RuntimeMode,
+        wake_sink: Arc<dyn WakeSink>,
+    ) -> Self {
+        Self {
+            init,
+            mode,
             inbound: Arc::new(InboundQueue::new(init.inbound)),
             output: Arc::new(OutputQueue::new(init.output, wake_sink)),
             coordinator: Arc::new(CoordinatorState::new()),
             thread: Mutex::new(None),
-        })
+        }
+    }
+
+    /// Report whether this runtime owns a validated authoritative state skeleton.
+    #[must_use]
+    pub fn owns_authoritative_state(&self) -> bool {
+        self.authoritative_state_memory_bytes().is_some()
+    }
+
+    /// Report admitted authoritative-state bytes without exposing or copying game state.
+    #[must_use]
+    pub fn authoritative_state_memory_bytes(&self) -> Option<usize> {
+        match &self.mode {
+            RuntimeMode::Authoritative(state) => {
+                Some(lock_recover(state).memory_estimate().total_bytes)
+            }
+            RuntimeMode::ExperimentalProbe => None,
+        }
+    }
+
+    /// Borrow the retained state only for internal Rust tests; it is never an N-API surface.
+    #[cfg(test)]
+    pub(crate) fn authoritative_state_for_test(
+        &self,
+    ) -> Option<MutexGuard<'_, AuthoritativeState>> {
+        match &self.mode {
+            RuntimeMode::Authoritative(state) => Some(lock_recover(state)),
+            RuntimeMode::ExperimentalProbe => None,
+        }
     }
 
     /// Start the coordinator exactly once.
@@ -320,7 +400,11 @@ mod tests {
 
     #[test]
     fn lifecycle_is_one_shot_and_probe_is_correlated() {
-        let runtime = EngineRuntime::new(init(), Arc::new(NoopWakeSink)).assert_ok();
+        let runtime =
+            EngineRuntime::new_experimental_probe(init(), Arc::new(NoopWakeSink)).assert_ok();
+        assert!(!runtime.owns_authoritative_state());
+        assert_eq!(runtime.authoritative_state_memory_bytes(), None);
+        assert!(runtime.authoritative_state_for_test().is_none());
         assert_eq!(runtime.health().lifecycle, LifecycleState::Created);
         assert!(runtime.try_submit(probe(1, 7)).is_err());
         runtime.start().assert_ok();
@@ -338,7 +422,8 @@ mod tests {
 
     #[test]
     fn panic_becomes_fault_and_joins_cleanly() {
-        let runtime = EngineRuntime::new(init(), Arc::new(NoopWakeSink)).assert_ok();
+        let runtime =
+            EngineRuntime::new_experimental_probe(init(), Arc::new(NoopWakeSink)).assert_ok();
         runtime.start().assert_ok();
         runtime
             .try_submit(CommandBatch {
@@ -364,7 +449,8 @@ mod tests {
 
     #[test]
     fn drop_only_signals_and_does_not_wait_for_join() {
-        let runtime = EngineRuntime::new(init(), Arc::new(NoopWakeSink)).assert_ok();
+        let runtime =
+            EngineRuntime::new_experimental_probe(init(), Arc::new(NoopWakeSink)).assert_ok();
         runtime.start().assert_ok();
         let start = Instant::now();
         drop(runtime);
@@ -376,7 +462,7 @@ mod tests {
         let mut invalid = init();
         invalid.inbound.max_batches = 0;
         assert_eq!(
-            EngineRuntime::new(invalid, Arc::new(NoopWakeSink))
+            EngineRuntime::new_experimental_probe(invalid, Arc::new(NoopWakeSink))
                 .err()
                 .map(|error| error.code),
             Some(EngineErrorCode::InvalidConfiguration)
@@ -401,7 +487,7 @@ mod tests {
         let entered = Arc::new(Barrier::new(2));
         let release = Arc::new(Barrier::new(2));
         let runtime = Arc::new(
-            EngineRuntime::new(
+            EngineRuntime::new_experimental_probe(
                 init(),
                 Arc::new(BlockingWake {
                     entered: Arc::clone(&entered),
@@ -447,7 +533,8 @@ mod tests {
 
     #[test]
     fn first_bridge_fault_remains_consistent_after_drain() {
-        let runtime = EngineRuntime::new(init(), Arc::new(NoopWakeSink)).assert_ok();
+        let runtime =
+            EngineRuntime::new_experimental_probe(init(), Arc::new(NoopWakeSink)).assert_ok();
         runtime.report_bridge_fault(EngineError::new(EngineErrorCode::Faulted, "first"));
         let first = runtime.drain_outputs(8, 1024).assert_ok();
         assert!(matches!(

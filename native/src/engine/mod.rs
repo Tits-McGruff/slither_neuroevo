@@ -1,5 +1,7 @@
 //! Rust-owned authoritative simulation components.
 
+/// Deterministic scalar calculation work, scratch, and staged-result contracts.
+pub mod calculation;
 /// Versioned coarse-command and bounded-queue contracts.
 pub mod contract;
 /// Background coordinator implementation; only its lifecycle is public.

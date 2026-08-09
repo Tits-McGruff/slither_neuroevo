@@ -7,14 +7,17 @@
 //! validated against its compiled graph and caller-supplied memory ceiling.
 
 use super::contract::ENGINE_CONTRACT_VERSION;
-use super::graph::{CompiledGraph, CompiledNode};
+use super::graph::{
+    CompiledGraph, CompiledNode, GraphBundle, GraphEdge, GraphNodeKind, GraphNodeSpec,
+    GraphOutputRef, GraphSpec,
+};
 use super::rng::{RngError, SerializedRngState, StatefulRng};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 use std::mem::size_of;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// State-contract version implemented by this module.
 pub const ENGINE_STATE_VERSION: u32 = 1;
@@ -38,6 +41,8 @@ pub const GENERATION_BOUNDARY_VERSION: u32 = 1;
 pub const FRAME_V1_MAX_EXACT_ID: u32 = 16_777_216;
 /// One-past-the-end public-ID value used to represent exhausted allocation.
 pub const FRAME_V1_EXHAUSTED_ID: u32 = FRAME_V1_MAX_EXACT_ID + 1;
+/// Conservative strong/weak counter words stored beside each `Arc` allocation.
+const ARC_COUNTER_BYTES: usize = 2 * size_of::<usize>();
 
 /// First internal ID in the external-controller entity domain.
 pub const EXTERNAL_ENTITY_ID_START: u64 = 1_u64 << 62;
@@ -766,7 +771,7 @@ pub struct StateMemoryEstimate {
 #[derive(Debug)]
 pub struct AuthoritativeState {
     candidate: StateCandidate,
-    graph: Arc<CompiledGraph>,
+    graph: Arc<GraphBundle>,
     memory: StateMemoryEstimate,
 }
 
@@ -774,11 +779,11 @@ impl AuthoritativeState {
     /// Validate the complete candidate and only then return publishable state.
     pub fn validate_and_own(
         candidate: StateCandidate,
-        graph: Arc<CompiledGraph>,
+        graph: Arc<GraphBundle>,
         policy: &StateAdmissionPolicy,
     ) -> Result<Self, StateError> {
         validate_policy(policy)?;
-        validate_admission_header(&candidate, &graph, policy)?;
+        validate_admission_header(&candidate, graph.compiled(), policy)?;
         let memory = estimate_state_memory(&candidate, &graph)?;
         if memory.total_bytes > policy.memory_ceiling_bytes {
             return Err(StateError::MemoryCeilingExceeded {
@@ -786,7 +791,7 @@ impl AuthoritativeState {
                 ceiling_bytes: policy.memory_ceiling_bytes,
             });
         }
-        validate_candidate(&candidate, &graph, policy)?;
+        validate_candidate(&candidate, graph.compiled(), policy)?;
         Ok(Self {
             candidate,
             graph,
@@ -803,6 +808,18 @@ impl AuthoritativeState {
     /// Read the immutable compiled graph shared by compatible genomes.
     #[must_use]
     pub fn graph(&self) -> &CompiledGraph {
+        self.graph.compiled()
+    }
+
+    /// Read the original source graph retained with the compiled layout.
+    #[must_use]
+    pub fn graph_spec(&self) -> &GraphSpec {
+        self.graph.spec()
+    }
+
+    /// Read the inseparable source graph and compiled-layout bundle.
+    #[must_use]
+    pub fn graph_bundle(&self) -> &GraphBundle {
         &self.graph
     }
 
@@ -844,6 +861,24 @@ impl GenerationBoundaryView<'_> {
     #[must_use]
     pub fn kind(&self) -> GenerationBoundaryKind {
         self.kind
+    }
+
+    /// Read the original graph definition required by a checkpoint-v3 writer.
+    #[must_use]
+    pub fn graph_spec(&self) -> &GraphSpec {
+        self.state.graph_spec()
+    }
+
+    /// Read the compiled graph identity required by a checkpoint-v3 writer.
+    #[must_use]
+    pub fn graph(&self) -> &CompiledGraph {
+        self.state.graph()
+    }
+
+    /// Read the inseparable graph source/layout bundle.
+    #[must_use]
+    pub fn graph_bundle(&self) -> &GraphBundle {
+        self.state.graph_bundle()
     }
 }
 
@@ -1014,10 +1049,15 @@ pub fn checked_allocation_bytes(
 /// publishing authority.
 pub fn estimate_state_memory(
     candidate: &StateCandidate,
-    graph: &CompiledGraph,
+    graph: &GraphBundle,
 ) -> Result<StateMemoryEstimate, StateError> {
+    let compiled = graph.compiled();
     let mut estimate = StateMemoryEstimate {
-        structural_bytes: size_of::<AuthoritativeState>(),
+        structural_bytes: checked_add(
+            size_of::<Mutex<AuthoritativeState>>(),
+            ARC_COUNTER_BYTES,
+            "authoritative runtime state wrapper",
+        )?,
         ..StateMemoryEstimate::default()
     };
 
@@ -1101,7 +1141,7 @@ pub fn estimate_state_memory(
     let requested_non_population_weights = checked_allocation_bytes(
         candidate.config.max_non_population_brains,
         checked_allocation_bytes(
-            graph.total_parameters,
+            compiled.total_parameters,
             size_of::<f32>(),
             "one non-population weight block",
         )?,
@@ -1115,7 +1155,7 @@ pub fn estimate_state_memory(
     let requested_recurrent_bytes = checked_allocation_bytes(
         maximum_brains,
         checked_allocation_bytes(
-            graph.total_state_size,
+            compiled.total_state_size,
             size_of::<f32>(),
             "one recurrent-state block",
         )?,
@@ -2680,8 +2720,83 @@ fn add_candidate_text(
     Ok(())
 }
 
-fn estimate_graph_memory(graph: &CompiledGraph) -> Result<usize, StateError> {
-    let mut bytes = size_of::<CompiledGraph>();
+fn estimate_graph_memory(bundle: &GraphBundle) -> Result<usize, StateError> {
+    let spec = bundle.spec();
+    let graph = bundle.compiled();
+    // The bundle stores both structs inline. Charge each source-spec dynamic
+    // allocation as well as the compiled metadata previously retained alone.
+    let mut bytes = checked_add(
+        size_of::<GraphBundle>(),
+        ARC_COUNTER_BYTES,
+        "graph Arc control words",
+    )?;
+    bytes = checked_add(
+        bytes,
+        checked_allocation_bytes(
+            spec.nodes.capacity(),
+            size_of::<GraphNodeSpec>(),
+            "source graph nodes",
+        )?,
+        "graph memory",
+    )?;
+    bytes = checked_add(
+        bytes,
+        checked_allocation_bytes(
+            spec.edges.capacity(),
+            size_of::<GraphEdge>(),
+            "source graph edges",
+        )?,
+        "graph memory",
+    )?;
+    bytes = checked_add(
+        bytes,
+        checked_allocation_bytes(
+            spec.outputs.capacity(),
+            size_of::<GraphOutputRef>(),
+            "source graph outputs",
+        )?,
+        "graph memory",
+    )?;
+    for node in &spec.nodes {
+        bytes = checked_add(bytes, node.id.capacity(), "graph memory")?;
+        match &node.kind {
+            GraphNodeKind::Mlp { hidden_sizes, .. } => {
+                bytes = checked_add(
+                    bytes,
+                    checked_allocation_bytes(
+                        hidden_sizes.capacity(),
+                        size_of::<usize>(),
+                        "source graph MLP hidden sizes",
+                    )?,
+                    "graph memory",
+                )?;
+            }
+            GraphNodeKind::Split { output_sizes } => {
+                bytes = checked_add(
+                    bytes,
+                    checked_allocation_bytes(
+                        output_sizes.capacity(),
+                        size_of::<usize>(),
+                        "source graph Split output sizes",
+                    )?,
+                    "graph memory",
+                )?;
+            }
+            GraphNodeKind::Input { .. }
+            | GraphNodeKind::Dense { .. }
+            | GraphNodeKind::Gru { .. }
+            | GraphNodeKind::Lstm { .. }
+            | GraphNodeKind::Rru { .. }
+            | GraphNodeKind::Concat => {}
+        }
+    }
+    for edge in &spec.edges {
+        bytes = checked_add(bytes, edge.from.capacity(), "graph memory")?;
+        bytes = checked_add(bytes, edge.to.capacity(), "graph memory")?;
+    }
+    for output in &spec.outputs {
+        bytes = checked_add(bytes, output.node_id.capacity(), "graph memory")?;
+    }
     bytes = checked_add(bytes, graph.architecture_key.capacity(), "graph memory")?;
     bytes = checked_add(
         bytes,
@@ -2765,87 +2880,117 @@ fn estimate_graph_memory(graph: &CompiledGraph) -> Result<usize, StateError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::contract::{EngineInit, InboundLimits, OutputLimits};
     use crate::engine::graph::{
-        compile_graph, GraphEdge, GraphLimits, GraphNodeKind, GraphNodeSpec, GraphOutputRef,
+        GraphBundle, GraphEdge, GraphLimits, GraphNodeKind, GraphNodeSpec, GraphOutputRef,
         GraphSpec,
     };
+    use crate::engine::queues::NoopWakeSink;
     use crate::engine::rng::{derive_seed, StatefulRng};
+    use crate::engine::runtime::EngineRuntime;
 
-    fn default_graph() -> Arc<CompiledGraph> {
+    fn default_graph_spec() -> GraphSpec {
+        GraphSpec {
+            nodes: vec![
+                GraphNodeSpec {
+                    id: "input".into(),
+                    kind: GraphNodeKind::Input { output_size: 83 },
+                },
+                GraphNodeSpec {
+                    id: "mlp".into(),
+                    kind: GraphNodeKind::Mlp {
+                        input_size: 83,
+                        hidden_sizes: vec![64],
+                        output_size: 64,
+                    },
+                },
+                GraphNodeSpec {
+                    id: "gru".into(),
+                    kind: GraphNodeKind::Gru {
+                        input_size: 64,
+                        hidden_size: 16,
+                    },
+                },
+                GraphNodeSpec {
+                    id: "head".into(),
+                    kind: GraphNodeKind::Dense {
+                        input_size: 16,
+                        output_size: 2,
+                    },
+                },
+            ],
+            edges: vec![
+                GraphEdge {
+                    from: "input".into(),
+                    to: "mlp".into(),
+                    from_port: None,
+                    to_port: None,
+                },
+                GraphEdge {
+                    from: "mlp".into(),
+                    to: "gru".into(),
+                    from_port: None,
+                    to_port: None,
+                },
+                GraphEdge {
+                    from: "gru".into(),
+                    to: "head".into(),
+                    from_port: None,
+                    to_port: None,
+                },
+            ],
+            outputs: vec![GraphOutputRef {
+                node_id: "head".into(),
+                port: None,
+            }],
+            output_size: 2,
+        }
+    }
+
+    fn default_graph_limits() -> GraphLimits {
+        GraphLimits {
+            max_nodes: 16,
+            max_edges: 32,
+            max_graph_outputs: 4,
+            max_identifier_bytes: 64,
+            max_total_referenced_identifier_bytes: 1_024,
+            max_tensor_width: 1_024,
+            max_mlp_hidden_layers: 8,
+            max_split_output_ports: 16,
+            max_parameter_floats: 1_000_000,
+            max_recurrent_state_floats: 16_384,
+            max_canonical_layout_bytes: 65_536,
+            max_architecture_key_bytes: 200_000,
+        }
+    }
+
+    fn default_graph() -> Arc<GraphBundle> {
         Arc::new(
-            compile_graph(
-                &GraphSpec {
-                    nodes: vec![
-                        GraphNodeSpec {
-                            id: "input".into(),
-                            kind: GraphNodeKind::Input { output_size: 83 },
-                        },
-                        GraphNodeSpec {
-                            id: "mlp".into(),
-                            kind: GraphNodeKind::Mlp {
-                                input_size: 83,
-                                hidden_sizes: vec![64],
-                                output_size: 64,
-                            },
-                        },
-                        GraphNodeSpec {
-                            id: "gru".into(),
-                            kind: GraphNodeKind::Gru {
-                                input_size: 64,
-                                hidden_size: 16,
-                            },
-                        },
-                        GraphNodeSpec {
-                            id: "head".into(),
-                            kind: GraphNodeKind::Dense {
-                                input_size: 16,
-                                output_size: 2,
-                            },
-                        },
-                    ],
-                    edges: vec![
-                        GraphEdge {
-                            from: "input".into(),
-                            to: "mlp".into(),
-                            from_port: None,
-                            to_port: None,
-                        },
-                        GraphEdge {
-                            from: "mlp".into(),
-                            to: "gru".into(),
-                            from_port: None,
-                            to_port: None,
-                        },
-                        GraphEdge {
-                            from: "gru".into(),
-                            to: "head".into(),
-                            from_port: None,
-                            to_port: None,
-                        },
-                    ],
-                    outputs: vec![GraphOutputRef {
-                        node_id: "head".into(),
-                        port: None,
-                    }],
-                    output_size: 2,
-                },
-                &GraphLimits {
-                    max_nodes: 16,
-                    max_edges: 32,
-                    max_graph_outputs: 4,
-                    max_identifier_bytes: 64,
-                    max_total_referenced_identifier_bytes: 1_024,
-                    max_tensor_width: 1_024,
-                    max_mlp_hidden_layers: 8,
-                    max_split_output_ports: 16,
-                    max_parameter_floats: 1_000_000,
-                    max_recurrent_state_floats: 16_384,
-                    max_canonical_layout_bytes: 65_536,
-                    max_architecture_key_bytes: 200_000,
-                },
-            )
-            .expect("default graph must compile"),
+            GraphBundle::compile(default_graph_spec(), &default_graph_limits())
+                .expect("default graph must compile"),
         )
+    }
+
+    fn runtime_init() -> EngineInit {
+        EngineInit {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            inbound: InboundLimits {
+                max_batches: 4,
+                max_commands: 8,
+                max_owned_bytes: 64,
+                max_batch_commands: 4,
+                max_batch_owned_bytes: 32,
+            },
+            output: OutputLimits {
+                max_reliable: 8,
+                max_reliable_owned_bytes: 64,
+                max_discrete: 4,
+                max_discrete_owned_bytes: 64,
+                max_total_owned_bytes: 128,
+                max_event_owned_bytes: 64,
+                max_frame_connections: 4,
+            },
+        }
     }
 
     fn rng(seed: u32, label: &str) -> SerializedRngState {
@@ -2898,7 +3043,7 @@ mod tests {
 
     fn own(
         candidate: StateCandidate,
-        graph: Arc<CompiledGraph>,
+        graph: Arc<GraphBundle>,
         memory_ceiling_bytes: usize,
     ) -> Result<AuthoritativeState, StateError> {
         AuthoritativeState::validate_and_own(candidate, graph, &policy(memory_ceiling_bytes))
@@ -3173,7 +3318,77 @@ mod tests {
             state.state().population[54].brain
         );
         assert_eq!(state.graph().architecture_key, graph.architecture_key);
+        assert_eq!(state.graph_spec(), graph.spec());
+        assert_eq!(state.graph_bundle().compiled(), graph.compiled());
+        let boundary = state.checkpoint_boundary().unwrap();
+        assert_eq!(boundary.graph_spec(), graph.spec());
+        assert_eq!(boundary.graph(), graph.compiled());
+        assert_eq!(boundary.graph_bundle().compiled(), graph.compiled());
+        assert!(
+            estimate.structural_bytes >= size_of::<Mutex<AuthoritativeState>>() + ARC_COUNTER_BYTES
+        );
+        assert!(estimate.graph_bytes >= size_of::<GraphBundle>() + ARC_COUNTER_BYTES);
         assert_eq!(state.memory_estimate(), estimate);
+    }
+
+    #[test]
+    fn authoritative_runtime_owns_the_validated_state_before_start() {
+        let graph = default_graph();
+        let state = own(candidate(&graph, 2), graph, 32 * 1024 * 1024).unwrap();
+        let expected_run_id = state.state().identity.run_id.clone();
+        let expected_generation = state.state().generation.generation;
+        let expected_memory_bytes = state.memory_estimate().total_bytes;
+        let runtime =
+            EngineRuntime::new_authoritative(runtime_init(), state, Arc::new(NoopWakeSink))
+                .unwrap();
+
+        assert!(runtime.owns_authoritative_state());
+        assert_eq!(
+            runtime.authoritative_state_memory_bytes(),
+            Some(expected_memory_bytes)
+        );
+        let retained = runtime
+            .authoritative_state_for_test()
+            .expect("authoritative runtime retains exactly one validated state");
+        assert_eq!(retained.state().identity.run_id, expected_run_id);
+        assert_eq!(retained.state().generation.generation, expected_generation);
+    }
+
+    #[test]
+    fn retained_source_graph_capacity_is_charged_before_state_publication() {
+        let compact_graph = default_graph();
+        let compact_candidate = candidate(&compact_graph, 1);
+        let compact_estimate = estimate_state_memory(&compact_candidate, &compact_graph).unwrap();
+
+        let mut expanded_source = default_graph_spec();
+        expanded_source.nodes.reserve(256);
+        expanded_source.edges.reserve(512);
+        expanded_source.outputs.reserve(128);
+        expanded_source.nodes[1].id.reserve(16_384);
+        expanded_source.edges[0].from.reserve(8_192);
+        if let GraphNodeKind::Mlp { hidden_sizes, .. } = &mut expanded_source.nodes[1].kind {
+            hidden_sizes.reserve(2_048);
+        } else {
+            panic!("default fixture's second node must be an MLP");
+        }
+        let expanded_graph = Arc::new(
+            GraphBundle::compile(expanded_source, &default_graph_limits())
+                .expect("expanded source graph must remain valid"),
+        );
+        assert_eq!(expanded_graph.compiled(), compact_graph.compiled());
+        let expanded_candidate = candidate(&expanded_graph, 1);
+        let expanded_estimate =
+            estimate_state_memory(&expanded_candidate, &expanded_graph).unwrap();
+
+        assert!(expanded_estimate.graph_bytes > compact_estimate.graph_bytes);
+        assert!(matches!(
+            own(
+                expanded_candidate,
+                expanded_graph,
+                compact_estimate.total_bytes
+            ),
+            Err(StateError::MemoryCeilingExceeded { .. })
+        ));
     }
 
     #[test]

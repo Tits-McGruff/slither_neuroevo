@@ -236,8 +236,11 @@ impl ExperimentalRustEngine {
             .build_callback(|_context| Ok(()))?;
         let wake_sink = Arc::new(NapiWakeSink::new(wake_tsfn));
         let runtime = Arc::new(
-            EngineRuntime::new(init, Arc::clone(&wake_sink) as Arc<dyn WakeSink>)
-                .map_err(engine_error_to_napi)?,
+            EngineRuntime::new_experimental_probe(
+                init,
+                Arc::clone(&wake_sink) as Arc<dyn WakeSink>,
+            )
+            .map_err(engine_error_to_napi)?,
         );
         wake_sink.attach(&runtime);
         Ok(Self {
@@ -1266,7 +1269,7 @@ mod tests {
             },
         };
         let runtime = Arc::new(
-            EngineRuntime::new(init, Arc::clone(&wake) as Arc<dyn WakeSink>)
+            EngineRuntime::new_experimental_probe(init, Arc::clone(&wake) as Arc<dyn WakeSink>)
                 .expect("valid runtime"),
         );
         *lock_recover(&wake.runtime) = Arc::downgrade(&runtime);
