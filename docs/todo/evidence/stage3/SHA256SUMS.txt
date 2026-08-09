@@ -1,0 +1,2 @@
+82d10472781556ae3401e388d58d42d27f8e723d32b7c66a07591292eb0a28c7  oxygen-ryzen2700/experimental-bridge-idle-600s.json
+6e793940f01c57803db37ec0118928d64afa173d9cf64bfddea8921f181f3865  windows-5800x/experimental-bridge-idle-600s.json
