@@ -46,6 +46,31 @@ const MAX_IDLE_MS = 24 * 60 * 60 * 1_000;
 const MAX_SUSTAINED_MS = 15 * 60 * 1_000;
 /** Process samples are bounded independently of the nominal duration. */
 const MAX_PROCESS_SAMPLES = 10_000;
+/** Bounded operating-system identity file size accepted by the evidence runner. */
+const MAX_OS_RELEASE_BYTES = 64 * 1024;
+/** Binary-gigabyte unit used for the owner VM memory-allocation check. */
+const GIBIBYTE = 1024 ** 3;
+
+/** Explicit host class retained so target-VM evidence cannot be implied by hostname alone. */
+export type ExperimentalBridgeEvidenceEnvironment = 'development-machine' | 'owner-target-vm';
+
+/** Host facts used to classify evidence without coupling the checks to the live process. */
+export interface ExperimentalBridgeEnvironmentFacts {
+  /** Node platform identifier. */
+  platform: string;
+  /** Node architecture identifier. */
+  architecture: string;
+  /** Operating-system hostname, optionally qualified by a DNS suffix. */
+  hostname: string;
+  /** Normalized Linux distribution ID, or null outside a recognized Linux release. */
+  distributionId: string | null;
+  /** Processor model reported by Node. */
+  cpuModel: string;
+  /** Logical processors visible inside the VM. */
+  logicalCpuCount: number;
+  /** Physical memory visible inside the VM. */
+  totalMemoryBytes: number;
+}
 
 /** CLI and programmatic options for one isolated bridge evidence run. */
 export interface ExperimentalBridgeEvidenceOptions {
@@ -67,6 +92,8 @@ export interface ExperimentalBridgeEvidenceOptions {
   sourceCommit: string | null;
   /** Matching explicit dirty state; null selects local Git discovery. */
   sourceDirty: boolean | null;
+  /** Explicit machine class for this measurement. */
+  environmentClass: ExperimentalBridgeEvidenceEnvironment | null;
 }
 
 /** One timestamped process-memory observation. */
@@ -161,7 +188,8 @@ export function parseExperimentalBridgeEvidenceOptions(
     sampleIntervalMs: DEFAULT_SAMPLE_INTERVAL_MS,
     outputPath: null,
     sourceCommit: null,
-    sourceDirty: null
+    sourceDirty: null,
+    environmentClass: null
   };
   for (let index = 0; index < argv.length; index++) {
     const option = argv[index];
@@ -210,6 +238,13 @@ export function parseExperimentalBridgeEvidenceOptions(
         result.sourceDirty = value === 'true';
         index++;
         break;
+      case '--environment':
+        if (value !== 'development-machine' && value !== 'owner-target-vm') {
+          throw new Error('--environment must be development-machine or owner-target-vm.');
+        }
+        result.environmentClass = value;
+        index++;
+        break;
       default:
         throw new Error(`Unknown option ${option ?? '<missing>'}.`);
     }
@@ -240,6 +275,9 @@ function validateOptions(options: ExperimentalBridgeEvidenceOptions): void {
   }
   if (options.sourceDirty !== null && typeof options.sourceDirty !== 'boolean') {
     throw new Error('sourceDirty must be null or boolean.');
+  }
+  if (options.environmentClass !== 'development-machine' && options.environmentClass !== 'owner-target-vm') {
+    throw new Error('environmentClass must be development-machine or owner-target-vm.');
   }
   const estimatedBatches = Math.ceil((options.sustainedMs / 1_000) * options.batchesPerSecond);
   const estimatedCommands = estimatedBatches * options.batchSize;
@@ -278,10 +316,99 @@ function repositorySourceIdentity(options: ExperimentalBridgeEvidenceOptions): {
     encoding: 'utf8',
     env: environment
   });
+  const resolvedCommit = typeof commit.stdout === 'string' ? commit.stdout.trim() : '';
+  const resolvedStatus = typeof status.stdout === 'string' ? status.stdout.trim() : '';
+  if (commit.status !== 0 || !/^[0-9a-f]{40}$/.test(resolvedCommit) || status.status !== 0) {
+    throw new Error(
+      'Exact Git source identity is unavailable; a Git-less archive must supply both --source-commit and --source-dirty.'
+    );
+  }
   return {
-    commit: commit.status === 0 ? commit.stdout.trim() : 'unavailable',
-    dirty: status.status !== 0 || status.stdout.trim().length > 0,
+    commit: resolvedCommit,
+    dirty: resolvedStatus.length > 0,
     method: 'git'
+  };
+}
+
+/** Read a bounded Linux distribution identifier without invoking another process. */
+function linuxDistributionId(): string | null {
+  if (process.platform !== 'linux') return null;
+  const releasePath = '/etc/os-release';
+  try {
+    const metadata = fs.statSync(releasePath);
+    if (!metadata.isFile() || metadata.size <= 0 || metadata.size > MAX_OS_RELEASE_BYTES) return null;
+    const contents = fs.readFileSync(releasePath, 'utf8');
+    const match = /^ID=(?:"([^"]+)"|([^\r\n]+))$/m.exec(contents);
+    return (match?.[1] ?? match?.[2] ?? '').trim().toLowerCase() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Evaluate the recorded Oxygen allocation and host facts without trusting a caller-supplied label.
+ * @param facts - Captured or synthetic environment facts.
+ * @returns Individually visible checks used by the aggregate owner-target decision.
+ */
+export function evaluateOwnerTargetVmFacts(
+  facts: ExperimentalBridgeEnvironmentFacts
+): Record<string, boolean> {
+  const shortHostname = facts.hostname.split('.', 1)[0]?.toLowerCase() ?? '';
+  return {
+    platformIsLinux: facts.platform === 'linux',
+    architectureIsX64: facts.architecture === 'x64',
+    distributionIsDebian: facts.distributionId === 'debian',
+    hostnameIsOxygen: shortHostname === 'oxygen',
+    cpuIsRyzen7_2700: /\bryzen\s+7\s+2700\b/i.test(facts.cpuModel),
+    logicalCpuCountIsEight: facts.logicalCpuCount === 8,
+    memoryMatches16GiBAllocation: facts.totalMemoryBytes >= 15 * GIBIBYTE &&
+      facts.totalMemoryBytes <= 17 * GIBIBYTE
+  };
+}
+
+/**
+ * Capture and validate the declared machine class before starting a long run.
+ * @param environmentClass - Explicit evidence-machine classification.
+ * @returns Descriptive facts plus individually visible owner-target checks.
+ */
+function captureEnvironmentIdentity(
+  environmentClass: ExperimentalBridgeEvidenceEnvironment
+): Record<string, unknown> {
+  const cpus = os.cpus();
+  const hostname = os.hostname();
+  const cpuModel = cpus[0]?.model ?? 'unknown';
+  const totalMemoryBytes = os.totalmem();
+  const distributionId = linuxDistributionId();
+  const ownerTargetVmChecks = evaluateOwnerTargetVmFacts({
+    platform: process.platform,
+    architecture: process.arch,
+    hostname,
+    distributionId,
+    cpuModel,
+    logicalCpuCount: cpus.length,
+    totalMemoryBytes
+  });
+  const ownerTargetVmValidated = Object.values(ownerTargetVmChecks).every(Boolean);
+  if (environmentClass === 'owner-target-vm' && !ownerTargetVmValidated) {
+    const failed = Object.entries(ownerTargetVmChecks)
+      .filter(([, passed]) => !passed)
+      .map(([name]) => name)
+      .join(', ');
+    throw new Error(`owner-target-vm evidence classification does not match Oxygen: ${failed}.`);
+  }
+  return {
+    capturedAt: new Date().toISOString(),
+    platform: process.platform,
+    architecture: process.arch,
+    hostname,
+    distributionId,
+    node: process.version,
+    v8: process.versions.v8,
+    cpuModel,
+    logicalCpuCount: cpus.length,
+    totalMemoryBytes,
+    ownerTargetVmValidated,
+    ownerTargetVmChecks
   };
 }
 
@@ -435,6 +562,23 @@ function latencyDistribution(values: readonly number[]): Record<string, number |
 }
 
 /**
+ * Convert one phase-specific event-loop histogram into milliseconds.
+ * @param histogram - Enabled monitor stopped at the phase boundary.
+ * @returns Rounded delay distribution for only that phase.
+ */
+function eventLoopDelayDistribution(
+  histogram: ReturnType<typeof monitorEventLoopDelay>
+): Record<string, number> {
+  return {
+    min: rounded(histogram.min / 1e6),
+    mean: rounded(histogram.mean / 1e6),
+    p95: rounded(histogram.percentile(95) / 1e6),
+    p99: rounded(histogram.percentile(99) / 1e6),
+    max: rounded(histogram.max / 1e6)
+  };
+}
+
+/**
  * Preserve exact native counters in JSON without silently narrowing BigInt values.
  * @param health - Native health surface.
  * @returns Counter fields represented as decimal strings and scalar fields unchanged.
@@ -531,6 +675,7 @@ export async function runExperimentalBridgeEvidence(
 ): Promise<Record<string, unknown>> {
   validateOptions(options);
   const repositorySource = repositorySourceIdentity(options);
+  const environmentIdentity = captureEnvironmentIdentity(options.environmentClass);
   const binding = loadNativeBinding();
   const contractVersion = binding.experimentalEngineContractVersion();
   const sourceIdentity = computeNativeSourceIdentity(NATIVE_DIRECTORY);
@@ -604,11 +749,11 @@ export async function runExperimentalBridgeEvidence(
     if (memorySamples.length < MAX_PROCESS_SAMPLES) memorySamples.push(sample);
   };
   const sampleTimer = setInterval(observeMemory, options.sampleIntervalMs);
-  const eventLoop = monitorEventLoopDelay({ resolution: 10 });
+  const idleEventLoop = monitorEventLoopDelay({ resolution: 10 });
+  const sustainedEventLoop = monitorEventLoopDelay({ resolution: 10 });
   const cpuBefore = process.cpuUsage();
   try {
     bridge.start();
-    eventLoop.enable();
     await waitFor(() => bridge.health().lifecycle === 'running', 'native coordinator startup', 5_000);
     const beforeIdle = await waitForStableIdleHealth(() => bridge.health(), 5_000);
     const idleStartedAt = performance.now();
@@ -616,7 +761,9 @@ export async function runExperimentalBridgeEvidence(
     const idleMemoryBefore = captureMemory(startedAt);
     updatePeaks(peaks, idleMemoryBefore);
     if (memorySamples.length < MAX_PROCESS_SAMPLES) memorySamples.push(idleMemoryBefore);
+    idleEventLoop.enable();
     await waitWallDuration(options.idleMs);
+    idleEventLoop.disable();
     const idleWallMs = performance.now() - idleStartedAt;
     const idleCpu = process.cpuUsage(idleCpuBefore);
     const idleMemoryAfter = captureMemory(startedAt);
@@ -638,6 +785,8 @@ export async function runExperimentalBridgeEvidence(
     const sustainedMemoryBefore = captureMemory(startedAt);
     updatePeaks(peaks, sustainedMemoryBefore);
     if (memorySamples.length < MAX_PROCESS_SAMPLES) memorySamples.push(sustainedMemoryBefore);
+    const sustainedHealthBefore = bridge.health();
+    sustainedEventLoop.enable();
     const cadenceMs = 1_000 / options.batchesPerSecond;
     let nextBatchAt = phaseStartedAt;
     let sequence = 1n;
@@ -665,12 +814,15 @@ export async function runExperimentalBridgeEvidence(
       Math.max(10_000, Math.ceil(options.sustainedMs / 2))
     );
     if (bridgeFault) throw bridgeFault;
+    sustainedEventLoop.disable();
     const completionWallMs = performance.now() - phaseStartedAt;
     const sustainedCpu = process.cpuUsage(sustainedCpuBefore);
     const sustainedMemoryAfter = captureMemory(startedAt);
     updatePeaks(peaks, sustainedMemoryAfter);
     if (memorySamples.length < MAX_PROCESS_SAMPLES) memorySamples.push(sustainedMemoryAfter);
     const finalHealth = bridge.health();
+    const processedBatchesDelta = finalHealth.processedBatches - sustainedHealthBefore.processedBatches;
+    const processedCommandsDelta = finalHealth.processedCommands - sustainedHealthBefore.processedCommands;
     const completions = [...received.values()];
     const latencyMs = completions.map(completion => completion.latencyMs);
     const assertions = {
@@ -681,8 +833,8 @@ export async function runExperimentalBridgeEvidence(
       noUnexpectedOutputEvents: unexpectedEvents === 0,
       noNativeWakeFailures: finalHealth.wakeFailures === 0n,
       noNativeTerminalFault: finalHealth.lifecycle === 'running' && finalHealth.faultCode === undefined,
-      nativeProcessedAllBatches: finalHealth.processedBatches === BigInt(submittedBatches),
-      nativeProcessedAllCommands: finalHealth.processedCommands === BigInt(submittedCommands),
+      nativeProcessedAllBatches: processedBatchesDelta === BigInt(submittedBatches),
+      nativeProcessedAllCommands: processedCommandsDelta === BigInt(submittedCommands),
       inboundQueueDrained: finalHealth.inboundBatches === 0n &&
         finalHealth.inboundCommands === 0n && finalHealth.inboundOwnedBytes === 0n,
       outputQueueDrained: finalHealth.outputReliable === 0n && finalHealth.outputDiscrete === 0n &&
@@ -697,25 +849,19 @@ export async function runExperimentalBridgeEvidence(
     if (memorySamples.length < MAX_PROCESS_SAMPLES) memorySamples.push(finalMemory);
     const cpu = process.cpuUsage(cpuBefore);
     const wallMs = performance.now() - startedAt;
-    eventLoop.disable();
+    const idleDurationSatisfied = idleWallMs >= DEFAULT_IDLE_MS;
+    const stage3IdleEvidenceSatisfied = idleDurationSatisfied && idleWakeStable;
     return {
       schema: EVIDENCE_SCHEMA,
       version: EVIDENCE_VERSION,
-      evidenceClass: 'new measured experimental coarse-bridge result',
+      evidenceClass: stage3IdleEvidenceSatisfied
+        ? 'stage3-foundation-gate coarse-bridge result'
+        : 'short-validation coarse-bridge result',
+      environmentClass: options.environmentClass,
       caveat: 'This is an isolated real-addon Stage 3 bridge measurement. It does not start the normal server, make Rust authoritative, measure simulation throughput, establish production cutover, or validate the Debian VM unless run there and labelled separately.',
       command: [process.execPath, ...process.argv.slice(1)],
       source: repositorySource,
-      environment: {
-        capturedAt: new Date().toISOString(),
-        platform: process.platform,
-        architecture: process.arch,
-        hostname: os.hostname(),
-        node: process.version,
-        v8: process.versions.v8,
-        cpuModel: os.cpus()[0]?.model ?? 'unknown',
-        logicalCpuCount: os.cpus().length,
-        totalMemoryBytes: os.totalmem()
-      },
+      environment: environmentIdentity,
       native: {
         sourceSha256: binding.nativeAddonSourceSha256(),
         independentlyComputedSourceSha256: sourceIdentity.sha256,
@@ -744,12 +890,12 @@ export async function runExperimentalBridgeEvidence(
         lifecycleEvents,
         unexpectedEvents,
         commandLatencyMs: latencyDistribution(latencyMs),
-        eventLoopDelayMs: {
-          min: rounded(eventLoop.min / 1e6),
-          mean: rounded(eventLoop.mean / 1e6),
-          p95: rounded(eventLoop.percentile(95) / 1e6),
-          p99: rounded(eventLoop.percentile(99) / 1e6),
-          max: rounded(eventLoop.max / 1e6)
+        stage3IdleGate: {
+          requiredIdleMs: DEFAULT_IDLE_MS,
+          observedIdleWallMs: rounded(idleWallMs),
+          idleDurationSatisfied,
+          idleNoPollingSatisfied: idleWakeStable,
+          stage3IdleEvidenceSatisfied
         },
         cpu: cpuSummary(cpu, wallMs),
         idle: {
@@ -759,6 +905,7 @@ export async function runExperimentalBridgeEvidence(
             before: idleMemoryBefore,
             after: idleMemoryAfter
           },
+          eventLoopDelayMs: eventLoopDelayDistribution(idleEventLoop),
           healthBefore: jsonHealth(beforeIdle),
           healthAfter: jsonHealth(afterIdle)
         },
@@ -767,14 +914,20 @@ export async function runExperimentalBridgeEvidence(
           submissionWallMs: rounded(submissionWallMs),
           completionWallMs: rounded(completionWallMs),
           submittedBatches,
+          processedBatches: processedBatchesDelta.toString(10),
+          processedCommands: processedCommandsDelta.toString(10),
           achievedSubmittedBatchesPerSecond: rounded(submittedBatches / (submissionWallMs / 1_000)),
+          achievedProcessedBatchesPerSecond: rounded(Number(processedBatchesDelta) / (completionWallMs / 1_000)),
           achievedSubmittedCommandsPerSecond: rounded(submittedCommands / (submissionWallMs / 1_000)),
           achievedCompletedCommandsPerSecond: rounded(received.size / (completionWallMs / 1_000)),
           cpu: cpuSummary(sustainedCpu, completionWallMs),
+          eventLoopDelayMs: eventLoopDelayDistribution(sustainedEventLoop),
           memory: {
             before: sustainedMemoryBefore,
             after: sustainedMemoryAfter
-          }
+          },
+          healthBefore: jsonHealth(sustainedHealthBefore),
+          healthAfter: jsonHealth(finalHealth)
         },
         memory: {
           before: initialMemory,
@@ -788,7 +941,8 @@ export async function runExperimentalBridgeEvidence(
     };
   } finally {
     clearInterval(sampleTimer);
-    eventLoop.disable();
+    idleEventLoop.disable();
+    sustainedEventLoop.disable();
     await bridge.stop();
   }
 }
