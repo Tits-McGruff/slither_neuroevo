@@ -5,6 +5,7 @@ compile_error!("the authoritative native addon requires panic=unwind");
 
 /// Rust-owned authoritative engine components under staged migration.
 pub mod engine;
+mod napi_engine;
 mod simd_kernels;
 
 use napi_derive::napi;
@@ -12,6 +13,8 @@ use napi_derive::napi;
 pub use simd_kernels::{
     dense_forward_native, gru_step_native, lstm_step_native, mlp_forward_native, rru_step_native,
 };
+
+pub use napi_engine::experimental_engine_contract_version;
 
 /// Return the crate, source-revision, and source-content identity embedded at build time.
 #[napi(js_name = "nativeAddonBuildIdentifier")]
