@@ -78,6 +78,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/stage2/graph-baseline.test.ts',
     'scripts/stage2/retention-baseline.test.ts',
     'scripts/stage2/sqlite-legacy-slice.test.ts',
+    'scripts/stage3/experimental-bridge-evidence.test.ts',
     'src/brains/graph.integration.test.ts',
     'src/main.test.ts'
   ],
@@ -110,6 +111,7 @@ export const PRIMARY_TEST_CATEGORY_ORDER = [
 export const NATIVE_REQUIRED_TEST_FILES = [
   'server/rustEngine/nativeSourceIdentity.native.test.ts',
   'server/rustEngine/experimentalNativeBridge.native.test.ts',
+  'scripts/stage3/experimental-bridge-evidence.test.ts',
   'src/brains/nativeBridge.test.ts',
   'server/brainPool.test.ts',
   'server/inferenceMode.test.ts',
