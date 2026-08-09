@@ -69,6 +69,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'server/recoveryPhase7.persistence.test.ts',
     'server/rustEngine/nativeSourceIdentity.native.test.ts',
     'server/rustEngine/experimentalNativeBridge.native.test.ts',
+    'server/rustEngine/checkpointPersistence.test.ts',
     'server/stage1.browserControl.integration.test.ts',
     'server/stage1.controllerGrace.test.ts',
     'server/stage1.schedulerYield.test.ts',
