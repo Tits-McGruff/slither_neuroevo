@@ -80,24 +80,40 @@ function runChecked(
   }
 }
 
-/** Build one isolated hook addon, run every real assertion, and remove its build root. */
+/** Build isolated production/hook addons, run every real assertion, and remove their root. */
 export function runCheckpointHandoffEvidence(): void {
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'slither-stage3-checkpoint-handoff-build-'));
   const cargoTarget = join(temporaryRoot, 'cargo-target');
+  const productionAddon = join(temporaryRoot, 'slither-native-production.node');
   const hookAddon = join(temporaryRoot, 'slither-native-stage3.node');
   try {
     const buildEnvironment: NodeJS.ProcessEnv = {
       ...process.env,
       CARGO_TARGET_DIR: cargoTarget
     };
+    const cargo = cargoCommand();
+    const commonCargoArguments = [
+      'build',
+      '--manifest-path',
+      NATIVE_MANIFEST,
+      '--release',
+      '--locked'
+    ] as const;
     runChecked(
-      cargoCommand(),
+      cargo,
+      commonCargoArguments,
+      {
+        environment: buildEnvironment,
+        timeoutMs: BUILD_TIMEOUT_MS,
+        label: 'isolated production Cargo build'
+      }
+    );
+    copyFileSync(join(cargoTarget, 'release', nativeLibraryFilename()), productionAddon);
+
+    runChecked(
+      cargo,
       [
-        'build',
-        '--manifest-path',
-        NATIVE_MANIFEST,
-        '--release',
-        '--locked',
+        ...commonCargoArguments,
         '--features',
         'engine-test-hooks'
       ],
@@ -111,6 +127,7 @@ export function runCheckpointHandoffEvidence(): void {
 
     const testEnvironment: NodeJS.ProcessEnv = {
       ...process.env,
+      SLITHER_STAGE3_CHECKPOINT_PRODUCTION_ADDON: productionAddon,
       SLITHER_STAGE3_CHECKPOINT_TEST_ADDON: hookAddon
     };
     delete testEnvironment['NAPI_RS_NATIVE_LIBRARY_PATH'];

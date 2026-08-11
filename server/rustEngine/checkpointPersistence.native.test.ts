@@ -21,6 +21,9 @@ const PRODUCTION_NATIVE_LOADER = resolve(import.meta.dirname, '../../native/inde
 /** Optional isolated test-hooks addon used only by the explicit Stage 3 evidence command. */
 const TEST_HOOK_ADDON = process.env['SLITHER_STAGE3_CHECKPOINT_TEST_ADDON'];
 
+/** Optional isolated production addon supplied by the self-contained evidence command. */
+const TEST_PRODUCTION_ADDON = process.env['SLITHER_STAGE3_CHECKPOINT_PRODUCTION_ADDON'];
+
 /** CommonJS loader scoped to this ESM integration-test module. */
 const require = createRequire(import.meta.url);
 
@@ -34,8 +37,50 @@ const clients: CheckpointPersistenceClient[] = [];
 interface ProductionNativeBinding {
   /** Report whether this is a production or explicitly test-hooks build. */
   nativeAddonBuildClass(): string;
+  /** Report the exact native source-tree digest embedded by build.rs. */
+  nativeAddonSourceSha256(): string;
   /** Allow inspection of any accidental test-only export without declaring it present. */
   [name: string]: unknown;
+}
+
+/** Resolve an optional addon path independently from the caller's working directory. */
+function resolveAddonPath(addonPath: string): string {
+  return isAbsolute(addonPath) ? addonPath : resolve(addonPath);
+}
+
+/** Reject any native evidence addon that was built from a different source tree. */
+function assertCurrentNativeSource(
+  binding: { nativeAddonSourceSha256(): string },
+  label: string
+): void {
+  const expectedSourceSha256 = computeNativeSourceIdentity(NATIVE_DIRECTORY).sha256;
+  const embeddedSourceSha256 = binding.nativeAddonSourceSha256();
+  if (embeddedSourceSha256 !== expectedSourceSha256) {
+    throw new Error(
+      `${label} source SHA is stale: addon=${embeddedSourceSha256}, tree=${expectedSourceSha256}`
+    );
+  }
+}
+
+/** Load the normal generated addon or the harness's isolated production build. */
+function loadProductionBinding(): ProductionNativeBinding {
+  const addonPath = TEST_PRODUCTION_ADDON
+    ? resolveAddonPath(TEST_PRODUCTION_ADDON)
+    : PRODUCTION_NATIVE_LOADER;
+  const loaded = require(addonPath) as unknown;
+  if (typeof loaded !== 'object' || loaded === null) {
+    throw new TypeError('Stage 3 production addon did not export an object');
+  }
+  const exports = loaded as Record<string, unknown>;
+  if (typeof exports['nativeAddonBuildClass'] !== 'function') {
+    throw new TypeError('Stage 3 production addon is missing nativeAddonBuildClass()');
+  }
+  if (typeof exports['nativeAddonSourceSha256'] !== 'function') {
+    throw new TypeError('Stage 3 production addon is missing nativeAddonSourceSha256()');
+  }
+  const binding = exports as unknown as ProductionNativeBinding;
+  assertCurrentNativeSource(binding, 'Stage 3 production addon');
+  return binding;
 }
 
 /** Test-only native surface emitted only by the isolated engine-test-hooks build. */
@@ -90,7 +135,7 @@ function loadTestHookBinding(): Stage3CheckpointHookBinding {
   if (!TEST_HOOK_ADDON) {
     throw new Error('SLITHER_STAGE3_CHECKPOINT_TEST_ADDON is required for this evidence test');
   }
-  const addonPath = isAbsolute(TEST_HOOK_ADDON) ? TEST_HOOK_ADDON : resolve(TEST_HOOK_ADDON);
+  const addonPath = resolveAddonPath(TEST_HOOK_ADDON);
   const loaded = require(addonPath) as unknown;
   if (typeof loaded !== 'object' || loaded === null) {
     throw new TypeError('Stage 3 test-hooks addon did not export an object');
@@ -106,14 +151,7 @@ function loadTestHookBinding(): Stage3CheckpointHookBinding {
     throw new TypeError('Stage 3 test-hooks addon is missing publishStage3CheckpointFixture()');
   }
   const binding = exports as unknown as Stage3CheckpointHookBinding;
-  const expectedSourceSha256 = computeNativeSourceIdentity(NATIVE_DIRECTORY).sha256;
-  const embeddedSourceSha256 = binding.nativeAddonSourceSha256();
-  if (embeddedSourceSha256 !== expectedSourceSha256) {
-    throw new Error(
-      `Stage 3 test-hooks addon source SHA is stale: addon=${embeddedSourceSha256}, ` +
-      `tree=${expectedSourceSha256}`
-    );
-  }
+  assertCurrentNativeSource(binding, 'Stage 3 test-hooks addon');
   return binding;
 }
 
@@ -179,7 +217,7 @@ afterEach(async () => {
 
 describe('Stage 3 Rust-to-Node managed checkpoint publication handoff', () => {
   it('keeps the checkpoint fixture export out of the normal production addon', () => {
-    const production = require(PRODUCTION_NATIVE_LOADER) as ProductionNativeBinding;
+    const production = loadProductionBinding();
     expect(production.nativeAddonBuildClass()).toBe('production');
     expect(production['publishStage3CheckpointFixture']).toBeUndefined();
   });
