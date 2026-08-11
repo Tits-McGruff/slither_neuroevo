@@ -190,7 +190,7 @@ function assertDescriptorBounds(descriptor: ManagedCheckpointDescriptor): void {
   if (populationCount <= 0n || populationCount > maxPopulationCount) {
     throw new RangeError('populationCount is outside the managed checkpoint limit');
   }
-  if (weightCount <= 0n || weightCount > populationCount * maxWeightsPerGenome) {
+  if (weightCount > populationCount * maxWeightsPerGenome) {
     throw new RangeError('weightCount is outside the managed checkpoint limit');
   }
   if (recurrentStateCount > maxRecurrentStateCount) {

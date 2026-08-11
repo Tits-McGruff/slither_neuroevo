@@ -209,11 +209,35 @@ describe('Stage 2 managed-checkpoint format primitives', () => {
     }
   });
 
+  it('rejects hidden USTAR name bytes and malformed manifest UTF-8', () => {
+    const { archive } = validFixture();
+    const hiddenName = Buffer.from(archive);
+    const nameEnd = Buffer.from('checkpoint.json', 'ascii').length;
+    hiddenName[nameEnd + 1] = 0x78;
+    repairHeaderChecksum(hiddenName.subarray(0, USTAR_BLOCK_BYTES));
+    expectFormatCode(() => scanUstarBuffer(hiddenName), 'USTAR_NAME_PADDING');
+
+    const scanned = scanUstarBuffer(archive);
+    const manifest = scanned.entries.find(entry => entry.name === 'manifest.json')!;
+    const malformedUtf8 = Buffer.from(archive);
+    const manifestBytes = malformedUtf8.subarray(
+      manifest.dataOffset,
+      manifest.dataOffset + manifest.size
+    );
+    const marker = Buffer.from('"logicalRoot":"', 'ascii');
+    const markerOffset = manifestBytes.indexOf(marker);
+    expect(markerOffset).toBeGreaterThanOrEqual(0);
+    manifestBytes[markerOffset + marker.length] = 0xff;
+    expectFormatCode(() => scanUstarBuffer(malformedUtf8), 'USTAR_MANIFEST_JSON');
+  });
+
   it('rejects corrupt frames, false frame lengths and declared decode excess', () => {
     const raw = Buffer.alloc(1024, 0x3f);
     const encoded = encodeShuffledZstdBlocks(raw, { blockBytes: 512, checksum: true });
     const corrupt = Buffer.from(encoded);
-    corrupt[20] = corrupt[20]! ^ 0x80;
+    const firstFrameBytes = corrupt.readUInt32LE(8);
+    const firstChecksumByte = 12 + firstFrameBytes - 1;
+    corrupt[firstChecksumByte] = corrupt[firstChecksumByte]! ^ 0x80;
     expectFormatCode(
       () => decodeShuffledZstdBlocks(corrupt, {
         maxBlockBytes: 512,
@@ -238,6 +262,26 @@ describe('Stage 2 managed-checkpoint format primitives', () => {
         maxTotalDecodedBytes: raw.length
       }),
       'SHUFFLED_BLOCK_LIMIT'
+    );
+
+    const oneBlock = encodeShuffledZstdBlocks(raw.subarray(0, 512), {
+      blockBytes: 512,
+      checksum: false
+    });
+    const frameBytes = oneBlock.readUInt32LE(8);
+    const frameEnd = 12 + frameBytes;
+    const trailingFrameBytes = Buffer.concat([
+      oneBlock.subarray(0, frameEnd),
+      Buffer.from([0xde, 0xad, 0xbe, 0xef]),
+      oneBlock.subarray(frameEnd)
+    ]);
+    trailingFrameBytes.writeUInt32LE(frameBytes + 4, 8);
+    expectFormatCode(
+      () => decodeShuffledZstdBlocks(trailingFrameBytes, {
+        maxBlockBytes: 512,
+        maxTotalDecodedBytes: 512
+      }),
+      'SHUFFLED_BLOCK_FRAME_TRAILING'
     );
   });
 

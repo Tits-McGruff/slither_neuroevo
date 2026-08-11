@@ -173,6 +173,28 @@ describe(SUITE, () => {
     });
   });
 
+  it('commits a zero-weight descriptor for a valid parameterless population graph', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot, {
+      weightCount: u64(0n)
+    });
+    const committed = await fixture.client.commit(descriptor);
+    expect(committed.checkpointId).toBe(descriptor.logicalRootSha256);
+    await fixture.client.close();
+
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(db.prepare(
+        'SELECT weight_count_hex FROM rust_checkpoint_v3_metadata WHERE checkpoint_id = ?'
+      ).get(descriptor.logicalRootSha256)).toEqual({ weight_count_hex: u64(0n) });
+    } finally {
+      db.close();
+    }
+    expect(readCurrentPointer(fixture.databasePath, descriptor.runId)?.checkpoint_id).toBe(
+      descriptor.logicalRootSha256
+    );
+  });
+
   it('is idempotent for an exact replay without duplicating metadata or regressing the pointer', async () => {
     const fixture = createFixture();
     const descriptor = createDescriptor(fixture.managedRoot);

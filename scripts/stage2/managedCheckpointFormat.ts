@@ -1,6 +1,7 @@
 /** Strict, disposable Stage 2 checkpoint-container measurement primitives. */
 
 import { createHash } from 'node:crypto';
+import { TextDecoder } from 'node:util';
 import zlib from 'node:zlib';
 
 /** One USTAR header or alignment block. */
@@ -19,6 +20,10 @@ const SHUFFLED_BLOCK_MAGIC = Buffer.from('SFZ1', 'ascii');
 export const SHUFFLED_BLOCK_HEADER_BYTES = 12;
 /** Zstandard compression level selected by the approved plan. */
 const ZSTD_LEVEL = 3;
+/** Ordinary Zstandard frame magic in little-endian byte order. */
+const ZSTD_FRAME_MAGIC = 0xfd2fb528;
+/** UTF-8 decoder that rejects malformed bytes instead of inserting U+FFFD. */
+const FATAL_UTF8 = new TextDecoder('utf-8', { fatal: true });
 /** Domain separating the logical checkpoint root from unrelated hashes. */
 const LOGICAL_ROOT_DOMAIN = Buffer.from(
   'slither-neuroevo-logical-checkpoint-root\u0000v1\u0000',
@@ -317,6 +322,13 @@ export function parseUstarHeader(
   }
   const nul = header.indexOf(0, 0);
   const nameEnd = nul >= 0 && nul < USTAR_NAME_BYTES ? nul : USTAR_NAME_BYTES;
+  if (nameEnd < USTAR_NAME_BYTES && !isZeroBlock(header.subarray(nameEnd + 1, USTAR_NAME_BYTES))) {
+    fail(
+      'USTAR_NAME_PADDING',
+      'USTAR entry-name bytes after the first NUL must be zero',
+      archiveOffset + nameEnd + 1
+    );
+  }
   for (const byte of header.subarray(0, nameEnd)) {
     if (byte < 0x20 || byte > 0x7e) {
       fail(
@@ -453,12 +465,11 @@ export function scanUstarBuffer(
   if (!manifestEntry) fail('USTAR_MISSING_ENTRY', 'required USTAR entry manifest.json is missing');
   let manifest: unknown;
   try {
-    manifest = JSON.parse(
-      archive.subarray(
-        manifestEntry.dataOffset,
-        manifestEntry.dataOffset + manifestEntry.size
-      ).toString('utf8')
-    ) as unknown;
+    const manifestText = FATAL_UTF8.decode(archive.subarray(
+      manifestEntry.dataOffset,
+      manifestEntry.dataOffset + manifestEntry.size
+    ));
+    manifest = JSON.parse(manifestText) as unknown;
   } catch {
     fail('USTAR_MANIFEST_JSON', 'manifest.json is not valid UTF-8 JSON', manifestEntry.dataOffset);
   }
@@ -619,10 +630,67 @@ export function encodeShuffledZstdBlocks(
 }
 
 /**
+ * Validate that one envelope contains exactly one complete ordinary Zstandard frame.
+ * Node's one-shot decoder accepts bytes after a valid frame, so envelope length must
+ * be checked independently before decompression evidence can be called strict.
+ * @param frame - Exact bytes declared by one SFZ1 block header.
+ * @param archiveOffset - Offset used in stable diagnostics.
+ */
+function requireExactZstdFrame(frame: Buffer, archiveOffset: number): void {
+  if (frame.length < 6 || frame.readUInt32LE(0) !== ZSTD_FRAME_MAGIC) {
+    fail('SHUFFLED_BLOCK_FRAME', 'invalid ordinary Zstandard frame header', archiveOffset);
+  }
+  const descriptor = frame[4]!;
+  if ((descriptor & 0x18) !== 0) {
+    fail('SHUFFLED_BLOCK_FRAME', 'reserved Zstandard frame-header bits are set', archiveOffset + 4);
+  }
+  const contentSizeFlag = descriptor >>> 6;
+  const singleSegment = (descriptor & 0x20) !== 0;
+  const checksum = (descriptor & 0x04) !== 0;
+  const dictionaryIdFlag = descriptor & 0x03;
+  const dictionaryIdBytes = [0, 1, 2, 4][dictionaryIdFlag]!;
+  const contentSizeBytes = contentSizeFlag === 0
+    ? (singleSegment ? 1 : 0)
+    : [0, 2, 4, 8][contentSizeFlag]!;
+  let offset = 5 + (singleSegment ? 0 : 1) + dictionaryIdBytes + contentSizeBytes;
+  if (offset > frame.length) {
+    fail('SHUFFLED_BLOCK_FRAME', 'truncated Zstandard frame header', archiveOffset);
+  }
+
+  let lastBlock = false;
+  while (!lastBlock) {
+    if (offset + 3 > frame.length) {
+      fail('SHUFFLED_BLOCK_FRAME', 'truncated Zstandard block header', archiveOffset + offset);
+    }
+    const blockHeader = frame.readUIntLE(offset, 3);
+    offset += 3;
+    lastBlock = (blockHeader & 1) !== 0;
+    const blockType = (blockHeader >>> 1) & 0x03;
+    const blockSize = blockHeader >>> 3;
+    if (blockType === 3) {
+      fail('SHUFFLED_BLOCK_FRAME', 'reserved Zstandard block type', archiveOffset + offset - 3);
+    }
+    const storedBlockBytes = blockType === 1 ? 1 : blockSize;
+    if (!Number.isSafeInteger(offset + storedBlockBytes) || offset + storedBlockBytes > frame.length) {
+      fail('SHUFFLED_BLOCK_FRAME', 'truncated Zstandard block payload', archiveOffset + offset);
+    }
+    offset += storedBlockBytes;
+  }
+  if (checksum) offset += 4;
+  if (offset !== frame.length) {
+    fail(
+      'SHUFFLED_BLOCK_FRAME_TRAILING',
+      'SFZ1 envelope contains bytes outside its one declared Zstandard frame',
+      archiveOffset + Math.min(offset, frame.length)
+    );
+  }
+}
+
+/**
  * Decode concatenated shuffled-Zstandard block records with pre-decode limits.
- * The Stage 2 prototype can validate its envelope count before invoking Node's
- * decoder, but the future Rust importer must additionally cap the Zstandard
- * frame window from the codec header before allocation.
+ * The Stage 2 prototype validates each exact frame envelope before invoking
+ * Node's decoder. The production Rust importer additionally caps the declared
+ * decoder window before allocating numeric output.
  * @param encoded - Versioned block records.
  * @param options - Per-block and aggregate decoded bounds.
  * @returns Bit-exact packed Float32 bytes.
@@ -671,6 +739,7 @@ export function decodeShuffledZstdBlocks(
     ) {
       fail('SHUFFLED_BLOCK_FRAME', 'truncated shuffled-Zstandard frame', frameOffset);
     }
+    requireExactZstdFrame(encoded.subarray(frameOffset, nextOffset), frameOffset);
     let shuffled: Buffer;
     try {
       shuffled = zlib.zstdDecompressSync(encoded.subarray(frameOffset, nextOffset));
