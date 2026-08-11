@@ -1,5 +1,6 @@
-//! Emit retained Stage 4 Rust scalar heterogeneous-inference evidence.
+//! Emit retained Stage 4 Rust scalar/SIMD heterogeneous-inference evidence.
 
+use slither_native::engine::inference::InferenceMathBackend;
 use slither_native::engine::inference_fixture::{
     run_stage4_inference_evidence, Stage4InferenceEvidenceOptions, Stage4InferenceScenarioName,
 };
@@ -13,6 +14,7 @@ use std::path::{Path, PathBuf};
 /// Fully parsed runner arguments.
 struct CliOptions {
     scenario: Stage4InferenceScenarioName,
+    math_backend: InferenceMathBackend,
     warmup_passes: usize,
     measured_passes: usize,
     evidence_environment: String,
@@ -43,6 +45,7 @@ fn parse_options() -> Result<CliOptions, String> {
     let command = env::args().collect::<Vec<_>>();
     let mut arguments = env::args_os().skip(1);
     let mut scenario = None;
+    let mut math_backend = None;
     let mut warmup_passes = 10;
     let mut measured_passes = 60;
     let mut evidence_environment = "development".to_owned();
@@ -56,6 +59,18 @@ fn parse_options() -> Result<CliOptions, String> {
                     .into_string()
                     .map_err(|_| "--scenario must be valid UTF-8".to_owned())?;
                 scenario = Some(Stage4InferenceScenarioName::parse(&value)?);
+            }
+            Some("--math-backend") => {
+                let value = arguments
+                    .next()
+                    .ok_or_else(|| "--math-backend requires a value".to_owned())?
+                    .into_string()
+                    .map_err(|_| "--math-backend must be valid UTF-8".to_owned())?;
+                math_backend = Some(match value.as_str() {
+                    "scalar" => InferenceMathBackend::Scalar,
+                    "sse2" => InferenceMathBackend::Sse2,
+                    _ => return Err("--math-backend must be scalar or sse2".to_owned()),
+                });
             }
             Some("--warmup-passes") => {
                 warmup_passes = parse_count(arguments.next(), "--warmup-passes", true)?;
@@ -88,6 +103,7 @@ fn parse_options() -> Result<CliOptions, String> {
     }
     Ok(CliOptions {
         scenario: scenario.ok_or_else(|| "--scenario is required".to_owned())?,
+        math_backend: math_backend.ok_or_else(|| "--math-backend is required".to_owned())?,
         warmup_passes,
         measured_passes,
         evidence_environment,
@@ -108,13 +124,15 @@ fn write_report(path: &Path, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Run one source-shaped scenario through the real Rust scalar population operation.
+/// Run one source-shaped scenario through an explicit Rust population implementation.
 fn main() -> Result<(), Box<dyn Error>> {
     let options = parse_options().map_err(std::io::Error::other)?;
     let output_path = options.output_path.clone();
     let scenario = options.scenario.label();
+    let math_backend = options.math_backend.label();
     let report = run_stage4_inference_evidence(Stage4InferenceEvidenceOptions {
         scenario: options.scenario,
+        math_backend: options.math_backend,
         warmup_passes: options.warmup_passes,
         measured_passes: options.measured_passes,
         evidence_environment: options.evidence_environment,
@@ -123,7 +141,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     .map_err(std::io::Error::other)?;
     write_report(&output_path, &serde_json::to_vec_pretty(&report)?)?;
     println!(
-        "wrote {scenario} Rust scalar inference evidence to {}",
+        "wrote {scenario} {math_backend} inference evidence to {}",
         output_path.display()
     );
     Ok(())

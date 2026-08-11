@@ -86,7 +86,7 @@ describe(SUITE, () => {
     expect(comparison.maxAbsoluteDifference).toBeGreaterThan(1e-4);
   });
 
-  it('rejects a JavaScript report substituted for the count-one native role', () => {
+  it('rejects substituted roles and mismatched source, workload, or host identity', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'slither-stage4-report-role-'));
     try {
       const values = Buffer.alloc(8);
@@ -98,23 +98,50 @@ describe(SUITE, () => {
         schema: string,
         name: string,
         nativeCallsPerWholePass: number,
-        nativeIdentity?: Record<string, string>
+        nativeIdentity?: Record<string, string>,
+        mathBackend?: string
       ) => ({
         schema,
         source: schema === 'slither-stage4-rust-inference-benchmark'
           ? {
               buildProfile: 'release',
               buildClass: 'test-hooks',
-              targetTriple: 'x86_64-pc-windows-msvc'
+              targetTriple: 'x86_64-pc-windows-msvc',
+              nativeSourceSha256: 'a'.repeat(64)
             }
-          : {},
+          : { commit: 'b'.repeat(40), dirty: false },
+        environment: schema === 'slither-stage4-rust-inference-benchmark'
+          ? {
+              declaration: 'development',
+              operatingSystem: 'windows',
+              architecture: 'x86_64',
+              hostname: 'fixture-host',
+              availableParallelism: 16,
+              ownerTargetVmValidated: false
+            }
+          : {
+              provenance: { declaration: 'development' },
+              platform: 'win32',
+              architecture: 'x64',
+              hostname: 'fixture-host',
+              logicalCpuCount: 16,
+              ownerTargetVmValidated: false
+            },
         workload: {
           scenario: 'P0',
           weightsSha256: 'weights',
           observationsSha256: 'observations',
-          initialRecurrentSha256: 'recurrent'
+          initialRecurrentSha256: 'recurrent',
+          warmupPasses: 1,
+          measuredPasses: 2
         },
-        path: { name, nativeCallsPerWholePass, nativeIdentity },
+        path: {
+          name,
+          nativeCallsPerWholePass,
+          nativeIdentity,
+          mathBackend,
+          runtimeFeatureAvailable: mathBackend ? true : undefined
+        },
         result: {
           oneStepComparisonProbe: {
             absoluteTolerance: 1e-4,
@@ -128,13 +155,23 @@ describe(SUITE, () => {
         }
       });
       const rustPath = path.join(directory, 'rust.json');
+      const scalarRustPath = path.join(directory, 'scalar-rust.json');
       const jsPath = path.join(directory, 'js.json');
       const nativePath = path.join(directory, 'native.json');
       const outputPath = path.join(directory, 'comparison.json');
       const rust = report(
         'slither-stage4-rust-inference-benchmark',
+        'rust-sse2-coarse-heterogeneous',
+        0,
+        undefined,
+        'rust-sse2-v1'
+      );
+      const scalarRust = report(
+        'slither-stage4-rust-inference-benchmark',
         'rust-scalar-coarse-heterogeneous',
-        0
+        0,
+        undefined,
+        'rust-scalar-v1'
       );
       const js = report(
         'slither-stage4-current-inference-benchmark',
@@ -146,20 +183,98 @@ describe(SUITE, () => {
         'current-typescript-count-one-native',
         165,
         {
-          nativeAddonSourceSha256: 'source',
+          nativeAddonSourceSha256: 'a'.repeat(64),
+          currentSourceSha256: 'a'.repeat(64),
           nativeAddonBuildProfile: 'release',
           nativeAddonBuildClass: 'production',
           nativeAddonBuildTarget: 'x86_64-pc-windows-msvc'
         }
       );
       fs.writeFileSync(rustPath, JSON.stringify(rust));
+      fs.writeFileSync(scalarRustPath, JSON.stringify(scalarRust));
       fs.writeFileSync(jsPath, JSON.stringify(js));
       fs.writeFileSync(nativePath, JSON.stringify(native));
-      expect(() => runComparison({ rustPath, jsPath, nativePath, outputPath })).not.toThrow();
+      expect(() => runComparison({
+        rustPath,
+        scalarRustPath,
+        jsPath,
+        nativePath,
+        outputPath
+      })).not.toThrow();
+      fs.writeFileSync(rustPath, JSON.stringify(scalarRust));
+      expect(() => runComparison({
+        rustPath,
+        scalarRustPath,
+        jsPath,
+        nativePath,
+        outputPath
+      })).toThrow('does not prove the rust-sse2-coarse-heterogeneous path');
+      fs.writeFileSync(rustPath, JSON.stringify(rust));
+      fs.writeFileSync(scalarRustPath, JSON.stringify(rust));
+      expect(() => runComparison({
+        rustPath,
+        scalarRustPath,
+        jsPath,
+        nativePath,
+        outputPath
+      })).toThrow('does not prove the rust-scalar-coarse-heterogeneous path');
+      fs.writeFileSync(scalarRustPath, JSON.stringify(scalarRust));
       fs.writeFileSync(nativePath, JSON.stringify(js));
-      expect(() => runComparison({ rustPath, jsPath, nativePath, outputPath })).toThrow(
+      expect(() => runComparison({
+        rustPath,
+        scalarRustPath,
+        jsPath,
+        nativePath,
+        outputPath
+      })).toThrow(
         'does not prove the current count-one native path'
       );
+      fs.writeFileSync(nativePath, JSON.stringify(native));
+      fs.writeFileSync(scalarRustPath, JSON.stringify({
+        ...scalarRust,
+        source: { ...scalarRust.source, nativeSourceSha256: 'c'.repeat(64) }
+      }));
+      expect(() => runComparison({
+        rustPath,
+        scalarRustPath,
+        jsPath,
+        nativePath,
+        outputPath
+      })).toThrow('do not share one native source SHA-256');
+      fs.writeFileSync(scalarRustPath, JSON.stringify(scalarRust));
+      fs.writeFileSync(jsPath, JSON.stringify({
+        ...js,
+        source: { ...js.source, dirty: true }
+      }));
+      expect(() => runComparison({
+        rustPath,
+        scalarRustPath,
+        jsPath,
+        nativePath,
+        outputPath
+      })).toThrow('does not prove the current TypeScript/JavaScript path');
+      fs.writeFileSync(jsPath, JSON.stringify({
+        ...js,
+        workload: { ...js.workload, measuredPasses: 3 }
+      }));
+      expect(() => runComparison({
+        rustPath,
+        scalarRustPath,
+        jsPath,
+        nativePath,
+        outputPath
+      })).toThrow('do not describe the same deterministic input fixture');
+      fs.writeFileSync(jsPath, JSON.stringify({
+        ...js,
+        environment: { ...js.environment, hostname: 'other-host' }
+      }));
+      expect(() => runComparison({
+        rustPath,
+        scalarRustPath,
+        jsPath,
+        nativePath,
+        outputPath
+      })).toThrow('do not describe the same measured host environment');
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }

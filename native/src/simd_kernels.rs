@@ -1,6 +1,8 @@
 //! x86_64 SIMD kernels for Dense, MLP, and recurrent forward passes.
 //!
-//! These are native-only kernels used from Node via N-API. No scalar or non-x86 fallback exists.
+//! These kernels serve both the transitional N-API exports and the coarse Rust
+//! graph executor. The graph executor selects them once through runtime feature
+//! detection and retains its scalar implementation for differential testing.
 
 use core::mem;
 
@@ -230,6 +232,49 @@ unsafe fn dense_dot_mul(
         }
     }
     total
+}
+
+/// Return whether the process may select the existing SSE2-backed dot kernels.
+pub(crate) fn runtime_sse2_available() -> bool {
+    std::arch::is_x86_feature_detected!("sse2")
+}
+
+/// Apply the existing SIMD dot product to two equally sized safe slices.
+///
+/// A length mismatch is an internal programming error and panics before any raw
+/// pointer is formed. Runtime callers select this helper only after
+/// [`runtime_sse2_available`] succeeds.
+#[inline]
+pub(crate) fn dot_product_sse2(weights: &[f32], input: &[f32]) -> f32 {
+    assert_eq!(
+        weights.len(),
+        input.len(),
+        "SIMD dot-product slice length mismatch"
+    );
+    // SAFETY: Equal safe slices prove both pointers are valid for `input.len()`
+    // reads. The runtime backend selector has admitted SSE2 for this process.
+    unsafe { dense_dot(weights.as_ptr(), input.as_ptr(), input.len()) }
+}
+
+/// Apply the existing SIMD weighted-product dot to three equal safe slices.
+///
+/// Length mismatches panic before a pointer is formed. Runtime callers select
+/// this helper only after [`runtime_sse2_available`] succeeds.
+#[inline]
+pub(crate) fn dot_product_mul_sse2(weights: &[f32], left: &[f32], right: &[f32]) -> f32 {
+    assert_eq!(
+        weights.len(),
+        left.len(),
+        "SIMD multiplied-dot weight/input length mismatch"
+    );
+    assert_eq!(
+        left.len(),
+        right.len(),
+        "SIMD multiplied-dot input length mismatch"
+    );
+    // SAFETY: Equal safe slices prove every pointer is valid for `left.len()`
+    // reads. The runtime backend selector has admitted SSE2 for this process.
+    unsafe { dense_dot_mul(weights.as_ptr(), left.as_ptr(), right.as_ptr(), left.len()) }
 }
 
 /// Sigmoid activation function.

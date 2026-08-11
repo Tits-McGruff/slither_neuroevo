@@ -1,4 +1,4 @@
-//! Safe scalar execution for complete neural graphs and heterogeneous populations.
+//! Safe scalar/SIMD execution for complete neural graphs and heterogeneous populations.
 //!
 //! The approved runtime owns graph traversal, per-genome parameters, and recurrent
 //! state in Rust. This module deliberately operates below N-API: one call evaluates
@@ -10,6 +10,7 @@
 use super::calculation::{CalculationScratchLayout, CalculationScratchView, CalculationWorkUnit};
 use super::graph::{CompiledGraph, CompiledNode, CompiledNodeType};
 use super::state::{BrainOwner, BrainRuntimeState, PopulationGenome};
+use crate::simd_kernels;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
@@ -44,6 +45,42 @@ struct ExecutionNode {
     state: Option<TensorRange>,
 }
 
+/// Numeric implementation selected once for one immutable execution plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InferenceMathBackend {
+    /// Reference implementation using ordered scalar `f32` accumulation.
+    Scalar,
+    /// Existing four-lane SSE dot kernels selected after runtime detection.
+    Sse2,
+}
+
+impl InferenceMathBackend {
+    /// Select the fastest admitted implementation available to this process.
+    pub fn detect() -> Self {
+        if simd_kernels::runtime_sse2_available() {
+            Self::Sse2
+        } else {
+            Self::Scalar
+        }
+    }
+
+    /// Stable evidence and health label.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Scalar => "rust-scalar-v1",
+            Self::Sse2 => "rust-sse2-v1",
+        }
+    }
+
+    /// Return whether this exact implementation is admitted on the current CPU.
+    pub fn is_available(self) -> bool {
+        match self {
+            Self::Scalar => true,
+            Self::Sse2 => simd_kernels::runtime_sse2_available(),
+        }
+    }
+}
+
 /// Immutable allocation and traversal plan derived once from a compiled graph.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphExecutionPlan {
@@ -52,14 +89,28 @@ pub struct GraphExecutionPlan {
     output_size: usize,
     total_parameters: usize,
     total_state_size: usize,
+    math_backend: InferenceMathBackend,
     nodes: Vec<ExecutionNode>,
     outputs: Vec<TensorRange>,
     scratch_layout: CalculationScratchLayout,
 }
 
 impl GraphExecutionPlan {
-    /// Derive all activation, port, parameter, and recurrent ranges once.
+    /// Derive all ranges once and select the fastest runtime-admitted math backend.
     pub fn build(graph: &CompiledGraph) -> Result<Self, InferenceError> {
+        Self::build_with_math_backend(graph, InferenceMathBackend::detect())
+    }
+
+    /// Derive all ranges once with an explicit backend for parity and evidence.
+    pub fn build_with_math_backend(
+        graph: &CompiledGraph,
+        math_backend: InferenceMathBackend,
+    ) -> Result<Self, InferenceError> {
+        if !math_backend.is_available() {
+            return Err(InferenceError::UnavailableMathBackend {
+                backend: math_backend.label(),
+            });
+        }
         let mut activation_cursor = 0usize;
         let mut outputs_by_id: BTreeMap<String, Vec<TensorRange>> = BTreeMap::new();
         let mut execution_nodes = Vec::new();
@@ -300,6 +351,7 @@ impl GraphExecutionPlan {
             output_size: graph.output_size,
             total_parameters: graph.total_parameters,
             total_state_size: graph.total_state_size,
+            math_backend,
             nodes: execution_nodes,
             outputs: graph_outputs,
             scratch_layout: CalculationScratchLayout {
@@ -333,6 +385,11 @@ impl GraphExecutionPlan {
     /// Packed recurrent floats required for each brain.
     pub const fn total_state_size(&self) -> usize {
         self.total_state_size
+    }
+
+    /// Selected scalar or runtime-detected SIMD implementation.
+    pub const fn math_backend(&self) -> InferenceMathBackend {
+        self.math_backend
     }
 
     /// Fixed reusable calculation scratch required by this plan.
@@ -429,7 +486,7 @@ impl GraphExecutionPlan {
                     let parameters = slice_range(weights, node.parameter)?;
                     let (input_values, output_values) =
                         forward_slices(scratch.activation, source, node.output, &node.id)?;
-                    affine_tanh(parameters, input_values, output_values)?;
+                    affine_tanh(self.math_backend, parameters, input_values, output_values)?;
                 }
                 CompiledNodeType::Mlp => {
                     self.evaluate_mlp(node, weights, scratch.activation)?;
@@ -443,6 +500,7 @@ impl GraphExecutionPlan {
                     let (input_values, output_values) =
                         forward_slices(scratch.activation, source, node.output, &node.id)?;
                     evaluate_gru(
+                        self.math_backend,
                         parameters,
                         input_values,
                         before,
@@ -459,7 +517,14 @@ impl GraphExecutionPlan {
                     let after = slice_range_mut(recurrent_after, state)?;
                     let (input_values, output_values) =
                         forward_slices(scratch.activation, source, node.output, &node.id)?;
-                    evaluate_lstm(parameters, input_values, before, after, output_values)?;
+                    evaluate_lstm(
+                        self.math_backend,
+                        parameters,
+                        input_values,
+                        before,
+                        after,
+                        output_values,
+                    )?;
                 }
                 CompiledNodeType::Rru => {
                     let source = only_input(node)?;
@@ -469,7 +534,14 @@ impl GraphExecutionPlan {
                     let after = slice_range_mut(recurrent_after, state)?;
                     let (input_values, output_values) =
                         forward_slices(scratch.activation, source, node.output, &node.id)?;
-                    evaluate_rru(parameters, input_values, before, after, output_values)?;
+                    evaluate_rru(
+                        self.math_backend,
+                        parameters,
+                        input_values,
+                        before,
+                        after,
+                        output_values,
+                    )?;
                 }
             }
         }
@@ -526,6 +598,7 @@ impl GraphExecutionPlan {
             let (input_values, output_values) =
                 forward_slices(activation, source, *destination, &node.id)?;
             affine_tanh(
+                self.math_backend,
                 &weights[parameter_cursor..parameter_end],
                 input_values,
                 output_values,
@@ -972,8 +1045,51 @@ fn forward_slices<'a>(
     ))
 }
 
+/// Apply one backend-selected dot product over equal, prevalidated slices.
+#[inline]
+fn dot_product(backend: InferenceMathBackend, weights: &[f32], input: &[f32]) -> f32 {
+    debug_assert_eq!(weights.len(), input.len());
+    match backend {
+        InferenceMathBackend::Scalar => {
+            let mut sum = 0.0f32;
+            for index in 0..input.len() {
+                sum += weights[index] * input[index];
+            }
+            sum
+        }
+        InferenceMathBackend::Sse2 => simd_kernels::dot_product_sse2(weights, input),
+    }
+}
+
+/// Apply one backend-selected weighted-product dot over equal slices.
+#[inline]
+fn dot_product_mul(
+    backend: InferenceMathBackend,
+    weights: &[f32],
+    left: &[f32],
+    right: &[f32],
+) -> f32 {
+    debug_assert_eq!(weights.len(), left.len());
+    debug_assert_eq!(left.len(), right.len());
+    match backend {
+        InferenceMathBackend::Scalar => {
+            let mut sum = 0.0f32;
+            for index in 0..left.len() {
+                sum += weights[index] * (left[index] * right[index]);
+            }
+            sum
+        }
+        InferenceMathBackend::Sse2 => simd_kernels::dot_product_mul_sse2(weights, left, right),
+    }
+}
+
 /// Apply one row-major affine transform followed by tanh.
-fn affine_tanh(weights: &[f32], input: &[f32], output: &mut [f32]) -> Result<(), InferenceError> {
+fn affine_tanh(
+    backend: InferenceMathBackend,
+    weights: &[f32],
+    input: &[f32],
+    output: &mut [f32],
+) -> Result<(), InferenceError> {
     let row = input
         .len()
         .checked_add(1)
@@ -987,13 +1103,9 @@ fn affine_tanh(weights: &[f32], input: &[f32], output: &mut [f32]) -> Result<(),
     )?;
     let mut cursor = 0usize;
     for value in output {
-        let mut sum = 0.0f32;
-        for input_value in input {
-            sum += weights[cursor] * *input_value;
-            cursor += 1;
-        }
-        sum += weights[cursor];
-        cursor += 1;
+        let row_end = cursor + input.len();
+        let sum = dot_product(backend, &weights[cursor..row_end], input) + weights[row_end];
+        cursor = row_end + 1;
         *value = sum.tanh();
     }
     Ok(())
@@ -1007,6 +1119,7 @@ fn sigmoid(value: f32) -> f32 {
 
 /// Evaluate one GRU block using the established Wz/Wr/Wh/Uz/Ur/Uh/bz/br/bh order.
 fn evaluate_gru(
+    backend: InferenceMathBackend,
     weights: &[f32],
     input: &[f32],
     before: &[f32],
@@ -1041,33 +1154,22 @@ fn evaluate_gru(
     let r = &mut remainder[..hidden];
 
     for j in 0..hidden {
-        let mut sum_z = 0.0f32;
-        let mut sum_r = 0.0f32;
         let wz_row = wz + j * input_size;
         let wr_row = wr + j * input_size;
-        for (i, input_value) in input.iter().enumerate() {
-            sum_z += weights[wz_row + i] * *input_value;
-            sum_r += weights[wr_row + i] * *input_value;
-        }
         let uz_row = uz + j * hidden;
         let ur_row = ur + j * hidden;
-        for (k, previous) in before.iter().enumerate() {
-            sum_z += weights[uz_row + k] * *previous;
-            sum_r += weights[ur_row + k] * *previous;
-        }
+        let sum_z = dot_product(backend, &weights[wz_row..wz_row + input_size], input)
+            + dot_product(backend, &weights[uz_row..uz_row + hidden], before);
+        let sum_r = dot_product(backend, &weights[wr_row..wr_row + input_size], input)
+            + dot_product(backend, &weights[ur_row..ur_row + hidden], before);
         z[j] = sigmoid(sum_z + weights[bz + j]);
         r[j] = sigmoid(sum_r + weights[br + j]);
     }
     for j in 0..hidden {
-        let mut sum_h = 0.0f32;
         let wh_row = wh + j * input_size;
-        for (i, input_value) in input.iter().enumerate() {
-            sum_h += weights[wh_row + i] * *input_value;
-        }
         let uh_row = uh + j * hidden;
-        for k in 0..hidden {
-            sum_h += weights[uh_row + k] * (r[k] * before[k]);
-        }
+        let sum_h = dot_product(backend, &weights[wh_row..wh_row + input_size], input)
+            + dot_product_mul(backend, &weights[uh_row..uh_row + hidden], r, before);
         let candidate = (sum_h + weights[bh + j]).tanh();
         let next = (1.0 - z[j]) * before[j] + z[j] * candidate;
         after[j] = next;
@@ -1078,6 +1180,7 @@ fn evaluate_gru(
 
 /// Evaluate one LSTM block using the established Wi/Wf/Wo/Wg/Ui/Uf/Uo/Ug order.
 fn evaluate_lstm(
+    backend: InferenceMathBackend,
     weights: &[f32],
     input: &[f32],
     before: &[f32],
@@ -1115,30 +1218,22 @@ fn evaluate_lstm(
     let bg = bo + hidden;
 
     for j in 0..hidden {
-        let mut sum_i = 0.0f32;
-        let mut sum_f = 0.0f32;
-        let mut sum_o = 0.0f32;
-        let mut sum_g = 0.0f32;
         let wi_row = wi + j * input_size;
         let wf_row = wf + j * input_size;
         let wo_row = wo + j * input_size;
         let wg_row = wg + j * input_size;
-        for (i, input_value) in input.iter().enumerate() {
-            sum_i += weights[wi_row + i] * *input_value;
-            sum_f += weights[wf_row + i] * *input_value;
-            sum_o += weights[wo_row + i] * *input_value;
-            sum_g += weights[wg_row + i] * *input_value;
-        }
         let ui_row = ui + j * hidden;
         let uf_row = uf + j * hidden;
         let uo_row = uo + j * hidden;
         let ug_row = ug + j * hidden;
-        for (k, previous) in previous_h.iter().enumerate() {
-            sum_i += weights[ui_row + k] * *previous;
-            sum_f += weights[uf_row + k] * *previous;
-            sum_o += weights[uo_row + k] * *previous;
-            sum_g += weights[ug_row + k] * *previous;
-        }
+        let sum_i = dot_product(backend, &weights[wi_row..wi_row + input_size], input)
+            + dot_product(backend, &weights[ui_row..ui_row + hidden], previous_h);
+        let sum_f = dot_product(backend, &weights[wf_row..wf_row + input_size], input)
+            + dot_product(backend, &weights[uf_row..uf_row + hidden], previous_h);
+        let sum_o = dot_product(backend, &weights[wo_row..wo_row + input_size], input)
+            + dot_product(backend, &weights[uo_row..uo_row + hidden], previous_h);
+        let sum_g = dot_product(backend, &weights[wg_row..wg_row + input_size], input)
+            + dot_product(backend, &weights[ug_row..ug_row + hidden], previous_h);
         let input_gate = sigmoid(sum_i + weights[bi + j]);
         let forget_gate = sigmoid(sum_f + weights[bf + j]);
         let output_gate = sigmoid(sum_o + weights[bo + j]);
@@ -1154,6 +1249,7 @@ fn evaluate_lstm(
 
 /// Evaluate one RRU block using the established Wc/Wr/Uc/Ur/bc/br order.
 fn evaluate_rru(
+    backend: InferenceMathBackend,
     weights: &[f32],
     input: &[f32],
     before: &[f32],
@@ -1176,20 +1272,14 @@ fn evaluate_rru(
     let bc = ur + state_block;
     let br = bc + hidden;
     for j in 0..hidden {
-        let mut sum_c = 0.0f32;
-        let mut sum_r = 0.0f32;
         let wc_row = wc + j * input_size;
         let wr_row = wr + j * input_size;
-        for (i, input_value) in input.iter().enumerate() {
-            sum_c += weights[wc_row + i] * *input_value;
-            sum_r += weights[wr_row + i] * *input_value;
-        }
         let uc_row = uc + j * hidden;
         let ur_row = ur + j * hidden;
-        for (k, previous) in before.iter().enumerate() {
-            sum_c += weights[uc_row + k] * *previous;
-            sum_r += weights[ur_row + k] * *previous;
-        }
+        let sum_c = dot_product(backend, &weights[wc_row..wc_row + input_size], input)
+            + dot_product(backend, &weights[uc_row..uc_row + hidden], before);
+        let sum_r = dot_product(backend, &weights[wr_row..wr_row + input_size], input)
+            + dot_product(backend, &weights[ur_row..ur_row + hidden], before);
         let candidate = (sum_c + weights[bc + j]).tanh();
         let gate = sigmoid(sum_r + weights[br + j]);
         let next = (1.0 - gate) * before[j] + gate * candidate;
@@ -1296,6 +1386,11 @@ fn checked_product(
 /// Checked graph and heterogeneous-batch execution failures.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InferenceError {
+    /// An explicitly requested numeric backend is unavailable on this CPU.
+    UnavailableMathBackend {
+        /// Stable requested backend label.
+        backend: &'static str,
+    },
     /// A derived count or range overflowed.
     ArithmeticOverflow {
         /// Static operation being calculated.
@@ -1410,6 +1505,9 @@ pub enum InferenceError {
 impl fmt::Display for InferenceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnavailableMathBackend { backend } => {
+                write!(formatter, "inference math backend {backend} is unavailable")
+            }
             Self::ArithmeticOverflow { context } => {
                 write!(formatter, "inference arithmetic overflow: {context}")
             }
@@ -1729,7 +1827,10 @@ mod tests {
         );
         assert_eq!(graph.total_parameters, 53);
         assert_eq!(graph.total_state_size, 4);
-        let plan = GraphExecutionPlan::build(&graph).unwrap();
+        let plan =
+            GraphExecutionPlan::build_with_math_backend(&graph, InferenceMathBackend::Scalar)
+                .unwrap();
+        assert_eq!(plan.math_backend(), InferenceMathBackend::Scalar);
         let weights = parity_weights(plan.total_parameters());
         let zero_state = vec![0.0; plan.total_state_size()];
         let mut first_state = vec![f32::NAN; plan.total_state_size()];
@@ -1803,7 +1904,10 @@ mod tests {
         );
         assert_eq!(graph.total_parameters, 122);
         assert_eq!(graph.total_state_size, 8);
-        let plan = GraphExecutionPlan::build(&graph).unwrap();
+        let plan =
+            GraphExecutionPlan::build_with_math_backend(&graph, InferenceMathBackend::Scalar)
+                .unwrap();
+        assert_eq!(plan.math_backend(), InferenceMathBackend::Scalar);
         let weights = parity_weights(plan.total_parameters());
         let initial_state = [0.1, -0.2, 0.05, -0.07, 0.2, -0.15, -0.11, 0.09];
         let mut first_state = vec![f32::NAN; plan.total_state_size()];
@@ -1868,6 +1972,62 @@ mod tests {
                 -0.039_415_892,
             ],
         );
+    }
+
+    #[test]
+    fn runtime_detected_sse2_matches_scalar_across_complete_recurrent_graphs() {
+        assert!(InferenceMathBackend::Sse2.is_available());
+        assert_eq!(InferenceMathBackend::detect(), InferenceMathBackend::Sse2);
+        for graph in [complete_graph(), wide_recurrent_graph()] {
+            let scalar =
+                GraphExecutionPlan::build_with_math_backend(&graph, InferenceMathBackend::Scalar)
+                    .unwrap();
+            let simd =
+                GraphExecutionPlan::build_with_math_backend(&graph, InferenceMathBackend::Sse2)
+                    .unwrap();
+            let detected = GraphExecutionPlan::build(&graph).unwrap();
+            assert_eq!(detected.math_backend(), InferenceMathBackend::Sse2);
+            assert_eq!(scalar.scratch_layout(), simd.scratch_layout());
+            let weights = parity_weights(scalar.total_parameters());
+            let mut scalar_state = (0..scalar.total_state_size())
+                .map(|index| (index as f32 - 3.0) / 29.0)
+                .collect::<Vec<_>>();
+            let mut simd_state = scalar_state.clone();
+            let mut scalar_scratch = scratch(&scalar);
+            let mut simd_scratch = scratch(&simd);
+            for step in 0..32usize {
+                let input = (0..scalar.input_size())
+                    .map(|index| (((step + 1) * 17 + (index + 3) * 11) % 97) as f32 / 48.0 - 1.0)
+                    .collect::<Vec<_>>();
+                let mut next_scalar = vec![f32::NAN; scalar.total_state_size()];
+                let mut next_simd = vec![f32::NAN; simd.total_state_size()];
+                let mut scalar_output = vec![f32::NAN; scalar.output_size()];
+                let mut simd_output = vec![f32::NAN; simd.output_size()];
+                scalar
+                    .evaluate(
+                        &weights,
+                        &scalar_state,
+                        &mut next_scalar,
+                        &input,
+                        &mut scalar_output,
+                        &mut scalar_scratch.view(),
+                    )
+                    .unwrap();
+                simd.evaluate(
+                    &weights,
+                    &simd_state,
+                    &mut next_simd,
+                    &input,
+                    &mut simd_output,
+                    &mut simd_scratch.view(),
+                )
+                .unwrap();
+                assert_close("scalar/SSE2 output", &simd_output, &scalar_output);
+                assert_close("scalar/SSE2 recurrent", &next_simd, &next_scalar);
+                scalar_state = next_scalar;
+                simd_state = next_simd;
+            }
+        }
     }
 
     /// One fully populated evolved snake record for calculation-work resolution.

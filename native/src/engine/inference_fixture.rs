@@ -1,7 +1,7 @@
 //! Deterministic Stage 4 whole-population inference performance evidence.
 //!
-//! This test-hook-only module uses the production graph compiler, scalar executor,
-//! heterogeneous weight/state resolution, staging, and recurrent commit. Its numeric
+//! This test-hook-only module uses the production graph compiler, selectable scalar/SIMD
+//! executor, heterogeneous weight/state resolution, staging, and recurrent commit. Its numeric
 //! generator is mirrored by scripts/stage4/inferenceFixture.ts so Rust and the
 //! current TypeScript paths can report matching input digests without checking large
 //! fixtures into Git.
@@ -15,7 +15,7 @@ use super::graph::{
 };
 use super::inference::{
     commit_heterogeneous_recurrent, evaluate_heterogeneous_population, GraphExecutionPlan,
-    HeterogeneousInferenceBuffers,
+    HeterogeneousInferenceBuffers, InferenceMathBackend,
 };
 use super::state::{
     BodyRange, BrainHandle, BrainOwner, BrainRuntimeState, GenomeLineage, PopulationGenome,
@@ -113,6 +113,8 @@ impl Stage4InferenceScenarioName {
 pub struct Stage4InferenceEvidenceOptions {
     /// Approved scenario.
     pub scenario: Stage4InferenceScenarioName,
+    /// Explicit scalar or runtime-admitted SIMD implementation under measurement.
+    pub math_backend: InferenceMathBackend,
     /// Untimed complete population passes.
     pub warmup_passes: usize,
     /// Individually timed complete population passes.
@@ -123,7 +125,7 @@ pub struct Stage4InferenceEvidenceOptions {
     pub command: Vec<String>,
 }
 
-/// Complete Rust scalar inference evidence artifact.
+/// Complete Rust inference evidence artifact.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stage4InferenceEvidence {
@@ -255,6 +257,10 @@ pub struct Stage4InferenceWorkload {
 pub struct Stage4InferencePath {
     /// Stable path label.
     pub name: &'static str,
+    /// Stable implementation label selected by the immutable graph plan.
+    pub math_backend: &'static str,
+    /// Whether the requested CPU feature was admitted at runtime.
+    pub runtime_feature_available: bool,
     /// Language owning graph traversal and the due-population loop.
     pub graph_owner: &'static str,
     /// N-API transitions inside a complete population pass.
@@ -351,7 +357,7 @@ struct Fixture {
     initial_recurrent_sha256: String,
 }
 
-/// Run one measured scalar heterogeneous-population workload.
+/// Run one measured scalar or SIMD heterogeneous-population workload.
 pub fn run_stage4_inference_evidence(
     options: Stage4InferenceEvidenceOptions,
 ) -> Result<Stage4InferenceEvidence, String> {
@@ -399,7 +405,7 @@ pub fn run_stage4_inference_evidence(
         return Err("owner-target-vm was declared, but the Debian/Oxygen/Ryzen-2700/8-thread/16-GiB identity checks did not all pass".to_owned());
     }
 
-    let mut fixture = build_fixture(options.scenario)?;
+    let mut fixture = build_fixture(options.scenario, options.math_backend)?;
     let fixture_rss_bytes = linux_process_status_bytes("VmRSS:");
     let scratch_layout = fixture.plan.scratch_layout();
     let scratch_bytes = scratch_layout
@@ -508,17 +514,32 @@ pub fn run_stage4_inference_evidence(
     )?;
     let peak_rss = linux_process_status_bytes("VmHWM:");
     let final_rss = linux_process_status_bytes("VmRSS:");
-    let evidence_class = if options.evidence_environment == "owner-target-vm" {
-        "new measured target-VM Rust scalar result"
-    } else {
-        "new measured development-machine Rust scalar result"
+    let evidence_class = match (options.evidence_environment.as_str(), options.math_backend) {
+        ("owner-target-vm", InferenceMathBackend::Scalar) => {
+            "new measured target-VM Rust scalar result"
+        }
+        ("owner-target-vm", InferenceMathBackend::Sse2) => {
+            "new measured target-VM Rust SSE2 result"
+        }
+        (_, InferenceMathBackend::Scalar) => "new measured development-machine Rust scalar result",
+        (_, InferenceMathBackend::Sse2) => "new measured development-machine Rust SSE2 result",
+    };
+    let (path_name, caveat) = match options.math_backend {
+        InferenceMathBackend::Scalar => (
+            "rust-scalar-coarse-heterogeneous",
+            "Source-shaped synthetic inference-only microbenchmark. It excludes actual fresh/evolved genomes and sensor observations, sensing, physics, frames, Node, N-API, the live coordinator, SIMD, parallelism, and end-to-end server latency; it cannot by itself satisfy the Stage 4 production-workload gate.",
+        ),
+        InferenceMathBackend::Sse2 => (
+            "rust-sse2-coarse-heterogeneous",
+            "Source-shaped synthetic inference-only microbenchmark. It measures the runtime-admitted SSE2 math path but excludes actual fresh/evolved genomes and sensor observations, sensing, physics, frames, Node, N-API, the live coordinator, parallelism, and end-to-end server latency; it cannot by itself satisfy the Stage 4 production-workload gate.",
+        ),
     };
 
     Ok(Stage4InferenceEvidence {
         schema: "slither-stage4-rust-inference-benchmark",
         version: 1,
         evidence_class: evidence_class.to_owned(),
-        caveat: "Source-shaped synthetic inference-only microbenchmark. It excludes actual fresh/evolved genomes and sensor observations, sensing, physics, frames, Node, N-API, the live coordinator, SIMD, parallelism, and end-to-end server latency; it cannot by itself satisfy the Stage 4 production-workload gate.",
+        caveat,
         source: Stage4InferenceSource {
             native_build_identifier: crate::native_addon_build_identifier(),
             native_source_sha256: crate::native_addon_source_sha256(),
@@ -570,7 +591,9 @@ pub fn run_stage4_inference_evidence(
             actual_delivered_sensor_observations: false,
         },
         path: Stage4InferencePath {
-            name: "rust-scalar-coarse-heterogeneous",
+            name: path_name,
+            math_backend: fixture.plan.math_backend().label(),
+            runtime_feature_available: options.math_backend.is_available(),
             graph_owner: "Rust",
             native_calls_per_whole_pass: 0,
             shared_weight_batch: false,
@@ -614,7 +637,7 @@ fn execute_pass(
         .map(|value| f64::from(*value))
         .sum::<f64>();
     if !consumed.is_finite() {
-        return Err("Rust scalar path produced a non-finite output accumulator".to_owned());
+        return Err("Rust inference path produced a non-finite output accumulator".to_owned());
     }
     commit_heterogeneous_recurrent(
         &fixture.plan,
@@ -638,10 +661,13 @@ fn reset_fixture_recurrent(fixture: &mut Fixture) {
 }
 
 /// Construct the complete source-shaped workload outside the measured interval.
-fn build_fixture(scenario: Stage4InferenceScenarioName) -> Result<Fixture, String> {
+fn build_fixture(
+    scenario: Stage4InferenceScenarioName,
+    math_backend: InferenceMathBackend,
+) -> Result<Fixture, String> {
     let graph = compile_graph(&scenario_graph(scenario), &graph_limits())
         .map_err(|error| format!("{} graph compilation failed: {error}", scenario.label()))?;
-    let plan = GraphExecutionPlan::build(&graph)
+    let plan = GraphExecutionPlan::build_with_math_backend(&graph, math_backend)
         .map_err(|error| format!("{} execution planning failed: {error}", scenario.label()))?;
     let count = scenario.population_count();
     let mut snakes = Vec::new();
@@ -1097,6 +1123,7 @@ mod tests {
     fn p0_evidence_runs_synthetic_heterogeneous_stateful_population() {
         let report = run_stage4_inference_evidence(Stage4InferenceEvidenceOptions {
             scenario: Stage4InferenceScenarioName::P0,
+            math_backend: InferenceMathBackend::Scalar,
             warmup_passes: 1,
             measured_passes: 2,
             evidence_environment: "development".to_owned(),
@@ -1145,6 +1172,86 @@ mod tests {
             report.result.final_recurrent_sha256
         );
         assert_eq!(report.path.native_calls_per_whole_pass, 0);
+        assert_eq!(report.path.math_backend, "rust-scalar-v1");
+        assert!(report.path.runtime_feature_available);
         assert!(!report.path.shared_weight_batch);
+    }
+
+    #[test]
+    fn p0_and_p2_whole_population_sse2_results_match_scalar_reference() {
+        assert!(InferenceMathBackend::Sse2.is_available());
+        for scenario in [
+            Stage4InferenceScenarioName::P0,
+            Stage4InferenceScenarioName::P2,
+        ] {
+            let run = |math_backend| {
+                run_stage4_inference_evidence(Stage4InferenceEvidenceOptions {
+                    scenario,
+                    math_backend,
+                    warmup_passes: 0,
+                    measured_passes: 1,
+                    evidence_environment: "development".to_owned(),
+                    command: vec!["unit-test".to_owned()],
+                })
+                .unwrap()
+            };
+            let scalar = run(InferenceMathBackend::Scalar);
+            let simd = run(InferenceMathBackend::Sse2);
+            assert_eq!(scalar.workload.weights_sha256, simd.workload.weights_sha256);
+            assert_eq!(
+                scalar.workload.observations_sha256,
+                simd.workload.observations_sha256
+            );
+            assert_eq!(scalar.path.math_backend, "rust-scalar-v1");
+            assert_eq!(simd.path.math_backend, "rust-sse2-v1");
+            assert_hex_f32_close(
+                &scalar.result.one_step_comparison_probe.outputs_f32_le_hex,
+                &simd.result.one_step_comparison_probe.outputs_f32_le_hex,
+                1.0e-4,
+            );
+            assert_hex_f32_close(
+                &scalar.result.one_step_comparison_probe.recurrent_f32_le_hex,
+                &simd.result.one_step_comparison_probe.recurrent_f32_le_hex,
+                1.0e-4,
+            );
+        }
+    }
+
+    /// Compare raw little-endian Float32 hexadecimal vectors within one tolerance.
+    fn assert_hex_f32_close(left: &str, right: &str, tolerance: f32) {
+        assert_eq!(left.len(), right.len());
+        assert_eq!(left.len() % 8, 0);
+        for (index, (left_chunk, right_chunk)) in left
+            .as_bytes()
+            .chunks_exact(8)
+            .zip(right.as_bytes().chunks_exact(8))
+            .enumerate()
+        {
+            let decode = |chunk: &[u8]| {
+                let mut raw = [0_u8; 4];
+                for (byte_index, raw_byte) in raw.iter_mut().enumerate() {
+                    let offset = byte_index * 2;
+                    *raw_byte =
+                        (test_hex_nibble(chunk[offset]) << 4) | test_hex_nibble(chunk[offset + 1]);
+                }
+                f32::from_le_bytes(raw)
+            };
+            let left_value = decode(left_chunk);
+            let right_value = decode(right_chunk);
+            let difference = (left_value - right_value).abs();
+            assert!(
+                difference <= tolerance,
+                "Float32 mismatch at {index}: {left_value} versus {right_value} (difference {difference})"
+            );
+        }
+    }
+
+    /// Decode one lowercase test hexadecimal nibble.
+    fn test_hex_nibble(byte: u8) -> u8 {
+        match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'a'..=b'f' => byte - b'a' + 10,
+            _ => panic!("invalid test hexadecimal byte"),
+        }
     }
 }

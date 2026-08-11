@@ -6,12 +6,14 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /** Stable comparison artifact version. */
-const COMPARISON_VERSION = 1;
+const COMPARISON_VERSION = 2;
 
 /** Parsed comparator command line. */
 export interface ComparatorOptions {
-  /** Rust scalar report. */
+  /** Runtime-selected Rust SSE2 report. */
   rustPath: string;
+  /** Explicit Rust scalar reference report. */
+  scalarRustPath: string;
   /** Current TypeScript/JavaScript graph report. */
   jsPath: string;
   /** Current TypeScript/count-one-native report. */
@@ -40,6 +42,10 @@ interface RawProbe {
 
 /** Native build fields required to prove a production count-one addon. */
 interface NativeIdentityProof {
+  /** Embedded native selected-source SHA-256. */
+  nativeAddonSourceSha256: string;
+  /** Independently reproduced native selected-source SHA-256. */
+  currentSourceSha256: string;
   /** Cargo profile embedded by the addon. */
   nativeAddonBuildProfile: string;
   /** Production or test-hook build class. */
@@ -56,6 +62,12 @@ interface InferenceReport {
   schema: string;
   /** Rust build fields; current-runtime reports instead use Git identity here. */
   source?: {
+    /** Git commit for current-runtime reports. */
+    commit?: string;
+    /** Whether the current-runtime worktree contained uncommitted changes. */
+    dirty?: boolean;
+    /** Selected native-source digest for standalone Rust reports. */
+    nativeSourceSha256?: string;
     /** Cargo profile for the standalone Rust runner. */
     buildProfile?: string;
     /** Test-hook build class required by the standalone runner. */
@@ -64,6 +76,18 @@ interface InferenceReport {
     targetTriple?: string;
     /** Other source fields differ across report families. */
     [key: string]: unknown;
+  };
+  /** Machine facts emitted in Rust or current-runtime naming. */
+  environment?: {
+    declaration?: string;
+    provenance?: { declaration?: string };
+    operatingSystem?: string;
+    platform?: string;
+    architecture?: string;
+    hostname?: string | null;
+    availableParallelism?: number | null;
+    logicalCpuCount?: number;
+    ownerTargetVmValidated?: boolean;
   };
   /** Workload identity shared by all paths. */
   workload: {
@@ -75,6 +99,10 @@ interface InferenceReport {
     observationsSha256: string;
     /** Initial recurrent-state identity. */
     initialRecurrentSha256: string;
+    /** Untimed complete-population passes. */
+    warmupPasses: number;
+    /** Timed complete-population passes. */
+    measuredPasses: number;
   };
   /** Execution-path identity that must match the report's assigned role. */
   path: {
@@ -82,6 +110,10 @@ interface InferenceReport {
     name: string;
     /** Number of N-API calls inside one complete population pass. */
     nativeCallsPerWholePass: number;
+    /** Stable Rust numeric-backend label. */
+    mathBackend?: string;
+    /** Runtime feature-admission result for a Rust numeric backend. */
+    runtimeFeatureAvailable?: boolean;
     /** Production addon identity, present only for the count-one native path. */
     nativeIdentity?: NativeIdentityProof | null;
   };
@@ -93,7 +125,7 @@ interface InferenceReport {
 }
 
 /** Required semantic role for one comparator input. */
-type ReportRole = 'rust' | 'js' | 'native';
+type ReportRole = 'rust' | 'scalarRust' | 'js' | 'native';
 
 /** Loaded report plus immutable file identity. */
 interface LoadedReport {
@@ -138,14 +170,21 @@ function parseOptions(argv: readonly string[]): ComparatorOptions {
     if (!value) throw new Error(`${option ?? '<missing option>'} requires a value.`);
     switch (option) {
       case '--rust': values.rustPath = path.resolve(value); break;
+      case '--scalar-rust': values.scalarRustPath = path.resolve(value); break;
       case '--js': values.jsPath = path.resolve(value); break;
       case '--native': values.nativePath = path.resolve(value); break;
       case '--output': values.outputPath = path.resolve(value); break;
       default: throw new Error(`Unknown option ${option ?? '<missing>'}.`);
     }
   }
-  if (!values.rustPath || !values.jsPath || !values.nativePath || !values.outputPath) {
-    throw new Error('--rust, --js, --native, and --output are required.');
+  if (
+    !values.rustPath
+    || !values.scalarRustPath
+    || !values.jsPath
+    || !values.nativePath
+    || !values.outputPath
+  ) {
+    throw new Error('--rust, --scalar-rust, --js, --native, and --output are required.');
   }
   return values as ComparatorOptions;
 }
@@ -200,17 +239,24 @@ function validateReportRole(report: InferenceReport, role: ReportRole, reportPat
   const nativeCalls = report.path?.nativeCallsPerWholePass;
   const nativeIdentityPresent = typeof report.path?.nativeIdentity === 'object'
     && report.path.nativeIdentity !== null;
-  if (role === 'rust') {
+  if (role === 'rust' || role === 'scalarRust') {
+    const expectedPath = role === 'rust'
+      ? 'rust-sse2-coarse-heterogeneous'
+      : 'rust-scalar-coarse-heterogeneous';
+    const expectedBackend = role === 'rust' ? 'rust-sse2-v1' : 'rust-scalar-v1';
     if (
       report.schema !== 'slither-stage4-rust-inference-benchmark'
-      || report.path?.name !== 'rust-scalar-coarse-heterogeneous'
+      || report.path?.name !== expectedPath
+      || report.path?.mathBackend !== expectedBackend
+      || report.path?.runtimeFeatureAvailable !== true
       || nativeCalls !== 0
       || nativeIdentityPresent
       || report.source?.buildProfile !== 'release'
       || report.source?.buildClass !== 'test-hooks'
       || !isSupportedTarget(report.source?.targetTriple)
+      || !isSha256(report.source?.nativeSourceSha256)
     ) {
-      throw new Error(`${reportPath} does not prove the Rust scalar coarse heterogeneous path.`);
+      throw new Error(`${reportPath} does not prove the ${expectedPath} path.`);
     }
     return;
   }
@@ -222,6 +268,7 @@ function validateReportRole(report: InferenceReport, role: ReportRole, reportPat
       report.path?.name !== 'current-typescript-js-graph'
       || nativeCalls !== 0
       || nativeIdentityPresent
+      || !isCleanGitSource(report.source)
     ) {
       throw new Error(`${reportPath} does not prove the current TypeScript/JavaScript path.`);
     }
@@ -232,12 +279,28 @@ function validateReportRole(report: InferenceReport, role: ReportRole, reportPat
     || !Number.isSafeInteger(nativeCalls)
     || nativeCalls <= 0
     || !nativeIdentityPresent
+    || !isCleanGitSource(report.source)
+    || !isSha256(report.path.nativeIdentity?.nativeAddonSourceSha256)
+    || report.path.nativeIdentity?.currentSourceSha256
+      !== report.path.nativeIdentity?.nativeAddonSourceSha256
     || report.path.nativeIdentity?.nativeAddonBuildProfile !== 'release'
     || report.path.nativeIdentity?.nativeAddonBuildClass !== 'production'
     || !isSupportedTarget(report.path.nativeIdentity?.nativeAddonBuildTarget)
   ) {
     throw new Error(`${reportPath} does not prove the current count-one native path.`);
   }
+}
+
+/** Return whether a report proves one exact clean Git revision. */
+function isCleanGitSource(source: InferenceReport['source']): boolean {
+  return typeof source?.commit === 'string'
+    && /^[0-9a-f]{40}$/u.test(source.commit)
+    && source.dirty === false;
+}
+
+/** Return whether a value is one lowercase SHA-256 digest. */
+function isSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value);
 }
 
 /** Return whether one exact target is supported by the approved native runtime. */
@@ -300,7 +363,7 @@ export function compareFloat32Buffers(
   };
 }
 
-/** Verify fixture and tolerance identity across the three input reports. */
+/** Verify fixture and tolerance identity across all input reports. */
 function validateSharedIdentity(reports: readonly LoadedReport[]): number {
   const first = reports[0]!;
   const expected = first.report.workload;
@@ -312,6 +375,8 @@ function validateSharedIdentity(reports: readonly LoadedReport[]): number {
       || workload.weightsSha256 !== expected.weightsSha256
       || workload.observationsSha256 !== expected.observationsSha256
       || workload.initialRecurrentSha256 !== expected.initialRecurrentSha256
+      || workload.warmupPasses !== expected.warmupPasses
+      || workload.measuredPasses !== expected.measuredPasses
     ) {
       throw new Error('Inference reports do not describe the same deterministic input fixture.');
     }
@@ -323,20 +388,90 @@ function validateSharedIdentity(reports: readonly LoadedReport[]): number {
   return tolerance;
 }
 
-/** Build, validate, and optionally persist one three-path comparison report. */
+/** Normalize common machine facts across the Rust and current-runtime schemas. */
+function normalizedEnvironment(report: InferenceReport): Record<string, unknown> {
+  const environment = report.environment;
+  const rawPlatform = environment?.operatingSystem ?? environment?.platform;
+  const rawArchitecture = environment?.architecture;
+  const hostname = environment?.hostname;
+  return {
+    declaration: environment?.declaration ?? environment?.provenance?.declaration,
+    platform: rawPlatform === 'windows' ? 'win32' : rawPlatform,
+    architecture: rawArchitecture === 'x86_64' ? 'x64' : rawArchitecture,
+    hostname: typeof hostname === 'string' ? hostname.toLowerCase() : hostname,
+    logicalCpuCount: environment?.availableParallelism ?? environment?.logicalCpuCount,
+    ownerTargetVmValidated: environment?.ownerTargetVmValidated
+  };
+}
+
+/** Require all four timing reports to describe the same measured host. */
+function validateSharedEnvironment(reports: readonly LoadedReport[]): Record<string, unknown> {
+  const expected = normalizedEnvironment(reports[0]!.report);
+  const encoded = JSON.stringify(expected);
+  if (Object.values(expected).some(value => value === undefined || value === null)) {
+    throw new Error('Inference report is missing required common host identity fields.');
+  }
+  for (const candidate of reports.slice(1)) {
+    if (JSON.stringify(normalizedEnvironment(candidate.report)) !== encoded) {
+      throw new Error('Inference reports do not describe the same measured host environment.');
+    }
+  }
+  return expected;
+}
+
+/** Require every compared implementation to belong to one exact clean source set. */
+function validateSharedSourceIdentity(
+  rust: LoadedReport,
+  scalarRust: LoadedReport,
+  js: LoadedReport,
+  native: LoadedReport
+): Record<string, string> {
+  const rustSha = rust.report.source?.nativeSourceSha256;
+  const scalarSha = scalarRust.report.source?.nativeSourceSha256;
+  const nativeSha = native.report.path.nativeIdentity?.nativeAddonSourceSha256;
+  if (!isSha256(rustSha) || rustSha !== scalarSha || rustSha !== nativeSha) {
+    throw new Error('Rust SSE2, Rust scalar, and count-one native reports do not share one native source SHA-256.');
+  }
+  const targetTriple = rust.report.source?.targetTriple;
+  if (!isSupportedTarget(targetTriple)
+    || targetTriple !== scalarRust.report.source?.targetTriple
+    || targetTriple !== native.report.path.nativeIdentity?.nativeAddonBuildTarget) {
+    throw new Error('Rust SSE2, Rust scalar, and count-one native reports do not share one target triple.');
+  }
+  const jsCommit = js.report.source?.commit;
+  const nativeCommit = native.report.source?.commit;
+  if (!isCleanGitSource(js.report.source)
+    || !isCleanGitSource(native.report.source)
+    || jsCommit !== nativeCommit) {
+    throw new Error('Current JavaScript and count-one native reports do not share one clean Git commit.');
+  }
+  return {
+    nativeSourceSha256: rustSha,
+    currentRuntimeCommit: jsCommit,
+    targetTriple
+  };
+}
+
+/** Build, validate, and optionally persist one four-path comparison report. */
 export function runComparison(options: ComparatorOptions): Record<string, unknown> {
   const rust = loadReport(options.rustPath, 'rust');
+  const scalarRust = loadReport(options.scalarRustPath, 'scalarRust');
   const js = loadReport(options.jsPath, 'js');
   const native = loadReport(options.nativePath, 'native');
-  const reports = [rust, js, native] as const;
+  const reports = [rust, scalarRust, js, native] as const;
   const tolerance = validateSharedIdentity(reports);
+  const sourceIdentity = validateSharedSourceIdentity(rust, scalarRust, js, native);
+  const environmentIdentity = validateSharedEnvironment(reports);
   const compare = (left: LoadedReport, right: LoadedReport) => ({
     outputs: compareFloat32Buffers(left.outputs, right.outputs, tolerance),
     recurrent: compareFloat32Buffers(left.recurrent, right.recurrent, tolerance)
   });
   const comparisons = {
-    rustVsJs: compare(rust, js),
-    rustVsCountOneNative: compare(rust, native),
+    rustSse2VsRustScalar: compare(rust, scalarRust),
+    rustSse2VsJs: compare(rust, js),
+    rustSse2VsCountOneNative: compare(rust, native),
+    rustScalarVsJs: compare(scalarRust, js),
+    rustScalarVsCountOneNative: compare(scalarRust, native),
     jsVsCountOneNative: compare(js, native)
   };
   const failureCount = Object.values(comparisons).reduce(
@@ -351,10 +486,14 @@ export function runComparison(options: ComparatorOptions): Record<string, unknow
     version: COMPARISON_VERSION,
     scenario: scenarioName(rust.report),
     fixture: rust.report.workload,
-    sources: Object.fromEntries(reports.map(report => [
-      path.basename(report.path),
-      report.reportSha256
-    ])),
+    sourceIdentity,
+    environmentIdentity,
+    sources: {
+      rustSse2: { file: path.basename(rust.path), sha256: rust.reportSha256 },
+      rustScalar: { file: path.basename(scalarRust.path), sha256: scalarRust.reportSha256 },
+      currentJs: { file: path.basename(js.path), sha256: js.reportSha256 },
+      currentCountOneNative: { file: path.basename(native.path), sha256: native.reportSha256 }
+    },
     comparisons,
     command: process.argv
   };
