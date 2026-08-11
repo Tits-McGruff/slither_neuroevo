@@ -4,6 +4,9 @@
 pub mod calculation;
 /// Bounded managed checkpoint-v3 codec and immutable-file publication.
 pub mod checkpoint;
+/// Deterministic test-hook fixture for the real checkpoint publication boundary.
+#[cfg(feature = "engine-test-hooks")]
+pub(crate) mod checkpoint_fixture;
 /// Versioned coarse-command and bounded-queue contracts.
 pub mod contract;
 /// Background coordinator implementation; only its lifecycle is public.

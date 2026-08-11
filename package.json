@@ -20,6 +20,7 @@
     "test:performance": "tsx scripts/run-tests.ts performance",
     "test:security": "tsx scripts/run-tests.ts security",
     "test:native-required": "tsx scripts/run-tests.ts native-required",
+    "test:stage3-checkpoint-handoff": "tsx scripts/stage3/checkpoint-handoff-evidence.ts",
     "test:native": "npm --prefix native run build && cargo test --manifest-path native/Cargo.toml --release",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",

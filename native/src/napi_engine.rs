@@ -5,6 +5,8 @@
 //! never exposes per-snake, per-layer, or per-step subsystem calls.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
+#[cfg(feature = "engine-test-hooks")]
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
@@ -21,6 +23,8 @@ use crate::engine::error::{EngineError, EngineErrorCode, MAX_ERROR_DETAIL_BYTES}
 use crate::engine::queues::WakeSink;
 use crate::engine::runtime::{EngineHealth, EngineRuntime};
 use crate::engine::LifecycleState;
+#[cfg(feature = "engine-test-hooks")]
+use crate::engine::{checkpoint::CheckpointDescriptor, checkpoint_fixture::publish_stage3_fixture};
 
 /// The one-slot, weak, nonblocking wake notification used by the bridge.
 type WakeThreadsafeFunction = ThreadsafeFunction<(), (), (), Status, false, true, 1>;
@@ -47,10 +51,196 @@ const MAX_NAPI_QUEUE_OWNED_BYTES: usize = 512 * 1024 * 1024;
 const MAX_NAPI_BATCH_RESERVATION_BYTES: usize =
     MAX_NAPI_BATCH_METADATA_BYTES + MAX_NAPI_BATCH_OWNED_BYTES;
 
+/// Test-hook-only request for one real managed checkpoint publication.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage3CheckpointFixtureOptions {
+    /// Disposable server-controlled directory receiving the immutable file.
+    pub managed_directory: String,
+    /// Exact 32-digit lowercase hexadecimal operation identifier.
+    pub operation_id: String,
+    /// Exact positive transition epoch as 16 lowercase hexadecimal digits.
+    pub transition_epoch: String,
+}
+
+/// Scalar-only descriptor returned by the real Rust checkpoint publisher.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage3CheckpointFixtureDescriptor {
+    /// Descriptor protocol version.
+    pub protocol_version: u32,
+    /// Exact operation identifier.
+    pub operation_id: String,
+    /// Exact transition epoch.
+    pub transition_epoch: String,
+    /// Exact run identity.
+    pub run_id: String,
+    /// Exact generation.
+    pub generation: String,
+    /// Exact completed fixed-step count.
+    pub completed_step: String,
+    /// Generation-boundary kind.
+    pub boundary_kind: String,
+    /// Managed checkpoint format version.
+    pub checkpoint_format_version: String,
+    /// Authoritative state contract version.
+    pub state_version: String,
+    /// Compiled graph-layout version.
+    pub graph_layout_version: String,
+    /// Fixed controlled managed-root label.
+    pub managed_root: String,
+    /// Digest-derived immutable filename.
+    pub relative_filename: String,
+    /// Encoding-independent logical root.
+    pub logical_root_sha256: String,
+    /// Complete stored archive bytes.
+    pub stored_byte_count: String,
+    /// Aggregate decoded logical bytes.
+    pub decoded_byte_count: String,
+    /// Logical role count.
+    pub role_count: String,
+    /// Dense population count.
+    pub population_count: String,
+    /// Packed population weight count.
+    pub weight_count: String,
+    /// Packed recurrent-state count.
+    pub recurrent_state_count: String,
+    /// Selected population-weight encoding.
+    pub weights_encoding: String,
+    /// Selected recurrent-state encoding.
+    pub recurrent_state_encoding: String,
+    /// Ordered graph-layout digest.
+    pub graph_layout_sha256: String,
+    /// Completed write-validation policy.
+    pub write_validation_policy: String,
+}
+
 /// Return the exact experimental engine command/event contract version.
 #[napi(js_name = "experimentalEngineContractVersion", catch_unwind)]
 pub fn experimental_engine_contract_version() -> u32 {
     ENGINE_CONTRACT_VERSION
+}
+
+/// Publish one real deterministic checkpoint on libuv's worker pool.
+///
+/// This export exists only in an explicitly feature-gated test-hooks addon.
+/// Population, graph, recurrent-state, and archive bytes remain entirely in Rust;
+/// JavaScript receives only the scalar descriptor required by the metadata worker.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(js_name = "publishStage3CheckpointFixture", catch_unwind)]
+pub fn publish_stage3_checkpoint_fixture(
+    options: Stage3CheckpointFixtureOptions,
+) -> Result<AsyncTask<PublishStage3CheckpointFixtureTask>> {
+    if options.managed_directory.is_empty() || options.managed_directory.contains('\0') {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "managedDirectory must be a nonempty path without NUL",
+        ));
+    }
+    let transition_epoch = parse_test_hook_epoch(&options.transition_epoch)?;
+    Ok(AsyncTask::new(PublishStage3CheckpointFixtureTask {
+        managed_directory: PathBuf::from(options.managed_directory),
+        operation_id: options.operation_id,
+        transition_epoch,
+    }))
+}
+
+/// Async work item owning all filesystem and codec work for the test hook.
+#[cfg(feature = "engine-test-hooks")]
+pub struct PublishStage3CheckpointFixtureTask {
+    managed_directory: PathBuf,
+    operation_id: String,
+    transition_epoch: u64,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+impl Task for PublishStage3CheckpointFixtureTask {
+    type Output = CheckpointDescriptor;
+    type JsValue = Stage3CheckpointFixtureDescriptor;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            publish_stage3_fixture(
+                &self.managed_directory,
+                &self.operation_id,
+                self.transition_epoch,
+            )
+        })) {
+            Ok(Ok(descriptor)) => Ok(descriptor),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "Stage 3 checkpoint fixture panicked: {}",
+                    panic_detail(payload.as_ref())
+                ),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(checkpoint_descriptor_to_napi(output))
+    }
+}
+
+/// Parse one canonical positive u64 epoch without JavaScript Number narrowing.
+#[cfg(feature = "engine-test-hooks")]
+fn parse_test_hook_epoch(value: &str) -> Result<u64> {
+    if value.len() != 16
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "transitionEpoch must be 16 lowercase hexadecimal digits",
+        ));
+    }
+    let epoch = u64::from_str_radix(value, 16).map_err(|_| {
+        Error::new(
+            Status::InvalidArg,
+            "transitionEpoch is not a canonical unsigned 64-bit value",
+        )
+    })?;
+    if epoch == 0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "transitionEpoch must be positive",
+        ));
+    }
+    Ok(epoch)
+}
+
+/// Convert the Rust descriptor without exposing any authoritative payload bytes.
+#[cfg(feature = "engine-test-hooks")]
+fn checkpoint_descriptor_to_napi(
+    descriptor: CheckpointDescriptor,
+) -> Stage3CheckpointFixtureDescriptor {
+    Stage3CheckpointFixtureDescriptor {
+        protocol_version: descriptor.protocol_version,
+        operation_id: descriptor.operation_id.as_str().to_owned(),
+        transition_epoch: descriptor.transition_epoch_hex,
+        run_id: descriptor.run_id,
+        generation: descriptor.generation_hex,
+        completed_step: descriptor.completed_step_hex,
+        boundary_kind: descriptor.boundary_kind.as_str().to_owned(),
+        checkpoint_format_version: descriptor.checkpoint_format_version_hex,
+        state_version: descriptor.state_version_hex,
+        graph_layout_version: descriptor.graph_layout_version_hex,
+        managed_root: descriptor.managed_root,
+        relative_filename: descriptor.relative_filename,
+        logical_root_sha256: descriptor.logical_root_sha256,
+        stored_byte_count: descriptor.stored_byte_count_hex,
+        decoded_byte_count: descriptor.decoded_byte_count_hex,
+        role_count: descriptor.role_count_hex,
+        population_count: descriptor.population_count_hex,
+        weight_count: descriptor.weight_count_hex,
+        recurrent_state_count: descriptor.recurrent_state_count_hex,
+        weights_encoding: descriptor.weights_encoding.as_str().to_owned(),
+        recurrent_state_encoding: descriptor.recurrent_state_encoding.as_str().to_owned(),
+        graph_layout_sha256: descriptor.graph_layout_sha256,
+        write_validation_policy: descriptor.write_validation_policy.as_str().to_owned(),
+    }
 }
 
 /// JavaScript initialization limits for the experimental engine.
@@ -1296,6 +1486,31 @@ mod tests {
             u64::MAX
         );
         assert!(require_lossless_u64(u64::MAX, false, "value").is_err());
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    #[test]
+    fn test_hook_epoch_requires_canonical_positive_lowercase_hex() {
+        assert_eq!(
+            parse_test_hook_epoch("0000000000000001").expect("one is canonical"),
+            1
+        );
+        assert_eq!(
+            parse_test_hook_epoch("ffffffffffffffff").expect("u64 max is canonical"),
+            u64::MAX
+        );
+        for invalid in [
+            "0000000000000000",
+            "1",
+            "000000000000000A",
+            "-000000000000001",
+            "gggggggggggggggg",
+        ] {
+            assert!(
+                parse_test_hook_epoch(invalid).is_err(),
+                "accepted {invalid}"
+            );
+        }
     }
 
     #[test]
