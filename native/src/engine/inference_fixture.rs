@@ -380,9 +380,7 @@ pub fn run_stage4_inference_evidence(
             "Stage 4 performance evidence does not support target {target_triple}"
         ));
     }
-    let hostname = env::var("HOSTNAME")
-        .or_else(|_| env::var("COMPUTERNAME"))
-        .ok();
+    let hostname = system_hostname();
     let available_parallelism = std::thread::available_parallelism().ok().map(usize::from);
     let distribution_id = linux_os_release_value("ID");
     let cpu_model = linux_cpu_model();
@@ -1017,6 +1015,23 @@ fn linux_process_status_bytes(field: &str) -> Option<u64> {
     kibibytes.checked_mul(1024)
 }
 
+/// Read the operating system hostname without trusting an optional shell variable.
+fn system_hostname() -> Option<String> {
+    if env::consts::OS == "linux" {
+        if let Ok(raw_hostname) = fs::read_to_string("/proc/sys/kernel/hostname") {
+            let hostname = raw_hostname.trim();
+            if !hostname.is_empty() {
+                return Some(hostname.to_owned());
+            }
+        }
+    }
+    env::var("COMPUTERNAME")
+        .or_else(|_| env::var("HOSTNAME"))
+        .ok()
+        .map(|hostname| hostname.trim().to_owned())
+        .filter(|hostname| !hostname.is_empty())
+}
+
 /// Read one unquoted key from Linux /etc/os-release.
 fn linux_os_release_value(key: &str) -> Option<String> {
     if env::consts::OS != "linux" {
@@ -1071,6 +1086,11 @@ mod tests {
             assert_eq!(graph.total_parameters, parameters);
             assert_eq!(graph.total_state_size, recurrent);
         }
+    }
+
+    #[test]
+    fn reads_a_nonempty_system_hostname_without_requiring_hostname_environment() {
+        assert!(system_hostname().is_some());
     }
 
     #[test]
