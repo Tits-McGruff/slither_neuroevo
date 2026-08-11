@@ -4,6 +4,14 @@
 //! moves bounded command batches and already-prepared events across N-API; it
 //! never exposes per-snake, per-layer, or per-step subsystem calls.
 
+#![cfg_attr(
+    all(test, feature = "engine-test-hooks"),
+    allow(
+        dead_code,
+        reason = "feature-gated N-API exports are invoked by Node integration tests"
+    )
+)]
+
 use std::panic::{catch_unwind, AssertUnwindSafe};
 #[cfg(feature = "engine-test-hooks")]
 use std::path::PathBuf;
