@@ -15,6 +15,8 @@ mod coordinator;
 pub mod error;
 /// Deterministic graph validation, layout, and compilation contracts.
 pub mod graph;
+/// Safe scalar complete-graph and heterogeneous-population inference.
+pub mod inference;
 /// Bounded inbound/outbound queues and coalesced wake contracts.
 pub mod queues;
 /// Versioned deterministic random-number generation shared by engine state.
