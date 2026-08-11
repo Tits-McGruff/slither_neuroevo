@@ -1,0 +1,203 @@
+{
+  "schema": "slither-stage4-current-inference-benchmark",
+  "version": 1,
+  "evidenceClass": "new measured development-machine current-runtime result",
+  "caveat": "Source-shaped synthetic inference-only microbenchmark. It excludes actual fresh/evolved genomes and sensor observations, sensing, physics, frames, Node workers, the Rust-authoritative coordinator, and end-to-end server latency; it cannot by itself satisfy the Stage 4 production-workload gate.",
+  "source": {
+    "commit": "69997a0ad7b605f47d8f83860378ace02dd4c307",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-08-11T09:09:08.452Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "osType": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "osVersion": "Windows 11 Pro",
+    "distributionId": null,
+    "hostname": "Beryllium",
+    "node": "v24.12.0",
+    "v8": "13.6.233.17-node.37",
+    "cpuModel": "AMD Ryzen 7 5800X 8-Core Processor",
+    "logicalCpuCount": 16,
+    "totalMemoryBytes": 68627632128,
+    "ownerTargetVmValidated": false,
+    "provenance": {
+      "declaration": "development",
+      "ownerTargetVmValidated": false
+    }
+  },
+  "workload": {
+    "fixtureVersion": 1,
+    "fixtureClass": "source-shaped deterministic synthetic numeric data",
+    "scenario": {
+      "name": "P0",
+      "populationCount": 55,
+      "inputSize": 83,
+      "description": "55 differently weighted synthetic population brains, v3/16-bin input shape, 64/64 MLP, GRU-16, Dense-2",
+      "graphSpec": {
+        "type": "graph",
+        "nodes": [
+          {
+            "id": "input",
+            "type": "Input",
+            "outputSize": 83
+          },
+          {
+            "id": "mlp",
+            "type": "MLP",
+            "inputSize": 83,
+            "hiddenSizes": [
+              64
+            ],
+            "outputSize": 64
+          },
+          {
+            "id": "gru",
+            "type": "GRU",
+            "inputSize": 64,
+            "hiddenSize": 16
+          },
+          {
+            "id": "head",
+            "type": "Dense",
+            "inputSize": 16,
+            "outputSize": 2
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "mlp"
+          },
+          {
+            "from": "mlp",
+            "to": "gru"
+          },
+          {
+            "from": "gru",
+            "to": "head"
+          }
+        ],
+        "outputs": [
+          {
+            "nodeId": "head"
+          }
+        ],
+        "outputSize": 2
+      }
+    },
+    "graphKey": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+    "totalParametersPerBrain": 13458,
+    "recurrentFloatsPerBrain": 16,
+    "outputFloatsPerBrain": 2,
+    "weightsSha256": "5d08fee2550b4c438e96608fac993845967fb5c5edc2e5ac09a40ea23cd18d69",
+    "observationsSha256": "c10e2266960c4ba346855f4114d80c27f25970eb46a30cc948de0d6f886aeb5b",
+    "initialRecurrentSha256": "686f728d7c1057e652ae0f69b359ddc2d4318885cfcedde08477b775049fecd1",
+    "differentlyWeightedBrains": true,
+    "distinctObservations": true,
+    "nonzeroRecurrentState": true,
+    "actualFreshOrEvolvedGenomes": false,
+    "actualDeliveredSensorObservations": false,
+    "warmupPasses": 20,
+    "measuredPasses": 120
+  },
+  "path": {
+    "name": "current-typescript-count-one-native",
+    "graphOwner": "TypeScript",
+    "nativeIdentity": {
+      "nativeAddonBuildIdentifier": "slither_native/0.1.0+69997a0ad7b6.d5ddda1497b88824",
+      "nativeAddonSourceSha256": "6fbe621157cfd737d0bd941ea95331a7f2eddafb1b36412e9dd843ed08c728d4",
+      "currentSourceSha256": "6fbe621157cfd737d0bd941ea95331a7f2eddafb1b36412e9dd843ed08c728d4",
+      "nativeAddonBuildTarget": "x86_64-pc-windows-msvc",
+      "nativeAddonBuildProfile": "release",
+      "nativeAddonBuildClass": "production",
+      "nativeAddonRustcVersion": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "nativeAddonBuildContractSha256": "sha256:3b592e686658f6c9e452b4cd898f12700c455077ecf4da9c2635cbdb342b2cfa"
+    },
+    "nativeKernelNodesPerBrain": 3,
+    "nativeCallsPerWholePass": 165,
+    "sharedWeightBatch": false
+  },
+  "result": {
+    "wholePopulationPassMs": {
+      "count": 120,
+      "min": 0.3178,
+      "p50": 0.3243,
+      "p95": 0.35718,
+      "p99": 0.384469,
+      "max": 0.4174,
+      "mean": 0.328507
+    },
+    "oneStepComparisonProbe": {
+      "absoluteTolerance": 0.0001,
+      "outputsF32LeHex": "55a028bd9c578ebdfb3bbe3c60283a3d7b78523dbf5ac23c3a0d55bdae4175bd52d1263d27aa123dfd163b3d07bc023dd4f5ff3caee4263d28a8213d84e40e3d0ed18cbd62f53abd84ddf73c2d9f223da434fe3c0c28283db261ec3cb965313daf74153d22a2153d6cb0503d3420b83c513158bde0267bbda68749bd053884bd4b5275bdb01969bddbdf62bd8a0573bde222173de4c51a3da8c187bdf4764cbda9f21d3d17b71c3dc5644f3d88d5bb3c3dfb27bdfcef8ebd11eec23c0127403d0f4cc63ca7c8443d345a60bdfa436fbd50bc49bd740584bdb316323da140e83c7f664bbd14b182bda594363d4fb1f03c00e683bd409d47bdd52b8abd07f93bbd3e33ff3cde09373ddcb027bdd8d98ebdc27efb3cea63383dbe5649bdab2984bd60a4c73c0b64443d0da474bd42d86abdeaaf60bd03c86ebd79f9353d2ae1d53cf81284bda54b46bd36a6323d6a14e93cdf7981bd95e944bde089203d2cc7093d137d583d31c6c63c4f2e15bd164893bd8c2825bd55118cbd085451bd4e9573bd23a8413dd909ec3ccfe71d3d62911c3d156f41bdec2881bd6aef3dbd65ce7dbde529173d41bd1a3d533a84bd8fb646bd3073163ded98153d",
+      "recurrentF32LeHex": "1ef294bcce5ce2bc258802bd822e793c40abf3bc0965a8bcc09d17bdd4b1b1bc7bcbc1bc7e70ff3b45d2b63cb801e0bca47a1dbdbe5781bc7c4639bc7db9853cc465653c6037593cc491af3c32b499bcaf3b593d73aad03cc0a6fb3c2e04043b9c92033dbeb607bccaea58bd7a33453d3400e93c5ec706bba0c0e93c1cdf63bc98c8343ca65b9e3c94b2c23c9b3cabbc45411a3d3d6e1a3d31500e3d1f8bb83b12b7ef3c14a7c6bc5c5b5ebd4175043d2e5e913c807f863c46e8b93cce3da7bccf2c88bceb47ddbcc1d10bbdd409423c9c03e4bc6603e4bc361922bd42b063bc06b0a5bc8ee3193cde41cd3c51f0a9bc6bccf1bcd0bc8abc8295a9bbaa23a23c5085f83a410ffc3b779b893cea27d1bc302a543d11bd063dc8a6033da669403cd6e4193db4b35abc67e48dbd4b983b3d3ca0b33c41e1de3bc17f863cc24b27bcc0138f3bcc02273cec80863c2991e3bc9c7f3f3d15f4043d08d9003de565263c0af00d3db69764bc820d84bd2dc6243d5f93a03c42598c3b0653953c14631cbcfaf0913c847ac73c6439e73c0afb37bc820d363da983da3c20080b3d62b662bb7670e23c68c085bcaeb038bdc452283de0a1d23c7a22ed3bcd08003d4192b2bc0cf53d3b646a043c4d66893c1b5fd4bc8283513d8ea8073d1b75043d5c46473c98cb173dce845dbc26e089bd1cd43c3d0e37b93cff97063c8877923caa0437bc38b89fbcd8e33cbc2cad30bd5839c43c544e46bc42800ebd4a4bc1bc2a0d91bcd6e215bda3c1973c47eda63c6b918cbc7fc9ccbc76ccc9bc30e312ba80e3733a4667983c7893c63c63dde43c0e8841bc8da0343dd81cdf3cb3ff0b3d2c5520bbd581dd3c3b3c8cbc96c933bd982d263dbbb9d93ce045043c90b2033d2309b8bcc86f913cb6a5c53ce9c9e43c7ac43abce1be353df65fd93cc1550c3d1e0f6ebb7816e13ca2d987bc89b238bd449b273d5188d43ca0f2e93b1652003dab83b3bc0ebd813cef7c823c83f4a63c239bafbcef69403d4e69c23ce1bdf93ca057d3397fe6f93c10470ebca28944bd6052303de740d43cc7fababbaf90f53c315f4ebc84a3a33c4f48d53c77c4e33c340161bc29f71d3d5af8d63c8909093d31157abbfb77d63cd62c8bbc7c8421bda8ea123de7dabd3c1ab7903b8026083dac76a9bc1c3d1f3cbd56ac3c3d0bd23c84f39bbc1c43243df665143dab190f3d6b2bcb3b338cf23ca30ab8bca7a85fbdfefb043dc4b28f3c68464c3c9886a13c981aaabc1f5d8dbc6c41e8bcf89f10bdc41c473c0095edbcaacee0bcff5827bd83c563bcee7cb0bc747c0f3c9204c93cbfc6adbc6a58efbcfe2c88bc07ccbabb44aaa73ccfa675bcb096d5bc3a1b1fbd40d8413c926ee4bc2bc1c7bca9b618bdbada81bc393994bc71d6ed3b3c07cc3cdff6aabcd2eff8bc0a348dbcf6810bbb6e48b33ce2f79dbcd82237bca0ba2fbdba31e33cdee565bcac6cf5bcef25a1bc53ffbbbca68d21bd9476883c76ada63cdb34b5bc661706bd04fed1bcd828d9bb504b973971bc89bcee6c04bccaef37bde594dd3ca32c58bc12ddddbcee936fbc300bc8bc8a8b0ebd8d0e843cf70daf3cbb18a3bc7d370ebdbb86d6bc68a13cbb1845843adabfa83cd113c83cba95cc3c78ef86bce850163de7a6e03c2fbe073db6049dbbf89ad23c44919cbcf6b723bd8fb7103d018cc43cec92e53b7c63113d8a319fbc8b7e8abcf20430bc36f543bd5367ba3c582952bc72fc00bdf017acbca5d79cbc2c7606bd8ea9873c19a4a73c8ff08abcc966cfbce3d4c7bc7a0d183b52c91f3bc677a03cca3ec63c17f9d13cc6a87cbc59c5193de047df3c22a6053d5d55b0bb5adad93c1ab897bc59142bbdafeb113d8eb8b73c16ccc63bf9110b3d379896bc42f7243c88cbaf3c3028d23c43369dbc3168223d22a6133d1024103db340c33b5e52f33c236eb6bca4745dbd86dc053d6624933cccbb4f3c3e22a53cbe67acbc0c7f91bc706ae1bc3a6602bd6c9c7d3c7dd8f0bcaac0a7bc31ec17bdc93ab1bcd4b5c0bc3d8dff3b3c36b93cea32e0bcd41a1ebd09bf83bc4ed233bc8c64863c486d5b3c26c3613c7dd1b13c22ca98bcced3583ded86ca3c4eb4fb3c684b6b3acb5c053d51eeebbbd07b5bbd053f483d8aa7e43c4a1a34bbff18e73c503f5bbcdaf86c3c7619553ce3e09d3c0110afbce3394f3d844dd53c7149f83c00cd9db9e895043ded211bbcf5c75ebd9a73463dd221e83c50de9cb91429f63ca66349bc6ee699bc8c1c14bc2e4d3abd5ee0d53ceb8d59bc1fdedabc57b786bc181fc6bc7c0e12bde0e3863c8c24a13c7520babc80d911bd70d3d8bcd42bd8ba48d4c73aded17dbcdfddd5bcfb001fbdb806403c9c0be7bc500ac9bc4a0c18bd281683bcd29794bc49c5e73bb83cc93c3ee2aabcc8d6f7bcf2df8abc002524bb1604b33ca140963bdf92483c0661973cb42bd7bc2469473d20b2013d3593003d788d4a3ce87a0a3ddceb4abc479a7cbd40e3253d4004ab3cfe0e413b0543943c419537bcaed077bccb71d6bcc1111dbdae51383c3d09e7bcaa82cabc7d9815bd885285bcc17990bc3ee9f43bdcedc83c0f68abbc2e9df6bc326086bc506022bb32cdb03c0455733b0db03d3c3f8d953c22d8d4bce6de493da805003d454e003d7c1f413c05460c3d5e2549bc17f081bd60f2243dfd32a53cb85dd33a4926883ce18128bc1f37a0bcdece23bc94ef44bdc2e0b63cd09549bc9b5900bdb922b5bcdf639cbc144e0abd44638a3cd01d9c3c69c99abcc4dbdfbc10b2cfbc79a75b3ba691243bcf2eb3bc882648bc8a2f37bde858c23ca7f249bc50e809bdb2cad6bc45e98ebcd6a71dbd459f943c93b3983c3053a4bcdce7d8bc9706d2bc4001c238bc6df93a5edf7f3c7eb96d3cd4c8983cfb6bbcbc03df3b3d61f2ca3cb0abf13ceefb8eba4419fe3c5afc20bc91424fbd74e92f3ddeaeca3ce1a377bb0f65f73c527129bc921c91bc0141e1bcd55702bd586b7f3ca458f0bc2905a8bc262518bd3c98b0bcce82c0bcbe90fd3bf04fb93cc6b1dfbce8061ebd326584bc08dc33bcc3de863cf4347f3c946b6d3ce944953ccf8ebebc62ff3a3d00acca3c42a5f33c866ca8ba746ffb3ce2a627bce0794ebdccd02e3ded0acd3c8c2e84bbf5e3f93c5a0f2cbc682276bc56afd5bc5b0c1fbd4110413c90c9e4bc6c1bc8bc5ecb18bdb5c181bc8ae193bc1cc3ed3b7edfcb3cfab8aabc7aeef8bcaf108dbc1eac0bbb5686b33cd6e3673c3cfb483c78569b3c50ebadbc23d2503d6ea6d53c2e63fa3c207763b92161033dcf7623bc460f61bd922c443daacfe63cf018eab96d1ff33cdc3647bc29099cbccc7c34bc61342fbdc64ee53c9d2262bc1ef9f4bcc4c4a0bc236cbcbc801121bd2544893c15a2a83c36a5b5bc6c8b06bdde8ed4bcac52cbbb4014e039e8c898bc9c5315bc26b33abda325d53c320459bcb23bdabc8eef87bcd077c5bc166812bd9477873ccdd3a13cddfeb9bc52ed11bd445cd8bc2882d9baec07b73a68dd0c3c046ea23c6725ce3c81958fbc5aef353dc6c3143deb51133d08ae043c6457013dd946b7bc358769bd83b41c3d7c8ead3cc10d8b3cee36a13cf302bcbc0248a3bce6be24bc410445bdc93ab53cd2584ebc021101bd039db4bc54829cbc1e8c0abde6d1883cb947993c62509abcc9efdebcb779cdbc82aa403b20b7203b90ca8e3b642b413c2666953c2250d7bcfbfa473dc642013d0067003d59624d3c8e0a093d502454bc4be47ebd4333243d0cc6aa3c706d203b08e1923ca01836bc9115a7bc38ae0fbc32d843bd1da2b83c8ea743bcf71e01bd7459b0bcbd5f9bbc95ef0abd37c2893c4bdc9d3ce42095bc1d91e6bc9863d2bc93404a3b1ee4013ba83ce13af445223c4a37993c728fc3bc13315c3d7676013d1293033df448563c00431b3d7f6534bc438589bdcb333f3d766fbc3cd9889a3b683a7e3c08fe39bc8132243c6b099d3c6fd1c53c4a11a6bc8af51c3dc3f01a3daa8c0c3ddfb7ab3b485af83c9286c5bc35c165bdd6c2043d94fd873cf63b753cf183ab3ce8859fbc0a5c8bbcbdd3cabcef910ebd5a72743c54b0e8bcc0d28bbcb4bf06bda6a4bfbc8f11a3bc4979cf3bc3f3b83cfd3bd2bc764b24bdc67989bc32c702bc9a138c3c6beb94bc4b33d7bc530900bd66527a3cd093ebbc6645a9bcbb8515bda70cb0bc6224bdbc3888033cce49ba3c462cdabc01e31ebd38f385bc56ea38bc98687c3cb84598bc62f1e4bca7f60cbd6ab43f3ccf7ee9bc4ecad9bca19f2abde0645bbc2327b4bcca6f163c3a63bf3ce826c2bc86ed00bdb5a989bc91188cbbe43da23c49dc083c40c9913ca96ec33c953c97bcbdd5303dfe5a1a3db183103d4b9acb3b273e073dbb1cbebcd85075bd3cfb1c3ddecea03c13af983cf95e9f3cb6edaabc48bca03cbd60c63c99fad13c549d7cbcb2b0193d6324df3c787e053df6afb0bb8ac4d93c6c7697bc62ee2abde8f1113ddde6b73cac4fc73b97380b3dff8896bc0e668dbc433fd3bc1ced1dbd266c3d3cf3d6e3bce99ac0bc88a81ebd2ea475bcd6789cbc7c6dea3bab8bc13c6c16bdbc1d0b06bdb25e90bc7cfd8bba98daad3cad9392bc7194c8bcb9f41abd01083a3c312fe0bcfdd1c3bcc85a1abd6f2c77bcebdc97bcfee5ea3b5c3ec13cf3b7b8bc573407bdbbad91bc50beafba47dda73cfac5a83c4cf6c73c4b99cc3ca6e586bc1143163d0096e03cdbcd073d174e9dbb678ed23c4a729cbc4aac23bda6cb103db28fc43cab31e63b6673113d10289fbc0962a3bc963625bcb33d45bdf3f9b43c466f4ebcfbd100bdd525b4bc460f9dbc83ac0abd4010893cd84b993ca0ea9abca1c6debc6022cdbc91f4413b54dc1c3b8f5aa13c5942cf3c562de13cee6e5fbc0c781f3d88b1d63c85c3093d88db77bb57dbd53c63cc8fbc259024bdb28b103d09cdbd3c2afe883b645c063dde87a7bc",
+      "outputFloats": 110,
+      "recurrentFloats": 880,
+      "outputsSha256": "c05f37f22fac0832af2c49cc559fedb7b13ba71249ad55e0bfcfd0285d45b17f",
+      "recurrentSha256": "8ffd8dcf0879b9aada0bb15d5f0758dc421567ef8f0022588fa61e7da339fba4",
+      "consumedOutput": -0.792397417,
+      "scope": "raw complete-population Float32 result from the shared initial state; excluded from timed samples and reset before warmup; compare element by element rather than comparing rounded hashes"
+    },
+    "consumedOutput": -242.249692207,
+    "outputsSha256": "928a5677024ec2f01bc30cb0a741b049739c3905eb3b942dc165f533145111de",
+    "finalRecurrentSha256": "024ad067c461f8ccd38b4b92c9d2f80f05173cc0a740104f19aeaf7d578aaf59",
+    "distinctOutputPairs": 55,
+    "cpu": {
+      "userMicros": 46000,
+      "systemMicros": 0,
+      "totalMicros": 46000
+    },
+    "memory": {
+      "beforeFixture": {
+        "rss": 77807616,
+        "heapTotal": 13430784,
+        "heapUsed": 8858536,
+        "external": 3922103,
+        "arrayBuffers": 1436327
+      },
+      "afterFixture": {
+        "rss": 85381120,
+        "heapTotal": 18411520,
+        "heapUsed": 9612608,
+        "external": 9563003,
+        "arrayBuffers": 7077187
+      },
+      "afterWarmup": {
+        "rss": 86216704,
+        "heapTotal": 18673664,
+        "heapUsed": 8865184,
+        "external": 9579287,
+        "arrayBuffers": 7084343
+      },
+      "afterMeasure": {
+        "rss": 88895488,
+        "heapTotal": 18673664,
+        "heapUsed": 12760880,
+        "external": 9570175,
+        "arrayBuffers": 7084359
+      },
+      "sampledPeakRssBytes": 88895488,
+      "sampledPeakHeapUsedBytes": 12760392,
+      "sampledPeakExternalBytes": 9579287,
+      "processResourceUsageMaxRssKiB": 87140
+    }
+  },
+  "command": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Users\\jlow8\\source\\repos\\slither_neuroevo\\scripts\\stage4\\inference-benchmark.ts",
+    "--scenario",
+    "P0",
+    "--path",
+    "native",
+    "--warmup-passes",
+    "20",
+    "--passes",
+    "120",
+    "--environment",
+    "development",
+    "--output",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage4-simd-69997a0-windows\\typescript-count-one-native-p0.json"
+  ]
+}

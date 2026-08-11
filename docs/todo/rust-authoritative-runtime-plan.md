@@ -4080,17 +4080,17 @@ weights, and recurrent state for each snake.
 
 **Complete graph inference:**
 
-- [ ] Port Input, Split, Concat, Dense, activations, MLP, GRU, LSTM, RRU, and
+- [x] Port Input, Split, Concat, Dense, activations, MLP, GRU, LSTM, RRU, and
   output mapping with reference scalar implementations.
-- [ ] Evaluate the entire due heterogeneous population inside one Rust
+- [x] Evaluate the entire due heterogeneous population inside one Rust
   operation. Node must not be crossed between snakes, nodes, layers, or
   recurrent updates.
-- [ ] Keep packed weights and recurrent state attached to stable brain handles;
+- [x] Keep packed weights and recurrent state attached to stable brain handles;
   shuffled/shrinking due lists and resurrected/external brains cannot borrow a
   population slot's state.
 - [ ] Reuse graph/query scratch and enable focused activation capture only on
   request.
-- [ ] Use existing SIMD only behind scalar parity and runtime CPU detection.
+- [x] Use existing SIMD only behind scalar parity and runtime CPU detection.
 
 **Correctness tests:**
 
@@ -4101,7 +4101,7 @@ weights, and recurrent state for each snake.
 - [ ] Node-level, whole-graph, multi-step recurrent, reset, population
   replacement, shuffled due order, resurrected brain, and malformed-state
   tests pass within explicit tolerances.
-- [ ] At least 55 deterministic genomes with distinct weights/state produce
+- [x] At least 55 deterministic genomes with distinct weights/state produce
   the expected distinct outputs.
 
 **Performance checkpoint:**
@@ -4109,13 +4109,22 @@ weights, and recurrent state for each snake.
 - [ ] Benchmark sensing alone under default, many-snake, dense-body, and
   dense-pellet fixtures, recording p95/p99, candidate counts, index load,
   allocations, CPU, and memory.
-- [ ] Benchmark complete heterogeneous inference for the default 55 snakes and
+- [x] Benchmark complete heterogeneous inference for the default 55 snakes and
   large brains with different weights and recurrent state.
-- [ ] Compare the scalar Rust population operation, SIMD where applicable, the
+- [x] Compare the scalar Rust population operation, SIMD where applicable, the
   current TypeScript graph path, and the count-one N-API path. A shared-weight
   batch is diagnostic only and cannot satisfy this gate.
 - [ ] If either subsystem misses its interim budget, profile and correct it
   before building more hot work on top.
+
+Retained clean-commit evidence for the completed inference portion is under
+`docs/todo/evidence/stage4/simd-v1/`. On Oxygen, runtime-selected coarse Rust
+SSE2 measured 0.44/2.45/8.45/45.07 ms p95 for P0/P1/P2/P3 respectively,
+with zero raw output or recurrent values outside the `1e-4` scalar/current-path
+tolerance. P2 therefore clears the inference-only 16.67-ms interim budget.
+This result remains synthetic and inference-only; sensing, actual evolved
+populations with delivered observations, full fixed steps, and the Stage 4
+exit gate remain open.
 
 **Exit gate:** Rust produces correct real observations and complete
 heterogeneous controller outputs without TypeScript or N-API work inside the

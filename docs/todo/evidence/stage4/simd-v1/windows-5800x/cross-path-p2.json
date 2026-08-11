@@ -1,0 +1,208 @@
+{
+  "schema": "slither-stage4-inference-cross-path-comparison",
+  "version": 2,
+  "scenario": "P2",
+  "fixture": {
+    "fixtureVersion": 1,
+    "fixtureClass": "source-shaped deterministic synthetic numeric data",
+    "scenario": "P2",
+    "description": "55 differently weighted synthetic population brains, v3/32-bin input shape, five-layer 256-wide MLP, GRU-96, Dense-2",
+    "populationCount": 55,
+    "inputSize": 147,
+    "totalParametersPerBrain": 402914,
+    "recurrentFloatsPerBrain": 96,
+    "outputFloatsPerBrain": 2,
+    "graphLayoutSha256": "cfea1501a6bd543555cdae468bd7391956b4ac1590967a11d406eb967778630b",
+    "weightsSha256": "652bea894a2512dd145342a9c37a2d86443969e524975173a78431693692b952",
+    "observationsSha256": "b4b6d3c0ccb83a93065404c3a23ca908f188648ac30d636c93cd295562d85887",
+    "initialRecurrentSha256": "d7340c94a30e053e7b1e40361cb25cb8a67e2783fea0650f38b810d7f93b9f06",
+    "packedWeightBytes": 88641080,
+    "observationBytes": 32340,
+    "recurrentBytes": 21120,
+    "stagingBytes": 21560,
+    "scratchBytes": 6868,
+    "warmupPasses": 10,
+    "measuredPasses": 60,
+    "actualFreshOrEvolvedGenomes": false,
+    "actualDeliveredSensorObservations": false
+  },
+  "sourceIdentity": {
+    "nativeSourceSha256": "6fbe621157cfd737d0bd941ea95331a7f2eddafb1b36412e9dd843ed08c728d4",
+    "currentRuntimeCommit": "69997a0ad7b605f47d8f83860378ace02dd4c307",
+    "targetTriple": "x86_64-pc-windows-msvc"
+  },
+  "environmentIdentity": {
+    "declaration": "development",
+    "platform": "win32",
+    "architecture": "x64",
+    "hostname": "beryllium",
+    "logicalCpuCount": 16,
+    "ownerTargetVmValidated": false
+  },
+  "sources": {
+    "rustSse2": {
+      "file": "rust-sse2-p2.json",
+      "sha256": "6543679917b3e72bc7ae3beb05821c0ec445493fdc221699e76377935de0e07d"
+    },
+    "rustScalar": {
+      "file": "rust-scalar-p2.json",
+      "sha256": "aa5fc8eac8ef6cc3e4be552d77fac37eec71cf8529aab2072bbb67d48761e553"
+    },
+    "currentJs": {
+      "file": "typescript-js-p2.json",
+      "sha256": "20b6474efda3e255c47604d59918e15a12fa74cd89516349b3df1779579d7467"
+    },
+    "currentCountOneNative": {
+      "file": "typescript-count-one-native-p2.json",
+      "sha256": "b0488ec52e0e3b228780c9404318ddf25aaca423e6b715ba39a4e97e76e25133"
+    }
+  },
+  "comparisons": {
+    "rustSse2VsRustScalar": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.862645149230957e-8,
+        "maxDifferenceIndex": 42,
+        "leftValueAtMax": 0.061237335205078125,
+        "rightValueAtMax": 0.06123735383152962,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 6.705522537231445e-8,
+        "maxDifferenceIndex": 534,
+        "leftValueAtMax": 0.09447606652975082,
+        "rightValueAtMax": 0.0944761335849762,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "rustSse2VsJs": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.4901161193847656e-8,
+        "maxDifferenceIndex": 98,
+        "leftValueAtMax": 0.0588991604745388,
+        "rightValueAtMax": 0.0588991753757,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 5.21540641784668e-8,
+        "maxDifferenceIndex": 1060,
+        "leftValueAtMax": 0.09991616010665894,
+        "rightValueAtMax": 0.09991610795259476,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "rustSse2VsCountOneNative": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 0,
+        "maxDifferenceIndex": 0,
+        "leftValueAtMax": -0.009346868842840195,
+        "rightValueAtMax": -0.009346868842840195,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 0,
+        "maxDifferenceIndex": 0,
+        "leftValueAtMax": 0.018000219017267227,
+        "rightValueAtMax": 0.018000219017267227,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "rustScalarVsJs": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.862645149230957e-8,
+        "maxDifferenceIndex": 43,
+        "leftValueAtMax": 0.03618697449564934,
+        "rightValueAtMax": 0.036186955869197845,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 6.705522537231445e-8,
+        "maxDifferenceIndex": 534,
+        "leftValueAtMax": 0.0944761335849762,
+        "rightValueAtMax": 0.09447606652975082,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "rustScalarVsCountOneNative": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.862645149230957e-8,
+        "maxDifferenceIndex": 42,
+        "leftValueAtMax": 0.06123735383152962,
+        "rightValueAtMax": 0.061237335205078125,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 6.705522537231445e-8,
+        "maxDifferenceIndex": 534,
+        "leftValueAtMax": 0.0944761335849762,
+        "rightValueAtMax": 0.09447606652975082,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "jsVsCountOneNative": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.4901161193847656e-8,
+        "maxDifferenceIndex": 98,
+        "leftValueAtMax": 0.0588991753757,
+        "rightValueAtMax": 0.0588991604745388,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 5.21540641784668e-8,
+        "maxDifferenceIndex": 1060,
+        "leftValueAtMax": 0.09991610795259476,
+        "rightValueAtMax": 0.09991616010665894,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    }
+  },
+  "command": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Users\\jlow8\\source\\repos\\slither_neuroevo\\scripts\\stage4\\compare-inference-reports.ts",
+    "--rust",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage4-simd-69997a0-windows\\rust-sse2-p2.json",
+    "--scalar-rust",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage4-simd-69997a0-windows\\rust-scalar-p2.json",
+    "--js",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage4-simd-69997a0-windows\\typescript-js-p2.json",
+    "--native",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage4-simd-69997a0-windows\\typescript-count-one-native-p2.json",
+    "--output",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage4-simd-69997a0-windows\\cross-path-p2.json"
+  ]
+}
