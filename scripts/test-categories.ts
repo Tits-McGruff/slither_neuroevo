@@ -38,6 +38,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'src/serializer.test.ts',
     'src/snake.test.ts',
     'src/spatialHash.test.ts',
+    'src/stage4.sensorReference.test.ts',
     'src/stage2.killCredit.characterization.test.ts',
     'src/storage.test.ts',
     'src/theme.test.ts',

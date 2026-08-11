@@ -26,6 +26,12 @@ pub mod queues;
 pub mod rng;
 /// One-shot owner of the background coordinator lifecycle.
 pub mod runtime;
+/// Sensor-v3 labels, offsets, and input-size contract.
+pub mod sensor_layout;
+/// Corrected sensor-v3 construction and delivered-observation boundaries.
+pub mod sensors;
+/// Complete derived body-segment and pellet spatial indexes.
+pub mod spatial;
 /// Owned persistent-state and generation-boundary admission contracts.
 pub mod state;
 

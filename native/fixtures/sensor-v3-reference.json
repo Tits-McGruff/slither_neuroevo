@@ -1,0 +1,814 @@
+{
+  "fixtureVersion": 1,
+  "sensorLayoutVersion": "v3",
+  "sourceFunctions": [
+    "src/protocol/sensors.ts::getSensorLayout",
+    "src/sensors.ts::buildSensors",
+    "src/sensors.ts::computeSensorRadii",
+    "src/sensors.ts::_fillFoodBinsV2",
+    "src/sensors.ts::_fillHazardBinsV2",
+    "src/sensors.ts::_fillWallBinsV2",
+    "src/sensors.ts::_fillHeadBinsV2",
+    "test-only complete AABB body grid correcting SPATIAL-002"
+  ],
+  "cases": [
+    {
+      "name": "preserve-default-16",
+      "config": {
+        "bins": 16,
+        "worldRadius": 3500,
+        "foodValue": 1,
+        "snakeBoostSpeed": 500,
+        "snakeStartLength": 5,
+        "snakeMaxLength": 10000,
+        "minimumBoostPoints": 1.2,
+        "boostPointsCostPerSecond": 7,
+        "boostPointsCostSizeFactor": 1.1,
+        "generationSeconds": 240,
+        "nearRadiusBase": 520,
+        "nearRadiusScale": 260,
+        "nearRadiusMinimum": 420,
+        "nearRadiusMaximum": 1100,
+        "farRadiusBase": 1200,
+        "farRadiusScale": 520,
+        "farRadiusMinimum": 900,
+        "farRadiusMaximum": 2400,
+        "foodSaturation": 4,
+        "collisionHitScale": 0.82,
+        "maximumPelletChecks": 900,
+        "maximumSegmentChecks": 2200
+      },
+      "bestPointsThisGeneration": 20,
+      "targetId": 1,
+      "snakes": [
+        {
+          "id": 1,
+          "kind": "evolved",
+          "alive": true,
+          "position": {
+            "x": 250,
+            "y": -125
+          },
+          "direction": 0.7,
+          "radius": 11,
+          "speed": 220,
+          "boost": true,
+          "ageSeconds": 60,
+          "points": 12.5,
+          "deliveredObservationPoints": 10,
+          "body": [
+            {
+              "x": 250,
+              "y": -125
+            },
+            {
+              "x": 244.26368359536633,
+              "y": -129.83163265428269
+            },
+            {
+              "x": 238.52736719073266,
+              "y": -134.66326530856537
+            },
+            {
+              "x": 232.791050786099,
+              "y": -139.49489796284806
+            },
+            {
+              "x": 227.05473438146535,
+              "y": -144.32653061713074
+            },
+            {
+              "x": 221.31841797683168,
+              "y": -149.1581632714134
+            },
+            {
+              "x": 215.582101572198,
+              "y": -153.9897959256961
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "kind": "evolved",
+          "alive": true,
+          "position": {
+            "x": 410,
+            "y": -160
+          },
+          "direction": -0.4,
+          "radius": 13,
+          "speed": 180,
+          "boost": false,
+          "ageSeconds": 30,
+          "points": 8,
+          "deliveredObservationPoints": 8,
+          "body": [
+            {
+              "x": 410,
+              "y": -160
+            },
+            {
+              "x": 410,
+              "y": -110
+            },
+            {
+              "x": 410,
+              "y": -60
+            }
+          ]
+        }
+      ],
+      "pellets": [
+        {
+          "id": 100,
+          "position": {
+            "x": 320,
+            "y": -100
+          },
+          "value": 1,
+          "kind": 0,
+          "color": 1,
+          "owner": null
+        },
+        {
+          "id": 101,
+          "position": {
+            "x": 100,
+            "y": -200
+          },
+          "value": 2.5,
+          "kind": 1,
+          "color": 2,
+          "owner": null
+        },
+        {
+          "id": 102,
+          "position": {
+            "x": 800,
+            "y": 400
+          },
+          "value": 0.5,
+          "kind": 0,
+          "color": 3,
+          "owner": 2
+        }
+      ],
+      "expected": [
+        0.6442176699638367,
+        0.7648422122001648,
+        -0.999599814414978,
+        1,
+        0.7097523212432861,
+        -0.11999999731779099,
+        1,
+        0.25,
+        0.25,
+        -0.9986000061035156,
+        1,
+        -0.3331865966320038,
+        0.8402808308601379,
+        0.8761268258094788,
+        -0.3494425415992737,
+        0.9369577765464783,
+        0.4769754111766815,
+        0.4624253511428833,
+        -0.5,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -0.6200683116912842,
+        -0.9124038219451904,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -0.3006766438484192,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        -0.46036165952682495,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        -0.4458116292953491,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104,
+        0.9999998807907104
+      ]
+    },
+    {
+      "name": "corrected-long-segment-8",
+      "config": {
+        "bins": 8,
+        "worldRadius": 1000,
+        "foodValue": 1,
+        "snakeBoostSpeed": 500,
+        "snakeStartLength": 5,
+        "snakeMaxLength": 10000,
+        "minimumBoostPoints": 1.2,
+        "boostPointsCostPerSecond": 7,
+        "boostPointsCostSizeFactor": 1.1,
+        "generationSeconds": 240,
+        "nearRadiusBase": 200,
+        "nearRadiusScale": 0,
+        "nearRadiusMinimum": 200,
+        "nearRadiusMaximum": 200,
+        "farRadiusBase": 400,
+        "farRadiusScale": 0,
+        "farRadiusMinimum": 400,
+        "farRadiusMaximum": 600,
+        "foodSaturation": 1,
+        "collisionHitScale": 1,
+        "maximumPelletChecks": 900,
+        "maximumSegmentChecks": 2200
+      },
+      "bestPointsThisGeneration": 5,
+      "targetId": 10,
+      "snakes": [
+        {
+          "id": 10,
+          "kind": "evolved",
+          "alive": true,
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "direction": 0,
+          "radius": 10,
+          "speed": 165,
+          "boost": false,
+          "ageSeconds": 12,
+          "points": 5,
+          "deliveredObservationPoints": 3,
+          "body": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": -7.5,
+              "y": 0
+            },
+            {
+              "x": -15,
+              "y": 0
+            },
+            {
+              "x": -22.5,
+              "y": 0
+            },
+            {
+              "x": -30,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "kind": "evolved",
+          "alive": true,
+          "position": {
+            "x": 180,
+            "y": -20
+          },
+          "direction": 0,
+          "radius": 10,
+          "speed": 165,
+          "boost": false,
+          "ageSeconds": 12,
+          "points": 2,
+          "deliveredObservationPoints": 2,
+          "body": [
+            {
+              "x": 180,
+              "y": -20
+            },
+            {
+              "x": 1200,
+              "y": 20
+            }
+          ]
+        }
+      ],
+      "pellets": [
+        {
+          "id": 200,
+          "position": {
+            "x": -100,
+            "y": 0
+          },
+          "value": 1.5,
+          "kind": 0,
+          "color": 0,
+          "owner": null
+        }
+      ],
+      "expected": [
+        0,
+        1,
+        -1,
+        1,
+        1,
+        -0.3400000035762787,
+        -1,
+        1,
+        0.20000000298023224,
+        -0.9990000128746033,
+        1,
+        -0.3333333432674408,
+        1,
+        0.5,
+        1.2246468525851679e-16,
+        -1,
+        -0.6110770106315613,
+        -0.6110770106315613,
+        -0.8999999761581421,
+        0.05882352963089943,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        1,
+        1,
+        1,
+        1,
+        0.6110769510269165,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0.6110769510269165,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "wall-head-size-32",
+      "config": {
+        "bins": 32,
+        "worldRadius": 3500,
+        "foodValue": 1,
+        "snakeBoostSpeed": 500,
+        "snakeStartLength": 5,
+        "snakeMaxLength": 10000,
+        "minimumBoostPoints": 1.2,
+        "boostPointsCostPerSecond": 7,
+        "boostPointsCostSizeFactor": 1.1,
+        "generationSeconds": 240,
+        "nearRadiusBase": 520,
+        "nearRadiusScale": 260,
+        "nearRadiusMinimum": 420,
+        "nearRadiusMaximum": 1100,
+        "farRadiusBase": 1200,
+        "farRadiusScale": 520,
+        "farRadiusMinimum": 900,
+        "farRadiusMaximum": 2400,
+        "foodSaturation": 4,
+        "collisionHitScale": 0.82,
+        "maximumPelletChecks": 900,
+        "maximumSegmentChecks": 2200
+      },
+      "bestPointsThisGeneration": 30,
+      "targetId": 20,
+      "snakes": [
+        {
+          "id": 20,
+          "kind": "evolved",
+          "alive": true,
+          "position": {
+            "x": 3300,
+            "y": 0
+          },
+          "direction": 1.5707963267948966,
+          "radius": 16,
+          "speed": 500,
+          "boost": false,
+          "ageSeconds": 240,
+          "points": 30,
+          "deliveredObservationPoints": 32,
+          "body": [
+            {
+              "x": 3300,
+              "y": 0
+            },
+            {
+              "x": 3300,
+              "y": -7.5
+            },
+            {
+              "x": 3300,
+              "y": -15
+            },
+            {
+              "x": 3300,
+              "y": -22.5
+            },
+            {
+              "x": 3300,
+              "y": -30
+            },
+            {
+              "x": 3300,
+              "y": -37.5
+            },
+            {
+              "x": 3300,
+              "y": -45
+            },
+            {
+              "x": 3300,
+              "y": -52.5
+            },
+            {
+              "x": 3300,
+              "y": -60
+            },
+            {
+              "x": 3300,
+              "y": -67.5
+            },
+            {
+              "x": 3300,
+              "y": -75
+            },
+            {
+              "x": 3300,
+              "y": -82.5
+            },
+            {
+              "x": 3300,
+              "y": -90
+            },
+            {
+              "x": 3300,
+              "y": -97.5
+            },
+            {
+              "x": 3300,
+              "y": -105
+            },
+            {
+              "x": 3300,
+              "y": -112.5
+            },
+            {
+              "x": 3300,
+              "y": -120
+            },
+            {
+              "x": 3300,
+              "y": -127.5
+            },
+            {
+              "x": 3300,
+              "y": -135
+            },
+            {
+              "x": 3300,
+              "y": -142.5
+            }
+          ]
+        },
+        {
+          "id": 21,
+          "kind": "external",
+          "alive": true,
+          "position": {
+            "x": 3250,
+            "y": 100
+          },
+          "direction": 3.141592653589793,
+          "radius": 18,
+          "speed": 300,
+          "boost": true,
+          "ageSeconds": 20,
+          "points": 4,
+          "deliveredObservationPoints": 4,
+          "body": [
+            {
+              "x": 3250,
+              "y": 100
+            },
+            {
+              "x": 3257.5,
+              "y": 100
+            },
+            {
+              "x": 3265,
+              "y": 100
+            },
+            {
+              "x": 3272.5,
+              "y": 100
+            },
+            {
+              "x": 3280,
+              "y": 100
+            },
+            {
+              "x": 3287.5,
+              "y": 100
+            },
+            {
+              "x": 3295,
+              "y": 100
+            },
+            {
+              "x": 3302.5,
+              "y": 100
+            }
+          ]
+        },
+        {
+          "id": 22,
+          "kind": "baseline",
+          "alive": true,
+          "position": {
+            "x": 3000,
+            "y": -100
+          },
+          "direction": 0.25,
+          "radius": 12,
+          "speed": 165,
+          "boost": false,
+          "ageSeconds": 80,
+          "points": 50,
+          "deliveredObservationPoints": 49,
+          "body": [
+            {
+              "x": 3000,
+              "y": -100
+            },
+            {
+              "x": 2992.73315683717,
+              "y": -101.85552969440892
+            },
+            {
+              "x": 2985.46631367434,
+              "y": -103.71105938881784
+            },
+            {
+              "x": 2978.1994705115103,
+              "y": -105.56658908322677
+            },
+            {
+              "x": 2970.932627348681,
+              "y": -107.42211877763569
+            },
+            {
+              "x": 2963.665784185851,
+              "y": -109.2776484720446
+            },
+            {
+              "x": 2956.398941023021,
+              "y": -111.13317816645353
+            },
+            {
+              "x": 2949.132097860191,
+              "y": -112.98870786086246
+            },
+            {
+              "x": 2941.8652546973613,
+              "y": -114.84423755527138
+            },
+            {
+              "x": 2934.5984115345314,
+              "y": -116.69976724968029
+            }
+          ]
+        }
+      ],
+      "pellets": [
+        {
+          "id": 300,
+          "position": {
+            "x": 3290,
+            "y": 120
+          },
+          "value": 3,
+          "kind": 1,
+          "color": 5,
+          "owner": null
+        },
+        {
+          "id": 301,
+          "position": {
+            "x": 3150,
+            "y": -80
+          },
+          "value": 0.25,
+          "kind": 0,
+          "color": 2,
+          "owner": null
+        }
+      ],
+      "expected": [
+        1,
+        6.123234262925839e-17,
+        -0.9969984889030457,
+        1,
+        1,
+        1,
+        -1,
+        1,
+        -0.20000000298023224,
+        -0.9959999918937683,
+        1,
+        -0.3322327733039856,
+        -0.8857142925262451,
+        0.7994371652603149,
+        0.08304548263549805,
+        0.9965457320213318,
+        0.7463442087173462,
+        0.700980544090271,
+        1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -0.19418030977249146,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        -0.8981606960296631,
+        -1,
+        -1,
+        -1,
+        -1,
+        -1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        -0.7228233814239502,
+        -0.7198324203491211,
+        -0.6999632120132446,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0.127107173204422,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0.6914188265800476,
+        0.24318598210811615,
+        -0.003873951965942979,
+        -0.1485448181629181,
+        -0.23354674875736237,
+        -0.2786634862422943,
+        -0.29283833503723145,
+        -0.2786634862422943,
+        -0.23354674875736237,
+        -0.1485448181629181,
+        -0.003873951965942979,
+        0.24318598210811615,
+        0.6914188265800476,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        -0.677459716796875,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        0.127107173204422,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    }
+  ]
+}

@@ -15,6 +15,7 @@ const FIXED_SOURCE_FILES: &[&str] = &[
     "Cargo.lock",
     "Cargo.toml",
     "build.rs",
+    "fixtures/sensor-v3-reference.json",
     "package-lock.json",
     "package.json",
 ];
