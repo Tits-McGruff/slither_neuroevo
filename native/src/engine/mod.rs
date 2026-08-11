@@ -17,6 +17,9 @@ pub mod error;
 pub mod graph;
 /// Safe scalar complete-graph and heterogeneous-population inference.
 pub mod inference;
+/// Deterministic Stage 4 whole-population inference evidence.
+#[cfg(feature = "engine-test-hooks")]
+pub mod inference_fixture;
 /// Bounded inbound/outbound queues and coalesced wake contracts.
 pub mod queues;
 /// Versioned deterministic random-number generation shared by engine state.

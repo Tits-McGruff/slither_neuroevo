@@ -13,6 +13,11 @@ name = "stage3-checkpoint-roundtrip"
 path = "src/bin/stage3_checkpoint_roundtrip.rs"
 required-features = ["engine-test-hooks"]
 
+[[bin]]
+name = "stage4-inference-benchmark"
+path = "src/bin/stage4_inference_benchmark.rs"
+required-features = ["engine-test-hooks"]
+
 [features]
 engine-test-hooks = []
 

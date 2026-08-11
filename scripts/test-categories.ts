@@ -6,6 +6,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/stage2/fixtures.test.ts',
     'scripts/stage2/managedCheckpointFormat.test.ts',
     'scripts/stage2/retentionPolicy.test.ts',
+    'scripts/stage4/inferenceFixture.test.ts',
     'scripts/test-categories.test.ts',
     'server/authoritativeWorldDigest.test.ts',
     'server/hash.test.ts',
