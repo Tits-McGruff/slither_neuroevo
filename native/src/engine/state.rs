@@ -880,6 +880,14 @@ impl GenerationBoundaryView<'_> {
     pub fn graph_bundle(&self) -> &GraphBundle {
         self.state.graph_bundle()
     }
+
+    /// Read the already-admitted owned-state memory estimate so a checkpoint
+    /// adapter can replace the configured scratch reservation with its actual
+    /// bounded working-set requirement.
+    #[must_use]
+    pub fn memory_estimate(&self) -> StateMemoryEstimate {
+        self.state.memory_estimate()
+    }
 }
 
 /// Validation or checked-memory failure.
@@ -1184,6 +1192,95 @@ pub fn estimate_state_memory(
         estimate.scratch_bytes,
         estimate.validation_bytes,
     ])?;
+    Ok(estimate)
+}
+
+/// Preflight the final generation-boundary allocation from decoded metadata and
+/// declared numeric counts before a checkpoint decoder allocates packed Float32 buffers.
+///
+/// `candidate_shell` must contain the decoded identity/configuration/RNG/allocator,
+/// population metadata, and population brain records, but its weight and recurrent
+/// boxes may remain empty. The returned estimate charges the exact population
+/// weight count plus the existing conservative configured recurrent/non-population
+/// peaks used by ordinary state admission.
+pub fn preflight_generation_boundary_allocation(
+    candidate_shell: &StateCandidate,
+    graph: &GraphBundle,
+    declared_weight_floats: usize,
+    declared_recurrent_floats: usize,
+    policy: &StateAdmissionPolicy,
+) -> Result<StateMemoryEstimate, StateError> {
+    validate_policy(policy)?;
+    validate_admission_header(candidate_shell, graph.compiled(), policy)?;
+    validate_generation(&candidate_shell.generation)?;
+    validate_rng_bundle(&candidate_shell.rng, &candidate_shell.config)?;
+    validate_allocators(&candidate_shell.allocators)?;
+    validate_generation_boundary(candidate_shell, graph.compiled())?;
+    if candidate_shell.population.len() != candidate_shell.config.population_count
+        || candidate_shell.brains.len() != candidate_shell.population.len()
+    {
+        return invalid(
+            "population",
+            "checkpoint allocation shell must contain one population brain per configured slot",
+        );
+    }
+    if candidate_shell
+        .population
+        .iter()
+        .any(|genome| !genome.weights.is_empty())
+        || candidate_shell
+            .brains
+            .iter()
+            .any(|brain| brain.non_population_weights.is_some() || !brain.recurrent.is_empty())
+    {
+        return invalid(
+            "population",
+            "checkpoint allocation shell must not allocate numeric payloads before preflight",
+        );
+    }
+    let expected_weights = candidate_shell
+        .population
+        .len()
+        .checked_mul(graph.compiled().total_parameters)
+        .ok_or(StateError::ArithmeticOverflow {
+            context: "declared checkpoint population weights",
+        })?;
+    let expected_recurrent = candidate_shell
+        .brains
+        .len()
+        .checked_mul(graph.compiled().total_state_size)
+        .ok_or(StateError::ArithmeticOverflow {
+            context: "declared checkpoint recurrent state",
+        })?;
+    if declared_weight_floats != expected_weights || declared_recurrent_floats != expected_recurrent
+    {
+        return invalid(
+            "population",
+            "declared checkpoint numeric counts disagree with graph/population shape",
+        );
+    }
+    let mut estimate = estimate_state_memory(candidate_shell, graph)?;
+    let population_weight_bytes = checked_allocation_bytes(
+        declared_weight_floats,
+        size_of::<f32>(),
+        "declared checkpoint population weight bytes",
+    )?;
+    estimate.weight_bytes = checked_add(
+        estimate.weight_bytes,
+        population_weight_bytes,
+        "checkpoint preflight weight memory",
+    )?;
+    estimate.total_bytes = checked_add(
+        estimate.total_bytes,
+        population_weight_bytes,
+        "checkpoint preflight total memory",
+    )?;
+    if estimate.total_bytes > policy.memory_ceiling_bytes {
+        return Err(StateError::MemoryCeilingExceeded {
+            estimated_bytes: estimate.total_bytes,
+            ceiling_bytes: policy.memory_ceiling_bytes,
+        });
+    }
     Ok(estimate)
 }
 
