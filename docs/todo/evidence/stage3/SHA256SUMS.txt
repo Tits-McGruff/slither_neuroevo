@@ -1,2 +1,4 @@
+62d9e680b2f4083f8af2e86f855ad71ada6f12fd81bdcbc68fc2d86abb220d80  oxygen-ryzen2700/checkpoint-roundtrip.json
 82d10472781556ae3401e388d58d42d27f8e723d32b7c66a07591292eb0a28c7  oxygen-ryzen2700/experimental-bridge-idle-600s.json
+03fa17d7bf41863cbc25e4945b5b24d34be880223e9e62dda8b09f1963ef550a  windows-5800x/checkpoint-roundtrip.json
 6e793940f01c57803db37ec0118928d64afa173d9cf64bfddea8921f181f3865  windows-5800x/experimental-bridge-idle-600s.json
