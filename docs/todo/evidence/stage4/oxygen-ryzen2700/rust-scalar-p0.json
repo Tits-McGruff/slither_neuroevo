@@ -1,0 +1,100 @@
+{
+  "schema": "slither-stage4-rust-inference-benchmark",
+  "version": 1,
+  "evidenceClass": "new measured target-VM Rust scalar result",
+  "caveat": "Source-shaped synthetic inference-only microbenchmark. It excludes actual fresh/evolved genomes and sensor observations, sensing, physics, frames, Node, N-API, the live coordinator, SIMD, parallelism, and end-to-end server latency; it cannot by itself satisfy the Stage 4 production-workload gate.",
+  "source": {
+    "nativeBuildIdentifier": "slither_native/0.1.0+8b6dc57b1cd1.116805ded22495a3",
+    "nativeSourceSha256": "67d8c760b7c295d82cbb44cb656f8be8b1de1891ffd30c2fcc01cf2b3257ba3e",
+    "nativeBuildContractSha256": "sha256:1fb16b35a1b51f7f0cd24193df2af9668ae71c93f702311812c144c61e047cd1",
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "rustcVersion": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+    "buildProfile": "release",
+    "buildClass": "test-hooks"
+  },
+  "environment": {
+    "capturedAtEpochMs": 1786436688960,
+    "declaration": "owner-target-vm",
+    "operatingSystem": "linux",
+    "architecture": "x86_64",
+    "hostname": "oxygen",
+    "availableParallelism": 8,
+    "distributionId": "debian",
+    "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+    "totalMemoryBytes": 16775352320,
+    "ownerTargetVmValidated": true,
+    "fixtureRssBytes": 6516736,
+    "processPeakRssBytes": 6803456
+  },
+  "workload": {
+    "fixtureVersion": 1,
+    "fixtureClass": "source-shaped deterministic synthetic numeric data",
+    "scenario": "P0",
+    "description": "55 differently weighted synthetic population brains, v3/16-bin input shape, 64/64 MLP, GRU-16, Dense-2",
+    "populationCount": 55,
+    "inputSize": 83,
+    "totalParametersPerBrain": 13458,
+    "recurrentFloatsPerBrain": 16,
+    "outputFloatsPerBrain": 2,
+    "graphLayoutSha256": "ced9f12f73d0925efd0d75a872e818a878fb838b552c5daa60e3566a4c64e4b6",
+    "weightsSha256": "5d08fee2550b4c438e96608fac993845967fb5c5edc2e5ac09a40ea23cd18d69",
+    "observationsSha256": "c10e2266960c4ba346855f4114d80c27f25970eb46a30cc948de0d6f886aeb5b",
+    "initialRecurrentSha256": "686f728d7c1057e652ae0f69b359ddc2d4318885cfcedde08477b775049fecd1",
+    "packedWeightBytes": 2960760,
+    "observationBytes": 18260,
+    "recurrentBytes": 3520,
+    "stagingBytes": 3960,
+    "scratchBytes": 1044,
+    "warmupPasses": 20,
+    "measuredPasses": 120,
+    "actualFreshOrEvolvedGenomes": false,
+    "actualDeliveredSensorObservations": false
+  },
+  "path": {
+    "name": "rust-scalar-coarse-heterogeneous",
+    "graphOwner": "Rust",
+    "nativeCallsPerWholePass": 0,
+    "sharedWeightBatch": false,
+    "stagedRecurrentCommit": true
+  },
+  "result": {
+    "wholePopulationPassMs": {
+      "count": 120,
+      "min": 0.857142,
+      "p50": 0.930269,
+      "p95": 1.0730889,
+      "p99": 1.14547599,
+      "max": 1.155699,
+      "mean": 0.9503220583333333
+    },
+    "oneStepComparisonProbe": {
+      "absoluteTolerance": 0.0001,
+      "outputsF32LeHex": "55a028bd9c578ebdfc3bbe3c60283a3d7c78523dc05ac23c3a0d55bdae4175bd53d1263d27aa123dfd163b3d07bc023dd4f5ff3caee4263d29a8213d84e40e3d0ed18cbd62f53abd84ddf73c2d9f223da434fe3c0b28283db361ec3cb965313daf74153d22a2153d6db0503d3320b83c513158bde0267bbda68749bd053884bd4c5275bdaf1969bddcdf62bd8a0573bde322173de4c51a3da8c187bdf4764cbda9f21d3d17b71c3dc5644f3d88d5bb3c3dfb27bdfdef8ebd10eec23c0027403d0e4cc63ca7c8443d345a60bdfa436fbd50bc49bd740584bdb316323da040e83c7f664bbd14b182bda594363d4fb1f03cffe583bd409d47bdd42b8abd07f93bbd3e33ff3cde09373ddcb027bdd8d98ebdc27efb3cea63383dbf5649bdab2984bd61a4c73c0b64443d0da474bd42d86abdeaaf60bd03c86ebd79f9353d2ae1d53cf81284bda54b46bd36a6323d6a14e93cdf7981bd94e944bde089203d2cc7093d137d583d31c6c63c4f2e15bd164893bd8c2825bd55118cbd095451bd4e9573bd23a8413dd909ec3ccee71d3d62911c3d156f41bdec2881bd6aef3dbd66ce7dbde629173d41bd1a3d533a84bd8fb646bd3073163ded98153d",
+      "recurrentF32LeHex": "1ef294bcce5ce2bc268802bd802e793c41abf3bc0865a8bcbf9d17bdd6b1b1bc7ccbc1bc7670ff3b44d2b63cb801e0bca47a1dbdbe5781bc784639bc80b9853cc265653c5c37593cc091af3c32b499bcae3b593d72aad03cc2a6fb3c0604043b9c92033db9b607bcccea58bd7b33453d3200e93c5cc706bba2c0e93c1cdf63bc96c8343ca65b9e3c94b2c23c9b3cabbc45411a3d3d6e1a3d32500e3d1f8bb83b14b7ef3c16a7c6bc5c5b5ebd4075043d325e913c7c7f863c46e8b93ccf3da7bccf2c88bcee47ddbcc0d10bbdd409423c9e03e4bc6803e4bc351922bd40b063bc02b0a5bc8ce3193ce041cd3c52f0a9bc68ccf1bcd0bc8abc7e95a9bbac23a23c3085f83a4f0ffc3b769b893ce827d1bc302a543d11bd063dc8a6033dae69403cd6e4193daeb35abc65e48dbd4c983b3d3da0b33c31e1de3bc17f863cc64b27bcbc138f3bce02273cec80863c2991e3bc9c7f3f3d15f4043d08d9003de965263c08f00d3db69764bc830d84bd2ec6243d5e93a03c42598c3b0453953c0e631cbcf8f0913c847ac73c6239e73c0afb37bc840d363da883da3c20080b3d62b662bb7670e23c65c085bcb2b038bdc452283de6a1d23c8c22ed3bcd08003d3d92b2bc04f53d3b686a043c4c66893c195fd4bc7f83513d8ea8073d1c75043d5846473c96cb173dc6845dbc26e089bd1ad43c3d1037b93c0098063c8877923cae0437bc3ab89fbcdee33cbc2cad30bd5939c43c564e46bc43800ebd494bc1bc2c0d91bcd5e215bda4c1973c47eda63c69918cbc7fc9ccbc76ccc9bc70e312ba70e3733a4267983c7793c63c65dde43c0a8841bc8ca0343dd91cdf3cb2ff0b3d1b5520bbd881dd3c3b3c8cbc94c933bd982d263dbcb9d93ce245043c90b2033d2309b8bcc86f913cb6a5c53ce7c9e43c7cc43abce1be353df45fd93cc1550c3d1e0f6ebb7816e13ca1d987bc8ab238bd459b273d4f88d43c9ef2e93b1652003daa83b3bc0fbd813ced7c823c80f4a63c239bafbcee69403d4e69c23ce2bdf93c9056d3397fe6f93c12470ebca48944bd5f52303de840d43cc7fababbb190f53c315f4ebc86a3a33c4f48d53c77c4e33c380161bc28f71d3d58f8d63c8809093d1c157abbfa77d63cd32c8bbc7c8421bda7ea123debdabd3c16b7903b7e26083dac76a9bc1e3d1f3cbf56ac3c3c0bd23c82f39bbc1c43243df665143dab190f3d6f2bcb3b328cf23ca40ab8bca8a85fbdfdfb043dc5b28f3c68464c3c9c86a13c9a1aaabc1f5d8dbc6c41e8bcf79f10bdc41c473cfe94edbcadcee0bcff5827bd79c563bcef7cb0bc767c0f3c8f04c93cbec6adbc6b58efbc022d88bc07ccbabb44aaa73cc7a675bcb296d5bc3a1b1fbd42d8413c916ee4bc2bc1c7bcaab618bdb6da81bc363994bc75d6ed3b3c07cc3ce1f6aabcd4eff8bc09348dbcfe810bbb6d48b33ce0f79dbcde2237bca0ba2fbdbc31e33ce4e565bcac6cf5bced25a1bc55ffbbbca68d21bd9376883c7cada63cd934b5bc651706bd03fed1bcd628d9bbb04b973972bc89bcec6c04bcccef37bde594dd3c9d2c58bc14ddddbcee936fbc300bc8bc8b8b0ebd8f0e843cf60daf3cbe18a3bc7d370ebdbd86d6bc60a13cbb3045843adabfa83cd213c83cb895cc3c78ef86bce850163de8a6e03c30be073dca049dbbf69ad23c40919cbcf7b723bd90b7103d028cc43cee92e53b7c63113d87319fbc8a7e8abcf60430bc34f543bd5367ba3c592952bc72fc00bdf117acbca6d79cbc2e7606bd8fa9873c18a4a73c8df08abcc966cfbce3d4c7bc760d183b52c91f3bc877a03cca3ec63c16f9d13cc6a87cbc59c5193de147df3c23a6053d6955b0bb5adad93c1ab897bc59142bbdaeeb113d8bb8b73c1accc63bfa110b3d349896bc46f7243c87cbaf3c3528d23c43369dbc3168223d22a6133d1024103db340c33b5e52f33c1f6eb6bca3745dbd87dc053d6624933ccdbb4f3c3c22a53cbf67acbc0c7f91bc746ae1bc396602bd749c7d3c7fd8f0bca7c0a7bc33ec17bdca3ab1bcd6b5c0bc3f8dff3b3e36b93cec32e0bcd41a1ebd0bbf83bc4ed233bc8864863c466d5b3c26c3613c7ed1b13c26ca98bccfd3583ded86ca3c50b4fb3c084b6b3acb5c053d4deeebbbd07b5bbd053f483d8aa7e43c421a34bbfd18e73c4a3f5bbcdaf86c3c7a19553ce3e09d3c0310afbce4394f3d844dd53c7149f83c50ce9db9ea95043def211bbcf7c75ebd9a73463dcd21e83c50de9cb91429f63ca66349bc6ce699bc921c14bc2e4d3abd5fe0d53ced8d59bc22dedabc56b786bc141fc6bc7c0e12bde1e3863c8b24a13c7520babc80d911bd6ed3d8bc042cd8ba70d4c73adcd17dbce1ddd5bcfc001fbdb806403c9e0be7bc500ac9bc490c18bd281683bcd29794bc55c5e73bba3cc93c3ce2aabccad6f7bceddf8abc082524bb1604b33ca140963bdb92483c0661973cb22bd7bc2269473d21b2013d3593003d788d4a3ce87a0a3ddaeb4abc479a7cbd3fe3253d4504ab3cf60e413b0343943c459537bcacd077bcca71d6bcc3111dbdae51383c3e09e7bcac82cabc7d9815bd855285bcc17990bc42e9f43bd7edc83c1268abbc2e9df6bc346086bc486022bb32cdb03c1055733b07b03d3c3c8d953c24d8d4bce8de493da805003d464e003d7c1f413c06460c3d5a2549bc15f081bd60f2243d0033a53ca85dd33a4c26883cdf8128bc1f37a0bce0ce23bc93ef44bdc1e0b63cd69549bc9b5900bdba22b5bcde639cbc144e0abd43638a3cd01d9c3c68c99abcc4dbdfbc0fb2cfbc56a75b3bae91243bcf2eb3bc8c2648bc8a2f37bdea58c23ca6f249bc50e809bdb0cad6bc44e98ebcd6a71dbd449f943c90b3983c3053a4bcdee7d8bc9406d2bcc000c2380c6ef93a60df7f3c74b96d3cd2c8983cfa6bbcbc03df3b3d62f2ca3cb0abf13c92fb8eba4419fe3c5efc20bc91424fbd72e92f3ddbaeca3ceea377bb0f65f73c527129bc931c91bc0141e1bcd55702bd586b7f3ca658f0bc2705a8bc262518bd3a98b0bcce82c0bcb690fd3bf14fb93cc4b1dfbce8061ebd346584bc0bdc33bcc2de863cf4347f3c906b6d3ce644953cd08ebebc63ff3a3d00acca3c43a5f33cb66ca8ba736ffb3ce0a627bce2794ebdccd02e3dee0acd3c8e2e84bbf3e3f93c520f2cbc6a2276bc57afd5bc5c0c1fbd4110413c92c9e4bc6c1bc8bc5fcb18bdb5c181bc8be193bc1ec3ed3b7fdfcb3cfab8aabc7aeef8bcaf108dbc16ac0bbb5486b33cd2e3673c42fb483c78569b3c50ebadbc24d2503d6ea6d53c2d63fa3c207663b92161033dcf7623bc440f61bd922c443da8cfe63c3019eab96d1ff33ce23647bc2c099cbcca7c34bc61342fbdc64ee53c9b2262bc1cf9f4bcc5c4a0bc266cbcbc7f1121bd2644893c12a2a83c31a5b5bc6c8b06bde08ed4bcae52cbbb6014e039e7c898bca25315bc26b33abda325d53c300459bcb23bdabc8eef87bcd277c5bc156812bd9377873ccbd3a13cd8feb9bc53ed11bd445cd8bc0082d9bae407b73a67dd0c3c026ea23c6925ce3c82958fbc5bef353dc6c3143deb51133d06ae043c6257013dd646b7bc358769bd81b41c3d7a8ead3cc40d8b3cec36a13cf102bcbc0248a3bceabe24bc410445bdc93ab53cd4584ebc011101bd029db4bc58829cbc1d8c0abde8d1883cbb47993c60509abccaefdebcb679cdbc8eaa403b28b7203b92ca8e3b662b413c2666953c2450d7bcfbfa473dc542013d0067003d5b624d3c8e0a093d4e2454bc4ce47ebd4333243d0ac6aa3c686d203b09e1923ca21836bc9115a7bc3aae0fbc30d843bd1ca2b83c93a743bcf71e01bd7459b0bcbc5f9bbc95ef0abd37c2893c4fdc9d3ce22095bc1d91e6bc9863d2bc7b404a3b06e4013ba03ce13af245223c4937993c738fc3bc13315c3d7576013d1293033dfa48563c00431b3d816534bc448589bdcb333f3d766fbc3cdd889a3b6a3a7e3c06fe39bc8132243c6a099d3c71d1c53c5011a6bc8bf51c3dc5f01a3dac8c0c3de1b7ab3b4a5af83c9086c5bc34c165bdd6c2043d99fd873cfa3b753cf683ab3ce7859fbc095c8bbcc0d3cabcef910ebd5872743c56b0e8bcc2d28bbcb4bf06bda8a4bfbc8c11a3bc4379cf3bc6f3b83cfe3bd2bc784b24bdc77989bc32c702bc9a138c3c6beb94bc4d33d7bc520900bd64527a3ccf93ebbc6645a9bcbc8515bda50cb0bc6224bdbc3688033cce49ba3c442cdabc01e31ebd37f385bc56ea38bc98687c3cb84598bc60f1e4bca7f60cbd6ab43f3cd07ee9bc50cad9bca29f2abdde645bbc2327b4bcc86f163c3a63bf3ce926c2bc87ed00bdb7a989bc89188cbbe33da23c45dc083c3fc9913ca96ec33c953c97bcbad5303d005b1a3db083103d4f9acb3b283e073dbe1cbebcd75075bd3afb1c3de2cea03c15af983cfa5e9f3cb8edaabc48bca03cc060c63c9afad13c5a9d7cbcb3b0193d6424df3c797e053dfeafb0bb87c4d93c6e7697bc62ee2abde8f1113ddbe6b73ca64fc73b97380b3dff8896bc0c668dbc433fd3bc1ded1dbd266c3d3cf1d6e3bce89ac0bc89a81ebd2ea475bcd9789cbc706dea3bac8bc13c6e16bdbc1c0b06bdb45e90bc3cfd8bba98daad3cad9392bc7194c8bcb9f41abd03083a3c332fe0bcfcd1c3bcc95a1abd6b2c77bcecdc97bc02e6ea3b5d3ec13cf5b7b8bc563407bdbcad91bc70beafba47dda73cfcc5a83c4af6c73c4a99cc3ca6e586bc1043163dfe95e03cdccd073d244e9dbb658ed23c4b729cbc4bac23bda7cb103db28fc43c9d31e63b6873113d0c289fbc0962a3bc943625bcb33d45bdf1f9b43c426f4ebcfbd100bdd525b4bc460f9dbc83ac0abd4010893cd84b993ca1ea9abca0c6debc5e22cdbc9df4413b68dc1c3b8f5aa13c5942cf3c582de13cee6e5fbc0a781f3d86b1d63c84c3093d90db77bb58dbd53c5fcc8fbc269024bdb18b103d0acdbd3c28fe883b635c063de087a7bc",
+      "outputFloats": 110,
+      "recurrentFloats": 880,
+      "outputsSha256": "506439f33140fe6893d326b6cb45f130c48f77e09cbf506a3882e95add5c5e05",
+      "recurrentSha256": "c6a7af4ed83d58e777d98247d6d4328968bc623000b7dabe3e783d1ba61ca463",
+      "consumedOutput": -0.7923974096775055,
+      "scope": "raw complete-population Float32 result from the shared initial state; excluded from timed samples and reset before warmup; compare element by element rather than comparing rounded hashes"
+    },
+    "consumedOutput": -242.24969172477722,
+    "outputsSha256": "ea84564bd102c1617b6507dc17d41f220840dabe7711bcde5c7d2f0971b64eb5",
+    "finalRecurrentSha256": "0fe7f8a1e993a2348f0bcf6e14fd4b256961da9ccb2417f0dbecc4330b33aed2",
+    "distinctOutputPairs": 55,
+    "finalRssBytes": 6803456
+  },
+  "command": [
+    "./native/target/release/stage4-inference-benchmark",
+    "--scenario",
+    "P0",
+    "--warmup-passes",
+    "20",
+    "--passes",
+    "120",
+    "--environment",
+    "owner-target-vm",
+    "--output",
+    "/tmp/slither-stage4-inference-85f52eef-20260811/evidence/rust-scalar-p0.json"
+  ]
+}
