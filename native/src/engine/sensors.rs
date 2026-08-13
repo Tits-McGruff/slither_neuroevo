@@ -638,13 +638,18 @@ impl SensorEvaluator {
             let dx = other.position.x - snake.position.x;
             let dy = other.position.y - snake.position.y;
             let distance_squared = dx * dx + dy * dy;
+            let combined_radius = snake.radius + other.radius;
+            let maximum_relevant_distance = radii.near + combined_radius;
+            if distance_squared > maximum_relevant_distance * maximum_relevant_distance {
+                continue;
+            }
             let distance = distance_squared.sqrt();
-            let raw_clearance = (distance - (snake.radius + other.radius)).max(0.0);
+            let raw_clearance = (distance - combined_radius).max(0.0);
             nearest_head_distance = nearest_head_distance.min(raw_clearance);
             if distance_squared > radii.near * radii.near {
                 continue;
             }
-            let hit_threshold = (snake.radius + other.radius) * self.config.collision_hit_scale;
+            let hit_threshold = combined_radius * self.config.collision_hit_scale;
             let clearance = (distance - hit_threshold).max(0.0);
             let relative = normalize_angle(dy.atan2(dx) - snake.direction);
             let bin = angle_to_centered_bin(relative, self.layout.bins);

@@ -322,6 +322,8 @@ pub struct BodyIndexReport {
     pub entries: usize,
     /// Occupied cells.
     pub occupied_cells: usize,
+    /// Direct coordinate-lookup slots, or zero when sorted fallback is used.
+    pub lookup_cells: usize,
     /// Estimated owned vector bytes.
     pub estimated_bytes: usize,
 }
@@ -334,6 +336,8 @@ pub struct PelletIndexReport {
     pub pellets: usize,
     /// Occupied cells.
     pub occupied_cells: usize,
+    /// Direct coordinate-lookup slots, or zero when sorted fallback is used.
+    pub lookup_cells: usize,
     /// Estimated owned vector bytes.
     pub estimated_bytes: usize,
 }
@@ -821,6 +825,7 @@ impl From<BodyIndexDiagnostics> for BodyIndexReport {
             segments: source.segments,
             entries: source.entries,
             occupied_cells: source.occupied_cells,
+            lookup_cells: source.lookup_cells,
             estimated_bytes: source.estimated_bytes,
         }
     }
@@ -831,6 +836,7 @@ impl From<PelletIndexDiagnostics> for PelletIndexReport {
         Self {
             pellets: source.pellets,
             occupied_cells: source.occupied_cells,
+            lookup_cells: source.lookup_cells,
             estimated_bytes: source.estimated_bytes,
         }
     }

@@ -12,8 +12,15 @@ use std::error::Error;
 use std::fmt;
 use std::mem::size_of;
 
+/// Dense lookup is allowed up to this many cell coordinates per index.
+const MAXIMUM_DENSE_LOOKUP_CELLS: usize = 262_144;
+/// Sparse grids stay on sorted binary lookup beyond this coordinate/span ratio.
+const MAXIMUM_DENSE_LOOKUP_RATIO: usize = 16;
+/// Small bounded world grids use direct lookup even when sparsely occupied.
+const MINIMUM_DENSE_LOOKUP_ALLOWANCE: usize = 4_096;
+
 /// Integer spatial-cell identity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 struct CellKey {
     x: i32,
     y: i32,
@@ -25,6 +32,88 @@ struct CellSpan {
     key: CellKey,
     start: usize,
     end: usize,
+}
+
+/// Optional bounded direct mapping from cell coordinates to sorted spans.
+#[derive(Clone, Debug, Default)]
+struct CellLookup {
+    minimum: CellKey,
+    width: usize,
+    span_indices: Vec<usize>,
+}
+
+impl CellLookup {
+    fn build(cells: &[CellSpan]) -> Result<Self, SpatialIndexError> {
+        let Some(first) = cells.first() else {
+            return Ok(Self::default());
+        };
+        let mut minimum = first.key;
+        let mut maximum = first.key;
+        for span in &cells[1..] {
+            minimum.x = minimum.x.min(span.key.x);
+            minimum.y = minimum.y.min(span.key.y);
+            maximum.x = maximum.x.max(span.key.x);
+            maximum.y = maximum.y.max(span.key.y);
+        }
+        let width = coordinate_span(minimum.x, maximum.x, "cell lookup width")?;
+        let height = coordinate_span(minimum.y, maximum.y, "cell lookup height")?;
+        let Some(area) = width.checked_mul(height) else {
+            // A coordinate envelope too large to describe densely is exactly
+            // the case this optional lookup is meant to decline. The sorted
+            // cell spans remain the complete index and provide the fallback.
+            return Ok(Self::default());
+        };
+        let density_allowance = cells
+            .len()
+            .saturating_mul(MAXIMUM_DENSE_LOOKUP_RATIO)
+            .clamp(MINIMUM_DENSE_LOOKUP_ALLOWANCE, MAXIMUM_DENSE_LOOKUP_CELLS);
+        if area > density_allowance {
+            return Ok(Self::default());
+        }
+        let mut span_indices = Vec::new();
+        span_indices
+            .try_reserve_exact(area)
+            .map_err(|_| SpatialIndexError::AllocationFailed {
+                context: "dense cell lookup",
+                requested: area,
+            })?;
+        span_indices.resize(area, usize::MAX);
+        for (span_index, span) in cells.iter().enumerate() {
+            let offset = cell_lookup_offset(minimum, width, span.key).ok_or(
+                SpatialIndexError::ArithmeticOverflow {
+                    context: "dense cell lookup offset",
+                },
+            )?;
+            span_indices[offset] = span_index;
+        }
+        Ok(Self {
+            minimum,
+            width,
+            span_indices,
+        })
+    }
+
+    fn find(&self, cells: &[CellSpan], key: CellKey) -> Option<CellSpan> {
+        if self.span_indices.is_empty() {
+            return find_cell_span(cells, key);
+        }
+        let offset = cell_lookup_offset(self.minimum, self.width, key)?;
+        let span_index = *self.span_indices.get(offset)?;
+        (span_index != usize::MAX).then(|| cells[span_index])
+    }
+
+    const fn cells(&self) -> usize {
+        self.span_indices.len()
+    }
+
+    fn estimated_bytes(&self) -> Result<usize, SpatialIndexError> {
+        self.span_indices
+            .capacity()
+            .checked_mul(size_of::<usize>())
+            .ok_or(SpatialIndexError::ArithmeticOverflow {
+                context: "dense cell lookup bytes",
+            })
+    }
 }
 
 /// Stable derived reference to one snake-body segment.
@@ -159,9 +248,11 @@ pub struct BodyIndexDiagnostics {
     pub entries: usize,
     /// Number of occupied cells.
     pub occupied_cells: usize,
+    /// Coordinate slots in the bounded direct lookup, or zero for fallback.
+    pub lookup_cells: usize,
     /// Configured admission ceiling for cell entries.
     pub maximum_entries: usize,
-    /// Estimated owned bytes for records, entries, and cell spans.
+    /// Estimated owned bytes for records, entries, cell spans, and lookup.
     pub estimated_bytes: usize,
 }
 
@@ -185,6 +276,7 @@ pub struct BodySpatialIndex {
     records: Vec<BodySegmentRecord>,
     entries: Vec<BodyCellEntry>,
     cells: Vec<CellSpan>,
+    lookup: CellLookup,
     maximum_owner_radius: f64,
     diagnostics: BodyIndexDiagnostics,
 }
@@ -301,15 +393,21 @@ impl BodySpatialIndex {
                 })
         });
         let cells = build_cell_spans(&entries, |entry| entry.key)?;
+        let lookup = CellLookup::build(&cells)?;
         let estimated_bytes = checked_owned_bytes(&[
             (records.capacity(), size_of::<BodySegmentRecord>()),
             (entries.capacity(), size_of::<BodyCellEntry>()),
             (cells.capacity(), size_of::<CellSpan>()),
-        ])?;
+        ])?
+        .checked_add(lookup.estimated_bytes()?)
+        .ok_or(SpatialIndexError::ArithmeticOverflow {
+            context: "body-index estimated bytes",
+        })?;
         let diagnostics = BodyIndexDiagnostics {
             segments: records.len(),
             entries: entries.len(),
             occupied_cells: cells.len(),
+            lookup_cells: lookup.cells(),
             maximum_entries,
             estimated_bytes,
         };
@@ -318,6 +416,7 @@ impl BodySpatialIndex {
             records,
             entries,
             cells,
+            lookup,
             maximum_owner_radius,
             diagnostics,
         })
@@ -403,7 +502,7 @@ impl BodySpatialIndex {
             self.cell_size,
             |key| {
                 diagnostics.cells_visited = diagnostics.cells_visited.saturating_add(1);
-                let Some(span) = find_cell_span(&self.cells, key) else {
+                let Some(span) = self.lookup.find(&self.cells, key) else {
                     return true;
                 };
                 for entry in &self.entries[span.start..span.end] {
@@ -465,7 +564,7 @@ impl BodySpatialIndex {
         for y in minimum.y..=maximum.y {
             for x in minimum.x..=maximum.x {
                 diagnostics.cells_visited = diagnostics.cells_visited.saturating_add(1);
-                let Some(span) = find_cell_span(&self.cells, CellKey { x, y }) else {
+                let Some(span) = self.lookup.find(&self.cells, CellKey { x, y }) else {
                     continue;
                 };
                 for entry in &self.entries[span.start..span.end] {
@@ -545,7 +644,6 @@ struct PelletCellEntry {
 struct PelletCandidate {
     pellet: usize,
     distance_squared: f64,
-    id: u64,
 }
 
 /// Reusable per-worker pellet-query storage.
@@ -588,9 +686,11 @@ pub struct PelletIndexDiagnostics {
     pub pellets: usize,
     /// Number of occupied cells.
     pub occupied_cells: usize,
+    /// Coordinate slots in the bounded direct lookup, or zero for fallback.
+    pub lookup_cells: usize,
     /// Configured pellet-entry ceiling.
     pub maximum_entries: usize,
-    /// Estimated owned bytes for copied records, entries, and spans.
+    /// Estimated owned bytes for copied records, entries, spans, and lookup.
     pub estimated_bytes: usize,
 }
 
@@ -601,6 +701,7 @@ pub struct PelletSpatialIndex {
     pellets: Vec<IndexedPellet>,
     entries: Vec<PelletCellEntry>,
     cells: Vec<CellSpan>,
+    lookup: CellLookup,
     diagnostics: PelletIndexDiagnostics,
 }
 
@@ -635,8 +736,14 @@ impl PelletSpatialIndex {
             })?;
         for (source_index, pellet) in world.pellets.iter().enumerate() {
             validate_point(pellet.position)?;
-            let pellet_index = pellets.len();
             pellets.push(IndexedPellet::from((source_index, pellet)));
+        }
+        pellets.sort_unstable_by(|left, right| {
+            left.id
+                .cmp(&right.id)
+                .then_with(|| left.source_index.cmp(&right.source_index))
+        });
+        for (pellet_index, pellet) in pellets.iter().enumerate() {
             entries.push(PelletCellEntry {
                 key: CellKey {
                     x: cell_coordinate(pellet.position.x, cell_size)?,
@@ -649,16 +756,27 @@ impl PelletSpatialIndex {
             left.key
                 .cmp(&right.key)
                 .then_with(|| pellets[left.pellet].id.cmp(&pellets[right.pellet].id))
+                .then_with(|| {
+                    pellets[left.pellet]
+                        .source_index
+                        .cmp(&pellets[right.pellet].source_index)
+                })
         });
         let cells = build_cell_spans(&entries, |entry| entry.key)?;
+        let lookup = CellLookup::build(&cells)?;
         let estimated_bytes = checked_owned_bytes(&[
             (pellets.capacity(), size_of::<IndexedPellet>()),
             (entries.capacity(), size_of::<PelletCellEntry>()),
             (cells.capacity(), size_of::<CellSpan>()),
-        ])?;
+        ])?
+        .checked_add(lookup.estimated_bytes()?)
+        .ok_or(SpatialIndexError::ArithmeticOverflow {
+            context: "pellet-index estimated bytes",
+        })?;
         let diagnostics = PelletIndexDiagnostics {
             pellets: pellets.len(),
             occupied_cells: cells.len(),
+            lookup_cells: lookup.cells(),
             maximum_entries,
             estimated_bytes,
         };
@@ -667,6 +785,7 @@ impl PelletSpatialIndex {
             pellets,
             entries,
             cells,
+            lookup,
             diagnostics,
         })
     }
@@ -696,7 +815,6 @@ impl PelletSpatialIndex {
                 scratch.candidates.push(PelletCandidate {
                     pellet: entry.pellet,
                     distance_squared,
-                    id: pellet.id,
                 });
             }
         })?;
@@ -730,7 +848,7 @@ impl PelletSpatialIndex {
             self.cell_size,
             |key| {
                 diagnostics.cells_visited = diagnostics.cells_visited.saturating_add(1);
-                let Some(span) = find_cell_span(&self.cells, key) else {
+                let Some(span) = self.lookup.find(&self.cells, key) else {
                     return true;
                 };
                 for entry in &self.entries[span.start..span.end] {
@@ -748,7 +866,6 @@ impl PelletSpatialIndex {
                         PelletCandidate {
                             pellet: entry.pellet,
                             distance_squared,
-                            id: pellet.id,
                         },
                         maximum_candidates,
                         compare_pellet_candidates,
@@ -791,7 +908,7 @@ impl PelletSpatialIndex {
         for y in minimum.y..=maximum.y {
             for x in minimum.x..=maximum.x {
                 diagnostics.cells_visited = diagnostics.cells_visited.saturating_add(1);
-                let Some(span) = find_cell_span(&self.cells, CellKey { x, y }) else {
+                let Some(span) = self.lookup.find(&self.cells, CellKey { x, y }) else {
                     continue;
                 };
                 for entry in &self.entries[span.start..span.end] {
@@ -964,24 +1081,22 @@ fn compare_body_candidates(left: &BodyCandidate, right: &BodyCandidate) -> Order
 fn compare_pellet_candidates(left: &PelletCandidate, right: &PelletCandidate) -> Ordering {
     left.distance_squared
         .total_cmp(&right.distance_squared)
-        .then_with(|| left.id.cmp(&right.id))
+        .then_with(|| left.pellet.cmp(&right.pellet))
 }
 
-/// Keep the smallest `limit` values in a max-heap stored inside `values`.
+/// Keep the smallest `limit` values, promoting to a max-heap only at capacity.
+///
+/// Most sensor queries return fewer candidates than their safety cap. Those
+/// queries only append and perform one final deterministic sort instead of
+/// paying heap-maintenance cost for every retained candidate.
 fn retain_bounded<T>(values: &mut Vec<T>, value: T, limit: usize, compare: fn(&T, &T) -> Ordering) {
     if limit == 0 {
         return;
     }
     if values.len() < limit {
         values.push(value);
-        let mut child = values.len() - 1;
-        while child > 0 {
-            let parent = (child - 1) / 2;
-            if compare(&values[parent], &values[child]) != Ordering::Less {
-                break;
-            }
-            values.swap(parent, child);
-            child = parent;
+        if values.len() == limit {
+            build_max_heap(values, compare);
         }
         return;
     }
@@ -989,11 +1104,23 @@ fn retain_bounded<T>(values: &mut Vec<T>, value: T, limit: usize, compare: fn(&T
         return;
     }
     values[0] = value;
-    let mut parent = 0usize;
+    sift_max_heap_down(values, 0, compare);
+}
+
+fn build_max_heap<T>(values: &mut [T], compare: fn(&T, &T) -> Ordering) {
+    if values.len() < 2 {
+        return;
+    }
+    for parent in (0..=(values.len() - 2) / 2).rev() {
+        sift_max_heap_down(values, parent, compare);
+    }
+}
+
+fn sift_max_heap_down<T>(values: &mut [T], mut parent: usize, compare: fn(&T, &T) -> Ordering) {
     loop {
         let left = parent * 2 + 1;
         if left >= values.len() {
-            break;
+            return;
         }
         let right = left + 1;
         let largest =
@@ -1003,7 +1130,7 @@ fn retain_bounded<T>(values: &mut Vec<T>, value: T, limit: usize, compare: fn(&T
                 left
             };
         if compare(&values[parent], &values[largest]) != Ordering::Less {
-            break;
+            return;
         }
         values.swap(parent, largest);
         parent = largest;
@@ -1042,6 +1169,24 @@ fn cell_coordinate(value: f64, cell_size: f64) -> Result<i32, SpatialIndexError>
         return Err(SpatialIndexError::CoordinateOutOfRange);
     }
     Ok(coordinate as i32)
+}
+
+fn coordinate_span(
+    minimum: i32,
+    maximum: i32,
+    context: &'static str,
+) -> Result<usize, SpatialIndexError> {
+    let span = i64::from(maximum) - i64::from(minimum) + 1;
+    usize::try_from(span).map_err(|_| SpatialIndexError::ArithmeticOverflow { context })
+}
+
+fn cell_lookup_offset(minimum: CellKey, width: usize, key: CellKey) -> Option<usize> {
+    let x = usize::try_from(i64::from(key.x) - i64::from(minimum.x)).ok()?;
+    let y = usize::try_from(i64::from(key.y) - i64::from(minimum.y)).ok()?;
+    if x >= width {
+        return None;
+    }
+    y.checked_mul(width)?.checked_add(x)
 }
 
 /// Visit a rectangular query in deterministic concentric cell rings.
@@ -1267,6 +1412,68 @@ fn checked_owned_bytes(parts: &[(usize, usize)]) -> Result<usize, SpatialIndexEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_dense_cell_lookup_matches_sorted_fallback() {
+        let cells = vec![
+            CellSpan {
+                key: CellKey { x: -2, y: 1 },
+                start: 0,
+                end: 2,
+            },
+            CellSpan {
+                key: CellKey { x: 3, y: 4 },
+                start: 2,
+                end: 5,
+            },
+        ];
+        let lookup = CellLookup::build(&cells).expect("bounded lookup should build");
+        assert!(lookup.cells() > 0);
+        assert_eq!(lookup.find(&cells, cells[0].key), Some(cells[0]));
+        assert_eq!(lookup.find(&cells, CellKey { x: 0, y: 0 }), None);
+
+        let sparse = vec![
+            CellSpan {
+                key: CellKey { x: -100_000, y: 0 },
+                start: 0,
+                end: 1,
+            },
+            CellSpan {
+                key: CellKey { x: 100_000, y: 0 },
+                start: 1,
+                end: 2,
+            },
+        ];
+        let fallback = CellLookup::build(&sparse).expect("sparse fallback should build");
+        assert_eq!(fallback.cells(), 0);
+        assert_eq!(fallback.find(&sparse, sparse[1].key), Some(sparse[1]));
+
+        let overflow_envelope = vec![
+            CellSpan {
+                key: CellKey {
+                    x: i32::MIN,
+                    y: i32::MIN,
+                },
+                start: 0,
+                end: 1,
+            },
+            CellSpan {
+                key: CellKey {
+                    x: i32::MAX,
+                    y: i32::MAX,
+                },
+                start: 1,
+                end: 2,
+            },
+        ];
+        let overflow_fallback =
+            CellLookup::build(&overflow_envelope).expect("overflowing area should use fallback");
+        assert_eq!(overflow_fallback.cells(), 0);
+        assert_eq!(
+            overflow_fallback.find(&overflow_envelope, overflow_envelope[0].key),
+            Some(overflow_envelope[0])
+        );
+    }
     use crate::engine::state::{BodyRange, SnakeKind, SnakeState};
 
     fn snake(id: u64, body: BodyRange, radius: f64) -> SnakeState {
@@ -1340,6 +1547,80 @@ mod tests {
             .expect("center query should succeed");
         assert_eq!(query.candidates, 1);
         assert_eq!(index.candidates(&scratch).count(), 1);
+    }
+
+    #[test]
+    fn sparse_body_and_pellet_indexes_query_through_automatic_fallback() {
+        let far = 1_000_000.0;
+        let mut world = WorldState {
+            body_points: vec![
+                WorldPoint { x: -far, y: -far },
+                WorldPoint {
+                    x: -far + 1.0,
+                    y: -far,
+                },
+                WorldPoint { x: far, y: far },
+                WorldPoint {
+                    x: far + 1.0,
+                    y: far,
+                },
+            ],
+            pellets: vec![
+                PelletState {
+                    id: 20,
+                    position: WorldPoint { x: -far, y: -far },
+                    value: 1.0,
+                    kind: 0,
+                    color: 0,
+                    owner: None,
+                },
+                PelletState {
+                    id: 10,
+                    position: WorldPoint { x: far, y: far },
+                    value: 1.0,
+                    kind: 0,
+                    color: 0,
+                    owner: None,
+                },
+            ],
+            ..WorldState::default()
+        };
+        world.snakes = vec![
+            snake(20, BodyRange { start: 0, len: 2 }, 8.0),
+            snake(10, BodyRange { start: 2, len: 2 }, 8.0),
+        ];
+
+        let body = BodySpatialIndex::build(&world, 10.0, 2).expect("body index should build");
+        let pellets =
+            PelletSpatialIndex::build(&world, 10.0, 2).expect("pellet index should build");
+        assert_eq!(body.diagnostics().lookup_cells, 0);
+        assert_eq!(pellets.diagnostics().lookup_cells, 0);
+
+        let center = WorldPoint { x: far, y: far };
+        let mut body_scratch = BodyQueryScratch::default();
+        let body_query = body
+            .collect_candidates(center, 2.0, &mut body_scratch)
+            .expect("sparse body query should succeed");
+        assert_eq!(body_query.candidates, 1);
+        assert_eq!(
+            body.candidates(&body_scratch)
+                .map(|segment| segment.owner_id)
+                .collect::<Vec<_>>(),
+            vec![10]
+        );
+
+        let mut pellet_scratch = PelletQueryScratch::default();
+        let pellet_query = pellets
+            .collect_candidates(center, 2.0, &mut pellet_scratch)
+            .expect("sparse pellet query should succeed");
+        assert_eq!(pellet_query.candidates, 1);
+        assert_eq!(
+            pellets
+                .candidates(&pellet_scratch)
+                .map(|pellet| pellet.id)
+                .collect::<Vec<_>>(),
+            vec![10]
+        );
     }
 
     #[test]
