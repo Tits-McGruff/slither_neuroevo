@@ -664,6 +664,8 @@ pub struct LatestControllerAction {
     pub boost: bool,
     /// Client-reported tick retained only for diagnostics.
     pub client_tick: u64,
+    /// Monotonic Node-assigned command arrival sequence.
+    pub arrival_sequence: u64,
     /// Monotonic wall milliseconds when accepted.
     pub accepted_at_ms: u64,
 }
@@ -687,6 +689,8 @@ pub struct ControllerLease {
     pub status: ControllerLeaseStatus,
     /// Latest accepted action.
     pub latest_action: LatestControllerAction,
+    /// Latest monotonic wall time accepted by this lease state machine.
+    pub last_observed_at_ms: u64,
     /// Monotonic wall milliseconds when disconnect occurred.
     pub disconnected_at_ms: Option<u64>,
     /// Checked latest-action-plus-input-hold deadline, absent while connected.
@@ -2386,6 +2390,18 @@ fn validate_lease(
             "turn must be in [-1, 1]",
         );
     }
+    if lease.latest_action.arrival_sequence == 0 {
+        return invalid(
+            "controller_lease.latest_action.arrival_sequence",
+            "arrival sequence must be positive",
+        );
+    }
+    if lease.last_observed_at_ms < lease.latest_action.accepted_at_ms {
+        return invalid(
+            "controller_lease.last_observed_at_ms",
+            "last observed wall time precedes the latest action",
+        );
+    }
     match lease.status {
         ControllerLeaseStatus::Connected => {
             if lease.connection_id.is_none()
@@ -2429,6 +2445,7 @@ fn validate_lease(
                 || hold_deadline <= disconnected
                 || grace_deadline != expected_grace_deadline
                 || lease.latest_action.accepted_at_ms > disconnected
+                || lease.last_observed_at_ms < disconnected
                 || snake.turn.to_bits() != lease.latest_action.turn.to_bits()
                 || snake.input_boost != lease.latest_action.boost
             {
@@ -2466,6 +2483,7 @@ fn validate_lease(
                 || hold_deadline != expected_hold_deadline
                 || grace_deadline != expected_grace_deadline
                 || lease.latest_action.accepted_at_ms > disconnected
+                || lease.last_observed_at_ms < disconnected
                 || snake.turn != 0.0
                 || snake.input_boost
             {
@@ -2504,6 +2522,7 @@ fn validate_lease(
                 || grace_deadline != expected_grace_deadline
                 || takeover < grace_deadline
                 || lease.latest_action.accepted_at_ms > disconnected
+                || lease.last_observed_at_ms < takeover
                 || snake.brain.is_none()
             {
                 return invalid(
@@ -3387,8 +3406,10 @@ mod tests {
                 turn: 0.25,
                 boost: true,
                 client_tick: 0,
+                arrival_sequence: 1,
                 accepted_at_ms: 100,
             },
+            last_observed_at_ms: 100,
             disconnected_at_ms: None,
             input_hold_expires_at_ms: None,
             grace_expires_at_ms: None,
@@ -4050,6 +4071,7 @@ mod tests {
         lease.connection_id = None;
         lease.status = ControllerLeaseStatus::HoldingLastInput;
         lease.latest_action.accepted_at_ms = 800;
+        lease.last_observed_at_ms = 1_000;
         lease.disconnected_at_ms = Some(1_000);
         lease.input_hold_expires_at_ms = Some(1_300);
         lease.grace_expires_at_ms = Some(31_000);
@@ -4086,6 +4108,7 @@ mod tests {
 
         live.world.controller_leases[0].status = ControllerLeaseStatus::NeuralTakeover;
         live.world.controller_leases[0].takeover_committed_at_ms = Some(30_999);
+        live.world.controller_leases[0].last_observed_at_ms = 30_999;
         assert!(matches!(
             own(live.clone(), Arc::clone(&graph), usize::MAX),
             Err(StateError::InvalidField {
@@ -4094,6 +4117,7 @@ mod tests {
             })
         ));
         live.world.controller_leases[0].takeover_committed_at_ms = Some(31_000);
+        live.world.controller_leases[0].last_observed_at_ms = 31_000;
         assert!(own(live, graph, usize::MAX).is_ok());
     }
 
@@ -4162,8 +4186,10 @@ mod tests {
                 turn: 0.0,
                 boost: false,
                 client_tick: 0,
+                arrival_sequence: 1,
                 accepted_at_ms: 100,
             },
+            last_observed_at_ms: 31_000,
             disconnected_at_ms: Some(1_000),
             input_hold_expires_at_ms: Some(600),
             grace_expires_at_ms: Some(31_000),
