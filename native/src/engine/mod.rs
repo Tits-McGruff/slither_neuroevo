@@ -27,6 +27,8 @@ pub mod inference;
 /// Deterministic Stage 4 whole-population inference evidence.
 #[cfg(feature = "engine-test-hooks")]
 pub mod inference_fixture;
+/// Staged steering, boost, movement, and packed body-point proposals.
+pub mod movement;
 /// Bounded inbound/outbound queues and coalesced wake contracts.
 pub mod queues;
 /// Versioned deterministic random-number generation shared by engine state.

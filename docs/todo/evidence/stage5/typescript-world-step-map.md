@@ -80,6 +80,14 @@ Rust/TypeScript comparison tolerances:
 - touching or crossing `worldRadius` by `head distance + radius` causes a wall
   death without corpse pellets.
 
+The TypeScript wall path advances scalar `x/y` and then returns from
+`Snake::die()` before copying that position into `points[0]`. Rust preserves
+the final scalar position, death, body length, lack of corpse pellets, and lack
+of follow/grow/radius work, but normalizes the dead body's first coordinate to
+that position. This is an internal representation correction required by the
+admitted Rust invariant `body[0] == position`; dead snakes are neither rendered
+nor collision-active.
+
 Boost is requested when the held boost value exceeds `0.35`. It is eligible
 only above `snakeMinLen + 1` body points and at or above
 `boost.minPointsToBoost`. Its point cost is
@@ -203,4 +211,3 @@ a service opportunity between overdue steps when interactive control exists.
   sensor tests remain the selected TypeScript oracle during migration.
 - `docs/todo/evidence/stage2/behavior-source-map.md` indexes the wider current
   behavior corpus and distinguishes preserve from correct.
-

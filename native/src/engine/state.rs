@@ -3001,6 +3001,7 @@ mod tests {
         GraphBundle, GraphEdge, GraphLimits, GraphNodeKind, GraphNodeSpec, GraphOutputRef,
         GraphSpec,
     };
+    use crate::engine::movement::{MovementConfig, MovementWorkspace};
     use crate::engine::queues::NoopWakeSink;
     use crate::engine::rng::{derive_seed, StatefulRng};
     use crate::engine::runtime::EngineRuntime;
@@ -3906,6 +3907,40 @@ mod tests {
             own(empty_alive_body, graph, usize::MAX),
             Err(StateError::InvalidBodyRange { .. })
         ));
+    }
+
+    #[test]
+    fn normalized_wall_death_movement_is_admitted_as_authoritative_state() {
+        let graph = default_graph();
+        let mut running = candidate(&graph, 1);
+        running.phase = AuthorityPhase::Running;
+        let start = WorldPoint {
+            x: running.config.world_radius - 8.4,
+            y: 0.0,
+        };
+        push_evolved_snake(&mut running, 0, 1, 1, start);
+
+        let mut movement_config = MovementConfig::typescript_defaults();
+        movement_config.world_radius = running.config.world_radius;
+        let mut workspace = MovementWorkspace::new();
+        let prepared = workspace
+            .prepare(
+                &running.world,
+                movement_config,
+                1.0 / 180.0,
+                running.config.max_body_points,
+                running.config.max_pellets,
+            )
+            .expect("wall movement should prepare");
+        assert!(prepared.proposals()[0].wall_death);
+        let staged_snakes = prepared.snakes().to_vec();
+        let staged_body_points = prepared.body_points().to_vec();
+        assert!(!staged_snakes[0].alive);
+        assert_eq!(staged_body_points[0], staged_snakes[0].position);
+
+        running.world.snakes = staged_snakes;
+        running.world.body_points = staged_body_points;
+        assert!(own(running, graph, usize::MAX).is_ok());
     }
 
     #[test]

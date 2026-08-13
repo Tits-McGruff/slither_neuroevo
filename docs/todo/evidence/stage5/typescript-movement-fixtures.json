@@ -1,0 +1,97 @@
+{
+  "schema": "stage5-typescript-movement-fixtures-v1",
+  "evidenceClass": "current-source execution",
+  "sourceRevision": "6bfcb24",
+  "environment": {
+    "platform": "win32",
+    "architecture": "x64",
+    "purpose": "formula and ordering reference, not target-VM performance evidence"
+  },
+  "source": {
+    "movement": "src/snake.ts::Snake.advance",
+    "configuration": "src/config.ts::CFG_DEFAULT",
+    "extractor": "scripts/stage5/generate-movement-fixtures.ts",
+    "runner": "node ./node_modules/tsx/dist/cli.mjs scripts/stage5/generate-movement-fixtures.ts"
+  },
+  "deterministicRng": {
+    "constructorDraws": [0, 0, 0],
+    "boostJitterDraws": [0.23791737877763808, 0.2188026534859091]
+  },
+  "substepSeconds": 0.005555555555555556,
+  "fixtures": [
+    {
+      "name": "ordinary-turn-length-5",
+      "input": {
+        "position": [0, 0],
+        "direction": 0,
+        "speed": 165,
+        "turn": 1,
+        "boostInput": 0,
+        "pointsScore": 10,
+        "targetLength": 5,
+        "body": [[0, 0], [-7.5, 0], [-15, 0], [-22.5, 0], [-30, 0]]
+      },
+      "output": {
+        "position": [0.916521814514685, 0.01629543790413029],
+        "direction": 0.017777777777777778,
+        "speed": 165,
+        "boost": 0,
+        "pointsScore": 10,
+        "targetLength": 5,
+        "radius": 9,
+        "body": [
+          [0.916521814514685, 0.01629543790413029],
+          [-6.5834641283504585, 0.0017745279715922944],
+          [-14.083463961652534, 0.00019324088458987454],
+          [-21.583463959675736, 0.00002104336444159476],
+          [-29.083463959652295, 0.000002291560545631536]
+        ],
+        "pellets": []
+      }
+    },
+    {
+      "name": "boost-turn-shrink-length-8",
+      "input": {
+        "position": [0, 0],
+        "direction": 0,
+        "speed": 165,
+        "turn": -0.5,
+        "boostInput": 1,
+        "pointsScore": 10,
+        "targetLength": 8,
+        "body": [[0, 0], [-7.5, 0], [-15, 0], [-22.5, 0], [-30, 0], [-37.5, 0], [-45, 0], [-52.5, 0]]
+      },
+      "output": {
+        "position": [0.9826284303143763, -0.00873225860280335],
+        "direction": -0.008886399452323957,
+        "speed": 176.88010135297245,
+        "boost": 1,
+        "pointsScore": 9.961098271357901,
+        "targetLength": 7.993775723417264,
+        "radius": 9.187161711298957,
+        "body": [
+          [0.9826284303143763, -0.00873225860280335],
+          [-6.517367595728177, -0.001011549702558168],
+          [-14.017367542401514, -0.00011717843268879417],
+          [-21.517367541685925, -0.000013574009241817194],
+          [-29.01736754167632, -0.0000015724201344503534],
+          [-36.517367541676194, -0.00000018214994812331455],
+          [-44.017367541676194, -0.000000021100342633887367]
+        ],
+        "pellets": [
+          {
+            "position": [-65.74165242444724, -5.623946930281818],
+            "value": 0.65,
+            "kind": "boost",
+            "colorId": 1
+          }
+        ]
+      }
+    }
+  ],
+  "interpretation": {
+    "preserve": "turn, boost burn, pre-movement boost shrink, speed interpolation, body following, target length and radius formulas",
+    "defer": "the deterministic jittered boost pellet is retained for later per-owner RNG realization; the Rust movement stage currently emits the deterministic pre-jitter request only",
+    "notPerformanceEvidence": true
+  }
+}
