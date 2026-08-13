@@ -442,7 +442,7 @@ pub struct SensorWorkReport {
 }
 
 impl SensorWorkReport {
-    fn add(&mut self, diagnostics: SensorSampleDiagnostics) {
+    pub(crate) fn add(&mut self, diagnostics: SensorSampleDiagnostics) {
         self.samples = self.samples.saturating_add(1);
         self.pellet_cells_visited = self
             .pellet_cells_visited
@@ -533,7 +533,7 @@ pub struct Stage4CpuUsage {
 
 /// Monotonic operating-system process CPU counter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ProcessCpuSnapshot {
+pub(crate) struct ProcessCpuSnapshot {
     nanoseconds: u128,
     source: &'static str,
 }
@@ -857,7 +857,7 @@ fn validate_options(options: &Stage4SensingEvidenceOptions) -> Result<(), String
     Ok(())
 }
 
-fn build_world(spec: Stage4SensingScenarioSpec) -> Result<WorldState, String> {
+pub(crate) fn build_world(spec: Stage4SensingScenarioSpec) -> Result<WorldState, String> {
     let total_snakes = spec.total_snakes();
     let total_body_points = total_snakes
         .checked_mul(spec.body_points_per_snake)
@@ -1024,7 +1024,7 @@ fn execute_sensor_pass(
     Ok(consumed)
 }
 
-fn digest_world(world: &WorldState) -> String {
+pub(crate) fn digest_world(world: &WorldState) -> String {
     let mut digest = Sha256::new();
     digest.update(b"slither-stage4-sensing-world-v1\0");
     digest.update((world.snakes.len() as u64).to_le_bytes());
@@ -1067,7 +1067,7 @@ fn digest_world(world: &WorldState) -> String {
     hex_bytes(digest.finalize())
 }
 
-fn distribution(mut samples: Vec<f64>) -> Result<Stage4SensingDistribution, String> {
+pub(crate) fn distribution(mut samples: Vec<f64>) -> Result<Stage4SensingDistribution, String> {
     if samples.is_empty()
         || samples
             .iter()
@@ -1095,7 +1095,9 @@ fn distribution(mut samples: Vec<f64>) -> Result<Stage4SensingDistribution, Stri
     })
 }
 
-fn allocation_distribution(samples: &[u64]) -> Result<Stage4AllocationDistribution, String> {
+pub(crate) fn allocation_distribution(
+    samples: &[u64],
+) -> Result<Stage4AllocationDistribution, String> {
     let Some(min) = samples.iter().copied().min() else {
         return Err("allocation samples are empty".to_owned());
     };
@@ -1113,7 +1115,7 @@ fn allocation_distribution(samples: &[u64]) -> Result<Stage4AllocationDistributi
     })
 }
 
-fn cpu_usage(
+pub(crate) fn cpu_usage(
     before: Option<ProcessCpuSnapshot>,
     after: Option<ProcessCpuSnapshot>,
     wall: Duration,
@@ -1150,7 +1152,7 @@ extern "C" {
 }
 
 #[cfg(target_os = "linux")]
-fn process_cpu_snapshot() -> Option<ProcessCpuSnapshot> {
+pub(crate) fn process_cpu_snapshot() -> Option<ProcessCpuSnapshot> {
     const CLOCK_PROCESS_CPUTIME_ID: i32 = 2;
     let mut time = LinuxTimespec::default();
     // SAFETY: `time` is a live writable value with the x86_64 Linux
@@ -1197,7 +1199,7 @@ fn windows_file_time_ticks(value: WindowsFileTime) -> u64 {
 }
 
 #[cfg(target_os = "windows")]
-fn process_cpu_snapshot() -> Option<ProcessCpuSnapshot> {
+pub(crate) fn process_cpu_snapshot() -> Option<ProcessCpuSnapshot> {
     let mut creation_time = WindowsFileTime::default();
     let mut exit_time = WindowsFileTime::default();
     let mut kernel_time = WindowsFileTime::default();
@@ -1226,11 +1228,11 @@ fn process_cpu_snapshot() -> Option<ProcessCpuSnapshot> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn process_cpu_snapshot() -> Option<ProcessCpuSnapshot> {
+pub(crate) fn process_cpu_snapshot() -> Option<ProcessCpuSnapshot> {
     None
 }
 
-fn hex_bytes(bytes: impl AsRef<[u8]>) -> String {
+pub(crate) fn hex_bytes(bytes: impl AsRef<[u8]>) -> String {
     let bytes = bytes.as_ref();
     let mut text = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -1240,7 +1242,7 @@ fn hex_bytes(bytes: impl AsRef<[u8]>) -> String {
     text
 }
 
-fn system_hostname() -> Option<String> {
+pub(crate) fn system_hostname() -> Option<String> {
     #[cfg(target_os = "linux")]
     {
         if let Ok(raw_hostname) = fs::read_to_string("/proc/sys/kernel/hostname") {
@@ -1257,7 +1259,7 @@ fn system_hostname() -> Option<String> {
         .filter(|hostname| !hostname.is_empty())
 }
 
-fn linux_os_release_value(key: &str) -> Option<String> {
+pub(crate) fn linux_os_release_value(key: &str) -> Option<String> {
     #[cfg(target_os = "linux")]
     {
         let document = fs::read_to_string("/etc/os-release").ok()?;
@@ -1272,7 +1274,7 @@ fn linux_os_release_value(key: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "linux")]
-fn system_cpu_model() -> Option<String> {
+pub(crate) fn system_cpu_model() -> Option<String> {
     let document = fs::read_to_string("/proc/cpuinfo").ok()?;
     for line in document.lines() {
         if let Some(value) = line.strip_prefix("model name") {
@@ -1285,7 +1287,7 @@ fn system_cpu_model() -> Option<String> {
 }
 
 #[cfg(target_os = "windows")]
-fn system_cpu_model() -> Option<String> {
+pub(crate) fn system_cpu_model() -> Option<String> {
     env::var("PROCESSOR_IDENTIFIER")
         .ok()
         .map(|model| model.trim().to_owned())
@@ -1293,11 +1295,11 @@ fn system_cpu_model() -> Option<String> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn system_cpu_model() -> Option<String> {
+pub(crate) fn system_cpu_model() -> Option<String> {
     None
 }
 
-fn linux_total_memory_bytes() -> Option<u64> {
+pub(crate) fn linux_total_memory_bytes() -> Option<u64> {
     #[cfg(target_os = "linux")]
     {
         let document = fs::read_to_string("/proc/meminfo").ok()?;
@@ -1311,7 +1313,7 @@ fn linux_total_memory_bytes() -> Option<u64> {
     None
 }
 
-fn linux_process_status_bytes(label: &str) -> Option<u64> {
+pub(crate) fn linux_process_status_bytes(label: &str) -> Option<u64> {
     #[cfg(target_os = "linux")]
     {
         let document = fs::read_to_string("/proc/self/status").ok()?;

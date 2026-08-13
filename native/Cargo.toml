@@ -23,6 +23,11 @@ name = "stage4-sensing-benchmark"
 path = "src/bin/stage4_sensing_benchmark.rs"
 required-features = ["engine-test-hooks"]
 
+[[bin]]
+name = "stage4-control-benchmark"
+path = "src/bin/stage4_control_benchmark.rs"
+required-features = ["engine-test-hooks"]
+
 [features]
 engine-test-hooks = []
 

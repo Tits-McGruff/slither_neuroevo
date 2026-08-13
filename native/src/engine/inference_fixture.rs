@@ -70,12 +70,12 @@ impl Stage4InferenceScenarioName {
     }
 
     /// Whether this scenario uses the source-shaped large graph.
-    const fn is_large(self) -> bool {
+    pub(crate) const fn is_large(self) -> bool {
         matches!(self, Self::P2 | Self::P3)
     }
 
     /// Number of differently weighted synthetic population brains in one due pass.
-    const fn population_count(self) -> usize {
+    pub(crate) const fn population_count(self) -> usize {
         if matches!(self, Self::P1 | Self::P3) {
             300
         } else {
@@ -84,7 +84,7 @@ impl Stage4InferenceScenarioName {
     }
 
     /// Complete v3 sensor width.
-    const fn input_size(self) -> usize {
+    pub(crate) const fn input_size(self) -> usize {
         if self.is_large() {
             147
         } else {
@@ -336,7 +336,7 @@ pub struct Stage4Distribution {
 
 /// Role-specific deterministic numeric stream.
 #[derive(Clone, Copy)]
-enum FixtureValueKind {
+pub(crate) enum FixtureValueKind {
     Weight,
     Observation,
     Recurrent,
@@ -796,7 +796,7 @@ fn fixture_snake(slot: usize, brain: BrainHandle) -> Result<SnakeState, String> 
 }
 
 /// Build the exact current P0/P1 or P2/P3 linear graph.
-fn scenario_graph(scenario: Stage4InferenceScenarioName) -> GraphSpec {
+pub(crate) fn scenario_graph(scenario: Stage4InferenceScenarioName) -> GraphSpec {
     let input_size = scenario.input_size();
     let (feature_id, feature_kind, memory_id, memory_kind, output_id, output_kind) =
         if scenario.is_large() {
@@ -881,7 +881,7 @@ fn scenario_graph(scenario: Stage4InferenceScenarioName) -> GraphSpec {
 }
 
 /// Source-shaped graph limits admitting P0-P3 without becoming runtime defaults.
-fn graph_limits() -> GraphLimits {
+pub(crate) fn graph_limits() -> GraphLimits {
     GraphLimits {
         max_nodes: 16,
         max_edges: 16,
@@ -926,7 +926,7 @@ fn fixture_word(
 }
 
 /// Convert one generated word to a bounded nonzero Float32 with exact bits.
-fn fixture_value(
+pub(crate) fn fixture_value(
     scenario: Stage4InferenceScenarioName,
     kind: FixtureValueKind,
     slot: usize,

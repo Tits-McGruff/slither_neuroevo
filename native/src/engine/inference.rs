@@ -1443,7 +1443,7 @@ fn recurrent_parameter_count(
 fn slice_range(values: &[f32], range: TensorRange) -> Result<&[f32], InferenceError> {
     values
         .get(range.offset..range.end()?)
-        .ok_or(InferenceError::InvalidExecutionPlan {
+        .ok_or_else(|| InferenceError::InvalidExecutionPlan {
             node_id: "<range>".to_owned(),
             detail: "immutable range is out of bounds".to_owned(),
         })
@@ -1454,7 +1454,7 @@ fn slice_range_mut(values: &mut [f32], range: TensorRange) -> Result<&mut [f32],
     let end = range.end()?;
     values
         .get_mut(range.offset..end)
-        .ok_or(InferenceError::InvalidExecutionPlan {
+        .ok_or_else(|| InferenceError::InvalidExecutionPlan {
             node_id: "<range>".to_owned(),
             detail: "mutable range is out of bounds".to_owned(),
         })
