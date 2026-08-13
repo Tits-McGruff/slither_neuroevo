@@ -20,6 +20,8 @@ pub mod control_fixture;
 pub mod controllers;
 /// Background coordinator implementation; only its lifecycle is public.
 mod coordinator;
+/// Deterministic boost/corpse pellet realization and isolated RNG continuation.
+pub mod effects;
 /// Bounded engine faults and stable error codes.
 pub mod error;
 /// Deterministic contested-food claims and post-food body finalization.
