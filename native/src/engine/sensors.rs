@@ -9,7 +9,7 @@
 
 use super::sensor_layout::{SensorLayout, SensorLayoutError};
 use super::spatial::{
-    BodyQueryScratch, IndexedSensorWorld, PelletQueryScratch, SpatialIndexError,
+    BodySensorQueryScratch, IndexedSensorWorld, PelletQueryScratch, SpatialIndexError,
     SpatialQueryDiagnostics,
 };
 use super::state::{SnakeKind, SnakeState, WorldPoint, WorldState};
@@ -289,12 +289,42 @@ pub struct SensorScratch {
     hazard_bins: Vec<f32>,
     head_bins: Vec<f32>,
     /// Reusable body-query duplicate and ordering storage.
-    pub body_query: BodyQueryScratch,
+    pub body_query: BodySensorQueryScratch,
     /// Reusable pellet-query ordering storage.
     pub pellet_query: PelletQueryScratch,
 }
 
+/// Reusable sensor-scratch capacities used to prove warm-path stability.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SensorScratchDiagnostics {
+    /// Food-bin Float32 slots.
+    pub food_bin_capacity: usize,
+    /// Body-hazard-bin Float32 slots.
+    pub hazard_bin_capacity: usize,
+    /// Other-head-bin Float32 slots.
+    pub head_bin_capacity: usize,
+    /// Body duplicate-marker slots.
+    pub body_duplicate_marker_capacity: usize,
+    /// Bounded body candidate slots.
+    pub body_candidate_capacity: usize,
+    /// Bounded pellet candidate slots.
+    pub pellet_candidate_capacity: usize,
+}
+
 impl SensorScratch {
+    /// Report owned capacities without allocating or changing query state.
+    #[must_use]
+    pub fn diagnostics(&self) -> SensorScratchDiagnostics {
+        SensorScratchDiagnostics {
+            food_bin_capacity: self.food_bins.capacity(),
+            hazard_bin_capacity: self.hazard_bins.capacity(),
+            head_bin_capacity: self.head_bins.capacity(),
+            body_duplicate_marker_capacity: self.body_query.duplicate_marker_capacity(),
+            body_candidate_capacity: self.body_query.candidate_capacity(),
+            pellet_candidate_capacity: self.pellet_query.candidate_capacity(),
+        }
+    }
+
     fn prepare_bins(&mut self, bins: usize) -> Result<(), SensorError> {
         resize_scratch(&mut self.food_bins, bins, "food bins")?;
         resize_scratch(&mut self.hazard_bins, bins, "hazard bins")?;
@@ -342,6 +372,22 @@ impl SensorEvaluator {
     #[must_use]
     pub fn config(&self) -> &SensorConfig {
         &self.config
+    }
+
+    /// Effective per-sample pellet-detail ceiling after the safety floor.
+    #[must_use]
+    pub fn effective_pellet_limit(&self) -> usize {
+        self.config
+            .maximum_pellet_checks
+            .max(MIN_EFFECTIVE_PELLET_CHECKS)
+    }
+
+    /// Effective per-sample body-detail ceiling after the safety floor.
+    #[must_use]
+    pub fn effective_segment_limit(&self) -> usize {
+        self.config
+            .maximum_segment_checks
+            .max(MIN_EFFECTIVE_SEGMENT_CHECKS)
     }
 
     /// Compute size-dependent near/far radii with the current clamps.
@@ -465,10 +511,7 @@ impl SensorEvaluator {
             1.0,
         ) as f32;
 
-        let effective_pellet_limit = self
-            .config
-            .maximum_pellet_checks
-            .max(MIN_EFFECTIVE_PELLET_CHECKS);
+        let effective_pellet_limit = self.effective_pellet_limit();
         let pellet_query = indexed_world.pellet_index().collect_sensor_candidates(
             snake.position,
             radii.far,
@@ -524,10 +567,7 @@ impl SensorEvaluator {
         let broad_body_radius = radii.near
             + (snake.radius + indexed_world.body_index().maximum_owner_radius())
                 * self.config.collision_hit_scale.max(1.0);
-        let effective_segment_limit = self
-            .config
-            .maximum_segment_checks
-            .max(MIN_EFFECTIVE_SEGMENT_CHECKS);
+        let effective_segment_limit = self.effective_segment_limit();
         let body_query = indexed_world.body_index().collect_sensor_candidates(
             snake.position,
             broad_body_radius,
@@ -535,39 +575,47 @@ impl SensorEvaluator {
             effective_segment_limit,
             &mut scratch.body_query,
         )?;
-        let segment_checks = body_query.candidates;
         let segment_capped = body_query.candidate_limit_reached;
+        let segment_checks = if segment_capped {
+            0
+        } else {
+            body_query.candidates
+        };
         let mut nearest_body_distance = radii.near;
-        for segment in indexed_world.body_index().candidates(&scratch.body_query) {
-            let closest = closest_point_on_segment(snake.position, segment.start, segment.end);
-            let distance = closest.distance_squared.sqrt();
-            let raw_clearance = (distance - (snake.radius + segment.owner_radius)).max(0.0);
-            nearest_body_distance = nearest_body_distance.min(raw_clearance);
-
-            let hit_threshold =
-                (snake.radius + segment.owner_radius) * self.config.collision_hit_scale;
-            let maximum_distance = radii.near + hit_threshold;
-            if closest.distance_squared > maximum_distance * maximum_distance {
-                continue;
-            }
-            let clearance = (distance - hit_threshold).max(0.0);
-            if clearance > radii.near {
-                continue;
-            }
-            let relative = normalize_angle(
-                (closest.point.y - snake.position.y).atan2(closest.point.x - snake.position.x)
-                    - snake.direction,
-            );
-            let bin = angle_to_centered_bin(relative, self.layout.bins);
-            if clearance < f64::from(scratch.hazard_bins[bin]) {
-                scratch.hazard_bins[bin] = clearance as f32;
-            }
-        }
         if segment_capped {
-            // A sensor work limit must never make an unexamined crowded sector
-            // appear clear. Conservative saturation is observable in diagnostics.
+            // The retained prefix cannot change the conservative capped result,
+            // so avoid exact calculations whose values would be overwritten.
             nearest_body_distance = 0.0;
             scratch.hazard_bins.fill(0.0);
+        } else {
+            for segment in indexed_world
+                .body_index()
+                .sensor_candidates(&scratch.body_query)
+            {
+                let closest = closest_point_on_segment(snake.position, segment.start, segment.end);
+                let distance = closest.distance_squared.sqrt();
+                let raw_clearance = (distance - (snake.radius + segment.owner_radius)).max(0.0);
+                nearest_body_distance = nearest_body_distance.min(raw_clearance);
+
+                let hit_threshold =
+                    (snake.radius + segment.owner_radius) * self.config.collision_hit_scale;
+                let maximum_distance = radii.near + hit_threshold;
+                if closest.distance_squared > maximum_distance * maximum_distance {
+                    continue;
+                }
+                let clearance = (distance - hit_threshold).max(0.0);
+                if clearance > radii.near {
+                    continue;
+                }
+                let relative = normalize_angle(
+                    (closest.point.y - snake.position.y).atan2(closest.point.x - snake.position.x)
+                        - snake.direction,
+                );
+                let bin = angle_to_centered_bin(relative, self.layout.bins);
+                if clearance < f64::from(scratch.hazard_bins[bin]) {
+                    scratch.hazard_bins[bin] = clearance as f32;
+                }
+            }
         }
         output[16] = clamp(
             2.0 * (1.0 - nearest_body_distance / radii.near) - 1.0,
@@ -1248,7 +1296,8 @@ mod tests {
         }
         let (output, result) = sample(&evaluator, &world, 0, &SensorGenerationState::new());
         assert_eq!(result.diagnostics.segment_cap_hits, 1);
-        assert_eq!(result.diagnostics.segment_checks, 200);
+        assert_eq!(result.diagnostics.segment_checks, 0);
+        assert_eq!(result.diagnostics.body_query.candidates, 200);
         assert!(result.diagnostics.conservative_body_saturation);
         assert_eq!(output[16], 1.0);
         for index in 0..evaluator.layout().bins {

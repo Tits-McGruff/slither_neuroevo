@@ -26,6 +26,9 @@ pub mod queues;
 pub mod rng;
 /// One-shot owner of the background coordinator lifecycle.
 pub mod runtime;
+/// Deterministic Stage 4 corrected-sensing performance evidence.
+#[cfg(feature = "engine-test-hooks")]
+pub mod sensing_fixture;
 /// Sensor-v3 labels, offsets, and input-size contract.
 pub mod sensor_layout;
 /// Corrected sensor-v3 construction and delivered-observation boundaries.

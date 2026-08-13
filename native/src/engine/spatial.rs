@@ -68,6 +68,36 @@ pub struct BodyQueryScratch {
     candidates: Vec<BodyCandidate>,
 }
 
+/// Reusable storage for a bounded sensor-only body query.
+///
+/// This distinct type cannot be passed to [`BodySpatialIndex::candidates`],
+/// which is the complete collision-query iterator. A cap-hit prefix is useful
+/// only for sensor diagnostics because the sensor output is then saturated.
+#[derive(Clone, Debug, Default)]
+pub struct BodySensorQueryScratch {
+    inner: BodyQueryScratch,
+}
+
+impl BodySensorQueryScratch {
+    /// Number of candidates retained by the most recent sensor query.
+    #[must_use]
+    pub fn candidate_count(&self) -> usize {
+        self.inner.candidate_count()
+    }
+
+    /// Allocated bounded candidate slots retained for reuse.
+    #[must_use]
+    pub fn candidate_capacity(&self) -> usize {
+        self.inner.candidate_capacity()
+    }
+
+    /// Allocated duplicate-marker slots retained for reuse.
+    #[must_use]
+    pub fn duplicate_marker_capacity(&self) -> usize {
+        self.inner.duplicate_marker_capacity()
+    }
+}
+
 impl BodyQueryScratch {
     /// Number of unique candidates retained by the most recent query.
     #[must_use]
@@ -79,6 +109,12 @@ impl BodyQueryScratch {
     #[must_use]
     pub fn candidate_capacity(&self) -> usize {
         self.candidates.capacity()
+    }
+
+    /// Allocated duplicate-marker slots retained for later queries.
+    #[must_use]
+    pub fn duplicate_marker_capacity(&self) -> usize {
+        self.seen_generation.capacity()
     }
 
     /// Reuse checked allocations while beginning a query.
@@ -343,49 +379,68 @@ impl BodySpatialIndex {
 
     /// Retain at most `maximum_candidates` nearest non-owner candidates.
     ///
-    /// The complete broad phase is visited so retained candidates match a full
-    /// nearest-first ordering. Only a bounded max-heap is allocated and sorted;
-    /// the `(maximum + 1)`th match sets the observable cap flag.
+    /// Uncapped results match complete exact-distance ordering. Once an
+    /// additional qualifying candidate proves the cap was exceeded, traversal
+    /// stops because the sensor contract conservatively saturates every body
+    /// hazard; the retained capped prefix must not be used as collision truth.
     pub fn collect_sensor_candidates(
         &self,
         center: WorldPoint,
         radius: f64,
         excluded_owner_id: u64,
         maximum_candidates: usize,
-        scratch: &mut BodyQueryScratch,
+        scratch: &mut BodySensorQueryScratch,
     ) -> Result<SpatialQueryDiagnostics, SpatialIndexError> {
+        let scratch = &mut scratch.inner;
         validate_query(center, radius)?;
         scratch.begin(self.records.len(), maximum_candidates)?;
         let radius_squared = radius * radius;
         let mut qualifying = 0usize;
-        let mut diagnostics = self.visit_query_cells(center, radius, |entry, diagnostics| {
-            diagnostics.entries_visited = diagnostics.entries_visited.saturating_add(1);
-            if scratch.seen_generation[entry.segment] == scratch.generation {
-                return;
-            }
-            scratch.seen_generation[entry.segment] = scratch.generation;
-            let record = &self.records[entry.segment];
-            if record.owner_id == excluded_owner_id {
-                return;
-            }
-            let lower_bound_squared =
-                point_to_aabb_distance_squared(center, record.start, record.end);
-            if lower_bound_squared > radius_squared {
-                return;
-            }
-            qualifying = qualifying.saturating_add(1);
-            retain_bounded(
-                &mut scratch.candidates,
-                BodyCandidate {
-                    segment: entry.segment,
-                    lower_bound_squared,
-                    owner_id: record.owner_id,
-                    segment_end: record.segment_end,
-                },
-                maximum_candidates,
-                compare_body_candidates,
-            );
-        })?;
+        let mut diagnostics = SpatialQueryDiagnostics::default();
+        visit_query_cells_nearest_first(
+            center,
+            radius,
+            self.cell_size,
+            |key| {
+                diagnostics.cells_visited = diagnostics.cells_visited.saturating_add(1);
+                let Some(span) = find_cell_span(&self.cells, key) else {
+                    return true;
+                };
+                for entry in &self.entries[span.start..span.end] {
+                    diagnostics.entries_visited = diagnostics.entries_visited.saturating_add(1);
+                    if scratch.seen_generation[entry.segment] == scratch.generation {
+                        continue;
+                    }
+                    scratch.seen_generation[entry.segment] = scratch.generation;
+                    let record = &self.records[entry.segment];
+                    if record.owner_id == excluded_owner_id {
+                        continue;
+                    }
+                    let lower_bound_squared =
+                        point_to_segment_distance_squared(center, record.start, record.end);
+                    if lower_bound_squared > radius_squared {
+                        continue;
+                    }
+                    qualifying = qualifying.saturating_add(1);
+                    retain_bounded(
+                        &mut scratch.candidates,
+                        BodyCandidate {
+                            segment: entry.segment,
+                            lower_bound_squared,
+                            owner_id: record.owner_id,
+                            segment_end: record.segment_end,
+                        },
+                        maximum_candidates,
+                        compare_body_candidates,
+                    );
+                    if qualifying > maximum_candidates {
+                        return false;
+                    }
+                }
+                true
+            },
+            |_| false,
+        )?;
         scratch.candidates.sort_unstable_by(compare_body_candidates);
         diagnostics.candidates = scratch.candidates.len();
         diagnostics.candidate_limit_reached = qualifying > maximum_candidates;
@@ -427,6 +482,18 @@ impl BodySpatialIndex {
         scratch: &'a BodyQueryScratch,
     ) -> impl ExactSizeIterator<Item = &'a BodySegmentRecord> + 'a {
         scratch
+            .candidates
+            .iter()
+            .map(|candidate| &self.records[candidate.segment])
+    }
+
+    /// Iterate the bounded prefix from one sensor-only query.
+    pub(crate) fn sensor_candidates<'a>(
+        &'a self,
+        scratch: &'a BodySensorQueryScratch,
+    ) -> impl ExactSizeIterator<Item = &'a BodySegmentRecord> + 'a {
+        scratch
+            .inner
             .candidates
             .iter()
             .map(|candidate| &self.records[candidate.segment])
@@ -654,33 +721,55 @@ impl PelletSpatialIndex {
         validate_query(center, radius)?;
         scratch.begin(maximum_candidates)?;
         let radius_squared = radius * radius;
-        let mut qualifying = 0usize;
-        let mut diagnostics = self.visit_query_cells(center, radius, |entry, diagnostics| {
-            diagnostics.entries_visited = diagnostics.entries_visited.saturating_add(1);
-            let pellet = &self.pellets[entry.pellet];
-            let dx = pellet.position.x - center.x;
-            let dy = pellet.position.y - center.y;
-            let distance_squared = dx * dx + dy * dy;
-            if distance_squared > radius_squared {
-                return;
-            }
-            qualifying = qualifying.saturating_add(1);
-            retain_bounded(
-                &mut scratch.candidates,
-                PelletCandidate {
-                    pellet: entry.pellet,
-                    distance_squared,
-                    id: pellet.id,
-                },
-                maximum_candidates,
-                compare_pellet_candidates,
-            );
-        })?;
+        let qualifying = std::cell::Cell::new(0usize);
+        let worst_retained_distance_squared = std::cell::Cell::new(f64::INFINITY);
+        let mut diagnostics = SpatialQueryDiagnostics::default();
+        visit_query_cells_nearest_first(
+            center,
+            radius,
+            self.cell_size,
+            |key| {
+                diagnostics.cells_visited = diagnostics.cells_visited.saturating_add(1);
+                let Some(span) = find_cell_span(&self.cells, key) else {
+                    return true;
+                };
+                for entry in &self.entries[span.start..span.end] {
+                    diagnostics.entries_visited = diagnostics.entries_visited.saturating_add(1);
+                    let pellet = &self.pellets[entry.pellet];
+                    let dx = pellet.position.x - center.x;
+                    let dy = pellet.position.y - center.y;
+                    let distance_squared = dx * dx + dy * dy;
+                    if distance_squared > radius_squared {
+                        continue;
+                    }
+                    qualifying.set(qualifying.get().saturating_add(1));
+                    retain_bounded(
+                        &mut scratch.candidates,
+                        PelletCandidate {
+                            pellet: entry.pellet,
+                            distance_squared,
+                            id: pellet.id,
+                        },
+                        maximum_candidates,
+                        compare_pellet_candidates,
+                    );
+                    if scratch.candidates.len() == maximum_candidates && maximum_candidates != 0 {
+                        worst_retained_distance_squared.set(scratch.candidates[0].distance_squared);
+                    }
+                }
+                true
+            },
+            |unvisited_lower_bound_squared| {
+                qualifying.get() > maximum_candidates
+                    && (maximum_candidates == 0
+                        || worst_retained_distance_squared.get() < unvisited_lower_bound_squared)
+            },
+        )?;
         scratch
             .candidates
             .sort_unstable_by(compare_pellet_candidates);
         diagnostics.candidates = scratch.candidates.len();
-        diagnostics.candidate_limit_reached = qualifying > maximum_candidates;
+        diagnostics.candidate_limit_reached = qualifying.get() > maximum_candidates;
         Ok(diagnostics)
     }
 
@@ -955,6 +1044,103 @@ fn cell_coordinate(value: f64, cell_size: f64) -> Result<i32, SpatialIndexError>
     Ok(coordinate as i32)
 }
 
+/// Visit a rectangular query in deterministic concentric cell rings.
+///
+/// The post-ring callback receives a conservative squared distance to every
+/// still-unvisited cell. Returning `true` from it, or `false` from the cell
+/// visitor, stops traversal without allocating a cell list.
+fn visit_query_cells_nearest_first(
+    center: WorldPoint,
+    radius: f64,
+    cell_size: f64,
+    mut visit: impl FnMut(CellKey) -> bool,
+    mut stop_after_ring: impl FnMut(f64) -> bool,
+) -> Result<(), SpatialIndexError> {
+    let minimum = CellKey {
+        x: cell_coordinate(center.x - radius, cell_size)?,
+        y: cell_coordinate(center.y - radius, cell_size)?,
+    };
+    let maximum = CellKey {
+        x: cell_coordinate(center.x + radius, cell_size)?,
+        y: cell_coordinate(center.y + radius, cell_size)?,
+    };
+    let origin = CellKey {
+        x: cell_coordinate(center.x, cell_size)?,
+        y: cell_coordinate(center.y, cell_size)?,
+    };
+    let maximum_ring = [
+        i64::from(origin.x) - i64::from(minimum.x),
+        i64::from(maximum.x) - i64::from(origin.x),
+        i64::from(origin.y) - i64::from(minimum.y),
+        i64::from(maximum.y) - i64::from(origin.y),
+    ]
+    .into_iter()
+    .max()
+    .unwrap_or(0);
+
+    for ring in 0..=maximum_ring {
+        let mut visit_if_in_bounds = |x: i64, y: i64| -> bool {
+            if x < i64::from(minimum.x)
+                || x > i64::from(maximum.x)
+                || y < i64::from(minimum.y)
+                || y > i64::from(maximum.y)
+            {
+                return true;
+            }
+            let key = CellKey {
+                x: i32::try_from(x).expect("bounded cell x must fit i32"),
+                y: i32::try_from(y).expect("bounded cell y must fit i32"),
+            };
+            visit(key)
+        };
+        let origin_x = i64::from(origin.x);
+        let origin_y = i64::from(origin.y);
+        if ring == 0 {
+            if !visit_if_in_bounds(origin_x, origin_y) {
+                return Ok(());
+            }
+        } else {
+            let top = origin_y - ring;
+            let bottom = origin_y + ring;
+            for x in (origin_x - ring)..=(origin_x + ring) {
+                if !visit_if_in_bounds(x, top) || !visit_if_in_bounds(x, bottom) {
+                    return Ok(());
+                }
+            }
+            let left = origin_x - ring;
+            let right = origin_x + ring;
+            for y in (origin_y - ring + 1)..=(origin_y + ring - 1) {
+                if !visit_if_in_bounds(left, y) || !visit_if_in_bounds(right, y) {
+                    return Ok(());
+                }
+            }
+        }
+
+        let left = origin_x - ring;
+        let right = origin_x + ring;
+        let top = origin_y - ring;
+        let bottom = origin_y + ring;
+        let mut unvisited_distance = f64::INFINITY;
+        if left > i64::from(minimum.x) {
+            unvisited_distance = unvisited_distance.min(center.x - left as f64 * cell_size);
+        }
+        if right < i64::from(maximum.x) {
+            unvisited_distance = unvisited_distance.min((right + 1) as f64 * cell_size - center.x);
+        }
+        if top > i64::from(minimum.y) {
+            unvisited_distance = unvisited_distance.min(center.y - top as f64 * cell_size);
+        }
+        if bottom < i64::from(maximum.y) {
+            unvisited_distance = unvisited_distance.min((bottom + 1) as f64 * cell_size - center.y);
+        }
+        let unvisited_lower_bound_squared = unvisited_distance * unvisited_distance;
+        if stop_after_ring(unvisited_lower_bound_squared) {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
 fn segment_cell_bounds(
     start: WorldPoint,
     end: WorldPoint,
@@ -1042,6 +1228,24 @@ fn point_to_aabb_distance_squared(point: WorldPoint, start: WorldPoint, end: Wor
     } else {
         0.0
     };
+    dx * dx + dy * dy
+}
+
+fn point_to_segment_distance_squared(point: WorldPoint, start: WorldPoint, end: WorldPoint) -> f64 {
+    let segment_x = end.x - start.x;
+    let segment_y = end.y - start.y;
+    let point_x = point.x - start.x;
+    let point_y = point.y - start.y;
+    let squared_length = segment_x * segment_x + segment_y * segment_y;
+    let along = if squared_length > 1.0e-12 {
+        ((point_x * segment_x + point_y * segment_y) / squared_length).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let closest_x = start.x + segment_x * along;
+    let closest_y = start.y + segment_y * along;
+    let dx = point.x - closest_x;
+    let dy = point.y - closest_y;
     dx * dx + dy * dy
 }
 
@@ -1168,7 +1372,7 @@ mod tests {
     }
 
     #[test]
-    fn bounded_body_query_keeps_exact_nearest_prefix_and_reuses_capacity() {
+    fn bounded_body_query_keeps_exact_uncapped_order_and_reuses_capacity() {
         let mut world = WorldState::default();
         for (offset, owner_id) in [1_u64, 10, 20, 30].into_iter().enumerate() {
             let x = if owner_id == 1 { 0.0 } else { owner_id as f64 };
@@ -1183,7 +1387,7 @@ mod tests {
             ));
         }
         let index = BodySpatialIndex::build(&world, 10.0, 100).expect("index should build");
-        let mut scratch = BodyQueryScratch::default();
+        let mut scratch = BodySensorQueryScratch::default();
 
         let exact = index
             .collect_sensor_candidates(WorldPoint { x: 0.0, y: 0.0 }, 25.0, 1, 2, &mut scratch)
@@ -1192,7 +1396,7 @@ mod tests {
         assert!(!exact.candidate_limit_reached);
         assert_eq!(
             index
-                .candidates(&scratch)
+                .sensor_candidates(&scratch)
                 .map(|record| record.owner_id)
                 .collect::<Vec<_>>(),
             vec![10, 20]
@@ -1203,13 +1407,7 @@ mod tests {
             .expect("capped query should succeed");
         assert_eq!(capped.candidates, 2);
         assert!(capped.candidate_limit_reached);
-        assert_eq!(
-            index
-                .candidates(&scratch)
-                .map(|record| record.owner_id)
-                .collect::<Vec<_>>(),
-            vec![10, 20]
-        );
+        assert_eq!(scratch.candidate_count(), 2);
         let warmed_capacity = scratch.candidate_capacity();
         index
             .collect_sensor_candidates(WorldPoint { x: 0.0, y: 0.0 }, 100.0, 1, 2, &mut scratch)
@@ -1342,6 +1540,147 @@ mod tests {
             .collect_sensor_candidates(WorldPoint { x: 0.0, y: 0.0 }, 100.0, 2, &mut scratch)
             .expect("repeat query should succeed");
         assert_eq!(scratch.candidate_capacity(), warmed_capacity);
+    }
+
+    #[test]
+    fn bounded_pellet_query_matches_complete_prefix_across_rings_and_ties() {
+        let positions = [
+            (70_u64, -130.0, -15.0),
+            (20, -80.0, 60.0),
+            (90, -25.0, -100.0),
+            (10, 100.0, 0.0),
+            (30, 0.0, 100.0),
+            (40, 145.0, 145.0),
+            (50, -210.0, 35.0),
+            (60, 280.0, -90.0),
+        ];
+        let make_world = |reverse: bool| {
+            let iterator: Box<dyn Iterator<Item = &(u64, f64, f64)>> = if reverse {
+                Box::new(positions.iter().rev())
+            } else {
+                Box::new(positions.iter())
+            };
+            WorldState {
+                pellets: iterator
+                    .map(|(id, x, y)| PelletState {
+                        id: *id,
+                        position: WorldPoint { x: *x, y: *y },
+                        value: 1.0,
+                        kind: 0,
+                        color: 0,
+                        owner: None,
+                    })
+                    .collect(),
+                ..WorldState::default()
+            }
+        };
+        let center = WorldPoint { x: 0.0, y: 0.0 };
+        let radius = 500.0;
+        let world = make_world(false);
+        let index =
+            PelletSpatialIndex::build(&world, 70.0, positions.len()).expect("index should build");
+        let mut complete_scratch = PelletQueryScratch::default();
+        index
+            .collect_candidates(center, radius, &mut complete_scratch)
+            .expect("complete query should succeed");
+        let expected = index
+            .candidates(&complete_scratch)
+            .map(|pellet| pellet.id)
+            .collect::<Vec<_>>();
+
+        for limit in 0..=positions.len() + 1 {
+            let mut bounded_scratch = PelletQueryScratch::default();
+            let diagnostics = index
+                .collect_sensor_candidates(center, radius, limit, &mut bounded_scratch)
+                .expect("bounded query should succeed");
+            let actual = index
+                .candidates(&bounded_scratch)
+                .map(|pellet| pellet.id)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                actual,
+                expected.iter().copied().take(limit).collect::<Vec<_>>()
+            );
+            assert_eq!(diagnostics.candidate_limit_reached, expected.len() > limit);
+        }
+
+        let reversed = make_world(true);
+        let reversed_index = PelletSpatialIndex::build(&reversed, 70.0, positions.len())
+            .expect("reversed index should build");
+        let mut reversed_scratch = PelletQueryScratch::default();
+        reversed_index
+            .collect_sensor_candidates(center, radius, 4, &mut reversed_scratch)
+            .expect("reversed bounded query should succeed");
+        assert_eq!(
+            reversed_index
+                .candidates(&reversed_scratch)
+                .map(|pellet| pellet.id)
+                .collect::<Vec<_>>(),
+            expected[..4]
+        );
+    }
+
+    #[test]
+    fn pellet_ring_stop_does_not_skip_equal_distance_smaller_id() {
+        let center = WorldPoint { x: 5.0, y: 5.0 };
+        let world = WorldState {
+            pellets: vec![
+                PelletState {
+                    id: 1,
+                    position: WorldPoint { x: 10.0, y: 5.0 },
+                    value: 1.0,
+                    kind: 0,
+                    color: 0,
+                    owner: None,
+                },
+                PelletState {
+                    id: 2,
+                    position: WorldPoint { x: 49.0, y: 5.0 },
+                    value: 1.0,
+                    kind: 0,
+                    color: 0,
+                    owner: None,
+                },
+                PelletState {
+                    id: 100,
+                    position: WorldPoint { x: 41.0, y: 32.0 },
+                    value: 1.0,
+                    kind: 0,
+                    color: 0,
+                    owner: None,
+                },
+                PelletState {
+                    id: 200,
+                    position: WorldPoint { x: -31.0, y: 32.0 },
+                    value: 1.0,
+                    kind: 0,
+                    color: 0,
+                    owner: None,
+                },
+                PelletState {
+                    id: 50,
+                    position: WorldPoint { x: 50.0, y: 5.0 },
+                    value: 1.0,
+                    kind: 0,
+                    color: 0,
+                    owner: None,
+                },
+            ],
+            ..WorldState::default()
+        };
+        let index = PelletSpatialIndex::build(&world, 10.0, 5).expect("index should build");
+        let mut scratch = PelletQueryScratch::default();
+        let diagnostics = index
+            .collect_sensor_candidates(center, 100.0, 3, &mut scratch)
+            .expect("bounded query should succeed");
+        assert!(diagnostics.candidate_limit_reached);
+        assert_eq!(
+            index
+                .candidates(&scratch)
+                .map(|pellet| pellet.id)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 50]
+        );
     }
 
     #[test]
