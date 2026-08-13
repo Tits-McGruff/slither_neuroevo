@@ -1,0 +1,166 @@
+{
+  "schema": "slither-stage4-rust-sensing-benchmark",
+  "version": 1,
+  "evidenceClass": "new measured target-VM corrected Rust sensing result",
+  "caveat": "Source-shaped deterministic synthetic sensing-only benchmark. It exercises corrected Rust sensor formulas and complete Rust indexes, but it is not an owner save, evolved population, complete brain pass, movement/collision step, frame, Node bridge, browser, RL client, or final real-time acceptance result.",
+  "source": {
+    "nativeBuildIdentifier": "slither_native/0.1.0+5a4d09384fef.330bbadbe9416ba8",
+    "nativeSourceSha256": "afd018b115d8f0b7b3d76b140f2e598834d62d9e6508de653a7596469690141d",
+    "nativeBuildContractSha256": "sha256:1fb16b35a1b51f7f0cd24193df2af9668ae71c93f702311812c144c61e047cd1",
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "rustcVersion": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+    "buildProfile": "release",
+    "buildClass": "test-hooks"
+  },
+  "environment": {
+    "capturedAtEpochMs": 1786601558853,
+    "declaration": "owner-target-vm",
+    "operatingSystem": "linux",
+    "architecture": "x86_64",
+    "hostname": "oxygen",
+    "availableParallelism": 8,
+    "distributionId": "debian",
+    "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+    "totalMemoryBytes": 16775352320,
+    "ownerTargetVmValidated": true,
+    "fixtureRssBytes": 4657152,
+    "processPeakRssBytes": 6926336,
+    "finalRssBytes": 6926336
+  },
+  "workload": {
+    "fixtureVersion": 1,
+    "fixtureClass": "source-shaped deterministic synthetic world",
+    "scenario": "dense-pellet",
+    "description": "55 evolved snakes, 10 baseline bots, five-point bodies, 25,000 pellets, v3/16-bin sensing",
+    "evolvedSnakes": 55,
+    "baselineSnakes": 10,
+    "totalSnakes": 65,
+    "bodyPointsPerSnake": 5,
+    "totalBodyPoints": 325,
+    "totalBodySegments": 260,
+    "pellets": 25000,
+    "sensorBins": 16,
+    "sensorInputSize": 83,
+    "worldSha256": "d0e91c65b6c4fbf8afdd1419e660187d3cfc18b651d7ab1c7396b59dcfb63e4f",
+    "warmupPasses": 10,
+    "measuredPasses": 60,
+    "actualFreshOrEvolvedWorld": false,
+    "actualCorrectedSensorObservations": true
+  },
+  "indexes": {
+    "bodyCellSize": 70.0,
+    "pelletCellSize": 120.0,
+    "maximumBodyEntries": 2000000,
+    "maximumPelletEntries": 25000,
+    "body": {
+      "segments": 260,
+      "entries": 290,
+      "occupiedCells": 95,
+      "estimatedBytes": 28240
+    },
+    "pellets": {
+      "pellets": 25000,
+      "occupiedCells": 2466,
+      "estimatedBytes": 2600000
+    },
+    "wholeIndexBuildMs": {
+      "count": 60,
+      "min": 2.535014,
+      "p50": 2.6972819999999995,
+      "p95": 2.9966012999999996,
+      "p99": 3.1298312799999994,
+      "max": 3.187007,
+      "mean": 2.7366283
+    },
+    "allocatorOperationsPerBuild": {
+      "count": 60,
+      "min": 6,
+      "max": 6,
+      "mean": 6.0,
+      "nonzeroPasses": 60
+    },
+    "cpu": {
+      "source": "Linux clock_gettime(CLOCK_PROCESS_CPUTIME_ID)",
+      "wallSeconds": 0.1642414,
+      "processCpuSeconds": 0.164211819,
+      "averageOneCoreUtilizationPercent": 99.98198931572672
+    }
+  },
+  "sensing": {
+    "wholePopulationPassMs": {
+      "count": 60,
+      "min": 9.830053999999999,
+      "p50": 11.677516999999998,
+      "p95": 12.191517700000002,
+      "p99": 12.52316522,
+      "max": 12.665734,
+      "mean": 11.509819366666667
+    },
+    "meanMicrosecondsPerSnake": 177.0741441025641,
+    "allocatorOperationsPerPass": {
+      "count": 60,
+      "min": 0,
+      "max": 0,
+      "mean": 0.0,
+      "nonzeroPasses": 0
+    },
+    "cpu": {
+      "source": "Linux clock_gettime(CLOCK_PROCESS_CPUTIME_ID)",
+      "wallSeconds": 0.690605182,
+      "processCpuSeconds": 0.69041529,
+      "averageOneCoreUtilizationPercent": 99.97250353676031
+    },
+    "maximumPelletChecks": 900,
+    "maximumSegmentChecks": 2200,
+    "scratchAfterWarmup": {
+      "foodBinCapacity": 16,
+      "hazardBinCapacity": 16,
+      "headBinCapacity": 16,
+      "bodyDuplicateMarkerCapacity": 260,
+      "bodyCandidateCapacity": 2200,
+      "pelletCandidateCapacity": 900
+    },
+    "scratchAfterMeasurement": {
+      "foodBinCapacity": 16,
+      "hazardBinCapacity": 16,
+      "headBinCapacity": 16,
+      "bodyDuplicateMarkerCapacity": 260,
+      "bodyCandidateCapacity": 2200,
+      "pelletCandidateCapacity": 900
+    },
+    "scratchCapacityStable": true,
+    "proofPassWork": {
+      "samples": 65,
+      "pelletCellsVisited": 9881,
+      "pelletEntriesVisited": 103284,
+      "pelletChecks": 58500,
+      "pelletCandidatesRetained": 58500,
+      "pelletCapHits": 65,
+      "bodyCellsVisited": 17778,
+      "bodyEntriesVisited": 1124,
+      "segmentChecks": 84,
+      "bodyCandidatesRetained": 84,
+      "segmentCapHits": 0,
+      "conservativeBodySaturations": 0,
+      "headChecks": 4160,
+      "targetsOutsideWorld": 0
+    },
+    "observationsSha256": "3c78592e3cbe6796b43ac04409200a24c1774c78e9a4f5a33b2beadec6e1a5fd",
+    "consumedOutput": 272562.1858806204,
+    "deliveryMarkersProduced": true,
+    "deliveryMarkersCommitted": false
+  },
+  "command": [
+    "./native/target/release/stage4-sensing-benchmark",
+    "--scenario",
+    "dense-pellet",
+    "--warmup-passes",
+    "10",
+    "--passes",
+    "60",
+    "--environment",
+    "owner-target-vm",
+    "--output",
+    "results/dense-pellet.json"
+  ]
+}
