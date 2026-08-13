@@ -31,8 +31,15 @@ prove that the future Rust path meets its mandatory targets. The owner trainer
 audit found Protocol 1 while the current server requires Protocol 2. Complete
 accepted/applied control timing, full-load P1/P2 LAN-browser and P6 coverage,
 trainer coordination, a browser/trainer/managed-retention P7, sustained P4,
-production Rust persistence/restore/recovery, and P8 growth remain open. No
-Stage 2 or later-stage exit gate is claimed.
+production Rust persistence/restore/recovery, and P8 growth remain open. Stage
+3 has the minimum Rust state/graph/RNG, coarse bridge, managed-checkpoint-v3,
+and SQLite-metadata handoff foundations. Stage 4 has complete scalar/SSE2
+heterogeneous graph inference plus corrected sensor-v3 and complete spatial
+index foundations with clean Windows/Oxygen evidence. P1 sensing improved
+materially but still misses its interim single-step budget on Oxygen; combined
+sensing/inference authority, population replacement, activation capture, full
+world steps, and bounded parallel calculation remain open. No Stage 2 or
+later-stage exit gate is claimed.
 
 The owner explicitly approved revision `2026-07-29-draft-4` in the 2026-07-29
 conversation. Commit `7971ed2ddbda86891c77def31d980aedf96b4236` contains the
@@ -4059,7 +4066,7 @@ weights, and recurrent state for each snake.
 - [ ] Implement packed snake/body/pellet storage with stable integer IDs,
   population slots, bounded brain handles, deterministic reuse, and checked
   growth/destruction.
-- [ ] Implement pellet and body spatial indexes with complete cell coverage,
+- [x] Implement pellet and body spatial indexes with complete cell coverage,
   deterministic duplicate suppression, checked capacity, reusable scratch,
   and no silent segment loss.
 - [ ] Add initialization memory estimates for population, graph, recurrent
@@ -4068,14 +4075,14 @@ weights, and recurrent state for each snake.
 
 **Correct v3 sensing:**
 
-- [ ] Port all 19 scalar fields, food bins, corrected body hazards, walls,
+- [x] Port all 19 scalar fields, food bins, corrected body hazards, walls,
   other heads, nearest-food/body/head values, size-dependent ranges,
   cap/saturation diagnostics, and deterministic candidate ordering.
-- [ ] Distinguish pure strategy probes from delivered samples and preserve the
+- [x] Distinguish pure strategy probes from delivered samples and preserve the
   exact accumulated points-delta boundary.
 - [ ] Initialize/reset `bestPointsThisGen` before any sensor pass after
   construction, generation transition, Reset, or import.
-- [ ] Generate the sensor specification from Rust layout data checked against
+- [x] Generate the sensor specification from Rust layout data checked against
   the current browser/RL contract.
 
 **Complete graph inference:**
@@ -4094,9 +4101,9 @@ weights, and recurrent state for each snake.
 
 **Correctness tests:**
 
-- [ ] Corrected TypeScript and Rust sensor vectors match for preserve fixtures;
+- [x] Corrected TypeScript and Rust sensor vectors match for preserve fixtures;
   known defects match the stated corrected result.
-- [ ] Dense bodies/pellets, long segments, cap boundaries, headings, wall
+- [x] Dense bodies/pellets, long segments, cap boundaries, headings, wall
   positions, sizes, and multiple bubble-bin counts are covered.
 - [ ] Node-level, whole-graph, multi-step recurrent, reset, population
   replacement, shuffled due order, resurrected brain, and malformed-state
@@ -4106,7 +4113,7 @@ weights, and recurrent state for each snake.
 
 **Performance checkpoint:**
 
-- [ ] Benchmark sensing alone under default, many-snake, dense-body, and
+- [x] Benchmark sensing alone under default, many-snake, dense-body, and
   dense-pellet fixtures, recording p95/p99, candidate counts, index load,
   allocations, CPU, and memory.
 - [x] Benchmark complete heterogeneous inference for the default 55 snakes and
@@ -4125,6 +4132,21 @@ tolerance. P2 therefore clears the inference-only 16.67-ms interim budget.
 This result remains synthetic and inference-only; sensing, actual evolved
 populations with delivered observations, full fixed steps, and the Stage 4
 exit gate remain open.
+
+Retained clean-commit sensing evidence is under
+`docs/todo/evidence/stage4/sensing-v1/`. Exact optimized source
+`07b0ae7c8967c484db18d385a3f8f6ee0a4df97a` measured P0/P1/P2/dense-body/
+dense-pellet sensing p95 of 4.14/23.75/4.87/103.47/9.43 ms on Oxygen. Warmed
+sensing made zero allocator operations, all target reports used approximately
+one CPU core, and the Windows/Oxygen Float32 observation digests and query-work
+counts match for every scenario. The retained pre-optimization Oxygen reports
+show P1 improving from 36.87 to 23.75 ms p95 without changing observations.
+P1 nevertheless remains above the 16.67-ms interim single-step budget, so the
+profile-and-correct checkbox remains open. Two output-preserving alternative
+angle-bin implementations were measured, were slower, and were discarded; the
+remaining miss must be addressed by complete-step profiling and the approved
+bounded calculation-worker path rather than by weakening sensors or silently
+lowering the workload.
 
 **Exit gate:** Rust produces correct real observations and complete
 heterogeneous controller outputs without TypeScript or N-API work inside the
