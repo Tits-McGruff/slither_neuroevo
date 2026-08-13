@@ -34,12 +34,15 @@ trainer coordination, a browser/trainer/managed-retention P7, sustained P4,
 production Rust persistence/restore/recovery, and P8 growth remain open. Stage
 3 has the minimum Rust state/graph/RNG, coarse bridge, managed-checkpoint-v3,
 and SQLite-metadata handoff foundations. Stage 4 has complete scalar/SSE2
-heterogeneous graph inference plus corrected sensor-v3 and complete spatial
-index foundations with clean Windows/Oxygen evidence. P1 sensing improved
-materially but still misses its interim single-step budget on Oxygen; combined
-sensing/inference authority, population replacement, activation capture, full
-world steps, and bounded parallel calculation remain open. No Stage 2 or
-later-stage exit gate is claimed.
+heterogeneous graph inference, corrected sensor-v3 and complete spatial indexes,
+plus one coarse operation that constructs delivered observations, evaluates the
+distinct stateful population and atomically commits recurrent/delivery state.
+Population replacement, reusable scratch and focused activation capture now
+have passing integration coverage and clean Windows/Oxygen evidence. Combined
+P0/P2 clear the interim single-worker budget on Oxygen; P1 still misses it.
+Packed world storage, lifecycle-wide generation-best initialization, full world
+steps and bounded parallel calculation remain open. No production cutover or
+later-stage acceptance gate is claimed.
 
 The owner explicitly approved revision `2026-07-29-draft-4` in the 2026-07-29
 conversation. Commit `7971ed2ddbda86891c77def31d980aedf96b4236` contains the
@@ -4095,7 +4098,7 @@ weights, and recurrent state for each snake.
 - [x] Keep packed weights and recurrent state attached to stable brain handles;
   shuffled/shrinking due lists and resurrected/external brains cannot borrow a
   population slot's state.
-- [ ] Reuse graph/query scratch and enable focused activation capture only on
+- [x] Reuse graph/query scratch and enable focused activation capture only on
   request.
 - [x] Use existing SIMD only behind scalar parity and runtime CPU detection.
 
@@ -4105,7 +4108,7 @@ weights, and recurrent state for each snake.
   known defects match the stated corrected result.
 - [x] Dense bodies/pellets, long segments, cap boundaries, headings, wall
   positions, sizes, and multiple bubble-bin counts are covered.
-- [ ] Node-level, whole-graph, multi-step recurrent, reset, population
+- [x] Node-level, whole-graph, multi-step recurrent, reset, population
   replacement, shuffled due order, resurrected brain, and malformed-state
   tests pass within explicit tolerances.
 - [x] At least 55 deterministic genomes with distinct weights/state produce
@@ -4147,6 +4150,21 @@ angle-bin implementations were measured, were slower, and were discarded; the
 remaining miss must be addressed by complete-step profiling and the approved
 bounded calculation-worker path rather than by weakening sensors or silently
 lowering the workload.
+
+The joined control operation is implemented in exact commit
+`f8452f3d6e2a4dbd9b2030938219ee8784d18945`; its retained benchmark source is
+exact clean commit `9c38b487d07ce3ec88794a5cd793c2cf7624cc04`, and the Windows/Oxygen artifacts
+are under `docs/todo/evidence/stage4/control-v1/`. Every P0–P3 process ran 20
+warm-up and 120 measured stateful boundaries covering complete index build,
+corrected delivered sensing, differently weighted complete-graph inference,
+index destruction and atomic delivery/recurrent commit. Oxygen combined p95 was
+4.65/28.71/13.82/71.97 ms for P0/P1/P2/P3. Warmed sensing/inference and commit
+made zero allocator operations; index construction made seven operations for
+P0/P2 and eight for P1/P3. Windows/Oxygen observations, query work and retained
+capacities match per scenario. P0/P2 clear 16.67 ms; P1 does not, so the
+profile-and-correct checkbox and Stage 4 performance gate remain open. This is
+still a synthetic single-worker control boundary, not movement, collisions, a
+complete fixed step, Node/browser/RL integration or production cutover.
 
 **Exit gate:** Rust produces correct real observations and complete
 heterogeneous controller outputs without TypeScript or N-API work inside the
