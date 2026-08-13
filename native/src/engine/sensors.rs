@@ -241,9 +241,10 @@ pub struct ObservationDeliveryMarker {
 }
 
 impl ObservationDeliveryMarker {
-    /// Commit the sampled score boundary after real internal consumption or
-    /// successful Node acceptance for the matching external assignment.
-    pub fn commit(self, snake: &mut SnakeState) -> Result<(), SensorError> {
+    /// Validate this marker against its exact delivery boundary without
+    /// mutating the snake. Coordinators use this to preflight a complete batch
+    /// before any delivery or recurrent state becomes authoritative.
+    pub fn validate(self, snake: &SnakeState) -> Result<(), SensorError> {
         if snake.id != self.snake_id {
             return Err(SensorError::DeliverySnakeMismatch {
                 expected: self.snake_id,
@@ -254,8 +255,26 @@ impl ObservationDeliveryMarker {
         {
             return Err(SensorError::StaleDeliveryMarker { snake_id: snake.id });
         }
-        snake.delivered_observation_points = self.sampled_points;
         Ok(())
+    }
+
+    /// Commit the sampled score boundary after real internal consumption or
+    /// successful Node acceptance for the matching external assignment.
+    pub fn commit(self, snake: &mut SnakeState) -> Result<(), SensorError> {
+        self.validate(snake)?;
+        self.commit_prevalidated(snake);
+        Ok(())
+    }
+
+    /// Apply a marker already checked against the same exclusively borrowed
+    /// snake. This cannot fail and is restricted to sibling engine modules.
+    pub(super) fn commit_prevalidated(self, snake: &mut SnakeState) {
+        debug_assert_eq!(snake.id, self.snake_id);
+        debug_assert_eq!(
+            snake.delivered_observation_points.to_bits(),
+            self.previous_delivered_points.to_bits()
+        );
+        snake.delivered_observation_points = self.sampled_points;
     }
 }
 

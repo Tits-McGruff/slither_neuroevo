@@ -95,6 +95,42 @@ pub struct GraphExecutionPlan {
     scratch_layout: CalculationScratchLayout,
 }
 
+/// One explicitly selected node activation from one compatible graph plan.
+///
+/// Capturing is a separate opt-in operation after graph evaluation. The
+/// ordinary population path performs no capture lookup, copy, or allocation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActivationCapturePlan {
+    layout_digest_sha256: [u8; 32],
+    node_id: String,
+    ranges: Vec<TensorRange>,
+    widths: Vec<usize>,
+    total_len: usize,
+}
+
+impl ActivationCapturePlan {
+    /// Selected graph-node identifier.
+    pub fn node_id(&self) -> &str {
+        &self.node_id
+    }
+
+    /// Exact number of Float32 activation values captured for the node.
+    pub const fn len(&self) -> usize {
+        self.total_len
+    }
+
+    /// Whether the selected node produces no values.
+    pub const fn is_empty(&self) -> bool {
+        self.total_len == 0
+    }
+
+    /// Ordered captured widths: every MLP hidden layer followed by its output,
+    /// or the single output width for any other node.
+    pub fn layer_widths(&self) -> &[usize] {
+        &self.widths
+    }
+}
+
 impl GraphExecutionPlan {
     /// Derive all ranges once and select the fastest runtime-admitted math backend.
     pub fn build(graph: &CompiledGraph) -> Result<Self, InferenceError> {
@@ -395,6 +431,81 @@ impl GraphExecutionPlan {
     /// Fixed reusable calculation scratch required by this plan.
     pub const fn scratch_layout(&self) -> CalculationScratchLayout {
         self.scratch_layout
+    }
+
+    /// Resolve one node once for later explicit focused activation capture.
+    pub fn prepare_activation_capture(
+        &self,
+        node_id: &str,
+    ) -> Result<ActivationCapturePlan, InferenceError> {
+        let node = self
+            .nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .ok_or_else(|| InferenceError::ActivationNodeNotFound {
+                node_id: node_id.to_owned(),
+            })?;
+        let mut ranges = Vec::new();
+        ranges
+            .try_reserve_exact(node.hidden.len().saturating_add(1))
+            .map_err(|_| InferenceError::AllocationFailed {
+                buffer: "activation capture ranges",
+                elements: node.hidden.len().saturating_add(1),
+            })?;
+        ranges.extend_from_slice(&node.hidden);
+        ranges.push(node.output);
+        let mut widths = Vec::new();
+        widths
+            .try_reserve_exact(ranges.len())
+            .map_err(|_| InferenceError::AllocationFailed {
+                buffer: "activation capture widths",
+                elements: ranges.len(),
+            })?;
+        let total_len = ranges.iter().try_fold(0usize, |total, range| {
+            widths.push(range.len);
+            total
+                .checked_add(range.len)
+                .ok_or(InferenceError::ArithmeticOverflow {
+                    context: "activation capture width",
+                })
+        })?;
+        Ok(ActivationCapturePlan {
+            layout_digest_sha256: self.layout_digest_sha256,
+            node_id: node.id.clone(),
+            ranges,
+            widths,
+            total_len,
+        })
+    }
+
+    /// Copy one requested node activation from the most recent evaluation in
+    /// this exact scratch view. Callers invoke this only for the focused brain.
+    pub fn capture_activation(
+        &self,
+        capture: &ActivationCapturePlan,
+        scratch: &CalculationScratchView<'_>,
+        destination: &mut [f32],
+    ) -> Result<(), InferenceError> {
+        if capture.layout_digest_sha256 != self.layout_digest_sha256 {
+            return Err(InferenceError::ActivationLayoutMismatch {
+                node_id: capture.node_id.clone(),
+            });
+        }
+        require_length("activation capture", destination.len(), capture.total_len)?;
+        let mut destination_offset = 0usize;
+        for range in &capture.ranges {
+            let end = range.end()?;
+            require_minimum_length("activation scratch", scratch.activation.len(), end)?;
+            let destination_end = destination_offset.checked_add(range.len).ok_or(
+                InferenceError::ArithmeticOverflow {
+                    context: "activation capture destination",
+                },
+            )?;
+            destination[destination_offset..destination_end]
+                .copy_from_slice(&scratch.activation[range.offset..end]);
+            destination_offset = destination_end;
+        }
+        Ok(())
     }
 
     /// Evaluate one complete graph with its own weights and staged recurrent state.
@@ -700,6 +811,22 @@ pub fn commit_heterogeneous_recurrent(
     brains: &mut [BrainRuntimeState],
     staged_recurrent: &[f32],
 ) -> Result<(), InferenceError> {
+    validate_heterogeneous_recurrent_commit(plan, work, brains, staged_recurrent)?;
+    publish_heterogeneous_recurrent(plan, work, brains, staged_recurrent);
+    Ok(())
+}
+
+/// Validate a complete recurrent-state publication without writing authority.
+///
+/// This is exposed so a coordinator can preflight recurrent state together
+/// with observation-delivery markers and then publish both as one infallible
+/// commit section.
+pub fn validate_heterogeneous_recurrent_commit(
+    plan: &GraphExecutionPlan,
+    work: &[CalculationWorkUnit],
+    brains: &[BrainRuntimeState],
+    staged_recurrent: &[f32],
+) -> Result<(), InferenceError> {
     let expected = checked_product(
         work.len(),
         plan.total_state_size,
@@ -708,13 +835,22 @@ pub fn commit_heterogeneous_recurrent(
     require_length("commit recurrent staging", staged_recurrent.len(), expected)?;
     preflight_brains(plan, work, brains)?;
     require_finite("commit recurrent staging", staged_recurrent)?;
+    Ok(())
+}
+
+/// Publish recurrent state after complete validation under exclusive authority.
+pub(super) fn publish_heterogeneous_recurrent(
+    plan: &GraphExecutionPlan,
+    work: &[CalculationWorkUnit],
+    brains: &mut [BrainRuntimeState],
+    staged_recurrent: &[f32],
+) {
     for (index, unit) in work.iter().enumerate() {
         let offset = index * plan.total_state_size;
         brains[unit.brain_index()]
             .recurrent
             .copy_from_slice(&staged_recurrent[offset..offset + plan.total_state_size]);
     }
-    Ok(())
 }
 
 /// Validate complete work-to-brain/weight resolution before any staged writes.
@@ -1415,6 +1551,16 @@ pub enum InferenceError {
         /// Human-readable inconsistency.
         detail: String,
     },
+    /// A requested focused node is absent from the immutable plan.
+    ActivationNodeNotFound {
+        /// Requested graph-node identifier.
+        node_id: String,
+    },
+    /// A capture token came from a different compiled graph layout.
+    ActivationLayoutMismatch {
+        /// Selected graph-node identifier.
+        node_id: String,
+    },
     /// One exact typed buffer had the wrong length.
     BufferLength {
         /// Buffer role.
@@ -1523,6 +1669,16 @@ impl fmt::Display for InferenceError {
             Self::InvalidExecutionPlan { node_id, detail } => {
                 write!(formatter, "invalid execution plan at {node_id}: {detail}")
             }
+            Self::ActivationNodeNotFound { node_id } => {
+                write!(
+                    formatter,
+                    "activation node {node_id} is absent from the graph"
+                )
+            }
+            Self::ActivationLayoutMismatch { node_id } => write!(
+                formatter,
+                "activation node {node_id} was prepared for a different graph layout"
+            ),
             Self::BufferLength {
                 buffer,
                 actual,
@@ -1893,6 +2049,63 @@ mod tests {
         .unwrap();
         assert_eq!(reset_output, first_output);
         assert_eq!(reset_state, first_state);
+    }
+
+    #[test]
+    fn focused_activation_capture_is_explicit_layout_bound_and_exact() {
+        let graph = complete_graph();
+        let plan =
+            GraphExecutionPlan::build_with_math_backend(&graph, InferenceMathBackend::Scalar)
+                .unwrap();
+        let head_capture = plan.prepare_activation_capture("head").unwrap();
+        assert_eq!(head_capture.node_id(), "head");
+        assert_eq!(head_capture.len(), plan.output_size());
+        assert_eq!(head_capture.layer_widths(), &[plan.output_size()]);
+        assert!(!head_capture.is_empty());
+        assert!(matches!(
+            plan.prepare_activation_capture("missing"),
+            Err(InferenceError::ActivationNodeNotFound { .. })
+        ));
+
+        let weights = parity_weights(plan.total_parameters());
+        let mut recurrent_after = vec![0.0; plan.total_state_size()];
+        let mut output = vec![0.0; plan.output_size()];
+        let mut execution_scratch = scratch(&plan);
+        let mut scratch_view = execution_scratch.view();
+        plan.evaluate(
+            &weights,
+            &vec![0.0; plan.total_state_size()],
+            &mut recurrent_after,
+            &[0.25, -0.75],
+            &mut output,
+            &mut scratch_view,
+        )
+        .unwrap();
+        let mut captured = vec![f32::NAN; head_capture.len()];
+        plan.capture_activation(&head_capture, &scratch_view, &mut captured)
+            .unwrap();
+        assert_eq!(captured, output);
+
+        let mlp_capture = plan.prepare_activation_capture("mlpB").unwrap();
+        assert_eq!(mlp_capture.layer_widths(), &[2, 1]);
+        let mut mlp_values = vec![f32::NAN; mlp_capture.len()];
+        plan.capture_activation(&mlp_capture, &scratch_view, &mut mlp_values)
+            .unwrap();
+        assert!(mlp_values.iter().all(|value| value.is_finite()));
+
+        let other = GraphExecutionPlan::build(&wide_recurrent_graph()).unwrap();
+        let mut rejected = vec![0.0; head_capture.len()];
+        assert!(matches!(
+            other.capture_activation(&head_capture, &scratch_view, &mut rejected),
+            Err(InferenceError::ActivationLayoutMismatch { .. })
+        ));
+        assert!(matches!(
+            plan.capture_activation(&head_capture, &scratch_view, &mut [0.0]),
+            Err(InferenceError::BufferLength {
+                buffer: "activation capture",
+                ..
+            })
+        ));
     }
 
     #[test]

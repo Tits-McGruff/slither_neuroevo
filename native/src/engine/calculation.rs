@@ -771,6 +771,18 @@ impl<T> CalculationWorkspace<T> {
         })
     }
 
+    /// Borrow the deterministic work order after immutable-state resolution.
+    ///
+    /// This read-only view is used by coordinator-owned staging and commit
+    /// code after worker scratch has been returned. It never exposes the
+    /// private candidate or proposal storage.
+    pub fn prepared_work(&self) -> Result<&[CalculationWorkUnit], CalculationError> {
+        if !self.prepared {
+            return Err(CalculationError::WorkspaceNotPrepared);
+        }
+        Ok(&self.work)
+    }
+
     /// Seal a complete borrowed view without consuming any workspace allocation.
     pub fn seal(
         &self,

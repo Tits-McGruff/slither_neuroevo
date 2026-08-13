@@ -9,6 +9,8 @@ pub mod checkpoint;
 pub mod checkpoint_fixture;
 /// Versioned coarse-command and bounded-queue contracts.
 pub mod contract;
+/// One staged corrected-sensing and heterogeneous-neural control operation.
+pub mod control;
 /// Background coordinator implementation; only its lifecycle is public.
 mod coordinator;
 /// Bounded engine faults and stable error codes.
