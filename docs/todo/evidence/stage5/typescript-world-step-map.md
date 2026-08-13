@@ -125,7 +125,12 @@ array order. That makes a pellet reachable by multiple heads an implicit
 first-visited winner. This result is not preserved. Rust builds claims from one
 immutable pellet/head snapshot, chooses the nearest eligible head, uses stable
 snake ID for an exact squared-distance tie, and applies winning claims only
-after all claims are known.
+after all claims are known. Winning claims and surviving pellets are applied in
+stable pellet-ID order so container order cannot alter floating-point update
+order. Newly requested boost drops are realized later in the complete
+transaction and are not eligible for consumption in the substep that creates
+them, matching the approved phase order rather than TypeScript's immediate
+pellet-array mutation.
 
 Ambient pellet debt accumulates at `pelletSpawnPerSecond * fixedDt`; only whole
 pellets up to the configured target are emitted before observations. The

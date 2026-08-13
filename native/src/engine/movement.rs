@@ -202,36 +202,43 @@ pub struct MovementCapacityDiagnostics {
 
 /// Immutable view of one successfully prepared movement phase.
 #[derive(Clone, Copy, Debug)]
-pub struct PreparedMovement<'a> {
-    snakes: &'a [SnakeState],
-    body_points: &'a [WorldPoint],
-    proposals: &'a [MovementProposal],
-    boost_drops: &'a [BoostDropRequest],
+pub struct PreparedMovement<'scratch, 'world> {
+    source_world: &'world WorldState,
+    snakes: &'scratch [SnakeState],
+    body_points: &'scratch [WorldPoint],
+    proposals: &'scratch [MovementProposal],
+    boost_drops: &'scratch [BoostDropRequest],
     diagnostics: MovementCapacityDiagnostics,
 }
 
-impl<'a> PreparedMovement<'a> {
+impl<'scratch, 'world> PreparedMovement<'scratch, 'world> {
+    /// Immutable authoritative boundary from which movement was prepared.
+    #[must_use]
+    pub const fn source_world(self) -> &'world WorldState {
+        self.source_world
+    }
+
     /// Staged snake records in the source container's shape.
     #[must_use]
-    pub const fn snakes(self) -> &'a [SnakeState] {
+    pub const fn snakes(self) -> &'scratch [SnakeState] {
         self.snakes
     }
 
     /// Complete staged packed body storage, ordered by stable snake ID.
     #[must_use]
-    pub const fn body_points(self) -> &'a [WorldPoint] {
+    pub const fn body_points(self) -> &'scratch [WorldPoint] {
         self.body_points
     }
 
     /// Movement metadata ordered by stable snake ID.
     #[must_use]
-    pub const fn proposals(self) -> &'a [MovementProposal] {
+    pub const fn proposals(self) -> &'scratch [MovementProposal] {
         self.proposals
     }
 
     /// Boost-tail requests ordered by stable snake ID then tail-to-head removal.
     #[must_use]
-    pub const fn boost_drops(self) -> &'a [BoostDropRequest] {
+    pub const fn boost_drops(self) -> &'scratch [BoostDropRequest] {
         self.boost_drops
     }
 
@@ -243,7 +250,7 @@ impl<'a> PreparedMovement<'a> {
 
     /// Resolve one staged body without assuming snake-array order.
     #[must_use]
-    pub fn body_for(self, snake: &SnakeState) -> Option<&'a [WorldPoint]> {
+    pub fn body_for(self, snake: &SnakeState) -> Option<&'scratch [WorldPoint]> {
         let end = snake.body.start.checked_add(snake.body.len)?;
         self.body_points.get(snake.body.start..end)
     }
@@ -279,17 +286,18 @@ impl MovementWorkspace {
     /// Prepare every snake's scalar and body result without mutating authority.
     ///
     /// `maximum_body_points` and `maximum_pellets` are the admitted engine
-    /// capacities. Boost requests are charged against existing pellets before
-    /// any storage is exposed. Food and collision phases may inspect this view,
-    /// but only a later complete transaction may swap it into authority.
-    pub fn prepare<'a>(
-        &'a mut self,
-        world: &WorldState,
+    /// capacities. Boost requests are bounded here, while the post-food phase
+    /// checks their combined count with the pellets that survived claims. Food
+    /// and collision phases may inspect this view, but only a later complete
+    /// transaction may swap it into authority.
+    pub fn prepare<'scratch, 'world>(
+        &'scratch mut self,
+        world: &'world WorldState,
         config: MovementConfig,
         dt: f64,
         maximum_body_points: usize,
         maximum_pellets: usize,
-    ) -> Result<PreparedMovement<'a>, MovementError> {
+    ) -> Result<PreparedMovement<'scratch, 'world>, MovementError> {
         self.ready = false;
         self.order.clear();
         self.next_snakes.clear();
@@ -384,28 +392,24 @@ impl MovementWorkspace {
                 } else {
                     staged.boost = false;
                 }
-                desired_length = desired_body_length(staged.target_length, config);
+                let boost_desired_length = desired_body_length(staged.target_length, config);
                 if staged.boost {
                     stage_boost_drops(
                         &mut self.boost_drops,
                         source.id,
                         body,
-                        desired_length,
+                        boost_desired_length,
                         config,
-                        world.pellets.len(),
                         maximum_pellets,
                     )?;
+                    desired_length = body.len().min(boost_desired_length);
                 }
 
                 // Boost burn removes tail points before TypeScript calculates
-                // this substep's size-dependent speed and turn. Ordinary
-                // target shrink/growth remains an end-of-substep body update.
-                let movement_length = if staged.boost {
-                    body.len().min(desired_length)
-                } else {
-                    body.len()
-                };
-                let movement_size = size_normalized(movement_length, config);
+                // this substep's size-dependent speed and turn. Food claims
+                // must resolve before ordinary target shrink/growth, so that
+                // final body-length work belongs to the next transaction phase.
+                let movement_size = size_normalized(desired_length, config);
                 let base_speed = config.snake_base_speed
                     * (1.0 - config.snake_size_speed_penalty * movement_size);
                 let boost_ratio =
@@ -434,12 +438,7 @@ impl MovementWorkspace {
                 if wall_death {
                     staged.alive = false;
                     // Boost shrink already happened, but TypeScript returns at
-                    // the wall before ordinary target growth/shrink.
-                    desired_length = if staged.boost {
-                        body.len().min(desired_length)
-                    } else {
-                        body.len()
-                    };
+                    // the wall before food or ordinary target growth/shrink.
                 }
             }
 
@@ -496,14 +495,6 @@ impl MovementWorkspace {
                         &mut self.next_body_points[body_start..body_start + retained],
                         config.snake_spacing,
                     );
-                    grow_body(
-                        &mut self.next_body_points,
-                        body_start,
-                        desired,
-                        config.snake_spacing,
-                        source.id,
-                    )?;
-                    staged.radius = radius_for_length(desired, config);
                 }
             }
             staged.body = BodyRange {
@@ -524,6 +515,7 @@ impl MovementWorkspace {
         self.ready = true;
         let diagnostics = self.diagnostics();
         Ok(PreparedMovement {
+            source_world: world,
             snakes: &self.next_snakes,
             body_points: &self.next_body_points,
             proposals: &self.proposals,
@@ -625,7 +617,7 @@ fn size_normalized(length: usize, config: MovementConfig) -> f64 {
     )
 }
 
-fn desired_body_length(target: f64, config: MovementConfig) -> usize {
+pub(crate) fn desired_body_length(target: f64, config: MovementConfig) -> usize {
     clamp(
         target,
         config.snake_min_len as f64,
@@ -634,7 +626,7 @@ fn desired_body_length(target: f64, config: MovementConfig) -> usize {
     .floor() as usize
 }
 
-fn radius_for_length(length: usize, config: MovementConfig) -> f64 {
+pub(crate) fn radius_for_length(length: usize, config: MovementConfig) -> f64 {
     let growth = length.saturating_sub(config.snake_start_len) as f64;
     let radius = config.snake_radius
         + config.snake_thickness_scale
@@ -648,16 +640,16 @@ fn stage_boost_drops(
     body: &[WorldPoint],
     desired: usize,
     config: MovementConfig,
-    existing_pellets: usize,
     maximum_pellets: usize,
 ) -> Result<(), MovementError> {
     let drop_count = body.len().saturating_sub(desired);
-    let required = existing_pellets
-        .checked_add(output.len())
-        .and_then(|value| value.checked_add(drop_count))
-        .ok_or(MovementError::ArithmeticOverflow {
-            context: "boost pellet total",
-        })?;
+    let required =
+        output
+            .len()
+            .checked_add(drop_count)
+            .ok_or(MovementError::ArithmeticOverflow {
+                context: "boost drop request total",
+            })?;
     if required > maximum_pellets {
         return Err(MovementError::PelletCapacityExceeded {
             required,
@@ -714,33 +706,6 @@ fn follow_body(body: &mut [WorldPoint], spacing: f64) {
         current.x -= dx * adjustment;
         current.y -= dy * adjustment;
     }
-}
-
-fn grow_body(
-    body: &mut Vec<WorldPoint>,
-    start: usize,
-    desired: usize,
-    spacing: f64,
-    snake_id: u64,
-) -> Result<(), MovementError> {
-    while body.len().saturating_sub(start) < desired {
-        let tail = *body
-            .last()
-            .ok_or(MovementError::InvalidBodyRange { snake_id })?;
-        let before = if body.len().saturating_sub(start) >= 2 {
-            body[body.len() - 2]
-        } else {
-            tail
-        };
-        let dx = tail.x - before.x;
-        let dy = tail.y - before.y;
-        let distance = distance_or_epsilon(dx, dy);
-        body.push(WorldPoint {
-            x: tail.x + dx / distance * spacing,
-            y: tail.y + dy / distance * spacing,
-        });
-    }
-    Ok(())
 }
 
 fn normalize_angle(angle: f64) -> f64 {
@@ -993,7 +958,7 @@ mod tests {
     }
 
     #[test]
-    fn boost_burn_shrink_and_body_match_retained_typescript_substep() {
+    fn boost_burn_shrink_and_body_match_pre_food_typescript_order() {
         let mut world = world_with_one(8);
         world.snakes[0].turn = -0.5;
         world.snakes[0].input_boost = true;
@@ -1010,7 +975,8 @@ mod tests {
         close(staged.speed, 176.880_101_352_972_45);
         close(staged.points, 9.961_098_271_357_901);
         close(staged.target_length, 7.993_775_723_417_264);
-        close(staged.radius, 9.187_161_711_298_957);
+        // Radius is updated only after food and final target-length resolution.
+        close(staged.radius, 9.0);
         assert!(staged.boost);
         assert_eq!(body.len(), 7);
         close(body[6].x, -44.017_367_541_676_194);
@@ -1026,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_target_shrink_does_not_create_boost_pellets() {
+    fn ordinary_target_shrink_waits_for_food_without_creating_boost_pellets() {
         let mut world = world_with_one(5);
         world.snakes[0].target_length = 4.0;
         let mut workspace = MovementWorkspace::new();
@@ -1035,8 +1001,76 @@ mod tests {
             .expect("ordinary shrink should prepare");
 
         assert!(!prepared.snakes()[0].boost);
-        assert_eq!(prepared.snakes()[0].body.len, 4);
+        assert_eq!(prepared.snakes()[0].body.len, 5);
         assert!(prepared.boost_drops().is_empty());
+    }
+
+    #[test]
+    fn boost_eligibility_uses_exact_length_and_points_boundaries() {
+        let mut short = world_with_one(5);
+        short.snakes[0].input_boost = true;
+        short.snakes[0].points = 100.0;
+        let mut short_workspace = MovementWorkspace::new();
+        let short_result = short_workspace
+            .prepare(&short, MovementConfig::typescript_defaults(), DT, 100, 100)
+            .expect("short snake should still move");
+        assert!(!short_result.snakes()[0].boost);
+        assert!(short_result.boost_drops().is_empty());
+
+        let mut below_points = world_with_one(6);
+        below_points.snakes[0].input_boost = true;
+        below_points.snakes[0].points = 1.2_f64.next_down();
+        let mut below_workspace = MovementWorkspace::new();
+        let below_result = below_workspace
+            .prepare(
+                &below_points,
+                MovementConfig::typescript_defaults(),
+                DT,
+                100,
+                100,
+            )
+            .expect("below-threshold snake should move");
+        assert!(!below_result.snakes()[0].boost);
+
+        let mut exact = world_with_one(6);
+        exact.snakes[0].input_boost = true;
+        exact.snakes[0].points = 1.2;
+        let mut exact_workspace = MovementWorkspace::new();
+        let exact_result = exact_workspace
+            .prepare(&exact, MovementConfig::typescript_defaults(), DT, 100, 100)
+            .expect("exact-threshold snake should boost");
+        assert!(exact_result.snakes()[0].boost);
+        assert_eq!(exact_result.boost_drops().len(), 1);
+    }
+
+    #[test]
+    fn multiple_boost_drops_follow_typescript_tail_pop_order() {
+        let mut world = world_with_one(10);
+        world.snakes[0].input_boost = true;
+        world.snakes[0].points = 100.0;
+        let mut workspace = MovementWorkspace::new();
+        let prepared = workspace
+            .prepare(&world, MovementConfig::typescript_defaults(), 1.0, 100, 100)
+            .expect("multi-drop boost should prepare");
+
+        assert_eq!(prepared.snakes()[0].body.len, 8);
+        assert_eq!(prepared.boost_drops().len(), 2);
+        close(prepared.boost_drops()[0].base_position.x, -75.5);
+        close(prepared.boost_drops()[1].base_position.x, -68.0);
+    }
+
+    #[test]
+    fn body_following_uses_epsilon_only_for_exact_zero_distance() {
+        let mut sub_micro = [
+            WorldPoint { x: 0.0, y: 0.0 },
+            WorldPoint { x: 1.0e-9, y: 0.0 },
+        ];
+        follow_body(&mut sub_micro, 7.5);
+        close(sub_micro[1].x, 7.5);
+
+        let mut exact_zero = [WorldPoint { x: 0.0, y: 0.0 }, WorldPoint { x: 0.0, y: 0.0 }];
+        follow_body(&mut exact_zero, 7.5);
+        assert_eq!(exact_zero[1], WorldPoint { x: 0.0, y: 0.0 });
     }
 
     #[test]
@@ -1074,7 +1108,9 @@ mod tests {
             }
         }
 
-        fn normalized(prepared: PreparedMovement<'_>) -> Vec<(u64, SnakeState, Vec<WorldPoint>)> {
+        fn normalized(
+            prepared: PreparedMovement<'_, '_>,
+        ) -> Vec<(u64, SnakeState, Vec<WorldPoint>)> {
             let mut output = prepared
                 .snakes()
                 .iter()
@@ -1135,15 +1171,14 @@ mod tests {
 
     #[test]
     fn capacity_and_malformed_state_fail_without_authoritative_writes() {
-        let mut world = world_with_one(5);
-        world.snakes[0].target_length = 6.0;
+        let mut world = world_with_one(8);
         let authority_before = world.clone();
         let mut workspace = MovementWorkspace::new();
         assert!(matches!(
-            workspace.prepare(&world, MovementConfig::typescript_defaults(), DT, 5, 100),
+            workspace.prepare(&world, MovementConfig::typescript_defaults(), DT, 7, 100),
             Err(MovementError::BodyCapacityExceeded {
-                required: 6,
-                maximum: 5
+                required: 8,
+                maximum: 7
             })
         ));
         assert!(!workspace.is_ready());

@@ -20,6 +20,8 @@ pub mod controllers;
 mod coordinator;
 /// Bounded engine faults and stable error codes.
 pub mod error;
+/// Deterministic contested-food claims and post-food body finalization.
+pub mod food;
 /// Deterministic graph validation, layout, and compilation contracts.
 pub mod graph;
 /// Safe scalar complete-graph and heterogeneous-population inference.

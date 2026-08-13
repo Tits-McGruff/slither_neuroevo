@@ -2,7 +2,7 @@
 
 import { Genome, type ArchDefinition } from '../../src/mlp.ts';
 import type { Brain } from '../../src/brains/types.ts';
-import { Snake, type ControlInput, type Pellet } from '../../src/snake.ts';
+import { Pellet, Snake, type ControlInput } from '../../src/snake.ts';
 
 /** Audited TypeScript source revision represented by the retained artifact. */
 const SOURCE_REVISION = '6bfcb24';
@@ -45,6 +45,16 @@ interface MovementFixtureRecord {
   input: Record<string, unknown>;
   /** Values observed after `Snake.advance`. */
   output: Record<string, unknown>;
+}
+
+/** One explicit source pellet installed before `Snake.advance`. */
+interface FixturePellet {
+  /** World X coordinate. */
+  x: number;
+  /** World Y coordinate. */
+  y: number;
+  /** Positive food value. */
+  value: number;
 }
 
 /** Build a finite deterministic RNG stream and fail if the fixture overdraws it. */
@@ -90,10 +100,13 @@ function executeFixture(
   name: string,
   length: number,
   control: ControlInput,
-  rngValues: readonly number[]
+  rngValues: readonly number[],
+  initialPellets: readonly FixturePellet[] = []
 ): MovementFixtureRecord {
   const snake = buildSnake(length, control, rngValues);
-  const pellets: Pellet[] = [];
+  const pellets = initialPellets.map(
+    entry => new Pellet(entry.x, entry.y, entry.value, null, 'ambient', 0)
+  );
   const world: Parameters<Snake['advance']>[0] = {
     pellets,
     particles: { spawnBurst: () => undefined, spawnBoost: () => undefined },
@@ -112,7 +125,13 @@ function executeFixture(
     boostInput: control.boost,
     pointsScore: snake.pointsScore,
     targetLength: snake.targetLen,
-    body: snake.points.map(point => [point.x, point.y])
+    body: snake.points.map(point => [point.x, point.y]),
+    pellets: pellets.map(pellet => ({
+      position: [pellet.x, pellet.y],
+      value: pellet.v,
+      kind: pellet.kind,
+      colorId: pellet.colorId
+    }))
   };
   snake.advance(world, SUBSTEP_SECONDS);
   return {
@@ -172,6 +191,13 @@ function buildDocument(): Record<string, unknown> {
         8,
         { turn: -0.5, boost: 1 },
         [...CONSTRUCTOR_RNG_DRAWS, ...BOOST_JITTER_RNG_DRAWS]
+      ),
+      executeFixture(
+        'food-grow-length-5',
+        5,
+        { turn: 0, boost: 0 },
+        CONSTRUCTOR_RNG_DRAWS,
+        [{ x: 0, y: 0, value: 1 }]
       )
     ],
     interpretation: {
