@@ -85,8 +85,10 @@ The TypeScript wall path advances scalar `x/y` and then returns from
 the final scalar position, death, body length, lack of corpse pellets, and lack
 of follow/grow/radius work, but normalizes the dead body's first coordinate to
 that position. This is an internal representation correction required by the
-admitted Rust invariant `body[0] == position`; dead snakes are neither rendered
-nor collision-active.
+admitted Rust invariant `body[0] == position`. A source-alive snake remains a
+collision obstacle for the immutable snapshot in which its wall death is
+staged. After that result commits it is neither rendered nor collision-active
+in later substeps.
 
 Boost is requested when the held boost value exceeds `0.35`. It is eligible
 only above `snakeMinLen + 1` body points and at or above
@@ -175,15 +177,32 @@ The approved Rust rule preserves only the unambiguous body-owner credit. One
 immutable swept snapshot produces every outcome. Simultaneous head-to-head
 contact kills both with no kill credit. A head-to-body victim credits the body
 owner even when that owner also dies in the same snapshot. Multiple valid body
-owners use a stable deterministic selection rule defined and tested by the
-collision implementation, never storage or worker order. All deaths are
-committed in stable ID order, and every body remains an obstacle for the whole
-snapshot.
+owners are ordered by earliest continuous swept contact; an exact computed-time
+tie uses stable body-owner ID and then stable segment offset. A simultaneous
+head-head pair cannot award itself a kill merely because each head also lies on
+the other snake's first body segment. These rules never use storage or worker
+order. All deaths are committed in stable ID order, and every body remains an
+obstacle for the whole snapshot.
 
 The Rust broad phase covers every cell touched by swept segment bounds expanded
 by collision radius and either stores all entries or rejects the substep before
 commit. The narrow phase must detect moving head/body and head/head crossings;
-final-position-only overlap is insufficient.
+final-position-only overlap is insufficient. The relative moving-segment search
+uses a convex-hull lower bound and conservatively treats an unresolved spatial
+gap no larger than `1e-9` world units as contact; the diagnostic count makes
+those tolerance decisions visible rather than permitting a tunnelling miss. A
+contact search that reaches its checked interval or depth limit rejects the
+complete substep; it never manufactures a collision to satisfy a work budget.
+Segments newly created by post-food growth become collision-active at the final
+substep boundary; they are not projected backward through time before they
+existed. Boost-removed tail segments are absent because boost burn precedes
+movement. Segments removed by ordinary post-food shrink retain their
+post-movement geometry for the continuous sweep and disappear at the final
+boundary, so a moving segment cannot evade collision merely because it is
+trimmed after movement. The continuous interval likewise uses the pre-food
+radii; post-food growth or shrink changes collision radius only at the final
+boundary. Broad-phase bounds cover the larger of the pre-food and final radii,
+so neither interval can be omitted.
 
 ## Spawn correction
 

@@ -88,6 +88,8 @@ pub struct FoodCapacityDiagnostics {
     pub snakes: usize,
     /// Number of final packed body points.
     pub body_points: usize,
+    /// Number of post-movement body points retained for swept collisions.
+    pub movement_body_points: usize,
     /// Number of consumed pellets.
     pub claims: usize,
     /// Number of source pellets not consumed.
@@ -106,6 +108,12 @@ pub struct FoodCapacityDiagnostics {
     pub final_length_capacity: usize,
     /// Retained packed-body capacity.
     pub body_point_capacity: usize,
+    /// Retained post-movement body-range capacity.
+    pub movement_body_range_capacity: usize,
+    /// Retained post-movement packed-body capacity.
+    pub movement_body_point_capacity: usize,
+    /// Retained post-movement radius capacity.
+    pub movement_radius_capacity: usize,
     /// Retained claim capacity.
     pub claim_capacity: usize,
     /// Retained remaining-pellet capacity.
@@ -124,6 +132,9 @@ pub struct PreparedFood<'scratch, 'world> {
     source_world: &'world WorldState,
     snakes: &'scratch [SnakeState],
     body_points: &'scratch [WorldPoint],
+    movement_body_ranges: &'scratch [BodyRange],
+    movement_body_points: &'scratch [WorldPoint],
+    movement_radii: &'scratch [f64],
     remaining_pellets: &'scratch [PelletState],
     claims: &'scratch [FoodClaim],
     boost_drops: &'scratch [BoostDropRequest],
@@ -149,6 +160,12 @@ impl<'scratch, 'world> PreparedFood<'scratch, 'world> {
     #[must_use]
     pub const fn body_points(self) -> &'scratch [WorldPoint] {
         self.body_points
+    }
+
+    /// Post-movement, pre-food body storage retained for continuous collisions.
+    #[must_use]
+    pub const fn movement_body_points(self) -> &'scratch [WorldPoint] {
+        self.movement_body_points
     }
 
     /// Source pellets not consumed, ordered by stable pellet ID.
@@ -193,6 +210,25 @@ impl<'scratch, 'world> PreparedFood<'scratch, 'world> {
         let end = snake.body.start.checked_add(snake.body.len)?;
         self.body_points.get(snake.body.start..end)
     }
+
+    /// Resolve one post-movement body by source-array index.
+    ///
+    /// Boost-removed tail points are already absent here. Ordinary target
+    /// shrink happens later during food finalization, so collision detection
+    /// uses this retained geometry to sweep those disappearing segments up to
+    /// (but not including) the final boundary.
+    #[must_use]
+    pub fn movement_body_for_index(self, snake_index: usize) -> Option<&'scratch [WorldPoint]> {
+        let range = *self.movement_body_ranges.get(snake_index)?;
+        let end = range.start.checked_add(range.len)?;
+        self.movement_body_points.get(range.start..end)
+    }
+
+    /// Post-movement, pre-food radius for one source-array index.
+    #[must_use]
+    pub fn movement_radius_for_index(self, snake_index: usize) -> Option<f64> {
+        self.movement_radii.get(snake_index).copied()
+    }
 }
 
 /// Reusable two-phase contested-food and final-body scratch.
@@ -204,6 +240,9 @@ pub struct FoodWorkspace {
     next_snakes: Vec<SnakeState>,
     final_lengths: Vec<usize>,
     next_body_points: Vec<WorldPoint>,
+    movement_body_ranges: Vec<BodyRange>,
+    movement_body_points: Vec<WorldPoint>,
+    movement_radii: Vec<f64>,
     remaining_pellets: Vec<PelletState>,
     claims: Vec<FoodClaim>,
     boost_drops: Vec<BoostDropRequest>,
@@ -224,6 +263,9 @@ impl FoodWorkspace {
             next_snakes: Vec::new(),
             final_lengths: Vec::new(),
             next_body_points: Vec::new(),
+            movement_body_ranges: Vec::new(),
+            movement_body_points: Vec::new(),
+            movement_radii: Vec::new(),
             remaining_pellets: Vec::new(),
             claims: Vec::new(),
             boost_drops: Vec::new(),
@@ -294,6 +336,27 @@ impl FoodWorkspace {
         )?;
         self.movement_proposals
             .extend_from_slice(movement.proposals());
+        reserve_for(
+            &mut self.movement_body_ranges,
+            movement.snakes().len(),
+            "movement body ranges",
+        )?;
+        reserve_for(
+            &mut self.movement_body_points,
+            movement.body_points().len(),
+            "movement body points",
+        )?;
+        self.movement_body_ranges
+            .extend(movement.snakes().iter().map(|snake| snake.body));
+        self.movement_body_points
+            .extend_from_slice(movement.body_points());
+        reserve_for(
+            &mut self.movement_radii,
+            movement.snakes().len(),
+            "movement radii",
+        )?;
+        self.movement_radii
+            .extend(movement.snakes().iter().map(|snake| snake.radius));
         reserve_for(
             &mut self.remaining_pellets,
             source.pellets.len(),
@@ -517,6 +580,9 @@ impl FoodWorkspace {
             source_world: source,
             snakes: &self.next_snakes,
             body_points: &self.next_body_points,
+            movement_body_ranges: &self.movement_body_ranges,
+            movement_body_points: &self.movement_body_points,
+            movement_radii: &self.movement_radii,
             remaining_pellets: &self.remaining_pellets,
             claims: &self.claims,
             boost_drops: &self.boost_drops,
@@ -532,6 +598,7 @@ impl FoodWorkspace {
         FoodCapacityDiagnostics {
             snakes: self.next_snakes.len(),
             body_points: self.next_body_points.len(),
+            movement_body_points: self.movement_body_points.len(),
             claims: self.claims.len(),
             remaining_pellets: self.remaining_pellets.len(),
             boost_drops: self.boost_drops.len(),
@@ -541,6 +608,9 @@ impl FoodWorkspace {
             snake_capacity: self.next_snakes.capacity(),
             final_length_capacity: self.final_lengths.capacity(),
             body_point_capacity: self.next_body_points.capacity(),
+            movement_body_range_capacity: self.movement_body_ranges.capacity(),
+            movement_body_point_capacity: self.movement_body_points.capacity(),
+            movement_radius_capacity: self.movement_radii.capacity(),
             claim_capacity: self.claims.capacity(),
             remaining_pellet_capacity: self.remaining_pellets.capacity(),
             boost_drop_capacity: self.boost_drops.capacity(),
@@ -563,6 +633,9 @@ impl FoodWorkspace {
         self.next_snakes.clear();
         self.final_lengths.clear();
         self.next_body_points.clear();
+        self.movement_body_ranges.clear();
+        self.movement_body_points.clear();
+        self.movement_radii.clear();
         self.remaining_pellets.clear();
         self.claims.clear();
         self.boost_drops.clear();
@@ -1374,6 +1447,18 @@ mod tests {
             assert_eq!(next.snake_capacity, first.snake_capacity);
             assert_eq!(next.final_length_capacity, first.final_length_capacity);
             assert_eq!(next.body_point_capacity, first.body_point_capacity);
+            assert_eq!(
+                next.movement_body_range_capacity,
+                first.movement_body_range_capacity
+            );
+            assert_eq!(
+                next.movement_body_point_capacity,
+                first.movement_body_point_capacity
+            );
+            assert_eq!(
+                next.movement_radius_capacity,
+                first.movement_radius_capacity
+            );
             assert_eq!(next.claim_capacity, first.claim_capacity);
             assert_eq!(
                 next.remaining_pellet_capacity,

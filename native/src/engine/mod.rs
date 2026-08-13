@@ -7,6 +7,8 @@ pub mod checkpoint;
 /// Deterministic test-hook fixture for the real checkpoint publication boundary.
 #[cfg(feature = "engine-test-hooks")]
 pub mod checkpoint_fixture;
+/// Immutable swept collision detection and stable death/award proposals.
+pub mod collision;
 /// Versioned coarse-command and bounded-queue contracts.
 pub mod contract;
 /// One staged corrected-sensing and heterogeneous-neural control operation.

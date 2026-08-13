@@ -487,8 +487,10 @@ impl MovementWorkspace {
                 // TypeScript returns from wall death after advancing scalar
                 // x/y but before rewriting points[0]. Rust normalizes that
                 // stale internal body head so the staged world retains its
-                // admitted `body[0] == position` invariant. Dead snakes do not
-                // follow, grow, change radius, render, or collide.
+                // admitted `body[0] == position` invariant. Wall-dead snakes do
+                // not follow, grow, or change radius. The collision phase still
+                // reads their source-alive trajectory as an obstacle in this
+                // immutable substep; after commit they no longer participate.
                 *head = staged.position;
                 if staged.alive {
                     follow_body(
