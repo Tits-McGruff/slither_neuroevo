@@ -1,0 +1,237 @@
+{
+  "schema": "slither-stage4-rust-control-pipeline-benchmark",
+  "version": 1,
+  "evidenceClass": "new measured target-VM combined Rust sensing/inference result",
+  "caveat": "Source-shaped deterministic synthetic combined control-boundary benchmark. It includes complete index construction, corrected delivered sensor observations, differently weighted stateful population inference, and atomic recurrent/delivery commit. It is not an owner save, movement/collision/game step, controller selection, frame, Node bridge, browser, RL client, generation, sustained run, bounded persistent-worker result, or production-cutover result.",
+  "source": {
+    "nativeBuildIdentifier": "slither_native/0.1.0+9c38b487d07c.b1382942e08bf5c6",
+    "nativeSourceSha256": "1ffbbeabeb6d133402b34e99f21615b26c216f184fe43bb2ba453e0d1282a772",
+    "nativeBuildContractSha256": "sha256:1fb16b35a1b51f7f0cd24193df2af9668ae71c93f702311812c144c61e047cd1",
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "rustcVersion": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+    "buildProfile": "release",
+    "buildClass": "test-hooks"
+  },
+  "environment": {
+    "capturedAtEpochMs": 1786609397970,
+    "declaration": "owner-target-vm",
+    "operatingSystem": "linux",
+    "architecture": "x86_64",
+    "hostname": "oxygen",
+    "availableParallelism": 8,
+    "distributionId": "debian",
+    "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+    "totalMemoryBytes": 16775352320,
+    "ownerTargetVmValidated": true,
+    "fixtureRssBytes": 7143424,
+    "processPeakRssBytes": 7716864,
+    "finalRssBytes": 7716864
+  },
+  "workload": {
+    "fixtureVersion": 1,
+    "fixtureClass": "source-shaped deterministic synthetic world and genomes",
+    "scenario": "P0",
+    "description": "55 due differently weighted evolved brains, 10 baseline snakes, five-point bodies, 3,500 pellets, corrected v3/16-bin sensing, 83-64-64 MLP, GRU-16 and Dense-2",
+    "evolvedPopulation": 55,
+    "baselineSnakes": 10,
+    "totalLiveSnakes": 65,
+    "dueNeuralBrains": 55,
+    "bodyPointsPerSnake": 5,
+    "pellets": 3500,
+    "sensorBins": 16,
+    "sensorInputSize": 83,
+    "parametersPerBrain": 13458,
+    "recurrentFloatsPerBrain": 16,
+    "outputFloatsPerBrain": 2,
+    "graphLayoutSha256": "ced9f12f73d0925efd0d75a872e818a878fb838b552c5daa60e3566a4c64e4b6",
+    "worldSha256": "5d548b8a478c56b9a03bf3e65062dee2005e738be8432557a395a40de0acd572",
+    "weightsSha256": "5d08fee2550b4c438e96608fac993845967fb5c5edc2e5ac09a40ea23cd18d69",
+    "initialRecurrentSha256": "686f728d7c1057e652ae0f69b359ddc2d4318885cfcedde08477b775049fecd1",
+    "uniqueWeightBlocks": 55,
+    "uniqueInitialRecurrentBlocks": 55,
+    "warmupPasses": 20,
+    "measuredPasses": 120,
+    "actualFreshOrEvolvedWorld": false,
+    "actualCorrectedSensorObservations": true,
+    "actualDistinctGenomes": true,
+    "actualStatefulRecurrentCommit": true,
+    "actualCompleteWorldStep": false
+  },
+  "path": {
+    "owner": "Rust",
+    "mathBackend": "rust-sse2-v1",
+    "calculationWorkers": 1,
+    "napiCallsPerBoundary": 0,
+    "graphTraversalOwner": "Rust",
+    "distinctWeightsPerBrain": true,
+    "stagedAtomicStateCommit": true,
+    "focusedActivationCaptureEnabled": false
+  },
+  "memory": {
+    "packedWeightBytes": 2960760,
+    "authoritativeRecurrentBytes": 3520,
+    "pipelineStagingBytes": 46424,
+    "bodyIndexEstimatedBytes": 28240,
+    "pelletIndexEstimatedBytes": 389088,
+    "pipelineCapacityAfterWarmup": {
+      "observations": 4565,
+      "outputs": 110,
+      "recurrent": 880,
+      "captureOutput": 2,
+      "captureRecurrent": 16,
+      "deliveries": 55,
+      "diagnostics": 55,
+      "calculationWorkspaceBytes": 15412
+    },
+    "pipelineCapacityAfterMeasurement": {
+      "observations": 4565,
+      "outputs": 110,
+      "recurrent": 880,
+      "captureOutput": 2,
+      "captureRecurrent": 16,
+      "deliveries": 55,
+      "diagnostics": 55,
+      "calculationWorkspaceBytes": 15412
+    },
+    "sensorScratchAfterWarmup": {
+      "foodBinCapacity": 16,
+      "hazardBinCapacity": 16,
+      "headBinCapacity": 16,
+      "bodyDuplicateMarkerCapacity": 260,
+      "bodyCandidateCapacity": 2200,
+      "pelletCandidateCapacity": 900
+    },
+    "sensorScratchAfterMeasurement": {
+      "foodBinCapacity": 16,
+      "hazardBinCapacity": 16,
+      "headBinCapacity": 16,
+      "bodyDuplicateMarkerCapacity": 260,
+      "bodyCandidateCapacity": 2200,
+      "pelletCandidateCapacity": 900
+    },
+    "capacitiesStableAfterWarmup": true
+  },
+  "result": {
+    "completeControlBoundaryMs": {
+      "count": 120,
+      "min": 4.001241,
+      "p50": 4.0608225000000004,
+      "p95": 4.6492983,
+      "p99": 5.05923162,
+      "max": 5.102868,
+      "mean": 4.122731766666666
+    },
+    "indexBuildMs": {
+      "count": 120,
+      "min": 0.29695299999999997,
+      "p50": 0.309913,
+      "p95": 0.35145089999999996,
+      "p99": 0.38456285,
+      "max": 0.41912699999999997,
+      "mean": 0.31405853333333345
+    },
+    "sensingAndInferenceMs": {
+      "count": 120,
+      "min": 3.674617,
+      "p50": 3.7506445,
+      "p95": 4.273034700000001,
+      "p99": 4.67974971,
+      "max": 4.723274,
+      "mean": 3.8056406166666656
+    },
+    "recurrentAndDeliveryCommitMs": {
+      "count": 120,
+      "min": 0.00171,
+      "p50": 0.00183,
+      "p95": 0.0024625000000000003,
+      "p99": 0.014963800000000034,
+      "max": 0.019860999999999997,
+      "mean": 0.0021806750000000004
+    },
+    "allocatorOperationsPerCompleteBoundary": {
+      "count": 120,
+      "min": 7,
+      "max": 7,
+      "mean": 7.0,
+      "nonzeroPasses": 120
+    },
+    "allocatorOperationsPerIndexBuild": {
+      "count": 120,
+      "min": 7,
+      "max": 7,
+      "mean": 7.0,
+      "nonzeroPasses": 120
+    },
+    "allocatorOperationsPerSensingAndInference": {
+      "count": 120,
+      "min": 0,
+      "max": 0,
+      "mean": 0.0,
+      "nonzeroPasses": 0
+    },
+    "allocatorOperationsPerCommit": {
+      "count": 120,
+      "min": 0,
+      "max": 0,
+      "mean": 0.0,
+      "nonzeroPasses": 0
+    },
+    "cpu": {
+      "source": "Linux clock_gettime(CLOCK_PROCESS_CPUTIME_ID)",
+      "wallSeconds": 0.494760072,
+      "processCpuSeconds": 0.4946246,
+      "averageOneCoreUtilizationPercent": 99.97261864736733
+    },
+    "bodyIndex": {
+      "segments": 260,
+      "entries": 290,
+      "occupiedCells": 95,
+      "lookupCells": 0,
+      "estimatedBytes": 28240,
+      "maximumEntries": 100000
+    },
+    "pelletIndex": {
+      "pellets": 3500,
+      "occupiedCells": 2374,
+      "lookupCells": 3136,
+      "estimatedBytes": 389088,
+      "maximumEntries": 25000
+    },
+    "proofSensorWork": {
+      "samples": 55,
+      "pelletCellsVisited": 24255,
+      "pelletEntriesVisited": 34513,
+      "pelletChecks": 25156,
+      "pelletCandidatesRetained": 25156,
+      "pelletCapHits": 0,
+      "bodyCellsVisited": 15006,
+      "bodyEntriesVisited": 1006,
+      "segmentChecks": 84,
+      "bodyCandidatesRetained": 84,
+      "segmentCapHits": 0,
+      "conservativeBodySaturations": 0,
+      "headChecks": 3520,
+      "targetsOutsideWorld": 0
+    },
+    "proofObservationsSha256": "98ae9e20c971b00a6966caf33ab05a84bbb8f0e41b80f8323ca2434b06dd6bbb",
+    "proofOutputsSha256": "2de4904172cdd7755bdebaef4c3ddfc4906579249111c728be0464dbd4fa9a8d",
+    "finalRecurrentSha256": "23080d1265b8bb4cf0c559ff3602b45515fa4c3c55c95dc4620bacd497c5c43a",
+    "distinctProofOutputPairs": 55,
+    "antiOptimizationOutputAccumulatorIncludingProof": -205.52408289257437,
+    "proofDeliveryBoundariesChanged": 55,
+    "everyDueDeliveryBoundaryCommitted": true
+  },
+  "command": [
+    "native/target/release/stage4-control-benchmark",
+    "--scenario",
+    "P0",
+    "--warmup-passes",
+    "20",
+    "--passes",
+    "120",
+    "--environment",
+    "owner-target-vm",
+    "--output",
+    "reports/p0.json"
+  ]
+}
