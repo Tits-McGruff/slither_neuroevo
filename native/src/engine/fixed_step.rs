@@ -163,6 +163,12 @@ impl<'workspace, 'source> PreparedFixedStepPrefix<'workspace, 'source> {
         self.key
     }
 
+    /// Exact prefix settings bound to this prepared boundary.
+    #[must_use]
+    pub const fn config(self) -> FixedStepPrefixConfig {
+        self.config
+    }
+
     /// Combined accounting-plus-ambient world used by every controller class.
     #[must_use]
     pub const fn world(self) -> &'workspace WorldState {

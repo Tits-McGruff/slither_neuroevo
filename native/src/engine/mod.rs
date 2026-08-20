@@ -24,6 +24,8 @@ pub mod control;
 /// Combined corrected-sensing and heterogeneous-control performance evidence.
 #[cfg(feature = "engine-test-hooks")]
 pub mod control_fixture;
+/// Shared corrected observation boundary and exclusive controller selection.
+pub mod control_phase;
 /// Wall-time external-controller leases and staged control-source decisions.
 pub mod controllers;
 /// Background coordinator implementation; only its lifecycle is public.

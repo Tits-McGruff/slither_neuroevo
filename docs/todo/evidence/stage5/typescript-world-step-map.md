@@ -63,6 +63,32 @@ handle only from a validated lease proposal whose one neural takeover begins
 on that boundary; it must never expose this reset list as an unkeyed caller
 choice or apply one reset more than once.
 
+`engine::control_phase` version 1 now stages that complete pre-movement source
+selection from the joined fixed-step prefix. It rebuilds one retained complete
+body/pellet index pair, visits live snakes by stable internal ID, samples every
+baseline, connected external client and due neural graph from that same
+immutable indexed world, and runs all due differently weighted brains in one
+coarse heterogeneous batch. A disconnected lease in its exclusive grace
+period produces held or neutral external input and no neural work. Grace expiry
+adds exactly that snake's validated brain handle to the zero-state takeover
+set. External observation payloads remain packed Float32 values with their
+delivery markers uncommitted until the matching Node connection accepts them;
+baseline and neural delivery/state are likewise only staged at this point.
+
+The persistent cadence accumulator represents simulated time accrued since the
+last neural evaluation. Control-phase version 1 reserves the maximum admitted
+`brain.controlDt` value as a finite pending-first-action sentinel; ordinary
+post-action remainders are strictly smaller. A newly created neural snake uses
+that value, encoding TypeScript's missing-first-action state without another
+checkpoint field and keeping its first action due even if the live interval is
+increased between creation and evaluation. A committed evaluation stores the
+ordinary modulo remainder. External control keeps that accumulator neutral,
+and the explicit post-grace takeover is force-due independently. The joined
+result retains its complete source/config/key references but exposes no
+authority-writing operation yet; the later fixed-step coordinator must
+revalidate and publish controller transitions, chosen controls, internal
+delivery markers and recurrent continuations as one complete transaction.
+
 ## Per-step scalar accounting
 
 `Snake::prepareForStep(dt)` ensures a head point exists, increases age by `dt`,

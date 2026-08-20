@@ -1099,6 +1099,24 @@ impl<'a> IndexedSensorWorld<'a> {
         })
     }
 
+    /// Bind retained complete indexes to the immutable world that rebuilt them.
+    pub(crate) fn from_indexes(
+        world: &'a WorldState,
+        body: BodySpatialIndex,
+        pellets: PelletSpatialIndex,
+    ) -> Self {
+        Self {
+            world,
+            body,
+            pellets,
+        }
+    }
+
+    /// Return retained index ownership to the coordinator after all queries.
+    pub(crate) fn into_indexes(self) -> (BodySpatialIndex, PelletSpatialIndex) {
+        (self.body, self.pellets)
+    }
+
     /// Exact immutable world from which both indexes were built.
     #[must_use]
     pub fn world(&self) -> &WorldState {

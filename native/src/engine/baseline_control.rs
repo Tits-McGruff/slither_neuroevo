@@ -57,7 +57,7 @@ impl BaselineControlConfig {
         }
     }
 
-    fn validate(self) -> Result<(), BaselineControlError> {
+    pub(crate) fn validate(self) -> Result<(), BaselineControlError> {
         if self.algorithm_version != BASELINE_CONTROL_VERSION {
             return Err(BaselineControlError::InvalidConfig {
                 field: "algorithm_version",

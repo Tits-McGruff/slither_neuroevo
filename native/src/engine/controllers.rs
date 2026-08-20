@@ -21,6 +21,15 @@ pub struct ControllerTiming {
 }
 
 impl ControllerTiming {
+    /// Owner-selected initial 500 ms hold and 30-second exclusive grace.
+    #[must_use]
+    pub const fn approved_defaults() -> Self {
+        Self {
+            input_hold_ms: 500,
+            disconnect_grace_ms: 30_000,
+        }
+    }
+
     /// Validate explicit hold and grace durations.
     pub fn new(input_hold_ms: u64, disconnect_grace_ms: u64) -> Result<Self, ControllerError> {
         if input_hold_ms == 0 || disconnect_grace_ms == 0 {

@@ -37,7 +37,7 @@ struct ReadyBatch {
 }
 
 /// Retained capacities used to verify warm sensing-to-inference stability.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NeuralControlCapacityDiagnostics {
     /// Packed observation slots.
     pub observations: usize,

@@ -603,7 +603,8 @@ pub struct SnakeState {
     pub input_boost: bool,
     /// Previous selected boost input.
     pub previous_input_boost: bool,
-    /// Controller cadence accumulator.
+    /// Controller cadence accumulator; control-phase version 1 reserves its
+    /// maximum admitted interval as the pending-first-neural-action sentinel.
     pub control_accumulator_seconds: f64,
     /// Points at the prior delivered-observation boundary.
     pub delivered_observation_points: f64,
