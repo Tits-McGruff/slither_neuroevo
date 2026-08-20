@@ -32,6 +32,8 @@ mod coordinator;
 pub mod effects;
 /// Bounded engine faults and stable error codes.
 pub mod error;
+/// Reusable corrected prefix of one complete authoritative fixed step.
+pub mod fixed_step;
 /// Deterministic contested-food claims and post-food body finalization.
 pub mod food;
 /// Deterministic graph validation, layout, and compilation contracts.

@@ -172,6 +172,26 @@ or retains the dead slot for a later retry changes visible timing and must be
 reviewed before the full coordinator finalizes it. No current non-atomic
 partial-ID/RNG/container behavior is a preservation target.
 
+## Joined fixed-step prefix
+
+`engine::fixed_step` version 1 now joins once-per-step accounting, ambient
+generation, and baseline-timer staging from one immutable admitted source. It
+first derives the advanced generation time, supplies that value to ambient
+generation, and then applies accounting, generated pellets and non-due timer
+updates only to one reusable non-authoritative working boundary. The result
+retains the complete step key, exact source world/RNG/allocator/lifecycle
+references, elapsed time, ambient credit and projected configuration for later
+revalidation. Serialized RNG and controller text storage is retained across
+warm copies, including logical `Some`/`None` transitions of Gaussian spare
+state.
+
+This is the first composed pre-control boundary, not the complete fixed-step
+coordinator and not an authority swap. Any due baseline respawn makes the
+prefix unavailable with an explicit error because collision-safe placement and
+its owner-visible failure rule are still unresolved. Controller sampling,
+baseline newborn accounting, physics, generation decisions, frame packing and
+publication remain outside this slice.
+
 ## Baseline strategy and action evaluation
 
 The current baseline controller chooses its life-stage policy from body-point

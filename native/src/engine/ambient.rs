@@ -133,6 +133,8 @@ pub struct AmbientDiagnostics {
     pub candidate_attempts: usize,
     /// Retained generated-pellet capacity.
     pub generated_capacity: usize,
+    /// Retained serialized world-RNG string capacity.
+    pub rng_text_capacity: usize,
 }
 
 /// Read-only complete ambient proposal for a later whole-step transaction.
@@ -259,6 +261,7 @@ impl<'ambient, 'source> PreparedAmbient<'ambient, 'source> {
 pub struct AmbientWorkspace {
     generated: Vec<PelletState>,
     next_rng: Option<SerializedRngState>,
+    next_rng_gaussian_spare: String,
     next_allocators: Option<AllocatorState>,
     next_accumulator: f64,
     ready: bool,
@@ -354,12 +357,12 @@ impl AmbientWorkspace {
         let reservation = next_allocators
             .reserve_entity_ids(generated_u64)
             .map_err(AmbientError::Allocator)?;
-        if generated == 0 {
-            match &mut self.next_rng {
-                Some(next_rng) => next_rng.clone_from(source_world_rng),
-                None => self.next_rng = Some(source_world_rng.clone()),
-            }
-        } else {
+        copy_serialized_rng_reusing(
+            &mut self.next_rng,
+            source_world_rng,
+            &mut self.next_rng_gaussian_spare,
+        )?;
+        if generated != 0 {
             let reservation = reservation.ok_or(AmbientError::ShapeMismatch)?;
             let mut next_id = reservation.first;
             let mut rng = StatefulRng::from_state(source_world_rng).map_err(AmbientError::Rng)?;
@@ -395,10 +398,7 @@ impl AmbientWorkspace {
             if next_id != expected_next {
                 return Err(AmbientError::ShapeMismatch);
             }
-            match &mut self.next_rng {
-                Some(next_rng) => rng.export_state_into(next_rng),
-                None => self.next_rng = Some(rng.export_state()),
-            }
+            rng.export_state_into(self.next_rng.as_mut().ok_or(AmbientError::ShapeMismatch)?);
         }
         match &mut self.next_allocators {
             Some(current) => current.clone_from(&next_allocators),
@@ -434,6 +434,13 @@ impl AmbientWorkspace {
             source_pellets: self.source_pellets,
             candidate_attempts: self.candidate_attempts,
             generated_capacity: self.generated.capacity(),
+            rng_text_capacity: self.next_rng.as_ref().map_or(
+                self.next_rng_gaussian_spare.capacity(),
+                |state| {
+                    serialized_rng_text_capacity(state)
+                        .saturating_add(self.next_rng_gaussian_spare.capacity())
+                },
+            ),
         }
     }
 
@@ -592,6 +599,102 @@ fn reserve_for<T>(
             .map_err(|_| AmbientError::AllocationFailed { context, required })?;
     }
     Ok(())
+}
+
+fn copy_serialized_rng_reusing(
+    target: &mut Option<SerializedRngState>,
+    source: &SerializedRngState,
+    retained_gaussian_spare: &mut String,
+) -> Result<(), AmbientError> {
+    if target.is_none() {
+        *target = Some(SerializedRngState {
+            algorithm: String::new(),
+            version: 0,
+            state_hex: String::new(),
+            gaussian_algorithm: String::new(),
+            gaussian_version: 0,
+            gaussian_spare_valid: false,
+            gaussian_spare_hex: None,
+        });
+    }
+    let target = target.as_mut().ok_or(AmbientError::ShapeMismatch)?;
+    reserve_string(
+        &mut target.algorithm,
+        source.algorithm.len(),
+        "RNG algorithm",
+    )?;
+    reserve_string(&mut target.state_hex, source.state_hex.len(), "RNG state")?;
+    reserve_string(
+        &mut target.gaussian_algorithm,
+        source.gaussian_algorithm.len(),
+        "Gaussian algorithm",
+    )?;
+    match &source.gaussian_spare_hex {
+        Some(source_spare) => {
+            if target.gaussian_spare_hex.is_none() {
+                reserve_string(
+                    retained_gaussian_spare,
+                    source_spare.len(),
+                    "Gaussian spare",
+                )?;
+                target.gaussian_spare_hex = Some(std::mem::take(retained_gaussian_spare));
+            }
+            let target_spare = target
+                .gaussian_spare_hex
+                .as_mut()
+                .ok_or(AmbientError::ShapeMismatch)?;
+            reserve_string(target_spare, source_spare.len(), "Gaussian spare")?;
+            target_spare.clear();
+            target_spare.push_str(source_spare);
+        }
+        None => {
+            if let Some(mut spare) = target.gaussian_spare_hex.take() {
+                spare.clear();
+                if spare.capacity() > retained_gaussian_spare.capacity() {
+                    *retained_gaussian_spare = spare;
+                }
+            }
+        }
+    }
+    target.algorithm.clear();
+    target.algorithm.push_str(&source.algorithm);
+    target.version = source.version;
+    target.state_hex.clear();
+    target.state_hex.push_str(&source.state_hex);
+    target.gaussian_algorithm.clear();
+    target
+        .gaussian_algorithm
+        .push_str(&source.gaussian_algorithm);
+    target.gaussian_version = source.gaussian_version;
+    target.gaussian_spare_valid = source.gaussian_spare_valid;
+    Ok(())
+}
+
+fn reserve_string(
+    value: &mut String,
+    required: usize,
+    context: &'static str,
+) -> Result<(), AmbientError> {
+    if value.capacity() < required {
+        value
+            .try_reserve_exact(required.saturating_sub(value.len()))
+            .map_err(|_| AmbientError::AllocationFailed { context, required })?;
+    }
+    Ok(())
+}
+
+fn serialized_rng_text_capacity(state: &SerializedRngState) -> usize {
+    state
+        .algorithm
+        .capacity()
+        .saturating_add(state.state_hex.capacity())
+        .saturating_add(state.gaussian_algorithm.capacity())
+        .saturating_add(
+            state
+                .gaussian_spare_hex
+                .as_ref()
+                .map_or(0, String::capacity),
+        )
 }
 
 /// Checked ambient-staging failure. No variant publishes partial authority.
@@ -1252,6 +1355,81 @@ mod tests {
                     retained.gaussian_algorithm.capacity(),
                 ),
                 first_rng_capacities
+            );
+        }
+    }
+
+    #[test]
+    fn gaussian_spare_toggles_reuse_storage_on_idle_and_generated_paths() {
+        let world = world_with_pellets(0);
+        let source_allocators = allocators();
+        let mut rng = StatefulRng::new(1_234.0);
+        let _ = rng.gaussian();
+        let with_spare = rng.export_state();
+        assert!(with_spare.gaussian_spare_hex.is_some());
+        let mut without_spare = with_spare.clone();
+        without_spare.gaussian_spare_valid = false;
+        without_spare.gaussian_spare_hex = None;
+
+        let mut generated_config = AmbientPelletConfig::typescript_defaults();
+        generated_config.target_count = 1;
+        generated_config.spawn_per_second = 1.0;
+        let mut idle_config = generated_config;
+        idle_config.target_count = 0;
+        idle_config.spawn_per_second = 0.0;
+        let mut workspace = AmbientWorkspace::new();
+        let first = workspace
+            .prepare(
+                step_key(),
+                &world,
+                &with_spare,
+                &source_allocators,
+                0.0,
+                1.0,
+                1.0,
+                generated_config,
+                1,
+            )
+            .expect("warm generated path with a cached Gaussian spare");
+        assert_eq!(
+            first.next_rng().gaussian_spare_hex,
+            with_spare.gaussian_spare_hex
+        );
+        let warmed_rng_text_capacity = first.diagnostics().rng_text_capacity;
+        assert!(warmed_rng_text_capacity > 0);
+
+        for iteration in 0..24 {
+            let generated = iteration % 4 < 2;
+            let source_rng = if iteration % 2 == 0 {
+                &without_spare
+            } else {
+                &with_spare
+            };
+            let prepared = workspace
+                .prepare(
+                    step_key(),
+                    &world,
+                    source_rng,
+                    &source_allocators,
+                    0.0,
+                    1.0,
+                    1.0,
+                    if generated {
+                        generated_config
+                    } else {
+                        idle_config
+                    },
+                    1,
+                )
+                .expect("alternating ambient RNG state must prepare");
+            assert_eq!(
+                prepared.next_rng().gaussian_spare_hex,
+                source_rng.gaussian_spare_hex
+            );
+            assert_eq!(prepared.generated().len(), usize::from(generated));
+            assert_eq!(
+                prepared.diagnostics().rng_text_capacity,
+                warmed_rng_text_capacity
             );
         }
     }
