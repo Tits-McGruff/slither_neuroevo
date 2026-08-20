@@ -737,6 +737,14 @@ pub struct HeterogeneousInferenceBuffers<'a> {
     pub staged_recurrent: &'a mut [f32],
 }
 
+/// Exact recurrent-source substitution for an explicit ownership transition.
+pub(crate) struct HeterogeneousRecurrentReset<'a> {
+    /// One flag per prepared work item.
+    pub mask: &'a [bool],
+    /// One graph-sized exact-zero recurrent block.
+    pub zero_recurrent: &'a [f32],
+}
+
 /// Evaluate every prepared due brain with distinct observations, parameters, and state.
 ///
 /// Inputs, outputs, and staged recurrent values are packed in the supplied work order.
@@ -747,6 +755,56 @@ pub fn evaluate_heterogeneous_population(
     work: &[CalculationWorkUnit],
     population: &[PopulationGenome],
     brains: &[BrainRuntimeState],
+    buffers: HeterogeneousInferenceBuffers<'_>,
+    scratch: &mut CalculationScratchView<'_>,
+) -> Result<(), InferenceError> {
+    evaluate_heterogeneous_population_inner(plan, population, brains, work, None, buffers, scratch)
+}
+
+/// Evaluate a heterogeneous batch while selected work items begin from exact
+/// zero recurrent state for one explicit ownership transition.
+pub(crate) fn evaluate_heterogeneous_population_with_resets(
+    plan: &GraphExecutionPlan,
+    work: &[CalculationWorkUnit],
+    population: &[PopulationGenome],
+    brains: &[BrainRuntimeState],
+    reset: HeterogeneousRecurrentReset<'_>,
+    buffers: HeterogeneousInferenceBuffers<'_>,
+    scratch: &mut CalculationScratchView<'_>,
+) -> Result<(), InferenceError> {
+    if reset.mask.len() != work.len() {
+        return Err(InferenceError::BufferLength {
+            buffer: "recurrent reset mask",
+            actual: reset.mask.len(),
+            expected: work.len(),
+        });
+    }
+    require_length(
+        "zero recurrent state",
+        reset.zero_recurrent.len(),
+        plan.total_state_size,
+    )?;
+    debug_assert!(reset
+        .zero_recurrent
+        .iter()
+        .all(|value| value.to_bits() == 0));
+    evaluate_heterogeneous_population_inner(
+        plan,
+        population,
+        brains,
+        work,
+        Some((reset.mask, reset.zero_recurrent)),
+        buffers,
+        scratch,
+    )
+}
+
+fn evaluate_heterogeneous_population_inner(
+    plan: &GraphExecutionPlan,
+    population: &[PopulationGenome],
+    brains: &[BrainRuntimeState],
+    work: &[CalculationWorkUnit],
+    reset: Option<(&[bool], &[f32])>,
     buffers: HeterogeneousInferenceBuffers<'_>,
     scratch: &mut CalculationScratchView<'_>,
 ) -> Result<(), InferenceError> {
@@ -786,12 +844,16 @@ pub fn evaluate_heterogeneous_population(
     for (index, unit) in work.iter().enumerate() {
         let brain = &brains[unit.brain_index()];
         let weights = weights_for(unit, brain, population)?;
+        let recurrent_before = match reset {
+            Some((mask, zero_recurrent)) if mask[index] => zero_recurrent,
+            _ => &brain.recurrent,
+        };
         let input_offset = index * plan.input_size;
         let output_offset = index * plan.output_size;
         let recurrent_offset = index * plan.total_state_size;
         plan.evaluate(
             weights,
-            &brain.recurrent,
+            recurrent_before,
             &mut staged_recurrent[recurrent_offset..recurrent_offset + plan.total_state_size],
             &observations[input_offset..input_offset + plan.input_size],
             &mut staged_outputs[output_offset..output_offset + plan.output_size],

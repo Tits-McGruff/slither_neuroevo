@@ -11,9 +11,10 @@ use super::calculation::{
     CalculationWorkUnit, CalculationWorkspace,
 };
 use super::inference::{
-    evaluate_heterogeneous_population, publish_heterogeneous_recurrent,
-    validate_heterogeneous_recurrent_commit, ActivationCapturePlan, GraphExecutionPlan,
-    HeterogeneousInferenceBuffers, InferenceError,
+    evaluate_heterogeneous_population, evaluate_heterogeneous_population_with_resets,
+    publish_heterogeneous_recurrent, validate_heterogeneous_recurrent_commit,
+    ActivationCapturePlan, GraphExecutionPlan, HeterogeneousInferenceBuffers,
+    HeterogeneousRecurrentReset, InferenceError,
 };
 use super::sensors::{
     ObservationDeliveryMarker, SensorError, SensorEvaluator, SensorGenerationState,
@@ -52,6 +53,10 @@ pub struct NeuralControlCapacityDiagnostics {
     pub deliveries: usize,
     /// Per-sample diagnostic slots.
     pub diagnostics: usize,
+    /// Per-work-item explicit recurrent-reset flags.
+    pub recurrent_reset_mask: usize,
+    /// One exact zero recurrent block retained for ownership transitions.
+    pub zero_recurrent: usize,
     /// Complete calculation workspace bytes retained at construction.
     pub calculation_workspace_bytes: usize,
 }
@@ -80,6 +85,8 @@ pub struct NeuralControlBatchInputs<'a, 'world> {
     pub population: &'a [PopulationGenome],
     /// Stable brain handles and recurrent state before this operation.
     pub brains: &'a [BrainRuntimeState],
+    /// Canonical brain handles whose first neural evaluation starts from zero.
+    pub reset_brains: &'a [BrainHandle],
 }
 
 impl NeuralControlBatchView<'_> {
@@ -127,6 +134,8 @@ pub struct NeuralControlPipeline {
     capture_recurrent: Vec<f32>,
     deliveries: Vec<Option<ObservationDeliveryMarker>>,
     diagnostics: Vec<SensorSampleDiagnostics>,
+    recurrent_reset_mask: Vec<bool>,
+    zero_recurrent: Vec<f32>,
     allocated_staging_bytes: usize,
     ready: Option<ReadyBatch>,
 }
@@ -168,6 +177,8 @@ impl NeuralControlPipeline {
                 "delivery marker bytes",
             )?,
             checked_element_bytes::<SensorSampleDiagnostics>(max_work, "sensor diagnostic bytes")?,
+            checked_element_bytes::<bool>(max_work, "recurrent reset mask bytes")?,
+            checked_float_bytes(inference.total_state_size(), "zero recurrent bytes")?,
         ])
     }
 
@@ -240,6 +251,8 @@ impl NeuralControlPipeline {
             SensorSampleDiagnostics::default(),
             "sensor diagnostics",
         )?;
+        let recurrent_reset_mask = try_filled(max_work, false, "recurrent reset mask")?;
+        let zero_recurrent = try_filled(inference.total_state_size(), 0.0, "zero recurrent state")?;
         let allocated_staging_bytes = checked_sum(&[
             size_of::<Self>(),
             workspace.allocated_bytes(),
@@ -250,6 +263,8 @@ impl NeuralControlPipeline {
             checked_capacity_bytes(&capture_recurrent, "capture recurrent capacity")?,
             checked_capacity_bytes(&deliveries, "delivery marker capacity")?,
             checked_capacity_bytes(&diagnostics, "sensor diagnostic capacity")?,
+            checked_capacity_bytes(&recurrent_reset_mask, "recurrent reset mask capacity")?,
+            checked_capacity_bytes(&zero_recurrent, "zero recurrent capacity")?,
         ])?;
         if allocated_staging_bytes > staging_budget_bytes {
             return Err(NeuralControlError::StagingBudgetExceeded {
@@ -269,6 +284,8 @@ impl NeuralControlPipeline {
             capture_recurrent,
             deliveries,
             diagnostics,
+            recurrent_reset_mask,
+            zero_recurrent,
             allocated_staging_bytes,
             ready: None,
         })
@@ -289,6 +306,8 @@ impl NeuralControlPipeline {
             capture_recurrent: self.capture_recurrent.capacity(),
             deliveries: self.deliveries.capacity(),
             diagnostics: self.diagnostics.capacity(),
+            recurrent_reset_mask: self.recurrent_reset_mask.capacity(),
+            zero_recurrent: self.zero_recurrent.capacity(),
             calculation_workspace_bytes: self.workspace.allocated_bytes(),
         }
     }
@@ -319,6 +338,7 @@ impl NeuralControlPipeline {
             generation,
             population,
             brains,
+            reset_brains,
         } = inputs;
         self.ready = None;
         self.workspace.begin(key);
@@ -330,6 +350,7 @@ impl NeuralControlPipeline {
             .prepare(&indexed_world.world().snakes, brains, population)?;
 
         let active = self.workspace.prepared_work()?.len();
+        self.prepare_recurrent_resets(reset_brains, active)?;
         let observation_count = checked_product(
             active,
             self.inference.input_size(),
@@ -363,11 +384,15 @@ impl NeuralControlPipeline {
             self.deliveries[ordinal] = Some(sample.delivery);
             self.diagnostics[ordinal] = sample.diagnostics;
         }
-        evaluate_heterogeneous_population(
+        evaluate_heterogeneous_population_with_resets(
             &self.inference,
             work,
             population,
             brains,
+            HeterogeneousRecurrentReset {
+                mask: &self.recurrent_reset_mask[..active],
+                zero_recurrent: &self.zero_recurrent,
+            },
             HeterogeneousInferenceBuffers {
                 observations: &self.observations[..observation_count],
                 staged_outputs: &mut self.staged_outputs[..output_count],
@@ -378,6 +403,32 @@ impl NeuralControlPipeline {
 
         self.ready = Some(ReadyBatch { key, active });
         self.batch()
+    }
+
+    fn prepare_recurrent_resets(
+        &mut self,
+        reset_brains: &[BrainHandle],
+        active: usize,
+    ) -> Result<(), NeuralControlError> {
+        self.recurrent_reset_mask[..active].fill(false);
+        let work = self.workspace.prepared_work()?;
+        let mut previous = None;
+        for brain in reset_brains {
+            if let Some(prior) = previous {
+                if prior >= *brain {
+                    return Err(NeuralControlError::NonCanonicalResetBrains {
+                        previous: prior,
+                        current: *brain,
+                    });
+                }
+            }
+            previous = Some(*brain);
+            let ordinal = work
+                .binary_search_by_key(brain, |unit| unit.brain())
+                .map_err(|_| NeuralControlError::ResetBrainNotInBatch { brain: *brain })?;
+            self.recurrent_reset_mask[ordinal] = true;
+        }
+        Ok(())
     }
 
     /// Read the current complete staged batch.
@@ -438,24 +489,40 @@ impl NeuralControlPipeline {
                 expected: ready.active,
             });
         }
+        let reset_recurrent = self.recurrent_reset_mask[ordinal];
         let graph_scratch = scratches
             .first_mut()
             .ok_or(NeuralControlError::MissingCalculationScratch)?;
         let observation_offset = ordinal * input_size;
         let mut scratch_view = graph_scratch.view();
-        evaluate_heterogeneous_population(
-            &self.inference,
-            &work[ordinal..ordinal + 1],
-            population,
-            brains,
-            HeterogeneousInferenceBuffers {
-                observations: &self.observations
-                    [observation_offset..observation_offset + input_size],
-                staged_outputs: &mut self.capture_output[..output_size],
-                staged_recurrent: &mut self.capture_recurrent[..recurrent_size],
-            },
-            &mut scratch_view,
-        )?;
+        let buffers = HeterogeneousInferenceBuffers {
+            observations: &self.observations[observation_offset..observation_offset + input_size],
+            staged_outputs: &mut self.capture_output[..output_size],
+            staged_recurrent: &mut self.capture_recurrent[..recurrent_size],
+        };
+        if reset_recurrent {
+            evaluate_heterogeneous_population_with_resets(
+                &self.inference,
+                &work[ordinal..ordinal + 1],
+                population,
+                brains,
+                HeterogeneousRecurrentReset {
+                    mask: std::slice::from_ref(&reset_recurrent),
+                    zero_recurrent: &self.zero_recurrent,
+                },
+                buffers,
+                &mut scratch_view,
+            )?;
+        } else {
+            evaluate_heterogeneous_population(
+                &self.inference,
+                &work[ordinal..ordinal + 1],
+                population,
+                brains,
+                buffers,
+                &mut scratch_view,
+            )?;
+        }
         self.inference
             .capture_activation(capture, &scratch_view, destination)?;
         Ok(())
@@ -591,6 +658,13 @@ pub enum NeuralControlError {
     MissingCalculationScratch,
     /// A requested focused brain was not due in this batch.
     FocusedBrainNotInBatch { brain: BrainHandle },
+    /// Explicit recurrent-reset handles were not strictly canonical.
+    NonCanonicalResetBrains {
+        previous: BrainHandle,
+        current: BrainHandle,
+    },
+    /// An explicit recurrent reset named a brain that is not due.
+    ResetBrainNotInBatch { brain: BrainHandle },
     /// A staged delivery marker is unexpectedly absent.
     MissingDeliveryMarker { ordinal: usize },
     /// A staged snake array index no longer resolves.
@@ -682,6 +756,13 @@ impl fmt::Display for NeuralControlError {
             }
             Self::FocusedBrainNotInBatch { brain } => {
                 write!(formatter, "focused brain {brain:?} is not due in this batch")
+            }
+            Self::NonCanonicalResetBrains { previous, current } => write!(
+                formatter,
+                "recurrent reset brains are not canonical: {previous:?} before {current:?}"
+            ),
+            Self::ResetBrainNotInBatch { brain } => {
+                write!(formatter, "recurrent reset brain {brain:?} is not due in this batch")
             }
             Self::MissingDeliveryMarker { ordinal } => {
                 write!(formatter, "neural-control work {ordinal} has no delivery marker")
@@ -1080,6 +1161,7 @@ mod tests {
                     generation: &generation,
                     population: &population,
                     brains: &brains,
+                    reset_brains: &[],
                 },
                 &mut sensor_scratch,
             )
@@ -1129,6 +1211,162 @@ mod tests {
     }
 
     #[test]
+    fn explicit_takeover_reset_matches_a_zero_state_brain_without_touching_others() {
+        let plan = graph_plan(51);
+        let capture = plan.prepare_activation_capture("memory").unwrap();
+        let (mut reset_world, mut reset_brains, population) = fixture(&plan, EPOCH);
+        let mut reference_world = reset_world.clone();
+        let mut reference_brains = reset_brains.clone();
+        let reset_handle = reset_brains[1].handle;
+        let source_reset_state = reset_brains[1].recurrent.clone();
+        reference_brains[1].recurrent.fill(0.0);
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(&reset_world).unwrap();
+        let reset_indexed = indexed(&reset_world);
+        let reference_indexed = indexed(&reference_world);
+        let mut reset_pipeline = pipeline(plan.clone());
+        let mut reference_pipeline = pipeline(plan);
+        let mut reset_sensor_scratch = SensorScratch::default();
+        let mut reference_sensor_scratch = SensorScratch::default();
+        let key = CalculationBatchKey::new(4, 100, EPOCH);
+
+        let reset_outputs = reset_pipeline
+            .prepare_and_evaluate(
+                NeuralControlBatchInputs {
+                    key,
+                    candidates: &candidates(),
+                    indexed_world: &reset_indexed,
+                    generation: &generation,
+                    population: &population,
+                    brains: &reset_brains,
+                    reset_brains: &[reset_handle],
+                },
+                &mut reset_sensor_scratch,
+            )
+            .unwrap()
+            .outputs()
+            .to_vec();
+        let reference_outputs = reference_pipeline
+            .prepare_and_evaluate(
+                NeuralControlBatchInputs {
+                    key,
+                    candidates: &candidates(),
+                    indexed_world: &reference_indexed,
+                    generation: &generation,
+                    population: &population,
+                    brains: &reference_brains,
+                    reset_brains: &[],
+                },
+                &mut reference_sensor_scratch,
+            )
+            .unwrap()
+            .outputs()
+            .to_vec();
+        assert_eq!(reset_outputs, reference_outputs);
+        assert_eq!(reset_brains[1].recurrent, source_reset_state);
+
+        let mut reset_activation = vec![f32::NAN; capture.len()];
+        let mut reference_activation = vec![f32::NAN; capture.len()];
+        reset_pipeline
+            .capture_focused_activation(
+                reset_handle,
+                &capture,
+                &mut reset_activation,
+                &population,
+                &reset_brains,
+            )
+            .unwrap();
+        reference_pipeline
+            .capture_focused_activation(
+                reset_handle,
+                &capture,
+                &mut reference_activation,
+                &population,
+                &reference_brains,
+            )
+            .unwrap();
+        assert_eq!(reset_activation, reference_activation);
+
+        drop(reset_indexed);
+        drop(reference_indexed);
+        reset_pipeline
+            .commit_state(key, &mut reset_world, &mut reset_brains)
+            .unwrap();
+        reference_pipeline
+            .commit_state(key, &mut reference_world, &mut reference_brains)
+            .unwrap();
+        assert_eq!(reset_world, reference_world);
+        assert_eq!(reset_brains, reference_brains);
+        assert_ne!(reset_brains[1].recurrent, source_reset_state);
+    }
+
+    #[test]
+    fn invalid_reset_sets_reject_without_ready_batch_or_authoritative_writes() {
+        let plan = graph_plan(51);
+        let (world, brains, population) = fixture(&plan, EPOCH);
+        let source_world = world.clone();
+        let source_brains = brains.clone();
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(&world).unwrap();
+        let indexed = indexed(&world);
+        let mut pipeline = pipeline(plan);
+        let mut sensor_scratch = SensorScratch::default();
+        let key = CalculationBatchKey::new(4, 101, EPOCH);
+        let mut handles = brains.iter().map(|brain| brain.handle).collect::<Vec<_>>();
+        handles.sort_unstable();
+
+        for invalid in [vec![handles[0], handles[0]], vec![handles[2], handles[0]]] {
+            assert!(matches!(
+                pipeline.prepare_and_evaluate(
+                    NeuralControlBatchInputs {
+                        key,
+                        candidates: &candidates(),
+                        indexed_world: &indexed,
+                        generation: &generation,
+                        population: &population,
+                        brains: &brains,
+                        reset_brains: &invalid,
+                    },
+                    &mut sensor_scratch,
+                ),
+                Err(NeuralControlError::NonCanonicalResetBrains { .. })
+            ));
+            assert!(matches!(
+                pipeline.batch(),
+                Err(NeuralControlError::BatchNotReady)
+            ));
+            assert_eq!(world, source_world);
+            assert_eq!(brains, source_brains);
+        }
+
+        let stale = BrainHandle {
+            id: u64::MAX - 1,
+            epoch: EPOCH,
+        };
+        assert!(matches!(
+            pipeline.prepare_and_evaluate(
+                NeuralControlBatchInputs {
+                    key,
+                    candidates: &candidates(),
+                    indexed_world: &indexed,
+                    generation: &generation,
+                    population: &population,
+                    brains: &brains,
+                    reset_brains: &[stale],
+                },
+                &mut sensor_scratch,
+            ),
+            Err(NeuralControlError::ResetBrainNotInBatch { brain }) if brain == stale
+        ));
+        assert!(matches!(
+            pipeline.batch(),
+            Err(NeuralControlError::BatchNotReady)
+        ));
+        assert_eq!(world, source_world);
+        assert_eq!(brains, source_brains);
+    }
+
+    #[test]
     fn late_delivery_failure_prevents_every_delivery_and_recurrent_write() {
         let plan = graph_plan(51);
         let (mut world, mut brains, population) = fixture(&plan, EPOCH);
@@ -1156,6 +1394,7 @@ mod tests {
                     generation: &generation,
                     population: &population,
                     brains: &brains,
+                    reset_brains: &[],
                 },
                 &mut sensor_scratch,
             )
@@ -1216,6 +1455,7 @@ mod tests {
                     generation: &generation,
                     population: &population,
                     brains: &brains,
+                    reset_brains: &[],
                 },
                 &mut sensor_scratch,
             ),
@@ -1266,6 +1506,7 @@ mod tests {
                         generation: &generation,
                         population: &population,
                         brains: &brains,
+                        reset_brains: &[],
                     },
                     &mut sensor_scratch,
                 )
@@ -1304,6 +1545,7 @@ mod tests {
                     generation: &generation,
                     population: &population,
                     brains: &brains,
+                    reset_brains: &[],
                 },
                 &mut sensor_scratch,
             )
@@ -1389,6 +1631,7 @@ mod tests {
                     generation: &replacement_generation,
                     population: &replacement_population,
                     brains: &replacement_brains,
+                    reset_brains: &[],
                 },
                 &mut sensor_scratch,
             )

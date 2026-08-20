@@ -800,6 +800,7 @@ fn execute_boundary(
                 generation: &fixture.generation,
                 population: &fixture.population,
                 brains: &fixture.brains,
+                reset_brains: &[],
             },
             &mut fixture.sensor_scratch,
         )

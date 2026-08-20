@@ -51,6 +51,18 @@ no neural evaluation; then commit one explicit neural takeover and invalidate
 the old controller. Browser actions are latest-value updates independent of
 sensor delivery. Protocol 2 RL actions remain observation-driven.
 
+The existing coarse `engine::control` batch now accepts a strictly canonical
+set of due brain handles whose recurrent input is replaced by one retained
+exact-zero block for that evaluation. This is the neural half of the explicit
+takeover boundary: every other brain keeps its own recurrent state and packed
+weights, source state remains unchanged until the existing complete commit,
+and optional focused-activation capture uses the same zero-state choice as the
+control evaluation. Duplicate, out-of-order, stale, or non-due reset handles
+make the whole batch unavailable. The later control coordinator must derive a
+handle only from a validated lease proposal whose one neural takeover begins
+on that boundary; it must never expose this reset list as an unkeyed caller
+choice or apply one reset more than once.
+
 ## Per-step scalar accounting
 
 `Snake::prepareForStep(dt)` ensures a head point exists, increases age by `dt`,
