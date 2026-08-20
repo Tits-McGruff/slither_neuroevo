@@ -14,6 +14,7 @@
 
 use std::error::Error;
 use std::fmt;
+use std::fmt::Write as _;
 
 /// Stable identifier for the xorshift uniform algorithm.
 pub const RNG_ALGORITHM: &str = "xorshift32";
@@ -295,14 +296,37 @@ impl StatefulRng {
     /// Export the lossless JSON-compatible continuation state.
     #[must_use]
     pub fn export_state(&self) -> SerializedRngState {
-        SerializedRngState {
+        let mut output = SerializedRngState {
             algorithm: RNG_ALGORITHM.to_owned(),
             version: RNG_VERSION,
-            state_hex: encode_u32(self.state),
+            state_hex: String::new(),
             gaussian_algorithm: GAUSSIAN_ALGORITHM.to_owned(),
             gaussian_version: GAUSSIAN_VERSION,
-            gaussian_spare_valid: self.gaussian_spare.is_some(),
-            gaussian_spare_hex: self.gaussian_spare.map(encode_f64),
+            gaussian_spare_valid: false,
+            gaussian_spare_hex: None,
+        };
+        self.export_state_into(&mut output);
+        output
+    }
+
+    /// Export into reusable serialized storage without replacing its strings.
+    pub fn export_state_into(&self, output: &mut SerializedRngState) {
+        replace_text(&mut output.algorithm, RNG_ALGORITHM);
+        output.version = RNG_VERSION;
+        output.state_hex.clear();
+        write!(&mut output.state_hex, "0x{:08x}", self.state)
+            .expect("writing a Uint32 into String cannot fail");
+        replace_text(&mut output.gaussian_algorithm, GAUSSIAN_ALGORITHM);
+        output.gaussian_version = GAUSSIAN_VERSION;
+        output.gaussian_spare_valid = self.gaussian_spare.is_some();
+        match self.gaussian_spare {
+            Some(value) => {
+                let encoded = output.gaussian_spare_hex.get_or_insert_with(String::new);
+                encoded.clear();
+                write!(encoded, "0x{:016x}", value.to_bits())
+                    .expect("writing Float64 bits into String cannot fail");
+            }
+            None => output.gaussian_spare_hex = None,
         }
     }
 
@@ -314,6 +338,11 @@ impl StatefulRng {
         self.gaussian_spare = gaussian_spare;
         Ok(())
     }
+}
+
+fn replace_text(output: &mut String, value: &str) {
+    output.clear();
+    output.push_str(value);
 }
 
 /// Validate and decode state without mutating a live stream.
@@ -351,11 +380,6 @@ fn decode_serialized_state(
     Ok((state, gaussian_spare))
 }
 
-/// Encode a Uint32 exactly in the TypeScript state representation.
-fn encode_u32(value: u32) -> String {
-    format!("0x{value:08x}")
-}
-
 /// Decode an exact Uint32 state representation.
 fn decode_u32(value: &str) -> Result<u32, RngError> {
     let valid = value.len() == 10
@@ -369,12 +393,6 @@ fn decode_u32(value: &str) -> Result<u32, RngError> {
     u32::from_str_radix(&value[2..], 16).map_err(|_| RngError::InvalidUint32State {
         value: value.to_owned(),
     })
-}
-
-/// Encode a finite Float64 as its exact IEEE-754 bit pattern.
-fn encode_f64(value: f64) -> String {
-    debug_assert!(value.is_finite());
-    format!("0x{:016x}", value.to_bits())
 }
 
 /// Decode and validate an exact finite Float64 bit pattern.
@@ -435,6 +453,30 @@ mod tests {
                 "0x2c6f5bd0",
             ]
         );
+    }
+
+    #[test]
+    fn repeated_serialized_export_reuses_uniform_string_capacities() {
+        let mut rng = StatefulRng::new(1.0);
+        let mut output = rng.export_state();
+        let capacities = (
+            output.algorithm.capacity(),
+            output.state_hex.capacity(),
+            output.gaussian_algorithm.capacity(),
+        );
+        for _ in 0..24 {
+            rng.next_f64();
+            rng.export_state_into(&mut output);
+            assert_eq!(output, rng.export_state());
+            assert_eq!(
+                (
+                    output.algorithm.capacity(),
+                    output.state_hex.capacity(),
+                    output.gaussian_algorithm.capacity(),
+                ),
+                capacities
+            );
+        }
     }
 
     /// JavaScript seed normalization retains its floor, wrap, and non-finite rules.

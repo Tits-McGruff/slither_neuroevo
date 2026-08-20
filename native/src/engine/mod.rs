@@ -1,5 +1,7 @@
 //! Rust-owned authoritative simulation components.
 
+/// Staged fixed-step ambient-pellet accumulation and world-RNG generation.
+pub mod ambient;
 /// Deterministic scalar calculation work, scratch, and staged-result contracts.
 pub mod calculation;
 /// Bounded managed checkpoint-v3 codec and immutable-file publication.

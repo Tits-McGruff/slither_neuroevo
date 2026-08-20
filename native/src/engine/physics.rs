@@ -101,6 +101,28 @@ impl PhysicsStepKey {
         self.operation_epoch
     }
 
+    /// Name the first identity component that differs from another boundary.
+    #[must_use]
+    pub fn first_mismatch(self, current: Self) -> Option<PhysicsStepKeyField> {
+        if self.world_epoch != current.world_epoch {
+            Some(PhysicsStepKeyField::WorldEpoch)
+        } else if self.generation != current.generation {
+            Some(PhysicsStepKeyField::Generation)
+        } else if self.source_completed_step != current.source_completed_step {
+            Some(PhysicsStepKeyField::SourceCompletedStep)
+        } else if self.population_epoch != current.population_epoch {
+            Some(PhysicsStepKeyField::PopulationEpoch)
+        } else if self.config_revision != current.config_revision {
+            Some(PhysicsStepKeyField::ConfigRevision)
+        } else if self.config_hash != current.config_hash {
+            Some(PhysicsStepKeyField::ConfigHash)
+        } else if self.operation_epoch != current.operation_epoch {
+            Some(PhysicsStepKeyField::OperationEpoch)
+        } else {
+            None
+        }
+    }
+
     fn validate(self) -> Result<(), PhysicsError> {
         if self.world_epoch == 0
             || self.generation == 0
@@ -131,29 +153,6 @@ pub enum PhysicsStepKeyField {
     ConfigHash,
     /// A newer in-process operation superseded this proposal.
     OperationEpoch,
-}
-
-fn first_key_mismatch(
-    staged: PhysicsStepKey,
-    current: PhysicsStepKey,
-) -> Option<PhysicsStepKeyField> {
-    if staged.world_epoch != current.world_epoch {
-        Some(PhysicsStepKeyField::WorldEpoch)
-    } else if staged.generation != current.generation {
-        Some(PhysicsStepKeyField::Generation)
-    } else if staged.source_completed_step != current.source_completed_step {
-        Some(PhysicsStepKeyField::SourceCompletedStep)
-    } else if staged.population_epoch != current.population_epoch {
-        Some(PhysicsStepKeyField::PopulationEpoch)
-    } else if staged.config_revision != current.config_revision {
-        Some(PhysicsStepKeyField::ConfigRevision)
-    } else if staged.config_hash != current.config_hash {
-        Some(PhysicsStepKeyField::ConfigHash)
-    } else if staged.operation_epoch != current.operation_epoch {
-        Some(PhysicsStepKeyField::OperationEpoch)
-    } else {
-        None
-    }
 }
 
 /// Identity of the next expected collision substep in one working transaction.
@@ -877,7 +876,7 @@ impl PhysicsStepWorkspace {
 
     fn ensure_current_key(&self, current_key: PhysicsStepKey) -> Result<(), PhysicsError> {
         let staged = self.key.ok_or(PhysicsError::StepNotStarted)?;
-        if let Some(field) = first_key_mismatch(staged, current_key) {
+        if let Some(field) = staged.first_mismatch(current_key) {
             return Err(PhysicsError::StepKeyMismatch { field });
         }
         Ok(())
