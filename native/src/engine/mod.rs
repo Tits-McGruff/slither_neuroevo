@@ -6,6 +6,8 @@ pub mod accounting;
 pub mod ambient;
 /// Durable baseline-slot lifecycle and pre-control respawn timing.
 pub mod baseline;
+/// Pure baseline strategy evaluation from shared corrected observations.
+pub mod baseline_control;
 /// Deterministic scalar calculation work, scratch, and staged-result contracts.
 pub mod calculation;
 /// Bounded managed checkpoint-v3 codec and immutable-file publication.

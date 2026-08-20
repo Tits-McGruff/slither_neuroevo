@@ -1,0 +1,354 @@
+{
+  "schema": "stage5-typescript-baseline-control-fixtures-v1",
+  "evidenceClass": "current-source execution",
+  "repositoryRevisionAtExtraction": "55b2062fd1294d53667d959eee4110ebe1d3dab4",
+  "baselineSourceRevision": "24b587a0cc541dcee7068d22d86e3a4946777c34",
+  "environment": {
+    "platform": "win32",
+    "architecture": "x64",
+    "purpose": "baseline formula, state-transition, and RNG-order reference; not performance evidence"
+  },
+  "source": {
+    "controller": "src/bots/baselineBots.ts::BaselineBotManager.update",
+    "configuration": "src/config.ts::CFG_DEFAULT.boost.minPointsToBoost",
+    "extractor": "scripts/stage5/generate-baseline-control-fixtures.ts",
+    "runner": "node ./node_modules/tsx/dist/cli.mjs scripts/stage5/generate-baseline-control-fixtures.ts"
+  },
+  "sensor": {
+    "layoutVersion": "v3",
+    "bins": 16,
+    "inputSize": 83,
+    "scalarPrefix": "nineteen explicit zero Float32 values",
+    "binnedChannels": "recorded per scenario and packed as Float32 before current-source execution"
+  },
+  "scenarios": [
+    {
+      "name": "small-roam-wander",
+      "input": {
+        "rngSeed": 42,
+        "rngBefore": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x0000002a",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        },
+        "fixedDt": 0.016666666666666666,
+        "snake": {
+          "id": 700,
+          "length": 12,
+          "position": [0, 0],
+          "radius": 8,
+          "direction": 0,
+          "speed": 120,
+          "points": 0
+        },
+        "channels": {
+          "food": { "default": 0, "overrides": [] },
+          "hazard": { "default": 0.8, "overrides": [] },
+          "wall": { "default": 0.7, "overrides": [] },
+          "head": { "default": 0.9, "overrides": [] }
+        },
+        "otherSnakes": []
+      },
+      "output": {
+        "durableState": "roam",
+        "strategyTimerSeconds": 0,
+        "wanderAngle": -0.29841366447508333,
+        "wanderTimerSeconds": 1.5244367683306335,
+        "action": { "turn": -0.18997603914950334, "boost": 0 },
+        "rngAfter": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0xa90a34ac",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      }
+    },
+    {
+      "name": "small-avoid-escape-boost",
+      "input": {
+        "rngSeed": 99,
+        "rngBefore": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x00000063",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        },
+        "fixedDt": 0.016666666666666666,
+        "snake": {
+          "id": 700,
+          "length": 12,
+          "position": [0, 0],
+          "radius": 8,
+          "direction": 0,
+          "speed": 120,
+          "points": 0
+        },
+        "channels": {
+          "food": { "default": 0.3, "overrides": [] },
+          "hazard": { "default": -0.8, "overrides": [{ "index": 10, "value": 0.6 }] },
+          "wall": { "default": 0.8, "overrides": [] },
+          "head": { "default": 0.9, "overrides": [] }
+        },
+        "otherSnakes": []
+      },
+      "output": {
+        "durableState": "avoid",
+        "strategyTimerSeconds": 0.3520530503592454,
+        "wanderAngle": 0,
+        "wanderTimerSeconds": 0,
+        "action": { "turn": 0.5, "boost": 1 },
+        "rngAfter": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x01806cc5",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      }
+    },
+    {
+      "name": "medium-cutoff-attack-boost",
+      "input": {
+        "rngSeed": 123,
+        "rngBefore": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x0000007b",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        },
+        "fixedDt": 0.016666666666666666,
+        "snake": {
+          "id": 700,
+          "length": 40,
+          "position": [0, 0],
+          "radius": 8,
+          "direction": 0,
+          "speed": 120,
+          "points": 0
+        },
+        "channels": {
+          "food": { "default": 0.2, "overrides": [] },
+          "hazard": { "default": 0.8, "overrides": [] },
+          "wall": { "default": 0.7, "overrides": [] },
+          "head": { "default": 0.9, "overrides": [] }
+        },
+        "otherSnakes": [
+          {
+            "id": 701,
+            "alive": true,
+            "length": 20,
+            "position": [100, 100],
+            "direction": 0,
+            "speed": 10
+          }
+        ]
+      },
+      "output": {
+        "durableState": "seek",
+        "strategyTimerSeconds": 0,
+        "wanderAngle": 0,
+        "wanderTimerSeconds": 0,
+        "action": { "turn": 0.5, "boost": 1 },
+        "rngAfter": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x0000007b",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      }
+    },
+    {
+      "name": "medium-encircle-relative-heading",
+      "input": {
+        "rngSeed": 321,
+        "rngBefore": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x00000141",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        },
+        "fixedDt": 0.016666666666666666,
+        "snake": {
+          "id": 700,
+          "length": 60,
+          "position": [0, 0],
+          "radius": 8,
+          "direction": 0.3,
+          "speed": 120,
+          "points": 0
+        },
+        "channels": {
+          "food": { "default": 0.2, "overrides": [] },
+          "hazard": { "default": 0.8, "overrides": [] },
+          "wall": { "default": 0.7, "overrides": [] },
+          "head": { "default": 0.9, "overrides": [] }
+        },
+        "otherSnakes": [
+          {
+            "id": 701,
+            "alive": true,
+            "length": 20,
+            "position": [100, 0],
+            "direction": 0,
+            "speed": 10
+          }
+        ]
+      },
+      "output": {
+        "durableState": "seek",
+        "strategyTimerSeconds": 0,
+        "wanderAngle": 0,
+        "wanderTimerSeconds": 0,
+        "action": { "turn": 0.5, "boost": 1 },
+        "rngAfter": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x00000141",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      }
+    },
+    {
+      "name": "medium-random-boost",
+      "input": {
+        "rngSeed": 1,
+        "rngBefore": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x00000001",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        },
+        "fixedDt": 0.016666666666666666,
+        "snake": {
+          "id": 700,
+          "length": 40,
+          "position": [0, 0],
+          "radius": 8,
+          "direction": 0,
+          "speed": 120,
+          "points": 10
+        },
+        "channels": {
+          "food": { "default": 0.2, "overrides": [] },
+          "hazard": { "default": 0.8, "overrides": [] },
+          "wall": { "default": 0.7, "overrides": [] },
+          "head": { "default": 0.9, "overrides": [] }
+        },
+        "otherSnakes": []
+      },
+      "output": {
+        "durableState": "boost",
+        "strategyTimerSeconds": 0.20314948563463986,
+        "wanderAngle": 0,
+        "wanderTimerSeconds": 0,
+        "action": { "turn": 0, "boost": 1 },
+        "rngAfter": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x04080601",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      }
+    },
+    {
+      "name": "large-crowd-bias",
+      "input": {
+        "rngSeed": 555,
+        "rngBefore": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x0000022b",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        },
+        "fixedDt": 0.016666666666666666,
+        "snake": {
+          "id": 700,
+          "length": 100,
+          "position": [0, 0],
+          "radius": 8,
+          "direction": 0,
+          "speed": 120,
+          "points": 0
+        },
+        "channels": {
+          "food": { "default": 0.2, "overrides": [] },
+          "hazard": { "default": 0.8, "overrides": [] },
+          "wall": { "default": 0.7, "overrides": [] },
+          "head": { "default": 0.9, "overrides": [] }
+        },
+        "otherSnakes": [
+          {
+            "id": 720,
+            "alive": true,
+            "length": 20,
+            "position": [100, 0],
+            "direction": 0.3,
+            "speed": 10
+          },
+          {
+            "id": 710,
+            "alive": true,
+            "length": 20,
+            "position": [0, 100],
+            "direction": 0.8,
+            "speed": 12
+          }
+        ]
+      },
+      "output": {
+        "durableState": "seek",
+        "strategyTimerSeconds": 0,
+        "wanderAngle": 0,
+        "wanderTimerSeconds": 0,
+        "action": { "turn": 0.5, "boost": 0 },
+        "rngAfter": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x0000022b",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      }
+    }
+  ],
+  "interpretation": {
+    "preserve": "life-stage thresholds, state/timer transitions, Float32 observation interpretation, bin scoring, action formulas, and exact per-slot uniform draw order",
+    "correct": "Rust consumes the shared corrected delivered observation instead of privately resampling; medium target ties and large centroid accumulation use stable snake-ID order rather than TypeScript container order",
+    "notPerformanceEvidence": true
+  }
+}

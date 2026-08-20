@@ -281,8 +281,8 @@ pub struct BaselineRngState {
     pub state: SerializedRngState,
 }
 
-/// Stage 3 baseline-strategy skeleton; later gameplay stages must extend this
-/// before claiming complete durable live baseline behavior.
+/// Durable baseline-strategy state. Strategy evaluation exists in Stage 5;
+/// the complete shared-observation and fixed-step authority join remains pending.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BaselineStrategyState {
     /// General exploration.
@@ -569,7 +569,7 @@ pub struct SnakeState {
     pub brain: Option<BrainHandle>,
     /// Stable baseline slot, only for a built-in baseline snake.
     pub baseline_slot: Option<u32>,
-    /// Stage 3 baseline-strategy skeleton, only for a built-in baseline snake.
+    /// Durable strategy state, only for a built-in baseline snake.
     pub baseline_strategy: Option<BaselineStrategyState>,
     /// Current and previous head positions.
     pub position: WorldPoint,
