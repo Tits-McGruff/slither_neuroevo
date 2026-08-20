@@ -116,7 +116,7 @@ accrual while full followed by bounded refill. Rust compares the literal
 position with an explicit cross-language tolerance and the uniform RNG
 continuation exactly.
 
-## Baseline respawn timing still to join
+## Baseline lifecycle and respawn timing
 
 The current `BaselineBotManager.update()` interleaves per-slot respawn and
 controller sampling. An alive low-index baseline can sample before a later
@@ -138,6 +138,33 @@ and wander state but continues its independent baseline RNG, consumes the
 ordinary three spawn draws, receives a new baseline-domain ID, and keeps its
 stable slot. The current array replacement assumes population-first and
 baseline-by-slot storage; Rust must use stable identities instead.
+
+`engine::baseline` version 1 adds generation-scoped stable-slot state and
+stages the timer portion of step 9 without touching RNG, IDs, bodies, or the
+authoritative world. Physics notifications enter only through the complete
+keyed physics result; a raw same-ID event cannot be relabelled after Reset,
+New Run, or import. A notified death begins the full configured delay at the
+physics commit boundary; the next fixed step performs the first subtraction.
+A dead slot whose notification was missed begins the full delay without that
+subtraction. Active timers are capped before subtraction when a lower live
+delay is admitted and are not extended by a higher delay. Exact expiry emits a
+stable due-slot list and neutralizes the dead slot's action. The proposal is
+bound to the complete step key, immutable world, immutable lifecycle state,
+fixed delta, slot count, and delay; its three vectors retain capacity. The
+snake record owns the single canonical baseline-strategy enum; lifecycle state
+does not retain a second copy.
+
+Lifecycle initialization requires one live snake record for every configured
+slot, so Rust cannot silently start with a reduced baseline population. The
+future coordinator may call it only after the complete initial spawn has
+separately proved collision-safe placement. The later respawn join must reset
+the world-owned strategy plus lifecycle timers/wander/action while retaining
+the stable slot and continuing its separately owned RNG stream. That join is
+not implemented by this timer slice. A
+timer-only result containing any due slot is explicitly ineligible for commit
+until collision-safe placement and replacement are resolved. The lifecycle
+module therefore preserves both possible reviewed outcomes for placement
+failure rather than choosing one implicitly.
 
 Draft 4 does not explicitly settle the rare mid-generation outcome when no
 collision-safe baseline placement exists. Whether that rejects the whole step

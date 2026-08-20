@@ -326,6 +326,47 @@ pub struct PreparedPhysicsStep<'step> {
     diagnostics: PhysicsStepDiagnostics,
 }
 
+/// Unforgeable view of baseline deaths emitted by one complete physics step.
+///
+/// The baseline lifecycle accepts this keyed view instead of a raw event slice,
+/// so a same-ID event retained across Reset, New Run, or import cannot be
+/// relabelled as belonging to a newer authority epoch.
+#[derive(Clone, Copy, Debug)]
+pub struct PreparedPhysicsBaselineDeaths<'step> {
+    key: PhysicsStepKey,
+    world: &'step WorldState,
+    events: &'step [BaselineDeathEvent],
+}
+
+impl<'step> PreparedPhysicsBaselineDeaths<'step> {
+    /// Exact fixed-step identity that produced the events.
+    #[must_use]
+    pub const fn key(self) -> PhysicsStepKey {
+        self.key
+    }
+
+    /// Complete post-physics world against which every event was validated.
+    #[must_use]
+    pub const fn world(self) -> &'step WorldState {
+        self.world
+    }
+
+    /// Canonical stable-ID death events from the complete physics result.
+    #[must_use]
+    pub const fn events(self) -> &'step [BaselineDeathEvent] {
+        self.events
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn test_fixture(
+        key: PhysicsStepKey,
+        world: &'step WorldState,
+        events: &'step [BaselineDeathEvent],
+    ) -> Self {
+        Self { key, world, events }
+    }
+}
+
 impl<'step> PreparedPhysicsStep<'step> {
     /// Exact generation/config/operation identity prepared.
     #[must_use]
@@ -359,6 +400,16 @@ impl<'step> PreparedPhysicsStep<'step> {
     #[must_use]
     pub const fn baseline_deaths(self) -> &'step [BaselineDeathEvent] {
         self.baseline_deaths
+    }
+
+    /// Keyed baseline-death proof for the lifecycle transaction.
+    #[must_use]
+    pub const fn prepared_baseline_deaths(self) -> PreparedPhysicsBaselineDeaths<'step> {
+        PreparedPhysicsBaselineDeaths {
+            key: self.key,
+            world: self.world,
+            events: self.baseline_deaths,
+        }
     }
 
     /// Current work and retained-capacity diagnostics.
@@ -1887,6 +1938,10 @@ mod tests {
         assert!(prepared.world().pellets.is_empty());
         assert_eq!(prepared.rng(), &rng);
         assert_eq!(prepared.allocators(), &allocators);
+        let baseline_deaths = prepared.prepared_baseline_deaths();
+        assert_eq!(baseline_deaths.key(), key(1));
+        assert!(std::ptr::eq(baseline_deaths.world(), prepared.world()));
+        assert_eq!(baseline_deaths.events(), prepared.baseline_deaths());
     }
 
     #[test]

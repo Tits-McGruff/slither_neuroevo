@@ -4,6 +4,8 @@
 pub mod accounting;
 /// Staged fixed-step ambient-pellet accumulation and world-RNG generation.
 pub mod ambient;
+/// Durable baseline-slot lifecycle and pre-control respawn timing.
+pub mod baseline;
 /// Deterministic scalar calculation work, scratch, and staged-result contracts.
 pub mod calculation;
 /// Bounded managed checkpoint-v3 codec and immutable-file publication.
