@@ -227,15 +227,91 @@ radii; post-food growth or shrink changes collision radius only at the final
 boundary. Broad-phase bounds cover the larger of the pre-food and final radii,
 so neither interval can be omitted.
 
+## Multi-substep physics transaction
+
+Current `World::_advanceFixedStepPhysics()` mutates the TypeScript world after
+each collision substep. The Rust migration cannot publish those intermediate
+boundaries: a capacity, arithmetic, identity, controller-replacement, or later
+substep failure must leave the last authoritative fixed step unchanged.
+
+`engine::physics` therefore begins from one immutable physical boundary and
+keeps a reusable non-authoritative working world for the declared substep
+count. Each accepted substep contains the complete movement, food, collision,
+effect, RNG, and allocator continuation. Deaths are applied in stable snake-ID
+order; unambiguous head-to-body credit increments the selected body owner's
+kill count and adds `reward.pointsPerKill`, including when that owner also dies
+in the same immutable snapshot. Simultaneous head-to-head deaths award neither
+participant. Later substeps consume the prior accepted working boundary, so a
+snake cannot die or receive the same award again merely because the fixed step
+was subdivided.
+
+The working transaction is bound to the process-local world epoch, generation,
+source completed-step, population epoch, configuration revision/hash,
+operation epoch, substep ordinal, and the complete projected movement, food,
+collision, death, index-capacity, delta, and kill-credit configuration. The
+transaction itself supplies every phase with its current working world, RNG,
+and allocator continuation; a caller cannot submit an independently prepared
+effect result and label it as current. It exposes a complete result only after
+every declared substep has joined. Errors may change retained scratch capacity
+but do not change the source world or expose a successful result. Live
+controller leases are deliberately not copied into the physical scratch;
+until the later full-step coordinator stages death/reassignment as one
+operation, a collision involving a controlled snake is rejected with an
+explicit replacement-required result. The later coordinator must project the
+key and phase configuration from the same admitted authority, revalidate that
+key, combine controller/recurrent and before/after-step state, and perform the
+single authoritative swap. This working transaction alone is not that
+publication boundary.
+
 ## Spawn correction
 
-Current construction selects random head position and direction and lays the
-body straight behind it, without checking the complete new body against
-existing heads or bodies. The retained `SPAWN-001` fixture classifies that as a
-defect. Rust tests complete initial bodies, wall clearance, and existing
-geometry with bounded random attempts followed by a deterministic spatial
-fallback. An impossible request fails clearly and never silently reduces the
-population.
+Current `Snake` construction consumes three uniform draws: polar angle,
+area-uniform radius `sqrt(draw) * worldRadius * 0.60`, and heading. It then lays
+`snakeStartLen` points straight behind the head at `snakeSpacing`, without
+checking the wall or any existing head/body. `World::_spawnAll()` supplies the
+world stream in population-array order; baseline construction supplies each
+slot's independent stream; resurrection currently consumes the world stream;
+and the defective external join consumes both evolution RNG for a genome and
+world RNG for geometry. The retained `SPAWN-001` and `RNG-001` correction
+fixtures prevent blind admission and external-join contamination from becoming
+parity targets.
+
+`engine::spawn` version 1 preserves the three-draw random-candidate formula but
+visits a batch in stable domain/slot order. It constructs every complete
+head-to-tail body before acceptance. Every body point must clear the circular
+wall by its radius plus configured wall clearance, and every polyline segment
+must clear every live source body and earlier staged body by both radii plus
+configured body clearance. Live source obstacles are themselves canonicalized
+by stable snake ID before work-budget accounting, so source snake-array order
+cannot change a pass/fail or overload result. Reversing request or source
+storage produces the same stable-key placements and RNG continuation.
+
+Each request has a checked finite random-attempt count. Exhaustion switches to
+a finite deterministic low-discrepancy position scan with a finite set of
+headings and no additional RNG draws. Their checked sum must fit the declared
+per-request work budget and the implementation's admission ceiling. The whole
+batch also has explicit candidate and geometry-comparison ceilings; exceeding
+either rejects staging rather than hanging the engine, accepting an overlap, or
+reducing the population. These defaults are provisional until Stage 5 P0–P3
+spawn measurements establish a practical supported-work budget.
+
+If neither search finds a placement, the whole prepared result remains
+unavailable, the source world and serialized RNG remain unchanged, and the
+error names the stable request and both search counts. Placement scratch
+retains stable order, complete bodies, one candidate body, and capacity
+diagnostics across batches. The later generation/controller coordinator must
+invoke separate preparations for independently owned world, baseline, and
+external-controller streams, join all required placements and ID/brain state,
+preflight the combined admitted body-point ceiling, and publish them only as one
+complete boundary.
+
+The executable current-source artifact
+`typescript-spawn-fixtures.json`, regenerated by
+`scripts/stage5/generate-spawn-fixtures.ts`, retains seed `0x5afe`, the exact
+angle/radius/heading draw order, the five TypeScript-constructed body points,
+and the RNG continuation after three draws. Rust compares the literal captured
+coordinates with an explicit cross-language tolerance and the continuation
+state exactly; it does not derive the expected body through its own helper.
 
 ## Scheduler correction
 
@@ -257,6 +333,10 @@ a service opportunity between overdue steps when interactive control exists.
 - `scripts/stage5/generate-death-fixtures.ts` and
   `docs/todo/evidence/stage5/typescript-death-fixtures.json` retain the current
   death/drop formula, RNG continuation, and pellet ordering as executable
+  non-performance evidence.
+- `scripts/stage5/generate-spawn-fixtures.ts` and
+  `docs/todo/evidence/stage5/typescript-spawn-fixtures.json` retain the current
+  constructor draw/body order and exact RNG continuation as executable
   non-performance evidence.
 - controller, scheduler, world-ordering, snake, spatial-hash, determinism, and
   sensor tests remain the selected TypeScript oracle during migration.

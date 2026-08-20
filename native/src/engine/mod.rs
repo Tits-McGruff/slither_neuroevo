@@ -35,6 +35,8 @@ pub mod inference;
 pub mod inference_fixture;
 /// Staged steering, boost, movement, and packed body-point proposals.
 pub mod movement;
+/// Complete multi-substep physics working transaction and stable outcome staging.
+pub mod physics;
 /// Bounded inbound/outbound queues and coalesced wake contracts.
 pub mod queues;
 /// Versioned deterministic random-number generation shared by engine state.
@@ -50,6 +52,8 @@ pub mod sensor_layout;
 pub mod sensors;
 /// Complete derived body-segment and pellet spatial indexes.
 pub mod spatial;
+/// Deterministic collision-safe initial-body placement with bounded fallback.
+pub mod spawn;
 /// Owned persistent-state and generation-boundary admission contracts.
 pub mod state;
 

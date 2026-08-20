@@ -43,9 +43,12 @@ struct CellLookup {
 }
 
 impl CellLookup {
-    fn build(cells: &[CellSpan]) -> Result<Self, SpatialIndexError> {
+    fn rebuild(&mut self, cells: &[CellSpan]) -> Result<(), SpatialIndexError> {
+        self.minimum = CellKey::default();
+        self.width = 0;
+        self.span_indices.clear();
         let Some(first) = cells.first() else {
-            return Ok(Self::default());
+            return Ok(());
         };
         let mut minimum = first.key;
         let mut maximum = first.key;
@@ -61,36 +64,35 @@ impl CellLookup {
             // A coordinate envelope too large to describe densely is exactly
             // the case this optional lookup is meant to decline. The sorted
             // cell spans remain the complete index and provide the fallback.
-            return Ok(Self::default());
+            return Ok(());
         };
         let density_allowance = cells
             .len()
             .saturating_mul(MAXIMUM_DENSE_LOOKUP_RATIO)
             .clamp(MINIMUM_DENSE_LOOKUP_ALLOWANCE, MAXIMUM_DENSE_LOOKUP_CELLS);
         if area > density_allowance {
-            return Ok(Self::default());
+            return Ok(());
         }
-        let mut span_indices = Vec::new();
-        span_indices
-            .try_reserve_exact(area)
-            .map_err(|_| SpatialIndexError::AllocationFailed {
-                context: "dense cell lookup",
-                requested: area,
-            })?;
-        span_indices.resize(area, usize::MAX);
+        if self.span_indices.capacity() < area {
+            self.span_indices
+                .try_reserve_exact(area.saturating_sub(self.span_indices.len()))
+                .map_err(|_| SpatialIndexError::AllocationFailed {
+                    context: "dense cell lookup",
+                    requested: area,
+                })?;
+        }
+        self.span_indices.resize(area, usize::MAX);
         for (span_index, span) in cells.iter().enumerate() {
             let offset = cell_lookup_offset(minimum, width, span.key).ok_or(
                 SpatialIndexError::ArithmeticOverflow {
                     context: "dense cell lookup offset",
                 },
             )?;
-            span_indices[offset] = span_index;
+            self.span_indices[offset] = span_index;
         }
-        Ok(Self {
-            minimum,
-            width,
-            span_indices,
-        })
+        self.minimum = minimum;
+        self.width = width;
+        Ok(())
     }
 
     fn find(&self, cells: &[CellSpan], key: CellKey) -> Option<CellSpan> {
@@ -282,12 +284,42 @@ pub struct BodySpatialIndex {
 }
 
 impl BodySpatialIndex {
+    pub(crate) fn empty() -> Self {
+        Self {
+            cell_size: 0.0,
+            records: Vec::new(),
+            entries: Vec::new(),
+            cells: Vec::new(),
+            lookup: CellLookup::default(),
+            maximum_owner_radius: 0.0,
+            diagnostics: BodyIndexDiagnostics::default(),
+        }
+    }
+
     /// Build a complete body index or fail before a partial index can be used.
     pub fn build(
         world: &WorldState,
         cell_size: f64,
         maximum_entries: usize,
     ) -> Result<Self, SpatialIndexError> {
+        let mut index = Self::empty();
+        index.rebuild(world, cell_size, maximum_entries)?;
+        Ok(index)
+    }
+
+    /// Rebuild a complete body index while retaining prior owned capacities.
+    pub(crate) fn rebuild(
+        &mut self,
+        world: &WorldState,
+        cell_size: f64,
+        maximum_entries: usize,
+    ) -> Result<(), SpatialIndexError> {
+        self.records.clear();
+        self.entries.clear();
+        self.cells.clear();
+        self.lookup.span_indices.clear();
+        self.maximum_owner_radius = 0.0;
+        self.diagnostics = BodyIndexDiagnostics::default();
         validate_cell_size(cell_size)?;
         let mut segment_count = 0usize;
         let mut maximum_owner_radius = 0.0_f64;
@@ -318,13 +350,14 @@ impl BodySpatialIndex {
             });
         }
 
-        let mut records = Vec::new();
-        records.try_reserve_exact(segment_count).map_err(|_| {
-            SpatialIndexError::AllocationFailed {
-                context: "body-index records",
-                requested: segment_count,
-            }
-        })?;
+        if self.records.capacity() < segment_count {
+            self.records
+                .try_reserve_exact(segment_count.saturating_sub(self.records.len()))
+                .map_err(|_| SpatialIndexError::AllocationFailed {
+                    context: "body-index records",
+                    requested: segment_count,
+                })?;
+        }
         let mut required_entries = 0usize;
         for (snake_index, snake) in world.snakes.iter().enumerate() {
             if !snake.alive || snake.body.len < 2 {
@@ -348,7 +381,7 @@ impl BodySpatialIndex {
                         maximum: maximum_entries,
                     });
                 }
-                records.push(BodySegmentRecord {
+                self.records.push(BodySegmentRecord {
                     owner_id: snake.id,
                     snake_index,
                     segment_end,
@@ -359,67 +392,62 @@ impl BodySpatialIndex {
             }
         }
 
-        let mut entries = Vec::new();
-        entries.try_reserve_exact(required_entries).map_err(|_| {
-            SpatialIndexError::AllocationFailed {
-                context: "body-index entries",
-                requested: required_entries,
-            }
-        })?;
-        for (segment, record) in records.iter().enumerate() {
+        if self.entries.capacity() < required_entries {
+            self.entries
+                .try_reserve_exact(required_entries.saturating_sub(self.entries.len()))
+                .map_err(|_| SpatialIndexError::AllocationFailed {
+                    context: "body-index entries",
+                    requested: required_entries,
+                })?;
+        }
+        for (segment, record) in self.records.iter().enumerate() {
             let (minimum, maximum) = segment_cell_bounds(record.start, record.end, cell_size)?;
             for y in minimum.y..=maximum.y {
                 for x in minimum.x..=maximum.x {
-                    entries.push(BodyCellEntry {
+                    self.entries.push(BodyCellEntry {
                         key: CellKey { x, y },
                         segment,
                     });
                 }
             }
         }
-        debug_assert_eq!(entries.len(), required_entries);
-        entries.sort_unstable_by(|left, right| {
+        debug_assert_eq!(self.entries.len(), required_entries);
+        self.entries.sort_unstable_by(|left, right| {
             left.key
                 .cmp(&right.key)
                 .then_with(|| {
-                    records[left.segment]
+                    self.records[left.segment]
                         .owner_id
-                        .cmp(&records[right.segment].owner_id)
+                        .cmp(&self.records[right.segment].owner_id)
                 })
                 .then_with(|| {
-                    records[left.segment]
+                    self.records[left.segment]
                         .segment_end
-                        .cmp(&records[right.segment].segment_end)
+                        .cmp(&self.records[right.segment].segment_end)
                 })
         });
-        let cells = build_cell_spans(&entries, |entry| entry.key)?;
-        let lookup = CellLookup::build(&cells)?;
+        rebuild_cell_spans(&self.entries, |entry| entry.key, &mut self.cells)?;
+        self.lookup.rebuild(&self.cells)?;
         let estimated_bytes = checked_owned_bytes(&[
-            (records.capacity(), size_of::<BodySegmentRecord>()),
-            (entries.capacity(), size_of::<BodyCellEntry>()),
-            (cells.capacity(), size_of::<CellSpan>()),
+            (self.records.capacity(), size_of::<BodySegmentRecord>()),
+            (self.entries.capacity(), size_of::<BodyCellEntry>()),
+            (self.cells.capacity(), size_of::<CellSpan>()),
         ])?
-        .checked_add(lookup.estimated_bytes()?)
+        .checked_add(self.lookup.estimated_bytes()?)
         .ok_or(SpatialIndexError::ArithmeticOverflow {
             context: "body-index estimated bytes",
         })?;
-        let diagnostics = BodyIndexDiagnostics {
-            segments: records.len(),
-            entries: entries.len(),
-            occupied_cells: cells.len(),
-            lookup_cells: lookup.cells(),
+        self.diagnostics = BodyIndexDiagnostics {
+            segments: self.records.len(),
+            entries: self.entries.len(),
+            occupied_cells: self.cells.len(),
+            lookup_cells: self.lookup.cells(),
             maximum_entries,
             estimated_bytes,
         };
-        Ok(Self {
-            cell_size,
-            records,
-            entries,
-            cells,
-            lookup,
-            maximum_owner_radius,
-            diagnostics,
-        })
+        self.cell_size = cell_size;
+        self.maximum_owner_radius = maximum_owner_radius;
+        Ok(())
     }
 
     /// Return immutable build diagnostics.
@@ -706,12 +734,40 @@ pub struct PelletSpatialIndex {
 }
 
 impl PelletSpatialIndex {
+    pub(crate) fn empty() -> Self {
+        Self {
+            cell_size: 0.0,
+            pellets: Vec::new(),
+            entries: Vec::new(),
+            cells: Vec::new(),
+            lookup: CellLookup::default(),
+            diagnostics: PelletIndexDiagnostics::default(),
+        }
+    }
+
     /// Build a complete point index or reject the declared limit.
     pub fn build(
         world: &WorldState,
         cell_size: f64,
         maximum_entries: usize,
     ) -> Result<Self, SpatialIndexError> {
+        let mut index = Self::empty();
+        index.rebuild(world, cell_size, maximum_entries)?;
+        Ok(index)
+    }
+
+    /// Rebuild a complete pellet index while retaining prior owned capacities.
+    pub(crate) fn rebuild(
+        &mut self,
+        world: &WorldState,
+        cell_size: f64,
+        maximum_entries: usize,
+    ) -> Result<(), SpatialIndexError> {
+        self.pellets.clear();
+        self.entries.clear();
+        self.cells.clear();
+        self.lookup.span_indices.clear();
+        self.diagnostics = PelletIndexDiagnostics::default();
         validate_cell_size(cell_size)?;
         if world.pellets.len() > maximum_entries {
             return Err(SpatialIndexError::EntryLimitExceeded {
@@ -720,31 +776,34 @@ impl PelletSpatialIndex {
                 maximum: maximum_entries,
             });
         }
-        let mut pellets = Vec::new();
-        pellets
-            .try_reserve_exact(world.pellets.len())
-            .map_err(|_| SpatialIndexError::AllocationFailed {
-                context: "pellet-index records",
-                requested: world.pellets.len(),
-            })?;
-        let mut entries = Vec::new();
-        entries
-            .try_reserve_exact(world.pellets.len())
-            .map_err(|_| SpatialIndexError::AllocationFailed {
-                context: "pellet-index entries",
-                requested: world.pellets.len(),
-            })?;
+        if self.pellets.capacity() < world.pellets.len() {
+            self.pellets
+                .try_reserve_exact(world.pellets.len().saturating_sub(self.pellets.len()))
+                .map_err(|_| SpatialIndexError::AllocationFailed {
+                    context: "pellet-index records",
+                    requested: world.pellets.len(),
+                })?;
+        }
+        if self.entries.capacity() < world.pellets.len() {
+            self.entries
+                .try_reserve_exact(world.pellets.len().saturating_sub(self.entries.len()))
+                .map_err(|_| SpatialIndexError::AllocationFailed {
+                    context: "pellet-index entries",
+                    requested: world.pellets.len(),
+                })?;
+        }
         for (source_index, pellet) in world.pellets.iter().enumerate() {
             validate_point(pellet.position)?;
-            pellets.push(IndexedPellet::from((source_index, pellet)));
+            self.pellets
+                .push(IndexedPellet::from((source_index, pellet)));
         }
-        pellets.sort_unstable_by(|left, right| {
+        self.pellets.sort_unstable_by(|left, right| {
             left.id
                 .cmp(&right.id)
                 .then_with(|| left.source_index.cmp(&right.source_index))
         });
-        for (pellet_index, pellet) in pellets.iter().enumerate() {
-            entries.push(PelletCellEntry {
+        for (pellet_index, pellet) in self.pellets.iter().enumerate() {
+            self.entries.push(PelletCellEntry {
                 key: CellKey {
                     x: cell_coordinate(pellet.position.x, cell_size)?,
                     y: cell_coordinate(pellet.position.y, cell_size)?,
@@ -752,42 +811,40 @@ impl PelletSpatialIndex {
                 pellet: pellet_index,
             });
         }
-        entries.sort_unstable_by(|left, right| {
+        self.entries.sort_unstable_by(|left, right| {
             left.key
                 .cmp(&right.key)
-                .then_with(|| pellets[left.pellet].id.cmp(&pellets[right.pellet].id))
                 .then_with(|| {
-                    pellets[left.pellet]
+                    self.pellets[left.pellet]
+                        .id
+                        .cmp(&self.pellets[right.pellet].id)
+                })
+                .then_with(|| {
+                    self.pellets[left.pellet]
                         .source_index
-                        .cmp(&pellets[right.pellet].source_index)
+                        .cmp(&self.pellets[right.pellet].source_index)
                 })
         });
-        let cells = build_cell_spans(&entries, |entry| entry.key)?;
-        let lookup = CellLookup::build(&cells)?;
+        rebuild_cell_spans(&self.entries, |entry| entry.key, &mut self.cells)?;
+        self.lookup.rebuild(&self.cells)?;
         let estimated_bytes = checked_owned_bytes(&[
-            (pellets.capacity(), size_of::<IndexedPellet>()),
-            (entries.capacity(), size_of::<PelletCellEntry>()),
-            (cells.capacity(), size_of::<CellSpan>()),
+            (self.pellets.capacity(), size_of::<IndexedPellet>()),
+            (self.entries.capacity(), size_of::<PelletCellEntry>()),
+            (self.cells.capacity(), size_of::<CellSpan>()),
         ])?
-        .checked_add(lookup.estimated_bytes()?)
+        .checked_add(self.lookup.estimated_bytes()?)
         .ok_or(SpatialIndexError::ArithmeticOverflow {
             context: "pellet-index estimated bytes",
         })?;
-        let diagnostics = PelletIndexDiagnostics {
-            pellets: pellets.len(),
-            occupied_cells: cells.len(),
-            lookup_cells: lookup.cells(),
+        self.diagnostics = PelletIndexDiagnostics {
+            pellets: self.pellets.len(),
+            occupied_cells: self.cells.len(),
+            lookup_cells: self.lookup.cells(),
             maximum_entries,
             estimated_bytes,
         };
-        Ok(Self {
-            cell_size,
-            pellets,
-            entries,
-            cells,
-            lookup,
-            diagnostics,
-        })
+        self.cell_size = cell_size;
+        Ok(())
     }
 
     /// Return immutable build diagnostics.
@@ -942,6 +999,54 @@ pub struct SensorIndexConfig {
     pub maximum_body_entries: usize,
     /// Complete pellet-entry admission ceiling.
     pub maximum_pellet_entries: usize,
+}
+
+/// One world borrow and the complete pellet index derived from that boundary.
+///
+/// Food accepts this narrower owner so physics does not construct the unrelated
+/// body-sensing index on every collision substep. Keeping the world borrow and
+/// index in one value still prevents safe mutation of the source while claims
+/// are evaluated.
+#[derive(Debug)]
+pub struct IndexedPelletWorld<'a> {
+    world: &'a WorldState,
+    pellets: PelletSpatialIndex,
+}
+
+impl<'a> IndexedPelletWorld<'a> {
+    /// Build the complete pellet index for one immutable world boundary.
+    pub fn build(
+        world: &'a WorldState,
+        cell_size: f64,
+        maximum_entries: usize,
+    ) -> Result<Self, SpatialIndexError> {
+        Ok(Self {
+            world,
+            pellets: PelletSpatialIndex::build(world, cell_size, maximum_entries)?,
+        })
+    }
+
+    /// Bind a retained, freshly rebuilt pellet index to its exact world.
+    pub(crate) fn from_index(world: &'a WorldState, pellets: PelletSpatialIndex) -> Self {
+        Self { world, pellets }
+    }
+
+    /// Return index ownership so a coordinator can retain its allocations.
+    pub(crate) fn into_index(self) -> PelletSpatialIndex {
+        self.pellets
+    }
+
+    /// Exact immutable world from which the pellet index was rebuilt.
+    #[must_use]
+    pub fn world(&self) -> &WorldState {
+        self.world
+    }
+
+    /// Complete pellet index bound to this world view.
+    #[must_use]
+    pub fn pellet_index(&self) -> &PelletSpatialIndex {
+        &self.pellets
+    }
 }
 
 /// One world borrow and both indexes derived from that exact immutable state.
@@ -1319,17 +1424,20 @@ fn cell_rectangle_count(minimum: CellKey, maximum: CellKey) -> Result<usize, Spa
         })
 }
 
-fn build_cell_spans<T>(
+fn rebuild_cell_spans<T>(
     entries: &[T],
     key: impl Fn(&T) -> CellKey,
-) -> Result<Vec<CellSpan>, SpatialIndexError> {
-    let mut cells = Vec::new();
-    cells
-        .try_reserve_exact(entries.len())
-        .map_err(|_| SpatialIndexError::AllocationFailed {
-            context: "spatial cell spans",
-            requested: entries.len(),
-        })?;
+    cells: &mut Vec<CellSpan>,
+) -> Result<(), SpatialIndexError> {
+    cells.clear();
+    if cells.capacity() < entries.len() {
+        cells
+            .try_reserve_exact(entries.len().saturating_sub(cells.len()))
+            .map_err(|_| SpatialIndexError::AllocationFailed {
+                context: "spatial cell spans",
+                requested: entries.len(),
+            })?;
+    }
     let mut start = 0usize;
     while start < entries.len() {
         let cell_key = key(&entries[start]);
@@ -1344,7 +1452,7 @@ fn build_cell_spans<T>(
         });
         start = end;
     }
-    Ok(cells)
+    Ok(())
 }
 
 fn find_cell_span(cells: &[CellSpan], key: CellKey) -> Option<CellSpan> {
@@ -1427,7 +1535,8 @@ mod tests {
                 end: 5,
             },
         ];
-        let lookup = CellLookup::build(&cells).expect("bounded lookup should build");
+        let mut lookup = CellLookup::default();
+        lookup.rebuild(&cells).expect("bounded lookup should build");
         assert!(lookup.cells() > 0);
         assert_eq!(lookup.find(&cells, cells[0].key), Some(cells[0]));
         assert_eq!(lookup.find(&cells, CellKey { x: 0, y: 0 }), None);
@@ -1444,7 +1553,10 @@ mod tests {
                 end: 2,
             },
         ];
-        let fallback = CellLookup::build(&sparse).expect("sparse fallback should build");
+        let mut fallback = CellLookup::default();
+        fallback
+            .rebuild(&sparse)
+            .expect("sparse fallback should build");
         assert_eq!(fallback.cells(), 0);
         assert_eq!(fallback.find(&sparse, sparse[1].key), Some(sparse[1]));
 
@@ -1466,8 +1578,10 @@ mod tests {
                 end: 2,
             },
         ];
-        let overflow_fallback =
-            CellLookup::build(&overflow_envelope).expect("overflowing area should use fallback");
+        let mut overflow_fallback = CellLookup::default();
+        overflow_fallback
+            .rebuild(&overflow_envelope)
+            .expect("overflowing area should use fallback");
         assert_eq!(overflow_fallback.cells(), 0);
         assert_eq!(
             overflow_fallback.find(&overflow_envelope, overflow_envelope[0].key),
@@ -1621,6 +1735,99 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![10]
         );
+    }
+
+    #[test]
+    fn retained_rebuild_matches_fresh_indexes_and_stabilizes_capacities() {
+        let world = long_segment_world(false);
+        let mut pellet_world = world.clone();
+        pellet_world.pellets = vec![
+            PelletState {
+                id: 30,
+                position: WorldPoint { x: 25.0, y: 0.0 },
+                value: 1.0,
+                kind: 0,
+                color: 0,
+                owner: None,
+            },
+            PelletState {
+                id: 10,
+                position: WorldPoint { x: -25.0, y: 0.0 },
+                value: 2.0,
+                kind: 1,
+                color: 2,
+                owner: Some(20),
+            },
+        ];
+        let fresh_body = BodySpatialIndex::build(&pellet_world, 50.0, 100).unwrap();
+        let fresh_pellets = PelletSpatialIndex::build(&pellet_world, 25.0, 100).unwrap();
+        let mut body = BodySpatialIndex::empty();
+        let mut pellets = PelletSpatialIndex::empty();
+        body.rebuild(&pellet_world, 50.0, 100).unwrap();
+        pellets.rebuild(&pellet_world, 25.0, 100).unwrap();
+        assert_eq!(body.diagnostics(), fresh_body.diagnostics());
+        assert_eq!(pellets.diagnostics(), fresh_pellets.diagnostics());
+
+        let mut fresh_body_scratch = BodyQueryScratch::default();
+        let mut rebuilt_body_scratch = BodyQueryScratch::default();
+        fresh_body
+            .collect_candidates(
+                WorldPoint { x: 0.0, y: 0.0 },
+                200.0,
+                &mut fresh_body_scratch,
+            )
+            .unwrap();
+        body.collect_candidates(
+            WorldPoint { x: 0.0, y: 0.0 },
+            200.0,
+            &mut rebuilt_body_scratch,
+        )
+        .unwrap();
+        assert_eq!(
+            fresh_body
+                .candidates(&fresh_body_scratch)
+                .copied()
+                .collect::<Vec<_>>(),
+            body.candidates(&rebuilt_body_scratch)
+                .copied()
+                .collect::<Vec<_>>()
+        );
+
+        let mut fresh_pellet_scratch = PelletQueryScratch::default();
+        let mut rebuilt_pellet_scratch = PelletQueryScratch::default();
+        fresh_pellets
+            .collect_candidates(
+                WorldPoint { x: 0.0, y: 0.0 },
+                100.0,
+                &mut fresh_pellet_scratch,
+            )
+            .unwrap();
+        pellets
+            .collect_candidates(
+                WorldPoint { x: 0.0, y: 0.0 },
+                100.0,
+                &mut rebuilt_pellet_scratch,
+            )
+            .unwrap();
+        assert_eq!(
+            fresh_pellets
+                .candidates(&fresh_pellet_scratch)
+                .map(|pellet| pellet.id)
+                .collect::<Vec<_>>(),
+            pellets
+                .candidates(&rebuilt_pellet_scratch)
+                .map(|pellet| pellet.id)
+                .collect::<Vec<_>>()
+        );
+
+        let first_body = body.diagnostics();
+        let first_pellets = pellets.diagnostics();
+        for _ in 0..24 {
+            body.rebuild(&pellet_world, 50.0, 100).unwrap();
+            pellets.rebuild(&pellet_world, 25.0, 100).unwrap();
+            assert_eq!(body.diagnostics(), first_body);
+            assert_eq!(pellets.diagnostics(), first_pellets);
+        }
     }
 
     #[test]

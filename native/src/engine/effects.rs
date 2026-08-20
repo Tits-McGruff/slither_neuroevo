@@ -849,7 +849,7 @@ mod tests {
         SerializedRngState, LEGACY_TYPESCRIPT_GAUSSIAN_ALGORITHM,
         LEGACY_TYPESCRIPT_GAUSSIAN_VERSION, RNG_ALGORITHM, RNG_VERSION,
     };
-    use crate::engine::spatial::{IndexedSensorWorld, SensorIndexConfig};
+    use crate::engine::spatial::IndexedPelletWorld;
     use crate::engine::state::{
         BaselineRngState, BodyRange, WorldState, ALLOCATOR_VERSION, BASELINE_ENTITY_ID_START,
         EXTERNAL_ENTITY_ID_START, RESURRECTED_ENTITY_ID_START, RNG_BUNDLE_VERSION,
@@ -977,17 +977,8 @@ mod tests {
         }
     }
 
-    fn indexed(world: &WorldState) -> IndexedSensorWorld<'_> {
-        IndexedSensorWorld::build(
-            world,
-            SensorIndexConfig {
-                body_cell_size: 70.0,
-                pellet_cell_size: 120.0,
-                maximum_body_entries: 1_000_000,
-                maximum_pellet_entries: 1_000_000,
-            },
-        )
-        .expect("fixture world should index")
+    fn indexed(world: &WorldState) -> IndexedPelletWorld<'_> {
+        IndexedPelletWorld::build(world, 120.0, 1_000_000).expect("fixture world should index")
     }
 
     fn execute(

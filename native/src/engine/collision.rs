@@ -1543,7 +1543,7 @@ mod tests {
     use super::*;
     use crate::engine::food::{FoodConfig, FoodWorkspace};
     use crate::engine::movement::{MovementConfig, MovementWorkspace};
-    use crate::engine::spatial::{IndexedSensorWorld, SensorIndexConfig};
+    use crate::engine::spatial::IndexedPelletWorld;
     use crate::engine::state::{BodyRange, SnakeKind, WorldState};
     use std::mem::size_of;
 
@@ -1624,17 +1624,8 @@ mod tests {
         }
     }
 
-    fn default_index(world: &WorldState) -> IndexedSensorWorld<'_> {
-        IndexedSensorWorld::build(
-            world,
-            SensorIndexConfig {
-                body_cell_size: 70.0,
-                pellet_cell_size: 120.0,
-                maximum_body_entries: 1_000_000,
-                maximum_pellet_entries: 1_000_000,
-            },
-        )
-        .expect("fixture world should index")
+    fn default_index(world: &WorldState) -> IndexedPelletWorld<'_> {
+        IndexedPelletWorld::build(world, 120.0, 1_000_000).expect("fixture world should index")
     }
 
     fn execute(

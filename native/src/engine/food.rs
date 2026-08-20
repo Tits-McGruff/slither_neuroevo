@@ -12,7 +12,7 @@ use super::movement::{
     PreparedMovement,
 };
 use super::spatial::{
-    IndexedSensorWorld, PelletQueryScratch, SpatialIndexError, SpatialQueryDiagnostics,
+    IndexedPelletWorld, PelletQueryScratch, SpatialIndexError, SpatialQueryDiagnostics,
 };
 use super::state::{BodyRange, PelletState, SnakeState, WorldPoint, WorldState};
 use std::cmp::Ordering;
@@ -284,7 +284,7 @@ impl FoodWorkspace {
     /// Resolve every food claim and final body length without mutating authority.
     pub fn prepare<'scratch, 'world>(
         &'scratch mut self,
-        indexed: &IndexedSensorWorld<'world>,
+        indexed: &IndexedPelletWorld<'world>,
         movement: PreparedMovement<'_, 'world>,
         movement_config: MovementConfig,
         food_config: FoodConfig,
@@ -864,7 +864,6 @@ impl Error for FoodError {}
 mod tests {
     use super::*;
     use crate::engine::movement::MovementWorkspace;
-    use crate::engine::spatial::SensorIndexConfig;
     use crate::engine::state::{SnakeKind, WorldState};
 
     const DT: f64 = 1.0 / 180.0;
@@ -951,17 +950,8 @@ mod tests {
         }
     }
 
-    fn index(world: &WorldState) -> IndexedSensorWorld<'_> {
-        IndexedSensorWorld::build(
-            world,
-            SensorIndexConfig {
-                body_cell_size: 70.0,
-                pellet_cell_size: 120.0,
-                maximum_body_entries: 10_000,
-                maximum_pellet_entries: 10_000,
-            },
-        )
-        .expect("fixture indexes should build")
+    fn index(world: &WorldState) -> IndexedPelletWorld<'_> {
+        IndexedPelletWorld::build(world, 120.0, 10_000).expect("fixture indexes should build")
     }
 
     #[test]
