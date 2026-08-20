@@ -1,5 +1,7 @@
 //! Rust-owned authoritative simulation components.
 
+/// Staged once-per-fixed-step generation and live-snake scalar accounting.
+pub mod accounting;
 /// Staged fixed-step ambient-pellet accumulation and world-RNG generation.
 pub mod ambient;
 /// Deterministic scalar calculation work, scratch, and staged-result contracts.

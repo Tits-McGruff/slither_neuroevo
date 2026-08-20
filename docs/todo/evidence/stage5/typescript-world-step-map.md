@@ -57,7 +57,24 @@ sensor delivery. Protocol 2 RL actions remain observation-driven.
 and adds `dt * reward.pointsPerSecondAlive` to points. The Rust transaction does
 this once per fixed step, not once per collision substep. `points_delta_norm`
 remains tied to an actually delivered observation boundary rather than movement
-or frame publication.
+or frame publication. A newly respawned baseline receives the same one-step age
+and survival-point increment before the shared observation boundary; existing
+dead snakes receive neither. Rust authority admission already requires every
+live snake to own a nonempty body, so the TypeScript empty-body repair is an
+admission invariant rather than a normal hot-path insertion.
+
+`engine::accounting` version 1 stages the next generation elapsed time plus all
+live-snake age and survival-point changes in stable-ID order. The proposal is
+bound to the complete world/generation/step/population/config/operation key,
+immutable source world, source elapsed time, fixed delta, projected reward
+setting and snake ceiling. It checks every derived scalar before making a
+result available, retains canonical-order/update storage, and can change only
+a coordinator-owned pre-step working copy whose snake records, world shape and
+controller leases still match after a complete no-write preflight. The later
+fixed-step coordinator remains responsible for enforcing this first-phase
+ordering, applying it once, using the same formula for same-boundary baseline
+newborns, and performing the one authoritative swap only after every later
+phase succeeds.
 
 ## Ambient pellet accumulation and generation
 
