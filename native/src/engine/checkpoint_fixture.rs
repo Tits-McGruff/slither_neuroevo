@@ -23,12 +23,13 @@ use super::rng::{labelled_stream, SerializedRngState, StatefulRng};
 use super::state::{
     normalized_config_hash, normalized_settings_schema_hash, AllocatorState, AuthoritativeState,
     AuthorityPhase, BaselineRngState, BrainHandle, BrainOwner, BrainRuntimeState, ContractVersions,
-    GenerationBoundaryKind, GenerationState, GenomeLineage, NormalizedEngineConfig,
-    NormalizedSetting, NormalizedSettingValue, PopulationGenome, RngStateBundle, RunIdentity,
-    StateAdmissionPolicy, StateCandidate, WorldState, ALLOCATOR_VERSION, BASELINE_ENTITY_ID_START,
-    CHECKPOINT_VERSION, ENGINE_STATE_VERSION, EXTERNAL_ENTITY_ID_START,
-    GENERATION_BOUNDARY_VERSION, NORMALIZED_CONFIG_VERSION, PROTOCOL_VERSION,
-    RESURRECTED_ENTITY_ID_START, RNG_BUNDLE_VERSION, SENSOR_VERSION, SERIALIZER_VERSION,
+    FixedStepContinuationState, GenerationBoundaryKind, GenerationState, GenomeLineage,
+    NormalizedEngineConfig, NormalizedSetting, NormalizedSettingValue, PopulationGenome,
+    RngStateBundle, RunIdentity, StateAdmissionPolicy, StateCandidate, WorldState,
+    ALLOCATOR_VERSION, BASELINE_ENTITY_ID_START, CHECKPOINT_VERSION, ENGINE_STATE_VERSION,
+    EXTERNAL_ENTITY_ID_START, GENERATION_BOUNDARY_VERSION, NORMALIZED_CONFIG_VERSION,
+    PROTOCOL_VERSION, RESURRECTED_ENTITY_ID_START, RNG_BUNDLE_VERSION, SENSOR_VERSION,
+    SERIALIZER_VERSION,
 };
 
 /// Exact small population used by the cross-language publication fixture.
@@ -288,6 +289,7 @@ pub(crate) fn publish_stage3_fixture(
             wall_accumulator_seconds: 0.0,
             best_fitness_ever: 0.0,
         },
+        fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
             version: RNG_BUNDLE_VERSION,
             world: rng(),
@@ -810,6 +812,7 @@ fn build_round_trip_state(
                 17_500.25
             },
         },
+        fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: round_trip_rng_bundle(baseline_count),
         allocators: AllocatorState {
             version: ALLOCATOR_VERSION,

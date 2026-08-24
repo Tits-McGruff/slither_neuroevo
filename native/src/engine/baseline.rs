@@ -9,7 +9,7 @@
 
 use super::effects::BaselineDeathEvent;
 use super::physics::{PhysicsStepKey, PhysicsStepKeyField, PreparedPhysicsBaselineDeaths};
-use super::state::{SnakeKind, WorldState};
+use super::state::{BaselineStrategyState, SnakeKind, WorldState};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -19,6 +19,14 @@ pub const BASELINE_LIFECYCLE_VERSION: u32 = 1;
 const MAXIMUM_BASELINE_SLOTS: usize = 120;
 /// Sentinel for one absent reusable world-slot index.
 const MISSING_INDEX: usize = usize::MAX;
+/// Largest durable roam offset produced by the current baseline controller.
+const MAXIMUM_WANDER_ANGLE: f64 = 0.3;
+/// Largest durable roam timer produced by the current baseline controller.
+const MAXIMUM_WANDER_TIMER_SECONDS: f64 = 2.0;
+/// Largest durable avoid timer produced by the current baseline controller.
+const MAXIMUM_AVOID_TIMER_SECONDS: f64 = 0.70;
+/// Largest durable boost timer produced by the current baseline controller.
+const MAXIMUM_BOOST_TIMER_SECONDS: f64 = 0.40;
 
 /// Versioned baseline lifecycle settings projected from admitted config.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -105,6 +113,15 @@ pub struct BaselineLifecycleState {
 }
 
 impl BaselineLifecycleState {
+    /// Construct the empty pre-spawn state implied by an exact checkpoint boundary.
+    #[must_use]
+    pub fn generation_boundary() -> Self {
+        Self {
+            version: BASELINE_LIFECYCLE_VERSION,
+            slots: Vec::new(),
+        }
+    }
+
     /// Initialize baseline runtime only after a complete collision-safe initial
     /// spawn has produced one live snake per configured slot.
     pub fn initialize_after_complete_spawn(
@@ -133,12 +150,13 @@ impl BaselineLifecycleState {
                     snake_id: snake.id,
                 });
             }
-            if snake.baseline_strategy.is_none() {
-                return Err(BaselineLifecycleError::MissingWorldStrategy {
-                    slot,
-                    snake_id: snake.id,
-                });
-            }
+            let strategy =
+                snake
+                    .baseline_strategy
+                    .ok_or(BaselineLifecycleError::MissingWorldStrategy {
+                        slot,
+                        snake_id: snake.id,
+                    })?;
             if slots
                 .iter()
                 .any(|runtime: &BaselineSlotRuntime| runtime.snake_id == snake.id)
@@ -151,11 +169,12 @@ impl BaselineLifecycleState {
                 strategy_timer_seconds: 0.0,
                 wander_angle: 0.0,
                 wander_timer_seconds: 0.0,
-                turn: 0.0,
-                boost: false,
+                turn: snake.turn,
+                boost: snake.input_boost,
                 respawn_remaining_seconds: None,
             };
             validate_slot_runtime(runtime, index)?;
+            validate_strategy_runtime(runtime, strategy)?;
             slots.push(runtime);
         }
         Ok(Self {
@@ -163,6 +182,123 @@ impl BaselineLifecycleState {
             slots,
         })
     }
+
+    /// Validate baseline continuation as part of complete engine-state admission.
+    pub(crate) fn validate_authoritative(
+        &self,
+        world: &WorldState,
+        configured_slots: usize,
+        generation_boundary: bool,
+    ) -> Result<(), BaselineLifecycleError> {
+        if self.version != BASELINE_LIFECYCLE_VERSION {
+            return Err(BaselineLifecycleError::InvalidStateVersion(self.version));
+        }
+        if generation_boundary {
+            if self.slots.is_empty() {
+                return Ok(());
+            }
+            return Err(BaselineLifecycleError::SlotCountMismatch {
+                actual: self.slots.len(),
+                expected: 0,
+            });
+        }
+        if self.slots.len() != configured_slots {
+            return Err(BaselineLifecycleError::SlotCountMismatch {
+                actual: self.slots.len(),
+                expected: configured_slots,
+            });
+        }
+        validate_world_slot_claims(world, configured_slots)?;
+        for (index, runtime) in self.slots.iter().copied().enumerate() {
+            validate_slot_runtime(runtime, index)?;
+            let world_index = find_world_slot(world, runtime.slot)?;
+            let snake = &world.snakes[world_index];
+            if snake.id != runtime.snake_id {
+                return Err(BaselineLifecycleError::SnakeIdentityMismatch {
+                    slot: runtime.slot,
+                    expected: runtime.snake_id,
+                    actual: snake.id,
+                });
+            }
+            if snake.baseline_strategy.is_none() {
+                return Err(BaselineLifecycleError::MissingWorldStrategy {
+                    slot: runtime.slot,
+                    snake_id: snake.id,
+                });
+            }
+            validate_strategy_runtime(
+                runtime,
+                snake
+                    .baseline_strategy
+                    .expect("strategy presence was checked immediately above"),
+            )?;
+            if snake.alive && runtime.respawn_remaining_seconds.is_some() {
+                return Err(BaselineLifecycleError::LiveSnakeHasRespawnTimer {
+                    slot: runtime.slot,
+                    snake_id: snake.id,
+                });
+            }
+            if snake.alive
+                && (snake.turn.to_bits() != runtime.turn.to_bits()
+                    || snake.input_boost != runtime.boost)
+            {
+                return Err(BaselineLifecycleError::WorldActionMismatch {
+                    slot: runtime.slot,
+                    snake_id: snake.id,
+                });
+            }
+            if !snake.alive && runtime.respawn_remaining_seconds.is_none() {
+                return Err(BaselineLifecycleError::DeadSnakeMissingRespawnTimer {
+                    slot: runtime.slot,
+                    snake_id: snake.id,
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Validate strategy-dependent durable timer and wander combinations.
+///
+/// State admission and the baseline evaluator share this contract so an
+/// authoritative state cannot be accepted only to fail before its first
+/// baseline control boundary.
+pub(crate) fn validate_strategy_runtime(
+    slot: BaselineSlotRuntime,
+    strategy: BaselineStrategyState,
+) -> Result<(), BaselineLifecycleError> {
+    if slot.wander_angle.abs() > MAXIMUM_WANDER_ANGLE {
+        return Err(BaselineLifecycleError::InvalidSlotScalar {
+            slot: slot.slot,
+            field: "wander_angle",
+        });
+    }
+    if slot.wander_timer_seconds > MAXIMUM_WANDER_TIMER_SECONDS {
+        return Err(BaselineLifecycleError::InvalidSlotScalar {
+            slot: slot.slot,
+            field: "wander_timer_seconds",
+        });
+    }
+    let valid_strategy_timer = match strategy {
+        BaselineStrategyState::Roam | BaselineStrategyState::Seek => {
+            slot.strategy_timer_seconds == 0.0
+        }
+        BaselineStrategyState::Avoid => {
+            slot.strategy_timer_seconds > 0.0
+                && slot.strategy_timer_seconds <= MAXIMUM_AVOID_TIMER_SECONDS
+        }
+        BaselineStrategyState::Boost => {
+            slot.strategy_timer_seconds > 0.0
+                && slot.strategy_timer_seconds <= MAXIMUM_BOOST_TIMER_SECONDS
+        }
+    };
+    if !valid_strategy_timer {
+        return Err(BaselineLifecycleError::InvalidSlotScalar {
+            slot: slot.slot,
+            field: "strategy_timer_seconds",
+        });
+    }
+    Ok(())
 }
 
 /// Size and retained-allocation diagnostics for the latest timer preparation.
@@ -871,6 +1007,14 @@ pub enum BaselineLifecycleError {
         slot: u32,
         snake_id: u64,
     },
+    WorldActionMismatch {
+        slot: u32,
+        snake_id: u64,
+    },
+    DeadSnakeMissingRespawnTimer {
+        slot: u32,
+        snake_id: u64,
+    },
     NonFiniteTimer {
         slot: u32,
     },
@@ -919,6 +1063,8 @@ impl Display for BaselineLifecycleError {
             Self::MissingWorldStrategy { slot, snake_id } => write!(formatter, "baseline slot {slot} snake {snake_id} has no canonical world strategy"),
             Self::DuplicateSnakeIdentity(snake_id) => write!(formatter, "baseline lifecycle repeats snake identity {snake_id}"),
             Self::LiveSnakeHasRespawnTimer { slot, snake_id } => write!(formatter, "live baseline slot {slot} snake {snake_id} retains a respawn timer"),
+            Self::WorldActionMismatch { slot, snake_id } => write!(formatter, "live baseline slot {slot} snake {snake_id} disagrees with its lifecycle action"),
+            Self::DeadSnakeMissingRespawnTimer { slot, snake_id } => write!(formatter, "dead baseline slot {slot} snake {snake_id} has no respawn timer"),
             Self::NonFiniteTimer { slot } => write!(formatter, "baseline slot {slot} produced a non-finite timer"),
             Self::NonCanonicalDeathEvents => write!(formatter, "baseline death events are not in strict snake-ID order"),
             Self::DuplicateDeathSlot(slot) => write!(formatter, "baseline death events repeat slot {slot}"),
@@ -1009,7 +1155,9 @@ mod tests {
     #[test]
     fn generation_initialization_uses_dense_slots_independent_of_world_order() {
         let mut world = world(&[(2, 202, true), (0, 200, true), (1, 201, true)]);
-        world.snakes[0].baseline_strategy = Some(BaselineStrategyState::Avoid);
+        world.snakes[0].baseline_strategy = Some(BaselineStrategyState::Seek);
+        world.snakes[0].turn = -0.25;
+        world.snakes[0].input_boost = true;
         let state =
             BaselineLifecycleState::initialize_after_complete_spawn(config(3), &world).unwrap();
         assert_eq!(
@@ -1022,8 +1170,10 @@ mod tests {
         );
         assert_eq!(
             world.snakes[0].baseline_strategy,
-            Some(BaselineStrategyState::Avoid)
+            Some(BaselineStrategyState::Seek)
         );
+        assert_eq!(state.slots[2].turn, -0.25);
+        assert!(state.slots[2].boost);
         assert!(state
             .slots
             .iter()
@@ -1063,6 +1213,20 @@ mod tests {
             Err(BaselineLifecycleError::MissingWorldStrategy {
                 slot: 0,
                 snake_id: 200,
+            })
+        );
+
+        let mut timed_strategy_without_timer = world(&[(0, 200, true)]);
+        timed_strategy_without_timer.snakes[0].baseline_strategy =
+            Some(BaselineStrategyState::Avoid);
+        assert_eq!(
+            BaselineLifecycleState::initialize_after_complete_spawn(
+                config(1),
+                &timed_strategy_without_timer,
+            ),
+            Err(BaselineLifecycleError::InvalidSlotScalar {
+                slot: 0,
+                field: "strategy_timer_seconds",
             })
         );
     }

@@ -6,12 +6,14 @@
 //! candidate becomes authoritative only after the complete candidate has been
 //! validated against its compiled graph and caller-supplied memory ceiling.
 
+use super::baseline::{BaselineLifecycleState, BaselineSlotRuntime};
 use super::contract::ENGINE_CONTRACT_VERSION;
 use super::graph::{
     CompiledGraph, CompiledNode, GraphBundle, GraphEdge, GraphNodeKind, GraphNodeSpec,
     GraphOutputRef, GraphSpec,
 };
 use super::rng::{RngError, SerializedRngState, StatefulRng};
+use super::sensors::SensorGenerationState;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -715,6 +717,35 @@ pub struct WorldState {
     pub controller_leases: Vec<ControllerLease>,
 }
 
+/// Generation-scoped continuation that must move with the authoritative world.
+///
+/// Ordinary checkpoints do not encode these values because their admitted
+/// generation boundary is explicitly pre-spawn: the ambient credit and sensor
+/// best are zero and no baseline slot has been initialized. A running state,
+/// however, retains all three values through the same atomic publication as the
+/// world, RNG, allocators, brains, and scheduler continuation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FixedStepContinuationState {
+    /// Fractional ambient-pellet credit carried between fixed steps.
+    pub ambient_pellet_accumulator: f64,
+    /// Durable generation-scoped baseline slot timers and actions.
+    pub baseline_lifecycle: BaselineLifecycleState,
+    /// Monotonic generation-best score used by sensor-v3 normalization.
+    pub sensor_generation: SensorGenerationState,
+}
+
+impl FixedStepContinuationState {
+    /// Construct the only continuation admitted at an exact generation boundary.
+    #[must_use]
+    pub fn generation_boundary() -> Self {
+        Self {
+            ambient_pellet_accumulator: 0.0,
+            baseline_lifecycle: BaselineLifecycleState::generation_boundary(),
+            sensor_generation: SensorGenerationState::new(),
+        }
+    }
+}
+
 /// Fully assembled but not-yet-authoritative state candidate.
 ///
 /// The N-API/checkpoint decoder must separately preflight declared record and
@@ -734,6 +765,8 @@ pub struct StateCandidate {
     pub phase: AuthorityPhase,
     /// Generation/scheduler continuation.
     pub generation: GenerationState,
+    /// Generation-scoped fixed-step continuation.
+    pub fixed_step: FixedStepContinuationState,
     /// Independent RNG continuation.
     pub rng: RngStateBundle,
     /// Monotonic allocation continuation.
@@ -1091,6 +1124,15 @@ pub fn estimate_state_memory(
         candidate.brains.capacity().max(maximum_brains),
     )?;
     add_structural::<BaselineRngState>(&mut estimate, candidate.rng.baselines.capacity())?;
+    add_structural::<BaselineSlotRuntime>(
+        &mut estimate,
+        candidate
+            .fixed_step
+            .baseline_lifecycle
+            .slots
+            .capacity()
+            .max(candidate.config.baseline_count),
+    )?;
     add_structural::<SnakeState>(
         &mut estimate,
         candidate
@@ -1221,6 +1263,7 @@ pub fn preflight_generation_boundary_allocation(
     validate_rng_bundle(&candidate_shell.rng, &candidate_shell.config)?;
     validate_allocators(&candidate_shell.allocators)?;
     validate_generation_boundary(candidate_shell, graph.compiled())?;
+    validate_fixed_step_continuation(candidate_shell)?;
     if candidate_shell.population.len() != candidate_shell.config.population_count
         || candidate_shell.brains.len() != candidate_shell.population.len()
     {
@@ -1454,6 +1497,7 @@ fn validate_candidate(
     if matches!(candidate.phase, AuthorityPhase::GenerationBoundary(_)) {
         validate_generation_boundary(candidate, graph)?;
     }
+    validate_fixed_step_continuation(candidate)?;
     Ok(())
 }
 
@@ -1748,6 +1792,45 @@ fn validate_generation(generation: &GenerationState) -> Result<(), StateError> {
     if !generation.best_fitness_ever.is_finite() {
         return invalid("generation.best_fitness_ever", "value must be finite");
     }
+    Ok(())
+}
+
+fn validate_fixed_step_continuation(candidate: &StateCandidate) -> Result<(), StateError> {
+    let continuation = &candidate.fixed_step;
+    validate_nonnegative_f64(
+        "fixed_step.ambient_pellet_accumulator",
+        continuation.ambient_pellet_accumulator,
+    )?;
+    let generation_best = continuation.sensor_generation.best_points_this_generation();
+    if !generation_best.is_finite() || generation_best < 0.0 {
+        return invalid(
+            "fixed_step.sensor_generation",
+            "generation best points must be finite and nonnegative",
+        );
+    }
+    let maximum_alive_evolved_points = candidate
+        .world
+        .snakes
+        .iter()
+        .filter(|snake| snake.alive && snake.kind == SnakeKind::Evolved)
+        .fold(0.0_f64, |maximum, snake| maximum.max(snake.points));
+    if generation_best < maximum_alive_evolved_points {
+        return invalid(
+            "fixed_step.sensor_generation",
+            "generation best points cannot trail a live evolved snake",
+        );
+    }
+    continuation
+        .baseline_lifecycle
+        .validate_authoritative(
+            &candidate.world,
+            candidate.config.baseline_count,
+            matches!(candidate.phase, AuthorityPhase::GenerationBoundary(_)),
+        )
+        .map_err(|error| StateError::InvalidField {
+            field: "fixed_step.baseline_lifecycle",
+            reason: error.to_string(),
+        })?;
     Ok(())
 }
 
@@ -2566,6 +2649,18 @@ fn validate_generation_boundary(
             reason: "elapsed time and wall accumulator must be zero",
         });
     }
+    if candidate.fixed_step.ambient_pellet_accumulator != 0.0
+        || candidate
+            .fixed_step
+            .sensor_generation
+            .best_points_this_generation()
+            != 0.0
+        || !candidate.fixed_step.baseline_lifecycle.slots.is_empty()
+    {
+        return Err(StateError::DirtyGenerationBoundary {
+            reason: "fixed-step continuation must be reset before spawn or sensing",
+        });
+    }
     if !candidate.world.snakes.is_empty()
         || !candidate.world.body_points.is_empty()
         || !candidate.world.pellets.is_empty()
@@ -3119,7 +3214,7 @@ mod tests {
         vec![
             NormalizedSetting {
                 path: "baselineBots.count".into(),
-                value: NormalizedSettingValue::Integer(1),
+                value: NormalizedSettingValue::Integer(0),
             },
             NormalizedSetting {
                 path: "brain.sensorVersion".into(),
@@ -3207,7 +3302,7 @@ mod tests {
             requested_sim_speed: 1.0,
             world_radius: 2_500.0,
             population_count: count,
-            baseline_count: 1,
+            baseline_count: 0,
             max_world_snakes: count + 17,
             max_non_population_brains: 16,
             max_body_points: 100_000,
@@ -3258,15 +3353,13 @@ mod tests {
                 wall_accumulator_seconds: 0.0,
                 best_fitness_ever: 0.0,
             },
+            fixed_step: FixedStepContinuationState::generation_boundary(),
             rng: RngStateBundle {
                 version: RNG_BUNDLE_VERSION,
                 world: rng(42, "world"),
                 evolution: rng(42, "evolution"),
                 external_controller: rng(42, "external-controller"),
-                baselines: vec![BaselineRngState {
-                    slot: 0,
-                    state: rng(42, "baseline:0"),
-                }],
+                baselines: Vec::new(),
             },
             allocators: AllocatorState {
                 version: ALLOCATOR_VERSION,
@@ -3288,6 +3381,39 @@ mod tests {
     fn refresh_config_hash(candidate: &mut StateCandidate) {
         candidate.identity.config_hash =
             normalized_config_hash(&candidate.config).expect("test config must hash");
+    }
+
+    fn enable_one_live_baseline(
+        candidate: &mut StateCandidate,
+        snake_id: u64,
+        respawn_remaining_seconds: Option<f64>,
+    ) {
+        candidate.config.baseline_count = 1;
+        candidate
+            .config
+            .settings
+            .iter_mut()
+            .find(|setting| setting.path == "baselineBots.count")
+            .expect("test baseline-count setting")
+            .value = NormalizedSettingValue::Integer(1);
+        candidate.rng.baselines = vec![BaselineRngState {
+            slot: 0,
+            state: rng(42, "baseline:0"),
+        }];
+        candidate.fixed_step.baseline_lifecycle = BaselineLifecycleState {
+            version: crate::engine::baseline::BASELINE_LIFECYCLE_VERSION,
+            slots: vec![BaselineSlotRuntime {
+                slot: 0,
+                snake_id,
+                strategy_timer_seconds: 0.0,
+                wander_angle: 0.0,
+                wander_timer_seconds: 0.0,
+                turn: 0.0,
+                boost: false,
+                respawn_remaining_seconds,
+            }],
+        };
+        refresh_config_hash(candidate);
     }
 
     fn push_evolved_snake(
@@ -3871,6 +3997,210 @@ mod tests {
     }
 
     #[test]
+    fn fixed_step_continuation_is_owned_live_and_reset_at_checkpoint_boundaries() {
+        let graph = default_graph();
+
+        let mut dirty_ambient = candidate(&graph, 1);
+        dirty_ambient.fixed_step.ambient_pellet_accumulator = 0.25;
+        assert!(matches!(
+            own(dirty_ambient, Arc::clone(&graph), usize::MAX),
+            Err(StateError::DirtyGenerationBoundary { .. })
+        ));
+
+        let mut donor = candidate(&graph, 1);
+        donor.phase = AuthorityPhase::Running;
+        push_evolved_snake(&mut donor, 0, 1, 1, WorldPoint { x: 1.0, y: 2.0 });
+        donor.world.snakes[0].points = 12.5;
+        let mut sensor_generation = SensorGenerationState::new();
+        sensor_generation
+            .update_after_step(&donor.world)
+            .expect("finite evolved score should update generation best");
+        let mut dirty_sensor = candidate(&graph, 1);
+        dirty_sensor.fixed_step.sensor_generation = sensor_generation;
+        assert!(matches!(
+            own(dirty_sensor, Arc::clone(&graph), usize::MAX),
+            Err(StateError::DirtyGenerationBoundary { .. })
+        ));
+
+        let mut dirty_baseline = candidate(&graph, 1);
+        dirty_baseline
+            .fixed_step
+            .baseline_lifecycle
+            .slots
+            .push(BaselineSlotRuntime {
+                slot: 0,
+                snake_id: BASELINE_ENTITY_ID_START,
+                strategy_timer_seconds: 0.0,
+                wander_angle: 0.0,
+                wander_timer_seconds: 0.0,
+                turn: 0.0,
+                boost: false,
+                respawn_remaining_seconds: None,
+            });
+        assert!(matches!(
+            own(dirty_baseline, Arc::clone(&graph), usize::MAX),
+            Err(StateError::DirtyGenerationBoundary { .. })
+        ));
+
+        let mut missing_live_baseline = candidate(&graph, 1);
+        missing_live_baseline.phase = AuthorityPhase::Running;
+        enable_one_live_baseline(&mut missing_live_baseline, BASELINE_ENTITY_ID_START, None);
+        assert!(matches!(
+            own(missing_live_baseline, graph, usize::MAX),
+            Err(StateError::InvalidField {
+                field: "fixed_step.baseline_lifecycle",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn live_fixed_step_continuation_survives_ownership_and_charges_retained_capacity() {
+        let graph = default_graph();
+        let mut live = candidate(&graph, 1);
+        live.phase = AuthorityPhase::Running;
+        push_evolved_snake(&mut live, 0, 1, 1, WorldPoint { x: 1.0, y: 2.0 });
+        live.world.snakes[0].points = 12.5;
+        assert!(matches!(
+            own(live.clone(), Arc::clone(&graph), usize::MAX),
+            Err(StateError::InvalidField {
+                field: "fixed_step.sensor_generation",
+                ..
+            })
+        ));
+
+        let baseline_position = WorldPoint { x: 8.0, y: 9.0 };
+        let body_start = live.world.body_points.len();
+        live.world.body_points.push(baseline_position);
+        live.world.snakes.push(SnakeState {
+            id: BASELINE_ENTITY_ID_START,
+            frame_v1_id: 2,
+            kind: SnakeKind::Baseline,
+            alive: true,
+            population_slot: None,
+            brain: None,
+            baseline_slot: Some(0),
+            baseline_strategy: Some(BaselineStrategyState::Roam),
+            position: baseline_position,
+            previous_position: baseline_position,
+            direction: 0.0,
+            radius: 8.0,
+            speed: 100.0,
+            boost: false,
+            age_seconds: 0.0,
+            food: 0.0,
+            points: 0.0,
+            kills: 0,
+            target_length: 1.0,
+            fitness: 0.0,
+            turn: 0.0,
+            previous_turn: 0.0,
+            input_boost: false,
+            previous_input_boost: false,
+            control_accumulator_seconds: 0.0,
+            delivered_observation_points: 0.0,
+            body: BodyRange {
+                start: body_start,
+                len: 1,
+            },
+            skin: 0,
+        });
+        live.allocators.next_baseline_id = BASELINE_ENTITY_ID_START + 1;
+        live.allocators.next_frame_v1_id = 3;
+        enable_one_live_baseline(&mut live, BASELINE_ENTITY_ID_START, None);
+        live.fixed_step.ambient_pellet_accumulator = 0.75;
+        live.fixed_step
+            .sensor_generation
+            .update_after_step(&live.world)
+            .expect("finite evolved score should update generation best");
+
+        let expected_continuation = live.fixed_step.clone();
+        let compact_estimate = estimate_state_memory(&live, &graph).unwrap();
+        let owned = own(
+            live.clone(),
+            Arc::clone(&graph),
+            compact_estimate.total_bytes,
+        )
+        .expect("complete live continuation should be admitted");
+        assert_eq!(owned.state().fixed_step, expected_continuation);
+        assert_eq!(
+            owned
+                .state()
+                .fixed_step
+                .sensor_generation
+                .best_points_this_generation(),
+            12.5
+        );
+
+        let mut invalid_strategy_timer = live.clone();
+        invalid_strategy_timer.fixed_step.baseline_lifecycle.slots[0].strategy_timer_seconds = 0.1;
+        assert!(matches!(
+            own(invalid_strategy_timer, Arc::clone(&graph), usize::MAX),
+            Err(StateError::InvalidField {
+                field: "fixed_step.baseline_lifecycle",
+                ..
+            })
+        ));
+
+        let mut invalid_wander = live.clone();
+        invalid_wander.fixed_step.baseline_lifecycle.slots[0].wander_angle = 0.31;
+        assert!(matches!(
+            own(invalid_wander, Arc::clone(&graph), usize::MAX),
+            Err(StateError::InvalidField {
+                field: "fixed_step.baseline_lifecycle",
+                ..
+            })
+        ));
+
+        let mut mismatched_turn = live.clone();
+        mismatched_turn.fixed_step.baseline_lifecycle.slots[0].turn = 0.25;
+        assert!(matches!(
+            own(mismatched_turn, Arc::clone(&graph), usize::MAX),
+            Err(StateError::InvalidField {
+                field: "fixed_step.baseline_lifecycle",
+                ..
+            })
+        ));
+
+        let mut mismatched_boost = live.clone();
+        mismatched_boost.fixed_step.baseline_lifecycle.slots[0].boost = true;
+        assert!(matches!(
+            own(mismatched_boost, Arc::clone(&graph), usize::MAX),
+            Err(StateError::InvalidField {
+                field: "fixed_step.baseline_lifecycle",
+                ..
+            })
+        ));
+
+        let mut dead_action_divergence = live.clone();
+        let baseline_index = dead_action_divergence
+            .world
+            .snakes
+            .iter()
+            .position(|snake| snake.id == BASELINE_ENTITY_ID_START)
+            .expect("test baseline must exist");
+        dead_action_divergence.world.snakes[baseline_index].alive = false;
+        dead_action_divergence.world.snakes[baseline_index].turn = 0.5;
+        dead_action_divergence.world.snakes[baseline_index].input_boost = true;
+        dead_action_divergence.fixed_step.baseline_lifecycle.slots[0].respawn_remaining_seconds =
+            Some(3.0);
+        assert!(own(dead_action_divergence, Arc::clone(&graph), usize::MAX,).is_ok());
+
+        let mut over_reserved = live;
+        over_reserved
+            .fixed_step
+            .baseline_lifecycle
+            .slots
+            .reserve_exact(32);
+        let reserved_estimate = estimate_state_memory(&over_reserved, &graph).unwrap();
+        assert!(reserved_estimate.structural_bytes > compact_estimate.structural_bytes);
+        assert!(matches!(
+            own(over_reserved, graph, compact_estimate.total_bytes),
+            Err(StateError::MemoryCeilingExceeded { .. })
+        ));
+    }
+
+    #[test]
     fn running_world_rejects_duplicate_slots_brains_and_incoherent_bodies() {
         let graph = default_graph();
         let mut duplicate = candidate(&graph, 2);
@@ -4037,6 +4367,7 @@ mod tests {
         });
         live.allocators.next_baseline_id = BASELINE_ENTITY_ID_START + 1;
         live.allocators.next_frame_v1_id = 2;
+        enable_one_live_baseline(&mut live, BASELINE_ENTITY_ID_START, None);
         assert!(own(live.clone(), Arc::clone(&graph), usize::MAX).is_ok());
 
         live.world.snakes[0].baseline_slot = Some(1);
@@ -4178,6 +4509,7 @@ mod tests {
                     snake.baseline_slot = Some(0);
                     snake.baseline_strategy = Some(BaselineStrategyState::Roam);
                     live.allocators.next_baseline_id = id + 1;
+                    enable_one_live_baseline(&mut live, id, None);
                 } else {
                     live.allocators.next_resurrected_id = id + 1;
                 }

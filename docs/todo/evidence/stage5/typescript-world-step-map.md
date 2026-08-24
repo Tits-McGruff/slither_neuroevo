@@ -230,6 +230,31 @@ its owner-visible failure rule are still unresolved. Controller sampling,
 baseline newborn accounting, physics, generation decisions, frame packing and
 publication remain outside this slice.
 
+## Authoritative fixed-step continuation ownership
+
+`StateCandidate::fixed_step` now owns the ambient-pellet accumulator, durable
+baseline lifecycle, and sensor-generation best beside the authoritative world,
+RNG, allocators, brains, and scheduler state. A running state cannot be admitted
+with a missing baseline slot, mismatched slot/snake identity, incoherent
+alive/dead respawn timer, or a baseline strategy/timer/wander combination that
+the controller would reject at its next boundary. A live baseline's lifecycle
+action must also equal the turn/boost held by its snake record, and the retained
+generation best cannot trail any currently alive evolved snake's points. The
+controller and state admission share the durable strategy-state validator.
+
+Checkpoint-v3 bytes do not change for this addition. Ordinary exact saves are
+already restricted to the pre-spawn generation boundary, where ambient credit
+and sensor-generation best are exactly zero and baseline lifecycle slots have
+not yet been initialized. Both final decode and the pre-allocation shell derive
+that one reset continuation, while boundary admission rejects any nonzero or
+initialized live value. Retained live baseline-slot capacity is included in the
+authoritative memory ceiling.
+
+This closes a split-ownership prerequisite only. The joined prefix and control
+phase still expose non-authoritative proposals, and the later coordinator must
+publish their complete continuation, observation, control, recurrent, physics,
+and generation results in one validated swap.
+
 ## Baseline strategy and action evaluation
 
 The current baseline controller chooses its life-stage policy from body-point

@@ -5,7 +5,7 @@
 //! observation, retain its delivery marker, evaluate every live baseline slot,
 //! and join the staged result to the same keyed transaction before committing.
 
-use super::baseline::BaselineSlotRuntime;
+use super::baseline::{validate_strategy_runtime, BaselineSlotRuntime};
 use super::rng::StatefulRng;
 use super::sensor_layout::{
     SensorLayout, MAX_SENSOR_BINS, MIN_SENSOR_BINS, SENSOR_CHANNEL_COUNT, SENSOR_SCALAR_COUNT,
@@ -336,7 +336,8 @@ impl BaselineControlWorkspace {
         let source_strategy = snake
             .baseline_strategy
             .ok_or(BaselineControlError::MissingStrategy { snake_id: snake.id })?;
-        validate_strategy_slot(source_slot, source_strategy)?;
+        validate_strategy_runtime(*source_slot, source_strategy)
+            .map_err(|_| BaselineControlError::InvalidSlotState(source_slot.slot))?;
         let mut rng = StatefulRng::from_state(&source_rng.state)
             .map_err(|_| BaselineControlError::InvalidRngState(source_rng.slot))?;
         let mut uniform_draws = 0usize;
@@ -858,35 +859,12 @@ fn validate_slot_shape(slot: &BaselineSlotRuntime) -> Result<(), BaselineControl
         || !slot.strategy_timer_seconds.is_finite()
         || slot.strategy_timer_seconds < 0.0
         || !slot.wander_angle.is_finite()
-        || slot.wander_angle.abs() > WANDER_ANGLE_SCALE * 0.5
         || !slot.wander_timer_seconds.is_finite()
         || slot.wander_timer_seconds < 0.0
-        || slot.wander_timer_seconds > 2.0
         || !slot.turn.is_finite()
         || !(-1.0..=1.0).contains(&slot.turn)
         || slot.respawn_remaining_seconds.is_some()
     {
-        return Err(BaselineControlError::InvalidSlotState(slot.slot));
-    }
-    Ok(())
-}
-
-fn validate_strategy_slot(
-    slot: &BaselineSlotRuntime,
-    strategy: BaselineStrategyState,
-) -> Result<(), BaselineControlError> {
-    let valid_timer = match strategy {
-        BaselineStrategyState::Roam | BaselineStrategyState::Seek => {
-            slot.strategy_timer_seconds == 0.0
-        }
-        BaselineStrategyState::Avoid => {
-            slot.strategy_timer_seconds > 0.0 && slot.strategy_timer_seconds <= 0.70
-        }
-        BaselineStrategyState::Boost => {
-            slot.strategy_timer_seconds > 0.0 && slot.strategy_timer_seconds <= 0.40
-        }
-    };
-    if !valid_timer {
         return Err(BaselineControlError::InvalidSlotState(slot.slot));
     }
     Ok(())

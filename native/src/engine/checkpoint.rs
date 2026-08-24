@@ -13,10 +13,10 @@ use super::rng::SerializedRngState;
 use super::state::{
     preflight_generation_boundary_allocation, AllocatorState, AuthoritativeState, AuthorityPhase,
     BaselineRngState, BrainHandle, BrainOwner, BrainRuntimeState, ContractVersions,
-    GenerationBoundaryKind, GenerationBoundaryView, GenerationState, GenomeLineage,
-    NormalizedEngineConfig, NormalizedSetting, NormalizedSettingValue, PopulationGenome,
-    RngStateBundle, RunIdentity, StateAdmissionPolicy, StateCandidate, StateError, WorldState,
-    CHECKPOINT_VERSION,
+    FixedStepContinuationState, GenerationBoundaryKind, GenerationBoundaryView, GenerationState,
+    GenomeLineage, NormalizedEngineConfig, NormalizedSetting, NormalizedSettingValue,
+    PopulationGenome, RngStateBundle, RunIdentity, StateAdmissionPolicy, StateCandidate,
+    StateError, WorldState, CHECKPOINT_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -3298,6 +3298,7 @@ fn assemble_candidate(
         config: state.config,
         phase: AuthorityPhase::GenerationBoundary(state.boundary_kind),
         generation: state.generation,
+        fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: state.rng,
         allocators: state.allocators,
         population,
@@ -3352,6 +3353,7 @@ fn assemble_allocation_shell(
         config: state.config.clone(),
         phase: AuthorityPhase::GenerationBoundary(state.boundary_kind),
         generation: state.generation.clone(),
+        fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: state.rng.clone(),
         allocators: state.allocators.clone(),
         population,
@@ -4636,6 +4638,7 @@ mod tests {
                 wall_accumulator_seconds: 0.0,
                 best_fitness_ever: 0.0,
             },
+            fixed_step: FixedStepContinuationState::generation_boundary(),
             rng: RngStateBundle {
                 version: RNG_BUNDLE_VERSION,
                 world: rng(),
