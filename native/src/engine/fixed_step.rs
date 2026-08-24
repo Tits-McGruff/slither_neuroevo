@@ -76,7 +76,7 @@ impl FixedStepPrefixConfig {
         }
     }
 
-    fn validate_shape(self) -> Result<(), FixedStepPrefixError> {
+    pub(crate) fn validate_shape(self) -> Result<(), FixedStepPrefixError> {
         if self.algorithm_version != FIXED_STEP_PREFIX_VERSION {
             return Err(FixedStepPrefixError::InvalidConfig {
                 field: "algorithm_version",
@@ -110,6 +110,9 @@ impl FixedStepPrefixConfig {
                 field: "maximum_pellets",
             });
         }
+        self.accounting.validate()?;
+        self.ambient.validate(self.maximum_pellets)?;
+        self.baseline.validate()?;
         if self.ambient.world_radius.to_bits() != self.baseline_spawn.world_radius.to_bits() {
             return Err(FixedStepPrefixError::InvalidConfig {
                 field: "baseline spawn world radius",

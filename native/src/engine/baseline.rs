@@ -50,7 +50,7 @@ impl BaselineLifecycleConfig {
         }
     }
 
-    fn validate(self) -> Result<(), BaselineLifecycleError> {
+    pub(crate) fn validate(self) -> Result<(), BaselineLifecycleError> {
         if self.algorithm_version != BASELINE_LIFECYCLE_VERSION {
             return Err(BaselineLifecycleError::InvalidConfig {
                 field: "algorithm_version",

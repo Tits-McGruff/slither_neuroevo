@@ -69,7 +69,7 @@ impl DeathDropConfig {
         }
     }
 
-    fn validate(self) -> Result<(), EffectError> {
+    pub(crate) fn validate(self) -> Result<(), EffectError> {
         for (field, value) in [
             ("drop_fraction_small", self.drop_fraction_small),
             ("drop_fraction_large", self.drop_fraction_large),

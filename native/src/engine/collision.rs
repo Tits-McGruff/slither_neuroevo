@@ -47,7 +47,7 @@ impl CollisionConfig {
         }
     }
 
-    fn validate(self) -> Result<(), CollisionError> {
+    pub(crate) fn validate(self) -> Result<(), CollisionError> {
         if !self.cell_size.is_finite() || self.cell_size <= 0.0 {
             return Err(CollisionError::InvalidConfig { field: "cell_size" });
         }

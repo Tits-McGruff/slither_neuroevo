@@ -32,7 +32,7 @@ impl StepAccountingConfig {
         }
     }
 
-    fn validate(self) -> Result<(), StepAccountingError> {
+    pub(crate) fn validate(self) -> Result<(), StepAccountingError> {
         if self.algorithm_version != STEP_ACCOUNTING_ALGORITHM_VERSION {
             return Err(StepAccountingError::InvalidConfig {
                 field: "algorithm_version",

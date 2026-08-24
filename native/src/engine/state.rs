@@ -15,6 +15,10 @@ use super::graph::{
 use super::physics::{PhysicsStepKey, PhysicsStepKeyField};
 use super::rng::{RngError, SerializedRngState, StatefulRng};
 use super::sensors::SensorGenerationState;
+use super::step_config::{
+    project_running_step_config, RunningStepConfigProjection, RunningStepWorkLimits,
+    StepConfigError,
+};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -917,6 +921,18 @@ impl AuthoritativeState {
     #[must_use]
     pub fn memory_estimate(&self) -> StateMemoryEstimate {
         self.memory
+    }
+
+    /// Project the complete fixed-step and sensor formulas from this admitted authority.
+    ///
+    /// Callers cannot substitute a different normalized settings object. Work
+    /// ceilings remain explicit process policy and fail the step if exceeded;
+    /// they do not silently truncate sensing, collision, or spawn truth.
+    pub fn running_step_config(
+        &self,
+        limits: RunningStepWorkLimits,
+    ) -> Result<RunningStepConfigProjection, StepConfigError> {
+        project_running_step_config(&self.candidate.config, limits)
     }
 
     /// Begin one fresh running-step attempt from the current authority.

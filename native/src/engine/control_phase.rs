@@ -108,7 +108,7 @@ impl ControlPhaseConfig {
         MAXIMUM_NEURAL_CONTROL_INTERVAL_SECONDS
     }
 
-    fn validate(self) -> Result<(), ControlPhaseError> {
+    pub(crate) fn validate(self) -> Result<(), ControlPhaseError> {
         if self.algorithm_version != CONTROL_PHASE_VERSION {
             return Err(ControlPhaseError::InvalidConfig {
                 field: "algorithm_version",
@@ -128,6 +128,17 @@ impl ControlPhaseConfig {
         {
             return Err(ControlPhaseError::InvalidConfig {
                 field: "control capacities",
+            });
+        }
+        if !self.sensor_index.body_cell_size.is_finite()
+            || self.sensor_index.body_cell_size <= 0.0
+            || !self.sensor_index.pellet_cell_size.is_finite()
+            || self.sensor_index.pellet_cell_size <= 0.0
+            || self.sensor_index.maximum_body_entries == 0
+            || self.sensor_index.maximum_pellet_entries == 0
+        {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "sensor index",
             });
         }
         self.baseline.validate()?;

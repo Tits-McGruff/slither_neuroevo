@@ -80,7 +80,7 @@ impl AmbientPelletConfig {
         }
     }
 
-    fn validate(self, maximum_pellets: usize) -> Result<(), AmbientError> {
+    pub(crate) fn validate(self, maximum_pellets: usize) -> Result<(), AmbientError> {
         for (field, value) in [
             ("spawn_per_second", self.spawn_per_second),
             ("world_radius", self.world_radius),

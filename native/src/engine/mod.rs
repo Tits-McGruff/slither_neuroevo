@@ -68,6 +68,8 @@ pub mod spatial;
 pub mod spawn;
 /// Owned persistent-state and generation-boundary admission contracts.
 pub mod state;
+/// Strict admitted-settings projection for one complete running step.
+pub mod step_config;
 /// Complete post-control world-step staging before one authority publication.
 pub mod world_step;
 

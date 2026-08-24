@@ -43,7 +43,7 @@ impl FoodConfig {
         }
     }
 
-    fn validate(self) -> Result<(), FoodError> {
+    pub(crate) fn validate(self) -> Result<(), FoodError> {
         for (field, value) in [
             ("eat_radius_padding", self.eat_radius_padding),
             ("points_per_food", self.points_per_food),

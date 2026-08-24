@@ -625,6 +625,60 @@ call this primitive. Reset, New Run and import must also advance the world epoch
 when those replacement paths are implemented. No scheduler, frame, Node,
 browser, RL, performance or production-cutover gate is claimed here.
 
+## Strict running-step configuration projection
+
+Current-source inspection at parent commit `006e7bf` maps the authoritative
+running-step values from `src/config.ts::CFG_DEFAULT`,
+`src/protocol/settings.ts::SETTINGS_PATHS`, the ranges and scalar kinds in
+`src/protocol/settingDefinitions.ts`, the sensor formulas in `src/sensors.ts`,
+and `src/world.ts::World._advanceFixedStepPhysics`. The TypeScript physics path
+clamps `collision.substepMaxDt` to `[0.001, fixedDt]`, calculates
+`ceil(fixedDt / maxSubstep)`, caps that count at 64, then divides the one fixed
+delta evenly across the selected collision-only substeps.
+
+`engine::step_config` projection version 1 now derives one complete
+`WorldStepConfig` and `SensorConfig` from the path-sorted
+`NormalizedEngineConfig` owned by `AuthoritativeState`. It requires exact
+integer, floating, and boolean kinds; applies the current owner-facing setting
+ranges; checks the duplicated world radius, population count, baseline count
+and simulation-speed projections against their typed authoritative fields; and
+rejects missing, unsupported, non-finite, out-of-range or inconsistent values.
+The projection includes behavior-changing `CFG` fields not present in the
+current browser slider snapshot, specifically `pelletGrid.cellSize`,
+`snakeTurnPenalty`, and every `death.*` value. A future construction boundary
+must normalize the complete experiment configuration rather than treating the
+browser slider list as a complete Rust state contract. The current Rust corpse
+color path supports `death.useSnakeColor = true`; a false value rejects clearly
+instead of being ignored.
+
+User values populate survival accounting, ambient food, baseline timing and
+spawn geometry, neural cadence, controller wall-time rules, shared sensor
+configuration and indexes, movement/boost/body formulas, food scoring/growth,
+collision settings, death drops, kill credit and derived physics subdivisions.
+The admitted top-level body, pellet, snake and brain ceilings are copied into
+the applicable phase contracts. Every nested phase now exposes crate-private
+shape validation, so projection rejects an invalid accounting, ambient,
+baseline, control/index, movement, food, collision, effect, physics or joined
+world-step configuration before hot work begins.
+
+Spatial, collision-search and collision-safe-spawn work ceilings remain an
+explicit `RunningStepWorkLimits` policy rather than gameplay settings. The
+current values are labelled provisional. Exhausting them must reject the step;
+they do not authorize omitted sensors, segments, candidates, collisions or a
+reduced population. P0-P3 complete-step measurements must justify later limit
+changes.
+
+Focused tests prove the complete current default projection, TypeScript's
+derived three-substep default, changed live values and a changed two-substep
+case, strict scalar kinds, missing and out-of-range rejection, unsupported
+corpse-color rejection, top-level projection disagreement, and invalid work
+limits. The all-feature release library suite passed 334 tests after the join.
+This is configuration authority only. The Node/Rust normalized-config builder,
+live revision replacement, matching sensor-pipeline construction, private
+prefix/control/world-step drive, external delivery resolution, generation
+decision and final publication call remain open; no normal server path or
+performance result is claimed.
+
 ## Spawn correction
 
 Current `Snake` construction consumes three uniform draws: polar angle,

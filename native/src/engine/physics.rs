@@ -223,7 +223,11 @@ impl PhysicsConfig {
         }
     }
 
-    fn validate(self) -> Result<(), PhysicsError> {
+    pub(crate) fn validate(self) -> Result<(), PhysicsError> {
+        self.movement.validate()?;
+        self.food.validate()?;
+        self.collision.validate()?;
+        self.death.validate()?;
         if !self.substep_dt.is_finite() || self.substep_dt <= 0.0 {
             return Err(PhysicsError::InvalidConfig {
                 field: "substep_dt",

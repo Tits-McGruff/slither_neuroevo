@@ -12,7 +12,7 @@ use super::baseline::{
 };
 use super::calculation::CalculationBatchKey;
 use super::control_phase::{
-    ControlCommitDiagnostics, ControlPhaseConfig, PreparedControlCommit,
+    ControlCommitDiagnostics, ControlPhaseConfig, ControlPhaseError, PreparedControlCommit,
     PreparedExternalObservation,
 };
 use super::fixed_step::{copy_lifecycle_reusing, FixedStepPrefixConfig, FixedStepPrefixError};
@@ -66,18 +66,16 @@ impl WorldStepConfig {
         }
     }
 
-    fn validate_against(self, control: PreparedControlCommit<'_>) -> Result<(), WorldStepError> {
+    pub(crate) fn validate_shape(self) -> Result<(), WorldStepError> {
         if self.algorithm_version != WORLD_STEP_VERSION {
             return Err(WorldStepError::InvalidConfig {
                 field: "algorithm_version",
             });
         }
-        if self.prefix != control.prefix_config() {
-            return Err(WorldStepError::ControlConfigMismatch { field: "prefix" });
-        }
-        if self.control != control.control_config() {
-            return Err(WorldStepError::ControlConfigMismatch { field: "control" });
-        }
+        self.prefix.validate_shape()?;
+        self.control.validate()?;
+        self.physics.validate()?;
+        self.baseline.validate()?;
         if self.baseline != self.prefix.baseline {
             return Err(WorldStepError::InvalidConfig {
                 field: "baseline lifecycle",
@@ -133,6 +131,17 @@ impl WorldStepConfig {
                 field: "physics substep sum",
             });
         }
+        Ok(())
+    }
+
+    fn validate_against(self, control: PreparedControlCommit<'_>) -> Result<(), WorldStepError> {
+        if self.prefix != control.prefix_config() {
+            return Err(WorldStepError::ControlConfigMismatch { field: "prefix" });
+        }
+        if self.control != control.control_config() {
+            return Err(WorldStepError::ControlConfigMismatch { field: "control" });
+        }
+        self.validate_shape()?;
         Ok(())
     }
 }
@@ -384,6 +393,8 @@ impl WorldStepWorkspace {
 pub enum WorldStepError {
     /// Prefix-owned reusable continuation copy failed.
     Prefix(Box<FixedStepPrefixError>),
+    /// Shared control-selection configuration is invalid.
+    Control(Box<ControlPhaseError>),
     /// One physics phase or transaction failed.
     Physics(Box<PhysicsError>),
     /// Baseline death-delay staging failed.
@@ -401,6 +412,12 @@ pub enum WorldStepError {
 impl From<FixedStepPrefixError> for WorldStepError {
     fn from(error: FixedStepPrefixError) -> Self {
         Self::Prefix(Box::new(error))
+    }
+}
+
+impl From<ControlPhaseError> for WorldStepError {
+    fn from(error: ControlPhaseError) -> Self {
+        Self::Control(Box::new(error))
     }
 }
 
@@ -426,6 +443,7 @@ impl Display for WorldStepError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Prefix(error) => write!(formatter, "{error}"),
+            Self::Control(error) => write!(formatter, "{error}"),
             Self::Physics(error) => write!(formatter, "{error}"),
             Self::Baseline(error) => write!(formatter, "{error}"),
             Self::Sensor(error) => write!(formatter, "{error}"),
@@ -447,6 +465,7 @@ impl Error for WorldStepError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Prefix(error) => Some(error.as_ref()),
+            Self::Control(error) => Some(error.as_ref()),
             Self::Physics(error) => Some(error.as_ref()),
             Self::Baseline(error) => Some(error.as_ref()),
             Self::Sensor(error) => Some(error.as_ref()),
