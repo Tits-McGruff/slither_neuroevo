@@ -53,6 +53,8 @@ pub mod physics;
 pub mod queues;
 /// Versioned deterministic random-number generation shared by engine state.
 pub mod rng;
+/// Private complete nonterminal fixed-step orchestration and publication.
+mod running_step;
 /// One-shot owner of the background coordinator lifecycle.
 pub mod runtime;
 /// Deterministic Stage 4 corrected-sensing performance evidence.
@@ -74,3 +76,7 @@ pub mod step_config;
 pub mod world_step;
 
 pub use coordinator::LifecycleState;
+pub use running_step::{
+    GenerationTransitionReason, RunningStepCoordinator, RunningStepError, RunningStepInputs,
+    RunningStepOutcome, RUNNING_STEP_COORDINATOR_VERSION,
+};

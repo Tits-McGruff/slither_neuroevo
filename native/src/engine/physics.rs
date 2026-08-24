@@ -344,6 +344,16 @@ pub struct PreparedPhysicsStep<'step> {
     diagnostics: PhysicsStepDiagnostics,
 }
 
+/// Mutable complete-step buffers admitted for the one authority swap.
+pub(crate) struct PhysicsPublicationBuffers<'step> {
+    /// Fully advanced physical world.
+    pub world: &'step mut WorldState,
+    /// Fully advanced gameplay RNG bundle.
+    pub rng: &'step mut RngStateBundle,
+    /// Fully advanced deterministic allocator bundle.
+    pub allocators: &'step mut AllocatorState,
+}
+
 /// Unforgeable view of baseline deaths emitted by one complete physics step.
 ///
 /// The baseline lifecycle accepts this keyed view instead of a raw event slice,
@@ -980,6 +990,31 @@ impl PhysicsStepWorkspace {
                 .ok_or(PhysicsError::StepNotStarted)?,
             baseline_deaths: &self.baseline_deaths,
             diagnostics: self.diagnostics(),
+        })
+    }
+
+    /// Borrow the complete mutable buffers only after every declared substep.
+    pub(crate) fn publication_buffers(
+        &mut self,
+        current_key: PhysicsStepKey,
+    ) -> Result<PhysicsPublicationBuffers<'_>, PhysicsError> {
+        self.ensure_current_key(current_key)?;
+        if self.completed_substeps != self.expected_substeps {
+            return Err(PhysicsError::IncompleteSubsteps {
+                completed: self.completed_substeps,
+                expected: self.expected_substeps,
+            });
+        }
+        let Self {
+            world,
+            rng,
+            allocators,
+            ..
+        } = self;
+        Ok(PhysicsPublicationBuffers {
+            world,
+            rng: rng.as_mut().ok_or(PhysicsError::StepNotStarted)?,
+            allocators: allocators.as_mut().ok_or(PhysicsError::StepNotStarted)?,
         })
     }
 

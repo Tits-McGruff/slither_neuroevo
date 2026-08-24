@@ -25,6 +25,7 @@ use std::error::Error;
 use std::fmt;
 use std::mem::size_of;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// State-contract version implemented by this module.
@@ -43,6 +44,18 @@ pub const NORMALIZED_CONFIG_VERSION: u32 = 1;
 pub const ALLOCATOR_VERSION: u32 = 1;
 /// Managed checkpoint version selected by the approved plan.
 pub const CHECKPOINT_VERSION: u32 = 3;
+/// Next process-local identity assigned to a newly admitted authoritative world.
+static NEXT_WORLD_EPOCH: AtomicU64 = AtomicU64::new(1);
+
+fn allocate_world_epoch() -> Result<u64, StateError> {
+    NEXT_WORLD_EPOCH
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .map_err(|_| StateError::ArithmeticOverflow {
+            context: "process-local world epoch",
+        })
+}
 /// Exact generation-boundary contract implemented by this module.
 pub const GENERATION_BOUNDARY_VERSION: u32 = 1;
 /// Largest integer that binary frame v1 can represent exactly as `f32`.
@@ -883,12 +896,13 @@ impl AuthoritativeState {
             });
         }
         validate_candidate(&candidate, graph.compiled(), policy)?;
+        let world_epoch = allocate_world_epoch()?;
         Ok(Self {
             candidate,
             graph,
             memory,
             memory_ceiling_bytes: policy.memory_ceiling_bytes,
-            world_epoch: 1,
+            world_epoch,
             latest_operation_epoch: 0,
         })
     }
@@ -921,6 +935,12 @@ impl AuthoritativeState {
     #[must_use]
     pub fn memory_estimate(&self) -> StateMemoryEstimate {
         self.memory
+    }
+
+    /// Unique process-local incarnation used to reject cross-authority work.
+    #[must_use]
+    pub(crate) const fn world_epoch(&self) -> u64 {
+        self.world_epoch
     }
 
     /// Project the complete fixed-step and sensor formulas from this admitted authority.
@@ -3470,6 +3490,10 @@ mod tests {
     use crate::engine::queues::NoopWakeSink;
     use crate::engine::rng::{derive_seed, StatefulRng};
     use crate::engine::runtime::EngineRuntime;
+    use crate::engine::step_config::RunningStepWorkLimits;
+    use crate::engine::{
+        GenerationTransitionReason, RunningStepCoordinator, RunningStepError, RunningStepInputs,
+    };
 
     fn default_graph_spec() -> GraphSpec {
         GraphSpec {
@@ -3837,6 +3861,73 @@ mod tests {
         running.phase = AuthorityPhase::Running;
         push_evolved_snake(&mut running, 0, 1, 1, WorldPoint { x: 10.0, y: 20.0 });
         running
+    }
+
+    fn complete_running_candidate(graph: &CompiledGraph) -> StateCandidate {
+        let mut running = running_candidate(graph);
+        running.config.settings = crate::engine::step_config::tests::default_settings(1, 0);
+        running.config.settings_schema_sha256 =
+            normalized_settings_schema_hash(&running.config.settings)
+                .expect("complete running settings schema must hash");
+        running.config.world_radius = 3_500.0;
+        running.config.max_world_snakes = 32;
+        running.config.max_non_population_brains = 31;
+        running.config.max_pellets = 10_000;
+        running.config.spatial_index_bytes = 8 * 1024 * 1024;
+        running.config.worker_scratch_bytes = 8 * 1024 * 1024;
+
+        let head = running.world.snakes[0].position;
+        running.world.body_points = (0..5)
+            .map(|offset| WorldPoint {
+                x: head.x - (offset as f64 * 7.5),
+                y: head.y,
+            })
+            .collect();
+        let snake = &mut running.world.snakes[0];
+        snake.body = BodyRange { start: 0, len: 5 };
+        snake.target_length = 5.0;
+        snake.radius = 9.0;
+        snake.speed = 165.0;
+        refresh_config_hash(&mut running);
+        running
+    }
+
+    fn complete_running_policy(
+        candidate: &StateCandidate,
+        memory_ceiling_bytes: usize,
+    ) -> StateAdmissionPolicy {
+        let mut admission = policy(memory_ceiling_bytes);
+        admission.expected_settings_schema_sha256 = candidate.config.settings_schema_sha256.clone();
+        admission
+    }
+
+    fn set_complete_setting(
+        candidate: &mut StateCandidate,
+        path: &str,
+        value: NormalizedSettingValue,
+    ) {
+        candidate
+            .config
+            .settings
+            .iter_mut()
+            .find(|setting| setting.path == path)
+            .expect("complete running setting must exist")
+            .value = value;
+    }
+
+    fn own_complete_running(
+        candidate: StateCandidate,
+        graph: Arc<GraphBundle>,
+    ) -> AuthoritativeState {
+        let estimated = estimate_state_memory(&candidate, &graph)
+            .expect("complete running fixture memory must estimate");
+        let memory_ceiling = estimated
+            .total_bytes
+            .checked_add(64 * 1024 * 1024)
+            .expect("test memory ceiling must fit");
+        let admission = complete_running_policy(&candidate, memory_ceiling);
+        AuthoritativeState::validate_and_own(candidate, graph, &admission)
+            .expect("complete running fixture must admit")
     }
 
     struct RunningStepBuffers {
@@ -5330,6 +5421,301 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn complete_nonterminal_coordinator_publishes_every_step_continuation_once() {
+        let graph = default_graph();
+        let candidate = complete_running_candidate(&graph);
+        let source = candidate.clone();
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("complete admitted config must construct the coordinator");
+
+        let outcome = coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.125,
+                },
+            )
+            .expect("ordinary nonterminal step must publish");
+
+        assert_eq!(outcome.publication.completed_step, 1);
+        assert_eq!(outcome.diagnostics.physics.expected_substeps, 3);
+        assert_eq!(outcome.diagnostics.physics.completed_substeps, 3);
+        assert_eq!(coordinator.last_wall_now_ms(), Some(100));
+        assert_eq!(authority.state().generation.completed_step, 1);
+        assert_eq!(
+            authority.state().generation.elapsed_seconds.to_bits(),
+            (1.0_f64 / 60.0).to_bits()
+        );
+        assert_eq!(
+            authority
+                .state()
+                .generation
+                .wall_accumulator_seconds
+                .to_bits(),
+            0.125_f64.to_bits()
+        );
+        assert_ne!(authority.state().world, source.world);
+        assert_ne!(authority.state().rng, source.rng);
+        assert_ne!(authority.state().brains, source.brains);
+        assert_eq!(authority.state().identity, source.identity);
+        assert_eq!(authority.state().population, source.population);
+        assert_eq!(authority.state().phase, AuthorityPhase::Running);
+    }
+
+    #[test]
+    fn warmed_coordinator_rejects_a_different_authority_with_matching_epochs_and_graph() {
+        let graph = default_graph();
+        let mut first = complete_running_candidate(&graph);
+        let resurrected_id = RESURRECTED_ENTITY_ID_START;
+        push_external_snake(
+            &mut first,
+            &graph,
+            resurrected_id,
+            2,
+            WorldPoint {
+                x: 1_000.0,
+                y: -1_000.0,
+            },
+        );
+        first.allocators.next_external_id = EXTERNAL_ENTITY_ID_START;
+        first.allocators.next_resurrected_id = resurrected_id + 1;
+        let resurrected_index = first.world.snakes.len() - 1;
+        let body_start = first.world.snakes[resurrected_index].body.start;
+        let head = first.world.snakes[resurrected_index].position;
+        first
+            .world
+            .body_points
+            .extend((1..5).map(|offset| WorldPoint {
+                x: head.x - (offset as f64 * 7.5),
+                y: head.y,
+            }));
+        let resurrected = &mut first.world.snakes[resurrected_index];
+        resurrected.kind = SnakeKind::Resurrected;
+        resurrected.body = BodyRange {
+            start: body_start,
+            len: 5,
+        };
+        resurrected.target_length = 5.0;
+        resurrected.radius = 9.0;
+        resurrected.speed = 165.0;
+
+        let mut second = first.clone();
+        second.brains[1]
+            .non_population_weights
+            .as_mut()
+            .expect("resurrected brain must own weights")[0] = 0.875;
+        assert_eq!(first.identity, second.identity);
+        assert_eq!(first.config, second.config);
+        assert_ne!(first.brains[1], second.brains[1]);
+
+        let mut first_authority = own_complete_running(first, Arc::clone(&graph));
+        let mut second_authority = own_complete_running(second, Arc::clone(&graph));
+        assert_ne!(
+            first_authority.world_epoch(),
+            second_authority.world_epoch()
+        );
+        let second_source = second_authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &first_authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("first authority must construct the coordinator");
+        coordinator
+            .advance_nonterminal(
+                &mut first_authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("first authority must warm every control cache");
+
+        assert!(matches!(
+            coordinator.advance_nonterminal(
+                &mut second_authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            ),
+            Err(RunningStepError::AuthorityMismatch {
+                field: "world epoch",
+            })
+        ));
+        assert_eq!(second_authority.state(), &second_source);
+    }
+
+    #[test]
+    fn external_delivery_and_regressing_wall_clock_fail_before_authority_changes() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        let external_id = EXTERNAL_ENTITY_ID_START;
+        push_external_snake(
+            &mut candidate,
+            &graph,
+            external_id,
+            2,
+            WorldPoint {
+                x: 1_000.0,
+                y: 1_000.0,
+            },
+        );
+        let external_index = candidate.world.snakes.len() - 1;
+        let body_start = candidate.world.snakes[external_index].body.start;
+        let head = candidate.world.snakes[external_index].position;
+        candidate
+            .world
+            .body_points
+            .extend((1..5).map(|offset| WorldPoint {
+                x: head.x - (offset as f64 * 7.5),
+                y: head.y,
+            }));
+        let external = &mut candidate.world.snakes[external_index];
+        external.body = BodyRange {
+            start: body_start,
+            len: 5,
+        };
+        external.target_length = 5.0;
+        external.radius = 9.0;
+        external.speed = 165.0;
+        candidate.world.controller_leases.push(connected_lease(
+            1,
+            external_id,
+            7,
+            "external-delivery",
+        ));
+        candidate.allocators.next_controller_lease_id = 2;
+
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let source = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("external fixture must construct the coordinator");
+
+        assert!(matches!(
+            coordinator.advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            ),
+            Err(RunningStepError::ExternalDeliveryRequired { count: 1 })
+        ));
+        assert_eq!(authority.state(), &source);
+        assert_eq!(coordinator.last_wall_now_ms(), Some(100));
+
+        assert!(matches!(
+            coordinator.advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 99,
+                    wall_accumulator_seconds: 0.0,
+                },
+            ),
+            Err(RunningStepError::RegressingWallClock {
+                previous_ms: 100,
+                actual_ms: 99,
+            })
+        ));
+        assert_eq!(authority.state(), &source);
+    }
+
+    #[test]
+    fn generation_guards_refuse_nonterminal_publication_without_mutation() {
+        let graph = default_graph();
+        let cases = [
+            (
+                GenerationTransitionReason::EarlyAliveCount,
+                240.0,
+                8.0,
+                8.0 - (1.0 / 120.0),
+            ),
+            (
+                GenerationTransitionReason::Duration,
+                8.0,
+                50.0,
+                8.0 - (1.0 / 120.0),
+            ),
+        ];
+
+        for (expected_reason, generation_seconds, early_seconds, elapsed_seconds) in cases {
+            let mut candidate = complete_running_candidate(&graph);
+            set_complete_setting(
+                &mut candidate,
+                "generationSeconds",
+                NormalizedSettingValue::Float(generation_seconds),
+            );
+            set_complete_setting(
+                &mut candidate,
+                "observer.earlyEndMinSeconds",
+                NormalizedSettingValue::Float(early_seconds),
+            );
+            candidate.generation.elapsed_seconds = elapsed_seconds;
+            refresh_config_hash(&mut candidate);
+            let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+            let source = authority.state().clone();
+            let mut coordinator = RunningStepCoordinator::try_new(
+                &authority,
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .expect("terminal fixture must construct the coordinator");
+
+            assert!(matches!(
+                coordinator.advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 200,
+                        wall_accumulator_seconds: 0.0,
+                    },
+                ),
+                Err(RunningStepError::GenerationTransitionRequired {
+                    reason,
+                    alive_evolved: 1,
+                    ..
+                }) if reason == expected_reason
+            ));
+            assert_eq!(authority.state(), &source);
+        }
+    }
+
+    #[test]
+    fn invalid_scheduler_accumulator_never_starts_or_changes_a_step() {
+        let graph = default_graph();
+        let candidate = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(candidate, graph);
+        let source = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("complete admitted config must construct the coordinator");
+
+        for value in [f64::NAN, f64::INFINITY, -f64::EPSILON] {
+            assert!(matches!(
+                coordinator.advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 100,
+                        wall_accumulator_seconds: value,
+                    },
+                ),
+                Err(RunningStepError::InvalidSchedulerAccumulator(actual))
+                    if actual.to_bits() == value.to_bits()
+            ));
+            assert_eq!(authority.state(), &source);
+            assert_eq!(coordinator.last_wall_now_ms(), None);
+        }
     }
 
     #[test]

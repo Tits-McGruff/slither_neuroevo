@@ -718,6 +718,7 @@ impl<'workspace> PreparedControlCommit<'workspace> {
 /// Reusable working owner that applies one complete control phase without authority writes.
 #[derive(Debug, Default)]
 pub struct ControlCommitWorkspace {
+    key: Option<PhysicsStepKey>,
     world: WorldState,
     rng: Option<RngStateBundle>,
     rng_copy_scratch: RngCopyScratch,
@@ -750,6 +751,7 @@ impl ControlCommitWorkspace {
         &'workspace mut self,
         phase: PreparedControlPhase<'_, '_, '_>,
     ) -> Result<PreparedControlCommit<'workspace>, ControlPhaseError> {
+        self.key = None;
         self.ready = false;
         self.diagnostics = ControlCommitDiagnostics::default();
         let prefix = phase.prefix;
@@ -799,6 +801,7 @@ impl ControlCommitWorkspace {
         self.validate_phase(&phase)?;
         self.copy_baseline_rng_results(&phase)?;
         self.publish_phase(&phase);
+        self.key = Some(phase.key);
         self.ready = true;
         self.diagnostics = self.collect_diagnostics(phase.diagnostics);
         self.prepared(prefix, phase.key, phase.calculation_key, phase.config)
@@ -1167,6 +1170,25 @@ impl ControlCommitWorkspace {
         } else {
             self.collect_diagnostics(ControlPhaseDiagnostics::default())
         }
+    }
+
+    /// Borrow the exact recurrent-state buffer staged for one authority publication.
+    pub(crate) fn publication_brains(
+        &mut self,
+        key: PhysicsStepKey,
+    ) -> Result<&mut Vec<BrainRuntimeState>, ControlPhaseError> {
+        if !self.ready || self.key != Some(key) {
+            return Err(ControlPhaseError::CommitShapeMismatch {
+                field: "publication key",
+            });
+        }
+        Ok(&mut self.brains)
+    }
+
+    /// Invalidate the last view after any authority-publication attempt.
+    pub(crate) fn invalidate_publication(&mut self) {
+        self.key = None;
+        self.ready = false;
     }
 }
 

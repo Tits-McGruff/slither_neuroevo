@@ -175,6 +175,24 @@ pub struct PreparedWorldStep<'workspace, 'control> {
     diagnostics: WorldStepDiagnostics,
 }
 
+/// Mutable complete-step buffers admitted for the one authoritative swap.
+pub(crate) struct WorldStepPublicationBuffers<'workspace> {
+    /// Complete post-physics world.
+    pub world: &'workspace mut WorldState,
+    /// Complete post-step gameplay RNG continuations.
+    pub rng: &'workspace mut RngStateBundle,
+    /// Complete post-step deterministic allocator continuations.
+    pub allocators: &'workspace mut AllocatorState,
+    /// Complete post-step baseline lifecycle continuation.
+    pub baseline_lifecycle: &'workspace mut BaselineLifecycleState,
+    /// Fractional ambient-pellet credit after the prefix.
+    pub ambient_pellet_accumulator: f64,
+    /// Generation-best sensor continuation after physics.
+    pub sensor_generation: SensorGenerationState,
+    /// Simulated generation time after exactly one fixed delta.
+    pub generation_elapsed_seconds: f64,
+}
+
 impl<'workspace, 'control> PreparedWorldStep<'workspace, 'control> {
     /// Exact authority/config/operation identity staged.
     #[must_use]
@@ -272,6 +290,9 @@ pub struct WorldStepWorkspace {
     baseline: BaselineLifecycleWorkspace,
     lifecycle: Option<BaselineLifecycleState>,
     sensor_generation: SensorGenerationState,
+    key: Option<PhysicsStepKey>,
+    generation_elapsed_seconds: f64,
+    ambient_pellet_accumulator: f64,
     ready: bool,
     diagnostics: WorldStepDiagnostics,
 }
@@ -292,6 +313,7 @@ impl WorldStepWorkspace {
         control: PreparedControlCommit<'control>,
         config: WorldStepConfig,
     ) -> Result<PreparedWorldStep<'workspace, 'control>, WorldStepError> {
+        self.key = None;
         self.ready = false;
         self.diagnostics = WorldStepDiagnostics::default();
         config.validate_against(control)?;
@@ -329,6 +351,9 @@ impl WorldStepWorkspace {
             self.sensor_generation.update_after_step(physics.world())?;
         }
 
+        self.key = Some(key);
+        self.generation_elapsed_seconds = control.generation_elapsed_seconds();
+        self.ambient_pellet_accumulator = control.ambient_accumulator();
         self.ready = true;
         self.diagnostics = WorldStepDiagnostics {
             control: control.diagnostics(),
@@ -360,6 +385,40 @@ impl WorldStepWorkspace {
                 ..WorldStepDiagnostics::default()
             }
         }
+    }
+
+    /// Borrow one complete mutable result only for the authoritative coordinator.
+    pub(crate) fn publication_buffers(
+        &mut self,
+        key: PhysicsStepKey,
+    ) -> Result<WorldStepPublicationBuffers<'_>, WorldStepError> {
+        if !self.ready || self.key != Some(key) {
+            return Err(WorldStepError::ResultNotReady);
+        }
+        let Self {
+            physics,
+            lifecycle,
+            sensor_generation,
+            generation_elapsed_seconds,
+            ambient_pellet_accumulator,
+            ..
+        } = self;
+        let physics = physics.publication_buffers(key)?;
+        Ok(WorldStepPublicationBuffers {
+            world: physics.world,
+            rng: physics.rng,
+            allocators: physics.allocators,
+            baseline_lifecycle: lifecycle.as_mut().ok_or(WorldStepError::ResultNotReady)?,
+            ambient_pellet_accumulator: *ambient_pellet_accumulator,
+            sensor_generation: *sensor_generation,
+            generation_elapsed_seconds: *generation_elapsed_seconds,
+        })
+    }
+
+    /// Invalidate the last view after any authority-publication attempt.
+    pub(crate) fn invalidate_publication(&mut self) {
+        self.key = None;
+        self.ready = false;
     }
 
     fn prepared<'workspace, 'control>(

@@ -577,18 +577,18 @@ same-step baseline death timing; stable warmed diagnostics; rejection of stale
 or inconsistent phase configuration; and fail-closed controlled death without
 source-world, RNG, allocator, lifecycle or brain writes.
 
-This result is deliberately still not authority. The authoritative coordinator
-must project `WorldStepConfig` from the admitted normalized configuration,
-revalidate the live state/key and exact retained config, prove that the prefix
-body-point ceiling is the admitted authoritative ceiling, resolve controller
-death lifecycle changes, apply generation-end behavior, and perform one final
-swap. It must also map an impossible mid-generation baseline placement to a
-reviewed retry-or-fault outcome; the current workspace deliberately selects
-neither and does not make the TypeScript runtime a fallback.
+This result is deliberately still not authority when used by itself. The
+nonterminal coordinator described below now projects its configuration from the
+admitted state, drives this workspace and performs the one final swap for an
+internally controlled step that does not end the generation. External delivery,
+controller death/replacement, terminal generation transition, and the reviewed
+impossible-respawn outcome remain explicit fail-closed boundaries rather than
+TypeScript fallbacks.
 
 ## Atomic nonterminal running-step publication primitive
 
-`AuthoritativeState` now owns a process-local world epoch, a monotonically
+`AuthoritativeState` now owns a unique nonzero process-local world epoch assigned
+when a separately validated candidate becomes authoritative, a monotonically
 increasing operation epoch and the original admitted memory ceiling. A running
 step can begin only from `AuthorityPhase::Running`; beginning a newer attempt
 invalidates every older proposal. The resulting key binds world, generation,
@@ -617,13 +617,11 @@ memory-ceiling rollback, successful retry and generation-boundary rejection.
 This primitive is intentionally lower-level than the authoritative scheduler
 and is not a production fixed-step entrance. It does not independently prove
 that caller-supplied buffers were calculated with the admitted gameplay
-formulas. The remaining coordinator must privately drive the existing prefix,
-control and world-step workspaces; project and compare their complete config;
-resolve generation end, accepted external observation delivery, controlled
-death/replacement and the reviewed impossible-respawn outcome; and only then
-call this primitive. Reset, New Run and import must also advance the world epoch
-when those replacement paths are implemented. No scheduler, frame, Node,
-browser, RL, performance or production-cutover gate is claimed here.
+formulas. The nonterminal coordinator below is now the coarse entrance that
+privately supplies those buffers for its supported internal-control case.
+Reset, New Run and import must still advance world identity when their
+replacement paths are implemented. No scheduler, frame, Node, browser, RL,
+performance or production-cutover gate is claimed here.
 
 ## Strict running-step configuration projection
 
@@ -637,8 +635,8 @@ clamps `collision.substepMaxDt` to `[0.001, fixedDt]`, calculates
 delta evenly across the selected collision-only substeps.
 
 `engine::step_config` projection version 1 now derives one complete
-`WorldStepConfig` and `SensorConfig` from the path-sorted
-`NormalizedEngineConfig` owned by `AuthoritativeState`. It requires exact
+`WorldStepConfig`, `SensorConfig`, and nonterminal generation guard from the
+path-sorted `NormalizedEngineConfig` owned by `AuthoritativeState`. It requires exact
 integer, floating, and boolean kinds; applies the current owner-facing setting
 ranges; checks the duplicated world radius, population count, baseline count
 and simulation-speed projections against their typed authoritative fields; and
@@ -654,7 +652,8 @@ instead of being ignored.
 User values populate survival accounting, ambient food, baseline timing and
 spawn geometry, neural cadence, controller wall-time rules, shared sensor
 configuration and indexes, movement/boost/body formulas, food scoring/growth,
-collision settings, death drops, kill credit and derived physics subdivisions.
+collision settings, death drops, kill credit, derived physics subdivisions,
+ordinary generation duration, and the early-end time/alive threshold.
 The admitted top-level body, pellet, snake and brain ceilings are copied into
 the applicable phase contracts. Every nested phase now exposes crate-private
 shape validation, so projection rejects an invalid accounting, ambient,
@@ -673,11 +672,77 @@ derived three-substep default, changed live values and a changed two-substep
 case, strict scalar kinds, missing and out-of-range rejection, unsupported
 corpse-color rejection, top-level projection disagreement, and invalid work
 limits. The all-feature release library suite passed 334 tests after the join.
-This is configuration authority only. The Node/Rust normalized-config builder,
-live revision replacement, matching sensor-pipeline construction, private
-prefix/control/world-step drive, external delivery resolution, generation
-decision and final publication call remain open; no normal server path or
+The Node/Rust normalized-config builder and live revision replacement remain
+open. The nonterminal coordinator below now constructs the matching sensor and
+graph pipeline and consumes this projection; no normal server path or
 performance result is claimed.
+
+## Private nonterminal authoritative coordinator
+
+Current-source inspection at parent commit
+`41f48541e43a6be37bd21a62a5fde92224f76989` rechecked
+`World._finishFixedStep`: the current reference ends a generation after the
+completed physical step when simulated generation time reaches
+`generationSeconds`, or when elapsed time reaches
+`observer.earlyEndMinSeconds` and the alive evolved population count is at or
+below `observer.earlyEndAliveThreshold`. Baseline, external and resurrected
+snakes do not count toward that rule.
+
+`engine::running_step` version 1 is the first coarse Rust entrance that can
+publish a complete ordinary nonterminal fixed step. Construction reads the
+admitted normalized configuration and compiled graph from one
+`AuthoritativeState`, builds the corrected sensor-v3 evaluator and complete
+heterogeneous graph pipeline once, and retains every prefix, control, physics,
+spatial and lifecycle workspace. One call obtains a fresh process-local step
+key, stages accounting/ambient/baseline respawn, samples every selected control
+from the same immutable boundary, commits internal control/recurrent state,
+executes every configured physics substep, updates post-step baseline and sensor
+continuations, checks the reference generation-ending rules, and supplies all
+mutable buffers to the reversible authority publication exactly once.
+
+The coordinator accepts only wall-clock controller time and the scheduler's
+remaining nonnegative finite debt for each attempt. It rejects regressing wall
+time. The unique world incarnation, configuration revision/hash and graph-layout
+identity are rechecked before work, while the step key and publication boundary
+bind the live world, generation, population, completed step and operation
+epoch. This prevents a warmed neural cache or complete staged proposal from one
+separately admitted world being relabelled for another world with otherwise
+matching config, graph, handles and epochs. Failed staging may change reusable
+scratch and advances the attempt epoch, but it cannot replace the authoritative
+`StateCandidate`.
+
+This entrance is deliberately restricted to a definitely nonterminal step for
+which no external observation awaits a Node send result. An external delivery
+request stops before the internal control commit and physics. A terminal
+post-physics result stops before publication so Stage 6 can later consume that
+exact result while evolving/replacing the generation atomically. Death of a
+lease-owned snake, an impossible due-baseline spawn, or any capacity/math/index
+failure propagates as a complete rejected attempt. There is no TypeScript
+fallback and no partial frame, stats or checkpoint result.
+
+Focused authority tests prove one real default three-substep publication with
+world, gameplay RNG, recurrent state, elapsed time and scheduler debt advancing
+while immutable run/population identity stays fixed; pending external delivery
+and a later regressing clock leave authority unchanged; both duration and
+early-alive generation guards withhold publication; and invalid scheduler debt
+does not begin an attempt. A warmed coordinator is also rejected by a second
+authority that deliberately has the same persisted identity, config, graph and
+brain handles but different non-population weight bytes. This is still an
+internal Rust vertical slice. Node
+delivery acceptance, controller death/replacement, the actual generation
+transition/evolution, scheduler pumping, frames, browser/LAN, Protocol 2 RL,
+complete-step allocation/performance evidence, Oxygen validation, persistence
+integration and production cutover remain open.
+
+Windows validation of this slice passed 339 all-feature release library tests
+plus both enabled benchmark-binary tests, 327 no-default-feature release library
+tests, strict release all-target Clippy, rustdoc, rustfmt and diff checks. One
+existing independent read-only reviewer inspected the stable authority diff
+without starting a duplicate build. It found the cross-authority warmed-weight
+cache defect described above; the process-unique world incarnation and focused
+two-authority regression corrected it, and its final static recheck found no
+remaining blocker, P1 or P2. The reviewer changed no files and no review turn
+was blocked or wasted.
 
 ## Spawn correction
 

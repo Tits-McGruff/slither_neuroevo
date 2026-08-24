@@ -88,6 +88,22 @@ pub struct RunningStepConfigProjection {
     pub world_step: WorldStepConfig,
     /// Exact corrected sensor-v3 formula configuration owned by the control pipeline.
     pub sensor: SensorConfig,
+    /// Values that prove whether a completed step is safely nonterminal.
+    pub generation_guard: GenerationGuardConfig,
+}
+
+/// Current TypeScript generation-ending conditions used as a fail-closed guard.
+///
+/// Stage 6 owns evolution and the actual transition. Until then, the running
+/// coordinator may publish only a step for which neither condition is true.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GenerationGuardConfig {
+    /// Ordinary configured duration of one generation.
+    pub generation_seconds: f64,
+    /// Earliest simulated generation time at which the alive-count rule applies.
+    pub early_end_minimum_seconds: f64,
+    /// Maximum alive evolved population members that triggers early end.
+    pub early_end_alive_threshold: usize,
 }
 
 /// Project every current running-step input from one normalized authority.
@@ -320,6 +336,7 @@ pub(crate) fn project_running_step_config(
     };
     world_step.validate_shape()?;
 
+    let generation_seconds = settings.float("generationSeconds", 8.0, 480.0)?;
     let sensor = SensorConfig {
         bins: settings.usize("sense.bubbleBins", 8, 32)?,
         world_radius: config.world_radius,
@@ -330,7 +347,7 @@ pub(crate) fn project_running_step_config(
         minimum_boost_points: boost_min_points,
         boost_points_cost_per_second: boost_cost,
         boost_points_cost_size_factor: boost_size_cost,
-        generation_seconds: settings.float("generationSeconds", 8.0, 480.0)?,
+        generation_seconds,
         near_radius_base: settings.float("sense.rNearBase", 200.0, 900.0)?,
         near_radius_scale: settings.float("sense.rNearScale", 0.0, 600.0)?,
         near_radius_minimum: settings.float("sense.rNearMin", 150.0, 900.0)?,
@@ -346,7 +363,17 @@ pub(crate) fn project_running_step_config(
     };
     sensor.validate()?;
 
-    Ok(RunningStepConfigProjection { world_step, sensor })
+    let generation_guard = GenerationGuardConfig {
+        generation_seconds,
+        early_end_minimum_seconds: settings.float("observer.earlyEndMinSeconds", 0.0, 50.0)?,
+        early_end_alive_threshold: settings.usize("observer.earlyEndAliveThreshold", 1, 25)?,
+    };
+
+    Ok(RunningStepConfigProjection {
+        world_step,
+        sensor,
+        generation_guard,
+    })
 }
 
 fn checked_top_level_float(
@@ -577,7 +604,7 @@ impl Error for StepConfigError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::engine::state::{NormalizedSetting, NORMALIZED_CONFIG_VERSION};
 
@@ -602,9 +629,12 @@ mod tests {
         }
     }
 
-    fn default_settings() -> Vec<NormalizedSetting> {
+    pub(crate) fn default_settings(
+        population_count: usize,
+        baseline_count: usize,
+    ) -> Vec<NormalizedSetting> {
         let mut settings = vec![
-            integer("baselineBots.count", 10),
+            integer("baselineBots.count", baseline_count as i64),
             float("baselineBots.respawnDelay", 20.0),
             float("boost.lenLossPerPoint", 0.16),
             float("boost.minPointsToBoost", 1.2),
@@ -642,6 +672,8 @@ mod tests {
             float("foodValue", 1.0),
             float("generationSeconds", 240.0),
             float("growPerFood", 1.0),
+            integer("observer.earlyEndAliveThreshold", 2),
+            float("observer.earlyEndMinSeconds", 8.0),
             float("pelletGrid.cellSize", 120.0),
             integer("pelletCountTarget", 3_500),
             float("pelletSpawnPerSecond", 170.0),
@@ -665,7 +697,7 @@ mod tests {
             float("snakeBaseSpeed", 165.0),
             float("snakeBoostSizePenalty", 0.28),
             float("snakeBoostSpeed", 500.0),
-            integer("snakeCount", 55),
+            integer("snakeCount", population_count as i64),
             integer("snakeMaxLen", 10_000),
             integer("snakeMinLen", 4),
             float("snakeRadius", 9.0),
@@ -686,7 +718,7 @@ mod tests {
     fn config() -> NormalizedEngineConfig {
         NormalizedEngineConfig {
             version: NORMALIZED_CONFIG_VERSION,
-            settings: default_settings(),
+            settings: default_settings(55, 10),
             settings_schema_sha256: "sha256:test".to_owned(),
             graph_architecture_key: "graph:test".to_owned(),
             fixed_step_seconds: 1.0 / 60.0,
@@ -767,6 +799,14 @@ mod tests {
         );
         assert_eq!(world.physics.points_per_kill, 400.0);
         assert_eq!(projected.sensor, SensorConfig::default());
+        assert_eq!(
+            projected.generation_guard,
+            GenerationGuardConfig {
+                generation_seconds: 240.0,
+                early_end_minimum_seconds: 8.0,
+                early_end_alive_threshold: 2,
+            }
+        );
         assert_eq!(world.control.controller_timing.input_hold_ms(), 500);
         assert_eq!(
             world.control.controller_timing.disconnect_grace_ms(),
