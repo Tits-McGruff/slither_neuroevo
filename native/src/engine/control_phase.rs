@@ -2300,7 +2300,7 @@ mod tests {
     use crate::engine::state::{
         AllocatorState, BodyRange, BrainOwner, ControllerLease, GenomeLineage,
         LatestControllerAction, PelletState, RngStateBundle, SnakeState, WorldState,
-        ALLOCATOR_VERSION, RNG_BUNDLE_VERSION,
+        ALLOCATOR_VERSION, BASELINE_ENTITY_ID_START, RNG_BUNDLE_VERSION,
     };
     use crate::engine::world_step::{
         WorldStepConfig, WorldStepError, WorldStepWorkspace, MAXIMUM_PHYSICS_SUBSTEPS,
@@ -2710,6 +2710,7 @@ mod tests {
                 ..BaselineLifecycleConfig::typescript_defaults()
             },
             maximum_snakes: 8,
+            maximum_body_points: 1_000,
             maximum_pellets: 256,
             ..FixedStepPrefixConfig::typescript_defaults()
         }
@@ -2747,7 +2748,7 @@ mod tests {
     fn world_step_config() -> WorldStepConfig {
         let prefix = prefix_config();
         let mut physics = PhysicsConfig::typescript_defaults();
-        physics.maximum_body_points = 1_000;
+        physics.maximum_body_points = prefix.maximum_body_points;
         physics.maximum_pellets = prefix.maximum_pellets;
         physics.maximum_pellet_index_entries = 1_000;
         WorldStepConfig {
@@ -3018,6 +3019,83 @@ mod tests {
         assert_eq!(diagnostics.neural_takeovers, 1);
         assert!(diagnostics.body_index.segments > 0);
         assert_eq!(diagnostics.pellet_index.pellets, 1);
+    }
+
+    #[test]
+    fn due_baseline_respawn_is_sampled_by_the_same_shared_control_boundary() {
+        let plan = graph_plan();
+        let mut fixture = fixture(&plan);
+        let source_baseline_id = BASELINE_ENTITY_ID_START + 10;
+        let baseline = fixture
+            .world
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.baseline_slot == Some(0))
+            .unwrap();
+        baseline.id = source_baseline_id;
+        baseline.alive = false;
+        baseline.turn = 0.0;
+        baseline.previous_turn = 0.0;
+        baseline.input_boost = false;
+        baseline.previous_input_boost = false;
+        fixture.lifecycle.slots[0].snake_id = source_baseline_id;
+        fixture.lifecycle.slots[0].respawn_remaining_seconds = Some(DT * 0.5);
+        fixture.allocators.next_baseline_id = BASELINE_ENTITY_ID_START + 100;
+        let replacement_baseline_id = fixture.allocators.next_baseline_id;
+
+        let source_world = fixture.world.clone();
+        let source_rng = fixture.rng.clone();
+        let source_allocators = fixture.allocators.clone();
+        let source_lifecycle = fixture.lifecycle.clone();
+        let mut prefix_workspace = FixedStepPrefixWorkspace::new();
+        let prefix = prefix_workspace
+            .prepare(FixedStepPrefixInputs {
+                key: key(2),
+                world: &fixture.world,
+                rng: &fixture.rng,
+                allocators: &fixture.allocators,
+                generation_elapsed_seconds: 2.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &fixture.lifecycle,
+                config: prefix_config(),
+            })
+            .unwrap();
+        assert_eq!(prefix.diagnostics().baseline_respawn.completed_slots, 1);
+        let replacement = prefix
+            .world()
+            .snakes
+            .iter()
+            .find(|snake| snake.baseline_slot == Some(0))
+            .unwrap();
+        assert_eq!(replacement.id, replacement_baseline_id);
+        assert!(replacement.alive);
+
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(prefix.world()).unwrap();
+        let mut workspace = control_workspace(plan);
+        let prepared = workspace
+            .prepare(ControlPhaseInputs {
+                prefix,
+                generation: &generation,
+                population: &fixture.population,
+                brains: &fixture.brains,
+                wall_now_ms: 31_000,
+                config: control_config(),
+            })
+            .unwrap();
+        assert!(prepared.control_updates().iter().any(|update| {
+            update.snake_id() == replacement_baseline_id
+                && update.source() == SelectedControlSource::Baseline
+        }));
+        assert_eq!(prepared.baseline_controls().len(), 1);
+        assert_eq!(
+            prepared.baseline_controls()[0].snake_id(),
+            replacement_baseline_id
+        );
+        assert_eq!(fixture.world, source_world);
+        assert_eq!(fixture.rng, source_rng);
+        assert_eq!(fixture.allocators, source_allocators);
+        assert_eq!(fixture.lifecycle, source_lifecycle);
     }
 
     #[test]

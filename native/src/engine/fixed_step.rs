@@ -1,10 +1,11 @@
 //! Reusable prefix of one complete authoritative fixed-step transaction.
 //!
 //! This module joins the already-verified once-per-step accounting, ambient
-//! pellet, and baseline-timer phases into one corrected pre-control boundary.
-//! It deliberately stops before any due baseline respawn because the approved
-//! plan does not yet select the owner-visible outcome for an impossible
-//! mid-generation placement. Nothing in this module publishes authority.
+//! pellet, baseline-timer, and collision-safe baseline-respawn phases into one
+//! corrected pre-control boundary. Successful due respawns are complete before
+//! any controller samples the world. An impossible placement makes no result
+//! available but deliberately does not choose the later scheduler's
+//! owner-visible retry-versus-fault policy. Nothing here publishes authority.
 
 use super::accounting::{
     StepAccountingConfig, StepAccountingDiagnostics, StepAccountingError, StepAccountingWorkspace,
@@ -16,12 +17,21 @@ use super::baseline::{
 };
 use super::physics::{PhysicsStepKey, PhysicsStepKeyField};
 use super::rng::SerializedRngState;
-use super::state::{AllocatorState, BaselineRngState, ControllerLease, RngStateBundle, WorldState};
+use super::spawn::{
+    SpawnCapacityDiagnostics, SpawnConfig, SpawnDomain, SpawnError, SpawnKey, SpawnRequest,
+    SpawnWorkspace,
+};
+use super::state::{
+    AllocatorState, BaselineRngState, BaselineStrategyState, BodyRange, ControllerLease,
+    RngStateBundle, SnakeKind, SnakeState, StateError, WorldPoint, WorldState,
+};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-/// First joined fixed-step-prefix contract identity.
-pub const FIXED_STEP_PREFIX_VERSION: u32 = 1;
+/// Joined fixed-step-prefix identity with collision-safe due baseline respawns.
+pub const FIXED_STEP_PREFIX_VERSION: u32 = 2;
+/// Current browser frame-v1 skin used by built-in baseline snakes.
+const BASELINE_SNAKE_SKIN: u32 = 2;
 
 /// Complete settings and capacities consumed by the joined prefix.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -36,8 +46,14 @@ pub struct FixedStepPrefixConfig {
     pub ambient: AmbientPelletConfig,
     /// Durable baseline-slot timer settings.
     pub baseline: BaselineLifecycleConfig,
+    /// Collision-safe geometry and bounded work for baseline replacement.
+    pub baseline_spawn: SpawnConfig,
+    /// Initial speed of one newly replaced baseline snake.
+    pub baseline_snake_base_speed: f64,
     /// Maximum admitted world snake records.
     pub maximum_snakes: usize,
+    /// Maximum admitted packed body points after replacement compaction.
+    pub maximum_body_points: usize,
     /// Maximum admitted pellet records after ambient generation.
     pub maximum_pellets: usize,
 }
@@ -52,7 +68,10 @@ impl FixedStepPrefixConfig {
             accounting: StepAccountingConfig::typescript_defaults(),
             ambient: AmbientPelletConfig::typescript_defaults(),
             baseline: BaselineLifecycleConfig::typescript_defaults(),
+            baseline_spawn: SpawnConfig::typescript_geometry_defaults(),
+            baseline_snake_base_speed: 165.0,
             maximum_snakes: 512,
+            maximum_body_points: 100_000,
             maximum_pellets: 200_000,
         }
     }
@@ -66,14 +85,34 @@ impl FixedStepPrefixConfig {
         if !self.fixed_dt.is_finite() || self.fixed_dt <= 0.0 || self.fixed_dt > 1.0 {
             return Err(FixedStepPrefixError::InvalidConfig { field: "fixed_dt" });
         }
-        if self.maximum_snakes == 0 {
+        self.baseline_spawn
+            .validate()
+            .map_err(|error| FixedStepPrefixError::Spawn(Box::new(error)))?;
+        if !self.baseline_snake_base_speed.is_finite() || self.baseline_snake_base_speed <= 0.0 {
+            return Err(FixedStepPrefixError::InvalidConfig {
+                field: "baseline_snake_base_speed",
+            });
+        }
+        if self.maximum_snakes == 0 || self.baseline.slot_count > self.maximum_snakes {
             return Err(FixedStepPrefixError::InvalidConfig {
                 field: "maximum_snakes",
+            });
+        }
+        if self.maximum_body_points == 0
+            || self.baseline_spawn.snake_start_len > self.maximum_body_points
+        {
+            return Err(FixedStepPrefixError::InvalidConfig {
+                field: "maximum_body_points",
             });
         }
         if self.maximum_pellets == 0 {
             return Err(FixedStepPrefixError::InvalidConfig {
                 field: "maximum_pellets",
+            });
+        }
+        if self.ambient.world_radius.to_bits() != self.baseline_spawn.world_radius.to_bits() {
+            return Err(FixedStepPrefixError::InvalidConfig {
+                field: "baseline spawn world radius",
             });
         }
         Ok(())
@@ -100,6 +139,33 @@ pub struct FixedStepPrefixInputs<'source> {
     pub config: FixedStepPrefixConfig,
 }
 
+/// Collision-safe baseline replacement work and retained storage.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BaselineRespawnDiagnostics {
+    /// Stable due slots named by timer staging.
+    pub due_slots: usize,
+    /// Slots completely replaced in the latest successful prefix.
+    pub completed_slots: usize,
+    /// Total random/fallback candidates examined across independent streams.
+    pub candidates_examined: usize,
+    /// Placements supplied by deterministic fallback.
+    pub fallback_placements: usize,
+    /// Total wall/body comparisons across all due slots.
+    pub geometry_checks: usize,
+    /// Old pellet-owner references cleared while preserving pellet color.
+    pub cleared_pellet_owners: usize,
+    /// Latest retained spawn-workspace size and capacities.
+    pub spawn: SpawnCapacityDiagnostics,
+    /// Retained stable due-slot capacity.
+    pub due_slot_capacity: usize,
+    /// Retained replaced-identity capacity.
+    pub replaced_id_capacity: usize,
+    /// Retained one-placement body-copy capacity.
+    pub respawn_body_capacity: usize,
+    /// Retained alternate packed-body buffer capacity.
+    pub body_compaction_capacity: usize,
+}
+
 /// Retained storage and phase-work diagnostics for the latest prefix attempt.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FixedStepPrefixDiagnostics {
@@ -109,6 +175,8 @@ pub struct FixedStepPrefixDiagnostics {
     pub ambient: AmbientDiagnostics,
     /// Baseline timer work.
     pub baseline: BaselineLifecycleDiagnostics,
+    /// Collision-safe due baseline replacement work.
+    pub baseline_respawn: BaselineRespawnDiagnostics,
     /// Retained working snake capacity.
     pub snake_capacity: usize,
     /// Retained working body-point capacity.
@@ -268,11 +336,17 @@ pub struct FixedStepPrefixWorkspace {
     accounting: StepAccountingWorkspace,
     ambient: AmbientWorkspace,
     baseline: BaselineLifecycleWorkspace,
+    spawn: SpawnWorkspace,
     world: WorldState,
     rng: Option<RngStateBundle>,
     rng_copy_scratch: RngCopyScratch,
     allocators: Option<AllocatorState>,
     lifecycle: Option<BaselineLifecycleState>,
+    due_respawn_slots: Vec<u32>,
+    replaced_baseline_ids: Vec<u64>,
+    respawn_body: Vec<WorldPoint>,
+    compacted_body_points: Vec<WorldPoint>,
+    baseline_respawn_diagnostics: BaselineRespawnDiagnostics,
     generation_elapsed_seconds: f64,
     ambient_accumulator: f64,
     ready: bool,
@@ -297,6 +371,10 @@ impl FixedStepPrefixWorkspace {
         inputs: FixedStepPrefixInputs<'source>,
     ) -> Result<PreparedFixedStepPrefix<'workspace, 'source>, FixedStepPrefixError> {
         self.ready = false;
+        self.baseline_respawn_diagnostics = BaselineRespawnDiagnostics::default();
+        self.due_respawn_slots.clear();
+        self.replaced_baseline_ids.clear();
+        self.respawn_body.clear();
         inputs.config.validate_shape()?;
 
         let accounting = self.accounting.prepare(
@@ -325,11 +403,6 @@ impl FixedStepPrefixWorkspace {
             inputs.config.fixed_dt,
             inputs.config.baseline,
         )?;
-        if baseline.requires_respawn_resolution() {
-            return Err(FixedStepPrefixError::BaselineRespawnsRequireDecision {
-                count: baseline.due_slots().len(),
-            });
-        }
 
         accounting.validate_current(
             inputs.key,
@@ -357,6 +430,13 @@ impl FixedStepPrefixWorkspace {
             inputs.config.fixed_dt,
             inputs.config.baseline,
         )?;
+        reserve_for(
+            &mut self.due_respawn_slots,
+            baseline.due_slots().len(),
+            "due baseline respawn slots",
+        )?;
+        self.due_respawn_slots
+            .extend_from_slice(baseline.due_slots());
 
         let required_pellets = inputs
             .world
@@ -383,7 +463,7 @@ impl FixedStepPrefixWorkspace {
             inputs.config.maximum_snakes,
             &mut self.world,
         )?;
-        baseline.apply_without_due_respawns(
+        baseline.apply_before_respawn_resolution(
             inputs.key,
             inputs.world,
             inputs.baseline_lifecycle,
@@ -414,11 +494,432 @@ impl FixedStepPrefixWorkspace {
             .as_mut()
             .ok_or(FixedStepPrefixError::InternalShapeMismatch)?
             .clone_from(ambient.next_allocators());
+        let next_ambient_accumulator = ambient.next_accumulator();
+        self.resolve_due_baseline_respawns(inputs.config)?;
         self.generation_elapsed_seconds = next_elapsed;
-        self.ambient_accumulator = ambient.next_accumulator();
+        self.ambient_accumulator = next_ambient_accumulator;
         self.ready = true;
 
         self.prepared(inputs)
+    }
+
+    /// Resolve every due baseline slot on the private prefix working copy.
+    ///
+    /// Slots are visited in the canonical timer order, but each placement uses
+    /// its own durable RNG stream. A completed replacement immediately becomes
+    /// an obstacle for later slots. Any failure leaves `ready == false`; the
+    /// caller-owned source world, RNG, allocator, and lifecycle are untouched.
+    fn resolve_due_baseline_respawns(
+        &mut self,
+        config: FixedStepPrefixConfig,
+    ) -> Result<(), FixedStepPrefixError> {
+        let due_count = self.due_respawn_slots.len();
+        self.baseline_respawn_diagnostics.due_slots = due_count;
+        self.baseline_respawn_diagnostics.due_slot_capacity = self.due_respawn_slots.capacity();
+        if due_count == 0 {
+            return Ok(());
+        }
+        if self
+            .due_respawn_slots
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+        {
+            return Err(FixedStepPrefixError::InternalShapeMismatch);
+        }
+
+        let mut final_body_points = self.world.snakes.iter().try_fold(0usize, |total, snake| {
+            total
+                .checked_add(snake.body.len)
+                .ok_or(FixedStepPrefixError::ArithmeticOverflow {
+                    context: "referenced body-point count",
+                })
+        })?;
+        for &slot in &self.due_respawn_slots {
+            let snake_index = find_baseline_slot_index(&self.world, slot)?;
+            let snake = &self.world.snakes[snake_index];
+            let slot_index =
+                usize::try_from(slot).map_err(|_| FixedStepPrefixError::BaselineRespawnShape {
+                    slot,
+                    field: "slot index",
+                })?;
+            let runtime = self
+                .lifecycle
+                .as_ref()
+                .and_then(|state| state.slots.get(slot_index))
+                .ok_or(FixedStepPrefixError::BaselineRespawnShape {
+                    slot,
+                    field: "lifecycle slot",
+                })?;
+            let rng = self
+                .rng
+                .as_ref()
+                .and_then(|bundle| bundle.baselines.get(slot_index))
+                .ok_or(FixedStepPrefixError::BaselineRespawnShape {
+                    slot,
+                    field: "RNG slot",
+                })?;
+            if snake.alive
+                || snake.kind != SnakeKind::Baseline
+                || snake.baseline_slot != Some(slot)
+                || runtime.slot != slot
+                || runtime.snake_id != snake.id
+                || runtime.respawn_remaining_seconds.map(f64::to_bits) != Some(0.0f64.to_bits())
+                || rng.slot != slot
+            {
+                return Err(FixedStepPrefixError::BaselineRespawnShape {
+                    slot,
+                    field: "due slot source",
+                });
+            }
+            final_body_points = final_body_points
+                .checked_sub(snake.body.len)
+                .and_then(|value| value.checked_add(config.baseline_spawn.snake_start_len))
+                .ok_or(FixedStepPrefixError::ArithmeticOverflow {
+                    context: "compacted baseline respawn bodies",
+                })?;
+        }
+        if final_body_points > config.maximum_body_points {
+            return Err(FixedStepPrefixError::BodyCapacityExceeded {
+                required: final_body_points,
+                maximum: config.maximum_body_points,
+            });
+        }
+
+        let appended_body_points = due_count
+            .checked_mul(config.baseline_spawn.snake_start_len)
+            .ok_or(FixedStepPrefixError::ArithmeticOverflow {
+                context: "temporary baseline respawn bodies",
+            })?;
+        let temporary_body_points = self
+            .world
+            .body_points
+            .len()
+            .checked_add(appended_body_points)
+            .ok_or(FixedStepPrefixError::ArithmeticOverflow {
+                context: "temporary packed body storage",
+            })?;
+        reserve_for(
+            &mut self.world.body_points,
+            temporary_body_points,
+            "temporary respawn body points",
+        )?;
+        self.compacted_body_points.clear();
+        reserve_for(
+            &mut self.compacted_body_points,
+            final_body_points,
+            "compacted respawn body points",
+        )?;
+        reserve_for(
+            &mut self.respawn_body,
+            config.baseline_spawn.snake_start_len,
+            "one baseline respawn body",
+        )?;
+        reserve_for(
+            &mut self.replaced_baseline_ids,
+            due_count,
+            "replaced baseline identities",
+        )?;
+
+        let baseline_count =
+            u64::try_from(due_count).map_err(|_| FixedStepPrefixError::ArithmeticOverflow {
+                context: "baseline ID count",
+            })?;
+        let frame_count =
+            u32::try_from(due_count).map_err(|_| FixedStepPrefixError::ArithmeticOverflow {
+                context: "frame-v1 ID count",
+            })?;
+        let (first_baseline_id, first_frame_id) = {
+            let allocators = self
+                .allocators
+                .as_mut()
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
+            let baseline = allocators
+                .reserve_baseline_ids(baseline_count)
+                .map_err(|error| FixedStepPrefixError::Allocator(Box::new(error)))?
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
+            let frame = allocators
+                .reserve_frame_v1_ids(frame_count)
+                .map_err(|error| FixedStepPrefixError::Allocator(Box::new(error)))?
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
+            (baseline.first, frame.first)
+        };
+
+        for ordinal in 0..due_count {
+            let slot = self.due_respawn_slots[ordinal];
+            let slot_index =
+                usize::try_from(slot).map_err(|_| FixedStepPrefixError::BaselineRespawnShape {
+                    slot,
+                    field: "slot index",
+                })?;
+            let request = [SpawnRequest {
+                key: SpawnKey {
+                    domain: SpawnDomain::Baseline,
+                    slot: u64::from(slot),
+                },
+            }];
+            let remaining_candidates = config
+                .baseline_spawn
+                .maximum_candidates_per_batch
+                .checked_sub(self.baseline_respawn_diagnostics.candidates_examined)
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
+            if remaining_candidates == 0 {
+                return Err(FixedStepPrefixError::BaselineRespawn {
+                    slot,
+                    error: Box::new(SpawnError::WorkBudgetExceeded {
+                        key: request[0].key,
+                        work: "baseline respawn candidates",
+                        required: config
+                            .baseline_spawn
+                            .maximum_candidates_per_batch
+                            .checked_add(1)
+                            .ok_or(FixedStepPrefixError::ArithmeticOverflow {
+                                context: "baseline respawn candidate limit",
+                            })?,
+                        maximum: config.baseline_spawn.maximum_candidates_per_batch,
+                    }),
+                });
+            }
+            let remaining_geometry = config
+                .baseline_spawn
+                .maximum_geometry_checks_per_batch
+                .checked_sub(self.baseline_respawn_diagnostics.geometry_checks)
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
+            if remaining_geometry == 0 {
+                return Err(FixedStepPrefixError::BaselineRespawn {
+                    slot,
+                    error: Box::new(SpawnError::WorkBudgetExceeded {
+                        key: request[0].key,
+                        work: "baseline respawn geometry checks",
+                        required: config
+                            .baseline_spawn
+                            .maximum_geometry_checks_per_batch
+                            .checked_add(1)
+                            .ok_or(FixedStepPrefixError::ArithmeticOverflow {
+                                context: "baseline respawn geometry limit",
+                            })?,
+                        maximum: config.baseline_spawn.maximum_geometry_checks_per_batch,
+                    }),
+                });
+            }
+            let mut slot_spawn_config = config.baseline_spawn;
+            slot_spawn_config.maximum_candidates_per_batch = remaining_candidates;
+            slot_spawn_config.maximum_geometry_checks_per_batch = remaining_geometry;
+            let prepared = {
+                let source_rng = self
+                    .rng
+                    .as_ref()
+                    .and_then(|bundle| bundle.baselines.get(slot_index))
+                    .ok_or(FixedStepPrefixError::BaselineRespawnShape {
+                        slot,
+                        field: "RNG slot",
+                    })?;
+                self.spawn
+                    .prepare(
+                        &self.world,
+                        &request,
+                        &source_rng.state,
+                        slot_spawn_config,
+                        config.baseline_spawn.snake_start_len,
+                    )
+                    .map_err(|error| FixedStepPrefixError::BaselineRespawn {
+                        slot,
+                        error: Box::new(error),
+                    })?
+            };
+            let spawn_diagnostics = prepared.diagnostics();
+            let candidates_examined = self
+                .baseline_respawn_diagnostics
+                .candidates_examined
+                .checked_add(spawn_diagnostics.candidates_examined)
+                .ok_or(FixedStepPrefixError::ArithmeticOverflow {
+                    context: "baseline respawn candidate count",
+                })?;
+            if candidates_examined > config.baseline_spawn.maximum_candidates_per_batch {
+                return Err(FixedStepPrefixError::BaselineRespawn {
+                    slot,
+                    error: Box::new(SpawnError::WorkBudgetExceeded {
+                        key: request[0].key,
+                        work: "baseline respawn candidates",
+                        required: candidates_examined,
+                        maximum: config.baseline_spawn.maximum_candidates_per_batch,
+                    }),
+                });
+            }
+            let geometry_checks = self
+                .baseline_respawn_diagnostics
+                .geometry_checks
+                .checked_add(spawn_diagnostics.geometry_checks)
+                .ok_or(FixedStepPrefixError::ArithmeticOverflow {
+                    context: "baseline respawn geometry checks",
+                })?;
+            if geometry_checks > config.baseline_spawn.maximum_geometry_checks_per_batch {
+                return Err(FixedStepPrefixError::BaselineRespawn {
+                    slot,
+                    error: Box::new(SpawnError::WorkBudgetExceeded {
+                        key: request[0].key,
+                        work: "baseline respawn geometry checks",
+                        required: geometry_checks,
+                        maximum: config.baseline_spawn.maximum_geometry_checks_per_batch,
+                    }),
+                });
+            }
+            let placement = *prepared
+                .placements()
+                .first()
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
+            if prepared.placements().len() != 1 || placement.key != request[0].key {
+                return Err(FixedStepPrefixError::InternalShapeMismatch);
+            }
+            let body = prepared
+                .body_for(&placement)
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
+            if body.len() != config.baseline_spawn.snake_start_len {
+                return Err(FixedStepPrefixError::InternalShapeMismatch);
+            }
+            self.respawn_body.clear();
+            self.respawn_body.extend_from_slice(body);
+            let baseline_rng = self
+                .rng
+                .as_mut()
+                .and_then(|bundle| bundle.baselines.get_mut(slot_index))
+                .ok_or(FixedStepPrefixError::BaselineRespawnShape {
+                    slot,
+                    field: "RNG slot",
+                })?;
+            let spare = self
+                .rng_copy_scratch
+                .baseline_gaussian_spares
+                .get_mut(slot_index)
+                .ok_or(FixedStepPrefixError::BaselineRespawnShape {
+                    slot,
+                    field: "RNG copy scratch",
+                })?;
+            copy_serialized_rng_reusing(&mut baseline_rng.state, prepared.next_rng(), spare)?;
+            self.baseline_respawn_diagnostics.candidates_examined = candidates_examined;
+            self.baseline_respawn_diagnostics.geometry_checks = geometry_checks;
+            self.baseline_respawn_diagnostics.fallback_placements = self
+                .baseline_respawn_diagnostics
+                .fallback_placements
+                .checked_add(spawn_diagnostics.fallback_placements)
+                .ok_or(FixedStepPrefixError::ArithmeticOverflow {
+                    context: "baseline fallback placement count",
+                })?;
+            self.baseline_respawn_diagnostics.spawn = spawn_diagnostics;
+
+            let world_index = find_baseline_slot_index(&self.world, slot)?;
+            let old_snake_id = self.world.snakes[world_index].id;
+            let ordinal_u64 =
+                u64::try_from(ordinal).map_err(|_| FixedStepPrefixError::ArithmeticOverflow {
+                    context: "baseline ID offset",
+                })?;
+            let ordinal_u32 =
+                u32::try_from(ordinal).map_err(|_| FixedStepPrefixError::ArithmeticOverflow {
+                    context: "frame-v1 ID offset",
+                })?;
+            let snake_id = first_baseline_id.checked_add(ordinal_u64).ok_or(
+                FixedStepPrefixError::ArithmeticOverflow {
+                    context: "baseline ID assignment",
+                },
+            )?;
+            let frame_v1_id = first_frame_id.checked_add(ordinal_u32).ok_or(
+                FixedStepPrefixError::ArithmeticOverflow {
+                    context: "frame-v1 ID assignment",
+                },
+            )?;
+            let body_start = self.world.body_points.len();
+            self.world.body_points.extend_from_slice(&self.respawn_body);
+            let mut snake = SnakeState {
+                id: snake_id,
+                frame_v1_id,
+                kind: SnakeKind::Baseline,
+                alive: true,
+                population_slot: None,
+                brain: None,
+                baseline_slot: Some(slot),
+                baseline_strategy: Some(BaselineStrategyState::Roam),
+                position: placement.head,
+                previous_position: placement.head,
+                direction: placement.direction,
+                radius: config.baseline_spawn.snake_radius,
+                speed: config.baseline_snake_base_speed,
+                boost: false,
+                age_seconds: 0.0,
+                food: 0.0,
+                points: 0.0,
+                kills: 0,
+                target_length: config.baseline_spawn.snake_start_len as f64,
+                fitness: 0.0,
+                turn: 0.0,
+                previous_turn: 0.0,
+                input_boost: false,
+                previous_input_boost: false,
+                control_accumulator_seconds: 0.0,
+                delivered_observation_points: 0.0,
+                body: BodyRange {
+                    start: body_start,
+                    len: self.respawn_body.len(),
+                },
+                skin: BASELINE_SNAKE_SKIN,
+            };
+            let (age_seconds, points) = config
+                .accounting
+                .advance_live_snake(&snake, config.fixed_dt)?;
+            snake.age_seconds = age_seconds;
+            snake.points = points;
+            self.world.snakes[world_index] = snake;
+            self.lifecycle
+                .as_mut()
+                .and_then(|state| state.slots.get_mut(slot_index))
+                .ok_or(FixedStepPrefixError::BaselineRespawnShape {
+                    slot,
+                    field: "lifecycle slot",
+                })?
+                .reset_after_respawn(snake_id);
+            self.replaced_baseline_ids.push(old_snake_id);
+        }
+
+        self.replaced_baseline_ids.sort_unstable();
+        if self
+            .replaced_baseline_ids
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+        {
+            return Err(FixedStepPrefixError::InternalShapeMismatch);
+        }
+        for pellet in &mut self.world.pellets {
+            if pellet
+                .owner
+                .is_some_and(|owner| self.replaced_baseline_ids.binary_search(&owner).is_ok())
+            {
+                pellet.owner = None;
+                self.baseline_respawn_diagnostics.cleared_pellet_owners += 1;
+            }
+        }
+        compact_world_bodies(
+            &mut self.world,
+            &mut self.compacted_body_points,
+            config.maximum_body_points,
+        )?;
+        self.lifecycle
+            .as_ref()
+            .ok_or(FixedStepPrefixError::InternalShapeMismatch)?
+            .validate_authoritative(&self.world, config.baseline.slot_count, false)?;
+        for pellet in &self.world.pellets {
+            if pellet
+                .owner
+                .is_some_and(|owner| !self.world.snakes.iter().any(|snake| snake.id == owner))
+            {
+                return Err(FixedStepPrefixError::InternalShapeMismatch);
+            }
+        }
+        self.baseline_respawn_diagnostics.completed_slots = due_count;
+        self.baseline_respawn_diagnostics.due_slot_capacity = self.due_respawn_slots.capacity();
+        self.baseline_respawn_diagnostics.replaced_id_capacity =
+            self.replaced_baseline_ids.capacity();
+        self.baseline_respawn_diagnostics.respawn_body_capacity = self.respawn_body.capacity();
+        self.baseline_respawn_diagnostics.body_compaction_capacity =
+            self.compacted_body_points.capacity();
+        Ok(())
     }
 
     /// Whether the latest attempt produced a complete prefix.
@@ -434,6 +935,7 @@ impl FixedStepPrefixWorkspace {
             accounting: self.accounting.diagnostics(),
             ambient: self.ambient.diagnostics(),
             baseline: self.baseline.diagnostics(),
+            baseline_respawn: self.baseline_respawn_diagnostics,
             snake_capacity: self.world.snakes.capacity(),
             body_point_capacity: self.world.body_points.capacity(),
             pellet_capacity: self.world.pellets.capacity(),
@@ -482,6 +984,81 @@ impl FixedStepPrefixWorkspace {
             diagnostics: self.diagnostics(),
         })
     }
+}
+
+fn find_baseline_slot_index(world: &WorldState, slot: u32) -> Result<usize, FixedStepPrefixError> {
+    let mut found = None;
+    for (index, snake) in world.snakes.iter().enumerate() {
+        if snake.kind != SnakeKind::Baseline || snake.baseline_slot != Some(slot) {
+            continue;
+        }
+        if found.replace(index).is_some() {
+            return Err(FixedStepPrefixError::BaselineRespawnShape {
+                slot,
+                field: "duplicate world slot",
+            });
+        }
+    }
+    found.ok_or(FixedStepPrefixError::BaselineRespawnShape {
+        slot,
+        field: "missing world slot",
+    })
+}
+
+fn compact_world_bodies(
+    world: &mut WorldState,
+    scratch: &mut Vec<WorldPoint>,
+    maximum_body_points: usize,
+) -> Result<(), FixedStepPrefixError> {
+    let required = world.snakes.iter().try_fold(0usize, |total, snake| {
+        let end = snake.body.start.checked_add(snake.body.len).ok_or(
+            FixedStepPrefixError::ArithmeticOverflow {
+                context: "body-range end during compaction",
+            },
+        )?;
+        if end > world.body_points.len()
+            || (snake.alive && snake.body.len == 0)
+            || (snake.body.len != 0 && world.body_points[snake.body.start] != snake.position)
+        {
+            return Err(FixedStepPrefixError::InternalShapeMismatch);
+        }
+        total
+            .checked_add(snake.body.len)
+            .ok_or(FixedStepPrefixError::ArithmeticOverflow {
+                context: "body-point compaction count",
+            })
+    })?;
+    if required > maximum_body_points {
+        return Err(FixedStepPrefixError::BodyCapacityExceeded {
+            required,
+            maximum: maximum_body_points,
+        });
+    }
+    scratch.clear();
+    reserve_for(scratch, required, "compacted body points")?;
+    for index in 0..world.snakes.len() {
+        let range = world.snakes[index].body;
+        let end = range
+            .start
+            .checked_add(range.len)
+            .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
+        let start = scratch.len();
+        scratch.extend_from_slice(
+            world
+                .body_points
+                .get(range.start..end)
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?,
+        );
+        world.snakes[index].body = BodyRange {
+            start,
+            len: range.len,
+        };
+    }
+    if scratch.len() != required {
+        return Err(FixedStepPrefixError::InternalShapeMismatch);
+    }
+    std::mem::swap(&mut world.body_points, scratch);
+    Ok(())
 }
 
 pub(crate) fn copy_world_reusing(
@@ -833,8 +1410,15 @@ pub enum FixedStepPrefixError {
         context: &'static str,
         required: usize,
     },
-    /// One or more due baseline slots require the reviewed placement policy.
-    BaselineRespawnsRequireDecision { count: usize },
+    /// Final packed body storage cannot admit every replacement.
+    BodyCapacityExceeded { required: usize, maximum: usize },
+    /// A due stable slot disagreed with world/lifecycle/RNG staging.
+    BaselineRespawnShape { slot: u32, field: &'static str },
+    /// Collision-safe placement could not complete for one due slot.
+    ///
+    /// The later authority coordinator must map this non-authoritative failure
+    /// to the reviewed retry-versus-fault behavior before production cutover.
+    BaselineRespawn { slot: u32, error: Box<SpawnError> },
     /// A complete prefix is not available.
     ResultNotReady,
     /// Internal joined-buffer shape disagreed after successful phase validation.
@@ -845,6 +1429,10 @@ pub enum FixedStepPrefixError {
     Ambient(Box<AmbientError>),
     /// Baseline lifecycle rejected the boundary.
     Baseline(Box<BaselineLifecycleError>),
+    /// Spawn configuration rejected the boundary before due-slot work.
+    Spawn(Box<SpawnError>),
+    /// Deterministic identity reservation failed on the private working copy.
+    Allocator(Box<StateError>),
 }
 
 impl From<StepAccountingError> for FixedStepPrefixError {
@@ -882,10 +1470,16 @@ impl Display for FixedStepPrefixError {
                 formatter,
                 "failed to reserve {required} entries for {context}"
             ),
-            Self::BaselineRespawnsRequireDecision { count } => write!(
+            Self::BodyCapacityExceeded { required, maximum } => write!(
                 formatter,
-                "{count} due baseline respawns require the reviewed placement-failure rule"
+                "baseline respawn requires {required} body points but the admitted maximum is {maximum}"
             ),
+            Self::BaselineRespawnShape { slot, field } => {
+                write!(formatter, "baseline respawn slot {slot} has invalid {field}")
+            }
+            Self::BaselineRespawn { slot, error } => {
+                write!(formatter, "baseline respawn slot {slot} is unresolved: {error}")
+            }
             Self::ResultNotReady => write!(formatter, "fixed-step prefix result is not ready"),
             Self::InternalShapeMismatch => {
                 write!(formatter, "fixed-step prefix internal shape mismatch")
@@ -893,6 +1487,8 @@ impl Display for FixedStepPrefixError {
             Self::Accounting(error) => Display::fmt(error, formatter),
             Self::Ambient(error) => Display::fmt(error, formatter),
             Self::Baseline(error) => Display::fmt(error, formatter),
+            Self::Spawn(error) => Display::fmt(error, formatter),
+            Self::Allocator(error) => Display::fmt(error, formatter),
         }
     }
 }
@@ -903,6 +1499,8 @@ impl Error for FixedStepPrefixError {
             Self::Accounting(error) => Some(error.as_ref()),
             Self::Ambient(error) => Some(error.as_ref()),
             Self::Baseline(error) => Some(error.as_ref()),
+            Self::BaselineRespawn { error, .. } | Self::Spawn(error) => Some(error.as_ref()),
+            Self::Allocator(error) => Some(error.as_ref()),
             _ => None,
         }
     }
@@ -916,8 +1514,8 @@ mod tests {
     use crate::engine::rng::StatefulRng;
     use crate::engine::state::{
         BaselineStrategyState, BodyRange, ControllerKind, ControllerLeaseStatus,
-        LatestControllerAction, SnakeKind, SnakeState, WorldPoint, ALLOCATOR_VERSION,
-        RNG_BUNDLE_VERSION,
+        LatestControllerAction, PelletState, SnakeKind, SnakeState, WorldPoint, ALLOCATOR_VERSION,
+        BASELINE_ENTITY_ID_START, RNG_BUNDLE_VERSION,
     };
 
     const DT: f64 = 1.0 / 60.0;
@@ -1008,7 +1606,7 @@ mod tests {
             next_controller_lease_id: 1,
             next_frame_v1_id: 100,
             next_external_id: 1_000_000_000_000,
-            next_baseline_id: 2_000_000_000_000,
+            next_baseline_id: BASELINE_ENTITY_ID_START + 100,
             next_resurrected_id: 3_000_000_000_000,
         }
     }
@@ -1022,7 +1620,7 @@ mod tests {
 
     fn world_with_waiting_baseline() -> (WorldState, BaselineLifecycleState) {
         let mut source_world = world();
-        let mut baseline = snake(2_000_000_000_010, SnakeKind::Baseline, 2);
+        let mut baseline = snake(BASELINE_ENTITY_ID_START + 10, SnakeKind::Baseline, 2);
         baseline.alive = false;
         baseline.population_slot = None;
         baseline.baseline_slot = Some(0);
@@ -1067,6 +1665,13 @@ mod tests {
             maximum_pellets: 16,
             ..FixedStepPrefixConfig::typescript_defaults()
         }
+    }
+
+    fn config_without_ambient(slot_count: usize) -> FixedStepPrefixConfig {
+        let mut value = config(slot_count);
+        value.ambient.target_count = 0;
+        value.ambient.spawn_per_second = 0.0;
+        value
     }
 
     #[test]
@@ -1123,9 +1728,101 @@ mod tests {
     }
 
     #[test]
-    fn due_baseline_respawn_stays_explicit_and_no_prefix_becomes_ready() {
+    fn due_baseline_respawn_completes_before_the_shared_control_boundary() {
+        let (mut source_world, mut source_lifecycle) = world_with_waiting_baseline();
+        source_lifecycle.slots[0].respawn_remaining_seconds = Some(DT * 0.5);
+        let old_baseline_id = source_lifecycle.slots[0].snake_id;
+        source_world.pellets.push(PelletState {
+            id: 99,
+            position: WorldPoint { x: 30.0, y: 40.0 },
+            value: 1.0,
+            kind: 1,
+            color: 77,
+            owner: Some(old_baseline_id),
+        });
+        let source_rng = rng_bundle(1);
+        let source_allocators = allocators();
+        let original_world = source_world.clone();
+        let original_rng = source_rng.clone();
+        let original_allocators = source_allocators.clone();
+        let original_lifecycle = source_lifecycle.clone();
+        let mut workspace = FixedStepPrefixWorkspace::new();
+
+        let prepared = workspace
+            .prepare(FixedStepPrefixInputs {
+                key: key(2),
+                world: &source_world,
+                rng: &source_rng,
+                allocators: &source_allocators,
+                generation_elapsed_seconds: 4.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &source_lifecycle,
+                config: config(1),
+            })
+            .expect("collision-safe due baseline replacement must complete");
+
+        assert_eq!(source_world, original_world);
+        assert_eq!(source_rng, original_rng);
+        assert_eq!(source_allocators, original_allocators);
+        assert_eq!(source_lifecycle, original_lifecycle);
+        let baseline = prepared
+            .world()
+            .snakes
+            .iter()
+            .find(|snake| snake.baseline_slot == Some(0))
+            .expect("stable baseline slot must survive replacement");
+        assert_eq!(baseline.id, source_allocators.next_baseline_id);
+        assert_eq!(baseline.frame_v1_id, source_allocators.next_frame_v1_id);
+        assert_eq!(baseline.kind, SnakeKind::Baseline);
+        assert!(baseline.alive);
+        assert_eq!(baseline.baseline_slot, Some(0));
+        assert_eq!(
+            baseline.baseline_strategy,
+            Some(BaselineStrategyState::Roam)
+        );
+        assert_eq!(baseline.body.len, config(1).baseline_spawn.snake_start_len);
+        assert_eq!(baseline.age_seconds, DT);
+        assert_eq!(
+            baseline.points,
+            DT * StepAccountingConfig::typescript_defaults().points_per_second_alive
+        );
+        assert_eq!(baseline.turn, 0.0);
+        assert!(!baseline.input_boost);
+        assert_eq!(prepared.world().body_points.len(), 2 + baseline.body.len);
+        assert_eq!(prepared.world().pellets.len(), 1);
+        assert_eq!(prepared.world().pellets[0].owner, None);
+        assert_eq!(prepared.world().pellets[0].color, 77);
+        assert_ne!(prepared.rng().baselines, source_rng.baselines);
+        assert_eq!(
+            prepared.allocators().next_baseline_id,
+            source_allocators.next_baseline_id + 1
+        );
+        assert_eq!(
+            prepared.allocators().next_frame_v1_id,
+            source_allocators.next_frame_v1_id + 1
+        );
+        let lifecycle = &prepared.baseline_lifecycle().slots[0];
+        assert_eq!(lifecycle.snake_id, baseline.id);
+        assert_eq!(lifecycle.respawn_remaining_seconds, None);
+        assert_eq!(lifecycle.wander_angle, 0.0);
+        assert_eq!(lifecycle.turn, 0.0);
+        assert!(!lifecycle.boost);
+        assert_eq!(prepared.diagnostics().baseline_respawn.due_slots, 1);
+        assert_eq!(prepared.diagnostics().baseline_respawn.completed_slots, 1);
+        assert_eq!(
+            prepared
+                .diagnostics()
+                .baseline_respawn
+                .cleared_pellet_owners,
+            1
+        );
+        assert!(workspace.is_ready());
+    }
+
+    #[test]
+    fn impossible_due_respawn_is_explicit_atomic_and_retryable_from_the_same_source() {
         let mut source_world = world();
-        source_world.snakes[0] = snake(2_000_000_000_010, SnakeKind::Baseline, 0);
+        source_world.snakes[0] = snake(BASELINE_ENTITY_ID_START + 10, SnakeKind::Baseline, 0);
         source_world.snakes[0].alive = false;
         source_world.snakes[0].population_slot = None;
         source_world.snakes[0].baseline_slot = Some(0);
@@ -1145,27 +1842,286 @@ mod tests {
                 respawn_remaining_seconds: Some(DT * 0.5),
             }],
         };
-        let original = source_world.clone();
+        let original_world = source_world.clone();
+        let original_rng = source_rng.clone();
+        let original_allocators = source_allocators.clone();
+        let original_lifecycle = source_lifecycle.clone();
+        let mut impossible = config_without_ambient(1);
+        impossible.ambient.world_radius = 10.0;
+        impossible.baseline_spawn.world_radius = 10.0;
+        impossible.baseline_spawn.snake_radius = 9.0;
+        impossible.baseline_spawn.random_attempts_per_request = 1;
+        impossible.baseline_spawn.fallback_position_count = 1;
+        impossible.baseline_spawn.fallback_heading_count = 1;
+        impossible.baseline_spawn.maximum_candidates_per_request = 2;
+        impossible.baseline_spawn.maximum_candidates_per_batch = 2;
         let mut workspace = FixedStepPrefixWorkspace::new();
 
         let error = workspace
             .prepare(FixedStepPrefixInputs {
-                key: key(2),
+                key: key(21),
                 world: &source_world,
                 rng: &source_rng,
                 allocators: &source_allocators,
                 generation_elapsed_seconds: 4.0,
                 ambient_accumulator: 0.0,
                 baseline_lifecycle: &source_lifecycle,
-                config: config(1),
+                config: impossible,
             })
-            .expect_err("due respawn must await the reviewed placement rule");
+            .expect_err("the complete initial body cannot fit in this arena");
         assert!(matches!(
             error,
-            FixedStepPrefixError::BaselineRespawnsRequireDecision { count: 1 }
+            FixedStepPrefixError::BaselineRespawn {
+                slot: 0,
+                error,
+            } if matches!(*error, SpawnError::NoCollisionSafePlacement { .. })
         ));
         assert!(!workspace.is_ready());
-        assert_eq!(source_world, original);
+        assert_eq!(source_world, original_world);
+        assert_eq!(source_rng, original_rng);
+        assert_eq!(source_allocators, original_allocators);
+        assert_eq!(source_lifecycle, original_lifecycle);
+
+        let prepared = workspace
+            .prepare(FixedStepPrefixInputs {
+                key: key(22),
+                world: &source_world,
+                rng: &source_rng,
+                allocators: &source_allocators,
+                generation_elapsed_seconds: 4.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &source_lifecycle,
+                config: config_without_ambient(1),
+            })
+            .expect("a later explicit retry from unchanged authority is deterministic");
+        assert_eq!(
+            prepared.world().snakes[0].id,
+            source_allocators.next_baseline_id
+        );
+        assert_eq!(
+            prepared.world().snakes[0].frame_v1_id,
+            source_allocators.next_frame_v1_id
+        );
+        assert!(workspace.is_ready());
+    }
+
+    #[test]
+    fn simultaneous_due_slots_use_stable_slot_order_and_independent_rng_streams() {
+        let first = snake(BASELINE_ENTITY_ID_START + 10, SnakeKind::Baseline, 0);
+        let second = snake(BASELINE_ENTITY_ID_START + 20, SnakeKind::Baseline, 2);
+        let mut first = first;
+        first.alive = false;
+        first.population_slot = None;
+        first.baseline_slot = Some(0);
+        first.baseline_strategy = Some(BaselineStrategyState::Roam);
+        first.frame_v1_id = 7;
+        let mut second = second;
+        second.alive = false;
+        second.population_slot = None;
+        second.baseline_slot = Some(1);
+        second.baseline_strategy = Some(BaselineStrategyState::Roam);
+        second.frame_v1_id = 8;
+        let body_points = vec![
+            first.position,
+            WorldPoint {
+                x: first.position.x - 7.5,
+                y: 0.0,
+            },
+            second.position,
+            WorldPoint {
+                x: second.position.x - 7.5,
+                y: 0.0,
+            },
+        ];
+        let world_a = WorldState {
+            snakes: vec![first.clone(), second.clone()],
+            body_points: body_points.clone(),
+            pellets: Vec::new(),
+            controller_leases: Vec::new(),
+        };
+        let world_b = WorldState {
+            snakes: vec![second, first],
+            body_points,
+            pellets: Vec::new(),
+            controller_leases: Vec::new(),
+        };
+        let lifecycle = BaselineLifecycleState {
+            version: BASELINE_LIFECYCLE_VERSION,
+            slots: vec![
+                BaselineSlotRuntime {
+                    slot: 0,
+                    snake_id: BASELINE_ENTITY_ID_START + 10,
+                    strategy_timer_seconds: 0.0,
+                    wander_angle: 0.0,
+                    wander_timer_seconds: 0.0,
+                    turn: 0.0,
+                    boost: false,
+                    respawn_remaining_seconds: Some(DT * 0.5),
+                },
+                BaselineSlotRuntime {
+                    slot: 1,
+                    snake_id: BASELINE_ENTITY_ID_START + 20,
+                    strategy_timer_seconds: 0.0,
+                    wander_angle: 0.0,
+                    wander_timer_seconds: 0.0,
+                    turn: 0.0,
+                    boost: false,
+                    respawn_remaining_seconds: Some(DT * 0.5),
+                },
+            ],
+        };
+        let rng = rng_bundle(2);
+        let allocators = allocators();
+        let config = config_without_ambient(2);
+        let mut workspace_a = FixedStepPrefixWorkspace::new();
+        let prepared_a = workspace_a
+            .prepare(FixedStepPrefixInputs {
+                key: key(31),
+                world: &world_a,
+                rng: &rng,
+                allocators: &allocators,
+                generation_elapsed_seconds: 0.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &lifecycle,
+                config,
+            })
+            .unwrap();
+        let by_slot_a: Vec<_> = (0..2)
+            .map(|slot| {
+                prepared_a
+                    .world()
+                    .snakes
+                    .iter()
+                    .find(|snake| snake.baseline_slot == Some(slot))
+                    .map(|snake| (snake.id, snake.frame_v1_id, snake.position, snake.direction))
+                    .unwrap()
+            })
+            .collect();
+        let rng_a = prepared_a.rng().baselines.clone();
+        let allocators_a = prepared_a.allocators().clone();
+        let diagnostics_a = prepared_a.diagnostics().baseline_respawn;
+
+        let mut workspace_b = FixedStepPrefixWorkspace::new();
+        let prepared_b = workspace_b
+            .prepare(FixedStepPrefixInputs {
+                key: key(31),
+                world: &world_b,
+                rng: &rng,
+                allocators: &allocators,
+                generation_elapsed_seconds: 0.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &lifecycle,
+                config,
+            })
+            .unwrap();
+        let by_slot_b: Vec<_> = (0..2)
+            .map(|slot| {
+                prepared_b
+                    .world()
+                    .snakes
+                    .iter()
+                    .find(|snake| snake.baseline_slot == Some(slot))
+                    .map(|snake| (snake.id, snake.frame_v1_id, snake.position, snake.direction))
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(by_slot_a, by_slot_b);
+        assert_ne!(by_slot_a[0].2, by_slot_a[1].2);
+        assert_eq!(rng_a, prepared_b.rng().baselines);
+        assert_ne!(rng_a[0].state, rng_a[1].state);
+        assert_eq!(allocators_a, *prepared_b.allocators());
+        assert!(diagnostics_a.candidates_examined >= 2);
+        assert_eq!(
+            diagnostics_a.candidates_examined,
+            prepared_b
+                .diagnostics()
+                .baseline_respawn
+                .candidates_examined
+        );
+        assert_eq!(diagnostics_a.completed_slots, 2);
+
+        let original_world = world_a.clone();
+        let original_rng = rng.clone();
+        let original_allocators = allocators.clone();
+        let original_lifecycle = lifecycle.clone();
+        let mut limited = config;
+        limited.baseline_spawn.maximum_candidates_per_batch = 1;
+        let mut limited_workspace = FixedStepPrefixWorkspace::new();
+        let error = limited_workspace
+            .prepare(FixedStepPrefixInputs {
+                key: key(32),
+                world: &world_a,
+                rng: &rng,
+                allocators: &allocators,
+                generation_elapsed_seconds: 0.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &lifecycle,
+                config: limited,
+            })
+            .expect_err("the complete due-slot batch budget must be enforced");
+        assert!(matches!(
+            error,
+            FixedStepPrefixError::BaselineRespawn {
+                slot: 1,
+                error,
+            } if matches!(*error, SpawnError::WorkBudgetExceeded { .. })
+        ));
+        assert!(!limited_workspace.is_ready());
+        assert_eq!(
+            limited_workspace
+                .diagnostics()
+                .baseline_respawn
+                .candidates_examined,
+            1,
+            "the second due slot must be rejected before it receives a fresh per-slot budget",
+        );
+        assert_eq!(world_a, original_world);
+        assert_eq!(rng, original_rng);
+        assert_eq!(allocators, original_allocators);
+        assert_eq!(lifecycle, original_lifecycle);
+    }
+
+    #[test]
+    fn warmed_due_respawn_reuses_every_reported_prefix_capacity() {
+        let (source_world, mut source_lifecycle) = world_with_waiting_baseline();
+        source_lifecycle.slots[0].respawn_remaining_seconds = Some(DT * 0.5);
+        let source_rng = rng_bundle(1);
+        let source_allocators = allocators();
+        let config = config_without_ambient(1);
+        let mut workspace = FixedStepPrefixWorkspace::new();
+        let mut expected = None;
+
+        for pass in 0..26u64 {
+            let diagnostics = workspace
+                .prepare(FixedStepPrefixInputs {
+                    key: key(100 + pass),
+                    world: &source_world,
+                    rng: &source_rng,
+                    allocators: &source_allocators,
+                    generation_elapsed_seconds: 0.0,
+                    ambient_accumulator: 0.0,
+                    baseline_lifecycle: &source_lifecycle,
+                    config,
+                })
+                .unwrap()
+                .diagnostics();
+            if pass == 1 {
+                expected = Some(diagnostics);
+            } else if pass > 1 {
+                assert_eq!(diagnostics, expected.unwrap());
+            }
+            assert_eq!(diagnostics.baseline_respawn.completed_slots, 1);
+            assert!(
+                diagnostics.baseline_respawn.respawn_body_capacity
+                    >= config.baseline_spawn.snake_start_len
+            );
+            assert!(
+                diagnostics.baseline_respawn.body_compaction_capacity
+                    >= diagnostics
+                        .body_point_capacity
+                        .min(source_world.body_points.len())
+            );
+        }
     }
 
     #[test]

@@ -101,6 +101,17 @@ impl BaselineSlotRuntime {
         self.turn = 0.0;
         self.boost = false;
     }
+
+    /// Reset one durable slot after its collision-safe replacement succeeded.
+    pub(crate) fn reset_after_respawn(&mut self, snake_id: u64) {
+        self.snake_id = snake_id;
+        self.strategy_timer_seconds = 0.0;
+        self.wander_angle = 0.0;
+        self.wander_timer_seconds = 0.0;
+        self.turn = 0.0;
+        self.boost = false;
+        self.respawn_remaining_seconds = None;
+    }
 }
 
 /// Generation-scoped baseline slots owned by the future Rust coordinator.
@@ -429,6 +440,38 @@ impl<'lifecycle, 'source> PreparedBaselineTimers<'lifecycle, 'source> {
                 count: self.due_slots.len(),
             });
         }
+        if target_state != self.source_state || target_state.slots.len() != self.next_slots.len() {
+            return Err(BaselineLifecycleError::WorkingCopyChanged);
+        }
+        for (target, next) in target_state.slots.iter_mut().zip(self.next_slots) {
+            *target = *next;
+        }
+        Ok(())
+    }
+
+    /// Copy timer staging into a non-authoritative coordinator working copy
+    /// before every due slot is replaced.
+    ///
+    /// When `due_slots` is nonempty, the copied state intentionally contains
+    /// zero-valued pending timers that are not valid authority. The caller must
+    /// reset every named slot after successful collision-safe placement and
+    /// validate the complete world/lifecycle join before exposing a result.
+    pub(crate) fn apply_before_respawn_resolution(
+        self,
+        current_key: PhysicsStepKey,
+        current_world: &WorldState,
+        current_state: &BaselineLifecycleState,
+        current_fixed_dt: f64,
+        current_config: BaselineLifecycleConfig,
+        target_state: &mut BaselineLifecycleState,
+    ) -> Result<(), BaselineLifecycleError> {
+        self.validate_current(
+            current_key,
+            current_world,
+            current_state,
+            current_fixed_dt,
+            current_config,
+        )?;
         if target_state != self.source_state || target_state.slots.len() != self.next_slots.len() {
             return Err(BaselineLifecycleError::WorkingCopyChanged);
         }

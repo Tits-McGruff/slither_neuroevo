@@ -111,7 +111,7 @@ impl SpawnConfig {
     }
 
     /// Validate all derived-geometry and bounded-work inputs before staging.
-    fn validate(self) -> Result<(), SpawnError> {
+    pub(crate) fn validate(self) -> Result<(), SpawnError> {
         for (field, value) in [
             ("world_radius", self.world_radius),
             ("spawn_radius_fraction", self.spawn_radius_fraction),
@@ -269,7 +269,7 @@ impl<'scratch, 'world> PreparedSpawns<'scratch, 'world> {
 }
 
 /// Reusable scratch for collision-safe spawn preparation.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct SpawnWorkspace {
     order: Vec<usize>,
     source_order: Vec<usize>,

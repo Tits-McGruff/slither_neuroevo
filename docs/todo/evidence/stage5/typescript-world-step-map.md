@@ -215,13 +215,13 @@ does not retain a second copy.
 Lifecycle initialization requires one live snake record for every configured
 slot, so Rust cannot silently start with a reduced baseline population. The
 future coordinator may call it only after the complete initial spawn has
-separately proved collision-safe placement. The later respawn join must reset
-the world-owned strategy plus lifecycle timers/wander/action while retaining
-the stable slot and continuing its separately owned RNG stream. That join is
-not implemented by this timer slice. A
-timer-only result containing any due slot is explicitly ineligible for commit
-until collision-safe placement and replacement are resolved. The lifecycle
-module therefore preserves both possible reviewed outcomes for placement
+separately proved collision-safe placement. The timer module deliberately does
+not perform replacement itself: a timer-only result containing any due slot is
+ineligible for commit until collision-safe placement and replacement are
+resolved. The joined fixed-step prefix described below now performs that reset
+and replacement on its private working boundary while retaining the stable
+slot and continuing its separately owned RNG stream. The lifecycle module and
+prefix still preserve both possible reviewed scheduler outcomes for placement
 failure rather than choosing one implicitly.
 
 Draft 4 does not explicitly settle the rare mid-generation outcome when no
@@ -232,23 +232,38 @@ partial-ID/RNG/container behavior is a preservation target.
 
 ## Joined fixed-step prefix
 
-`engine::fixed_step` version 1 now joins once-per-step accounting, ambient
-generation, and baseline-timer staging from one immutable admitted source. It
-first derives the advanced generation time, supplies that value to ambient
-generation, and then applies accounting, generated pellets and non-due timer
-updates only to one reusable non-authoritative working boundary. The result
-retains the complete step key, exact source world/RNG/allocator/lifecycle
-references, elapsed time, ambient credit and projected configuration for later
-revalidation. Serialized RNG and controller text storage is retained across
-warm copies, including logical `Some`/`None` transitions of Gaussian spare
-state.
+`engine::fixed_step` version 2 now joins once-per-step accounting, ambient
+generation, baseline-timer staging, and every successful collision-safe due
+baseline respawn from one immutable admitted source. It first derives the
+advanced generation time, supplies that value to ambient generation, applies
+accounting, generated pellets and timer updates to one reusable
+non-authoritative working boundary, and then resolves due slots in stable slot
+order before any controller can sample the world. Each replacement continues
+its independent per-slot RNG, consumes fresh baseline-domain and exact frame-v1
+IDs, retains its stable slot, resets lifecycle strategy/wander/action state,
+and receives the same fixed-step newborn age and survival accounting as the
+TypeScript order. An earlier replacement is a complete collision obstacle for
+later slots. Old packed bodies are compacted, and pellet references to replaced
+snake IDs clear only the internal owner while preserving the browser-visible
+color ID.
+
+Candidate and geometry ceilings are aggregate limits for the complete due-slot
+set, not fresh allowances per slot. Each placement receives only the remaining
+work budget. Failure therefore rejects the prefix before publication without
+silently multiplying the configured ceiling by the number of baseline slots.
+The result retains the complete step key, exact source
+world/RNG/allocator/lifecycle references, elapsed time, ambient credit and
+projected configuration for later revalidation. Serialized RNG and controller
+text storage is retained across warm copies, including logical `Some`/`None`
+transitions of Gaussian spare state.
 
 This is the first composed pre-control boundary, not the complete fixed-step
-coordinator and not an authority swap. Any due baseline respawn makes the
-prefix unavailable with an explicit error because collision-safe placement and
-its owner-visible failure rule are still unresolved. Controller sampling,
-baseline newborn accounting, physics, generation decisions, frame packing and
-publication remain outside this slice.
+coordinator and not an authority swap. A successful due respawn is included in
+the boundary made available to shared controller sensing. An impossible or
+work-budget-exhausted placement makes no prefix available and leaves source
+world, RNG, allocators and lifecycle unchanged; the later scheduler's
+owner-visible retry-versus-fault rule remains unresolved. Physics, generation
+decisions, frame packing and publication remain outside this slice.
 
 ## Authoritative fixed-step continuation ownership
 
@@ -564,11 +579,12 @@ source-world, RNG, allocator, lifecycle or brain writes.
 
 This result is deliberately still not authority. The authoritative coordinator
 must project `WorldStepConfig` from the admitted normalized configuration,
-revalidate the live state/key and exact retained config, resolve due baseline
-respawns and controller death lifecycle changes, apply generation-end behavior,
-and perform one final swap. The current workspace does not select an
-owner-visible outcome for an impossible mid-generation baseline respawn and
-does not make the TypeScript runtime a fallback.
+revalidate the live state/key and exact retained config, prove that the prefix
+body-point ceiling is the admitted authoritative ceiling, resolve controller
+death lifecycle changes, apply generation-end behavior, and perform one final
+swap. It must also map an impossible mid-generation baseline placement to a
+reviewed retry-or-fault outcome; the current workspace deliberately selects
+neither and does not make the TypeScript runtime a fallback.
 
 ## Spawn correction
 

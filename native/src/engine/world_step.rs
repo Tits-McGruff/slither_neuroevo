@@ -54,6 +54,7 @@ impl WorldStepConfig {
     pub const fn typescript_defaults() -> Self {
         let prefix = FixedStepPrefixConfig::typescript_defaults();
         let mut physics = PhysicsConfig::typescript_defaults();
+        physics.maximum_body_points = prefix.maximum_body_points;
         physics.maximum_pellets = prefix.maximum_pellets;
         Self {
             algorithm_version: WORLD_STEP_VERSION,
@@ -92,11 +93,30 @@ impl WorldStepConfig {
                 field: "maximum pellets",
             });
         }
+        if self.physics.maximum_body_points != self.prefix.maximum_body_points {
+            return Err(WorldStepError::InvalidConfig {
+                field: "maximum body points",
+            });
+        }
         if self.physics.movement.world_radius.to_bits()
             != self.prefix.ambient.world_radius.to_bits()
         {
             return Err(WorldStepError::InvalidConfig {
                 field: "world radius",
+            });
+        }
+        if self.physics.movement.world_radius.to_bits()
+            != self.prefix.baseline_spawn.world_radius.to_bits()
+            || self.physics.movement.snake_radius.to_bits()
+                != self.prefix.baseline_spawn.snake_radius.to_bits()
+            || self.physics.movement.snake_spacing.to_bits()
+                != self.prefix.baseline_spawn.snake_spacing.to_bits()
+            || self.physics.movement.snake_start_len != self.prefix.baseline_spawn.snake_start_len
+            || self.physics.movement.snake_base_speed.to_bits()
+                != self.prefix.baseline_snake_base_speed.to_bits()
+        {
+            return Err(WorldStepError::InvalidConfig {
+                field: "baseline spawn movement settings",
             });
         }
         if self.physics_substeps == 0 || self.physics_substeps > MAXIMUM_PHYSICS_SUBSTEPS {
@@ -445,6 +465,10 @@ mod tests {
         let combined = config.physics.substep_dt * config.physics_substeps as f64;
         assert!((combined - config.prefix.fixed_dt).abs() <= 8.0 * f64::EPSILON);
         assert_eq!(config.baseline, config.prefix.baseline);
+        assert_eq!(
+            config.physics.maximum_body_points,
+            config.prefix.maximum_body_points
+        );
         assert_eq!(
             config.physics.maximum_pellets,
             config.prefix.maximum_pellets
