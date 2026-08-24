@@ -104,9 +104,10 @@ already-held neural action. Immutable non-population weights become reusable
 within one world/population epoch when each retained record still has the same
 handle, owner and shape; recurrent blocks are refreshed and published on every
 applicable boundary. The working result is a
-physics input, not authority: current-state key revalidation, physics,
-generation decisions and the single final swap remain the later coordinator's
-responsibility.
+physics input, not authority. `engine::world_step` now consumes that boundary
+through complete non-authoritative physics and post-physics continuation
+staging; current-state key/config projection, generation decisions and the
+single final swap remain the later authority coordinator's responsibility.
 
 ## Per-step scalar accounting
 
@@ -269,10 +270,11 @@ that one reset continuation, while boundary admission rejects any nonzero or
 initialized live value. Retained live baseline-slot capacity is included in the
 authoritative memory ceiling.
 
-This closes a split-ownership prerequisite only. The joined prefix and control
-phase still expose non-authoritative proposals, and the later coordinator must
-publish their complete continuation, observation, control, recurrent, physics,
-and generation results in one validated swap.
+This closes a split-ownership prerequisite only. The joined prefix, control and
+post-control world-step phases still expose non-authoritative proposals. The
+later authority coordinator must publish their complete continuation,
+observation, control, recurrent, physics and generation results in one
+validated swap.
 
 ## Baseline strategy and action evaluation
 
@@ -519,15 +521,54 @@ transaction itself supplies every phase with its current working world, RNG,
 and allocator continuation; a caller cannot submit an independently prepared
 effect result and label it as current. It exposes a complete result only after
 every declared substep has joined. Errors may change retained scratch capacity
-but do not change the source world or expose a successful result. Live
-controller leases are deliberately not copied into the physical scratch;
-until the later full-step coordinator stages death/reassignment as one
-operation, a collision involving a controlled snake is rejected with an
-explicit replacement-required result. The later coordinator must project the
-key and phase configuration from the same admitted authority, revalidate that
-key, combine controller/recurrent and before/after-step state, and perform the
-single authoritative swap. This working transaction alone is not that
-publication boundary.
+but do not change the source world or expose a successful result. Controller
+leases are copied with checked reusable outer and text storage and are carried
+unchanged through every physical substep. Every snake still named by a lease,
+including a record of a completed neural takeover, remains fail-closed on death
+until the later authority coordinator can atomically remove or replace the
+associated controller lifecycle state. A collision involving such a snake is
+therefore rejected with an explicit replacement-required result rather than
+producing a world that contains a lease targeting a dead snake. The later
+coordinator must project the key and full phase configuration from the same
+admitted authority, revalidate both against the exact retained
+`WorldStepConfig`, combine controller/recurrent and before/after-step state,
+and perform the single authoritative swap. This working transaction alone is
+not that publication boundary.
+
+## Complete post-control world-step staging
+
+`engine::world_step` version 1 is the first complete non-authoritative join from
+an already committed control boundary through all configured collision
+substeps. It accepts the unforgeable `PreparedControlCommit`, requires exact
+prefix and control settings from that boundary, checks the physics/lifecycle
+capacity and timing relationships, enforces a hard substep-count ceiling, and
+drives `PhysicsStepWorkspace` itself. The prepared result retains that complete
+configuration for later authority revalidation. No caller can inject a
+separately staged substep result.
+
+After complete physics, the workspace consumes the keyed baseline-death proof,
+starts the full configured respawn delay in the same working step, neutralizes
+that baseline slot, and advances the generation-best sensor continuation from
+the post-physics world. It retains the post-control brain state, generation
+elapsed time, ambient accumulator, controller leases, RNG/allocator
+continuations, and packed external observations whose delivery boundary still
+awaits matching Node acceptance. Checked lease/RNG copies retain their outer,
+per-baseline and string storage across warmed attempts.
+
+Focused integration coverage drives one real prefix, shared corrected sensing,
+baseline/external/neural/takeover selection, complete heterogeneous inference,
+internal control commit and all three default physics substeps. It also proves
+same-step baseline death timing; stable warmed diagnostics; rejection of stale
+or inconsistent phase configuration; and fail-closed controlled death without
+source-world, RNG, allocator, lifecycle or brain writes.
+
+This result is deliberately still not authority. The authoritative coordinator
+must project `WorldStepConfig` from the admitted normalized configuration,
+revalidate the live state/key and exact retained config, resolve due baseline
+respawns and controller death lifecycle changes, apply generation-end behavior,
+and perform one final swap. The current workspace does not select an
+owner-visible outcome for an impossible mid-generation baseline respawn and
+does not make the TypeScript runtime a fallback.
 
 ## Spawn correction
 

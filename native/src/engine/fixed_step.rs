@@ -128,7 +128,7 @@ pub struct FixedStepPrefixDiagnostics {
 }
 
 /// String storage retained while a serialized RNG has no logical Gaussian spare.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct RngCopyScratch {
     pub(crate) world_gaussian_spare: String,
     pub(crate) evolution_gaussian_spare: String,
@@ -511,7 +511,7 @@ pub(crate) fn copy_world_reusing(
     copy_controller_leases_reusing(&mut target.controller_leases, &source.controller_leases)
 }
 
-fn copy_controller_leases_reusing(
+pub(crate) fn copy_controller_leases_reusing(
     target: &mut Vec<ControllerLease>,
     source: &[ControllerLease],
 ) -> Result<(), FixedStepPrefixError> {
@@ -706,7 +706,7 @@ pub(crate) fn copy_serialized_rng_reusing(
     Ok(())
 }
 
-fn controller_text_capacity(leases: &[ControllerLease]) -> usize {
+pub(crate) fn controller_text_capacity(leases: &[ControllerLease]) -> usize {
     leases.iter().fold(0usize, |total, lease| {
         total
             .saturating_add(lease.scope.capacity())

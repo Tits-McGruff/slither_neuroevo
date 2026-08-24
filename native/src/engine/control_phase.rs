@@ -25,8 +25,8 @@ use super::controllers::{
 };
 use super::fixed_step::{
     copy_lifecycle_reusing, copy_rng_bundle_reusing, copy_serialized_rng_reusing,
-    copy_world_reusing, rng_text_capacity, FixedStepPrefixError, PreparedFixedStepPrefix,
-    RngCopyScratch,
+    copy_world_reusing, rng_text_capacity, FixedStepPrefixConfig, FixedStepPrefixError,
+    PreparedFixedStepPrefix, RngCopyScratch,
 };
 use super::physics::PhysicsStepKey;
 use super::sensors::{
@@ -588,6 +588,8 @@ impl<'workspace, 'prefix, 'source> PreparedControlPhase<'workspace, 'prefix, 'so
 pub struct PreparedControlCommit<'workspace> {
     key: PhysicsStepKey,
     calculation_key: CalculationBatchKey,
+    prefix_config: FixedStepPrefixConfig,
+    control_config: ControlPhaseConfig,
     world: &'workspace WorldState,
     rng: &'workspace RngStateBundle,
     allocators: &'workspace AllocatorState,
@@ -612,6 +614,18 @@ impl<'workspace> PreparedControlCommit<'workspace> {
     #[must_use]
     pub const fn calculation_key(self) -> CalculationBatchKey {
         self.calculation_key
+    }
+
+    /// Exact pre-control prefix settings used to build this boundary.
+    #[must_use]
+    pub const fn prefix_config(self) -> FixedStepPrefixConfig {
+        self.prefix_config
+    }
+
+    /// Exact controller-selection settings used to build this boundary.
+    #[must_use]
+    pub const fn control_config(self) -> ControlPhaseConfig {
+        self.control_config
     }
 
     /// World after prefix accounting/ambient work and complete control publication.
@@ -776,7 +790,7 @@ impl ControlCommitWorkspace {
         self.publish_phase(&phase);
         self.ready = true;
         self.diagnostics = self.collect_diagnostics(phase.diagnostics);
-        self.prepared(prefix, phase.key, phase.calculation_key)
+        self.prepared(prefix, phase.key, phase.calculation_key, phase.config)
     }
 
     fn validate_phase(
@@ -1089,6 +1103,7 @@ impl ControlCommitWorkspace {
         prefix: PreparedFixedStepPrefix<'_, '_>,
         key: PhysicsStepKey,
         calculation_key: CalculationBatchKey,
+        phase_config: ControlPhaseConfig,
     ) -> Result<PreparedControlCommit<'workspace>, ControlPhaseError> {
         if !self.ready {
             return Err(ControlPhaseError::ResultNotReady);
@@ -1096,6 +1111,8 @@ impl ControlCommitWorkspace {
         Ok(PreparedControlCommit {
             key,
             calculation_key,
+            prefix_config: prefix.config(),
+            control_config: phase_config,
             world: &self.world,
             rng: self
                 .rng
@@ -2277,12 +2294,16 @@ mod tests {
         GraphSpec,
     };
     use crate::engine::inference::GraphExecutionPlan;
+    use crate::engine::physics::{PhysicsConfig, PhysicsError};
     use crate::engine::rng::StatefulRng;
     use crate::engine::sensors::{SensorConfig, SensorEvaluator};
     use crate::engine::state::{
         AllocatorState, BodyRange, BrainOwner, ControllerLease, GenomeLineage,
         LatestControllerAction, PelletState, RngStateBundle, SnakeState, WorldState,
         ALLOCATOR_VERSION, RNG_BUNDLE_VERSION,
+    };
+    use crate::engine::world_step::{
+        WorldStepConfig, WorldStepError, WorldStepWorkspace, MAXIMUM_PHYSICS_SUBSTEPS,
     };
 
     const DT: f64 = 1.0 / 60.0;
@@ -2689,7 +2710,7 @@ mod tests {
                 ..BaselineLifecycleConfig::typescript_defaults()
             },
             maximum_snakes: 8,
-            maximum_pellets: 32,
+            maximum_pellets: 256,
             ..FixedStepPrefixConfig::typescript_defaults()
         }
     }
@@ -2721,6 +2742,38 @@ mod tests {
         .unwrap();
         let neural = NeuralControlPipeline::try_new(8, sensor, plan, usize::MAX).unwrap();
         ControlPhaseWorkspace::new(neural)
+    }
+
+    fn world_step_config() -> WorldStepConfig {
+        let prefix = prefix_config();
+        let mut physics = PhysicsConfig::typescript_defaults();
+        physics.maximum_body_points = 1_000;
+        physics.maximum_pellets = prefix.maximum_pellets;
+        physics.maximum_pellet_index_entries = 1_000;
+        WorldStepConfig {
+            prefix,
+            control: control_config(),
+            physics,
+            baseline: prefix.baseline,
+            physics_substeps: 3,
+            ..WorldStepConfig::typescript_defaults()
+        }
+    }
+
+    fn make_fixture_bodies_physics_ready(world: &mut WorldState) {
+        let mut body_points = Vec::with_capacity(world.snakes.len() * 5);
+        for snake in &mut world.snakes {
+            let start = body_points.len();
+            for offset in 0..5 {
+                body_points.push(WorldPoint {
+                    x: snake.position.x - offset as f64 * 15.0,
+                    y: snake.position.y,
+                });
+            }
+            snake.body = BodyRange { start, len: 5 };
+            snake.target_length = 5.0;
+        }
+        world.body_points = body_points;
     }
 
     #[derive(Debug, PartialEq)]
@@ -3118,6 +3171,310 @@ mod tests {
             .find(|brain| brain.handle == evolved_handle)
             .unwrap();
         assert_ne!(recurrent_before.recurrent, recurrent_after.recurrent);
+    }
+
+    #[test]
+    fn complete_control_boundary_advances_through_every_physics_substep() {
+        let plan = graph_plan();
+        let mut fixture = fixture(&plan);
+        make_fixture_bodies_physics_ready(&mut fixture.world);
+        let source_world = fixture.world.clone();
+        let source_rng = fixture.rng.clone();
+        let source_allocators = fixture.allocators.clone();
+        let source_lifecycle = fixture.lifecycle.clone();
+        let source_brains = fixture.brains.clone();
+
+        let mut prefix_workspace = FixedStepPrefixWorkspace::new();
+        let prefix = prefix_workspace
+            .prepare(FixedStepPrefixInputs {
+                key: key(28),
+                world: &fixture.world,
+                rng: &fixture.rng,
+                allocators: &fixture.allocators,
+                generation_elapsed_seconds: 2.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &fixture.lifecycle,
+                config: prefix_config(),
+            })
+            .unwrap();
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(prefix.world()).unwrap();
+        let mut selection = control_workspace(plan);
+        let phase = selection
+            .prepare(ControlPhaseInputs {
+                prefix,
+                generation: &generation,
+                population: &fixture.population,
+                brains: &fixture.brains,
+                wall_now_ms: 31_000,
+                config: control_config(),
+            })
+            .unwrap();
+        let mut commit_workspace = ControlCommitWorkspace::new();
+        let committed = commit_workspace.prepare(phase).unwrap();
+        let committed_leases = committed.world().controller_leases.clone();
+        let committed_lifecycle = committed.baseline_lifecycle().clone();
+        let external_observation = committed.external_observation(0).unwrap().1.to_vec();
+
+        let mut step_workspace = WorldStepWorkspace::new();
+        let prepared = step_workspace
+            .prepare(committed, world_step_config())
+            .unwrap();
+
+        assert_eq!(prepared.key(), key(28));
+        assert_eq!(prepared.config(), world_step_config());
+        assert_eq!(prepared.calculation_key().step(), 41);
+        assert_eq!(prepared.world().controller_leases, committed_leases);
+        assert_eq!(prepared.baseline_lifecycle(), &committed_lifecycle);
+        assert_eq!(prepared.brains(), committed.brains());
+        assert_eq!(
+            prepared.external_observation(0).unwrap().1,
+            external_observation
+        );
+        assert_eq!(prepared.generation_elapsed_seconds(), 2.0 + DT);
+        assert_eq!(prepared.ambient_accumulator(), 0.0);
+        assert!(prepared
+            .world()
+            .snakes
+            .iter()
+            .zip(committed.world().snakes.iter())
+            .any(|(after, before)| after.position != before.position));
+        assert!(
+            prepared.sensor_generation().best_points_this_generation()
+                >= generation.best_points_this_generation()
+        );
+        let diagnostics = prepared.diagnostics();
+        assert_eq!(diagnostics.physics.expected_substeps, 3);
+        assert_eq!(diagnostics.physics.completed_substeps, 3);
+        assert!(diagnostics.physics.controller_lease_capacity >= 3);
+        assert_eq!(diagnostics.control.selection.controls, 6);
+
+        let warmed = step_workspace
+            .prepare(committed, world_step_config())
+            .unwrap()
+            .diagnostics();
+        for _ in 0..8 {
+            assert_eq!(
+                step_workspace
+                    .prepare(committed, world_step_config())
+                    .unwrap()
+                    .diagnostics(),
+                warmed
+            );
+        }
+
+        assert_eq!(fixture.world, source_world);
+        assert_eq!(fixture.rng, source_rng);
+        assert_eq!(fixture.allocators, source_allocators);
+        assert_eq!(fixture.lifecycle, source_lifecycle);
+        assert_eq!(fixture.brains, source_brains);
+    }
+
+    #[test]
+    fn post_physics_baseline_death_starts_full_delay_in_the_same_working_step() {
+        let plan = graph_plan();
+        let mut fixture = fixture(&plan);
+        let evolved_position = fixture
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == 10)
+            .unwrap()
+            .position;
+        let baseline = fixture
+            .world
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == 20)
+            .unwrap();
+        baseline.position = evolved_position;
+        baseline.previous_position = evolved_position;
+        make_fixture_bodies_physics_ready(&mut fixture.world);
+        let source_world = fixture.world.clone();
+        let source_rng = fixture.rng.clone();
+        let source_lifecycle = fixture.lifecycle.clone();
+
+        let mut prefix_workspace = FixedStepPrefixWorkspace::new();
+        let prefix = prefix_workspace
+            .prepare(FixedStepPrefixInputs {
+                key: key(29),
+                world: &fixture.world,
+                rng: &fixture.rng,
+                allocators: &fixture.allocators,
+                generation_elapsed_seconds: 2.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &fixture.lifecycle,
+                config: prefix_config(),
+            })
+            .unwrap();
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(prefix.world()).unwrap();
+        let mut selection = control_workspace(plan);
+        let phase = selection
+            .prepare(ControlPhaseInputs {
+                prefix,
+                generation: &generation,
+                population: &fixture.population,
+                brains: &fixture.brains,
+                wall_now_ms: 31_000,
+                config: control_config(),
+            })
+            .unwrap();
+        let mut commit_workspace = ControlCommitWorkspace::new();
+        let committed = commit_workspace.prepare(phase).unwrap();
+        let mut step_workspace = WorldStepWorkspace::new();
+        let prepared = step_workspace
+            .prepare(committed, world_step_config())
+            .unwrap();
+
+        let baseline = prepared
+            .world()
+            .snakes
+            .iter()
+            .find(|snake| snake.id == 20)
+            .unwrap();
+        assert!(!baseline.alive);
+        let slot = prepared.baseline_lifecycle().slots[0];
+        assert_eq!(slot.snake_id, 20);
+        assert_eq!(slot.respawn_remaining_seconds, Some(20.0));
+        assert_eq!(slot.turn.to_bits(), 0.0_f32.to_bits());
+        assert!(!slot.boost);
+        assert_eq!(prepared.diagnostics().physics.baseline_deaths, 1);
+        assert_ne!(prepared.rng(), &source_rng);
+        assert_eq!(fixture.world, source_world);
+        assert_eq!(fixture.rng, source_rng);
+        assert_eq!(fixture.lifecycle, source_lifecycle);
+    }
+
+    #[test]
+    fn controlled_death_rejects_the_joined_step_without_touching_any_source() {
+        let plan = graph_plan();
+        let mut fixture = fixture(&plan);
+        let evolved_position = fixture
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == 10)
+            .unwrap()
+            .position;
+        let controlled = fixture
+            .world
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == 30)
+            .unwrap();
+        controlled.position = evolved_position;
+        controlled.previous_position = evolved_position;
+        make_fixture_bodies_physics_ready(&mut fixture.world);
+        let source_world = fixture.world.clone();
+        let source_rng = fixture.rng.clone();
+        let source_allocators = fixture.allocators.clone();
+        let source_lifecycle = fixture.lifecycle.clone();
+        let source_brains = fixture.brains.clone();
+
+        let mut prefix_workspace = FixedStepPrefixWorkspace::new();
+        let prefix = prefix_workspace
+            .prepare(FixedStepPrefixInputs {
+                key: key(30),
+                world: &fixture.world,
+                rng: &fixture.rng,
+                allocators: &fixture.allocators,
+                generation_elapsed_seconds: 2.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &fixture.lifecycle,
+                config: prefix_config(),
+            })
+            .unwrap();
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(prefix.world()).unwrap();
+        let mut selection = control_workspace(plan);
+        let phase = selection
+            .prepare(ControlPhaseInputs {
+                prefix,
+                generation: &generation,
+                population: &fixture.population,
+                brains: &fixture.brains,
+                wall_now_ms: 31_000,
+                config: control_config(),
+            })
+            .unwrap();
+        let mut commit_workspace = ControlCommitWorkspace::new();
+        let committed = commit_workspace.prepare(phase).unwrap();
+        let committed_world = committed.world().clone();
+        let committed_rng = committed.rng().clone();
+        let committed_allocators = committed.allocators().clone();
+        let committed_lifecycle = committed.baseline_lifecycle().clone();
+        let committed_brains = committed.brains().to_vec();
+        let mut step_workspace = WorldStepWorkspace::new();
+
+        let mut mismatched_prefix = world_step_config();
+        mismatched_prefix.prefix.maximum_pellets -= 1;
+        let mut mismatched_config = world_step_config();
+        mismatched_config.control.maximum_snakes += 1;
+        for (config, expected_field) in [
+            (mismatched_prefix, "prefix"),
+            (mismatched_config, "control"),
+        ] {
+            match step_workspace.prepare(committed, config) {
+                Err(WorldStepError::ControlConfigMismatch { field }) => {
+                    assert_eq!(field, expected_field);
+                }
+                other => panic!("expected {expected_field} mismatch, got {other:?}"),
+            }
+            assert!(!step_workspace.is_ready());
+        }
+
+        let mut wrong_version = world_step_config();
+        wrong_version.algorithm_version += 1;
+        let mut mismatched_baseline = world_step_config();
+        mismatched_baseline.baseline.respawn_delay_seconds += 1.0;
+        let mut mismatched_pellet_limit = world_step_config();
+        mismatched_pellet_limit.physics.maximum_pellets -= 1;
+        let mut mismatched_world_radius = world_step_config();
+        mismatched_world_radius.physics.movement.world_radius -= 1.0;
+        let mut zero_substeps = world_step_config();
+        zero_substeps.physics_substeps = 0;
+        let mut excessive_substeps = world_step_config();
+        excessive_substeps.physics_substeps = MAXIMUM_PHYSICS_SUBSTEPS + 1;
+        let mut mismatched_substep_sum = world_step_config();
+        mismatched_substep_sum.physics.substep_dt *= 0.5;
+        for (config, expected_field) in [
+            (wrong_version, "algorithm_version"),
+            (mismatched_baseline, "baseline lifecycle"),
+            (mismatched_pellet_limit, "maximum pellets"),
+            (mismatched_world_radius, "world radius"),
+            (zero_substeps, "physics substeps"),
+            (excessive_substeps, "physics substeps"),
+            (mismatched_substep_sum, "physics substep sum"),
+        ] {
+            match step_workspace.prepare(committed, config) {
+                Err(WorldStepError::InvalidConfig { field }) => {
+                    assert_eq!(field, expected_field);
+                }
+                other => panic!("expected invalid {expected_field}, got {other:?}"),
+            }
+            assert!(!step_workspace.is_ready());
+        }
+        let error = step_workspace
+            .prepare(committed, world_step_config())
+            .expect_err("controlled death must wait for atomic replacement staging");
+
+        assert!(matches!(
+            error,
+            WorldStepError::Physics(error)
+                if matches!(*error, PhysicsError::ControllerReplacementRequired { snake_id: 30 })
+        ));
+        assert!(!step_workspace.is_ready());
+        assert_eq!(committed.world(), &committed_world);
+        assert_eq!(committed.rng(), &committed_rng);
+        assert_eq!(committed.allocators(), &committed_allocators);
+        assert_eq!(committed.baseline_lifecycle(), &committed_lifecycle);
+        assert_eq!(committed.brains(), committed_brains);
+        assert_eq!(fixture.world, source_world);
+        assert_eq!(fixture.rng, source_rng);
+        assert_eq!(fixture.allocators, source_allocators);
+        assert_eq!(fixture.lifecycle, source_lifecycle);
+        assert_eq!(fixture.brains, source_brains);
     }
 
     #[test]

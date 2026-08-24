@@ -13,6 +13,10 @@ use super::collision::{CollisionConfig, CollisionError, CollisionWorkspace};
 use super::effects::{
     BaselineDeathEvent, DeathDropConfig, EffectError, EffectWorkspace, PreparedEffects,
 };
+use super::fixed_step::{
+    controller_text_capacity, copy_controller_leases_reusing, copy_rng_bundle_reusing,
+    rng_text_capacity, FixedStepPrefixError, RngCopyScratch,
+};
 use super::food::{FoodConfig, FoodError, FoodWorkspace};
 use super::movement::{MovementConfig, MovementError, MovementWorkspace};
 use super::spatial::{
@@ -303,6 +307,16 @@ pub struct PhysicsStepDiagnostics {
     pub body_point_capacity: usize,
     /// Retained working pellet capacity.
     pub pellet_capacity: usize,
+    /// Retained controller-lease capacity carried unchanged through physics.
+    pub controller_lease_capacity: usize,
+    /// Retained controller scope/token text capacity carried through physics.
+    pub controller_text_capacity: usize,
+    /// Retained per-baseline serialized RNG capacity.
+    pub baseline_rng_capacity: usize,
+    /// Retained absent-Gaussian-spare vector capacity.
+    pub baseline_rng_spare_capacity: usize,
+    /// Retained serialized RNG text capacity, including absent spare storage.
+    pub rng_text_capacity: usize,
     /// Retained controlled-ID capacity.
     pub controlled_snake_capacity: usize,
     /// Retained baseline-event capacity.
@@ -376,9 +390,9 @@ impl<'step> PreparedPhysicsStep<'step> {
 
     /// Complete physical world after every declared collision substep.
     ///
-    /// Controller leases are intentionally absent from this scratch view. The
-    /// later full-step transaction retains unchanged live leases and must
-    /// stage replacement assignment before accepting a controlled death.
+    /// Controller leases carry the already-committed control boundary through
+    /// physics unchanged. A controlled death still rejects until the later
+    /// full-step transaction can stage its replacement assignment atomically.
     #[must_use]
     pub const fn world(self) -> &'step WorldState {
         self.world
@@ -499,7 +513,6 @@ impl PhysicsSubstepWorkspace {
         let collision = effects.collision();
         let food = collision.food();
         if !std::ptr::eq(food.source_world(), expected_source)
-            || !expected_source.controller_leases.is_empty()
             || food.snakes().len() != expected_source.snakes.len()
         {
             return Err(PhysicsError::SourceWorldMismatch);
@@ -659,6 +672,7 @@ pub struct PhysicsStepWorkspace {
     key: Option<PhysicsStepKey>,
     world: WorldState,
     rng: Option<RngStateBundle>,
+    rng_copy_scratch: RngCopyScratch,
     allocators: Option<AllocatorState>,
     controlled_snake_ids: Vec<u64>,
     baseline_deaths: Vec<BaselineDeathEvent>,
@@ -707,6 +721,11 @@ impl PhysicsStepWorkspace {
             "working pellets",
         )?;
         reserve_for(
+            &mut self.world.controller_leases,
+            source_world.controller_leases.len(),
+            "working controller leases",
+        )?;
+        reserve_for(
             &mut self.controlled_snake_ids,
             source_world.controller_leases.len(),
             "controlled snake IDs",
@@ -716,7 +735,11 @@ impl PhysicsStepWorkspace {
             .body_points
             .extend_from_slice(&source_world.body_points);
         self.world.pellets.extend_from_slice(&source_world.pellets);
-        self.world.controller_leases.clear();
+        copy_controller_leases_reusing(
+            &mut self.world.controller_leases,
+            &source_world.controller_leases,
+        )
+        .map_err(map_reuse_error)?;
         self.controlled_snake_ids.extend(
             source_world
                 .controller_leases
@@ -732,11 +755,8 @@ impl PhysicsStepWorkspace {
             return Err(PhysicsError::DuplicateControlledSnake);
         }
         validate_physical_world(&self.world, &mut self.validation)?;
-        if let Some(rng) = &mut self.rng {
-            rng.clone_from(source_rng);
-        } else {
-            self.rng = Some(source_rng.clone());
-        }
+        copy_rng_bundle_reusing(&mut self.rng, &mut self.rng_copy_scratch, source_rng)
+            .map_err(map_reuse_error)?;
         self.allocators = Some(source_allocators.clone());
         self.config = Some(config);
         self.key = Some(key);
@@ -973,6 +993,11 @@ impl PhysicsStepWorkspace {
             snake_capacity: self.world.snakes.capacity(),
             body_point_capacity: self.world.body_points.capacity(),
             pellet_capacity: self.world.pellets.capacity(),
+            controller_lease_capacity: self.world.controller_leases.capacity(),
+            controller_text_capacity: controller_text_capacity(&self.world.controller_leases),
+            baseline_rng_capacity: self.rng.as_ref().map_or(0, |rng| rng.baselines.capacity()),
+            baseline_rng_spare_capacity: self.rng_copy_scratch.baseline_gaussian_spares.capacity(),
+            rng_text_capacity: rng_text_capacity(self.rng.as_ref(), &self.rng_copy_scratch),
             controlled_snake_capacity: self.controlled_snake_ids.capacity(),
             baseline_event_capacity: self.baseline_deaths.capacity(),
             validation_order_capacity: self.validation.snake_order.capacity(),
@@ -987,12 +1012,23 @@ impl PhysicsStepWorkspace {
         self.world.snakes.clear();
         self.world.body_points.clear();
         self.world.pellets.clear();
-        self.world.controller_leases.clear();
         self.controlled_snake_ids.clear();
         self.baseline_deaths.clear();
         self.config = None;
         self.expected_substeps = 0;
         self.completed_substeps = 0;
+    }
+}
+
+fn map_reuse_error(error: FixedStepPrefixError) -> PhysicsError {
+    match error {
+        FixedStepPrefixError::AllocationFailed { context, required } => {
+            PhysicsError::AllocationFailed { context, required }
+        }
+        FixedStepPrefixError::ArithmeticOverflow { context } => {
+            PhysicsError::ArithmeticOverflow { context }
+        }
+        _ => PhysicsError::ShapeMismatch,
     }
 }
 
@@ -1031,9 +1067,6 @@ fn validate_physical_world(
     world: &WorldState,
     scratch: &mut PhysicalValidationScratch,
 ) -> Result<(), PhysicsError> {
-    if !world.controller_leases.is_empty() {
-        return Err(PhysicsError::ShapeMismatch);
-    }
     scratch.snake_order.clear();
     scratch.body_ranges.clear();
     scratch.pellet_order.clear();
