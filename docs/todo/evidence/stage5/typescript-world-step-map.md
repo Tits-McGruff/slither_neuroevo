@@ -586,6 +586,45 @@ swap. It must also map an impossible mid-generation baseline placement to a
 reviewed retry-or-fault outcome; the current workspace deliberately selects
 neither and does not make the TypeScript runtime a fallback.
 
+## Atomic nonterminal running-step publication primitive
+
+`AuthoritativeState` now owns a process-local world epoch, a monotonically
+increasing operation epoch and the original admitted memory ceiling. A running
+step can begin only from `AuthorityPhase::Running`; beginning a newer attempt
+invalidates every older proposal. The resulting key binds world, generation,
+source completed-step, population, configuration revision/hash and operation
+identity. Publication accepts only the mutable buffers that one nonterminal
+step can replace: world, gameplay RNG/allocator continuations, brain runtime
+records, baseline lifecycle, ambient credit, generation-best sensor state and
+scheduler scalars. Population weights, the graph, normalized configuration and
+run/build identity remain owned by the existing authority and cannot enter the
+replacement.
+
+Before any swap, publication requires an exact current key, exactly one
+admitted fixed-delta increase in generation time, non-regressing generation
+best, unchanged brain handles/owners/non-population weight bits, unchanged
+evolution and external-controller RNG streams, unchanged non-gameplay allocator
+domains and non-regressing gameplay allocators. It then swaps all large mutable
+buffers once, recomputes the complete admitted memory estimate and reruns every
+mutable state validator while exclusive authority access is held. A validation
+or memory-ceiling failure restores the prior scalars and swaps every old buffer
+back; the unwind path performs the same restoration before resuming the panic.
+Focused tests cover successful all-field publication and reusable old-buffer
+return, every stale key component, superseded attempts, pre-swap immutable and
+monotonic-contract rejection, post-swap malformed-state rollback, post-swap
+memory-ceiling rollback, successful retry and generation-boundary rejection.
+
+This primitive is intentionally lower-level than the authoritative scheduler
+and is not a production fixed-step entrance. It does not independently prove
+that caller-supplied buffers were calculated with the admitted gameplay
+formulas. The remaining coordinator must privately drive the existing prefix,
+control and world-step workspaces; project and compare their complete config;
+resolve generation end, accepted external observation delivery, controlled
+death/replacement and the reviewed impossible-respawn outcome; and only then
+call this primitive. Reset, New Run and import must also advance the world epoch
+when those replacement paths are implemented. No scheduler, frame, Node,
+browser, RL, performance or production-cutover gate is claimed here.
+
 ## Spawn correction
 
 Current `Snake` construction consumes three uniform draws: polar angle,

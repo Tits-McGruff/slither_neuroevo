@@ -12,6 +12,7 @@ use super::graph::{
     CompiledGraph, CompiledNode, GraphBundle, GraphEdge, GraphNodeKind, GraphNodeSpec,
     GraphOutputRef, GraphSpec,
 };
+use super::physics::{PhysicsStepKey, PhysicsStepKeyField};
 use super::rng::{RngError, SerializedRngState, StatefulRng};
 use super::sensors::SensorGenerationState;
 use sha2::{Digest, Sha256};
@@ -19,6 +20,7 @@ use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 use std::mem::size_of;
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
 
 /// State-contract version implemented by this module.
@@ -804,6 +806,50 @@ pub struct StateMemoryEstimate {
     pub total_bytes: usize,
 }
 
+/// Mutable buffers produced by one complete running fixed-step transaction.
+///
+/// The publication boundary swaps these buffers with the current authority so
+/// the caller retains the old allocations for reuse. Immutable run identity,
+/// normalized configuration, graph and population weights are never supplied
+/// by the caller and therefore cannot change through this operation. This is a
+/// low-level transaction value, not a complete scheduler: the fixed-step
+/// coordinator must still derive every buffer through the keyed phase chain and
+/// resolve terminal-generation, controller-delivery and replacement policy
+/// before calling the publication method.
+pub struct RunningStepReplacement<'buffers> {
+    /// Complete keyed attempt derived from the current authority.
+    pub key: PhysicsStepKey,
+    /// Post-physics world, including controller leases.
+    pub world: &'buffers mut WorldState,
+    /// Post-step gameplay RNG continuations.
+    pub rng: &'buffers mut RngStateBundle,
+    /// Post-step deterministic allocator continuations.
+    pub allocators: &'buffers mut AllocatorState,
+    /// Post-control recurrent state for every existing brain.
+    pub brains: &'buffers mut Vec<BrainRuntimeState>,
+    /// Post-step durable baseline lifecycle.
+    pub baseline_lifecycle: &'buffers mut BaselineLifecycleState,
+    /// Post-step fractional ambient-pellet credit.
+    pub ambient_pellet_accumulator: f64,
+    /// Post-step generation-best sensor continuation.
+    pub sensor_generation: SensorGenerationState,
+    /// Simulated generation time after exactly one fixed delta.
+    pub generation_elapsed_seconds: f64,
+    /// Scheduler debt retained after this committed step.
+    pub wall_accumulator_seconds: f64,
+}
+
+/// Result of one successful atomic running-step publication.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RunningStepPublication {
+    /// Key whose staged values became authoritative.
+    pub key: PhysicsStepKey,
+    /// Completed-step identity after publication.
+    pub completed_step: u64,
+    /// Recomputed admitted memory estimate for the new authority.
+    pub memory: StateMemoryEstimate,
+}
+
 /// Validated Rust-owned state. Fields stay private so an invalid candidate
 /// cannot be assembled by struct literal and accidentally published.
 #[derive(Debug)]
@@ -811,6 +857,9 @@ pub struct AuthoritativeState {
     candidate: StateCandidate,
     graph: Arc<GraphBundle>,
     memory: StateMemoryEstimate,
+    memory_ceiling_bytes: usize,
+    world_epoch: u64,
+    latest_operation_epoch: u64,
 }
 
 impl AuthoritativeState {
@@ -834,6 +883,9 @@ impl AuthoritativeState {
             candidate,
             graph,
             memory,
+            memory_ceiling_bytes: policy.memory_ceiling_bytes,
+            world_epoch: 1,
+            latest_operation_epoch: 0,
         })
     }
 
@@ -867,6 +919,126 @@ impl AuthoritativeState {
         self.memory
     }
 
+    /// Begin one fresh running-step attempt from the current authority.
+    ///
+    /// Every call advances the process-local operation epoch, including after
+    /// a prior attempt failed. A result prepared under an older attempt is
+    /// therefore stale before any buffer swap can occur. Receiving a key does
+    /// not authorize bypassing the fixed-step phase/configuration coordinator.
+    pub fn begin_running_step(&mut self) -> Result<PhysicsStepKey, StateError> {
+        if self.candidate.phase != AuthorityPhase::Running {
+            return invalid("phase", "a fixed step requires running authority");
+        }
+        let operation_epoch =
+            self.latest_operation_epoch
+                .checked_add(1)
+                .ok_or(StateError::ArithmeticOverflow {
+                    context: "fixed-step operation epoch",
+                })?;
+        let key = self.running_step_key(operation_epoch)?;
+        self.latest_operation_epoch = operation_epoch;
+        Ok(key)
+    }
+
+    /// Publish one fully staged running fixed step with one reversible swap.
+    ///
+    /// All fallible key checks happen before the swap. Complete mutable-state
+    /// validation and memory admission run while `&mut self` excludes readers;
+    /// rejection or unwinding restores the prior authoritative buffers and
+    /// scalar continuation before the error or panic leaves this method. The
+    /// caller remains responsible for supplying the one complete keyed phase
+    /// result; this method validates state shape and provenance identity, not
+    /// gameplay formulas independently of the phase workspaces.
+    pub fn publish_running_step(
+        &mut self,
+        mut replacement: RunningStepReplacement<'_>,
+    ) -> Result<RunningStepPublication, StateError> {
+        if self.latest_operation_epoch == 0 {
+            return invalid("fixed_step.key", "no running-step attempt is active");
+        }
+        let expected_key = self.running_step_key(self.latest_operation_epoch)?;
+        if let Some(field) = replacement.key.first_mismatch(expected_key) {
+            return Err(StateError::StaleFixedStep { field });
+        }
+        let completed_step = replacement
+            .key
+            .source_completed_step()
+            .checked_add(1)
+            .ok_or(StateError::ArithmeticOverflow {
+                context: "committed fixed-step identity",
+            })?;
+        validate_running_replacement_contract(&self.candidate, &replacement)?;
+        let prior_completed_step = self.candidate.generation.completed_step;
+        let prior_elapsed_seconds = self.candidate.generation.elapsed_seconds;
+        let prior_wall_accumulator_seconds = self.candidate.generation.wall_accumulator_seconds;
+        let prior_ambient_pellet_accumulator = self.candidate.fixed_step.ambient_pellet_accumulator;
+        let prior_sensor_generation = self.candidate.fixed_step.sensor_generation;
+
+        swap_running_step_buffers(&mut self.candidate, &mut replacement);
+        self.candidate.generation.completed_step = completed_step;
+        self.candidate.generation.elapsed_seconds = replacement.generation_elapsed_seconds;
+        self.candidate.generation.wall_accumulator_seconds = replacement.wall_accumulator_seconds;
+        self.candidate.fixed_step.ambient_pellet_accumulator =
+            replacement.ambient_pellet_accumulator;
+        self.candidate.fixed_step.sensor_generation = replacement.sensor_generation;
+
+        let validation = catch_unwind(AssertUnwindSafe(|| {
+            let memory = estimate_state_memory(&self.candidate, &self.graph)?;
+            if memory.total_bytes > self.memory_ceiling_bytes {
+                return Err(StateError::MemoryCeilingExceeded {
+                    estimated_bytes: memory.total_bytes,
+                    ceiling_bytes: self.memory_ceiling_bytes,
+                });
+            }
+            validate_running_mutable_state(&self.candidate, self.graph.compiled())?;
+            Ok(memory)
+        }));
+
+        match validation {
+            Ok(Ok(memory)) => {
+                self.memory = memory;
+                Ok(RunningStepPublication {
+                    key: replacement.key,
+                    completed_step,
+                    memory,
+                })
+            }
+            Ok(Err(error)) => {
+                self.candidate.generation.completed_step = prior_completed_step;
+                self.candidate.generation.elapsed_seconds = prior_elapsed_seconds;
+                self.candidate.generation.wall_accumulator_seconds = prior_wall_accumulator_seconds;
+                self.candidate.fixed_step.ambient_pellet_accumulator =
+                    prior_ambient_pellet_accumulator;
+                self.candidate.fixed_step.sensor_generation = prior_sensor_generation;
+                swap_running_step_buffers(&mut self.candidate, &mut replacement);
+                Err(error)
+            }
+            Err(payload) => {
+                self.candidate.generation.completed_step = prior_completed_step;
+                self.candidate.generation.elapsed_seconds = prior_elapsed_seconds;
+                self.candidate.generation.wall_accumulator_seconds = prior_wall_accumulator_seconds;
+                self.candidate.fixed_step.ambient_pellet_accumulator =
+                    prior_ambient_pellet_accumulator;
+                self.candidate.fixed_step.sensor_generation = prior_sensor_generation;
+                swap_running_step_buffers(&mut self.candidate, &mut replacement);
+                resume_unwind(payload)
+            }
+        }
+    }
+
+    /// Reconstruct the complete current key for one process-local operation.
+    fn running_step_key(&self, operation_epoch: u64) -> Result<PhysicsStepKey, StateError> {
+        Ok(PhysicsStepKey::new(
+            self.world_epoch,
+            self.candidate.generation.generation,
+            self.candidate.generation.completed_step,
+            self.candidate.generation.population_epoch,
+            self.candidate.identity.config_revision,
+            decode_sha256_identity("identity.config_hash", &self.candidate.identity.config_hash)?,
+            operation_epoch,
+        ))
+    }
+
     /// Borrow the only state shape accepted by ordinary checkpoint encoding.
     pub fn checkpoint_boundary(&self) -> Result<GenerationBoundaryView<'_>, StateError> {
         let AuthorityPhase::GenerationBoundary(kind) = self.candidate.phase else {
@@ -876,6 +1048,178 @@ impl AuthoritativeState {
             );
         };
         Ok(GenerationBoundaryView { state: self, kind })
+    }
+}
+
+/// Exchange only fields a running fixed step is allowed to replace.
+fn swap_running_step_buffers(
+    candidate: &mut StateCandidate,
+    replacement: &mut RunningStepReplacement<'_>,
+) {
+    std::mem::swap(&mut candidate.world, replacement.world);
+    std::mem::swap(&mut candidate.rng, replacement.rng);
+    std::mem::swap(&mut candidate.allocators, replacement.allocators);
+    std::mem::swap(&mut candidate.brains, replacement.brains);
+    std::mem::swap(
+        &mut candidate.fixed_step.baseline_lifecycle,
+        replacement.baseline_lifecycle,
+    );
+}
+
+/// Reject immutable or monotonic-continuation changes before any swap.
+fn validate_running_replacement_contract(
+    candidate: &StateCandidate,
+    replacement: &RunningStepReplacement<'_>,
+) -> Result<(), StateError> {
+    let expected_elapsed =
+        candidate.generation.elapsed_seconds + candidate.config.fixed_step_seconds;
+    if !expected_elapsed.is_finite() {
+        return invalid(
+            "fixed_step.generation_elapsed_seconds",
+            "one fixed-delta advance must remain finite",
+        );
+    }
+    if replacement.generation_elapsed_seconds.to_bits() != expected_elapsed.to_bits() {
+        return invalid(
+            "fixed_step.generation_elapsed_seconds",
+            "must advance by exactly one admitted fixed delta",
+        );
+    }
+    if replacement.sensor_generation.best_points_this_generation()
+        < candidate
+            .fixed_step
+            .sensor_generation
+            .best_points_this_generation()
+    {
+        return invalid(
+            "fixed_step.sensor_generation",
+            "generation best cannot regress",
+        );
+    }
+    if replacement.rng.version != candidate.rng.version
+        || replacement.rng.evolution != candidate.rng.evolution
+        || replacement.rng.external_controller != candidate.rng.external_controller
+    {
+        return invalid(
+            "fixed_step.rng",
+            "nonterminal steps cannot replace RNG identity, evolution, or external streams",
+        );
+    }
+    validate_running_allocator_continuation(&candidate.allocators, replacement.allocators)?;
+    if replacement.brains.len() != candidate.brains.len() {
+        return invalid(
+            "fixed_step.brains",
+            "nonterminal steps cannot change brain records",
+        );
+    }
+    for (source, staged) in candidate.brains.iter().zip(replacement.brains.iter()) {
+        if source.handle != staged.handle
+            || source.owner != staged.owner
+            || !optional_f32_bits_equal(
+                source.non_population_weights.as_deref(),
+                staged.non_population_weights.as_deref(),
+            )
+        {
+            return invalid(
+                "fixed_step.brains",
+                "nonterminal steps may change recurrent state but not brain identity or weights",
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Enforce the allocator domains that may advance during one nonterminal step.
+fn validate_running_allocator_continuation(
+    source: &AllocatorState,
+    staged: &AllocatorState,
+) -> Result<(), StateError> {
+    if staged.version != source.version
+        || staged.next_brain_id != source.next_brain_id
+        || staged.next_genome_id != source.next_genome_id
+        || staged.next_controller_lease_id != source.next_controller_lease_id
+        || staged.next_external_id != source.next_external_id
+        || staged.next_resurrected_id != source.next_resurrected_id
+    {
+        return invalid(
+            "fixed_step.allocators",
+            "nonterminal step changed a non-gameplay allocator domain",
+        );
+    }
+    if staged.next_entity_id < source.next_entity_id
+        || staged.next_frame_v1_id < source.next_frame_v1_id
+        || staged.next_baseline_id < source.next_baseline_id
+    {
+        return invalid(
+            "fixed_step.allocators",
+            "monotonic gameplay allocator regressed",
+        );
+    }
+    Ok(())
+}
+
+/// Compare optional packed Float32 values by exact stored bits.
+fn optional_f32_bits_equal(left: Option<&[f32]>, right: Option<&[f32]>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(left, right)| left.to_bits() == right.to_bits())
+        }
+        (None, None) => true,
+        (Some(_), None) | (None, Some(_)) => false,
+    }
+}
+
+/// Revalidate every mutable authority component after a staged running step.
+///
+/// Immutable admission identity, versions, normalized configuration, graph and
+/// population weights cannot be supplied by [`RunningStepReplacement`] and
+/// remain the values admitted by [`AuthoritativeState::validate_and_own`].
+fn validate_running_mutable_state(
+    candidate: &StateCandidate,
+    graph: &CompiledGraph,
+) -> Result<(), StateError> {
+    if candidate.phase != AuthorityPhase::Running {
+        return invalid("phase", "running-step publication changed authority phase");
+    }
+    validate_generation(&candidate.generation)?;
+    validate_rng_bundle(&candidate.rng, &candidate.config)?;
+    validate_allocators(&candidate.allocators)?;
+    validate_population(candidate, graph)?;
+    validate_world(candidate)?;
+    validate_fixed_step_continuation(candidate)?;
+    Ok(())
+}
+
+/// Decode one already-versioned SHA-256 identity without allocating.
+fn decode_sha256_identity(field: &'static str, identity: &str) -> Result<[u8; 32], StateError> {
+    let Some(hex) = identity.strip_prefix("sha256:") else {
+        return invalid(field, "must use the sha256:<64 lowercase hex> form");
+    };
+    let bytes = hex.as_bytes();
+    if bytes.len() != 64 {
+        return invalid(field, "must contain exactly 64 lowercase hex digits");
+    }
+    let mut output = [0_u8; 32];
+    for (index, pair) in bytes.chunks_exact(2).enumerate() {
+        let high = lowercase_hex_nibble(pair[0])
+            .ok_or_else(|| invalid_error(field, "must contain lowercase hexadecimal digits"))?;
+        let low = lowercase_hex_nibble(pair[1])
+            .ok_or_else(|| invalid_error(field, "must contain lowercase hexadecimal digits"))?;
+        output[index] = (high << 4) | low;
+    }
+    Ok(output)
+}
+
+/// Convert one lowercase hexadecimal byte to its numeric nibble.
+const fn lowercase_hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        _ => None,
     }
 }
 
@@ -937,6 +1281,8 @@ pub enum StateError {
     NonFinite { field: &'static str, index: usize },
     /// Checked byte/count arithmetic overflowed.
     ArithmeticOverflow { context: &'static str },
+    /// A prepared fixed step no longer names the current authority/operation.
+    StaleFixedStep { field: PhysicsStepKeyField },
     /// Estimated state exceeds the caller-approved ceiling.
     MemoryCeilingExceeded {
         /// Checked state estimate.
@@ -1009,6 +1355,9 @@ impl fmt::Display for StateError {
             }
             Self::ArithmeticOverflow { context } => {
                 write!(formatter, "checked arithmetic overflow while calculating {context}")
+            }
+            Self::StaleFixedStep { field } => {
+                write!(formatter, "stale fixed-step proposal: {field:?} changed")
             }
             Self::MemoryCeilingExceeded {
                 estimated_bytes,
@@ -2766,10 +3115,14 @@ fn validate_build_class(field: &'static str, value: &str) -> Result<(), StateErr
 }
 
 fn invalid<T>(field: &'static str, reason: &str) -> Result<T, StateError> {
-    Err(StateError::InvalidField {
+    Err(invalid_error(field, reason))
+}
+
+fn invalid_error(field: &'static str, reason: &str) -> StateError {
+    StateError::InvalidField {
         field,
         reason: reason.to_owned(),
-    })
+    }
 }
 
 fn checked_add(left: usize, right: usize, context: &'static str) -> Result<usize, StateError> {
@@ -3463,6 +3816,56 @@ mod tests {
             candidate.allocators.next_frame_v1_id.max(frame_v1_id + 1);
     }
 
+    fn running_candidate(graph: &CompiledGraph) -> StateCandidate {
+        let mut running = candidate(graph, 1);
+        running.phase = AuthorityPhase::Running;
+        push_evolved_snake(&mut running, 0, 1, 1, WorldPoint { x: 10.0, y: 20.0 });
+        running
+    }
+
+    struct RunningStepBuffers {
+        world: WorldState,
+        rng: RngStateBundle,
+        allocators: AllocatorState,
+        brains: Vec<BrainRuntimeState>,
+        baseline_lifecycle: BaselineLifecycleState,
+        ambient_pellet_accumulator: f64,
+        sensor_generation: SensorGenerationState,
+        generation_elapsed_seconds: f64,
+        wall_accumulator_seconds: f64,
+    }
+
+    impl RunningStepBuffers {
+        fn from_state(state: &StateCandidate) -> Self {
+            Self {
+                world: state.world.clone(),
+                rng: state.rng.clone(),
+                allocators: state.allocators.clone(),
+                brains: state.brains.clone(),
+                baseline_lifecycle: state.fixed_step.baseline_lifecycle.clone(),
+                ambient_pellet_accumulator: state.fixed_step.ambient_pellet_accumulator,
+                sensor_generation: state.fixed_step.sensor_generation,
+                generation_elapsed_seconds: state.generation.elapsed_seconds + 1.0 / 60.0,
+                wall_accumulator_seconds: state.generation.wall_accumulator_seconds,
+            }
+        }
+
+        fn replacement(&mut self, key: PhysicsStepKey) -> RunningStepReplacement<'_> {
+            RunningStepReplacement {
+                key,
+                world: &mut self.world,
+                rng: &mut self.rng,
+                allocators: &mut self.allocators,
+                brains: &mut self.brains,
+                baseline_lifecycle: &mut self.baseline_lifecycle,
+                ambient_pellet_accumulator: self.ambient_pellet_accumulator,
+                sensor_generation: self.sensor_generation,
+                generation_elapsed_seconds: self.generation_elapsed_seconds,
+                wall_accumulator_seconds: self.wall_accumulator_seconds,
+            }
+        }
+    }
+
     fn push_external_snake(
         candidate: &mut StateCandidate,
         graph: &CompiledGraph,
@@ -3845,6 +4248,346 @@ mod tests {
             })
         ));
         assert_eq!(allocators, before);
+    }
+
+    #[test]
+    fn running_step_publication_swaps_every_mutable_continuation_atomically() {
+        let graph = default_graph();
+        let source = running_candidate(&graph);
+        let source_snapshot = source.clone();
+        let mut authority = own(source, graph, usize::MAX).expect("running state must admit");
+        let key = authority
+            .begin_running_step()
+            .expect("running step must begin");
+
+        let mut world = authority.state().world.clone();
+        world.snakes[0].position = WorldPoint { x: 11.0, y: 20.0 };
+        world.body_points[0] = world.snakes[0].position;
+        let mut rng = authority.state().rng.clone();
+        let mut world_stream = StatefulRng::from_state(&rng.world).expect("source RNG must decode");
+        let _ = world_stream.next_f64();
+        rng.world = world_stream.export_state();
+        let mut allocators = authority.state().allocators.clone();
+        allocators.next_entity_id += 1;
+        let mut brains = authority.state().brains.clone();
+        brains[0].recurrent[0] = 0.25;
+        let mut baseline_lifecycle = authority.state().fixed_step.baseline_lifecycle.clone();
+        let sensor_generation = SensorGenerationState::new();
+
+        let publication = authority
+            .publish_running_step(RunningStepReplacement {
+                key,
+                world: &mut world,
+                rng: &mut rng,
+                allocators: &mut allocators,
+                brains: &mut brains,
+                baseline_lifecycle: &mut baseline_lifecycle,
+                ambient_pellet_accumulator: 0.75,
+                sensor_generation,
+                generation_elapsed_seconds: 1.0 / 60.0,
+                wall_accumulator_seconds: 0.125,
+            })
+            .expect("complete valid step must publish");
+
+        assert_eq!(publication.key, key);
+        assert_eq!(publication.completed_step, 1);
+        assert_eq!(publication.memory, authority.memory_estimate());
+        assert_eq!(authority.state().generation.completed_step, 1);
+        assert_eq!(authority.state().generation.elapsed_seconds, 1.0 / 60.0);
+        assert_eq!(authority.state().generation.wall_accumulator_seconds, 0.125);
+        assert_eq!(authority.state().world.snakes[0].position.x, 11.0);
+        assert_eq!(authority.state().allocators.next_entity_id, 3);
+        assert_eq!(authority.state().brains[0].recurrent[0], 0.25);
+        assert_eq!(
+            authority.state().fixed_step.ambient_pellet_accumulator,
+            0.75
+        );
+        assert_eq!(
+            authority.state().fixed_step.sensor_generation,
+            sensor_generation
+        );
+
+        assert_eq!(world, source_snapshot.world);
+        assert_eq!(rng, source_snapshot.rng);
+        assert_eq!(allocators, source_snapshot.allocators);
+        assert_eq!(brains, source_snapshot.brains);
+        assert_eq!(
+            baseline_lifecycle,
+            source_snapshot.fixed_step.baseline_lifecycle
+        );
+    }
+
+    #[test]
+    fn running_step_rejects_every_stale_identity_before_any_swap() {
+        let graph = default_graph();
+        let mut authority =
+            own(running_candidate(&graph), graph, usize::MAX).expect("running state must admit");
+        let key = authority
+            .begin_running_step()
+            .expect("running step must begin");
+        let source = authority.state().clone();
+        let mut buffers = RunningStepBuffers::from_state(authority.state());
+        let stale = [
+            (
+                PhysicsStepKey::new(
+                    key.world_epoch() + 1,
+                    key.generation(),
+                    key.source_completed_step(),
+                    key.population_epoch(),
+                    key.config_revision(),
+                    key.config_hash(),
+                    key.operation_epoch(),
+                ),
+                PhysicsStepKeyField::WorldEpoch,
+            ),
+            (
+                PhysicsStepKey::new(
+                    key.world_epoch(),
+                    key.generation() + 1,
+                    key.source_completed_step(),
+                    key.population_epoch(),
+                    key.config_revision(),
+                    key.config_hash(),
+                    key.operation_epoch(),
+                ),
+                PhysicsStepKeyField::Generation,
+            ),
+            (
+                PhysicsStepKey::new(
+                    key.world_epoch(),
+                    key.generation(),
+                    key.source_completed_step() + 1,
+                    key.population_epoch(),
+                    key.config_revision(),
+                    key.config_hash(),
+                    key.operation_epoch(),
+                ),
+                PhysicsStepKeyField::SourceCompletedStep,
+            ),
+            (
+                PhysicsStepKey::new(
+                    key.world_epoch(),
+                    key.generation(),
+                    key.source_completed_step(),
+                    key.population_epoch() + 1,
+                    key.config_revision(),
+                    key.config_hash(),
+                    key.operation_epoch(),
+                ),
+                PhysicsStepKeyField::PopulationEpoch,
+            ),
+            (
+                PhysicsStepKey::new(
+                    key.world_epoch(),
+                    key.generation(),
+                    key.source_completed_step(),
+                    key.population_epoch(),
+                    key.config_revision() + 1,
+                    key.config_hash(),
+                    key.operation_epoch(),
+                ),
+                PhysicsStepKeyField::ConfigRevision,
+            ),
+            (
+                PhysicsStepKey::new(
+                    key.world_epoch(),
+                    key.generation(),
+                    key.source_completed_step(),
+                    key.population_epoch(),
+                    key.config_revision(),
+                    [0x55; 32],
+                    key.operation_epoch(),
+                ),
+                PhysicsStepKeyField::ConfigHash,
+            ),
+            (
+                PhysicsStepKey::new(
+                    key.world_epoch(),
+                    key.generation(),
+                    key.source_completed_step(),
+                    key.population_epoch(),
+                    key.config_revision(),
+                    key.config_hash(),
+                    key.operation_epoch() + 1,
+                ),
+                PhysicsStepKeyField::OperationEpoch,
+            ),
+        ];
+
+        for (stale_key, expected_field) in stale {
+            assert_eq!(
+                authority.publish_running_step(buffers.replacement(stale_key)),
+                Err(StateError::StaleFixedStep {
+                    field: expected_field
+                })
+            );
+            assert_eq!(authority.state(), &source);
+            assert_eq!(buffers.world, source.world);
+            assert_eq!(buffers.brains, source.brains);
+        }
+
+        let newer_key = authority
+            .begin_running_step()
+            .expect("newer attempt must begin");
+        assert_eq!(
+            authority.publish_running_step(buffers.replacement(key)),
+            Err(StateError::StaleFixedStep {
+                field: PhysicsStepKeyField::OperationEpoch
+            })
+        );
+        authority
+            .publish_running_step(buffers.replacement(newer_key))
+            .expect("current exact key must publish");
+    }
+
+    #[test]
+    fn running_step_rejects_immutable_or_regressing_continuations_before_swap() {
+        let graph = default_graph();
+        let mut source = running_candidate(&graph);
+        push_external_snake(
+            &mut source,
+            &graph,
+            EXTERNAL_ENTITY_ID_START,
+            2,
+            WorldPoint { x: 30.0, y: 40.0 },
+        );
+        source.world.snakes[0].points = 5.0;
+        source
+            .fixed_step
+            .sensor_generation
+            .update_after_step(&source.world)
+            .expect("source generation best must update");
+        let mut authority = own(source.clone(), graph, usize::MAX)
+            .expect("running source with external brain must admit");
+        let key = authority
+            .begin_running_step()
+            .expect("running step must begin");
+
+        let mut wrong_elapsed = RunningStepBuffers::from_state(authority.state());
+        wrong_elapsed.generation_elapsed_seconds += 0.001;
+        assert!(matches!(
+            authority.publish_running_step(wrong_elapsed.replacement(key)),
+            Err(StateError::InvalidField {
+                field: "fixed_step.generation_elapsed_seconds",
+                ..
+            })
+        ));
+
+        let mut regressed_sensor = RunningStepBuffers::from_state(authority.state());
+        regressed_sensor.sensor_generation.reset();
+        assert!(matches!(
+            authority.publish_running_step(regressed_sensor.replacement(key)),
+            Err(StateError::InvalidField {
+                field: "fixed_step.sensor_generation",
+                ..
+            })
+        ));
+
+        let mut wrong_rng = RunningStepBuffers::from_state(authority.state());
+        let mut evolution = StatefulRng::from_state(&wrong_rng.rng.evolution)
+            .expect("evolution stream must decode");
+        let _ = evolution.next_f64();
+        wrong_rng.rng.evolution = evolution.export_state();
+        assert!(matches!(
+            authority.publish_running_step(wrong_rng.replacement(key)),
+            Err(StateError::InvalidField {
+                field: "fixed_step.rng",
+                ..
+            })
+        ));
+
+        let mut wrong_allocator = RunningStepBuffers::from_state(authority.state());
+        wrong_allocator.allocators.next_genome_id += 1;
+        assert!(matches!(
+            authority.publish_running_step(wrong_allocator.replacement(key)),
+            Err(StateError::InvalidField {
+                field: "fixed_step.allocators",
+                ..
+            })
+        ));
+
+        let mut wrong_weights = RunningStepBuffers::from_state(authority.state());
+        let external_weights = wrong_weights.brains[1]
+            .non_population_weights
+            .as_mut()
+            .expect("external brain must own weights");
+        external_weights[0] = 0.5;
+        assert!(matches!(
+            authority.publish_running_step(wrong_weights.replacement(key)),
+            Err(StateError::InvalidField {
+                field: "fixed_step.brains",
+                ..
+            })
+        ));
+
+        assert_eq!(authority.state(), &source);
+        assert_eq!(authority.state().generation.completed_step, 0);
+    }
+
+    #[test]
+    fn running_step_validation_and_memory_failure_restore_authority_and_scratch() {
+        let graph = default_graph();
+        let source = running_candidate(&graph);
+        let exact_ceiling = estimate_state_memory(&source, &graph)
+            .expect("source memory must estimate")
+            .total_bytes;
+        let mut authority =
+            own(source.clone(), graph, exact_ceiling).expect("source must fit its exact estimate");
+        let source_memory = authority.memory_estimate();
+
+        let invalid_key = authority
+            .begin_running_step()
+            .expect("invalid attempt must begin");
+        let mut invalid = RunningStepBuffers::from_state(authority.state());
+        invalid.world.snakes[0].position.x = f64::NAN;
+        assert!(matches!(
+            authority.publish_running_step(invalid.replacement(invalid_key)),
+            Err(StateError::NonFinite {
+                field: "world.snakes.position",
+                ..
+            })
+        ));
+        assert_eq!(authority.state(), &source);
+        assert_eq!(authority.memory_estimate(), source_memory);
+        assert!(invalid.world.snakes[0].position.x.is_nan());
+
+        let oversized_key = authority
+            .begin_running_step()
+            .expect("oversized attempt must begin");
+        let mut oversized = RunningStepBuffers::from_state(authority.state());
+        oversized
+            .world
+            .pellets
+            .try_reserve_exact(100_000)
+            .expect("test reserve must succeed");
+        let oversized_capacity = oversized.world.pellets.capacity();
+        assert!(matches!(
+            authority.publish_running_step(oversized.replacement(oversized_key)),
+            Err(StateError::MemoryCeilingExceeded { .. })
+        ));
+        assert_eq!(authority.state(), &source);
+        assert_eq!(authority.memory_estimate(), source_memory);
+        assert_eq!(oversized.world.pellets.capacity(), oversized_capacity);
+
+        let valid_key = authority
+            .begin_running_step()
+            .expect("valid retry must begin");
+        let mut valid = RunningStepBuffers::from_state(authority.state());
+        authority
+            .publish_running_step(valid.replacement(valid_key))
+            .expect("later valid step must publish");
+        assert_eq!(authority.state().generation.completed_step, 1);
+    }
+
+    #[test]
+    fn running_step_cannot_begin_from_a_generation_boundary() {
+        let graph = default_graph();
+        let mut boundary =
+            own(candidate(&graph, 1), graph, usize::MAX).expect("generation boundary must admit");
+        assert!(matches!(
+            boundary.begin_running_step(),
+            Err(StateError::InvalidField { field: "phase", .. })
+        ));
     }
 
     #[test]
