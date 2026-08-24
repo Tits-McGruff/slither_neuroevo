@@ -89,6 +89,25 @@ authority-writing operation yet; the later fixed-step coordinator must
 revalidate and publish controller transitions, chosen controls, internal
 delivery markers and recurrent continuations as one complete transaction.
 
+`engine::control_phase::ControlCommitWorkspace` now performs that internal
+control publication into one reusable non-authoritative working boundary. It
+copies the joined prefix, source brains and generation sensor continuation;
+preflights every control, lease proposal, baseline slot/RNG result, packed
+external event range and neural delivery/recurrent result; and only then
+applies the infallible internal commit. Baseline and due-neural observation
+markers advance because those observations were consumed inside Rust.
+External observation markers remain unchanged and travel with the retained
+packed event until matching Node acceptance is implemented. Initial grace
+expiry clears the expired external action before applying the zero-state
+neural result, while later `NeuralTakeover` boundaries do not neutralize an
+already-held neural action. Immutable non-population weights become reusable
+within one world/population epoch when each retained record still has the same
+handle, owner and shape; recurrent blocks are refreshed and published on every
+applicable boundary. The working result is a
+physics input, not authority: current-state key revalidation, physics,
+generation decisions and the single final swap remain the later coordinator's
+responsibility.
+
 ## Per-step scalar accounting
 
 `Snake::prepareForStep(dt)` ensures a head point exists, increases age by `dt`,

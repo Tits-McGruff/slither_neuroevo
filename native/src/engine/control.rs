@@ -538,6 +538,19 @@ impl NeuralControlPipeline {
         world: &mut WorldState,
         brains: &mut [BrainRuntimeState],
     ) -> Result<(), NeuralControlError> {
+        self.validate_state_commit(current_key, world, brains)?;
+        self.commit_state_prevalidated(world, brains);
+        self.ready = None;
+        Ok(())
+    }
+
+    /// Revalidate one staged batch before a larger control transaction writes.
+    pub(crate) fn validate_state_commit(
+        &self,
+        current_key: CalculationBatchKey,
+        world: &WorldState,
+        brains: &[BrainRuntimeState],
+    ) -> Result<(), NeuralControlError> {
         let ready = self.ready.ok_or(NeuralControlError::BatchNotReady)?;
         if ready.key != current_key {
             return Err(NeuralControlError::BatchKeyMismatch {
@@ -606,14 +619,34 @@ impl NeuralControlPipeline {
             delivery.validate(snake)?;
         }
 
+        Ok(())
+    }
+
+    /// Publish a neural batch already checked against the same exclusive targets.
+    pub(crate) fn commit_state_prevalidated(
+        &self,
+        world: &mut WorldState,
+        brains: &mut [BrainRuntimeState],
+    ) {
+        let ready = self
+            .ready
+            .expect("prevalidated neural-control batch must remain ready");
+        let work = self
+            .workspace
+            .prepared_work()
+            .expect("prevalidated neural-control work must remain available");
+        debug_assert_eq!(work.len(), ready.active);
         for (ordinal, unit) in work.iter().enumerate() {
             let delivery = self.deliveries[ordinal]
                 .expect("complete neural-control delivery preflight invariant");
             delivery.commit_prevalidated(&mut world.snakes[unit.snake_index()]);
         }
+        let recurrent_count = ready
+            .active
+            .checked_mul(self.inference.total_state_size())
+            .expect("prevalidated neural recurrent length must not overflow");
+        let staged_recurrent = &self.staged_recurrent[..recurrent_count];
         publish_heterogeneous_recurrent(&self.inference, work, brains, staged_recurrent);
-        self.ready = None;
-        Ok(())
     }
 
     /// Discard one complete staged batch without changing authority.

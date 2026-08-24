@@ -6,7 +6,9 @@
 //! in stable internal-ID order. External observations remain uncommitted until
 //! the thin bridge reports acceptance for the matching connection boundary.
 
-use super::baseline::BaselineSlotRuntime;
+use super::baseline::{
+    validate_strategy_runtime, BaselineLifecycleError, BaselineLifecycleState, BaselineSlotRuntime,
+};
 use super::baseline_control::{
     BaselineControlConfig, BaselineControlDiagnostics, BaselineControlError,
     BaselineControlWorkspace,
@@ -17,10 +19,15 @@ use super::control::{
     NeuralControlPipeline,
 };
 use super::controllers::{
-    prepare_controller_boundary, ControllerBoundaryProposal, ControllerError, ControllerTiming,
+    commit_controller_boundary_prevalidated, prepare_controller_boundary,
+    validate_controller_boundary, ControllerBoundaryProposal, ControllerError, ControllerTiming,
     ExternalControlSource,
 };
-use super::fixed_step::PreparedFixedStepPrefix;
+use super::fixed_step::{
+    copy_lifecycle_reusing, copy_rng_bundle_reusing, copy_serialized_rng_reusing,
+    copy_world_reusing, rng_text_capacity, FixedStepPrefixError, PreparedFixedStepPrefix,
+    RngCopyScratch,
+};
 use super::physics::PhysicsStepKey;
 use super::sensors::{
     ObservationDeliveryMarker, SensorError, SensorGenerationState, SensorSampleDiagnostics,
@@ -31,8 +38,9 @@ use super::spatial::{
     PelletSpatialIndex, SensorIndexConfig, SpatialIndexError,
 };
 use super::state::{
-    BaselineRngState, BaselineStrategyState, BrainHandle, BrainRuntimeState, ControllerKind,
-    ControllerLeaseStatus, PopulationGenome, SnakeKind, WorldPoint, WorldState,
+    AllocatorState, BaselineRngState, BaselineStrategyState, BrainHandle, BrainRuntimeState,
+    ControllerKind, ControllerLeaseStatus, PopulationGenome, RngStateBundle, SnakeKind, WorldPoint,
+    WorldState,
 };
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -315,6 +323,7 @@ pub struct PreparedExternalObservation {
     lease_id: u64,
     connection_id: u64,
     kind: ControllerKind,
+    lease_index: usize,
     snake_index: usize,
     snake_id: u64,
     position: WorldPoint,
@@ -426,8 +435,39 @@ pub struct ControlPhaseDiagnostics {
     pub reset_brain_capacity: usize,
 }
 
+/// Retained buffers and source work represented by one applied control boundary.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ControlCommitDiagnostics {
+    /// Selection/sensing/inference work that produced the applied boundary.
+    pub selection: ControlPhaseDiagnostics,
+    /// Retained working snake capacity.
+    pub snake_capacity: usize,
+    /// Retained working body-point capacity.
+    pub body_point_capacity: usize,
+    /// Retained working pellet capacity.
+    pub pellet_capacity: usize,
+    /// Retained controller-lease capacity.
+    pub controller_lease_capacity: usize,
+    /// Retained brain-record capacity.
+    pub brain_capacity: usize,
+    /// Immutable non-population weight values copied on this attempt.
+    pub brain_weight_values_copied: usize,
+    /// Recurrent values copied from the source boundary before publication.
+    pub brain_recurrent_values_copied: usize,
+    /// Retained baseline-slot capacity.
+    pub baseline_slot_capacity: usize,
+    /// Retained baseline-RNG capacity.
+    pub baseline_rng_capacity: usize,
+    /// Retained external-event capacity.
+    pub external_event_capacity: usize,
+    /// Retained packed external-observation capacity.
+    pub external_observation_capacity: usize,
+    /// Retained serialized RNG text capacity, including absent Gaussian spares.
+    pub rng_text_capacity: usize,
+}
+
 /// Complete non-authoritative controller boundary.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct PreparedControlPhase<'workspace, 'prefix, 'source> {
     key: PhysicsStepKey,
     calculation_key: CalculationBatchKey,
@@ -437,6 +477,7 @@ pub struct PreparedControlPhase<'workspace, 'prefix, 'source> {
     brains: &'source [BrainRuntimeState],
     wall_now_ms: u64,
     config: ControlPhaseConfig,
+    neural: &'workspace NeuralControlPipeline,
     controls: &'workspace [PreparedControlUpdate],
     controller_transitions: &'workspace [PreparedControllerTransition],
     baseline_controls: &'workspace [PreparedBaselineControl],
@@ -448,13 +489,13 @@ pub struct PreparedControlPhase<'workspace, 'prefix, 'source> {
 impl PreparedControlPhase<'_, '_, '_> {
     /// Complete authority/config/operation identity prepared.
     #[must_use]
-    pub const fn key(self) -> PhysicsStepKey {
+    pub const fn key(&self) -> PhysicsStepKey {
         self.key
     }
 
     /// Neural calculation identity for the next committed step.
     #[must_use]
-    pub const fn calculation_key(self) -> CalculationBatchKey {
+    pub const fn calculation_key(&self) -> CalculationBatchKey {
         self.calculation_key
     }
 }
@@ -462,29 +503,172 @@ impl PreparedControlPhase<'_, '_, '_> {
 impl<'workspace, 'prefix, 'source> PreparedControlPhase<'workspace, 'prefix, 'source> {
     /// One exclusive source/action decision per alive snake, in stable-ID order.
     #[must_use]
-    pub const fn control_updates(self) -> &'workspace [PreparedControlUpdate] {
+    pub const fn control_updates(&self) -> &'workspace [PreparedControlUpdate] {
         self.controls
     }
 
     /// Wall-time lease proposals joined to this boundary.
     #[must_use]
-    pub const fn controller_transitions(self) -> &'workspace [PreparedControllerTransition] {
+    pub const fn controller_transitions(&self) -> &'workspace [PreparedControllerTransition] {
         self.controller_transitions
     }
 
     /// Internally consumed baseline results.
     #[must_use]
-    pub const fn baseline_controls(self) -> &'workspace [PreparedBaselineControl] {
+    pub const fn baseline_controls(&self) -> &'workspace [PreparedBaselineControl] {
         self.baseline_controls
     }
 
     /// External events awaiting matching thin-bridge acceptance.
     #[must_use]
-    pub const fn external_events(self) -> &'workspace [PreparedExternalObservation] {
+    pub const fn external_events(&self) -> &'workspace [PreparedExternalObservation] {
         self.external_events
     }
 
     /// Resolve one event and its packed Float32 observation without copying it.
+    #[must_use]
+    pub fn external_observation(
+        &self,
+        event_index: usize,
+    ) -> Option<(&'workspace PreparedExternalObservation, &'workspace [f32])> {
+        let event = self.external_events.get(event_index)?;
+        let end = event.observation_start.checked_add(event.observation_len)?;
+        Some((
+            event,
+            self.external_observations
+                .get(event.observation_start..end)?,
+        ))
+    }
+
+    /// Fixed-step prefix from which every observation/source was derived.
+    #[must_use]
+    pub const fn prefix(&self) -> PreparedFixedStepPrefix<'prefix, 'source> {
+        self.prefix
+    }
+
+    /// Exact generation-best state sampled.
+    #[must_use]
+    pub const fn generation(&self) -> &'source SensorGenerationState {
+        self.generation
+    }
+
+    /// Exact population source sampled by heterogeneous inference.
+    #[must_use]
+    pub const fn population(&self) -> &'source [PopulationGenome] {
+        self.population
+    }
+
+    /// Exact brain/recurrent source sampled by heterogeneous inference.
+    #[must_use]
+    pub const fn brains(&self) -> &'source [BrainRuntimeState] {
+        self.brains
+    }
+
+    /// Monotonic wall boundary used for lease selection.
+    #[must_use]
+    pub const fn wall_now_ms(&self) -> u64 {
+        self.wall_now_ms
+    }
+
+    /// Exact projected control settings.
+    #[must_use]
+    pub const fn config(&self) -> ControlPhaseConfig {
+        self.config
+    }
+
+    /// Work and retained-capacity diagnostics.
+    #[must_use]
+    pub const fn diagnostics(&self) -> ControlPhaseDiagnostics {
+        self.diagnostics
+    }
+}
+
+/// Complete applied control boundary that remains non-authoritative.
+#[derive(Clone, Copy, Debug)]
+pub struct PreparedControlCommit<'workspace> {
+    key: PhysicsStepKey,
+    calculation_key: CalculationBatchKey,
+    world: &'workspace WorldState,
+    rng: &'workspace RngStateBundle,
+    allocators: &'workspace AllocatorState,
+    lifecycle: &'workspace BaselineLifecycleState,
+    brains: &'workspace [BrainRuntimeState],
+    sensor_generation: SensorGenerationState,
+    generation_elapsed_seconds: f64,
+    ambient_accumulator: f64,
+    external_events: &'workspace [PreparedExternalObservation],
+    external_observations: &'workspace [f32],
+    diagnostics: ControlCommitDiagnostics,
+}
+
+impl<'workspace> PreparedControlCommit<'workspace> {
+    /// Complete authority/config/operation identity prepared.
+    #[must_use]
+    pub const fn key(self) -> PhysicsStepKey {
+        self.key
+    }
+
+    /// Exact neural calculation identity committed into this working boundary.
+    #[must_use]
+    pub const fn calculation_key(self) -> CalculationBatchKey {
+        self.calculation_key
+    }
+
+    /// World after prefix accounting/ambient work and complete control publication.
+    #[must_use]
+    pub const fn world(self) -> &'workspace WorldState {
+        self.world
+    }
+
+    /// RNG continuation after ambient and baseline-control draws.
+    #[must_use]
+    pub const fn rng(self) -> &'workspace RngStateBundle {
+        self.rng
+    }
+
+    /// Allocator continuation after the fixed-step prefix.
+    #[must_use]
+    pub const fn allocators(self) -> &'workspace AllocatorState {
+        self.allocators
+    }
+
+    /// Baseline timers, strategies, actions, and RNG-independent state after control.
+    #[must_use]
+    pub const fn baseline_lifecycle(self) -> &'workspace BaselineLifecycleState {
+        self.lifecycle
+    }
+
+    /// Recurrent state after every due neural evaluation.
+    #[must_use]
+    pub const fn brains(self) -> &'workspace [BrainRuntimeState] {
+        self.brains
+    }
+
+    /// Generation-best value sampled at this pre-movement boundary.
+    #[must_use]
+    pub const fn sensor_generation(self) -> SensorGenerationState {
+        self.sensor_generation
+    }
+
+    /// Generation elapsed seconds after the once-per-step accounting prefix.
+    #[must_use]
+    pub const fn generation_elapsed_seconds(self) -> f64 {
+        self.generation_elapsed_seconds
+    }
+
+    /// Fractional ambient-pellet credit after realized prefix spawns.
+    #[must_use]
+    pub const fn ambient_accumulator(self) -> f64 {
+        self.ambient_accumulator
+    }
+
+    /// External events that still require matching Node acceptance.
+    #[must_use]
+    pub const fn external_events(self) -> &'workspace [PreparedExternalObservation] {
+        self.external_events
+    }
+
+    /// Resolve one retained event and its packed observation without copying it.
     #[must_use]
     pub fn external_observation(
         self,
@@ -499,46 +683,462 @@ impl<'workspace, 'prefix, 'source> PreparedControlPhase<'workspace, 'prefix, 'so
         ))
     }
 
-    /// Fixed-step prefix from which every observation/source was derived.
+    /// Work counts and retained capacities for the complete control commit.
     #[must_use]
-    pub const fn prefix(self) -> PreparedFixedStepPrefix<'prefix, 'source> {
-        self.prefix
-    }
-
-    /// Exact generation-best state sampled.
-    #[must_use]
-    pub const fn generation(self) -> &'source SensorGenerationState {
-        self.generation
-    }
-
-    /// Exact population source sampled by heterogeneous inference.
-    #[must_use]
-    pub const fn population(self) -> &'source [PopulationGenome] {
-        self.population
-    }
-
-    /// Exact brain/recurrent source sampled by heterogeneous inference.
-    #[must_use]
-    pub const fn brains(self) -> &'source [BrainRuntimeState] {
-        self.brains
-    }
-
-    /// Monotonic wall boundary used for lease selection.
-    #[must_use]
-    pub const fn wall_now_ms(self) -> u64 {
-        self.wall_now_ms
-    }
-
-    /// Exact projected control settings.
-    #[must_use]
-    pub const fn config(self) -> ControlPhaseConfig {
-        self.config
-    }
-
-    /// Work and retained-capacity diagnostics.
-    #[must_use]
-    pub const fn diagnostics(self) -> ControlPhaseDiagnostics {
+    pub const fn diagnostics(self) -> ControlCommitDiagnostics {
         self.diagnostics
+    }
+}
+
+/// Reusable working owner that applies one complete control phase without authority writes.
+#[derive(Debug, Default)]
+pub struct ControlCommitWorkspace {
+    world: WorldState,
+    rng: Option<RngStateBundle>,
+    rng_copy_scratch: RngCopyScratch,
+    allocators: Option<AllocatorState>,
+    lifecycle: Option<BaselineLifecycleState>,
+    brains: Vec<BrainRuntimeState>,
+    brain_weight_identity: Option<(u64, u64)>,
+    brain_weight_values_copied: usize,
+    brain_recurrent_values_copied: usize,
+    sensor_generation: SensorGenerationState,
+    external_events: Vec<PreparedExternalObservation>,
+    external_observations: Vec<f32>,
+    ready: bool,
+    diagnostics: ControlCommitDiagnostics,
+}
+
+impl ControlCommitWorkspace {
+    /// Construct empty reusable control-commit scratch.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Copy the prefix into retained scratch and publish every internal control result there.
+    ///
+    /// Baseline and neural observations are internally consumed, while external
+    /// markers stay uncommitted in the returned event batch. Failure may alter
+    /// reusable scratch but never any source or authoritative state.
+    pub fn prepare<'workspace>(
+        &'workspace mut self,
+        phase: PreparedControlPhase<'_, '_, '_>,
+    ) -> Result<PreparedControlCommit<'workspace>, ControlPhaseError> {
+        self.ready = false;
+        self.diagnostics = ControlCommitDiagnostics::default();
+        let prefix = phase.prefix;
+        copy_world_reusing(
+            &mut self.world,
+            prefix.world(),
+            prefix.world().pellets.len(),
+        )?;
+        copy_rng_bundle_reusing(&mut self.rng, &mut self.rng_copy_scratch, prefix.rng())?;
+        copy_lifecycle_reusing(&mut self.lifecycle, prefix.baseline_lifecycle())?;
+        match &mut self.allocators {
+            Some(current) => current.clone_from(prefix.allocators()),
+            None => self.allocators = Some(prefix.allocators().clone()),
+        }
+        let weight_identity = (phase.key.world_epoch(), phase.key.population_epoch());
+        // Authoritative brain weights cannot change within one world/population
+        // epoch. Only recurrent blocks are mutable during a fixed step. Reset,
+        // New Run, import, or population replacement changes one of these IDs
+        // and forces a complete weight copy before reuse is allowed again.
+        let reuse_immutable_weights = self.brain_weight_identity == Some(weight_identity);
+        if !reuse_immutable_weights {
+            self.brain_weight_identity = None;
+        }
+        let (weight_values, recurrent_values) =
+            copy_brains_reusing(&mut self.brains, phase.brains, reuse_immutable_weights)?;
+        self.brain_weight_identity = Some(weight_identity);
+        self.brain_weight_values_copied = weight_values;
+        self.brain_recurrent_values_copied = recurrent_values;
+        reserve_for(
+            &mut self.external_events,
+            phase.external_events.len(),
+            "committed external events",
+        )?;
+        reserve_for(
+            &mut self.external_observations,
+            phase.external_observations.len(),
+            "committed external observations",
+        )?;
+        self.external_events.clear();
+        self.external_events
+            .extend_from_slice(phase.external_events);
+        self.external_observations.clear();
+        self.external_observations
+            .extend_from_slice(phase.external_observations);
+        self.sensor_generation = *phase.generation;
+
+        self.validate_phase(&phase)?;
+        self.copy_baseline_rng_results(&phase)?;
+        self.publish_phase(&phase);
+        self.ready = true;
+        self.diagnostics = self.collect_diagnostics(phase.diagnostics);
+        self.prepared(prefix, phase.key, phase.calculation_key)
+    }
+
+    fn validate_phase(
+        &self,
+        phase: &PreparedControlPhase<'_, '_, '_>,
+    ) -> Result<(), ControlPhaseError> {
+        if phase.controls.len() != self.world.snakes.iter().filter(|snake| snake.alive).count() {
+            return Err(ControlPhaseError::CommitShapeMismatch {
+                field: "one control per alive snake",
+            });
+        }
+        let mut previous_control_id = None;
+        for update in phase.controls {
+            if previous_control_id.is_some_and(|previous| previous >= update.snake_id) {
+                return Err(ControlPhaseError::CommitShapeMismatch {
+                    field: "canonical control order",
+                });
+            }
+            previous_control_id = Some(update.snake_id);
+            let snake = self.world.snakes.get(update.snake_index).ok_or(
+                ControlPhaseError::CommitShapeMismatch {
+                    field: "control snake index",
+                },
+            )?;
+            if !snake.alive || snake.id != update.snake_id {
+                return Err(ControlPhaseError::CommitShapeMismatch {
+                    field: "control snake identity",
+                });
+            }
+            if !update.turn.is_finite()
+                || !(-1.0..=1.0).contains(&update.turn)
+                || !update.next_control_accumulator_seconds.is_finite()
+                || !(0.0..=MAXIMUM_NEURAL_CONTROL_INTERVAL_SECONDS)
+                    .contains(&update.next_control_accumulator_seconds)
+            {
+                return Err(ControlPhaseError::CommitShapeMismatch {
+                    field: "control scalar",
+                });
+            }
+            match update.source {
+                SelectedControlSource::NeuralEvaluated
+                | SelectedControlSource::NeuralHeld
+                | SelectedControlSource::NeuralTakeover => {
+                    if snake.brain.is_none() {
+                        return Err(ControlPhaseError::CommitShapeMismatch {
+                            field: "neural control brain",
+                        });
+                    }
+                }
+                SelectedControlSource::Baseline
+                | SelectedControlSource::ExternalHeld
+                | SelectedControlSource::ExternalReservedNeutral
+                | SelectedControlSource::ExternalOnlyNeutral => {
+                    if update.next_control_accumulator_seconds.to_bits() != 0.0_f64.to_bits() {
+                        return Err(ControlPhaseError::CommitShapeMismatch {
+                            field: "non-neural cadence",
+                        });
+                    }
+                }
+            }
+            if update.source == SelectedControlSource::NeuralHeld
+                && (snake.turn.to_bits() != update.turn.to_bits()
+                    || snake.input_boost != update.boost)
+            {
+                return Err(ControlPhaseError::CommitShapeMismatch {
+                    field: "held neural action",
+                });
+            }
+        }
+
+        let mut previous_transition_id = None;
+        for transition in phase.controller_transitions {
+            let lease = self
+                .world
+                .controller_leases
+                .get(transition.lease_index)
+                .ok_or(ControlPhaseError::CommitShapeMismatch {
+                    field: "controller lease index",
+                })?;
+            let snake = self.world.snakes.get(transition.snake_index).ok_or(
+                ControlPhaseError::CommitShapeMismatch {
+                    field: "controller snake index",
+                },
+            )?;
+            if previous_transition_id.is_some_and(|previous| previous >= snake.id) {
+                return Err(ControlPhaseError::CommitShapeMismatch {
+                    field: "canonical controller-transition order",
+                });
+            }
+            previous_transition_id = Some(snake.id);
+            validate_controller_boundary(lease, snake, transition.proposal)?;
+            let update = find_control(phase.controls, snake.id)?;
+            validate_transition_control(transition.proposal, update)?;
+        }
+
+        let mut previous_baseline_id = None;
+        for result in phase.baseline_controls {
+            if previous_baseline_id.is_some_and(|previous| previous >= result.snake_id) {
+                return Err(ControlPhaseError::CommitShapeMismatch {
+                    field: "canonical baseline-control order",
+                });
+            }
+            previous_baseline_id = Some(result.snake_id);
+            let snake = self.world.snakes.get(result.snake_index).ok_or(
+                ControlPhaseError::CommitShapeMismatch {
+                    field: "baseline snake index",
+                },
+            )?;
+            let slot_index = usize::try_from(result.slot).map_err(|_| {
+                ControlPhaseError::ArithmeticOverflow {
+                    context: "baseline control slot index",
+                }
+            })?;
+            let lifecycle = self
+                .lifecycle
+                .as_ref()
+                .and_then(|state| state.slots.get(slot_index))
+                .ok_or(ControlPhaseError::CommitShapeMismatch {
+                    field: "baseline lifecycle slot",
+                })?;
+            let baseline_rng = self
+                .rng
+                .as_ref()
+                .and_then(|rng| rng.baselines.get(slot_index))
+                .ok_or(ControlPhaseError::CommitShapeMismatch {
+                    field: "baseline RNG slot",
+                })?;
+            if snake.id != result.snake_id
+                || snake.kind != SnakeKind::Baseline
+                || snake.baseline_slot != Some(result.slot)
+                || lifecycle.slot != result.slot
+                || lifecycle.snake_id != result.snake_id
+                || baseline_rng.slot != result.slot
+                || result.next_slot.slot != result.slot
+                || result.next_slot.snake_id != result.snake_id
+                || result.next_slot.respawn_remaining_seconds.is_some()
+                || result.next_rng.slot != result.slot
+            {
+                return Err(ControlPhaseError::CommitShapeMismatch {
+                    field: "baseline result identity",
+                });
+            }
+            validate_strategy_runtime(result.next_slot, result.next_strategy)?;
+            result.delivery.validate(snake)?;
+            let update = find_control(phase.controls, result.snake_id)?;
+            if update.source != SelectedControlSource::Baseline
+                || update.turn.to_bits() != result.next_slot.turn.to_bits()
+                || update.boost != result.next_slot.boost
+            {
+                return Err(ControlPhaseError::CommitShapeMismatch {
+                    field: "baseline action result",
+                });
+            }
+        }
+
+        let mut observation_end = 0usize;
+        let mut previous_external_id = None;
+        for event in phase.external_events {
+            if previous_external_id.is_some_and(|previous| previous >= event.snake_id) {
+                return Err(ControlPhaseError::CommitShapeMismatch {
+                    field: "canonical external-event order",
+                });
+            }
+            previous_external_id = Some(event.snake_id);
+            let end = event
+                .observation_start
+                .checked_add(event.observation_len)
+                .ok_or(ControlPhaseError::ArithmeticOverflow {
+                    context: "external observation range",
+                })?;
+            let snake = self.world.snakes.get(event.snake_index).ok_or(
+                ControlPhaseError::CommitShapeMismatch {
+                    field: "external event snake index",
+                },
+            )?;
+            let lease = self.world.controller_leases.get(event.lease_index).ok_or(
+                ControlPhaseError::CommitShapeMismatch {
+                    field: "external event lease index",
+                },
+            )?;
+            if event.observation_start != observation_end
+                || end > phase.external_observations.len()
+                || event.observation_len != phase.neural.inference().input_size()
+                || snake.id != event.snake_id
+                || snake.kind != SnakeKind::External
+                || lease.id != event.lease_id
+                || lease.snake_id != event.snake_id
+                || lease.connection_id != Some(event.connection_id)
+                || lease.kind != event.kind
+                || lease.status != ControllerLeaseStatus::Connected
+            {
+                return Err(ControlPhaseError::CommitShapeMismatch {
+                    field: "external observation result",
+                });
+            }
+            event.delivery.validate(snake)?;
+            observation_end = end;
+        }
+        if observation_end != phase.external_observations.len() {
+            return Err(ControlPhaseError::CommitShapeMismatch {
+                field: "packed external observation length",
+            });
+        }
+
+        phase
+            .neural
+            .validate_state_commit(phase.calculation_key, &self.world, &self.brains)?;
+        Ok(())
+    }
+
+    fn copy_baseline_rng_results(
+        &mut self,
+        phase: &PreparedControlPhase<'_, '_, '_>,
+    ) -> Result<(), ControlPhaseError> {
+        let rng = self
+            .rng
+            .as_mut()
+            .ok_or(ControlPhaseError::CommitShapeMismatch {
+                field: "working RNG bundle",
+            })?;
+        for result in phase.baseline_controls {
+            let slot_index = usize::try_from(result.slot).map_err(|_| {
+                ControlPhaseError::ArithmeticOverflow {
+                    context: "baseline RNG result slot index",
+                }
+            })?;
+            let target = rng.baselines.get_mut(slot_index).ok_or(
+                ControlPhaseError::CommitShapeMismatch {
+                    field: "working baseline RNG slot",
+                },
+            )?;
+            let spare = self
+                .rng_copy_scratch
+                .baseline_gaussian_spares
+                .get_mut(slot_index)
+                .ok_or(ControlPhaseError::CommitShapeMismatch {
+                    field: "baseline RNG copy scratch",
+                })?;
+            copy_serialized_rng_reusing(&mut target.state, &result.next_rng.state, spare)?;
+        }
+        Ok(())
+    }
+
+    fn publish_phase(&mut self, phase: &PreparedControlPhase<'_, '_, '_>) {
+        for transition in phase.controller_transitions {
+            let lease = &mut self.world.controller_leases[transition.lease_index];
+            let snake = &mut self.world.snakes[transition.snake_index];
+            commit_controller_boundary_prevalidated(lease, snake, transition.proposal);
+        }
+        for result in phase.baseline_controls {
+            let slot_index =
+                usize::try_from(result.slot).expect("prevalidated baseline slot must fit usize");
+            self.lifecycle
+                .as_mut()
+                .expect("prevalidated lifecycle must exist")
+                .slots[slot_index] = result.next_slot;
+            let snake = &mut self.world.snakes[result.snake_index];
+            snake.baseline_strategy = Some(result.next_strategy);
+            result.delivery.commit_prevalidated(snake);
+        }
+        phase
+            .neural
+            .commit_state_prevalidated(&mut self.world, &mut self.brains);
+        for update in phase.controls {
+            let snake = &mut self.world.snakes[update.snake_index];
+            match update.source {
+                SelectedControlSource::ExternalHeld
+                | SelectedControlSource::ExternalReservedNeutral
+                | SelectedControlSource::NeuralHeld => {}
+                SelectedControlSource::NeuralTakeover => {
+                    snake.turn = update.turn;
+                    snake.input_boost = update.boost;
+                }
+                SelectedControlSource::Baseline
+                | SelectedControlSource::ExternalOnlyNeutral
+                | SelectedControlSource::NeuralEvaluated => {
+                    snake.previous_turn = snake.turn;
+                    snake.previous_input_boost = snake.input_boost;
+                    snake.turn = update.turn;
+                    snake.input_boost = update.boost;
+                }
+            }
+            snake.control_accumulator_seconds = update.next_control_accumulator_seconds;
+        }
+    }
+
+    fn collect_diagnostics(&self, selection: ControlPhaseDiagnostics) -> ControlCommitDiagnostics {
+        ControlCommitDiagnostics {
+            selection,
+            snake_capacity: self.world.snakes.capacity(),
+            body_point_capacity: self.world.body_points.capacity(),
+            pellet_capacity: self.world.pellets.capacity(),
+            controller_lease_capacity: self.world.controller_leases.capacity(),
+            brain_capacity: self.brains.capacity(),
+            brain_weight_values_copied: self.brain_weight_values_copied,
+            brain_recurrent_values_copied: self.brain_recurrent_values_copied,
+            baseline_slot_capacity: self
+                .lifecycle
+                .as_ref()
+                .map_or(0, |state| state.slots.capacity()),
+            baseline_rng_capacity: self.rng.as_ref().map_or(0, |rng| rng.baselines.capacity()),
+            external_event_capacity: self.external_events.capacity(),
+            external_observation_capacity: self.external_observations.capacity(),
+            rng_text_capacity: rng_text_capacity(self.rng.as_ref(), &self.rng_copy_scratch),
+        }
+    }
+
+    fn prepared<'workspace>(
+        &'workspace self,
+        prefix: PreparedFixedStepPrefix<'_, '_>,
+        key: PhysicsStepKey,
+        calculation_key: CalculationBatchKey,
+    ) -> Result<PreparedControlCommit<'workspace>, ControlPhaseError> {
+        if !self.ready {
+            return Err(ControlPhaseError::ResultNotReady);
+        }
+        Ok(PreparedControlCommit {
+            key,
+            calculation_key,
+            world: &self.world,
+            rng: self
+                .rng
+                .as_ref()
+                .ok_or(ControlPhaseError::CommitShapeMismatch {
+                    field: "working RNG bundle",
+                })?,
+            allocators: self
+                .allocators
+                .as_ref()
+                .ok_or(ControlPhaseError::CommitShapeMismatch {
+                    field: "working allocators",
+                })?,
+            lifecycle: self
+                .lifecycle
+                .as_ref()
+                .ok_or(ControlPhaseError::CommitShapeMismatch {
+                    field: "working baseline lifecycle",
+                })?,
+            brains: &self.brains,
+            sensor_generation: self.sensor_generation,
+            generation_elapsed_seconds: prefix.generation_elapsed_seconds(),
+            ambient_accumulator: prefix.ambient_accumulator(),
+            external_events: &self.external_events,
+            external_observations: &self.external_observations,
+            diagnostics: self.diagnostics,
+        })
+    }
+
+    /// Whether the latest attempt produced one complete applied control boundary.
+    #[must_use]
+    pub const fn is_ready(&self) -> bool {
+        self.ready
+    }
+
+    /// Latest retained capacities, including after failure.
+    #[must_use]
+    pub fn diagnostics(&self) -> ControlCommitDiagnostics {
+        if self.ready {
+            self.diagnostics
+        } else {
+            self.collect_diagnostics(ControlPhaseDiagnostics::default())
+        }
     }
 }
 
@@ -997,6 +1597,7 @@ impl ControlPhaseWorkspace {
             lease_id: lease.id,
             connection_id,
             kind: lease.kind,
+            lease_index,
             snake_index,
             snake_id: snake.id,
             position: snake.position,
@@ -1137,6 +1738,7 @@ impl ControlPhaseWorkspace {
             brains: inputs.brains,
             wall_now_ms: inputs.wall_now_ms,
             config: inputs.config,
+            neural: &self.neural,
             controls: &self.controls,
             controller_transitions: &self.controller_transitions,
             baseline_controls: &self.baseline_controls[..self.baseline_control_count],
@@ -1255,6 +1857,163 @@ fn find_brain_index(
         .map(|position| order[position])
 }
 
+fn find_control(
+    controls: &[PreparedControlUpdate],
+    snake_id: u64,
+) -> Result<&PreparedControlUpdate, ControlPhaseError> {
+    controls
+        .binary_search_by_key(&snake_id, |update| update.snake_id)
+        .ok()
+        .and_then(|index| controls.get(index))
+        .ok_or(ControlPhaseError::CommitShapeMismatch {
+            field: "control result lookup",
+        })
+}
+
+fn validate_transition_control(
+    proposal: ControllerBoundaryProposal,
+    update: &PreparedControlUpdate,
+) -> Result<(), ControlPhaseError> {
+    let matches = match proposal.source() {
+        ExternalControlSource::HeldAction { turn, boost } => {
+            update.source == SelectedControlSource::ExternalHeld
+                && update.turn.to_bits() == turn.to_bits()
+                && update.boost == boost
+        }
+        ExternalControlSource::ReservedNeutral => {
+            update.source == SelectedControlSource::ExternalReservedNeutral
+                && update.turn.to_bits() == 0.0_f32.to_bits()
+                && !update.boost
+        }
+        ExternalControlSource::NeuralTakeover if proposal.begins_neural_takeover() => {
+            update.source == SelectedControlSource::NeuralTakeover
+        }
+        ExternalControlSource::NeuralTakeover => matches!(
+            update.source,
+            SelectedControlSource::NeuralEvaluated | SelectedControlSource::NeuralHeld
+        ),
+    };
+    if matches {
+        Ok(())
+    } else {
+        Err(ControlPhaseError::CommitShapeMismatch {
+            field: "controller transition/control result",
+        })
+    }
+}
+
+fn copy_brains_reusing(
+    target: &mut Vec<BrainRuntimeState>,
+    source: &[BrainRuntimeState],
+    reuse_immutable_weights: bool,
+) -> Result<(usize, usize), ControlPhaseError> {
+    reserve_for(target, source.len(), "working brain records")?;
+    let mut weight_values = 0usize;
+    let mut recurrent_values = 0usize;
+    let common = target.len().min(source.len());
+    for index in 0..common {
+        let same_immutable_identity = reuse_immutable_weights
+            && target[index].handle == source[index].handle
+            && target[index].owner == source[index].owner;
+        target[index].handle = source[index].handle;
+        target[index].owner = source[index].owner;
+        weight_values = weight_values
+            .checked_add(copy_optional_f32_box(
+                &mut target[index].non_population_weights,
+                source[index].non_population_weights.as_deref(),
+                "working non-population weights",
+                same_immutable_identity,
+            )?)
+            .ok_or(ControlPhaseError::ArithmeticOverflow {
+                context: "copied brain weight values",
+            })?;
+        copy_f32_box(
+            &mut target[index].recurrent,
+            &source[index].recurrent,
+            "working recurrent state",
+        )?;
+        recurrent_values = recurrent_values
+            .checked_add(source[index].recurrent.len())
+            .ok_or(ControlPhaseError::ArithmeticOverflow {
+                context: "copied recurrent values",
+            })?;
+    }
+    for brain in &source[common..] {
+        let non_population_weights = match brain.non_population_weights.as_deref() {
+            Some(weights) => {
+                weight_values = weight_values.checked_add(weights.len()).ok_or(
+                    ControlPhaseError::ArithmeticOverflow {
+                        context: "copied brain weight values",
+                    },
+                )?;
+                Some(try_f32_box(weights, "working non-population weights")?)
+            }
+            None => None,
+        };
+        recurrent_values = recurrent_values.checked_add(brain.recurrent.len()).ok_or(
+            ControlPhaseError::ArithmeticOverflow {
+                context: "copied recurrent values",
+            },
+        )?;
+        target.push(BrainRuntimeState {
+            handle: brain.handle,
+            owner: brain.owner,
+            non_population_weights,
+            recurrent: try_f32_box(&brain.recurrent, "working recurrent state")?,
+        });
+    }
+    target.truncate(source.len());
+    Ok((weight_values, recurrent_values))
+}
+
+fn copy_optional_f32_box(
+    target: &mut Option<Box<[f32]>>,
+    source: Option<&[f32]>,
+    buffer: &'static str,
+    reuse_values: bool,
+) -> Result<usize, ControlPhaseError> {
+    match (target.as_mut(), source) {
+        (Some(current), Some(values)) if current.len() == values.len() && reuse_values => {
+            return Ok(0);
+        }
+        (Some(current), Some(values)) if current.len() == values.len() => {
+            current.copy_from_slice(values);
+            return Ok(values.len());
+        }
+        (_, Some(values)) => {
+            *target = Some(try_f32_box(values, buffer)?);
+            return Ok(values.len());
+        }
+        (_, None) => *target = None,
+    }
+    Ok(0)
+}
+
+fn copy_f32_box(
+    target: &mut Box<[f32]>,
+    source: &[f32],
+    buffer: &'static str,
+) -> Result<(), ControlPhaseError> {
+    if target.len() == source.len() {
+        target.copy_from_slice(source);
+    } else {
+        *target = try_f32_box(source, buffer)?;
+    }
+    Ok(())
+}
+
+fn try_f32_box(source: &[f32], buffer: &'static str) -> Result<Box<[f32]>, ControlPhaseError> {
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(source.len())
+        .map_err(|_| ControlPhaseError::AllocationFailed {
+            buffer,
+            required: source.len(),
+        })?;
+    values.extend_from_slice(source);
+    Ok(values.into_boxed_slice())
+}
+
 fn next_neural_boundary(
     source_accumulator: f64,
     fixed_dt: f64,
@@ -1305,12 +2064,16 @@ fn reserve_for<T>(
 /// Shared-control staging, mapping, cadence, or source failure.
 #[derive(Debug)]
 pub enum ControlPhaseError {
+    /// The joined fixed-step prefix could not be copied into working storage.
+    Prefix(Box<FixedStepPrefixError>),
     /// Corrected spatial index could not represent the whole boundary.
     Spatial(Box<SpatialIndexError>),
     /// One corrected observation failed.
     Sensor(Box<SensorError>),
     /// Baseline strategy evaluation failed.
     Baseline(Box<BaselineControlError>),
+    /// Durable baseline continuation rejected a staged control result.
+    BaselineLifecycle(Box<BaselineLifecycleError>),
     /// Wall-time lease selection failed.
     Controller(Box<ControllerError>),
     /// Coarse heterogeneous neural evaluation failed.
@@ -1352,6 +2115,8 @@ pub enum ControlPhaseError {
     InvalidCadenceState(f64),
     /// Internal staged widths or source classes disagree.
     InternalShapeMismatch { field: &'static str },
+    /// A complete staged result no longer forms one publishable control boundary.
+    CommitShapeMismatch { field: &'static str },
     /// No complete result is available.
     ResultNotReady,
 }
@@ -1359,6 +2124,12 @@ pub enum ControlPhaseError {
 impl From<SpatialIndexError> for ControlPhaseError {
     fn from(error: SpatialIndexError) -> Self {
         Self::Spatial(Box::new(error))
+    }
+}
+
+impl From<FixedStepPrefixError> for ControlPhaseError {
+    fn from(error: FixedStepPrefixError) -> Self {
+        Self::Prefix(Box::new(error))
     }
 }
 
@@ -1371,6 +2142,12 @@ impl From<SensorError> for ControlPhaseError {
 impl From<BaselineControlError> for ControlPhaseError {
     fn from(error: BaselineControlError) -> Self {
         Self::Baseline(Box::new(error))
+    }
+}
+
+impl From<BaselineLifecycleError> for ControlPhaseError {
+    fn from(error: BaselineLifecycleError) -> Self {
+        Self::BaselineLifecycle(Box::new(error))
     }
 }
 
@@ -1389,9 +2166,11 @@ impl From<NeuralControlError> for ControlPhaseError {
 impl Display for ControlPhaseError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Prefix(error) => write!(formatter, "{error}"),
             Self::Spatial(error) => write!(formatter, "{error}"),
             Self::Sensor(error) => write!(formatter, "{error}"),
             Self::Baseline(error) => write!(formatter, "{error}"),
+            Self::BaselineLifecycle(error) => write!(formatter, "{error}"),
             Self::Controller(error) => write!(formatter, "{error}"),
             Self::Neural(error) => write!(formatter, "{error}"),
             Self::InvalidConfig { field } => write!(formatter, "invalid control config {field}"),
@@ -1459,6 +2238,9 @@ impl Display for ControlPhaseError {
             Self::InternalShapeMismatch { field } => {
                 write!(formatter, "control staging has inconsistent {field}")
             }
+            Self::CommitShapeMismatch { field } => {
+                write!(formatter, "control commit has inconsistent {field}")
+            }
             Self::ResultNotReady => write!(formatter, "no complete control phase is ready"),
         }
     }
@@ -1467,9 +2249,11 @@ impl Display for ControlPhaseError {
 impl Error for ControlPhaseError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Prefix(error) => Some(error.as_ref()),
             Self::Spatial(error) => Some(error.as_ref()),
             Self::Sensor(error) => Some(error.as_ref()),
             Self::Baseline(error) => Some(error.as_ref()),
+            Self::BaselineLifecycle(error) => Some(error.as_ref()),
             Self::Controller(error) => Some(error.as_ref()),
             Self::Neural(error) => Some(error.as_ref()),
             _ => None,
@@ -2184,6 +2968,284 @@ mod tests {
     }
 
     #[test]
+    fn complete_control_commit_updates_internal_state_and_retains_external_delivery() {
+        let plan = graph_plan();
+        let fixture = fixture(&plan);
+        let source_world = fixture.world.clone();
+        let source_rng = fixture.rng.clone();
+        let source_allocators = fixture.allocators.clone();
+        let source_lifecycle = fixture.lifecycle.clone();
+        let source_brains = fixture.brains.clone();
+        let mut prefix_workspace = FixedStepPrefixWorkspace::new();
+        let prefix = prefix_workspace
+            .prepare(FixedStepPrefixInputs {
+                key: key(20),
+                world: &fixture.world,
+                rng: &fixture.rng,
+                allocators: &fixture.allocators,
+                generation_elapsed_seconds: 2.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &fixture.lifecycle,
+                config: prefix_config(),
+            })
+            .unwrap();
+        let prefix_world = prefix.world().clone();
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(prefix.world()).unwrap();
+        let mut selection = control_workspace(plan);
+        let phase = selection
+            .prepare(ControlPhaseInputs {
+                prefix,
+                generation: &generation,
+                population: &fixture.population,
+                brains: &fixture.brains,
+                wall_now_ms: 31_000,
+                config: control_config(),
+            })
+            .unwrap();
+        let baseline = phase.baseline_controls()[0].clone();
+        let expected_external = phase.external_observation(0).unwrap().1.to_vec();
+        let expected_external_marker = phase.external_events()[0].delivery();
+        let mut commit_workspace = ControlCommitWorkspace::new();
+        let committed = commit_workspace.prepare(phase).unwrap();
+
+        assert_eq!(fixture.world, source_world);
+        assert_eq!(fixture.rng, source_rng);
+        assert_eq!(fixture.allocators, source_allocators);
+        assert_eq!(fixture.lifecycle, source_lifecycle);
+        assert_eq!(fixture.brains, source_brains);
+        assert_eq!(committed.key(), key(20));
+        assert_eq!(committed.calculation_key().step(), 41);
+        assert_eq!(committed.generation_elapsed_seconds(), 2.0 + DT);
+        assert_eq!(committed.ambient_accumulator(), 0.0);
+        assert_eq!(committed.allocators(), prefix.allocators());
+        assert_eq!(committed.sensor_generation(), generation);
+        assert_eq!(committed.external_events().len(), 1);
+        assert_eq!(
+            committed.external_observation(0).unwrap().1,
+            expected_external
+        );
+
+        let baseline_snake = committed
+            .world()
+            .snakes
+            .iter()
+            .find(|snake| snake.id == 20)
+            .unwrap();
+        assert_eq!(
+            baseline_snake.baseline_strategy,
+            Some(baseline.next_strategy())
+        );
+        assert_eq!(
+            baseline_snake.turn.to_bits(),
+            baseline.next_slot().turn.to_bits()
+        );
+        assert_eq!(baseline_snake.input_boost, baseline.next_slot().boost);
+        assert_eq!(
+            baseline_snake.delivered_observation_points.to_bits(),
+            baseline.delivery().sampled_points.to_bits()
+        );
+        assert_eq!(
+            committed.baseline_lifecycle().slots[0],
+            baseline.next_slot()
+        );
+        assert_eq!(committed.rng().baselines[0], *baseline.next_rng());
+
+        let external = committed
+            .world()
+            .snakes
+            .iter()
+            .find(|snake| snake.id == 30)
+            .unwrap();
+        assert_eq!(external.turn, 0.75);
+        assert!(external.input_boost);
+        assert_eq!(
+            external.delivered_observation_points.to_bits(),
+            expected_external_marker.previous_delivered_points.to_bits()
+        );
+        let connected_lease = committed
+            .world()
+            .controller_leases
+            .iter()
+            .find(|lease| lease.snake_id == 30)
+            .unwrap();
+        assert_eq!(connected_lease.last_observed_at_ms, 31_000);
+
+        let takeover = committed
+            .world()
+            .snakes
+            .iter()
+            .find(|snake| snake.id == 40)
+            .unwrap();
+        let takeover_lease = committed
+            .world()
+            .controller_leases
+            .iter()
+            .find(|lease| lease.snake_id == 40)
+            .unwrap();
+        assert_eq!(takeover_lease.status, ControllerLeaseStatus::NeuralTakeover);
+        assert_eq!(takeover_lease.takeover_committed_at_ms, Some(31_000));
+        assert_ne!((takeover.turn.to_bits(), takeover.input_boost), (0, false));
+
+        let evolved_before = prefix_world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == 10)
+            .unwrap();
+        let evolved_after = committed
+            .world()
+            .snakes
+            .iter()
+            .find(|snake| snake.id == 10)
+            .unwrap();
+        assert_eq!(
+            evolved_after.delivered_observation_points.to_bits(),
+            evolved_after.points.to_bits()
+        );
+        assert_ne!(
+            evolved_before.delivered_observation_points.to_bits(),
+            evolved_after.delivered_observation_points.to_bits()
+        );
+        let evolved_handle = evolved_after.brain.unwrap();
+        let recurrent_before = fixture
+            .brains
+            .iter()
+            .find(|brain| brain.handle == evolved_handle)
+            .unwrap();
+        let recurrent_after = committed
+            .brains()
+            .iter()
+            .find(|brain| brain.handle == evolved_handle)
+            .unwrap();
+        assert_ne!(recurrent_before.recurrent, recurrent_after.recurrent);
+    }
+
+    #[test]
+    fn committed_takeover_holds_neural_action_without_reapplying_external_neutral() {
+        let plan = graph_plan();
+        let mut fixture = fixture(&plan);
+        let takeover_snake = fixture
+            .world
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == 40)
+            .unwrap();
+        takeover_snake.turn = 0.4;
+        takeover_snake.previous_turn = -0.3;
+        takeover_snake.input_boost = true;
+        takeover_snake.previous_input_boost = false;
+        takeover_snake.control_accumulator_seconds = 0.0;
+        let takeover_lease = fixture
+            .world
+            .controller_leases
+            .iter_mut()
+            .find(|lease| lease.snake_id == 40)
+            .unwrap();
+        takeover_lease.status = ControllerLeaseStatus::NeuralTakeover;
+        takeover_lease.takeover_committed_at_ms = Some(31_000);
+        takeover_lease.last_observed_at_ms = 31_000;
+        let mut prefix_workspace = FixedStepPrefixWorkspace::new();
+        let prefix = prefix_workspace
+            .prepare(FixedStepPrefixInputs {
+                key: key(21),
+                world: &fixture.world,
+                rng: &fixture.rng,
+                allocators: &fixture.allocators,
+                generation_elapsed_seconds: 2.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &fixture.lifecycle,
+                config: prefix_config(),
+            })
+            .unwrap();
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(prefix.world()).unwrap();
+        let mut config = control_config();
+        config.neural_control_interval_seconds = 0.05;
+        let mut selection = control_workspace(plan);
+        let phase = selection
+            .prepare(ControlPhaseInputs {
+                prefix,
+                generation: &generation,
+                population: &fixture.population,
+                brains: &fixture.brains,
+                wall_now_ms: 31_001,
+                config,
+            })
+            .unwrap();
+        let update = phase
+            .control_updates()
+            .iter()
+            .find(|update| update.snake_id() == 40)
+            .unwrap();
+        assert_eq!(update.source(), SelectedControlSource::NeuralHeld);
+        let mut commit_workspace = ControlCommitWorkspace::new();
+        let committed = commit_workspace.prepare(phase).unwrap();
+        let takeover = committed
+            .world()
+            .snakes
+            .iter()
+            .find(|snake| snake.id == 40)
+            .unwrap();
+        assert_eq!(takeover.turn.to_bits(), 0.4_f32.to_bits());
+        assert_eq!(takeover.previous_turn.to_bits(), (-0.3_f32).to_bits());
+        assert!(takeover.input_boost);
+        assert!(!takeover.previous_input_boost);
+    }
+
+    #[test]
+    fn malformed_control_commit_is_rejected_without_touching_sources() {
+        let plan = graph_plan();
+        let fixture = fixture(&plan);
+        let source_world = fixture.world.clone();
+        let source_rng = fixture.rng.clone();
+        let source_allocators = fixture.allocators.clone();
+        let source_lifecycle = fixture.lifecycle.clone();
+        let source_brains = fixture.brains.clone();
+        let mut prefix_workspace = FixedStepPrefixWorkspace::new();
+        let prefix = prefix_workspace
+            .prepare(FixedStepPrefixInputs {
+                key: key(22),
+                world: &fixture.world,
+                rng: &fixture.rng,
+                allocators: &fixture.allocators,
+                generation_elapsed_seconds: 2.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &fixture.lifecycle,
+                config: prefix_config(),
+            })
+            .unwrap();
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(prefix.world()).unwrap();
+        let mut selection = control_workspace(plan);
+        let mut phase = selection
+            .prepare(ControlPhaseInputs {
+                prefix,
+                generation: &generation,
+                population: &fixture.population,
+                brains: &fixture.brains,
+                wall_now_ms: 31_000,
+                config: control_config(),
+            })
+            .unwrap();
+        let mut malformed = phase.control_updates().to_vec();
+        malformed[0].snake_id = 999;
+        phase.controls = &malformed;
+        let mut commit_workspace = ControlCommitWorkspace::new();
+        assert!(matches!(
+            commit_workspace.prepare(phase),
+            Err(ControlPhaseError::CommitShapeMismatch {
+                field: "control snake identity"
+            })
+        ));
+        assert!(!commit_workspace.is_ready());
+        assert_eq!(fixture.world, source_world);
+        assert_eq!(fixture.rng, source_rng);
+        assert_eq!(fixture.allocators, source_allocators);
+        assert_eq!(fixture.lifecycle, source_lifecycle);
+        assert_eq!(fixture.brains, source_brains);
+    }
+
+    #[test]
     fn controller_results_are_independent_of_world_lease_and_brain_storage_order() {
         assert_eq!(prepared_summary(false), prepared_summary(true));
     }
@@ -2393,5 +3455,111 @@ mod tests {
                 expected = Some(diagnostics);
             }
         }
+    }
+
+    #[test]
+    fn warmed_control_commit_reuses_every_reported_capacity() {
+        let plan = graph_plan();
+        let fixture = fixture(&plan);
+        let mut prefix_workspace = FixedStepPrefixWorkspace::new();
+        let prefix = prefix_workspace
+            .prepare(FixedStepPrefixInputs {
+                key: key(23),
+                world: &fixture.world,
+                rng: &fixture.rng,
+                allocators: &fixture.allocators,
+                generation_elapsed_seconds: 2.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &fixture.lifecycle,
+                config: prefix_config(),
+            })
+            .unwrap();
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(prefix.world()).unwrap();
+        let mut selection = control_workspace(plan);
+        let mut commit = ControlCommitWorkspace::new();
+        let warm_phase = selection
+            .prepare(ControlPhaseInputs {
+                prefix,
+                generation: &generation,
+                population: &fixture.population,
+                brains: &fixture.brains,
+                wall_now_ms: 31_000,
+                config: control_config(),
+            })
+            .unwrap();
+        let warm = commit.prepare(warm_phase).unwrap().diagnostics();
+        assert!(warm.brain_weight_values_copied > 0);
+        let mut expected = None;
+        for _ in 0..24 {
+            let phase = selection
+                .prepare(ControlPhaseInputs {
+                    prefix,
+                    generation: &generation,
+                    population: &fixture.population,
+                    brains: &fixture.brains,
+                    wall_now_ms: 31_000,
+                    config: control_config(),
+                })
+                .unwrap();
+            let prepared = commit.prepare(phase).unwrap();
+            let diagnostics = prepared.diagnostics();
+            assert!(diagnostics.rng_text_capacity > 0);
+            assert!(diagnostics.brain_capacity >= fixture.brains.len());
+            assert_eq!(diagnostics.brain_weight_values_copied, 0);
+            assert!(diagnostics.brain_recurrent_values_copied > 0);
+            assert!(diagnostics.external_event_capacity >= 1);
+            assert!(diagnostics.external_observation_capacity >= 51);
+            if let Some(expected) = expected {
+                assert_eq!(diagnostics, expected);
+            } else {
+                expected = Some(diagnostics);
+            }
+        }
+
+        let mut replacement_brains = fixture.brains.clone();
+        replacement_brains
+            .iter_mut()
+            .find(|brain| brain.owner == BrainOwner::Entity(40))
+            .unwrap()
+            .non_population_weights
+            .as_mut()
+            .unwrap()
+            .fill(0.875);
+        let replacement_key = PhysicsStepKey::new(8, 3, 40, EPOCH, 9, [0x5a; 32], 24);
+        let replacement_prefix = prefix_workspace
+            .prepare(FixedStepPrefixInputs {
+                key: replacement_key,
+                world: &fixture.world,
+                rng: &fixture.rng,
+                allocators: &fixture.allocators,
+                generation_elapsed_seconds: 2.0,
+                ambient_accumulator: 0.0,
+                baseline_lifecycle: &fixture.lifecycle,
+                config: prefix_config(),
+            })
+            .unwrap();
+        let replacement_phase = selection
+            .prepare(ControlPhaseInputs {
+                prefix: replacement_prefix,
+                generation: &generation,
+                population: &fixture.population,
+                brains: &replacement_brains,
+                wall_now_ms: 31_000,
+                config: control_config(),
+            })
+            .unwrap();
+        let replacement = commit.prepare(replacement_phase).unwrap();
+        assert!(replacement.diagnostics().brain_weight_values_copied > 0);
+        assert!(replacement
+            .brains()
+            .iter()
+            .find(|brain| brain.owner == BrainOwner::Entity(40))
+            .unwrap()
+            .non_population_weights
+            .as_ref()
+            .unwrap()
+            .iter()
+            .all(|value| value.to_bits() == 0.875_f32.to_bits()));
     }
 }

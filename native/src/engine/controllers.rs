@@ -543,17 +543,41 @@ pub fn commit_controller_boundary(
     snake: &mut SnakeState,
     proposal: ControllerBoundaryProposal,
 ) -> Result<(), ControllerError> {
+    validate_controller_boundary(lease, snake, proposal)?;
+    commit_controller_boundary_prevalidated(lease, snake, proposal);
+    Ok(())
+}
+
+/// Revalidate one staged boundary before a larger transaction writes anything.
+pub(crate) fn validate_controller_boundary(
+    lease: &ControllerLease,
+    snake: &SnakeState,
+    proposal: ControllerBoundaryProposal,
+) -> Result<(), ControllerError> {
     validate_pair(lease, snake)?;
     if !proposal.expected.matches(lease) || !proposal.expected_snake.matches(snake) {
         return Err(ControllerError::StaleProposal {
             lease_id: proposal.expected.lease_id,
         });
     }
+    Ok(())
+}
+
+/// Publish a boundary already checked against the same exclusive lease/snake pair.
+pub(crate) fn commit_controller_boundary_prevalidated(
+    lease: &mut ControllerLease,
+    snake: &mut SnakeState,
+    proposal: ControllerBoundaryProposal,
+) {
+    debug_assert!(validate_controller_boundary(lease, snake, proposal).is_ok());
     lease.status = proposal.next_status;
     lease.takeover_committed_at_ms = proposal.next_takeover_committed_at_ms;
     lease.last_observed_at_ms = proposal.boundary_at_ms;
-    apply_external_source(snake, proposal.source);
-    Ok(())
+    if !matches!(proposal.source, ExternalControlSource::NeuralTakeover)
+        || proposal.begins_neural_takeover()
+    {
+        apply_external_source(snake, proposal.source);
+    }
 }
 
 fn apply_external_source(snake: &mut SnakeState, source: ExternalControlSource) {

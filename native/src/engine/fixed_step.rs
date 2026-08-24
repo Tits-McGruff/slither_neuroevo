@@ -129,11 +129,11 @@ pub struct FixedStepPrefixDiagnostics {
 
 /// String storage retained while a serialized RNG has no logical Gaussian spare.
 #[derive(Debug, Default)]
-struct RngCopyScratch {
-    world_gaussian_spare: String,
-    evolution_gaussian_spare: String,
-    external_gaussian_spare: String,
-    baseline_gaussian_spares: Vec<String>,
+pub(crate) struct RngCopyScratch {
+    pub(crate) world_gaussian_spare: String,
+    pub(crate) evolution_gaussian_spare: String,
+    pub(crate) external_gaussian_spare: String,
+    pub(crate) baseline_gaussian_spares: Vec<String>,
 }
 
 /// Complete, still non-authoritative pre-control boundary.
@@ -484,7 +484,7 @@ impl FixedStepPrefixWorkspace {
     }
 }
 
-fn copy_world_reusing(
+pub(crate) fn copy_world_reusing(
     target: &mut WorldState,
     source: &WorldState,
     required_pellets: usize,
@@ -578,7 +578,7 @@ fn copy_lease_reusing(
     Ok(())
 }
 
-fn copy_rng_bundle_reusing(
+pub(crate) fn copy_rng_bundle_reusing(
     target: &mut Option<RngStateBundle>,
     scratch: &mut RngCopyScratch,
     source: &RngStateBundle,
@@ -649,7 +649,7 @@ fn copy_rng_bundle_reusing(
     Ok(())
 }
 
-fn copy_serialized_rng_reusing(
+pub(crate) fn copy_serialized_rng_reusing(
     target: &mut SerializedRngState,
     source: &SerializedRngState,
     retained_gaussian_spare: &mut String,
@@ -714,7 +714,7 @@ fn controller_text_capacity(leases: &[ControllerLease]) -> usize {
     })
 }
 
-fn rng_text_capacity(rng: Option<&RngStateBundle>, scratch: &RngCopyScratch) -> usize {
+pub(crate) fn rng_text_capacity(rng: Option<&RngStateBundle>, scratch: &RngCopyScratch) -> usize {
     let scratch_capacity = scratch
         .world_gaussian_spare
         .capacity()
@@ -767,7 +767,7 @@ fn empty_serialized_rng() -> SerializedRngState {
     }
 }
 
-fn copy_lifecycle_reusing(
+pub(crate) fn copy_lifecycle_reusing(
     target: &mut Option<BaselineLifecycleState>,
     source: &BaselineLifecycleState,
 ) -> Result<(), FixedStepPrefixError> {
