@@ -362,6 +362,23 @@ impl SpawnWorkspace {
         self.ready
     }
 
+    /// Latest work and retained capacity, including after a rejected batch.
+    #[must_use]
+    pub const fn diagnostics(&self) -> SpawnCapacityDiagnostics {
+        SpawnCapacityDiagnostics {
+            placements: self.placements.len(),
+            body_points: self.body_points.len(),
+            candidates_examined: self.candidates_examined,
+            fallback_placements: self.fallback_placements,
+            geometry_checks: self.geometry_checks,
+            order_capacity: self.order.capacity(),
+            source_order_capacity: self.source_order.capacity(),
+            placement_capacity: self.placements.capacity(),
+            body_point_capacity: self.body_points.capacity(),
+            candidate_body_capacity: self.candidate_body.capacity(),
+        }
+    }
+
     fn place_request(
         &mut self,
         source_world: &WorldState,
@@ -525,18 +542,7 @@ impl SpawnWorkspace {
                 .next_rng
                 .as_ref()
                 .expect("ready spawn workspace must retain an RNG continuation"),
-            diagnostics: SpawnCapacityDiagnostics {
-                placements: self.placements.len(),
-                body_points: self.body_points.len(),
-                candidates_examined: self.candidates_examined,
-                fallback_placements: self.fallback_placements,
-                geometry_checks: self.geometry_checks,
-                order_capacity: self.order.capacity(),
-                source_order_capacity: self.source_order.capacity(),
-                placement_capacity: self.placements.capacity(),
-                body_point_capacity: self.body_points.capacity(),
-                candidate_body_capacity: self.candidate_body.capacity(),
-            },
+            diagnostics: self.diagnostics(),
         }
     }
 

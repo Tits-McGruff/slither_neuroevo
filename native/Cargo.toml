@@ -28,10 +28,16 @@ name = "stage4-control-benchmark"
 path = "src/bin/stage4_control_benchmark.rs"
 required-features = ["engine-test-hooks"]
 
+[[bin]]
+name = "stage5-step-benchmark"
+path = "src/bin/stage5_step_benchmark.rs"
+required-features = ["engine-test-hooks"]
+
 [features]
 engine-test-hooks = []
 
 [dependencies]
+getrandom = "0.4"
 napi = { version = "3.0.0", features = ["napi6", "compat-mode"] }
 napi-derive = "3.0.0"
 rustix = { version = "1", features = ["fs"] }

@@ -34,10 +34,27 @@ mod coordinator;
 pub mod effects;
 /// Bounded engine faults and stable error codes.
 pub mod error;
+/// Serial TypeScript-compatible fitness, selection, crossover, and mutation.
+pub mod evolution;
+/// Atomic external-controller death replacement staging.
+pub mod external_replacement;
 /// Reusable corrected prefix of one complete authoritative fixed step.
 pub mod fixed_step;
 /// Deterministic contested-food claims and post-food body finalization.
 pub mod food;
+/// Direct browser-compatible binary display-frame v1 packing.
+pub mod frame_v1;
+/// Bounded current-default generation-one population and durability staging.
+pub mod fresh_run;
+/// Durable pre-spawn next-generation boundary preparation.
+pub mod generation;
+/// Retained real generation-persistence handoff integration fixture.
+#[cfg(feature = "engine-test-hooks")]
+pub mod generation_handoff_fixture;
+/// Collision-safe running-world construction after a durable generation boundary.
+pub mod generation_start;
+/// Versioned TypeScript-compatible random genome initialization.
+pub mod genome;
 /// Deterministic graph validation, layout, and compilation contracts.
 pub mod graph;
 /// Safe scalar complete-graph and heterogeneous-population inference.
@@ -53,10 +70,17 @@ pub mod physics;
 pub mod queues;
 /// Versioned deterministic random-number generation shared by engine state.
 pub mod rng;
+/// Durable generation-one checkpoint and running-authority activation barrier.
+pub mod run_start;
+/// Retained real run-start handoff integration fixture.
+#[cfg(feature = "engine-test-hooks")]
+pub mod run_start_handoff_fixture;
 /// Private complete nonterminal fixed-step orchestration and publication.
 mod running_step;
 /// One-shot owner of the background coordinator lifecycle.
 pub mod runtime;
+/// Rust-owned one-step-at-a-time fixed-step scheduler and wall-debt accounting.
+pub mod scheduler;
 /// Deterministic Stage 4 corrected-sensing performance evidence.
 #[cfg(feature = "engine-test-hooks")]
 pub mod sensing_fixture;
@@ -72,11 +96,23 @@ pub mod spawn;
 pub mod state;
 /// Strict admitted-settings projection for one complete running step.
 pub mod step_config;
+/// Deterministic Stage 5 complete scalar fixed-step performance evidence.
+#[cfg(feature = "engine-test-hooks")]
+pub mod step_fixture;
 /// Complete post-control world-step staging before one authority publication.
 pub mod world_step;
 
 pub use coordinator::LifecycleState;
 pub use running_step::{
-    GenerationTransitionReason, RunningStepCoordinator, RunningStepError, RunningStepInputs,
-    RunningStepOutcome, RUNNING_STEP_COORDINATOR_VERSION,
+    ExternalDeliveryDiagnostics, ExternalDeliveryEventKind, ExternalDeliveryResolution,
+    ExternalDeliveryResult, ExternalDeliveryState, ExternalObservationBatch,
+    ExternalObservationEvent, GenerationReassignmentProgress, GenerationTransitionReason,
+    RunningStepCoordinator, RunningStepError, RunningStepInputs, RunningStepOutcome,
+    RunningStepProgress, RUNNING_STEP_COORDINATOR_VERSION,
 };
+pub use scheduler::{
+    FixedStepScheduler, FixedStepSchedulerDiagnostics, FixedStepSchedulerPolicy, ScheduledStep,
+    SchedulerError, SchedulerReadiness, SchedulerServiceMode, FIXED_STEP_SCHEDULER_VERSION,
+};
+pub use state::GenerationStartPublication;
+pub use world_step::ExternalDeliveryStatus;

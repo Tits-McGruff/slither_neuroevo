@@ -1,12 +1,15 @@
 import { Worker } from 'node:worker_threads';
 import {
   DEFAULT_MANAGED_CHECKPOINT_DESCRIPTOR_LIMITS,
+  managedCheckpointDescriptorsEqual,
   parseManagedCheckpointDescriptor,
   parseManagedCheckpointDescriptorLimits,
+  parseManagedGenerationCommit,
   type CheckpointOperationId,
   type CheckpointPersistenceWorkerResponse,
   type ManagedCheckpointDescriptor,
   type ManagedCheckpointDescriptorLimits,
+  type ManagedGenerationCommit,
   type U64Hex
 } from './checkpointPersistenceProtocol.ts';
 
@@ -34,6 +37,25 @@ export interface ManagedCheckpointCommitResult {
   runId: string;
   /** Content-addressed checkpoint identity. */
   checkpointId: string;
+  /** Complete descriptor echoed only after its exact transaction committed. */
+  descriptor: ManagedCheckpointDescriptor;
+}
+
+/**
+ * Compare every redundant worker-result identity with one Rust-selected descriptor.
+ * @param committed - Complete acknowledgement returned by the persistence client.
+ * @param expected - Strict descriptor originally selected by Rust.
+ * @returns True only when the complete descriptor and every echoed identity match.
+ */
+export function managedCheckpointCommitResultMatchesDescriptor(
+  committed: ManagedCheckpointCommitResult,
+  expected: ManagedCheckpointDescriptor
+): boolean {
+  return managedCheckpointDescriptorsEqual(committed.descriptor, expected) &&
+    committed.operationId === expected.operationId &&
+    committed.transitionEpoch === expected.transitionEpoch &&
+    committed.runId === expected.runId &&
+    committed.checkpointId === expected.logicalRootSha256;
 }
 
 /** One pending descriptor-only commit waiting for its exact operation response. */
@@ -49,8 +71,9 @@ interface PendingCommit {
 /**
  * Client lifecycle wrapper around exactly one dedicated SQLite persistence worker.
  *
- * This class sends only validated scalar descriptors. It deliberately exposes no API that
- * accepts a population buffer, archive bytes, World object, or typed array.
+ * This class sends only validated scalar descriptors and two fixed-size generation records.
+ * It deliberately exposes no API that accepts a population buffer, archive bytes, World
+ * object, or typed array.
  */
 export class CheckpointPersistenceClient {
   /** Isolated worker exclusively owning the synchronous SQLite connection. */
@@ -112,14 +135,20 @@ export class CheckpointPersistenceClient {
   /**
    * Commit a descriptor after its file is already final under the controlled root.
    * @param value - Strict descriptor candidate containing no checkpoint payload bytes.
+   * @param generationCommitValue - Exact compact history and Hall-of-Fame reference.
    * @returns Matching durable metadata/current-pointer acknowledgement.
    */
-  commit(value: unknown): Promise<ManagedCheckpointCommitResult> {
+  commit(
+    value: unknown,
+    generationCommitValue: unknown = null
+  ): Promise<ManagedCheckpointCommitResult> {
     if (this.failure) return Promise.reject(this.failure);
     if (this.stopping) return Promise.reject(new Error('checkpoint persistence client is stopping'));
     let descriptor: ManagedCheckpointDescriptor;
+    let generationCommit: ManagedGenerationCommit | null;
     try {
       descriptor = parseManagedCheckpointDescriptor(value);
+      generationCommit = parseManagedGenerationCommit(generationCommitValue, descriptor);
     } catch (error) {
       return Promise.reject(asError(error));
     }
@@ -129,7 +158,11 @@ export class CheckpointPersistenceClient {
     return new Promise<ManagedCheckpointCommitResult>((resolve, reject) => {
       this.pending.set(descriptor.operationId, { descriptor, resolve, reject });
       try {
-        this.worker.postMessage({ type: 'commitManagedCheckpoint', descriptor });
+        this.worker.postMessage({
+          type: 'commitManagedCheckpoint',
+          descriptor,
+          generationCommit
+        });
       } catch (error) {
         this.pending.delete(descriptor.operationId);
         reject(asError(error));
@@ -199,7 +232,8 @@ export class CheckpointPersistenceClient {
       if (
         response.transitionEpoch !== pending.descriptor.transitionEpoch ||
         response.runId !== pending.descriptor.runId ||
-        response.checkpointId !== pending.descriptor.logicalRootSha256
+        response.checkpointId !== pending.descriptor.logicalRootSha256 ||
+        !managedCheckpointDescriptorsEqual(response.descriptor, pending.descriptor)
       ) {
         throw new Error(`persistence worker acknowledgement mismatched operation ${response.operationId}`);
       }
@@ -208,7 +242,8 @@ export class CheckpointPersistenceClient {
         operationId: response.operationId,
         transitionEpoch: response.transitionEpoch,
         runId: response.runId,
-        checkpointId: response.checkpointId
+        checkpointId: response.checkpointId,
+        descriptor: response.descriptor
       });
     } catch (error) {
       this.fail(asError(error));
@@ -295,17 +330,32 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
   }
   const response = value as Record<string, unknown>;
   if (response['type'] === 'managedCheckpointCommitted') {
-    requireExactKeys(response, ['type', 'operationId', 'transitionEpoch', 'runId', 'checkpointId']);
+    requireExactKeys(response, [
+      'type',
+      'operationId',
+      'transitionEpoch',
+      'runId',
+      'checkpointId',
+      'descriptor'
+    ]);
     if (!isOperationId(response['operationId']) || !isU64Hex(response['transitionEpoch']) ||
       typeof response['runId'] !== 'string' || typeof response['checkpointId'] !== 'string') {
       throw new TypeError('checkpoint persistence worker sent an invalid commit acknowledgement');
+    }
+    const descriptor = parseManagedCheckpointDescriptor(response['descriptor']);
+    if (response['operationId'] !== descriptor.operationId ||
+      response['transitionEpoch'] !== descriptor.transitionEpoch ||
+      response['runId'] !== descriptor.runId ||
+      response['checkpointId'] !== descriptor.logicalRootSha256) {
+      throw new TypeError('checkpoint persistence worker sent internally mismatched commit fields');
     }
     return {
       type: 'managedCheckpointCommitted',
       operationId: response['operationId'],
       transitionEpoch: response['transitionEpoch'],
       runId: response['runId'],
-      checkpointId: response['checkpointId']
+      checkpointId: response['checkpointId'],
+      descriptor
     };
   }
   if (response['type'] === 'managedCheckpointRejected') {

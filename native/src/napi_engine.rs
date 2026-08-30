@@ -13,26 +13,42 @@
 )]
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
-#[cfg(feature = "engine-test-hooks")]
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError, Weak};
 
-use napi::bindgen_prelude::{Array, AsyncTask, BigInt, Function, Object, Task, Uint8Array};
+use napi::bindgen_prelude::{
+    Array, AsyncTask, BigInt, Function, JsObjectValue, Object, Task, Uint8Array,
+};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::{Env, Error, JsString, Result, Status};
 use napi_derive::napi;
 
+use crate::engine::checkpoint::{
+    CheckpointBoundaryKind, CheckpointDescriptor, CheckpointOperationId,
+    CheckpointWriteValidationPolicy, NumericEncoding, CHECKPOINT_DESCRIPTOR_VERSION,
+};
 use crate::engine::contract::{
     CommandBatch, CompletedEvent, EngineCommand, EngineInit, InboundLimits, OutputLimits,
     ReliableEvent, SequencedCommand, ENGINE_CONTRACT_VERSION,
 };
-use crate::engine::error::{EngineError, EngineErrorCode, MAX_ERROR_DETAIL_BYTES};
+use crate::engine::error::{truncate_utf8, EngineError, EngineErrorCode, MAX_ERROR_DETAIL_BYTES};
+use crate::engine::fresh_run::{prepare_stage6a_p0_fresh_run, Stage6aP0FreshRunRequest};
 use crate::engine::queues::WakeSink;
+use crate::engine::run_start::PendingRunStartTransition;
 use crate::engine::runtime::{EngineHealth, EngineRuntime};
+use crate::engine::state::RunStartPublication;
 use crate::engine::LifecycleState;
 #[cfg(feature = "engine-test-hooks")]
-use crate::engine::{checkpoint::CheckpointDescriptor, checkpoint_fixture::publish_stage3_fixture};
+use crate::engine::{
+    checkpoint_fixture::publish_stage3_fixture,
+    generation::GenerationCommitRecord,
+    generation_handoff_fixture::{
+        GenerationHandoffAssignment, GenerationHandoffFixtureSession, GenerationHandoffSnapshot,
+        PublishedGenerationHandoff,
+    },
+    run_start_handoff_fixture::{RunStartHandoffFixtureSession, RunStartHandoffSnapshot},
+};
 
 /// The one-slot, weak, nonblocking wake notification used by the bridge.
 type WakeThreadsafeFunction = ThreadsafeFunction<(), (), (), Status, false, true, 1>;
@@ -58,6 +74,44 @@ const MAX_NAPI_QUEUE_OWNED_BYTES: usize = 512 * 1024 * 1024;
 /// Maximum combined fixed command metadata and payload bytes for one batch.
 const MAX_NAPI_BATCH_RESERVATION_BYTES: usize =
     MAX_NAPI_BATCH_METADATA_BYTES + MAX_NAPI_BATCH_OWNED_BYTES;
+/// Maximum UTF-8 bytes admitted for the opaque experimental lineage label.
+const MAX_EXPERIMENTAL_RUN_ID_BYTES: usize = 256;
+/// No asynchronous fresh-run operation is currently scheduled.
+const FRESH_OPERATION_IDLE: u8 = 0;
+/// Fixed-profile population construction is running off the Node event loop.
+const FRESH_OPERATION_INITIALIZE: u8 = 1;
+/// Immutable checkpoint publication is running off the Node event loop.
+const FRESH_OPERATION_CHECKPOINT: u8 = 2;
+/// Collision-safe world activation is running off the Node event loop.
+const FRESH_OPERATION_ACTIVATE: u8 = 3;
+/// Exact persistence acknowledgement owns the synchronous mutation root.
+const FRESH_OPERATION_ACKNOWLEDGE: u8 = 4;
+/// Exact enumerable string keys admitted by a persistence acknowledgement.
+const CHECKPOINT_DESCRIPTOR_INPUT_KEYS: [&str; 23] = [
+    "protocolVersion",
+    "operationId",
+    "transitionEpoch",
+    "runId",
+    "generation",
+    "completedStep",
+    "boundaryKind",
+    "checkpointFormatVersion",
+    "stateVersion",
+    "graphLayoutVersion",
+    "managedRoot",
+    "relativeFilename",
+    "logicalRootSha256",
+    "storedByteCount",
+    "decodedByteCount",
+    "roleCount",
+    "populationCount",
+    "weightCount",
+    "recurrentStateCount",
+    "weightsEncoding",
+    "recurrentStateEncoding",
+    "graphLayoutSha256",
+    "writeValidationPolicy",
+];
 
 /// Test-hook-only request for one real managed checkpoint publication.
 #[cfg(feature = "engine-test-hooks")]
@@ -71,10 +125,9 @@ pub struct Stage3CheckpointFixtureOptions {
     pub transition_epoch: String,
 }
 
-/// Scalar-only descriptor returned by the real Rust checkpoint publisher.
-#[cfg(feature = "engine-test-hooks")]
+/// Scalar-only descriptor returned by a real Rust checkpoint publisher.
 #[napi(object)]
-pub struct Stage3CheckpointFixtureDescriptor {
+pub struct ManagedCheckpointDescriptor {
     /// Descriptor protocol version.
     pub protocol_version: u32,
     /// Exact operation identifier.
@@ -123,6 +176,516 @@ pub struct Stage3CheckpointFixtureDescriptor {
     pub write_validation_policy: String,
 }
 
+/// Controlled immutable-checkpoint publication request.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct ManagedCheckpointPublicationOptions {
+    /// Disposable server-controlled directory receiving the immutable file.
+    pub managed_directory: String,
+    /// Exact 32-digit lowercase hexadecimal operation identifier.
+    pub operation_id: String,
+}
+
+/// Exact Rust-owned eight-field generation summary wire record.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6GenerationSummaryRecord {
+    pub completed_generation: String,
+    pub best_f64_hex: String,
+    pub average_f64_hex: String,
+    pub minimum_f64_hex: String,
+    pub species_count: String,
+    pub top_species_size: String,
+    pub average_weight_f64_hex: String,
+    pub weight_variance_f64_hex: String,
+}
+
+/// Exact Rust-owned Hall-of-Fame successor reference wire record.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6HallOfFameRecord {
+    pub completed_generation: String,
+    pub source_population_slot: String,
+    pub source_snake_id: String,
+    pub fitness_f64_hex: String,
+    pub points_f64_hex: String,
+    pub length: String,
+    pub successor_population_slot: String,
+    pub successor_genome_id: String,
+}
+
+/// Complete scalar-only generation commit assembled by Rust admission.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6GenerationCommitRecord {
+    pub summary: Stage6GenerationSummaryRecord,
+    pub hall_of_fame: Stage6HallOfFameRecord,
+}
+
+/// Real retained generation publication returned to the persistence client.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6GenerationCheckpointPublication {
+    pub descriptor: ManagedCheckpointDescriptor,
+    pub generation_commit: Stage6GenerationCommitRecord,
+}
+
+/// Scalar proof of the fixture's current authority and retained barrier.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6GenerationHandoffSnapshot {
+    pub world_epoch: String,
+    pub generation: String,
+    pub completed_step: String,
+    pub transition_pending: bool,
+    pub checkpoint_published: bool,
+    pub persistence_acknowledged: bool,
+    pub generation_checkpoint_publications: u32,
+    pub authority_publications: u32,
+}
+
+/// One reliable fresh-snake assignment generated by the retained Rust session.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6GenerationAssignment {
+    pub operation_epoch: String,
+    pub event_sequence: String,
+    pub connection_id: String,
+    pub lease_id: String,
+    pub snake_id: String,
+    pub resume_token: String,
+}
+
+/// Exact local-send result for the retained generation assignment.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6GenerationAssignmentResult {
+    pub operation_epoch: String,
+    pub event_sequence: String,
+    pub connection_id: String,
+    pub lease_id: String,
+    pub accepted: bool,
+}
+
+/// Scalar result of the one final old-to-new authority swap.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6GenerationStartPublication {
+    pub world_epoch: String,
+    pub generation: String,
+    pub completed_step: String,
+    pub population_epoch: String,
+    pub external_assignments: u32,
+}
+
+/// Scalar proof of the fixture's staged or activated fresh run.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6RunStartHandoffSnapshot {
+    pub transition_epoch: String,
+    pub generation: String,
+    pub completed_step: String,
+    pub checkpoint_published: bool,
+    pub persistence_acknowledged: bool,
+    pub authority_published: bool,
+    pub snake_count: String,
+    pub pellet_count: String,
+    pub checkpoint_publications: u32,
+    pub authority_publications: u32,
+}
+
+/// Scalar result of one durable-boundary-to-running activation.
+#[napi(object)]
+pub struct Stage6RunStartPublication {
+    pub world_epoch: String,
+    pub generation: String,
+    pub completed_step: String,
+    pub population_epoch: String,
+}
+
+/// Bounded scalar view of the experimental fixed-P0 fresh-run session.
+#[napi(object)]
+pub struct ExperimentalFreshRunSnapshot {
+    /// Stable lifecycle phase; an active worker operation takes precedence.
+    pub phase: String,
+    /// Exact process-local transition token once construction has completed.
+    pub transition_epoch: Option<String>,
+    /// Exact current generation once construction has completed.
+    pub generation: Option<String>,
+    /// Exact completed-step count once construction has completed.
+    pub completed_step: Option<String>,
+    /// Whether the immutable managed file has published.
+    pub checkpoint_published: Option<bool>,
+    /// Whether Rust retained the worker's exact committed descriptor.
+    pub persistence_acknowledged: Option<bool>,
+    /// Whether the collision-safe running authority has published.
+    pub authority_published: Option<bool>,
+    /// Exact current authoritative snake count once construction has completed.
+    pub snake_count: Option<String>,
+    /// Exact current authoritative pellet count once construction has completed.
+    pub pellet_count: Option<String>,
+    /// First bounded terminal panic detail, when the session is faulted.
+    pub fault_detail: Option<String>,
+}
+
+/// Rust-only scalar snapshot used between a libuv worker and N-API resolution.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FreshRunScalarSnapshot {
+    phase: &'static str,
+    transition_epoch: Option<u64>,
+    generation: Option<u64>,
+    completed_step: Option<u64>,
+    checkpoint_published: Option<bool>,
+    persistence_acknowledged: Option<bool>,
+    authority_published: Option<bool>,
+    snake_count: Option<usize>,
+    pellet_count: Option<usize>,
+    fault_detail: Option<String>,
+}
+
+/// Mutable Rust authority retained behind the experimental session mutex.
+#[derive(Default)]
+struct ExperimentalFreshRunInner {
+    transition: Option<PendingRunStartTransition>,
+    fault_detail: Option<String>,
+}
+
+/// Explicitly experimental owner for one real fixed-P0 fresh Rust lineage.
+///
+/// Construction, managed-file publication, and initial-world activation run on
+/// libuv workers. The normal server does not instantiate this class yet.
+#[napi(js_name = "ExperimentalStage6aFreshRunSession")]
+pub struct ExperimentalStage6aFreshRunSession {
+    request: Stage6aP0FreshRunRequest,
+    inner: Arc<Mutex<ExperimentalFreshRunInner>>,
+    active_operation: Arc<AtomicU8>,
+}
+
+/// Unwind-safe ownership of one synchronous experimental mutation root.
+struct FreshSynchronousOperation {
+    active_operation: Arc<AtomicU8>,
+}
+
+impl Drop for FreshSynchronousOperation {
+    fn drop(&mut self) {
+        self.active_operation
+            .store(FRESH_OPERATION_IDLE, Ordering::Release);
+    }
+}
+
+#[napi]
+impl ExperimentalStage6aFreshRunSession {
+    /// Validate and retain only the fixed profile's bounded identity inputs.
+    #[napi(constructor, catch_unwind)]
+    pub fn new(
+        run_id: JsString<'_>,
+        seed_hex: JsString<'_>,
+        memory_ceiling_bytes_hex: JsString<'_>,
+    ) -> Result<Self> {
+        let run_id = bounded_js_string(run_id, "runId", MAX_EXPERIMENTAL_RUN_ID_BYTES, false)?;
+        if run_id.contains('\0') {
+            return Err(Error::new(Status::InvalidArg, "runId must not contain NUL"));
+        }
+        let seed_hex = bounded_js_string(seed_hex, "seedHex", 8, false)?;
+        let seed = parse_u32_hex(&seed_hex, "seedHex")?;
+        let memory_ceiling_bytes_hex =
+            bounded_js_string(memory_ceiling_bytes_hex, "memoryCeilingBytesHex", 16, false)?;
+        let memory_ceiling_u64 =
+            parse_u64_hex(&memory_ceiling_bytes_hex, "memoryCeilingBytesHex", false)?;
+        let memory_ceiling_bytes = usize::try_from(memory_ceiling_u64).map_err(|_| {
+            Error::new(
+                Status::InvalidArg,
+                "memoryCeilingBytesHex cannot be represented by this native target",
+            )
+        })?;
+        Ok(Self {
+            request: Stage6aP0FreshRunRequest {
+                run_id,
+                seed,
+                memory_ceiling_bytes,
+            },
+            inner: Arc::new(Mutex::new(ExperimentalFreshRunInner::default())),
+            active_operation: Arc::new(AtomicU8::new(FRESH_OPERATION_IDLE)),
+        })
+    }
+
+    /// Construct and admit the complete fixed-P0 generation-one boundary off-loop.
+    #[napi(catch_unwind)]
+    pub fn initialize(&self) -> Result<AsyncTask<InitializeExperimentalFreshRunTask>> {
+        self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
+        if let Err(error) = ensure_fresh_transition_absent(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            request: self.request.clone(),
+            inner: Arc::clone(&self.inner),
+            active_operation: Arc::clone(&self.active_operation),
+        }))
+    }
+
+    /// Publish or exactly retry the admitted managed checkpoint off-loop.
+    #[napi(catch_unwind)]
+    pub fn publish_run_start_checkpoint(
+        &self,
+        options: Object<'_>,
+    ) -> Result<AsyncTask<PublishExperimentalFreshRunCheckpointTask>> {
+        let (managed_directory, operation_id) =
+            parse_managed_checkpoint_publication_options(&options)?;
+        self.begin_operation(FRESH_OPERATION_CHECKPOINT)?;
+        if let Err(error) = ensure_fresh_transition_present(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(AsyncTask::new(PublishExperimentalFreshRunCheckpointTask {
+            inner: Arc::clone(&self.inner),
+            active_operation: Arc::clone(&self.active_operation),
+            managed_directory,
+            operation_id,
+        }))
+    }
+
+    /// Retain only the persistence worker's exact complete descriptor echo.
+    #[napi(catch_unwind)]
+    pub fn acknowledge_run_start_persistence(&self, descriptor: Object<'_>) -> Result<()> {
+        let _operation = self.begin_synchronous_operation(FRESH_OPERATION_ACKNOWLEDGE)?;
+        match catch_unwind(AssertUnwindSafe(|| {
+            let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+            let mut inner = try_lock_fresh_inner(&self.inner)?;
+            reject_faulted_fresh_inner(&inner)?;
+            let transition = inner.transition.as_mut().ok_or_else(|| {
+                Error::new(
+                    Status::GenericFailure,
+                    "experimental fresh run has not been initialized",
+                )
+            })?;
+            transition
+                .acknowledge_persistence(&descriptor)
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+        })) {
+            Ok(result) => result,
+            Err(payload) => Err(fault_experimental_fresh_run(
+                &self.inner,
+                "experimental fresh-run persistence acknowledgement panicked",
+                payload.as_ref(),
+            )),
+        }
+    }
+
+    /// Construct and publish the running authority off-loop after durability.
+    #[napi(catch_unwind)]
+    pub fn activate_running_authority(
+        &self,
+    ) -> Result<AsyncTask<ActivateExperimentalFreshRunTask>> {
+        self.begin_operation(FRESH_OPERATION_ACTIVATE)?;
+        if let Err(error) = ensure_fresh_transition_present(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(AsyncTask::new(ActivateExperimentalFreshRunTask {
+            inner: Arc::clone(&self.inner),
+            active_operation: Arc::clone(&self.active_operation),
+        }))
+    }
+
+    /// Return bounded scalar proof without blocking the Node event loop.
+    #[napi(catch_unwind)]
+    pub fn snapshot(&self) -> Result<ExperimentalFreshRunSnapshot> {
+        let active_operation = self.active_operation.load(Ordering::Acquire);
+        match self.inner.try_lock() {
+            Ok(inner) => fresh_run_scalar_snapshot(&inner, active_operation)
+                .and_then(fresh_run_snapshot_to_napi),
+            Err(TryLockError::Poisoned(poisoned)) => {
+                fresh_run_scalar_snapshot(&poisoned.into_inner(), active_operation)
+                    .and_then(fresh_run_snapshot_to_napi)
+            }
+            Err(TryLockError::WouldBlock) => {
+                fresh_run_snapshot_to_napi(busy_fresh_run_snapshot(active_operation)?)
+            }
+        }
+    }
+}
+
+impl ExperimentalStage6aFreshRunSession {
+    /// Acquire the one asynchronous-operation slot without waiting.
+    fn begin_operation(&self, operation: u8) -> Result<()> {
+        if let Err(active) = self.active_operation.compare_exchange(
+            FRESH_OPERATION_IDLE,
+            operation,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            return Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "experimental fresh-run operation {} is already in flight",
+                    fresh_operation_phase(active).unwrap_or("unknown")
+                ),
+            ));
+        }
+        if let Err(error) = reject_faulted_fresh_mutex(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Reserve one synchronous root before inspecting caller-controlled objects.
+    fn begin_synchronous_operation(&self, operation: u8) -> Result<FreshSynchronousOperation> {
+        self.begin_operation(operation)?;
+        Ok(FreshSynchronousOperation {
+            active_operation: Arc::clone(&self.active_operation),
+        })
+    }
+}
+
+/// Async complete fixed-profile construction for one experimental lineage.
+pub struct InitializeExperimentalFreshRunTask {
+    request: Stage6aP0FreshRunRequest,
+    inner: Arc<Mutex<ExperimentalFreshRunInner>>,
+    active_operation: Arc<AtomicU8>,
+}
+
+impl Task for InitializeExperimentalFreshRunTask {
+    type Output = FreshRunScalarSnapshot;
+    type JsValue = ExperimentalFreshRunSnapshot;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            let transition = prepare_stage6a_p0_fresh_run(self.request.clone())
+                .map_err(|error| error.to_string())?;
+            let mut inner = lock_recover(&self.inner);
+            if let Some(detail) = inner.fault_detail.as_deref() {
+                return Err(format!(
+                    "experimental fresh-run session is faulted: {detail}"
+                ));
+            }
+            if inner.transition.is_some() {
+                return Err("experimental fresh run is already initialized".to_owned());
+            }
+            inner.transition = Some(transition);
+            fresh_run_scalar_snapshot(&inner, FRESH_OPERATION_IDLE)
+                .map_err(|error| error.to_string())
+        })) {
+            Ok(Ok(snapshot)) => Ok(snapshot),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(fault_experimental_fresh_run(
+                &self.inner,
+                "experimental fresh-run construction panicked",
+                payload.as_ref(),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        fresh_run_snapshot_to_napi(output)
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.active_operation
+            .store(FRESH_OPERATION_IDLE, Ordering::Release);
+        Ok(())
+    }
+}
+
+/// Async immutable managed-file publication for the retained fresh boundary.
+pub struct PublishExperimentalFreshRunCheckpointTask {
+    inner: Arc<Mutex<ExperimentalFreshRunInner>>,
+    active_operation: Arc<AtomicU8>,
+    managed_directory: PathBuf,
+    operation_id: CheckpointOperationId,
+}
+
+impl Task for PublishExperimentalFreshRunCheckpointTask {
+    type Output = CheckpointDescriptor;
+    type JsValue = ManagedCheckpointDescriptor;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            let mut inner = lock_recover(&self.inner);
+            if let Some(detail) = inner.fault_detail.as_deref() {
+                return Err(format!(
+                    "experimental fresh-run session is faulted: {detail}"
+                ));
+            }
+            inner
+                .transition
+                .as_mut()
+                .ok_or_else(|| "experimental fresh run has not been initialized".to_owned())?
+                .publish_checkpoint(&self.managed_directory, self.operation_id.clone())
+                .map_err(|error| error.to_string())
+        })) {
+            Ok(Ok(descriptor)) => Ok(descriptor),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(fault_experimental_fresh_run(
+                &self.inner,
+                "experimental fresh-run checkpoint publication panicked",
+                payload.as_ref(),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(checkpoint_descriptor_to_napi(output))
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.active_operation
+            .store(FRESH_OPERATION_IDLE, Ordering::Release);
+        Ok(())
+    }
+}
+
+/// Async collision-safe running-authority activation for the durable boundary.
+pub struct ActivateExperimentalFreshRunTask {
+    inner: Arc<Mutex<ExperimentalFreshRunInner>>,
+    active_operation: Arc<AtomicU8>,
+}
+
+impl Task for ActivateExperimentalFreshRunTask {
+    type Output = RunStartPublication;
+    type JsValue = Stage6RunStartPublication;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            let mut inner = lock_recover(&self.inner);
+            if let Some(detail) = inner.fault_detail.as_deref() {
+                return Err(format!(
+                    "experimental fresh-run session is faulted: {detail}"
+                ));
+            }
+            inner
+                .transition
+                .as_mut()
+                .ok_or_else(|| "experimental fresh run has not been initialized".to_owned())?
+                .publish_running_authority()
+                .map_err(|error| error.to_string())
+        })) {
+            Ok(Ok(publication)) => Ok(publication),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(fault_experimental_fresh_run(
+                &self.inner,
+                "experimental fresh-run activation panicked",
+                payload.as_ref(),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(run_start_publication_to_napi(output))
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.active_operation
+            .store(FRESH_OPERATION_IDLE, Ordering::Release);
+        Ok(())
+    }
+}
+
 /// Return the exact experimental engine command/event contract version.
 #[napi(js_name = "experimentalEngineContractVersion", catch_unwind)]
 pub fn experimental_engine_contract_version() -> u32 {
@@ -164,7 +727,7 @@ pub struct PublishStage3CheckpointFixtureTask {
 #[cfg(feature = "engine-test-hooks")]
 impl Task for PublishStage3CheckpointFixtureTask {
     type Output = CheckpointDescriptor;
-    type JsValue = Stage3CheckpointFixtureDescriptor;
+    type JsValue = ManagedCheckpointDescriptor;
 
     fn compute(&mut self) -> Result<Self::Output> {
         match catch_unwind(AssertUnwindSafe(|| {
@@ -191,9 +754,680 @@ impl Task for PublishStage3CheckpointFixtureTask {
     }
 }
 
+/// Feature-gated retained real fresh run-start used only by integration tests.
+#[cfg(feature = "engine-test-hooks")]
+#[napi]
+pub struct Stage6RunStartHandoffFixtureSession {
+    session: Arc<Mutex<RunStartHandoffFixtureSession>>,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+#[napi]
+impl Stage6RunStartHandoffFixtureSession {
+    /// Build and retain one real generation-one checkpoint boundary.
+    #[napi(constructor, catch_unwind)]
+    pub fn new() -> Result<Self> {
+        let session = RunStartHandoffFixtureSession::new()
+            .map_err(|detail| Error::new(Status::GenericFailure, detail))?;
+        Ok(Self {
+            session: Arc::new(Mutex::new(session)),
+        })
+    }
+
+    /// Publish or exactly retry the retained run-start checkpoint off the event loop.
+    #[napi(catch_unwind)]
+    pub fn publish_run_start_checkpoint(
+        &self,
+        options: ManagedCheckpointPublicationOptions,
+    ) -> Result<AsyncTask<PublishStage6PendingRunStartTask>> {
+        let managed_directory = parse_managed_path(options.managed_directory)?;
+        let operation_id = parse_checkpoint_operation_id(options.operation_id)?;
+        Ok(AsyncTask::new(PublishStage6PendingRunStartTask {
+            session: Arc::clone(&self.session),
+            managed_directory,
+            operation_id,
+        }))
+    }
+
+    /// Apply the persistence worker's complete committed descriptor to Rust.
+    #[napi(catch_unwind)]
+    pub fn acknowledge_run_start_persistence(&self, descriptor: Object<'_>) -> Result<()> {
+        let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+        lock_recover(&self.session)
+            .acknowledge_persistence(&descriptor)
+            .map_err(|detail| Error::new(Status::GenericFailure, detail))
+    }
+
+    /// Construct and publish the running authority off the Node event loop.
+    #[napi(catch_unwind)]
+    pub fn publish_running_authority(&self) -> Result<AsyncTask<PublishStage6RunningRunStartTask>> {
+        Ok(AsyncTask::new(PublishStage6RunningRunStartTask {
+            session: Arc::clone(&self.session),
+        }))
+    }
+
+    /// Return bounded scalar proof without copying world or population state.
+    #[napi(catch_unwind)]
+    pub fn snapshot(&self) -> Result<Stage6RunStartHandoffSnapshot> {
+        run_start_snapshot_to_napi(lock_recover(&self.session).snapshot())
+    }
+}
+
+/// Async immutable publication for the retained pending run start.
+#[cfg(feature = "engine-test-hooks")]
+pub struct PublishStage6PendingRunStartTask {
+    session: Arc<Mutex<RunStartHandoffFixtureSession>>,
+    managed_directory: PathBuf,
+    operation_id: CheckpointOperationId,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+impl Task for PublishStage6PendingRunStartTask {
+    type Output = CheckpointDescriptor;
+    type JsValue = ManagedCheckpointDescriptor;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            lock_recover(&self.session)
+                .publish_checkpoint(&self.managed_directory, self.operation_id.clone())
+        })) {
+            Ok(Ok(descriptor)) => Ok(descriptor),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "Stage 6 pending run-start publication panicked: {}",
+                    panic_detail(payload.as_ref())
+                ),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(checkpoint_descriptor_to_napi(output))
+    }
+}
+
+/// Async collision-safe activation for the retained durable run start.
+#[cfg(feature = "engine-test-hooks")]
+pub struct PublishStage6RunningRunStartTask {
+    session: Arc<Mutex<RunStartHandoffFixtureSession>>,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+impl Task for PublishStage6RunningRunStartTask {
+    type Output = RunStartPublication;
+    type JsValue = Stage6RunStartPublication;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            lock_recover(&self.session).publish_running_authority()
+        })) {
+            Ok(Ok(publication)) => Ok(publication),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "Stage 6 run-start activation panicked: {}",
+                    panic_detail(payload.as_ref())
+                ),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(Stage6RunStartPublication {
+            world_epoch: u64_hex(output.world_epoch),
+            generation: u64_hex(output.generation),
+            completed_step: u64_hex(output.completed_step),
+            population_epoch: u64_hex(output.population_epoch),
+        })
+    }
+}
+
+/// Feature-gated retained real generation handoff used only by integration tests.
+#[cfg(feature = "engine-test-hooks")]
+#[napi]
+pub struct Stage6GenerationHandoffFixtureSession {
+    session: Arc<Mutex<GenerationHandoffFixtureSession>>,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+#[napi]
+impl Stage6GenerationHandoffFixtureSession {
+    /// Build and retain one real terminal coordinator transition.
+    #[napi(constructor, catch_unwind)]
+    pub fn new() -> Result<Self> {
+        let session = GenerationHandoffFixtureSession::new()
+            .map_err(|detail| Error::new(Status::GenericFailure, detail))?;
+        Ok(Self {
+            session: Arc::new(Mutex::new(session)),
+        })
+    }
+
+    /// Publish the same-run run-start file on libuv's worker pool.
+    #[napi(catch_unwind)]
+    pub fn publish_run_start_checkpoint(
+        &self,
+        options: Stage3CheckpointFixtureOptions,
+    ) -> Result<AsyncTask<PublishStage6RunStartTask>> {
+        let managed_directory = parse_managed_path(options.managed_directory)?;
+        let operation_id = parse_checkpoint_operation_id(options.operation_id)?;
+        let transition_epoch = parse_test_hook_epoch(&options.transition_epoch)?;
+        Ok(AsyncTask::new(PublishStage6RunStartTask {
+            session: Arc::clone(&self.session),
+            managed_directory,
+            operation_id,
+            transition_epoch,
+        }))
+    }
+
+    /// Publish or exactly retry the retained generation checkpoint off the event loop.
+    #[napi(catch_unwind)]
+    pub fn publish_generation_checkpoint(
+        &self,
+        options: ManagedCheckpointPublicationOptions,
+    ) -> Result<AsyncTask<PublishStage6GenerationTask>> {
+        let managed_directory = parse_managed_path(options.managed_directory)?;
+        let operation_id = parse_checkpoint_operation_id(options.operation_id)?;
+        Ok(AsyncTask::new(PublishStage6GenerationTask {
+            session: Arc::clone(&self.session),
+            managed_directory,
+            operation_id,
+        }))
+    }
+
+    /// Apply the persistence worker's complete committed descriptor to Rust.
+    #[napi(catch_unwind)]
+    pub fn acknowledge_generation_persistence(&self, descriptor: Object<'_>) -> Result<()> {
+        let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+        lock_recover(&self.session)
+            .acknowledge_generation_persistence(&descriptor)
+            .map_err(|detail| Error::new(Status::GenericFailure, detail))
+    }
+
+    /// Stage or reborrow the one required reliable controller assignment.
+    #[napi(catch_unwind)]
+    pub fn prepare_generation_assignment(&self) -> Result<Stage6GenerationAssignment> {
+        let assignment = lock_recover(&self.session)
+            .prepare_generation_assignment()
+            .map_err(|detail| Error::new(Status::GenericFailure, detail))?;
+        Ok(generation_assignment_to_napi(assignment))
+    }
+
+    /// Apply one exact local-send result to the retained assignment.
+    #[napi(catch_unwind)]
+    pub fn submit_generation_assignment(
+        &self,
+        result: Stage6GenerationAssignmentResult,
+    ) -> Result<()> {
+        let operation_epoch = parse_u64_hex(&result.operation_epoch, "operationEpoch", false)?;
+        let event_sequence = parse_u64_hex(&result.event_sequence, "eventSequence", false)?;
+        let connection_id = parse_u64_hex(&result.connection_id, "connectionId", false)?;
+        let lease_id = parse_u64_hex(&result.lease_id, "leaseId", false)?;
+        lock_recover(&self.session)
+            .submit_generation_assignment(
+                operation_epoch,
+                event_sequence,
+                connection_id,
+                lease_id,
+                result.accepted,
+            )
+            .map_err(|detail| Error::new(Status::GenericFailure, detail))
+    }
+
+    /// Perform the one final authority swap after both required barriers.
+    #[napi(catch_unwind)]
+    pub fn publish_generation_start(&self) -> Result<Stage6GenerationStartPublication> {
+        let publication = lock_recover(&self.session)
+            .publish_generation_start()
+            .map_err(|detail| Error::new(Status::GenericFailure, detail))?;
+        let external_assignments =
+            u32::try_from(publication.external_assignments).map_err(|_| {
+                Error::new(
+                    Status::GenericFailure,
+                    "generation assignment count exceeds the bounded N-API fixture field",
+                )
+            })?;
+        Ok(Stage6GenerationStartPublication {
+            world_epoch: u64_hex(publication.world_epoch),
+            generation: u64_hex(publication.generation),
+            completed_step: u64_hex(publication.completed_step),
+            population_epoch: u64_hex(publication.population_epoch),
+            external_assignments,
+        })
+    }
+
+    /// Return bounded scalar proof without copying world or population state.
+    #[napi(catch_unwind)]
+    pub fn snapshot(&self) -> Stage6GenerationHandoffSnapshot {
+        generation_snapshot_to_napi(lock_recover(&self.session).snapshot())
+    }
+}
+
+/// Async same-run run-start publication task for the retained session.
+#[cfg(feature = "engine-test-hooks")]
+pub struct PublishStage6RunStartTask {
+    session: Arc<Mutex<GenerationHandoffFixtureSession>>,
+    managed_directory: PathBuf,
+    operation_id: CheckpointOperationId,
+    transition_epoch: u64,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+impl Task for PublishStage6RunStartTask {
+    type Output = CheckpointDescriptor;
+    type JsValue = ManagedCheckpointDescriptor;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            lock_recover(&self.session).publish_run_start_checkpoint(
+                &self.managed_directory,
+                self.operation_id.clone(),
+                self.transition_epoch,
+            )
+        })) {
+            Ok(Ok(descriptor)) => Ok(descriptor),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "Stage 6 run-start publication panicked: {}",
+                    panic_detail(payload.as_ref())
+                ),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(checkpoint_descriptor_to_napi(output))
+    }
+}
+
+/// Async generation publication task retaining the same real coordinator.
+#[cfg(feature = "engine-test-hooks")]
+pub struct PublishStage6GenerationTask {
+    session: Arc<Mutex<GenerationHandoffFixtureSession>>,
+    managed_directory: PathBuf,
+    operation_id: CheckpointOperationId,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+impl Task for PublishStage6GenerationTask {
+    type Output = PublishedGenerationHandoff;
+    type JsValue = Stage6GenerationCheckpointPublication;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            lock_recover(&self.session)
+                .publish_generation_checkpoint(&self.managed_directory, self.operation_id.clone())
+        })) {
+            Ok(Ok(publication)) => Ok(publication),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "Stage 6 generation publication panicked: {}",
+                    panic_detail(payload.as_ref())
+                ),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(Stage6GenerationCheckpointPublication {
+            descriptor: checkpoint_descriptor_to_napi(output.descriptor),
+            generation_commit: generation_commit_to_napi(output.commit_record),
+        })
+    }
+}
+
+/// Validate one controlled path before moving publication to a worker thread.
+fn parse_managed_path(value: String) -> Result<PathBuf> {
+    if value.is_empty() || value.len() > 32_768 || value.contains('\0') {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "managedDirectory must be a nonempty NUL-free path of at most 32768 UTF-8 bytes",
+        ));
+    }
+    Ok(PathBuf::from(value))
+}
+
+/// Validate one exact operation token before any file work.
+fn parse_checkpoint_operation_id(value: String) -> Result<CheckpointOperationId> {
+    CheckpointOperationId::parse(value)
+        .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))
+}
+
+/// Read controlled publication options without allocating unbounded JS strings.
+fn parse_managed_checkpoint_publication_options(
+    options: &Object<'_>,
+) -> Result<(PathBuf, CheckpointOperationId)> {
+    let managed_directory = options
+        .get::<JsString<'_>>("managedDirectory")?
+        .ok_or_else(|| {
+            Error::new(
+                Status::InvalidArg,
+                "checkpoint publication options omit managedDirectory",
+            )
+        })?;
+    let operation_id = options.get::<JsString<'_>>("operationId")?.ok_or_else(|| {
+        Error::new(
+            Status::InvalidArg,
+            "checkpoint publication options omit operationId",
+        )
+    })?;
+    let managed_directory =
+        bounded_js_string(managed_directory, "managedDirectory", 32_768, false)?;
+    let operation_id = bounded_js_string(operation_id, "operationId", 32, false)?;
+    Ok((
+        parse_managed_path(managed_directory)?,
+        parse_checkpoint_operation_id(operation_id)?,
+    ))
+}
+
+/// Copy one JavaScript string only after bounded well-formed UTF-16 validation.
+fn bounded_js_string(
+    value: JsString<'_>,
+    field: &str,
+    max_utf8_bytes: usize,
+    allow_empty: bool,
+) -> Result<String> {
+    let utf16_len = value.utf16_len()?;
+    if utf16_len > max_utf8_bytes {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("{field} exceeds its {max_utf8_bytes}-byte limit"),
+        ));
+    }
+    let utf8_len = value.utf8_len()?;
+    if utf8_len > max_utf8_bytes {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("{field} exceeds its {max_utf8_bytes}-byte limit"),
+        ));
+    }
+    let decoded = value.into_utf16()?.as_str().map_err(|_| {
+        Error::new(
+            Status::InvalidArg,
+            format!("{field} must be a well-formed UTF-16 string"),
+        )
+    })?;
+    if (!allow_empty && decoded.is_empty()) || decoded.len() > max_utf8_bytes {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("{field} must be nonempty and at most {max_utf8_bytes} UTF-8 bytes"),
+        ));
+    }
+    Ok(decoded)
+}
+
+/// Parse one canonical Uint32 wire value without JavaScript Number narrowing.
+fn parse_u32_hex(value: &str, field: &str) -> Result<u32> {
+    if value.len() != 8
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(Error::new(
+            Status::InvalidArg,
+            format!("{field} must be 8 lowercase hexadecimal digits"),
+        ));
+    }
+    u32::from_str_radix(value, 16).map_err(|_| {
+        Error::new(
+            Status::InvalidArg,
+            format!("{field} is not a canonical unsigned 32-bit value"),
+        )
+    })
+}
+
+/// Acquire the retained authority for a synchronous root without ever waiting.
+fn try_lock_fresh_inner(
+    inner: &Mutex<ExperimentalFreshRunInner>,
+) -> Result<MutexGuard<'_, ExperimentalFreshRunInner>> {
+    match inner.try_lock() {
+        Ok(guard) => Ok(guard),
+        Err(TryLockError::Poisoned(poisoned)) => Ok(poisoned.into_inner()),
+        Err(TryLockError::WouldBlock) => Err(Error::new(
+            Status::GenericFailure,
+            "experimental fresh-run authority is busy on a worker thread",
+        )),
+    }
+}
+
+/// Reject every future mutation after one worker panic has faulted authority.
+fn reject_faulted_fresh_inner(inner: &ExperimentalFreshRunInner) -> Result<()> {
+    match inner.fault_detail.as_ref() {
+        Some(detail) => Err(Error::new(Status::GenericFailure, detail.clone())),
+        None => Ok(()),
+    }
+}
+
+/// Inspect the permanent fault latch without waiting for a worker-held mutex.
+fn reject_faulted_fresh_mutex(inner: &Mutex<ExperimentalFreshRunInner>) -> Result<()> {
+    let inner = try_lock_fresh_inner(inner)?;
+    reject_faulted_fresh_inner(&inner)
+}
+
+/// Latch the first caught worker panic and permanently retire the session.
+fn fault_experimental_fresh_run(
+    inner: &Mutex<ExperimentalFreshRunInner>,
+    context: &str,
+    payload: &(dyn std::any::Any + Send),
+) -> Error {
+    let detail = bounded_fresh_run_panic_detail(context, payload);
+    let retained = {
+        let mut inner = lock_recover(inner);
+        inner.fault_detail.get_or_insert(detail).clone()
+    };
+    Error::new(Status::GenericFailure, retained)
+}
+
+/// Bound panic text before allocating retained or N-API-visible diagnostics.
+fn bounded_fresh_run_panic_detail(context: &str, payload: &(dyn std::any::Any + Send)) -> String {
+    let source = if let Some(message) = payload.downcast_ref::<&str>() {
+        *message
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.as_str()
+    } else {
+        "non-string panic payload"
+    };
+    let mut detail = truncate_utf8(context, MAX_ERROR_DETAIL_BYTES);
+    if detail.len() < MAX_ERROR_DETAIL_BYTES {
+        let separator = ": ";
+        let separator_bytes = separator.len().min(MAX_ERROR_DETAIL_BYTES - detail.len());
+        detail.push_str(&separator[..separator_bytes]);
+    }
+    if detail.len() < MAX_ERROR_DETAIL_BYTES {
+        detail.push_str(&truncate_utf8(
+            source,
+            MAX_ERROR_DETAIL_BYTES - detail.len(),
+        ));
+    }
+    detail
+}
+
+/// Ensure initialization has not already installed authority before scheduling.
+fn ensure_fresh_transition_absent(inner: &Mutex<ExperimentalFreshRunInner>) -> Result<()> {
+    let inner = try_lock_fresh_inner(inner)?;
+    reject_faulted_fresh_inner(&inner)?;
+    if inner.transition.is_some() {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "experimental fresh run is already initialized",
+        ));
+    }
+    Ok(())
+}
+
+/// Ensure an admitted authority exists before scheduling dependent work.
+fn ensure_fresh_transition_present(inner: &Mutex<ExperimentalFreshRunInner>) -> Result<()> {
+    let inner = try_lock_fresh_inner(inner)?;
+    reject_faulted_fresh_inner(&inner)?;
+    if inner.transition.is_none() {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "experimental fresh run has not been initialized",
+        ));
+    }
+    Ok(())
+}
+
+/// Return the stable scalar phase for one active worker operation.
+const fn fresh_operation_phase(operation: u8) -> Option<&'static str> {
+    match operation {
+        FRESH_OPERATION_INITIALIZE => Some("initializing"),
+        FRESH_OPERATION_CHECKPOINT => Some("publishingCheckpoint"),
+        FRESH_OPERATION_ACTIVATE => Some("activating"),
+        FRESH_OPERATION_ACKNOWLEDGE => Some("acknowledgingPersistence"),
+        _ => None,
+    }
+}
+
+/// Produce an intentionally metadata-empty snapshot while the mutex is busy.
+fn busy_fresh_run_snapshot(operation: u8) -> Result<FreshRunScalarSnapshot> {
+    let phase = fresh_operation_phase(operation).ok_or_else(|| {
+        Error::new(
+            Status::GenericFailure,
+            "experimental fresh-run authority is unexpectedly busy without an active operation",
+        )
+    })?;
+    Ok(FreshRunScalarSnapshot {
+        phase,
+        transition_epoch: None,
+        generation: None,
+        completed_step: None,
+        checkpoint_published: None,
+        persistence_acknowledged: None,
+        authority_published: None,
+        snake_count: None,
+        pellet_count: None,
+        fault_detail: None,
+    })
+}
+
+/// Read the retained transition into bounded scalar-only Rust metadata.
+fn fresh_run_scalar_snapshot(
+    inner: &ExperimentalFreshRunInner,
+    active_operation: u8,
+) -> Result<FreshRunScalarSnapshot> {
+    if let Some(detail) = inner.fault_detail.as_ref() {
+        return Ok(FreshRunScalarSnapshot {
+            phase: "faulted",
+            transition_epoch: None,
+            generation: None,
+            completed_step: None,
+            checkpoint_published: None,
+            persistence_acknowledged: None,
+            authority_published: None,
+            snake_count: None,
+            pellet_count: None,
+            fault_detail: Some(detail.clone()),
+        });
+    }
+    let phase = if active_operation == FRESH_OPERATION_IDLE {
+        match inner.transition.as_ref() {
+            None => "created",
+            Some(transition) if transition.authority_published() => "running",
+            Some(transition) if transition.persistence_acknowledged() => "durableBoundary",
+            Some(transition) if transition.checkpoint_published() => "awaitingPersistence",
+            Some(_) => "pendingDurability",
+        }
+    } else {
+        fresh_operation_phase(active_operation).ok_or_else(|| {
+            Error::new(
+                Status::GenericFailure,
+                "experimental fresh-run operation state is invalid",
+            )
+        })?
+    };
+    let Some(transition) = inner.transition.as_ref() else {
+        return Ok(FreshRunScalarSnapshot {
+            phase,
+            transition_epoch: None,
+            generation: None,
+            completed_step: None,
+            checkpoint_published: None,
+            persistence_acknowledged: None,
+            authority_published: None,
+            snake_count: None,
+            pellet_count: None,
+            fault_detail: None,
+        });
+    };
+    Ok(FreshRunScalarSnapshot {
+        phase,
+        transition_epoch: Some(transition.transition_epoch()),
+        generation: Some(transition.generation()),
+        completed_step: Some(transition.completed_step()),
+        checkpoint_published: Some(transition.checkpoint_published()),
+        persistence_acknowledged: Some(transition.persistence_acknowledged()),
+        authority_published: Some(transition.authority_published()),
+        snake_count: Some(transition.snake_count()),
+        pellet_count: Some(transition.pellet_count()),
+        fault_detail: None,
+    })
+}
+
+/// Convert one internal scalar snapshot without numeric narrowing.
+fn fresh_run_snapshot_to_napi(
+    snapshot: FreshRunScalarSnapshot,
+) -> Result<ExperimentalFreshRunSnapshot> {
+    let snake_count = snapshot
+        .snake_count
+        .map(|value| {
+            u64::try_from(value).map(u64_hex).map_err(|_| {
+                Error::new(
+                    Status::GenericFailure,
+                    "fresh-run snake count exceeds the N-API scalar domain",
+                )
+            })
+        })
+        .transpose()?;
+    let pellet_count = snapshot
+        .pellet_count
+        .map(|value| {
+            u64::try_from(value).map(u64_hex).map_err(|_| {
+                Error::new(
+                    Status::GenericFailure,
+                    "fresh-run pellet count exceeds the N-API scalar domain",
+                )
+            })
+        })
+        .transpose()?;
+    Ok(ExperimentalFreshRunSnapshot {
+        phase: snapshot.phase.to_owned(),
+        transition_epoch: snapshot.transition_epoch.map(u64_hex),
+        generation: snapshot.generation.map(u64_hex),
+        completed_step: snapshot.completed_step.map(u64_hex),
+        checkpoint_published: snapshot.checkpoint_published,
+        persistence_acknowledged: snapshot.persistence_acknowledged,
+        authority_published: snapshot.authority_published,
+        snake_count,
+        pellet_count,
+        fault_detail: snapshot.fault_detail,
+    })
+}
+
+/// Convert one successful run-start activation without exposing state memory.
+fn run_start_publication_to_napi(publication: RunStartPublication) -> Stage6RunStartPublication {
+    Stage6RunStartPublication {
+        world_epoch: u64_hex(publication.world_epoch),
+        generation: u64_hex(publication.generation),
+        completed_step: u64_hex(publication.completed_step),
+        population_epoch: u64_hex(publication.population_epoch),
+    }
+}
+
 /// Parse one canonical positive u64 epoch without JavaScript Number narrowing.
 #[cfg(feature = "engine-test-hooks")]
 fn parse_test_hook_epoch(value: &str) -> Result<u64> {
+    parse_u64_hex(value, "transitionEpoch", false)
+}
+
+/// Parse one canonical u64 wire value without JavaScript Number narrowing.
+fn parse_u64_hex(value: &str, field: &str, allow_zero: bool) -> Result<u64> {
     if value.len() != 16
         || !value
             .bytes()
@@ -201,30 +1435,27 @@ fn parse_test_hook_epoch(value: &str) -> Result<u64> {
     {
         return Err(Error::new(
             Status::InvalidArg,
-            "transitionEpoch must be 16 lowercase hexadecimal digits",
+            format!("{field} must be 16 lowercase hexadecimal digits"),
         ));
     }
-    let epoch = u64::from_str_radix(value, 16).map_err(|_| {
+    let parsed = u64::from_str_radix(value, 16).map_err(|_| {
         Error::new(
             Status::InvalidArg,
-            "transitionEpoch is not a canonical unsigned 64-bit value",
+            format!("{field} is not a canonical unsigned 64-bit value"),
         )
     })?;
-    if epoch == 0 {
+    if !allow_zero && parsed == 0 {
         return Err(Error::new(
             Status::InvalidArg,
-            "transitionEpoch must be positive",
+            format!("{field} must be positive"),
         ));
     }
-    Ok(epoch)
+    Ok(parsed)
 }
 
 /// Convert the Rust descriptor without exposing any authoritative payload bytes.
-#[cfg(feature = "engine-test-hooks")]
-fn checkpoint_descriptor_to_napi(
-    descriptor: CheckpointDescriptor,
-) -> Stage3CheckpointFixtureDescriptor {
-    Stage3CheckpointFixtureDescriptor {
+fn checkpoint_descriptor_to_napi(descriptor: CheckpointDescriptor) -> ManagedCheckpointDescriptor {
+    ManagedCheckpointDescriptor {
         protocol_version: descriptor.protocol_version,
         operation_id: descriptor.operation_id.as_str().to_owned(),
         transition_epoch: descriptor.transition_epoch_hex,
@@ -249,6 +1480,377 @@ fn checkpoint_descriptor_to_napi(
         graph_layout_sha256: descriptor.graph_layout_sha256,
         write_validation_policy: descriptor.write_validation_policy.as_str().to_owned(),
     }
+}
+
+/// Parse a persistence acknowledgement before napi-rs can allocate its strings.
+fn checkpoint_descriptor_from_napi_object(descriptor: &Object<'_>) -> Result<CheckpointDescriptor> {
+    require_exact_checkpoint_descriptor_keys(descriptor)?;
+    let protocol_version = descriptor.get::<f64>("protocolVersion")?.ok_or_else(|| {
+        Error::new(
+            Status::InvalidArg,
+            "checkpoint descriptor omits protocolVersion",
+        )
+    })?;
+    if !protocol_version.is_finite()
+        || protocol_version.fract() != 0.0
+        || protocol_version != f64::from(CHECKPOINT_DESCRIPTOR_VERSION)
+    {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "protocolVersion must be the exact supported integer",
+        ));
+    }
+    checkpoint_descriptor_from_napi(ManagedCheckpointDescriptor {
+        protocol_version: CHECKPOINT_DESCRIPTOR_VERSION,
+        operation_id: bounded_object_string(descriptor, "operationId", 32)?,
+        transition_epoch: bounded_object_string(descriptor, "transitionEpoch", 16)?,
+        run_id: bounded_object_string(descriptor, "runId", MAX_EXPERIMENTAL_RUN_ID_BYTES)?,
+        generation: bounded_object_string(descriptor, "generation", 16)?,
+        completed_step: bounded_object_string(descriptor, "completedStep", 16)?,
+        boundary_kind: bounded_object_string(descriptor, "boundaryKind", 10)?,
+        checkpoint_format_version: bounded_object_string(
+            descriptor,
+            "checkpointFormatVersion",
+            16,
+        )?,
+        state_version: bounded_object_string(descriptor, "stateVersion", 16)?,
+        graph_layout_version: bounded_object_string(descriptor, "graphLayoutVersion", 16)?,
+        managed_root: bounded_object_string(descriptor, "managedRoot", 13)?,
+        relative_filename: bounded_object_string(descriptor, "relativeFilename", 78)?,
+        logical_root_sha256: bounded_object_string(descriptor, "logicalRootSha256", 64)?,
+        stored_byte_count: bounded_object_string(descriptor, "storedByteCount", 16)?,
+        decoded_byte_count: bounded_object_string(descriptor, "decodedByteCount", 16)?,
+        role_count: bounded_object_string(descriptor, "roleCount", 16)?,
+        population_count: bounded_object_string(descriptor, "populationCount", 16)?,
+        weight_count: bounded_object_string(descriptor, "weightCount", 16)?,
+        recurrent_state_count: bounded_object_string(descriptor, "recurrentStateCount", 16)?,
+        weights_encoding: bounded_object_string(descriptor, "weightsEncoding", 32)?,
+        recurrent_state_encoding: bounded_object_string(descriptor, "recurrentStateEncoding", 32)?,
+        graph_layout_sha256: bounded_object_string(descriptor, "graphLayoutSha256", 64)?,
+        write_validation_policy: bounded_object_string(descriptor, "writeValidationPolicy", 64)?,
+    })
+}
+
+/// Require the complete enumerable own-key set before reading any field value.
+fn require_exact_checkpoint_descriptor_keys(descriptor: &Object<'_>) -> Result<()> {
+    let names = descriptor.get_property_names()?;
+    let length = names.get_array_length()?;
+    if usize::try_from(length).ok() != Some(CHECKPOINT_DESCRIPTOR_INPUT_KEYS.len()) {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "checkpoint descriptor has unknown or missing fields",
+        ));
+    }
+    let mut seen = [false; CHECKPOINT_DESCRIPTOR_INPUT_KEYS.len()];
+    for index in 0..length {
+        let key = names.get_element::<JsString<'_>>(index)?;
+        let key = bounded_js_string(key, "checkpoint descriptor key", 64, false)?;
+        let position = CHECKPOINT_DESCRIPTOR_INPUT_KEYS
+            .iter()
+            .position(|expected| *expected == key)
+            .ok_or_else(|| {
+                Error::new(
+                    Status::InvalidArg,
+                    format!("checkpoint descriptor contains unknown field {key}"),
+                )
+            })?;
+        if seen[position]
+            || !descriptor.has_own_property(CHECKPOINT_DESCRIPTOR_INPUT_KEYS[position])?
+        {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "checkpoint descriptor has duplicate or inherited fields",
+            ));
+        }
+        seen[position] = true;
+    }
+    if seen.iter().any(|present| !present) {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "checkpoint descriptor has unknown or missing fields",
+        ));
+    }
+    Ok(())
+}
+
+/// Read one required bounded string property through a raw JavaScript handle.
+fn bounded_object_string(
+    object: &Object<'_>,
+    field: &str,
+    max_utf8_bytes: usize,
+) -> Result<String> {
+    let value = object.get::<JsString<'_>>(field)?.ok_or_else(|| {
+        Error::new(
+            Status::InvalidArg,
+            format!("checkpoint descriptor omits {field}"),
+        )
+    })?;
+    bounded_js_string(value, field, max_utf8_bytes, false)
+}
+
+/// Reconstruct one scalar descriptor supplied by the persistence worker.
+fn checkpoint_descriptor_from_napi(
+    descriptor: ManagedCheckpointDescriptor,
+) -> Result<CheckpointDescriptor> {
+    if descriptor.protocol_version != CHECKPOINT_DESCRIPTOR_VERSION {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "protocolVersion is not the supported checkpoint descriptor version",
+        ));
+    }
+    if descriptor.managed_root != "checkpoint-v3" {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "managedRoot is not the controlled checkpoint-v3 root",
+        ));
+    }
+    for (field, value) in [
+        ("transitionEpoch", descriptor.transition_epoch.as_str()),
+        ("generation", descriptor.generation.as_str()),
+        ("completedStep", descriptor.completed_step.as_str()),
+        (
+            "checkpointFormatVersion",
+            descriptor.checkpoint_format_version.as_str(),
+        ),
+        ("stateVersion", descriptor.state_version.as_str()),
+        (
+            "graphLayoutVersion",
+            descriptor.graph_layout_version.as_str(),
+        ),
+        ("storedByteCount", descriptor.stored_byte_count.as_str()),
+        ("decodedByteCount", descriptor.decoded_byte_count.as_str()),
+        ("roleCount", descriptor.role_count.as_str()),
+        ("populationCount", descriptor.population_count.as_str()),
+        ("weightCount", descriptor.weight_count.as_str()),
+        (
+            "recurrentStateCount",
+            descriptor.recurrent_state_count.as_str(),
+        ),
+    ] {
+        let allow_zero = field != "transitionEpoch";
+        parse_u64_hex(value, field, allow_zero)?;
+    }
+    let operation_id = parse_checkpoint_operation_id(descriptor.operation_id)?;
+    let boundary_kind = match descriptor.boundary_kind.as_str() {
+        "run-start" => CheckpointBoundaryKind::RunStart,
+        "generation" => CheckpointBoundaryKind::Generation,
+        _ => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "boundaryKind is not a supported checkpoint boundary",
+            ));
+        }
+    };
+    let generation = parse_u64_hex(&descriptor.generation, "generation", true)?;
+    let completed_step = parse_u64_hex(&descriptor.completed_step, "completedStep", true)?;
+    match boundary_kind {
+        CheckpointBoundaryKind::RunStart if generation != 1 || completed_step != 0 => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "run-start descriptor must be generation one at completed step zero",
+            ));
+        }
+        CheckpointBoundaryKind::Generation if completed_step == 0 => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "generation descriptor must have a positive completed-step count",
+            ));
+        }
+        _ => {}
+    }
+    let weights_encoding = parse_numeric_encoding(&descriptor.weights_encoding)?;
+    let recurrent_state_encoding = parse_numeric_encoding(&descriptor.recurrent_state_encoding)?;
+    if descriptor.write_validation_policy
+        != CheckpointWriteValidationPolicy::SinglePassLogicalHashesFsyncRenameV1.as_str()
+    {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "writeValidationPolicy is not the approved checkpoint policy",
+        ));
+    }
+    for (field, value, maximum) in [
+        (
+            "runId",
+            descriptor.run_id.as_str(),
+            MAX_EXPERIMENTAL_RUN_ID_BYTES,
+        ),
+        (
+            "relativeFilename",
+            descriptor.relative_filename.as_str(),
+            78usize,
+        ),
+        (
+            "logicalRootSha256",
+            descriptor.logical_root_sha256.as_str(),
+            64usize,
+        ),
+        (
+            "graphLayoutSha256",
+            descriptor.graph_layout_sha256.as_str(),
+            64usize,
+        ),
+    ] {
+        if value.is_empty() || value.len() > maximum || value.contains('\0') {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("{field} exceeds the bounded descriptor fixture field"),
+            ));
+        }
+    }
+    for (field, value) in [
+        ("logicalRootSha256", descriptor.logical_root_sha256.as_str()),
+        ("graphLayoutSha256", descriptor.graph_layout_sha256.as_str()),
+    ] {
+        if value.len() != 64
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("{field} must be a lowercase SHA-256 hex string"),
+            ));
+        }
+    }
+    if descriptor.relative_filename != format!("{}.checkpoint-v3", descriptor.logical_root_sha256) {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "relativeFilename is not derived from logicalRootSha256",
+        ));
+    }
+    Ok(CheckpointDescriptor {
+        protocol_version: descriptor.protocol_version,
+        managed_root: descriptor.managed_root,
+        operation_id,
+        transition_epoch_hex: descriptor.transition_epoch,
+        run_id: descriptor.run_id,
+        generation_hex: descriptor.generation,
+        completed_step_hex: descriptor.completed_step,
+        boundary_kind,
+        checkpoint_format_version_hex: descriptor.checkpoint_format_version,
+        state_version_hex: descriptor.state_version,
+        graph_layout_version_hex: descriptor.graph_layout_version,
+        logical_root_sha256: descriptor.logical_root_sha256,
+        relative_filename: descriptor.relative_filename,
+        stored_byte_count_hex: descriptor.stored_byte_count,
+        decoded_byte_count_hex: descriptor.decoded_byte_count,
+        population_count_hex: descriptor.population_count,
+        role_count_hex: descriptor.role_count,
+        weight_count_hex: descriptor.weight_count,
+        recurrent_state_count_hex: descriptor.recurrent_state_count,
+        weights_encoding,
+        recurrent_state_encoding,
+        graph_layout_sha256: descriptor.graph_layout_sha256,
+        write_validation_policy:
+            CheckpointWriteValidationPolicy::SinglePassLogicalHashesFsyncRenameV1,
+    })
+}
+
+/// Parse one stable numeric encoding used by the checkpoint descriptor.
+fn parse_numeric_encoding(value: &str) -> Result<NumericEncoding> {
+    match value {
+        "raw-f32le-v1" => Ok(NumericEncoding::RawF32LeV1),
+        "f32le-shuffle4-zstd-v1" => Ok(NumericEncoding::F32LeShuffle4ZstdV1),
+        _ => Err(Error::new(
+            Status::InvalidArg,
+            "checkpoint descriptor contains an unsupported numeric encoding",
+        )),
+    }
+}
+
+/// Convert one exact u64 or Float64-bit word to canonical wire hexadecimal.
+fn u64_hex(value: u64) -> String {
+    format!("{value:016x}")
+}
+
+/// Convert the Rust-owned compact generation record without numeric narrowing.
+#[cfg(feature = "engine-test-hooks")]
+fn generation_commit_to_napi(record: GenerationCommitRecord) -> Stage6GenerationCommitRecord {
+    Stage6GenerationCommitRecord {
+        summary: Stage6GenerationSummaryRecord {
+            completed_generation: u64_hex(record.summary.completed_generation),
+            best_f64_hex: u64_hex(record.summary.best_f64_bits),
+            average_f64_hex: u64_hex(record.summary.average_f64_bits),
+            minimum_f64_hex: u64_hex(record.summary.minimum_f64_bits),
+            species_count: u64_hex(record.summary.species_count),
+            top_species_size: u64_hex(record.summary.top_species_size),
+            average_weight_f64_hex: u64_hex(record.summary.average_weight_f64_bits),
+            weight_variance_f64_hex: u64_hex(record.summary.weight_variance_f64_bits),
+        },
+        hall_of_fame: Stage6HallOfFameRecord {
+            completed_generation: u64_hex(record.hall_of_fame.completed_generation),
+            source_population_slot: u64_hex(record.hall_of_fame.source_population_slot),
+            source_snake_id: u64_hex(record.hall_of_fame.source_snake_id),
+            fitness_f64_hex: u64_hex(record.hall_of_fame.fitness_f64_bits),
+            points_f64_hex: u64_hex(record.hall_of_fame.points_f64_bits),
+            length: u64_hex(record.hall_of_fame.length),
+            successor_population_slot: u64_hex(record.hall_of_fame.successor_population_slot),
+            successor_genome_id: u64_hex(record.hall_of_fame.successor_genome_id),
+        },
+    }
+}
+
+/// Convert one retained Rust assignment to exact scalar wire fields.
+#[cfg(feature = "engine-test-hooks")]
+fn generation_assignment_to_napi(
+    assignment: GenerationHandoffAssignment,
+) -> Stage6GenerationAssignment {
+    Stage6GenerationAssignment {
+        operation_epoch: u64_hex(assignment.operation_epoch),
+        event_sequence: u64_hex(assignment.event_sequence),
+        connection_id: u64_hex(assignment.connection_id),
+        lease_id: u64_hex(assignment.lease_id),
+        snake_id: u64_hex(assignment.snake_id),
+        resume_token: assignment.resume_token,
+    }
+}
+
+/// Convert current authority/barrier proof to bounded scalar wire fields.
+#[cfg(feature = "engine-test-hooks")]
+fn generation_snapshot_to_napi(
+    snapshot: GenerationHandoffSnapshot,
+) -> Stage6GenerationHandoffSnapshot {
+    Stage6GenerationHandoffSnapshot {
+        world_epoch: u64_hex(snapshot.world_epoch),
+        generation: u64_hex(snapshot.generation),
+        completed_step: u64_hex(snapshot.completed_step),
+        transition_pending: snapshot.transition_pending,
+        checkpoint_published: snapshot.checkpoint_published,
+        persistence_acknowledged: snapshot.persistence_acknowledged,
+        generation_checkpoint_publications: snapshot.generation_checkpoint_publications,
+        authority_publications: snapshot.authority_publications,
+    }
+}
+
+/// Convert fresh run-start barrier proof to bounded exact scalar wire fields.
+#[cfg(feature = "engine-test-hooks")]
+fn run_start_snapshot_to_napi(
+    snapshot: RunStartHandoffSnapshot,
+) -> Result<Stage6RunStartHandoffSnapshot> {
+    let snake_count = u64::try_from(snapshot.snake_count).map_err(|_| {
+        Error::new(
+            Status::GenericFailure,
+            "run-start snake count exceeds the bounded N-API fixture field",
+        )
+    })?;
+    let pellet_count = u64::try_from(snapshot.pellet_count).map_err(|_| {
+        Error::new(
+            Status::GenericFailure,
+            "run-start pellet count exceeds the bounded N-API fixture field",
+        )
+    })?;
+    Ok(Stage6RunStartHandoffSnapshot {
+        transition_epoch: u64_hex(snapshot.transition_epoch),
+        generation: u64_hex(snapshot.generation),
+        completed_step: u64_hex(snapshot.completed_step),
+        checkpoint_published: snapshot.checkpoint_published,
+        persistence_acknowledged: snapshot.persistence_acknowledged,
+        authority_published: snapshot.authority_published,
+        snake_count: u64_hex(snake_count),
+        pellet_count: u64_hex(pellet_count),
+        checkpoint_publications: snapshot.checkpoint_publications,
+        authority_publications: snapshot.authority_publications,
+    })
 }
 
 /// JavaScript initialization limits for the experimental engine.
@@ -1494,6 +3096,146 @@ mod tests {
             u64::MAX
         );
         assert!(require_lossless_u64(u64::MAX, false, "value").is_err());
+    }
+
+    #[test]
+    fn fresh_run_exact_hex_inputs_never_accept_number_shaped_shortcuts() {
+        assert_eq!(parse_u32_hex("00000000", "seedHex").expect("zero seed"), 0);
+        assert_eq!(
+            parse_u32_hex("ffffffff", "seedHex").expect("maximum seed"),
+            u32::MAX
+        );
+        assert_eq!(
+            parse_u64_hex("0000000000000001", "memoryCeilingBytesHex", false)
+                .expect("positive ceiling"),
+            1
+        );
+        for invalid in ["0", "0000000A", "100000000", "gggggggg"] {
+            assert!(
+                parse_u32_hex(invalid, "seedHex").is_err(),
+                "accepted invalid seed {invalid}"
+            );
+        }
+        for invalid in [
+            "0000000000000000",
+            "1",
+            "000000000000000A",
+            "10000000000000000",
+        ] {
+            assert!(
+                parse_u64_hex(invalid, "memoryCeilingBytesHex", false).is_err(),
+                "accepted invalid ceiling {invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn fresh_run_session_exposes_one_nonblocking_operation_owner() {
+        let session = ExperimentalStage6aFreshRunSession {
+            request: Stage6aP0FreshRunRequest {
+                run_id: "unit-run".to_owned(),
+                seed: 1,
+                memory_ceiling_bytes: 1,
+            },
+            inner: Arc::new(Mutex::new(ExperimentalFreshRunInner::default())),
+            active_operation: Arc::new(AtomicU8::new(FRESH_OPERATION_IDLE)),
+        };
+        let created = fresh_run_scalar_snapshot(
+            &lock_recover(&session.inner),
+            session.active_operation.load(Ordering::Acquire),
+        )
+        .expect("created snapshot");
+        assert_eq!(created.phase, "created");
+        assert_eq!(created.transition_epoch, None);
+
+        session
+            .begin_operation(FRESH_OPERATION_INITIALIZE)
+            .expect("first owner acquires operation");
+        assert!(session.begin_operation(FRESH_OPERATION_CHECKPOINT).is_err());
+        let initializing = fresh_run_scalar_snapshot(
+            &lock_recover(&session.inner),
+            session.active_operation.load(Ordering::Acquire),
+        )
+        .expect("initializing snapshot");
+        assert_eq!(initializing.phase, "initializing");
+        assert_eq!(initializing.authority_published, None);
+        assert!(session
+            .begin_synchronous_operation(FRESH_OPERATION_ACKNOWLEDGE)
+            .is_err());
+
+        session
+            .active_operation
+            .store(FRESH_OPERATION_IDLE, Ordering::Release);
+        {
+            let _acknowledgement = session
+                .begin_synchronous_operation(FRESH_OPERATION_ACKNOWLEDGE)
+                .expect("synchronous acknowledgement owns the slot");
+            let acknowledging = fresh_run_scalar_snapshot(
+                &lock_recover(&session.inner),
+                session.active_operation.load(Ordering::Acquire),
+            )
+            .expect("acknowledgement snapshot");
+            assert_eq!(acknowledging.phase, "acknowledgingPersistence");
+            assert!(session.begin_operation(FRESH_OPERATION_ACTIVATE).is_err());
+        }
+        assert_eq!(
+            session.active_operation.load(Ordering::Acquire),
+            FRESH_OPERATION_IDLE
+        );
+        session
+            .begin_operation(FRESH_OPERATION_CHECKPOINT)
+            .expect("operation slot is reusable after completion");
+    }
+
+    #[test]
+    fn fresh_run_worker_panic_permanently_faults_with_bounded_first_detail() {
+        let session = ExperimentalStage6aFreshRunSession {
+            request: Stage6aP0FreshRunRequest {
+                run_id: "unit-fault-run".to_owned(),
+                seed: 1,
+                memory_ceiling_bytes: 1,
+            },
+            inner: Arc::new(Mutex::new(ExperimentalFreshRunInner::default())),
+            active_operation: Arc::new(AtomicU8::new(FRESH_OPERATION_IDLE)),
+        };
+        let oversized_payload = "🐍".repeat(MAX_ERROR_DETAIL_BYTES);
+        let _ = fault_experimental_fresh_run(
+            &session.inner,
+            "experimental fresh-run unit panic",
+            &oversized_payload,
+        );
+        let faulted = fresh_run_scalar_snapshot(
+            &lock_recover(&session.inner),
+            session.active_operation.load(Ordering::Acquire),
+        )
+        .expect("fault snapshot");
+        let first_detail = faulted.fault_detail.expect("retained fault detail");
+        assert_eq!(faulted.phase, "faulted");
+        assert!(first_detail.starts_with("experimental fresh-run unit panic: "));
+        assert!(first_detail.len() <= MAX_ERROR_DETAIL_BYTES);
+        assert_eq!(faulted.transition_epoch, None);
+        assert_eq!(faulted.authority_published, None);
+
+        assert!(session.begin_operation(FRESH_OPERATION_INITIALIZE).is_err());
+        assert_eq!(
+            session.active_operation.load(Ordering::Acquire),
+            FRESH_OPERATION_IDLE
+        );
+        assert!(ensure_fresh_transition_absent(&session.inner).is_err());
+        assert!(ensure_fresh_transition_present(&session.inner).is_err());
+        assert!(session
+            .begin_synchronous_operation(FRESH_OPERATION_ACKNOWLEDGE)
+            .is_err());
+
+        let replacement_payload = "replacement panic".to_owned();
+        let _ =
+            fault_experimental_fresh_run(&session.inner, "different context", &replacement_payload);
+        let retained =
+            fresh_run_scalar_snapshot(&lock_recover(&session.inner), FRESH_OPERATION_IDLE)
+                .expect("retained first fault")
+                .fault_detail
+                .expect("retained first detail");
+        assert_eq!(retained, first_detail);
     }
 
     #[cfg(feature = "engine-test-hooks")]

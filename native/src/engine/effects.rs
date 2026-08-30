@@ -8,6 +8,7 @@
 //! the later complete physics transaction may publish it.
 
 use super::collision::PreparedCollision;
+use super::fixed_step::{copy_rng_bundle_reusing, FixedStepPrefixError, RngCopyScratch};
 use super::food::FoodConfig;
 use super::movement::MovementConfig;
 use super::rng::{RngError, StatefulRng};
@@ -257,14 +258,34 @@ impl RuntimeRngBundle {
         }
     }
 
-    fn export_into(&self, source: &RngStateBundle) -> RngStateBundle {
-        let mut next = source.clone();
-        next.world = self.world.export_state();
-        next.external_controller = self.external_controller.export_state();
-        for (destination, runtime) in next.baselines.iter_mut().zip(&self.baselines) {
-            destination.state = runtime.export_state();
+    fn export_into(
+        &self,
+        source: &RngStateBundle,
+        target: &mut Option<RngStateBundle>,
+        scratch: &mut RngCopyScratch,
+    ) -> Result<(), EffectError> {
+        copy_rng_bundle_reusing(target, scratch, source).map_err(map_rng_copy_error)?;
+        let target = target.as_mut().ok_or(EffectError::ShapeMismatch)?;
+        if target.baselines.len() != self.baselines.len()
+            || scratch.baseline_gaussian_spares.len() < self.baselines.len()
+        {
+            return Err(EffectError::ShapeMismatch);
         }
-        next
+        self.world
+            .export_state_into_reusing(&mut target.world, &mut scratch.world_gaussian_spare);
+        self.external_controller.export_state_into_reusing(
+            &mut target.external_controller,
+            &mut scratch.external_gaussian_spare,
+        );
+        for ((destination, runtime), retained_spare) in target
+            .baselines
+            .iter_mut()
+            .zip(&self.baselines)
+            .zip(&mut scratch.baseline_gaussian_spares)
+        {
+            runtime.export_state_into_reusing(&mut destination.state, retained_spare);
+        }
+        Ok(())
     }
 }
 
@@ -277,6 +298,7 @@ pub struct EffectWorkspace {
     baseline_deaths: Vec<BaselineDeathEvent>,
     baseline_rngs: Vec<StatefulRng>,
     staged_rng: Option<RngStateBundle>,
+    rng_copy_scratch: RngCopyScratch,
     staged_allocators: Option<AllocatorState>,
     boost_pellets: usize,
     corpse_big_pellets: usize,
@@ -417,7 +439,8 @@ impl EffectWorkspace {
 
         self.pellets.extend_from_slice(food.remaining_pellets());
         if generated_count == 0 {
-            self.staged_rng = Some(rng.clone());
+            copy_rng_bundle_reusing(&mut self.staged_rng, &mut self.rng_copy_scratch, rng)
+                .map_err(map_rng_copy_error)?;
             self.staged_allocators = Some(staged_allocators);
             self.ready = true;
             return self.view(collision);
@@ -482,7 +505,7 @@ impl EffectWorkspace {
         if next_id != expected_next_id {
             return Err(EffectError::ShapeMismatch);
         }
-        self.staged_rng = Some(runtime.export_into(rng));
+        runtime.export_into(rng, &mut self.staged_rng, &mut self.rng_copy_scratch)?;
         self.baseline_rngs = runtime.baselines;
         self.staged_allocators = Some(staged_allocators);
         self.ready = true;
@@ -545,8 +568,6 @@ impl EffectWorkspace {
         self.pellets.clear();
         self.baseline_deaths.clear();
         self.baseline_rngs.clear();
-        self.staged_rng = None;
-        self.staged_allocators = None;
         self.boost_pellets = 0;
         self.corpse_big_pellets = 0;
         self.corpse_small_pellets = 0;
@@ -744,6 +765,18 @@ fn reserve_for<T>(
             .map_err(|_| EffectError::AllocationFailed { context, required })?;
     }
     Ok(())
+}
+
+fn map_rng_copy_error(error: FixedStepPrefixError) -> EffectError {
+    match error {
+        FixedStepPrefixError::AllocationFailed { context, required } => {
+            EffectError::AllocationFailed { context, required }
+        }
+        FixedStepPrefixError::ArithmeticOverflow { context } => {
+            EffectError::ArithmeticOverflow { context }
+        }
+        _ => EffectError::ShapeMismatch,
+    }
 }
 
 /// Checked effect-staging failure. No variant publishes partial authority.
@@ -987,6 +1020,23 @@ mod tests {
         allocators: &AllocatorState,
         maximum_pellets: usize,
     ) -> Result<EffectResult, EffectError> {
+        let mut effects_workspace = EffectWorkspace::new();
+        execute_with_effect_workspace(
+            world,
+            rng,
+            allocators,
+            maximum_pellets,
+            &mut effects_workspace,
+        )
+    }
+
+    fn execute_with_effect_workspace(
+        world: &WorldState,
+        rng: &RngStateBundle,
+        allocators: &AllocatorState,
+        maximum_pellets: usize,
+        effects_workspace: &mut EffectWorkspace,
+    ) -> Result<EffectResult, EffectError> {
         let movement_config = MovementConfig::typescript_defaults();
         let indexed = indexed(world);
         let mut movement_workspace = MovementWorkspace::new();
@@ -1008,7 +1058,6 @@ mod tests {
         let collision = collision_workspace
             .prepare(food, CollisionConfig::typescript_defaults())
             .expect("fixture collision should prepare");
-        let mut effects_workspace = EffectWorkspace::new();
         let prepared = effects_workspace.prepare(
             collision,
             rng,
@@ -1025,6 +1074,17 @@ mod tests {
             baseline_deaths: prepared.baseline_deaths().to_vec(),
             diagnostics: prepared.diagnostics(),
         })
+    }
+
+    fn rng_bundle_with_baselines(count: usize) -> RngStateBundle {
+        let mut bundle = rng_bundle();
+        bundle.baselines = (0..count)
+            .map(|index| BaselineRngState {
+                slot: u32::try_from(index).expect("fixture baseline slot should fit u32"),
+                state: StatefulRng::new(44.0 + index as f64).export_state(),
+            })
+            .collect();
+        bundle
     }
 
     fn close(actual: f64, expected: f64) {
@@ -1549,5 +1609,58 @@ mod tests {
                 warmed = Some(diagnostics);
             }
         }
+    }
+
+    #[test]
+    fn generated_effects_reuse_rng_scratch_after_baseline_count_shrinks() {
+        let world = body_collision_world(SnakeKind::Baseline, false);
+        let allocators = allocators();
+        let large_rng = rng_bundle_with_baselines(3);
+        let small_rng = rng_bundle_with_baselines(1);
+        let mut reused = EffectWorkspace::new();
+
+        let large =
+            execute_with_effect_workspace(&world, &large_rng, &allocators, 100_000, &mut reused)
+                .expect("generated effects should warm three retained baseline RNG buffers");
+        assert!(!large.pellets.is_empty());
+        assert_eq!(large.rng.baselines.len(), 3);
+        assert!(reused.rng_copy_scratch.baseline_gaussian_spares.len() >= 3);
+
+        let expected = execute(&world, &small_rng, &allocators, 100_000)
+            .expect("a fresh one-baseline effect should succeed");
+        let actual =
+            execute_with_effect_workspace(&world, &small_rng, &allocators, 100_000, &mut reused)
+                .expect("retained larger scratch must accept a smaller baseline set");
+        assert_eq!(actual.pellets, expected.pellets);
+        assert_eq!(actual.rng, expected.rng);
+        assert_eq!(actual.allocators, expected.allocators);
+        assert_eq!(actual.baseline_deaths, expected.baseline_deaths);
+        assert_eq!(
+            actual.diagnostics.total_pellets,
+            expected.diagnostics.total_pellets
+        );
+        assert_eq!(actual.rng.baselines.len(), 1);
+        assert!(reused.rng_copy_scratch.baseline_gaussian_spares.len() >= 3);
+
+        let expected_continuation = execute(&world, &actual.rng, &actual.allocators, 100_000)
+            .expect("fresh continuation should succeed");
+        let actual_continuation = execute_with_effect_workspace(
+            &world,
+            &actual.rng,
+            &actual.allocators,
+            100_000,
+            &mut reused,
+        )
+        .expect("retained scratch should preserve the exact smaller-set continuation");
+        assert_eq!(actual_continuation.pellets, expected_continuation.pellets);
+        assert_eq!(actual_continuation.rng, expected_continuation.rng);
+        assert_eq!(
+            actual_continuation.allocators,
+            expected_continuation.allocators
+        );
+        assert_eq!(
+            actual_continuation.baseline_deaths,
+            expected_continuation.baseline_deaths
+        );
     }
 }

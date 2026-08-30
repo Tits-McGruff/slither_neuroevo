@@ -13,13 +13,24 @@ port.on('message', message => {
   if (mode === 'exit') process.exit(3);
   if (mode === 'exit-clean') process.exit(0);
   if (mode === 'mismatched') {
-    const request = message as { descriptor?: { operationId?: unknown; runId?: unknown } };
+    const request = message as {
+      descriptor?: Record<string, unknown> & {
+        operationId?: unknown;
+        runId?: unknown;
+        logicalRootSha256?: unknown;
+      };
+    };
+    const descriptor = {
+      ...request.descriptor,
+      transitionEpoch: '0000000000000002'
+    };
     port.postMessage({
       type: 'managedCheckpointCommitted',
       operationId: request.descriptor?.operationId,
       transitionEpoch: '0000000000000002',
       runId: request.descriptor?.runId,
-      checkpointId: '0'.repeat(64)
+      checkpointId: request.descriptor?.logicalRootSha256,
+      descriptor
     });
     return;
   }

@@ -20,6 +20,11 @@ const BASE_FIXTURE_FILES: Readonly<Record<string, string>> = {
   'Cargo.lock': 'version = 4\n',
   'Cargo.toml': '[package]\nname = "fixture"\n',
   'build.rs': 'fn main() {}\n',
+  'fixtures/evolution-reference.json': '{"fixture":"evolution"}\n',
+  'fixtures/frame-v1-reference.json': '{"fixture":"frame-v1"}\n',
+  'fixtures/fresh-run-reference.json': '{"fixture":"fresh-run"}\n',
+  'fixtures/genome-init-reference.json': '{"fixture":"genome-init"}\n',
+  'fixtures/sensor-v3-reference.json': '{"fixture":"sensor-v3"}\n',
   'package-lock.json': '{"lockfileVersion":3}\n',
   'package.json': '{"name":"fixture"}\n',
   'src/lib.rs': 'pub fn alpha() -> u32 { 1 }\n',
@@ -82,14 +87,19 @@ describe(SUITE, () => {
     const identity = computeNativeSourceIdentity(fixture);
 
     expect(identity.sha256).toBe(
-      '75080225674ab71ef480b89175c9e9d4ac6cd8d98afbdc6a1e86ea30bdf17cd8'
+      '9f101f2933fe20f8979c9d204f0ab111ca3523f36c39324ccc29b6c5a8f107c9'
     );
-    expect(identity.fileCount).toBe(8);
+    expect(identity.fileCount).toBe(13);
     expect(identity.manifest.map(entry => entry.relativePath)).toEqual([
       '.cargo/config.toml',
       'Cargo.lock',
       'Cargo.toml',
       'build.rs',
+      'fixtures/evolution-reference.json',
+      'fixtures/frame-v1-reference.json',
+      'fixtures/fresh-run-reference.json',
+      'fixtures/genome-init-reference.json',
+      'fixtures/sensor-v3-reference.json',
       'package-lock.json',
       'package.json',
       'src/lib.rs',

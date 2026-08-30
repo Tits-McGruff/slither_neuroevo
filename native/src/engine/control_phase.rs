@@ -364,6 +364,12 @@ impl PreparedExternalObservation {
         self.kind
     }
 
+    /// Start and length in the retained packed observation buffer.
+    #[must_use]
+    pub(crate) const fn observation_range(self) -> (usize, usize) {
+        (self.observation_start, self.observation_len)
+    }
+
     /// Source snake array index.
     #[must_use]
     pub const fn snake_index(self) -> usize {
@@ -436,6 +442,8 @@ pub struct ControlPhaseDiagnostics {
     pub controller_transition_capacity: usize,
     /// Retained baseline-result record count.
     pub baseline_result_records: usize,
+    /// Retained absent-Gaussian-spare buffers for baseline results.
+    pub baseline_rng_spare_capacity: usize,
     /// External-event metadata capacity.
     pub external_event_capacity: usize,
     /// Packed external-observation Float32 capacity.
@@ -1172,6 +1180,29 @@ impl ControlCommitWorkspace {
         }
     }
 
+    /// Borrow the exact external metadata and packed observations retained for
+    /// a complete keyed bridge-delivery decision.
+    pub(crate) fn external_delivery_buffers(
+        &self,
+        key: PhysicsStepKey,
+    ) -> Result<(&[PreparedExternalObservation], &[f32]), ControlPhaseError> {
+        if !self.ready || self.key != Some(key) {
+            return Err(ControlPhaseError::CommitShapeMismatch {
+                field: "external delivery key",
+            });
+        }
+        Ok((&self.external_events, &self.external_observations))
+    }
+
+    /// Borrow retained external buffers after their keyed shape was prevalidated.
+    pub(crate) fn external_delivery_buffers_prevalidated(
+        &self,
+        key: PhysicsStepKey,
+    ) -> (&[PreparedExternalObservation], &[f32]) {
+        self.external_delivery_buffers(key)
+            .expect("prevalidated external-delivery buffers must remain ready")
+    }
+
     /// Borrow the exact recurrent-state buffer staged for one authority publication.
     pub(crate) fn publication_brains(
         &mut self,
@@ -1183,6 +1214,15 @@ impl ControlCommitWorkspace {
             });
         }
         Ok(&mut self.brains)
+    }
+
+    /// Borrow recurrent publication storage after its exact key was prevalidated.
+    pub(crate) fn publication_brains_prevalidated(
+        &mut self,
+        key: PhysicsStepKey,
+    ) -> &mut Vec<BrainRuntimeState> {
+        self.publication_brains(key)
+            .expect("prevalidated recurrent-state buffers must remain ready")
     }
 
     /// Invalidate the last view after any authority-publication attempt.
@@ -1205,6 +1245,7 @@ pub struct ControlPhaseWorkspace {
     controls: Vec<PreparedControlUpdate>,
     controller_transitions: Vec<PreparedControllerTransition>,
     baseline_controls: Vec<PreparedBaselineControl>,
+    baseline_rng_gaussian_spares: Vec<String>,
     baseline_control_count: usize,
     external_events: Vec<PreparedExternalObservation>,
     neural_candidates: Vec<CalculationCandidateIndex>,
@@ -1231,6 +1272,7 @@ impl ControlPhaseWorkspace {
             controls: Vec::new(),
             controller_transitions: Vec::new(),
             baseline_controls: Vec::new(),
+            baseline_rng_gaussian_spares: Vec::new(),
             baseline_control_count: 0,
             external_events: Vec::new(),
             neural_candidates: Vec::new(),
@@ -1479,6 +1521,14 @@ impl ControlPhaseWorkspace {
         let next_strategy = evaluation.next_strategy();
         let diagnostics = evaluation.diagnostics();
         let result_index = self.baseline_control_count;
+        reserve_for(
+            &mut self.baseline_rng_gaussian_spares,
+            result_index.saturating_add(1),
+            "baseline RNG spare buffers",
+        )?;
+        while self.baseline_rng_gaussian_spares.len() <= result_index {
+            self.baseline_rng_gaussian_spares.push(String::new());
+        }
         if result_index < self.baseline_controls.len() {
             let result = &mut self.baseline_controls[result_index];
             result.snake_index = snake_index;
@@ -1486,7 +1536,12 @@ impl ControlPhaseWorkspace {
             result.slot = slot;
             result.next_slot = next_slot;
             result.next_strategy = next_strategy;
-            result.next_rng.clone_from(evaluation.next_rng());
+            result.next_rng.slot = evaluation.next_rng().slot;
+            copy_serialized_rng_reusing(
+                &mut result.next_rng.state,
+                &evaluation.next_rng().state,
+                &mut self.baseline_rng_gaussian_spares[result_index],
+            )?;
             result.delivery = sample.delivery;
             result.diagnostics = diagnostics;
             result.sensor_diagnostics = sample.diagnostics;
@@ -1764,6 +1819,7 @@ impl ControlPhaseWorkspace {
             control_capacity: self.controls.capacity(),
             controller_transition_capacity: self.controller_transitions.capacity(),
             baseline_result_records: self.baseline_controls.len(),
+            baseline_rng_spare_capacity: self.baseline_rng_gaussian_spares.capacity(),
             external_event_capacity: self.external_events.capacity(),
             external_observation_capacity: self.external_observations.capacity(),
             neural_candidate_capacity: self.neural_candidates.capacity(),
@@ -1952,7 +2008,7 @@ fn validate_transition_control(
     }
 }
 
-fn copy_brains_reusing(
+pub(crate) fn copy_brains_reusing(
     target: &mut Vec<BrainRuntimeState>,
     source: &[BrainRuntimeState],
     reuse_immutable_weights: bool,
@@ -2327,7 +2383,7 @@ mod tests {
         GraphSpec,
     };
     use crate::engine::inference::GraphExecutionPlan;
-    use crate::engine::physics::{PhysicsConfig, PhysicsError};
+    use crate::engine::physics::PhysicsConfig;
     use crate::engine::rng::StatefulRng;
     use crate::engine::sensors::{SensorConfig, SensorEvaluator};
     use crate::engine::state::{
@@ -2337,6 +2393,7 @@ mod tests {
     };
     use crate::engine::world_step::{
         WorldStepConfig, WorldStepError, WorldStepWorkspace, MAXIMUM_PHYSICS_SUBSTEPS,
+        WORLD_STEP_VERSION,
     };
 
     const DT: f64 = 1.0 / 60.0;
@@ -2780,17 +2837,26 @@ mod tests {
 
     fn world_step_config() -> WorldStepConfig {
         let prefix = prefix_config();
+        let control = control_config();
         let mut physics = PhysicsConfig::typescript_defaults();
         physics.maximum_body_points = prefix.maximum_body_points;
         physics.maximum_pellets = prefix.maximum_pellets;
         physics.maximum_pellet_index_entries = 1_000;
+        let mut external_replacement = WorldStepConfig::typescript_defaults().external_replacement;
+        external_replacement.spawn = prefix.baseline_spawn;
+        external_replacement.snake_base_speed = prefix.baseline_snake_base_speed;
+        external_replacement.controller_timing = control.controller_timing;
+        external_replacement.maximum_snakes = prefix.maximum_snakes;
+        external_replacement.maximum_body_points = prefix.maximum_body_points;
+        external_replacement.maximum_brains = control.maximum_brains;
         WorldStepConfig {
             prefix,
-            control: control_config(),
+            control,
             physics,
             baseline: prefix.baseline,
+            external_replacement,
             physics_substeps: 3,
-            ..WorldStepConfig::typescript_defaults()
+            algorithm_version: WORLD_STEP_VERSION,
         }
     }
 
@@ -3458,7 +3524,7 @@ mod tests {
     }
 
     #[test]
-    fn controlled_death_rejects_the_joined_step_without_touching_any_source() {
+    fn low_level_world_step_requires_replacement_context_for_controlled_death() {
         let plan = graph_plan();
         let mut fixture = fixture(&plan);
         let evolved_position = fixture
@@ -3568,12 +3634,11 @@ mod tests {
         }
         let error = step_workspace
             .prepare(committed, world_step_config())
-            .expect_err("controlled death must wait for atomic replacement staging");
+            .expect_err("low-level caller omitted the replacement graph and wall boundary");
 
         assert!(matches!(
             error,
-            WorldStepError::Physics(error)
-                if matches!(*error, PhysicsError::ControllerReplacementRequired { snake_id: 30 })
+            WorldStepError::ExternalReplacementContextRequired
         ));
         assert!(!step_workspace.is_ready());
         assert_eq!(committed.world(), &committed_world);

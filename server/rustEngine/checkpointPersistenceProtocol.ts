@@ -6,6 +6,9 @@ export const MANAGED_CHECKPOINT_DESCRIPTOR_PROTOCOL_VERSION = 1;
 /** Fixed lowercase hexadecimal representation of an unsigned 64-bit value. */
 export type U64Hex = string;
 
+/** Exact lowercase hexadecimal representation of one IEEE-754 Float64 bit pattern. */
+export type F64Hex = string;
+
 /** Fixed lowercase hexadecimal operation token, independent of the run identity. */
 export type CheckpointOperationId = string;
 
@@ -113,12 +116,72 @@ export interface ManagedCheckpointDescriptor {
   writeValidationPolicy: ManagedCheckpointWriteValidationPolicy;
 }
 
+/**
+ * Complete compact result retained for every finished generation.
+ *
+ * Float64 values use their exact IEEE-754 bits rather than JavaScript numbers so the
+ * persistence boundary cannot round, stringify, or otherwise reinterpret Rust results.
+ */
+export interface ManagedGenerationSummary {
+  /** Generation whose round just completed. */
+  completedGeneration: U64Hex;
+  /** Maximum fitness as exact finite Float64 bits. */
+  bestF64Hex: F64Hex;
+  /** Arithmetic mean fitness as exact finite Float64 bits. */
+  averageF64Hex: F64Hex;
+  /** Minimum fitness as exact finite Float64 bits. */
+  minimumF64Hex: F64Hex;
+  /** Greedy RMS-threshold species count. */
+  speciesCount: U64Hex;
+  /** Largest greedy species bucket. */
+  topSpeciesSize: U64Hex;
+  /** Mean absolute parameter value as exact finite Float64 bits. */
+  averageWeightF64Hex: F64Hex;
+  /** Variance of absolute parameter values as exact finite Float64 bits. */
+  weightVarianceF64Hex: F64Hex;
+}
+
+/**
+ * Run-scoped Hall-of-Fame metadata referencing the elite copy inside the immutable checkpoint.
+ *
+ * No genome weights are duplicated here. `successorPopulationSlot` and `successorGenomeId`
+ * identify the bit-exact elite already stored in the checkpoint selected by the same commit.
+ */
+export interface ManagedHallOfFameReference {
+  /** Completed generation that produced the selected genome. */
+  completedGeneration: U64Hex;
+  /** Stable source population slot before evolution sorting. */
+  sourcePopulationSlot: U64Hex;
+  /** Stable source snake identity used by current Hall-of-Fame metadata. */
+  sourceSnakeId: U64Hex;
+  /** Selected fitness as exact finite Float64 bits. */
+  fitnessF64Hex: F64Hex;
+  /** Selected points score as exact finite Float64 bits. */
+  pointsF64Hex: F64Hex;
+  /** Selected body-point count. */
+  length: U64Hex;
+  /** New-population slot containing the exact elite copy. */
+  successorPopulationSlot: U64Hex;
+  /** Durable lineage identity of that successor elite. */
+  successorGenomeId: U64Hex;
+}
+
+/** Complete small metadata that must commit with one generation checkpoint pointer. */
+export interface ManagedGenerationCommit {
+  /** Compact eight-field chart/history record. */
+  summary: ManagedGenerationSummary;
+  /** Run-scoped reference to the selected elite inside the same checkpoint. */
+  hallOfFame: ManagedHallOfFameReference;
+}
+
 /** Commit request sent from the Node client to its one persistence worker. */
 export interface CommitManagedCheckpointRequest {
   /** Message discriminator. */
   type: 'commitManagedCheckpoint';
   /** Descriptor-only checkpoint publication request. */
   descriptor: ManagedCheckpointDescriptor;
+  /** Exact small generation metadata, otherwise null for run start. */
+  generationCommit: ManagedGenerationCommit | null;
 }
 
 /** Orderly client-owned worker shutdown request. */
@@ -144,6 +207,8 @@ export interface ManagedCheckpointCommittedResponse {
   runId: string;
   /** Exact content-addressed checkpoint identity selected as current. */
   checkpointId: string;
+  /** Complete strictly validated descriptor committed by the worker. */
+  descriptor: ManagedCheckpointDescriptor;
 }
 
 /** Correlated rejection returned without changing an existing current pointer. */
@@ -165,10 +230,21 @@ export type CheckpointPersistenceWorkerResponse =
 const SHA256_HEX = /^[0-9a-f]{64}$/u;
 /** Strict fixed-width unsigned-64-bit hexadecimal pattern. */
 const U64_HEX = /^[0-9a-f]{16}$/u;
+/** Strict exact-width IEEE-754 Float64 hexadecimal pattern. */
+const F64_HEX = /^[0-9a-f]{16}$/u;
 /** Strict fixed-width operation token pattern. */
 const OPERATION_ID_HEX = /^[0-9a-f]{32}$/u;
 /** Fixed digest-derived filename suffix. */
 const CHECKPOINT_FILENAME_SUFFIX = '.checkpoint-v3';
+/** Complete ordered descriptor field set used by strict parsing and equality. */
+const MANAGED_CHECKPOINT_DESCRIPTOR_KEYS = [
+  'protocolVersion', 'operationId', 'transitionEpoch', 'runId', 'generation',
+  'completedStep', 'boundaryKind', 'checkpointFormatVersion', 'stateVersion',
+  'graphLayoutVersion', 'managedRoot', 'relativeFilename', 'logicalRootSha256',
+  'storedByteCount', 'decodedByteCount', 'roleCount', 'populationCount',
+  'weightCount', 'recurrentStateCount', 'weightsEncoding', 'recurrentStateEncoding',
+  'graphLayoutSha256', 'writeValidationPolicy'
+] as const satisfies readonly (keyof ManagedCheckpointDescriptor)[];
 
 /**
  * Raise one descriptor validation failure.
@@ -232,11 +308,28 @@ function asU64Hex(value: unknown, label: string): U64Hex {
 }
 
 /**
+ * Read one exact finite IEEE-754 Float64 bit pattern without converting it to Number.
+ * @param value - Candidate wire value.
+ * @param label - Field label included in rejections.
+ * @returns Validated exact Float64 bits.
+ */
+function asFiniteF64Hex(value: unknown, label: string): F64Hex {
+  if (typeof value !== 'string' || !F64_HEX.test(value)) {
+    reject(`${label} must be a 16-character lowercase IEEE-754 Float64 hex string`);
+  }
+  const bits = BigInt(`0x${value}`);
+  if ((bits & 0x7ff0000000000000n) === 0x7ff0000000000000n) {
+    reject(`${label} must encode a finite Float64 value`);
+  }
+  return value;
+}
+
+/**
  * Read one canonical operation token without treating it as a run ID or number.
  * @param value - Candidate wire value.
  * @returns Validated operation token.
  */
-function asOperationId(value: unknown): CheckpointOperationId {
+export function parseCheckpointOperationId(value: unknown): CheckpointOperationId {
   if (typeof value !== 'string' || !OPERATION_ID_HEX.test(value)) {
     reject('operationId must be a 32-character lowercase hexadecimal token');
   }
@@ -301,14 +394,7 @@ function asSha256(value: unknown, label: string): string {
  */
 export function parseManagedCheckpointDescriptor(value: unknown): ManagedCheckpointDescriptor {
   const descriptor = asRecord(value, 'descriptor');
-  const keys = [
-    'protocolVersion', 'operationId', 'transitionEpoch', 'runId', 'generation', 'completedStep',
-    'boundaryKind', 'checkpointFormatVersion', 'stateVersion', 'graphLayoutVersion', 'managedRoot',
-    'relativeFilename', 'logicalRootSha256', 'storedByteCount', 'decodedByteCount', 'roleCount',
-    'populationCount', 'weightCount', 'recurrentStateCount', 'weightsEncoding',
-    'recurrentStateEncoding', 'graphLayoutSha256', 'writeValidationPolicy'
-  ] as const;
-  requireOnlyKeys(descriptor, keys);
+  requireOnlyKeys(descriptor, MANAGED_CHECKPOINT_DESCRIPTOR_KEYS);
   const raw = descriptor as unknown as ManagedCheckpointDescriptor;
   if (raw.protocolVersion !== MANAGED_CHECKPOINT_DESCRIPTOR_PROTOCOL_VERSION) {
     reject(`unsupported protocol version ${String(raw.protocolVersion)}`);
@@ -335,9 +421,9 @@ export function parseManagedCheckpointDescriptor(value: unknown): ManagedCheckpo
   ) {
     reject('relativeFilename must be the digest-derived checkpoint-v3 basename');
   }
-  return {
+  const parsed: ManagedCheckpointDescriptor = {
     protocolVersion: MANAGED_CHECKPOINT_DESCRIPTOR_PROTOCOL_VERSION,
-    operationId: asOperationId(raw.operationId),
+    operationId: parseCheckpointOperationId(raw.operationId),
     transitionEpoch: asU64Hex(raw.transitionEpoch, 'transitionEpoch'),
     runId: asRunId(raw.runId),
     generation: asU64Hex(raw.generation, 'generation'),
@@ -359,6 +445,161 @@ export function parseManagedCheckpointDescriptor(value: unknown): ManagedCheckpo
     recurrentStateEncoding: raw.recurrentStateEncoding,
     graphLayoutSha256: asSha256(raw.graphLayoutSha256, 'graphLayoutSha256'),
     writeValidationPolicy: 'write-hash-count-fsync-rename-v1'
+  };
+  const generation = BigInt(`0x${parsed.generation}`);
+  const completedStep = BigInt(`0x${parsed.completedStep}`);
+  if (parsed.boundaryKind === 'run-start') {
+    if (generation !== 1n || completedStep !== 0n) {
+      reject('run-start checkpoint must represent generation one at completed step zero');
+    }
+  } else if (completedStep === 0n) {
+    reject('generation checkpoint completedStep must be nonzero');
+  }
+  return parsed;
+}
+
+/**
+ * Compare every bounded descriptor field without numeric or JSON coercion.
+ * @param left - First strictly parsed descriptor.
+ * @param right - Second strictly parsed descriptor.
+ * @returns True only when the complete descriptors are identical.
+ */
+export function managedCheckpointDescriptorsEqual(
+  left: ManagedCheckpointDescriptor,
+  right: ManagedCheckpointDescriptor
+): boolean {
+  return MANAGED_CHECKPOINT_DESCRIPTOR_KEYS.every(key => left[key] === right[key]);
+}
+
+/**
+ * Validate the optional compact history record against its checkpoint boundary.
+ * @param value - Candidate summary, or null for a run-start checkpoint.
+ * @param descriptor - Already validated immutable checkpoint descriptor.
+ * @returns Strict generation summary or null for run start.
+ */
+export function parseManagedGenerationSummary(
+  value: unknown,
+  descriptor: ManagedCheckpointDescriptor
+): ManagedGenerationSummary | null {
+  if (descriptor.boundaryKind === 'run-start') {
+    if (value !== null) reject('run-start checkpoints must not include a generation summary');
+    return null;
+  }
+  const summary = asRecord(value, 'generationSummary');
+  const keys = [
+    'completedGeneration', 'bestF64Hex', 'averageF64Hex', 'minimumF64Hex',
+    'speciesCount', 'topSpeciesSize', 'averageWeightF64Hex', 'weightVarianceF64Hex'
+  ] as const;
+  requireOnlyKeys(summary, keys);
+  const parsed: ManagedGenerationSummary = {
+    completedGeneration: asU64Hex(summary['completedGeneration'], 'completedGeneration'),
+    bestF64Hex: asFiniteF64Hex(summary['bestF64Hex'], 'bestF64Hex'),
+    averageF64Hex: asFiniteF64Hex(summary['averageF64Hex'], 'averageF64Hex'),
+    minimumF64Hex: asFiniteF64Hex(summary['minimumF64Hex'], 'minimumF64Hex'),
+    speciesCount: asU64Hex(summary['speciesCount'], 'speciesCount'),
+    topSpeciesSize: asU64Hex(summary['topSpeciesSize'], 'topSpeciesSize'),
+    averageWeightF64Hex: asFiniteF64Hex(
+      summary['averageWeightF64Hex'],
+      'averageWeightF64Hex'
+    ),
+    weightVarianceF64Hex: asFiniteF64Hex(
+      summary['weightVarianceF64Hex'],
+      'weightVarianceF64Hex'
+    )
+  };
+  const completed = BigInt(`0x${parsed.completedGeneration}`);
+  const successor = BigInt(`0x${descriptor.generation}`);
+  if (completed === 0n || completed === 0xffffffffffffffffn || completed + 1n !== successor) {
+    reject('generation summary must describe exactly the generation preceding its checkpoint');
+  }
+  const populationCount = BigInt(`0x${descriptor.populationCount}`);
+  if (BigInt(`0x${parsed.speciesCount}`) > populationCount) {
+    reject('speciesCount exceeds the checkpoint populationCount');
+  }
+  if (BigInt(`0x${parsed.topSpeciesSize}`) > populationCount) {
+    reject('topSpeciesSize exceeds the checkpoint populationCount');
+  }
+  if (BigInt(`0x${parsed.speciesCount}`) > 0xffff_ffffn ||
+    BigInt(`0x${parsed.topSpeciesSize}`) > 0xffff_ffffn) {
+    reject('species counts exceed the compact history-v1 unsigned-32-bit fields');
+  }
+  return parsed;
+}
+
+/**
+ * Validate the run-scoped Hall-of-Fame reference paired with a compact summary.
+ * @param value - Candidate reference containing no genome payload bytes.
+ * @param descriptor - Same immutable generation checkpoint descriptor.
+ * @param summary - Exact validated summary for the completed generation.
+ * @returns Strict scalar Hall-of-Fame reference.
+ */
+function parseManagedHallOfFameReference(
+  value: unknown,
+  descriptor: ManagedCheckpointDescriptor,
+  summary: ManagedGenerationSummary
+): ManagedHallOfFameReference {
+  const reference = asRecord(value, 'hallOfFame');
+  const keys = [
+    'completedGeneration', 'sourcePopulationSlot', 'sourceSnakeId', 'fitnessF64Hex',
+    'pointsF64Hex', 'length', 'successorPopulationSlot', 'successorGenomeId'
+  ] as const;
+  requireOnlyKeys(reference, keys);
+  const parsed: ManagedHallOfFameReference = {
+    completedGeneration: asU64Hex(reference['completedGeneration'], 'hallOfFame.completedGeneration'),
+    sourcePopulationSlot: asU64Hex(reference['sourcePopulationSlot'], 'sourcePopulationSlot'),
+    sourceSnakeId: asU64Hex(reference['sourceSnakeId'], 'sourceSnakeId'),
+    fitnessF64Hex: asFiniteF64Hex(reference['fitnessF64Hex'], 'fitnessF64Hex'),
+    pointsF64Hex: asFiniteF64Hex(reference['pointsF64Hex'], 'pointsF64Hex'),
+    length: asU64Hex(reference['length'], 'hallOfFame.length'),
+    successorPopulationSlot: asU64Hex(
+      reference['successorPopulationSlot'],
+      'successorPopulationSlot'
+    ),
+    successorGenomeId: asU64Hex(reference['successorGenomeId'], 'successorGenomeId')
+  };
+  if (parsed.completedGeneration !== summary.completedGeneration) {
+    reject('Hall-of-Fame generation does not match compact history');
+  }
+  if (parsed.fitnessF64Hex !== summary.bestF64Hex) {
+    reject('Hall-of-Fame fitness does not match compact-history best fitness');
+  }
+  const populationCount = BigInt(`0x${descriptor.populationCount}`);
+  const sourceSlot = BigInt(`0x${parsed.sourcePopulationSlot}`);
+  const successorSlot = BigInt(`0x${parsed.successorPopulationSlot}`);
+  if (sourceSlot >= populationCount || successorSlot >= populationCount) {
+    reject('Hall-of-Fame population slot is outside the checkpoint population');
+  }
+  if (sourceSlot > 0xffff_ffffn || successorSlot > 0xffff_ffffn) {
+    reject('Hall-of-Fame population slot exceeds its unsigned-32-bit record field');
+  }
+  if (BigInt(`0x${parsed.sourceSnakeId}`) === 0n ||
+    BigInt(`0x${parsed.successorGenomeId}`) === 0n) {
+    reject('Hall-of-Fame snake and successor genome identities must be nonzero');
+  }
+  return parsed;
+}
+
+/**
+ * Validate all small metadata that must commit atomically with one checkpoint pointer.
+ * @param value - Candidate generation commit, or null for run start.
+ * @param descriptor - Already validated immutable checkpoint descriptor.
+ * @returns Complete strict generation commit or null.
+ */
+export function parseManagedGenerationCommit(
+  value: unknown,
+  descriptor: ManagedCheckpointDescriptor
+): ManagedGenerationCommit | null {
+  if (descriptor.boundaryKind === 'run-start') {
+    if (value !== null) reject('run-start checkpoints must not include generation metadata');
+    return null;
+  }
+  const commit = asRecord(value, 'generationCommit');
+  requireOnlyKeys(commit, ['summary', 'hallOfFame']);
+  const summary = parseManagedGenerationSummary(commit['summary'], descriptor);
+  if (summary === null) reject('generation checkpoint is missing compact history');
+  return {
+    summary,
+    hallOfFame: parseManagedHallOfFameReference(commit['hallOfFame'], descriptor, summary)
   };
 }
 

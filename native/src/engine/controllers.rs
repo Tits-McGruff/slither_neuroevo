@@ -384,12 +384,42 @@ pub fn commit_disconnect(
     snake: &mut SnakeState,
     proposal: DisconnectProposal,
 ) -> Result<(), ControllerError> {
+    validate_disconnect_proposal(lease, snake, proposal)?;
+    commit_disconnect_prevalidated(lease, snake, proposal);
+    Ok(())
+}
+
+/// Validate one retained disconnect proposal without changing its lease or snake.
+///
+/// The complete-step coordinator uses this before exposing an external
+/// observation to Node. Once validated under the same exclusive staged-world
+/// borrow, [`commit_disconnect_prevalidated`] is an infallible choice between
+/// the already-checked delivered and failed-send outcomes.
+pub(super) fn validate_disconnect_proposal(
+    lease: &ControllerLease,
+    snake: &SnakeState,
+    proposal: DisconnectProposal,
+) -> Result<(), ControllerError> {
     validate_pair(lease, snake)?;
     if !proposal.expected.matches(lease) || !proposal.expected_snake.matches(snake) {
         return Err(ControllerError::StaleProposal {
             lease_id: proposal.expected.lease_id,
         });
     }
+    Ok(())
+}
+
+/// Apply one disconnect whose exact lease and snake snapshots were prevalidated.
+///
+/// This function deliberately returns no `Result`: it is used only while the
+/// coordinator still owns the unchanged staged world that was checked before
+/// an external event became visible.
+pub(super) fn commit_disconnect_prevalidated(
+    lease: &mut ControllerLease,
+    snake: &mut SnakeState,
+    proposal: DisconnectProposal,
+) {
+    debug_assert!(validate_disconnect_proposal(lease, snake, proposal).is_ok());
     lease.connection_id = None;
     lease.status = proposal.next_status;
     lease.disconnected_at_ms = Some(proposal.disconnected_at_ms);
@@ -398,7 +428,6 @@ pub fn commit_disconnect(
     lease.takeover_committed_at_ms = None;
     lease.last_observed_at_ms = proposal.disconnected_at_ms;
     apply_external_source(snake, proposal.source);
-    Ok(())
 }
 
 /// Prepare the exclusive source decision for one fixed-step boundary.

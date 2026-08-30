@@ -167,6 +167,60 @@ pub struct GraphSpec {
     pub output_size: usize,
 }
 
+/// Construct the current TypeScript default 83-input MLP-GRU-Dense graph.
+///
+/// This is the one fixed graph admitted by the first Stage 6A P0 fresh-run
+/// profile. It is an explicit compatibility profile, not a fallback for an
+/// omitted or rejected custom graph.
+pub(crate) fn typescript_default_graph_spec() -> GraphSpec {
+    let edge = |from: &str, to: &str| GraphEdge {
+        from: from.to_owned(),
+        to: to.to_owned(),
+        from_port: None,
+        to_port: None,
+    };
+    GraphSpec {
+        nodes: vec![
+            GraphNodeSpec {
+                id: "input".to_owned(),
+                kind: GraphNodeKind::Input { output_size: 83 },
+            },
+            GraphNodeSpec {
+                id: "mlp".to_owned(),
+                kind: GraphNodeKind::Mlp {
+                    input_size: 83,
+                    hidden_sizes: vec![64],
+                    output_size: 64,
+                },
+            },
+            GraphNodeSpec {
+                id: "gru".to_owned(),
+                kind: GraphNodeKind::Gru {
+                    input_size: 64,
+                    hidden_size: 16,
+                },
+            },
+            GraphNodeSpec {
+                id: "head".to_owned(),
+                kind: GraphNodeKind::Dense {
+                    input_size: 16,
+                    output_size: 2,
+                },
+            },
+        ],
+        edges: vec![
+            edge("input", "mlp"),
+            edge("mlp", "gru"),
+            edge("gru", "head"),
+        ],
+        outputs: vec![GraphOutputRef {
+            node_id: "head".to_owned(),
+            port: None,
+        }],
+        output_size: 2,
+    }
+}
+
 /// A source and port resolved for a compiled node input.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompiledInputRef {
@@ -1495,43 +1549,7 @@ mod tests {
 
     /// Construct the owner-derived default MLP-GRU-Dense fixture.
     fn default_graph() -> GraphSpec {
-        GraphSpec {
-            nodes: vec![
-                GraphNodeSpec {
-                    id: "input".into(),
-                    kind: GraphNodeKind::Input { output_size: 83 },
-                },
-                GraphNodeSpec {
-                    id: "mlp".into(),
-                    kind: GraphNodeKind::Mlp {
-                        input_size: 83,
-                        hidden_sizes: vec![64],
-                        output_size: 64,
-                    },
-                },
-                GraphNodeSpec {
-                    id: "gru".into(),
-                    kind: GraphNodeKind::Gru {
-                        input_size: 64,
-                        hidden_size: 16,
-                    },
-                },
-                GraphNodeSpec {
-                    id: "head".into(),
-                    kind: GraphNodeKind::Dense {
-                        input_size: 16,
-                        output_size: 2,
-                    },
-                },
-            ],
-            edges: vec![
-                edge("input", "mlp"),
-                edge("mlp", "gru"),
-                edge("gru", "head"),
-            ],
-            outputs: vec![output("head")],
-            output_size: 2,
-        }
+        typescript_default_graph_spec()
     }
 
     #[test]

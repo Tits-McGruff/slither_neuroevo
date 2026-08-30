@@ -311,6 +311,21 @@ impl StatefulRng {
 
     /// Export into reusable serialized storage without replacing its strings.
     pub fn export_state_into(&self, output: &mut SerializedRngState) {
+        let mut discarded_gaussian_spare = String::new();
+        self.export_state_into_reusing(output, &mut discarded_gaussian_spare);
+    }
+
+    /// Export while retaining storage for a logically absent Gaussian spare.
+    ///
+    /// Authoritative hot paths use this form because Box-Muller alternates
+    /// between cached and uncached states. Moving the spare string into a
+    /// retained slot avoids freeing and reallocating the same fixed-size text
+    /// whenever that logical option changes.
+    pub(crate) fn export_state_into_reusing(
+        &self,
+        output: &mut SerializedRngState,
+        retained_gaussian_spare: &mut String,
+    ) {
         replace_text(&mut output.algorithm, RNG_ALGORITHM);
         output.version = RNG_VERSION;
         output.state_hex.clear();
@@ -321,12 +336,25 @@ impl StatefulRng {
         output.gaussian_spare_valid = self.gaussian_spare.is_some();
         match self.gaussian_spare {
             Some(value) => {
-                let encoded = output.gaussian_spare_hex.get_or_insert_with(String::new);
+                if output.gaussian_spare_hex.is_none() {
+                    output.gaussian_spare_hex = Some(std::mem::take(retained_gaussian_spare));
+                }
+                let encoded = output
+                    .gaussian_spare_hex
+                    .as_mut()
+                    .expect("Gaussian spare storage was just installed");
                 encoded.clear();
                 write!(encoded, "0x{:016x}", value.to_bits())
                     .expect("writing Float64 bits into String cannot fail");
             }
-            None => output.gaussian_spare_hex = None,
+            None => {
+                if let Some(mut spare) = output.gaussian_spare_hex.take() {
+                    spare.clear();
+                    if spare.capacity() > retained_gaussian_spare.capacity() {
+                        *retained_gaussian_spare = spare;
+                    }
+                }
+            }
         }
     }
 
@@ -477,6 +505,40 @@ mod tests {
                 capacities
             );
         }
+    }
+
+    #[test]
+    fn reusable_export_retains_gaussian_spare_storage_across_logical_absence() {
+        let mut rng = StatefulRng::new(7.0);
+        let mut output = rng.export_state();
+        let mut retained_spare = String::new();
+
+        rng.gaussian();
+        rng.export_state_into_reusing(&mut output, &mut retained_spare);
+        assert_eq!(output, rng.export_state());
+        let cached_capacity = output
+            .gaussian_spare_hex
+            .as_ref()
+            .expect("first Gaussian leaves a cached sample")
+            .capacity();
+
+        rng.gaussian();
+        rng.export_state_into_reusing(&mut output, &mut retained_spare);
+        assert_eq!(output, rng.export_state());
+        assert!(output.gaussian_spare_hex.is_none());
+        assert!(retained_spare.capacity() >= cached_capacity);
+
+        rng.gaussian();
+        rng.export_state_into_reusing(&mut output, &mut retained_spare);
+        assert_eq!(output, rng.export_state());
+        assert!(
+            output
+                .gaussian_spare_hex
+                .as_ref()
+                .expect("next Gaussian restores a cached sample")
+                .capacity()
+                >= cached_capacity
+        );
     }
 
     /// JavaScript seed normalization retains its floor, wrap, and non-finite rules.

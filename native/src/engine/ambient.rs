@@ -256,6 +256,41 @@ impl<'ambient, 'source> PreparedAmbient<'ambient, 'source> {
     }
 }
 
+/// Complete initial ambient fill prepared at an exact pre-spawn boundary.
+#[derive(Clone, Copy, Debug)]
+pub struct PreparedInitialAmbient<'ambient> {
+    generated: &'ambient [PelletState],
+    next_rng: &'ambient SerializedRngState,
+    next_allocators: &'ambient AllocatorState,
+    diagnostics: AmbientDiagnostics,
+}
+
+impl<'ambient> PreparedInitialAmbient<'ambient> {
+    /// Initial ambient pellets in exact allocation/draw order.
+    #[must_use]
+    pub const fn generated(self) -> &'ambient [PelletState] {
+        self.generated
+    }
+
+    /// World-RNG continuation after the complete initial fill.
+    #[must_use]
+    pub const fn next_rng(self) -> &'ambient SerializedRngState {
+        self.next_rng
+    }
+
+    /// Allocator continuation after reserving every initial pellet identity.
+    #[must_use]
+    pub const fn next_allocators(self) -> &'ambient AllocatorState {
+        self.next_allocators
+    }
+
+    /// Current work and retained-capacity diagnostics.
+    #[must_use]
+    pub const fn diagnostics(self) -> AmbientDiagnostics {
+        self.diagnostics
+    }
+}
+
 /// Reusable, non-authoritative ambient generation scratch.
 #[derive(Debug, Default)]
 pub struct AmbientWorkspace {
@@ -347,6 +382,103 @@ impl AmbientWorkspace {
                 maximum: maximum_pellets,
             });
         }
+        self.stage_generated(
+            source_world_rng,
+            source_allocators,
+            generated,
+            generation_time_after_advance,
+            config,
+        )?;
+        self.next_accumulator = next_accumulator;
+        self.source_pellets = source_world.pellets.len();
+        self.ready = true;
+        self.prepared(
+            key,
+            source_world,
+            source_world_rng,
+            source_allocators,
+            source_accumulator,
+            generation_time_after_advance,
+            fixed_dt,
+            config,
+            maximum_pellets,
+        )
+    }
+
+    /// Fill an exact pre-spawn boundary to the configured ambient target.
+    ///
+    /// This is the construction counterpart to [`Self::prepare`]. It starts at
+    /// generation time zero with no accumulated spawn credit and therefore
+    /// creates exactly `target_count` pellets without inventing a fake fixed
+    /// delta or accumulator. The world RNG continues after prior evolved-snake
+    /// placement, matching the current TypeScript construction order.
+    pub fn prepare_initial_fill<'ambient>(
+        &'ambient mut self,
+        source_world_rng: &SerializedRngState,
+        source_allocators: &AllocatorState,
+        config: AmbientPelletConfig,
+        maximum_pellets: usize,
+    ) -> Result<PreparedInitialAmbient<'ambient>, AmbientError> {
+        self.clear();
+        config.validate(maximum_pellets)?;
+        self.stage_generated(
+            source_world_rng,
+            source_allocators,
+            config.target_count,
+            0.0,
+            config,
+        )?;
+        self.next_accumulator = 0.0;
+        self.source_pellets = 0;
+        self.ready = true;
+        Ok(PreparedInitialAmbient {
+            generated: &self.generated,
+            next_rng: self.next_rng.as_ref().ok_or(AmbientError::ShapeMismatch)?,
+            next_allocators: self
+                .next_allocators
+                .as_ref()
+                .ok_or(AmbientError::ShapeMismatch)?,
+            diagnostics: self.diagnostics(),
+        })
+    }
+
+    /// Whether the latest preparation produced a complete proposal.
+    #[must_use]
+    pub const fn is_ready(&self) -> bool {
+        self.ready
+    }
+
+    /// Current sizes and retained allocation, including after rejection.
+    #[must_use]
+    pub fn diagnostics(&self) -> AmbientDiagnostics {
+        AmbientDiagnostics {
+            generated: self.generated.len(),
+            source_pellets: self.source_pellets,
+            candidate_attempts: self.candidate_attempts,
+            generated_capacity: self.generated.capacity(),
+            rng_text_capacity: self.next_rng.as_ref().map_or(
+                self.next_rng_gaussian_spare.capacity(),
+                |state| {
+                    serialized_rng_text_capacity(state)
+                        .saturating_add(self.next_rng_gaussian_spare.capacity())
+                },
+            ),
+        }
+    }
+
+    fn stage_generated(
+        &mut self,
+        source_world_rng: &SerializedRngState,
+        source_allocators: &AllocatorState,
+        generated: usize,
+        generation_time: f64,
+        config: AmbientPelletConfig,
+    ) -> Result<(), AmbientError> {
+        if !generation_time.is_finite() || generation_time < 0.0 {
+            return Err(AmbientError::InvalidBoundary {
+                field: "generation_time",
+            });
+        }
         reserve_for(&mut self.generated, generated, "ambient pellets")?;
 
         let mut next_allocators = source_allocators.clone();
@@ -367,8 +499,7 @@ impl AmbientWorkspace {
             let mut next_id = reservation.first;
             let mut rng = StatefulRng::from_state(source_world_rng).map_err(AmbientError::Rng)?;
             for _ in 0..generated {
-                let (position, attempts) =
-                    generate_position(&mut rng, generation_time_after_advance, config)?;
+                let (position, attempts) = generate_position(&mut rng, generation_time, config)?;
                 self.candidate_attempts = self.candidate_attempts.checked_add(attempts).ok_or(
                     AmbientError::ArithmeticOverflow {
                         context: "ambient candidate attempts",
@@ -398,50 +529,16 @@ impl AmbientWorkspace {
             if next_id != expected_next {
                 return Err(AmbientError::ShapeMismatch);
             }
-            rng.export_state_into(self.next_rng.as_mut().ok_or(AmbientError::ShapeMismatch)?);
+            rng.export_state_into_reusing(
+                self.next_rng.as_mut().ok_or(AmbientError::ShapeMismatch)?,
+                &mut self.next_rng_gaussian_spare,
+            );
         }
         match &mut self.next_allocators {
             Some(current) => current.clone_from(&next_allocators),
             None => self.next_allocators = Some(next_allocators),
         }
-        self.next_accumulator = next_accumulator;
-        self.source_pellets = source_world.pellets.len();
-        self.ready = true;
-        self.prepared(
-            key,
-            source_world,
-            source_world_rng,
-            source_allocators,
-            source_accumulator,
-            generation_time_after_advance,
-            fixed_dt,
-            config,
-            maximum_pellets,
-        )
-    }
-
-    /// Whether the latest preparation produced a complete proposal.
-    #[must_use]
-    pub const fn is_ready(&self) -> bool {
-        self.ready
-    }
-
-    /// Current sizes and retained allocation, including after rejection.
-    #[must_use]
-    pub fn diagnostics(&self) -> AmbientDiagnostics {
-        AmbientDiagnostics {
-            generated: self.generated.len(),
-            source_pellets: self.source_pellets,
-            candidate_attempts: self.candidate_attempts,
-            generated_capacity: self.generated.capacity(),
-            rng_text_capacity: self.next_rng.as_ref().map_or(
-                self.next_rng_gaussian_spare.capacity(),
-                |state| {
-                    serialized_rng_text_capacity(state)
-                        .saturating_add(self.next_rng_gaussian_spare.capacity())
-                },
-            ),
-        }
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -937,6 +1034,46 @@ mod tests {
         assert_eq!(pellet.owner, None);
         assert_eq!(prepared.diagnostics().candidate_attempts, 6);
         assert_eq!(prepared.next_rng().state_hex, "0xa262ccb1");
+    }
+
+    #[test]
+    fn initial_fill_uses_zero_generation_time_and_ignores_live_spawn_rate() {
+        let world = world_with_pellets(0);
+        let rng = StatefulRng::new(0x51_a7_7e as f64).export_state();
+        let source_allocators = allocators();
+        let mut config = AmbientPelletConfig::typescript_defaults();
+        config.target_count = 3;
+        config.spawn_per_second = 0.0;
+
+        let mut initial_workspace = AmbientWorkspace::new();
+        let initial = initial_workspace
+            .prepare_initial_fill(&rng, &source_allocators, config, 3)
+            .expect("generation construction must fill the configured target");
+        let initial_pellets = initial.generated().to_vec();
+        let initial_rng = initial.next_rng().clone();
+        let initial_allocators = initial.next_allocators().clone();
+        let initial_diagnostics = initial.diagnostics();
+
+        let mut comparison_workspace = AmbientWorkspace::new();
+        let comparison = comparison_workspace
+            .prepare(
+                step_key(),
+                &world,
+                &rng,
+                &source_allocators,
+                3.0,
+                0.0,
+                1.0 / 60.0,
+                config,
+                3,
+            )
+            .expect("equivalent zero-time sampler boundary must stage");
+
+        assert_eq!(initial_pellets, comparison.generated());
+        assert_eq!(initial_rng, *comparison.next_rng());
+        assert_eq!(initial_allocators, *comparison.next_allocators());
+        assert_eq!(initial_diagnostics.generated, 3);
+        assert_eq!(initial_diagnostics.source_pellets, 0);
     }
 
     #[test]

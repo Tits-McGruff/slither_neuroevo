@@ -72,6 +72,15 @@ impl InferenceMathBackend {
         }
     }
 
+    /// Resolve one exact persisted/evidence label to its implementation.
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "rust-scalar-v1" => Some(Self::Scalar),
+            "rust-sse2-v1" => Some(Self::Sse2),
+            _ => None,
+        }
+    }
+
     /// Return whether this exact implementation is admitted on the current CPU.
     pub fn is_available(self) -> bool {
         match self {
@@ -1584,6 +1593,11 @@ fn checked_product(
 /// Checked graph and heterogeneous-batch execution failures.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InferenceError {
+    /// A persisted or configured backend label is unknown to this engine.
+    UnknownMathBackend {
+        /// Supplied versioned backend label.
+        backend: String,
+    },
     /// An explicitly requested numeric backend is unavailable on this CPU.
     UnavailableMathBackend {
         /// Stable requested backend label.
@@ -1713,6 +1727,9 @@ pub enum InferenceError {
 impl fmt::Display for InferenceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnknownMathBackend { backend } => {
+                write!(formatter, "inference math backend {backend} is unknown")
+            }
             Self::UnavailableMathBackend { backend } => {
                 write!(formatter, "inference math backend {backend} is unavailable")
             }

@@ -8,16 +8,22 @@
 
 use super::baseline::{BaselineLifecycleState, BaselineSlotRuntime};
 use super::contract::ENGINE_CONTRACT_VERSION;
+use super::external_replacement::{
+    ExternalReplacementAuthorityProof, UnavailableControllerReason,
+    UnavailableControllerReservation,
+};
 use super::graph::{
     CompiledGraph, CompiledNode, GraphBundle, GraphEdge, GraphNodeKind, GraphNodeSpec,
     GraphOutputRef, GraphSpec,
 };
 use super::physics::{PhysicsStepKey, PhysicsStepKeyField};
 use super::rng::{RngError, SerializedRngState, StatefulRng};
+use super::run_start::RunStartPersistenceProof;
+use super::running_step::{ResolvedGenerationStartReplacement, ResolvedRunningStepReplacement};
 use super::sensors::SensorGenerationState;
 use super::step_config::{
-    project_running_step_config, RunningStepConfigProjection, RunningStepWorkLimits,
-    StepConfigError,
+    project_evolution_config, project_running_step_config, RunningStepConfigProjection,
+    RunningStepWorkLimits, StepConfigError,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -833,7 +839,7 @@ pub struct StateMemoryEstimate {
 /// coordinator must still derive every buffer through the keyed phase chain and
 /// resolve terminal-generation, controller-delivery and replacement policy
 /// before calling the publication method.
-pub struct RunningStepReplacement<'buffers> {
+pub(crate) struct RunningStepReplacement<'buffers> {
     /// Complete keyed attempt derived from the current authority.
     pub key: PhysicsStepKey,
     /// Post-physics world, including controller leases.
@@ -854,6 +860,98 @@ pub struct RunningStepReplacement<'buffers> {
     pub generation_elapsed_seconds: f64,
     /// Scheduler debt retained after this committed step.
     pub wall_accumulator_seconds: f64,
+    /// Private coordinator proof for the only permitted entity-identity changes.
+    pub mutation: RunningStepMutationContract<'buffers>,
+}
+
+/// Complete next-generation running buffers before the old authority is
+/// replaced.
+pub(crate) struct GenerationStartReplacement<'buffers> {
+    /// Terminal fixed-step attempt that produced the durable boundary.
+    pub key: PhysicsStepKey,
+    /// Collision-safe evolved, baseline, and external world.
+    pub world: &'buffers mut WorldState,
+    /// RNG continuation after generation construction and external genomes.
+    pub rng: &'buffers mut RngStateBundle,
+    /// Exact allocator continuation after every new entity and lease.
+    pub allocators: &'buffers mut AllocatorState,
+    /// Successor population brains plus admitted external brains.
+    pub brains: &'buffers mut Vec<BrainRuntimeState>,
+    /// Initialized generation-scoped baseline, ambient, and sensor state.
+    pub fixed_step: &'buffers mut FixedStepContinuationState,
+    /// Scheduler debt remaining after the terminal fixed step, excluding the
+    /// persistence wait itself.
+    pub wall_accumulator_seconds: f64,
+    /// Opaque proof that the controller transaction produced these buffers.
+    pub proof: &'buffers ExternalReplacementAuthorityProof,
+}
+
+/// Complete collision-safe buffers used to activate a durable fresh run-start boundary.
+///
+/// This carries no population or graph input: those remain inside the admitted
+/// boundary. The source address is retained by the generation-start workspace
+/// so a proposal prepared from another boundary cannot be published here.
+pub(crate) struct InitialRunStartReplacement<'buffers> {
+    /// Exact admitted boundary object borrowed during preparation.
+    pub source_address: usize,
+    /// Collision-safe evolved and baseline world with no external leases.
+    pub world: &'buffers mut WorldState,
+    /// RNG continuation after initial snakes and pellets.
+    pub rng: &'buffers mut RngStateBundle,
+    /// Allocator continuation after initial entities, frames, and pellets.
+    pub allocators: &'buffers mut AllocatorState,
+    /// Initialized generation-scoped continuation.
+    pub fixed_step: &'buffers mut FixedStepContinuationState,
+    /// Opaque proof available only after the exact durable descriptor acknowledgement.
+    pub persistence_proof: &'buffers RunStartPersistenceProof,
+}
+
+/// Exact identity-changing work performed by the private complete-step coordinator.
+///
+/// A normal fixed step carries zeroes and therefore retains the strict historic
+/// RNG, allocator, brain-identity, and weight contract. Controlled-death
+/// replacement is the only current path that may advance the isolated external
+/// RNG and its dedicated identity domains during a nonterminal step.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct RunningStepMutationContract<'proof> {
+    proof: Option<&'proof ExternalReplacementAuthorityProof>,
+}
+
+impl<'proof> RunningStepMutationContract<'proof> {
+    pub(crate) const fn external(proof: &'proof ExternalReplacementAuthorityProof) -> Self {
+        Self { proof: Some(proof) }
+    }
+
+    pub(crate) const fn external_replacements(self) -> usize {
+        match self.proof {
+            Some(proof) => proof.replacements(),
+            None => 0,
+        }
+    }
+
+    pub(crate) const fn removed_dead_external_leases(self) -> usize {
+        match self.proof {
+            Some(proof) => proof.removed_dead_leases(),
+            None => 0,
+        }
+    }
+
+    fn proof_identity(self) -> usize {
+        self.proof
+            .map_or(0, |proof| std::ptr::from_ref(proof).addr())
+    }
+
+    fn matches(self, replacement: &RunningStepReplacement<'_>) -> bool {
+        self.proof.is_none_or(|proof| {
+            proof.matches(
+                replacement.key,
+                replacement.world,
+                replacement.rng,
+                replacement.allocators,
+                replacement.brains,
+            )
+        })
+    }
 }
 
 /// Result of one successful atomic running-step publication.
@@ -867,6 +965,123 @@ pub struct RunningStepPublication {
     pub memory: StateMemoryEstimate,
 }
 
+/// Result of activating one durable generation-one run-start boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RunStartPublication {
+    /// Process-local world incarnation retained from the staged boundary.
+    pub world_epoch: u64,
+    /// First running generation.
+    pub generation: u64,
+    /// Run-start completed-step identity, always zero.
+    pub completed_step: u64,
+    /// First population/brain epoch.
+    pub population_epoch: u64,
+    /// Recomputed admitted memory estimate for the running authority.
+    pub memory: StateMemoryEstimate,
+}
+
+/// Result of one successful durable-boundary-to-running authority swap.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GenerationStartPublication {
+    /// Terminal fixed-step key belonging to the replaced authority.
+    pub source_key: PhysicsStepKey,
+    /// New process-local world incarnation.
+    pub world_epoch: u64,
+    /// First running generation after the completed round.
+    pub generation: u64,
+    /// Completed-step identity including the terminal step.
+    pub completed_step: u64,
+    /// New population/brain epoch.
+    pub population_epoch: u64,
+    /// Recomputed admitted memory estimate for the running successor.
+    pub memory: StateMemoryEstimate,
+    /// Connected controllers that received a fresh assignment.
+    pub external_assignments: usize,
+    /// Disconnected or already-taken-over old-token outcomes that the thin
+    /// lifecycle bridge must retain after the old world is gone.
+    pub unavailable_controller_reservations: Vec<UnavailableControllerReservation>,
+}
+
+/// Process-local proof that one exact set of running-step buffers passed full
+/// state validation while authority was exclusively borrowed, then was restored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RunningStepPreflight {
+    key: PhysicsStepKey,
+    completed_step: u64,
+    memory: StateMemoryEstimate,
+    buffers: RunningStepBufferIdentity,
+    external_replacements: usize,
+    removed_dead_external_leases: usize,
+}
+
+/// Process-local proof that one exact successor buffer set passed complete
+/// running-state validation and was restored before assignments were exposed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GenerationStartPreflight {
+    source_key: PhysicsStepKey,
+    memory: StateMemoryEstimate,
+    buffers: GenerationStartBufferIdentity,
+    external_replacements: usize,
+    removed_source_leases: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RunningStepBufferIdentity {
+    world: usize,
+    rng: usize,
+    allocators: usize,
+    brains: usize,
+    baseline_lifecycle: usize,
+    ambient_pellet_accumulator: u64,
+    sensor_generation_best: u64,
+    generation_elapsed_seconds: u64,
+    wall_accumulator_seconds: u64,
+    mutation_proof: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GenerationStartBufferIdentity {
+    world: usize,
+    rng: usize,
+    allocators: usize,
+    brains: usize,
+    fixed_step: usize,
+    wall_accumulator_seconds: u64,
+    proof: usize,
+}
+
+/// Reusable identity/range storage for complete world validation.
+#[derive(Debug, Default)]
+struct WorldValidationScratch {
+    entity_ids: Vec<u64>,
+    snake_ids: Vec<u64>,
+    public_ids: Vec<u32>,
+    evolved_slots: Vec<u32>,
+    world_brains: Vec<BrainHandle>,
+    baseline_slots: Vec<u32>,
+    ranges: Vec<(usize, usize, u64)>,
+    lease_ids: Vec<u64>,
+    lease_snakes: Vec<u64>,
+    resume_token_order: Vec<usize>,
+    connection_ids: Vec<u64>,
+}
+
+impl WorldValidationScratch {
+    fn clear(&mut self) {
+        self.entity_ids.clear();
+        self.snake_ids.clear();
+        self.public_ids.clear();
+        self.evolved_slots.clear();
+        self.world_brains.clear();
+        self.baseline_slots.clear();
+        self.ranges.clear();
+        self.lease_ids.clear();
+        self.lease_snakes.clear();
+        self.resume_token_order.clear();
+        self.connection_ids.clear();
+    }
+}
+
 /// Validated Rust-owned state. Fields stay private so an invalid candidate
 /// cannot be assembled by struct literal and accidentally published.
 #[derive(Debug)]
@@ -877,6 +1092,195 @@ pub struct AuthoritativeState {
     memory_ceiling_bytes: usize,
     world_epoch: u64,
     latest_operation_epoch: u64,
+    world_validation: WorldValidationScratch,
+}
+
+/// Fully admitted next-generation boundary retained beside the still-current world.
+///
+/// Fields stay private so only the generation transaction can use the reduced
+/// checkpoint budget or eventually consume the staged authority. The budget is
+/// the process ceiling remaining after charging the complete current authority.
+#[derive(Debug)]
+pub(crate) struct AdmittedGenerationSuccessor {
+    source_key: PhysicsStepKey,
+    authority: AuthoritativeState,
+    checkpoint_policy: StateAdmissionPolicy,
+    full_memory_ceiling_bytes: usize,
+    combined_state_bytes: usize,
+}
+
+impl AdmittedGenerationSuccessor {
+    /// Exact terminal fixed-step attempt from which this successor was derived.
+    pub(crate) const fn source_key(&self) -> PhysicsStepKey {
+        self.source_key
+    }
+
+    /// Read the fully validated pre-spawn boundary without making it current.
+    pub(crate) const fn authority(&self) -> &AuthoritativeState {
+        &self.authority
+    }
+
+    /// Remaining-budget policy used for managed-checkpoint workspace admission.
+    pub(crate) const fn checkpoint_policy(&self) -> &StateAdmissionPolicy {
+        &self.checkpoint_policy
+    }
+
+    /// Conservative current-plus-successor state bytes retained simultaneously.
+    pub(crate) const fn combined_state_bytes(&self) -> usize {
+        self.combined_state_bytes
+    }
+
+    /// Full process ceiling restored only when a later transaction consumes the old world.
+    pub(crate) const fn full_memory_ceiling_bytes(&self) -> usize {
+        self.full_memory_ceiling_bytes
+    }
+
+    /// Validate a complete running successor, then restore its exact boundary
+    /// before any reliable assignment becomes visible outside Rust.
+    pub(crate) fn preflight_running_start(
+        &mut self,
+        current: &AuthoritativeState,
+        replacement: &mut GenerationStartReplacement<'_>,
+        unavailable_controller_reservations: &[UnavailableControllerReservation],
+    ) -> Result<GenerationStartPreflight, StateError> {
+        current.validate_running_step_key(replacement.key)?;
+        if replacement.key != self.source_key {
+            return invalid(
+                "generation.start.key",
+                "running successor does not match its terminal source",
+            );
+        }
+        if !replacement.proof.matches(
+            replacement.key,
+            replacement.world,
+            replacement.rng,
+            replacement.allocators,
+            replacement.brains,
+        ) {
+            return invalid(
+                "generation.start.external_replacement",
+                "opaque generation controller proof does not match staged buffers",
+            );
+        }
+        let external_replacements = replacement.proof.replacements();
+        let removed_source_leases = replacement.proof.removed_dead_leases();
+        validate_generation_start_replacement_contract(
+            &current.candidate,
+            &self.authority.candidate,
+            replacement,
+            external_replacements,
+            removed_source_leases,
+            unavailable_controller_reservations,
+        )?;
+        let buffers = generation_start_buffer_identity(replacement);
+        let prior_phase = self.authority.candidate.phase;
+        let prior_wall_accumulator = self.authority.candidate.generation.wall_accumulator_seconds;
+        swap_generation_start_buffers(&mut self.authority.candidate, replacement);
+        self.authority.candidate.phase = AuthorityPhase::Running;
+        self.authority.candidate.generation.wall_accumulator_seconds =
+            replacement.wall_accumulator_seconds;
+
+        let validation = catch_unwind(AssertUnwindSafe(|| {
+            let memory = estimate_state_memory(&self.authority.candidate, &self.authority.graph)?;
+            if memory.total_bytes > self.full_memory_ceiling_bytes {
+                return Err(StateError::MemoryCeilingExceeded {
+                    estimated_bytes: memory.total_bytes,
+                    ceiling_bytes: self.full_memory_ceiling_bytes,
+                });
+            }
+            validate_population(&self.authority.candidate, self.authority.graph())?;
+            validate_running_mutable_state(
+                &self.authority.candidate,
+                self.authority.graph.compiled(),
+                &mut self.authority.world_validation,
+            )?;
+            Ok(memory)
+        }));
+
+        self.authority.candidate.phase = prior_phase;
+        self.authority.candidate.generation.wall_accumulator_seconds = prior_wall_accumulator;
+        swap_generation_start_buffers(&mut self.authority.candidate, replacement);
+        match validation {
+            Ok(Ok(memory)) => Ok(GenerationStartPreflight {
+                source_key: replacement.key,
+                memory,
+                buffers,
+                external_replacements,
+                removed_source_leases,
+            }),
+            Ok(Err(error)) => Err(error),
+            Err(payload) => resume_unwind(payload),
+        }
+    }
+
+    /// Atomically replace the old authority with the exact preflighted running
+    /// successor after every reliable assignment has resolved.
+    pub(crate) fn publish_running_start(
+        &mut self,
+        current: &mut AuthoritativeState,
+        preflight: GenerationStartPreflight,
+        resolved: ResolvedGenerationStartReplacement<'_>,
+        unavailable_controller_reservations: Vec<UnavailableControllerReservation>,
+    ) -> Result<GenerationStartPublication, StateError> {
+        let (mut replacement, external_replacements, removed_source_leases) = resolved.into_parts();
+        current.validate_running_step_key(replacement.key)?;
+        if replacement.key != self.source_key
+            || preflight.source_key != replacement.key
+            || preflight.buffers != generation_start_buffer_identity(&replacement)
+            || preflight.external_replacements != external_replacements
+            || preflight.removed_source_leases != removed_source_leases
+        {
+            return invalid(
+                "generation.start.preflight",
+                "resolved buffers, source, or controller counts changed",
+            );
+        }
+        validate_generation_start_replacement_contract(
+            &current.candidate,
+            &self.authority.candidate,
+            &replacement,
+            external_replacements,
+            removed_source_leases,
+            &unavailable_controller_reservations,
+        )?;
+        let prior_phase = self.authority.candidate.phase;
+        let prior_wall_accumulator = self.authority.candidate.generation.wall_accumulator_seconds;
+        swap_generation_start_buffers(&mut self.authority.candidate, &mut replacement);
+        self.authority.candidate.phase = AuthorityPhase::Running;
+        self.authority.candidate.generation.wall_accumulator_seconds =
+            replacement.wall_accumulator_seconds;
+
+        let memory = estimate_state_memory(&self.authority.candidate, &self.authority.graph);
+        let memory_error = match memory {
+            Ok(memory) if memory == preflight.memory => None,
+            Ok(_) => Some(invalid_error(
+                "generation.start.preflight.memory",
+                "resolved assignment changed admitted allocation",
+            )),
+            Err(error) => Some(error),
+        };
+        if let Some(error) = memory_error {
+            self.authority.candidate.phase = prior_phase;
+            self.authority.candidate.generation.wall_accumulator_seconds = prior_wall_accumulator;
+            swap_generation_start_buffers(&mut self.authority.candidate, &mut replacement);
+            return Err(error);
+        }
+
+        self.authority.memory = preflight.memory;
+        self.authority.memory_ceiling_bytes = self.full_memory_ceiling_bytes;
+        let publication = GenerationStartPublication {
+            source_key: replacement.key,
+            world_epoch: self.authority.world_epoch,
+            generation: self.authority.candidate.generation.generation,
+            completed_step: self.authority.candidate.generation.completed_step,
+            population_epoch: self.authority.candidate.generation.population_epoch,
+            memory: preflight.memory,
+            external_assignments: external_replacements,
+            unavailable_controller_reservations,
+        };
+        std::mem::swap(current, &mut self.authority);
+        Ok(publication)
+    }
 }
 
 impl AuthoritativeState {
@@ -895,7 +1299,8 @@ impl AuthoritativeState {
                 ceiling_bytes: policy.memory_ceiling_bytes,
             });
         }
-        validate_candidate(&candidate, graph.compiled(), policy)?;
+        let mut world_validation = WorldValidationScratch::default();
+        validate_candidate(&candidate, graph.compiled(), policy, &mut world_validation)?;
         let world_epoch = allocate_world_epoch()?;
         Ok(Self {
             candidate,
@@ -904,6 +1309,7 @@ impl AuthoritativeState {
             memory_ceiling_bytes: policy.memory_ceiling_bytes,
             world_epoch,
             latest_operation_epoch: 0,
+            world_validation,
         })
     }
 
@@ -955,6 +1361,153 @@ impl AuthoritativeState {
         project_running_step_config(&self.candidate.config, limits)
     }
 
+    /// Project the complete selection-pressure contract from admitted run state.
+    pub fn evolution_config(&self) -> Result<super::evolution::EvolutionConfig, StepConfigError> {
+        project_evolution_config(&self.candidate.config, self.graph().total_parameters)
+    }
+
+    /// Admit one exact next-generation boundary while retaining this authority.
+    ///
+    /// The successor is checked against the active terminal-step key and may use
+    /// only the memory budget left after this complete authority. This deliberately
+    /// charges two full admitted states during the handoff. Later measurements may
+    /// justify a narrower shared-allocation estimate, but no shared graph or scratch
+    /// is silently subtracted here.
+    pub(crate) fn admit_generation_successor(
+        &self,
+        source_key: PhysicsStepKey,
+        candidate: StateCandidate,
+    ) -> Result<AdmittedGenerationSuccessor, StateError> {
+        self.validate_running_step_key(source_key)?;
+        validate_generation_successor_relation(&self.candidate, &candidate)?;
+        let remaining_bytes = self
+            .memory_ceiling_bytes
+            .checked_sub(self.memory.total_bytes)
+            .ok_or(StateError::MemoryCeilingExceeded {
+                estimated_bytes: self.memory.total_bytes,
+                ceiling_bytes: self.memory_ceiling_bytes,
+            })?;
+        let checkpoint_policy = successor_admission_policy(&self.candidate, remaining_bytes);
+        let successor =
+            Self::validate_and_own(candidate, Arc::clone(&self.graph), &checkpoint_policy)?;
+        let combined_state_bytes = self
+            .memory
+            .total_bytes
+            .checked_add(successor.memory.total_bytes)
+            .ok_or(StateError::ArithmeticOverflow {
+                context: "current plus staged generation authority",
+            })?;
+        if combined_state_bytes > self.memory_ceiling_bytes {
+            return Err(StateError::MemoryCeilingExceeded {
+                estimated_bytes: combined_state_bytes,
+                ceiling_bytes: self.memory_ceiling_bytes,
+            });
+        }
+        Ok(AdmittedGenerationSuccessor {
+            source_key,
+            authority: successor,
+            checkpoint_policy,
+            full_memory_ceiling_bytes: self.memory_ceiling_bytes,
+            combined_state_bytes,
+        })
+    }
+
+    /// Atomically activate one exact durable fresh run-start boundary.
+    ///
+    /// The caller can supply only the mutable world/RNG/allocator/continuation
+    /// buffers prepared from this exact boundary. Immutable run identity,
+    /// configuration, graph, population weights, brain ownership, and recurrent
+    /// state never leave this authority. Any validation error or panic restores
+    /// the generation-one boundary and all staged buffers before returning.
+    pub(crate) fn publish_initial_run_start(
+        &mut self,
+        replacement: &mut InitialRunStartReplacement<'_>,
+    ) -> Result<RunStartPublication, StateError> {
+        if self.candidate.phase
+            != AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart)
+        {
+            return invalid(
+                "run_start.phase",
+                "initial activation requires the durable run-start boundary",
+            );
+        }
+        if self.candidate.generation.generation != 1
+            || self.candidate.generation.completed_step != 0
+            || self.candidate.generation.population_epoch != 1
+            || self.candidate.generation.elapsed_seconds.to_bits() != 0.0_f64.to_bits()
+            || self.candidate.generation.wall_accumulator_seconds.to_bits() != 0.0_f64.to_bits()
+        {
+            return invalid(
+                "run_start.generation",
+                "initial activation requires generation one at completed step zero",
+            );
+        }
+        if replacement.source_address != std::ptr::from_ref(&self.candidate).addr() {
+            return invalid(
+                "run_start.source",
+                "initial running buffers were prepared from another boundary",
+            );
+        }
+        if !replacement
+            .persistence_proof
+            .matches(replacement.source_address, self.world_epoch)
+        {
+            return invalid(
+                "run_start.persistence",
+                "initial running buffers lack the exact persistence proof",
+            );
+        }
+        if !replacement.world.controller_leases.is_empty() {
+            return invalid(
+                "run_start.controllers",
+                "fresh run activation cannot carry controller leases",
+            );
+        }
+
+        let prior_phase = self.candidate.phase;
+        swap_initial_run_start_buffers(&mut self.candidate, replacement);
+        self.candidate.phase = AuthorityPhase::Running;
+        let validation = catch_unwind(AssertUnwindSafe(|| {
+            let memory = estimate_state_memory(&self.candidate, &self.graph)?;
+            if memory.total_bytes > self.memory_ceiling_bytes {
+                return Err(StateError::MemoryCeilingExceeded {
+                    estimated_bytes: memory.total_bytes,
+                    ceiling_bytes: self.memory_ceiling_bytes,
+                });
+            }
+            validate_population(&self.candidate, self.graph.compiled())?;
+            validate_running_mutable_state(
+                &self.candidate,
+                self.graph.compiled(),
+                &mut self.world_validation,
+            )?;
+            Ok(memory)
+        }));
+
+        match validation {
+            Ok(Ok(memory)) => {
+                self.memory = memory;
+                Ok(RunStartPublication {
+                    world_epoch: self.world_epoch,
+                    generation: self.candidate.generation.generation,
+                    completed_step: self.candidate.generation.completed_step,
+                    population_epoch: self.candidate.generation.population_epoch,
+                    memory,
+                })
+            }
+            Ok(Err(error)) => {
+                self.candidate.phase = prior_phase;
+                swap_initial_run_start_buffers(&mut self.candidate, replacement);
+                Err(error)
+            }
+            Err(payload) => {
+                self.candidate.phase = prior_phase;
+                swap_initial_run_start_buffers(&mut self.candidate, replacement);
+                resume_unwind(payload)
+            }
+        }
+    }
+
     /// Begin one fresh running-step attempt from the current authority.
     ///
     /// Every call advances the process-local operation epoch, including after
@@ -985,17 +1538,11 @@ impl AuthoritativeState {
     /// caller remains responsible for supplying the one complete keyed phase
     /// result; this method validates state shape and provenance identity, not
     /// gameplay formulas independently of the phase workspaces.
-    pub fn publish_running_step(
+    pub(crate) fn publish_running_step(
         &mut self,
         mut replacement: RunningStepReplacement<'_>,
     ) -> Result<RunningStepPublication, StateError> {
-        if self.latest_operation_epoch == 0 {
-            return invalid("fixed_step.key", "no running-step attempt is active");
-        }
-        let expected_key = self.running_step_key(self.latest_operation_epoch)?;
-        if let Some(field) = replacement.key.first_mismatch(expected_key) {
-            return Err(StateError::StaleFixedStep { field });
-        }
+        self.validate_running_step_key(replacement.key)?;
         let completed_step = replacement
             .key
             .source_completed_step()
@@ -1026,7 +1573,11 @@ impl AuthoritativeState {
                     ceiling_bytes: self.memory_ceiling_bytes,
                 });
             }
-            validate_running_mutable_state(&self.candidate, self.graph.compiled())?;
+            validate_running_mutable_state(
+                &self.candidate,
+                self.graph.compiled(),
+                &mut self.world_validation,
+            )?;
             Ok(memory)
         }));
 
@@ -1062,6 +1613,261 @@ impl AuthoritativeState {
         }
     }
 
+    /// Fully validate one exact replacement and restore both authority and
+    /// scratch before returning a process-local publication proof.
+    ///
+    /// This is used only when a complete physical step must wait for a local
+    /// Node send result. It prevents an observation from being accepted by
+    /// Node before discovering that the staged authority itself is invalid or
+    /// exceeds its memory ceiling.
+    pub(crate) fn preflight_running_step(
+        &mut self,
+        replacement: &mut RunningStepReplacement<'_>,
+    ) -> Result<RunningStepPreflight, StateError> {
+        self.validate_running_step_key(replacement.key)?;
+        let completed_step = replacement
+            .key
+            .source_completed_step()
+            .checked_add(1)
+            .ok_or(StateError::ArithmeticOverflow {
+                context: "preflight fixed-step identity",
+            })?;
+        validate_running_replacement_contract(&self.candidate, replacement)?;
+        let buffers = running_step_buffer_identity(replacement);
+        let prior_completed_step = self.candidate.generation.completed_step;
+        let prior_elapsed_seconds = self.candidate.generation.elapsed_seconds;
+        let prior_wall_accumulator_seconds = self.candidate.generation.wall_accumulator_seconds;
+        let prior_ambient_pellet_accumulator = self.candidate.fixed_step.ambient_pellet_accumulator;
+        let prior_sensor_generation = self.candidate.fixed_step.sensor_generation;
+
+        swap_running_step_buffers(&mut self.candidate, replacement);
+        self.candidate.generation.completed_step = completed_step;
+        self.candidate.generation.elapsed_seconds = replacement.generation_elapsed_seconds;
+        self.candidate.generation.wall_accumulator_seconds = replacement.wall_accumulator_seconds;
+        self.candidate.fixed_step.ambient_pellet_accumulator =
+            replacement.ambient_pellet_accumulator;
+        self.candidate.fixed_step.sensor_generation = replacement.sensor_generation;
+
+        let validation = catch_unwind(AssertUnwindSafe(|| {
+            let memory = estimate_state_memory(&self.candidate, &self.graph)?;
+            if memory.total_bytes > self.memory_ceiling_bytes {
+                return Err(StateError::MemoryCeilingExceeded {
+                    estimated_bytes: memory.total_bytes,
+                    ceiling_bytes: self.memory_ceiling_bytes,
+                });
+            }
+            validate_running_mutable_state(
+                &self.candidate,
+                self.graph.compiled(),
+                &mut self.world_validation,
+            )?;
+            Ok(memory)
+        }));
+
+        self.candidate.generation.completed_step = prior_completed_step;
+        self.candidate.generation.elapsed_seconds = prior_elapsed_seconds;
+        self.candidate.generation.wall_accumulator_seconds = prior_wall_accumulator_seconds;
+        self.candidate.fixed_step.ambient_pellet_accumulator = prior_ambient_pellet_accumulator;
+        self.candidate.fixed_step.sensor_generation = prior_sensor_generation;
+        swap_running_step_buffers(&mut self.candidate, replacement);
+
+        match validation {
+            Ok(Ok(memory)) => Ok(RunningStepPreflight {
+                key: replacement.key,
+                completed_step,
+                memory,
+                buffers,
+                external_replacements: replacement.mutation.external_replacements(),
+                removed_dead_external_leases: replacement.mutation.removed_dead_external_leases(),
+            }),
+            Ok(Err(error)) => Err(error),
+            Err(payload) => resume_unwind(payload),
+        }
+    }
+
+    /// Revalidate an exact preflight token and replacement without publishing.
+    ///
+    /// The coordinator calls this before it accepts any local Node result. The
+    /// retained buffers then remain exclusively owned until the only permitted
+    /// content changes—prevalidated delivery markers or controller
+    /// disconnects—are applied and published.
+    pub(crate) fn validate_preflighted_running_step(
+        &self,
+        preflight: RunningStepPreflight,
+        replacement: &RunningStepReplacement<'_>,
+    ) -> Result<(), StateError> {
+        self.validate_running_step_key(replacement.key)?;
+        if preflight.key != replacement.key
+            || preflight.buffers != running_step_buffer_identity(replacement)
+        {
+            return invalid(
+                "fixed_step.preflight",
+                "replacement buffers or scalar continuation changed",
+            );
+        }
+        let completed_step = replacement
+            .key
+            .source_completed_step()
+            .checked_add(1)
+            .ok_or(StateError::ArithmeticOverflow {
+                context: "preflighted fixed-step identity",
+            })?;
+        if completed_step != preflight.completed_step {
+            return invalid("fixed_step.preflight", "completed-step identity changed");
+        }
+        validate_running_replacement_contract(&self.candidate, replacement)?;
+        Ok(())
+    }
+
+    /// Publish a replacement sealed by the private running-step coordinator.
+    ///
+    /// Sibling modules cannot construct the consumed wrapper, so retaining a
+    /// preflight token and arbitrary mutable scratch is insufficient to reach
+    /// this swap. The final memory estimate must still equal the preflighted
+    /// estimate; a mismatch restores every authoritative buffer and scalar.
+    pub(crate) fn publish_prevalidated_running_step(
+        &mut self,
+        preflight: RunningStepPreflight,
+        resolved: ResolvedRunningStepReplacement<'_>,
+    ) -> Result<RunningStepPublication, StateError> {
+        let (mut replacement, external_replacements, removed_dead_external_leases) =
+            resolved.into_parts();
+        self.validate_running_step_key(replacement.key)?;
+        if preflight.key != replacement.key
+            || preflight.buffers != running_step_buffer_identity(&replacement)
+            || preflight.external_replacements != external_replacements
+            || preflight.removed_dead_external_leases != removed_dead_external_leases
+        {
+            return invalid(
+                "fixed_step.preflight",
+                "resolved replacement buffers, scalars, or mutation counts changed",
+            );
+        }
+        let completed_step = replacement
+            .key
+            .source_completed_step()
+            .checked_add(1)
+            .ok_or(StateError::ArithmeticOverflow {
+                context: "prevalidated completed-step identity",
+            })?;
+        if completed_step != preflight.completed_step {
+            return invalid("fixed_step.preflight", "completed-step identity changed");
+        }
+        validate_resolved_running_replacement_contract(
+            &self.candidate,
+            &replacement,
+            external_replacements,
+            removed_dead_external_leases,
+        )?;
+        let prior_completed_step = self.candidate.generation.completed_step;
+        let prior_elapsed_seconds = self.candidate.generation.elapsed_seconds;
+        let prior_wall_accumulator_seconds = self.candidate.generation.wall_accumulator_seconds;
+        let prior_ambient_pellet_accumulator = self.candidate.fixed_step.ambient_pellet_accumulator;
+        let prior_sensor_generation = self.candidate.fixed_step.sensor_generation;
+
+        swap_running_step_buffers(&mut self.candidate, &mut replacement);
+        self.candidate.generation.completed_step = preflight.completed_step;
+        self.candidate.generation.elapsed_seconds = replacement.generation_elapsed_seconds;
+        self.candidate.generation.wall_accumulator_seconds = replacement.wall_accumulator_seconds;
+        self.candidate.fixed_step.ambient_pellet_accumulator =
+            replacement.ambient_pellet_accumulator;
+        self.candidate.fixed_step.sensor_generation = replacement.sensor_generation;
+
+        let memory = estimate_state_memory(&self.candidate, &self.graph);
+        let memory_error = match memory {
+            Ok(memory) if memory == preflight.memory => None,
+            Ok(_) => Some(invalid_error(
+                "fixed_step.preflight.memory",
+                "resolved replacement allocation changed after preflight",
+            )),
+            Err(error) => Some(error),
+        };
+        if let Some(error) = memory_error {
+            self.candidate.generation.completed_step = prior_completed_step;
+            self.candidate.generation.elapsed_seconds = prior_elapsed_seconds;
+            self.candidate.generation.wall_accumulator_seconds = prior_wall_accumulator_seconds;
+            self.candidate.fixed_step.ambient_pellet_accumulator = prior_ambient_pellet_accumulator;
+            self.candidate.fixed_step.sensor_generation = prior_sensor_generation;
+            swap_running_step_buffers(&mut self.candidate, &mut replacement);
+            return Err(error);
+        }
+        self.memory = preflight.memory;
+        Ok(RunningStepPublication {
+            key: replacement.key,
+            completed_step: preflight.completed_step,
+            memory: preflight.memory,
+        })
+    }
+
+    /// Revalidate one staged operation against the still-current authority
+    /// without publishing or advancing its operation epoch.
+    pub(crate) fn validate_running_step_key(&self, key: PhysicsStepKey) -> Result<(), StateError> {
+        if self.latest_operation_epoch == 0 {
+            return invalid("fixed_step.key", "no running-step attempt is active");
+        }
+        let expected_key = self.running_step_key(self.latest_operation_epoch)?;
+        if let Some(field) = key.first_mismatch(expected_key) {
+            return Err(StateError::StaleFixedStep { field });
+        }
+        Ok(())
+    }
+
+    /// Revalidate the exact publication most recently committed by this authority.
+    ///
+    /// The source step in a publication is one behind the now-authoritative
+    /// completed step. This check deliberately binds every process/run/config
+    /// identity component plus the admitted memory result, so a scheduler
+    /// cannot retire a ticket with a fabricated or foreign publication.
+    pub(crate) fn validate_running_step_publication(
+        &self,
+        publication: RunningStepPublication,
+    ) -> Result<(), StateError> {
+        if self.candidate.phase != AuthorityPhase::Running {
+            return invalid(
+                "fixed_step.publication.phase",
+                "a running-step publication requires running authority",
+            );
+        }
+        if self.latest_operation_epoch == 0 {
+            return invalid(
+                "fixed_step.publication.key",
+                "no running-step operation has published",
+            );
+        }
+        if publication.completed_step != self.candidate.generation.completed_step {
+            return invalid(
+                "fixed_step.publication.completed_step",
+                "publication does not match the authoritative completed step",
+            );
+        }
+        if publication.memory != self.memory {
+            return invalid(
+                "fixed_step.publication.memory",
+                "publication does not match the admitted authority memory",
+            );
+        }
+        let source_completed_step =
+            publication
+                .completed_step
+                .checked_sub(1)
+                .ok_or(StateError::ArithmeticOverflow {
+                    context: "running-step publication source completed step",
+                })?;
+        let expected_key = PhysicsStepKey::new(
+            self.world_epoch,
+            self.candidate.generation.generation,
+            source_completed_step,
+            self.candidate.generation.population_epoch,
+            self.candidate.identity.config_revision,
+            decode_sha256_identity("identity.config_hash", &self.candidate.identity.config_hash)?,
+            self.latest_operation_epoch,
+        );
+        if let Some(field) = publication.key.first_mismatch(expected_key) {
+            return Err(StateError::StaleFixedStep { field });
+        }
+        Ok(())
+    }
+
     /// Reconstruct the complete current key for one process-local operation.
     fn running_step_key(&self, operation_epoch: u64) -> Result<PhysicsStepKey, StateError> {
         Ok(PhysicsStepKey::new(
@@ -1087,6 +1893,245 @@ impl AuthoritativeState {
     }
 }
 
+fn validate_generation_successor_relation(
+    source: &StateCandidate,
+    successor: &StateCandidate,
+) -> Result<(), StateError> {
+    if source.phase != AuthorityPhase::Running {
+        return invalid(
+            "generation.source.phase",
+            "a generation successor requires running source authority",
+        );
+    }
+    if successor.phase != AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::Generation) {
+        return invalid(
+            "generation.successor.phase",
+            "a terminal fixed step must stage a generation boundary",
+        );
+    }
+    if successor.versions != source.versions
+        || successor.identity != source.identity
+        || successor.config != source.config
+    {
+        return invalid(
+            "generation.successor.identity",
+            "version, run, graph, or normalized configuration identity changed",
+        );
+    }
+    let expected_generation =
+        source
+            .generation
+            .generation
+            .checked_add(1)
+            .ok_or(StateError::ArithmeticOverflow {
+                context: "staged successor generation",
+            })?;
+    let expected_completed_step =
+        source
+            .generation
+            .completed_step
+            .checked_add(1)
+            .ok_or(StateError::ArithmeticOverflow {
+                context: "staged successor completed step",
+            })?;
+    let expected_population_epoch = source.generation.population_epoch.checked_add(1).ok_or(
+        StateError::ArithmeticOverflow {
+            context: "staged successor population epoch",
+        },
+    )?;
+    if successor.generation.generation != expected_generation
+        || successor.generation.completed_step != expected_completed_step
+        || successor.generation.population_epoch != expected_population_epoch
+    {
+        return invalid(
+            "generation.successor.sequence",
+            "generation, completed-step, or population epoch is not the exact successor",
+        );
+    }
+    if successor.generation.best_fitness_ever < source.generation.best_fitness_ever {
+        return invalid(
+            "generation.successor.best_fitness_ever",
+            "all-generation best fitness regressed",
+        );
+    }
+    Ok(())
+}
+
+fn successor_admission_policy(
+    source: &StateCandidate,
+    remaining_memory_ceiling_bytes: usize,
+) -> StateAdmissionPolicy {
+    StateAdmissionPolicy {
+        memory_ceiling_bytes: remaining_memory_ceiling_bytes,
+        expected_source_revision: source.identity.source_revision.clone(),
+        expected_engine_build_id: source.identity.engine_build_id.clone(),
+        expected_source_sha256: source.identity.source_sha256.clone(),
+        expected_target_triple: source.identity.target_triple.clone(),
+        expected_build_profile: source.identity.build_profile.clone(),
+        expected_build_class: source.identity.build_class.clone(),
+        expected_rustc_version: source.identity.rustc_version.clone(),
+        expected_build_contract_sha256: source.identity.build_contract_sha256.clone(),
+        expected_math_backend: source.identity.math_backend.clone(),
+        expected_settings_schema_sha256: source.config.settings_schema_sha256.clone(),
+    }
+}
+
+fn running_step_buffer_identity(
+    replacement: &RunningStepReplacement<'_>,
+) -> RunningStepBufferIdentity {
+    RunningStepBufferIdentity {
+        world: std::ptr::from_ref(&*replacement.world).addr(),
+        rng: std::ptr::from_ref(&*replacement.rng).addr(),
+        allocators: std::ptr::from_ref(&*replacement.allocators).addr(),
+        brains: std::ptr::from_ref(&*replacement.brains).addr(),
+        baseline_lifecycle: std::ptr::from_ref(&*replacement.baseline_lifecycle).addr(),
+        ambient_pellet_accumulator: replacement.ambient_pellet_accumulator.to_bits(),
+        sensor_generation_best: replacement
+            .sensor_generation
+            .best_points_this_generation()
+            .to_bits(),
+        generation_elapsed_seconds: replacement.generation_elapsed_seconds.to_bits(),
+        wall_accumulator_seconds: replacement.wall_accumulator_seconds.to_bits(),
+        mutation_proof: replacement.mutation.proof_identity(),
+    }
+}
+
+fn generation_start_buffer_identity(
+    replacement: &GenerationStartReplacement<'_>,
+) -> GenerationStartBufferIdentity {
+    GenerationStartBufferIdentity {
+        world: std::ptr::from_ref(&*replacement.world).addr(),
+        rng: std::ptr::from_ref(&*replacement.rng).addr(),
+        allocators: std::ptr::from_ref(&*replacement.allocators).addr(),
+        brains: std::ptr::from_ref(&*replacement.brains).addr(),
+        fixed_step: std::ptr::from_ref(&*replacement.fixed_step).addr(),
+        wall_accumulator_seconds: replacement.wall_accumulator_seconds.to_bits(),
+        proof: std::ptr::from_ref(replacement.proof).addr(),
+    }
+}
+
+fn swap_generation_start_buffers(
+    candidate: &mut StateCandidate,
+    replacement: &mut GenerationStartReplacement<'_>,
+) {
+    std::mem::swap(&mut candidate.world, replacement.world);
+    std::mem::swap(&mut candidate.rng, replacement.rng);
+    std::mem::swap(&mut candidate.allocators, replacement.allocators);
+    std::mem::swap(&mut candidate.brains, replacement.brains);
+    std::mem::swap(&mut candidate.fixed_step, replacement.fixed_step);
+}
+
+fn swap_initial_run_start_buffers(
+    candidate: &mut StateCandidate,
+    replacement: &mut InitialRunStartReplacement<'_>,
+) {
+    std::mem::swap(&mut candidate.world, replacement.world);
+    std::mem::swap(&mut candidate.rng, replacement.rng);
+    std::mem::swap(&mut candidate.allocators, replacement.allocators);
+    std::mem::swap(&mut candidate.fixed_step, replacement.fixed_step);
+}
+
+fn validate_generation_start_replacement_contract(
+    current: &StateCandidate,
+    boundary: &StateCandidate,
+    replacement: &GenerationStartReplacement<'_>,
+    external_replacements: usize,
+    removed_source_leases: usize,
+    unavailable_controller_reservations: &[UnavailableControllerReservation],
+) -> Result<(), StateError> {
+    if boundary.phase != AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::Generation) {
+        return invalid(
+            "generation.start.phase",
+            "running construction requires the exact durable generation boundary",
+        );
+    }
+    if !replacement.wall_accumulator_seconds.is_finite()
+        || replacement.wall_accumulator_seconds < 0.0
+    {
+        return invalid(
+            "generation.start.wall_accumulator_seconds",
+            "scheduler continuation must be finite and non-negative",
+        );
+    }
+    let accounted_source_leases = external_replacements
+        .checked_add(removed_source_leases)
+        .ok_or(StateError::ArithmeticOverflow {
+            context: "generation controller source accounting",
+        })?;
+    if accounted_source_leases != current.world.controller_leases.len()
+        || replacement.world.controller_leases.len() != external_replacements
+        || unavailable_controller_reservations.len() != removed_source_leases
+    {
+        return invalid(
+            "generation.start.controller_leases",
+            "connected replacements and unavailable reservations do not account for the old leases",
+        );
+    }
+    let mut unavailable_index = 0usize;
+    for lease in &current.world.controller_leases {
+        if lease.status == ControllerLeaseStatus::Connected {
+            continue;
+        }
+        let record = unavailable_controller_reservations
+            .get(unavailable_index)
+            .ok_or_else(|| {
+                invalid_error(
+                    "generation.start.unavailable_controllers",
+                    "an old disconnected lease has no retained reclaim outcome",
+                )
+            })?;
+        let expected_reason = match lease.status {
+            ControllerLeaseStatus::HoldingLastInput | ControllerLeaseStatus::ReservedNeutral => {
+                UnavailableControllerReason::SnakeUnavailable
+            }
+            ControllerLeaseStatus::NeuralTakeover => UnavailableControllerReason::GraceExpired,
+            ControllerLeaseStatus::Connected => unreachable!("connected leases are skipped"),
+        };
+        if record.source_lease_id != lease.id
+            || record.source_snake_id != lease.snake_id
+            || record.controller_kind != lease.kind
+            || record.scope != lease.scope
+            || record.resume_token != lease.resume_token
+            || record.disconnected_at_ms != lease.disconnected_at_ms
+            || record.grace_expires_at_ms != lease.grace_expires_at_ms
+            || record.reason != expected_reason
+        {
+            return invalid(
+                "generation.start.unavailable_controllers",
+                "retained reclaim outcome does not match its old controller lease",
+            );
+        }
+        unavailable_index =
+            unavailable_index
+                .checked_add(1)
+                .ok_or(StateError::ArithmeticOverflow {
+                    context: "unavailable controller index",
+                })?;
+    }
+    if unavailable_index != unavailable_controller_reservations.len() {
+        return invalid(
+            "generation.start.unavailable_controllers",
+            "retained reclaim outcomes contain an extra or reordered lease",
+        );
+    }
+    if replacement.rng.version != boundary.rng.version
+        || replacement.rng.evolution != boundary.rng.evolution
+        || (external_replacements == 0
+            && replacement.rng.external_controller != boundary.rng.external_controller)
+    {
+        return invalid(
+            "generation.start.rng",
+            "generation construction changed evolution RNG or unexplained external RNG",
+        );
+    }
+    validate_running_allocator_continuation(
+        &boundary.allocators,
+        replacement.allocators,
+        external_replacements,
+    )?;
+    Ok(())
+}
+
 /// Exchange only fields a running fixed step is allowed to replace.
 fn swap_running_step_buffers(
     candidate: &mut StateCandidate,
@@ -1106,6 +2151,43 @@ fn swap_running_step_buffers(
 fn validate_running_replacement_contract(
     candidate: &StateCandidate,
     replacement: &RunningStepReplacement<'_>,
+) -> Result<(), StateError> {
+    if !replacement.mutation.matches(replacement) {
+        return invalid(
+            "fixed_step.external_replacement",
+            "opaque replacement proof does not match the exact staged buffers",
+        );
+    }
+    validate_running_replacement_contract_with_counts(
+        candidate,
+        replacement,
+        replacement.mutation.external_replacements(),
+        replacement.mutation.removed_dead_external_leases(),
+    )
+}
+
+/// Recheck the final sealed delivery result without trusting the now-stale
+/// pre-delivery world digest. Only `engine::running_step` can construct the
+/// consumed wrapper that reaches this path.
+fn validate_resolved_running_replacement_contract(
+    candidate: &StateCandidate,
+    replacement: &RunningStepReplacement<'_>,
+    external_replacements: usize,
+    removed_dead_external_leases: usize,
+) -> Result<(), StateError> {
+    validate_running_replacement_contract_with_counts(
+        candidate,
+        replacement,
+        external_replacements,
+        removed_dead_external_leases,
+    )
+}
+
+fn validate_running_replacement_contract_with_counts(
+    candidate: &StateCandidate,
+    replacement: &RunningStepReplacement<'_>,
+    external_replacements: usize,
+    removed_dead_external_leases: usize,
 ) -> Result<(), StateError> {
     let expected_elapsed =
         candidate.generation.elapsed_seconds + candidate.config.fixed_step_seconds;
@@ -1134,33 +2216,40 @@ fn validate_running_replacement_contract(
     }
     if replacement.rng.version != candidate.rng.version
         || replacement.rng.evolution != candidate.rng.evolution
-        || replacement.rng.external_controller != candidate.rng.external_controller
+        || (external_replacements == 0
+            && replacement.rng.external_controller != candidate.rng.external_controller)
     {
         return invalid(
             "fixed_step.rng",
-            "nonterminal steps cannot replace RNG identity, evolution, or external streams",
+            "nonterminal steps cannot replace RNG identity or evolution, and only a controlled replacement may advance the external stream",
         );
     }
-    validate_running_allocator_continuation(&candidate.allocators, replacement.allocators)?;
-    if replacement.brains.len() != candidate.brains.len() {
-        return invalid(
-            "fixed_step.brains",
-            "nonterminal steps cannot change brain records",
-        );
-    }
-    for (source, staged) in candidate.brains.iter().zip(replacement.brains.iter()) {
-        if source.handle != staged.handle
-            || source.owner != staged.owner
-            || !optional_f32_bits_equal(
-                source.non_population_weights.as_deref(),
-                staged.non_population_weights.as_deref(),
+    validate_running_allocator_continuation(
+        &candidate.allocators,
+        replacement.allocators,
+        external_replacements,
+    )?;
+    validate_running_brain_continuation(
+        candidate,
+        replacement,
+        external_replacements != 0 || removed_dead_external_leases != 0,
+    )?;
+    let expected_leases = candidate
+        .world
+        .controller_leases
+        .len()
+        .checked_sub(removed_dead_external_leases)
+        .ok_or_else(|| {
+            invalid_error(
+                "fixed_step.controller_leases",
+                "removed external lease count exceeds the source lease count",
             )
-        {
-            return invalid(
-                "fixed_step.brains",
-                "nonterminal steps may change recurrent state but not brain identity or weights",
-            );
-        }
+        })?;
+    if replacement.world.controller_leases.len() != expected_leases {
+        return invalid(
+            "fixed_step.controller_leases",
+            "lease count does not match the private controlled-death mutation proof",
+        );
     }
     Ok(())
 }
@@ -1169,26 +2258,95 @@ fn validate_running_replacement_contract(
 fn validate_running_allocator_continuation(
     source: &AllocatorState,
     staged: &AllocatorState,
+    replacement_count: usize,
 ) -> Result<(), StateError> {
+    let replacements =
+        u64::try_from(replacement_count).map_err(|_| StateError::ArithmeticOverflow {
+            context: "controlled replacement count",
+        })?;
+    let expected_brain =
+        source
+            .next_brain_id
+            .checked_add(replacements)
+            .ok_or(StateError::ArithmeticOverflow {
+                context: "controlled replacement brain continuation",
+            })?;
+    let expected_lease = source
+        .next_controller_lease_id
+        .checked_add(replacements)
+        .ok_or(StateError::ArithmeticOverflow {
+            context: "controlled replacement lease continuation",
+        })?;
+    let expected_external = source.next_external_id.checked_add(replacements).ok_or(
+        StateError::ArithmeticOverflow {
+            context: "controlled replacement external continuation",
+        },
+    )?;
+    let frame_replacements =
+        u32::try_from(replacement_count).map_err(|_| StateError::ArithmeticOverflow {
+            context: "controlled replacement frame count",
+        })?;
+    let minimum_frame = source
+        .next_frame_v1_id
+        .checked_add(frame_replacements)
+        .ok_or(StateError::ArithmeticOverflow {
+            context: "controlled replacement frame continuation",
+        })?;
     if staged.version != source.version
-        || staged.next_brain_id != source.next_brain_id
+        || staged.next_brain_id != expected_brain
         || staged.next_genome_id != source.next_genome_id
-        || staged.next_controller_lease_id != source.next_controller_lease_id
-        || staged.next_external_id != source.next_external_id
+        || staged.next_controller_lease_id != expected_lease
+        || staged.next_external_id != expected_external
         || staged.next_resurrected_id != source.next_resurrected_id
     {
         return invalid(
             "fixed_step.allocators",
-            "nonterminal step changed a non-gameplay allocator domain",
+            "nonterminal identity domains do not match the private controlled-death mutation proof",
         );
     }
     if staged.next_entity_id < source.next_entity_id
-        || staged.next_frame_v1_id < source.next_frame_v1_id
+        || staged.next_frame_v1_id < minimum_frame
         || staged.next_baseline_id < source.next_baseline_id
     {
         return invalid(
             "fixed_step.allocators",
             "monotonic gameplay allocator regressed",
+        );
+    }
+    Ok(())
+}
+
+/// Keep all existing brain identities and weights immutable unless an opaque
+/// replacement-workspace proof binds the complete staged brain payload.
+fn validate_running_brain_continuation(
+    candidate: &StateCandidate,
+    replacement: &RunningStepReplacement<'_>,
+    permits_identity_change: bool,
+) -> Result<(), StateError> {
+    if permits_identity_change {
+        return Ok(());
+    }
+    if replacement.brains.len() != candidate.brains.len() {
+        return invalid(
+            "fixed_step.brains",
+            "a stable-identity running step cannot change brain records",
+        );
+    }
+    for source in &candidate.brains {
+        let retained = replacement.brains.iter().any(|staged| {
+            source.handle == staged.handle
+                && source.owner == staged.owner
+                && optional_f32_bits_equal(
+                    source.non_population_weights.as_deref(),
+                    staged.non_population_weights.as_deref(),
+                )
+        });
+        if retained {
+            continue;
+        }
+        return invalid(
+            "fixed_step.brains",
+            "a stable-identity running step may change recurrent state but not brain identity or weights",
         );
     }
     Ok(())
@@ -1217,6 +2375,7 @@ fn optional_f32_bits_equal(left: Option<&[f32]>, right: Option<&[f32]>) -> bool 
 fn validate_running_mutable_state(
     candidate: &StateCandidate,
     graph: &CompiledGraph,
+    world_scratch: &mut WorldValidationScratch,
 ) -> Result<(), StateError> {
     if candidate.phase != AuthorityPhase::Running {
         return invalid("phase", "running-step publication changed authority phase");
@@ -1224,9 +2383,33 @@ fn validate_running_mutable_state(
     validate_generation(&candidate.generation)?;
     validate_rng_bundle(&candidate.rng, &candidate.config)?;
     validate_allocators(&candidate.allocators)?;
-    validate_population(candidate, graph)?;
-    validate_world(candidate)?;
+    validate_running_recurrent_state(candidate, graph)?;
+    validate_world_with_scratch(candidate, world_scratch)?;
     validate_fixed_step_continuation(candidate)?;
+    Ok(())
+}
+
+/// Validate the only mutable neural payload after a running-step swap.
+///
+/// `validate_running_replacement_contract` has already proved either that all
+/// static brain fields match the admitted source or that the opaque controlled-
+/// death proof binds the exact replacement brain bytes. Population metadata and
+/// genome weights are not part of the replacement. Only recurrent length and
+/// finiteness still require the general post-swap scan.
+fn validate_running_recurrent_state(
+    candidate: &StateCandidate,
+    graph: &CompiledGraph,
+) -> Result<(), StateError> {
+    for (index, brain) in candidate.brains.iter().enumerate() {
+        if brain.recurrent.len() != graph.total_state_size {
+            return Err(StateError::RecurrentLength {
+                handle: brain.handle,
+                expected: graph.total_state_size,
+                actual: brain.recurrent.len(),
+            });
+        }
+        validate_f32_slice("brains.recurrent", index, &brain.recurrent)?;
+    }
     Ok(())
 }
 
@@ -1317,6 +2500,11 @@ pub enum StateError {
     NonFinite { field: &'static str, index: usize },
     /// Checked byte/count arithmetic overflowed.
     ArithmeticOverflow { context: &'static str },
+    /// Reusable validation storage could not reserve its checked size.
+    AllocationFailed {
+        context: &'static str,
+        required: usize,
+    },
     /// A prepared fixed step no longer names the current authority/operation.
     StaleFixedStep { field: PhysicsStepKeyField },
     /// Estimated state exceeds the caller-approved ceiling.
@@ -1392,6 +2580,10 @@ impl fmt::Display for StateError {
             Self::ArithmeticOverflow { context } => {
                 write!(formatter, "checked arithmetic overflow while calculating {context}")
             }
+            Self::AllocationFailed { context, required } => write!(
+                formatter,
+                "could not reserve {required} entries for {context}"
+            ),
             Self::StaleFixedStep { field } => {
                 write!(formatter, "stale fixed-step proposal: {field:?} changed")
             }
@@ -1872,13 +3064,14 @@ fn validate_candidate(
     candidate: &StateCandidate,
     graph: &CompiledGraph,
     policy: &StateAdmissionPolicy,
+    world_scratch: &mut WorldValidationScratch,
 ) -> Result<(), StateError> {
     validate_admission_header(candidate, graph, policy)?;
     validate_generation(&candidate.generation)?;
     validate_rng_bundle(&candidate.rng, &candidate.config)?;
     validate_allocators(&candidate.allocators)?;
     validate_population(candidate, graph)?;
-    validate_world(candidate)?;
+    validate_world_with_scratch(candidate, world_scratch)?;
     if matches!(candidate.phase, AuthorityPhase::GenerationBoundary(_)) {
         validate_generation_boundary(candidate, graph)?;
     }
@@ -2240,7 +3433,7 @@ fn validate_rng_bundle(
         if baseline.slot != expected_slot {
             return invalid("rng.baselines", "baseline slots must be dense and ordered");
         }
-        validate_rng(&format!("baseline:{}", baseline.slot), &baseline.state)?;
+        validate_baseline_rng(baseline.slot, &baseline.state)?;
         expected_slot = expected_slot
             .checked_add(1)
             .ok_or(StateError::ArithmeticOverflow {
@@ -2255,6 +3448,16 @@ fn validate_rng(stream: &str, state: &SerializedRngState) -> Result<(), StateErr
         .map(|_| ())
         .map_err(|error: RngError| StateError::InvalidRng {
             stream: stream.to_owned(),
+            reason: error.to_string(),
+        })
+}
+
+/// Validate one dense baseline stream without formatting its success-path label.
+fn validate_baseline_rng(slot: u32, state: &SerializedRngState) -> Result<(), StateError> {
+    StatefulRng::from_state(state)
+        .map(|_| ())
+        .map_err(|error: RngError| StateError::InvalidRng {
+            stream: format!("baseline:{slot}"),
             reason: error.to_string(),
         })
 }
@@ -2460,7 +3663,10 @@ fn validate_handle(handle: BrainHandle, expected_epoch: u64) -> Result<(), State
     Ok(())
 }
 
-fn validate_world(candidate: &StateCandidate) -> Result<(), StateError> {
+fn validate_world_with_scratch(
+    candidate: &StateCandidate,
+    scratch: &mut WorldValidationScratch,
+) -> Result<(), StateError> {
     if candidate.world.body_points.len() > candidate.config.max_body_points
         || candidate.world.pellets.len() > candidate.config.max_pellets
         || candidate.world.snakes.len() > candidate.config.max_world_snakes
@@ -2472,35 +3678,74 @@ fn validate_world(candidate: &StateCandidate) -> Result<(), StateError> {
         validate_point("world.body_points", index, *point)?;
     }
 
-    let mut entity_ids = BTreeSet::new();
-    let mut snake_ids = BTreeSet::new();
-    let mut public_ids = BTreeSet::new();
-    let mut evolved_slots = BTreeSet::new();
-    let mut world_brains = BTreeSet::new();
-    let mut baseline_slots = BTreeSet::new();
-    let mut ranges = Vec::with_capacity(candidate.world.snakes.len());
+    let entity_capacity = candidate
+        .world
+        .snakes
+        .len()
+        .checked_add(candidate.world.pellets.len())
+        .ok_or(StateError::ArithmeticOverflow {
+            context: "world validation entity count",
+        })?;
+    scratch.clear();
+    reserve_validation(&mut scratch.entity_ids, entity_capacity, "world entity IDs")?;
+    reserve_validation(
+        &mut scratch.snake_ids,
+        candidate.world.snakes.len(),
+        "world snake IDs",
+    )?;
+    reserve_validation(
+        &mut scratch.public_ids,
+        candidate.world.snakes.len(),
+        "frame-v1 snake IDs",
+    )?;
+    reserve_validation(
+        &mut scratch.evolved_slots,
+        candidate.config.population_count,
+        "world population slots",
+    )?;
+    reserve_validation(
+        &mut scratch.world_brains,
+        candidate.world.snakes.len(),
+        "world brain handles",
+    )?;
+    reserve_validation(
+        &mut scratch.baseline_slots,
+        candidate.config.baseline_count,
+        "world baseline slots",
+    )?;
+    reserve_validation(
+        &mut scratch.ranges,
+        candidate.world.snakes.len(),
+        "world body ranges",
+    )?;
+    let entity_ids = &mut scratch.entity_ids;
+    let snake_ids = &mut scratch.snake_ids;
+    let public_ids = &mut scratch.public_ids;
+    let evolved_slots = &mut scratch.evolved_slots;
+    let world_brains = &mut scratch.world_brains;
+    let baseline_slots = &mut scratch.baseline_slots;
+    let ranges = &mut scratch.ranges;
     let mut max_general_id = 0u64;
     let mut max_external_id = 0u64;
     let mut max_baseline_id = 0u64;
     let mut max_resurrected_id = 0u64;
     let mut max_public_id = 0u32;
     for (index, snake) in candidate.world.snakes.iter().enumerate() {
-        if snake.id == 0 || snake.id == u64::MAX || !entity_ids.insert(snake.id) {
+        if snake.id == 0 || snake.id == u64::MAX {
             return Err(StateError::DuplicateId {
                 kind: "snake",
                 id: snake.id,
             });
         }
-        snake_ids.insert(snake.id);
-        if snake.frame_v1_id == 0
-            || snake.frame_v1_id > FRAME_V1_MAX_EXACT_ID
-            || !public_ids.insert(snake.frame_v1_id)
-        {
+        entity_ids.push(snake.id);
+        snake_ids.push(snake.id);
+        if snake.frame_v1_id == 0 || snake.frame_v1_id > FRAME_V1_MAX_EXACT_ID {
             return Err(StateError::DuplicateId {
                 kind: "frame-v1 snake",
                 id: u64::from(snake.frame_v1_id),
             });
         }
+        public_ids.push(snake.frame_v1_id);
         validate_snake(index, snake, candidate)?;
         match snake.kind {
             SnakeKind::Evolved => {
@@ -2512,12 +3757,7 @@ fn validate_world(candidate: &StateCandidate) -> Result<(), StateError> {
                         "evolved snake requires a population slot",
                     );
                 };
-                if !evolved_slots.insert(slot) {
-                    return Err(StateError::DuplicateId {
-                        kind: "world population slot",
-                        id: u64::from(slot),
-                    });
-                }
+                evolved_slots.push(slot);
             }
             SnakeKind::External => {
                 validate_entity_id_domain(
@@ -2549,23 +3789,21 @@ fn validate_world(candidate: &StateCandidate) -> Result<(), StateError> {
         }
         max_public_id = max_public_id.max(snake.frame_v1_id);
         if let Some(handle) = snake.brain {
-            if !world_brains.insert(handle) {
-                return Err(StateError::DuplicateBrainHandle(handle));
-            }
+            world_brains.push(handle);
         }
         if let Some(slot) = snake.baseline_slot {
-            if !baseline_slots.insert(slot)
-                || candidate
-                    .rng
-                    .baselines
-                    .get(slot as usize)
-                    .is_none_or(|baseline| baseline.slot != slot)
+            if candidate
+                .rng
+                .baselines
+                .get(slot as usize)
+                .is_none_or(|baseline| baseline.slot != slot)
             {
                 return invalid(
                     "world.snakes.baseline_slot",
-                    "baseline slot is duplicate or has no matching RNG stream",
+                    "baseline slot has no matching RNG stream",
                 );
             }
+            baseline_slots.push(slot);
         }
         let end = snake
             .body
@@ -2581,6 +3819,28 @@ fn validate_world(candidate: &StateCandidate) -> Result<(), StateError> {
             }
             ranges.push((snake.body.start, end, snake.id));
         }
+    }
+
+    if let Some(id) = first_duplicate_after_sort(snake_ids) {
+        return Err(StateError::DuplicateId { kind: "snake", id });
+    }
+    if let Some(id) = first_duplicate_after_sort(public_ids) {
+        return Err(StateError::DuplicateId {
+            kind: "frame-v1 snake",
+            id: u64::from(id),
+        });
+    }
+    if let Some(slot) = first_duplicate_after_sort(evolved_slots) {
+        return Err(StateError::DuplicateId {
+            kind: "world population slot",
+            id: u64::from(slot),
+        });
+    }
+    if let Some(handle) = first_duplicate_after_sort(world_brains) {
+        return Err(StateError::DuplicateBrainHandle(handle));
+    }
+    if first_duplicate_after_sort(baseline_slots).is_some() {
+        return invalid("world.snakes.baseline_slot", "baseline slot must be unique");
     }
 
     for brain in &candidate.brains {
@@ -2605,13 +3865,13 @@ fn validate_world(candidate: &StateCandidate) -> Result<(), StateError> {
     }
 
     for (index, pellet) in candidate.world.pellets.iter().enumerate() {
-        if pellet.id == 0 || pellet.id >= EXTERNAL_ENTITY_ID_START || !entity_ids.insert(pellet.id)
-        {
+        if pellet.id == 0 || pellet.id >= EXTERNAL_ENTITY_ID_START {
             return Err(StateError::DuplicateId {
                 kind: "world entity",
                 id: pellet.id,
             });
         }
+        entity_ids.push(pellet.id);
         max_general_id = max_general_id.max(pellet.id);
         validate_point("world.pellets.position", index, pellet.position)?;
         if !pellet.value.is_finite() || pellet.value <= 0.0 {
@@ -2622,10 +3882,16 @@ fn validate_world(candidate: &StateCandidate) -> Result<(), StateError> {
         }
         if pellet
             .owner
-            .is_some_and(|owner| !snake_ids.contains(&owner))
+            .is_some_and(|owner| snake_ids.binary_search(&owner).is_err())
         {
             return invalid("world.pellets.owner", "owner does not identify a snake");
         }
+    }
+    if let Some(id) = first_duplicate_after_sort(entity_ids) {
+        return Err(StateError::DuplicateId {
+            kind: "world entity",
+            id,
+        });
     }
 
     validate_next_after(
@@ -2661,11 +3927,24 @@ fn validate_world(candidate: &StateCandidate) -> Result<(), StateError> {
         );
     }
 
-    let mut lease_ids = BTreeSet::new();
-    let mut lease_snakes = BTreeSet::new();
-    let mut resume_tokens = BTreeSet::new();
-    let mut connection_ids = BTreeSet::new();
-    for lease in &candidate.world.controller_leases {
+    let lease_count = candidate.world.controller_leases.len();
+    reserve_validation(&mut scratch.lease_ids, lease_count, "controller lease IDs")?;
+    reserve_validation(
+        &mut scratch.lease_snakes,
+        lease_count,
+        "controller lease snake IDs",
+    )?;
+    reserve_validation(
+        &mut scratch.resume_token_order,
+        lease_count,
+        "controller resume-token order",
+    )?;
+    reserve_validation(
+        &mut scratch.connection_ids,
+        lease_count,
+        "controller connection IDs",
+    )?;
+    for (lease_index, lease) in candidate.world.controller_leases.iter().enumerate() {
         let snake = candidate
             .world
             .snakes
@@ -2673,23 +3952,35 @@ fn validate_world(candidate: &StateCandidate) -> Result<(), StateError> {
             .find(|snake| snake.id == lease.snake_id && snake.alive)
             .ok_or(StateError::UnknownLeaseSnake(lease.snake_id))?;
         validate_lease(lease, snake, candidate)?;
-        if !lease_ids.insert(lease.id) {
-            return Err(StateError::DuplicateLeaseId(lease.id));
-        }
-        if !lease_snakes.insert(lease.snake_id) {
-            return Err(StateError::DuplicateLeaseSnake(lease.snake_id));
-        }
-        if !resume_tokens.insert(lease.resume_token.as_str()) {
-            return invalid("controller_lease.resume_token", "token must be unique");
-        }
+        scratch.lease_ids.push(lease.id);
+        scratch.lease_snakes.push(lease.snake_id);
+        scratch.resume_token_order.push(lease_index);
         if let Some(connection_id) = lease.connection_id {
-            if !connection_ids.insert(connection_id) {
-                return invalid(
-                    "controller_lease.connection_id",
-                    "connection must own at most one lease",
-                );
-            }
+            scratch.connection_ids.push(connection_id);
         }
+    }
+    if let Some(id) = first_duplicate_after_sort(&mut scratch.lease_ids) {
+        return Err(StateError::DuplicateLeaseId(id));
+    }
+    if let Some(id) = first_duplicate_after_sort(&mut scratch.lease_snakes) {
+        return Err(StateError::DuplicateLeaseSnake(id));
+    }
+    scratch.resume_token_order.sort_unstable_by(|left, right| {
+        candidate.world.controller_leases[*left]
+            .resume_token
+            .cmp(&candidate.world.controller_leases[*right].resume_token)
+    });
+    if scratch.resume_token_order.windows(2).any(|pair| {
+        candidate.world.controller_leases[pair[0]].resume_token
+            == candidate.world.controller_leases[pair[1]].resume_token
+    }) {
+        return invalid("controller_lease.resume_token", "token must be unique");
+    }
+    if first_duplicate_after_sort(&mut scratch.connection_ids).is_some() {
+        return invalid(
+            "controller_lease.connection_id",
+            "connection must own at most one lease",
+        );
     }
     validate_next_after(
         "allocators.next_controller_lease_id",
@@ -2714,6 +4005,27 @@ fn validate_world(candidate: &StateCandidate) -> Result<(), StateError> {
             .unwrap_or(0),
         u64::MAX,
     )?;
+    Ok(())
+}
+
+/// Sort one temporary identity list and return its first repeated value.
+fn first_duplicate_after_sort<T: Copy + Ord>(values: &mut [T]) -> Option<T> {
+    values.sort_unstable();
+    values
+        .windows(2)
+        .find_map(|pair| (pair[0] == pair[1]).then_some(pair[0]))
+}
+
+fn reserve_validation<T>(
+    values: &mut Vec<T>,
+    required: usize,
+    context: &'static str,
+) -> Result<(), StateError> {
+    if values.capacity() < required {
+        values
+            .try_reserve_exact(required.saturating_sub(values.len()))
+            .map_err(|_| StateError::AllocationFailed { context, required })?;
+    }
     Ok(())
 }
 
@@ -3481,6 +4793,7 @@ fn estimate_graph_memory(bundle: &GraphBundle) -> Result<usize, StateError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::checkpoint::{CheckpointLimits, CheckpointOperationId};
     use crate::engine::contract::{EngineInit, InboundLimits, OutputLimits};
     use crate::engine::graph::{
         GraphBundle, GraphEdge, GraphLimits, GraphNodeKind, GraphNodeSpec, GraphOutputRef,
@@ -3492,8 +4805,50 @@ mod tests {
     use crate::engine::runtime::EngineRuntime;
     use crate::engine::step_config::RunningStepWorkLimits;
     use crate::engine::{
-        GenerationTransitionReason, RunningStepCoordinator, RunningStepError, RunningStepInputs,
+        ExternalDeliveryEventKind, ExternalDeliveryResult, ExternalDeliveryState,
+        ExternalDeliveryStatus, FixedStepScheduler, FixedStepSchedulerPolicy,
+        GenerationReassignmentProgress, GenerationTransitionReason, RunningStepCoordinator,
+        RunningStepError, RunningStepInputs, RunningStepProgress, SchedulerError,
+        SchedulerReadiness, SchedulerServiceMode,
     };
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64 as TestAtomicU64, Ordering as TestOrdering};
+
+    static NEXT_GENERATION_HANDOFF_DIRECTORY: TestAtomicU64 = TestAtomicU64::new(1);
+
+    struct GenerationHandoffDirectory {
+        path: PathBuf,
+    }
+
+    impl GenerationHandoffDirectory {
+        fn new() -> Self {
+            let sequence = NEXT_GENERATION_HANDOFF_DIRECTORY.fetch_add(1, TestOrdering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "slither-generation-handoff-{}-{sequence}",
+                std::process::id()
+            ));
+            std::fs::create_dir(&path).expect("generation handoff directory must be unique");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for GenerationHandoffDirectory {
+        fn drop(&mut self) {
+            let expected_prefix = format!("slither-generation-handoff-{}-", std::process::id());
+            let is_owned = self
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&expected_prefix));
+            if is_owned {
+                let _ = std::fs::remove_dir_all(&self.path);
+            }
+        }
+    }
 
     fn default_graph_spec() -> GraphSpec {
         GraphSpec {
@@ -3567,6 +4922,26 @@ mod tests {
             max_recurrent_state_floats: 16_384,
             max_canonical_layout_bytes: 65_536,
             max_architecture_key_bytes: 200_000,
+        }
+    }
+
+    fn generation_handoff_checkpoint_limits() -> CheckpointLimits {
+        CheckpointLimits {
+            max_archive_bytes: 64 * 1024 * 1024,
+            max_manifest_bytes: 1024 * 1024,
+            max_state_bytes: 4 * 1024 * 1024,
+            max_graph_bytes: 4 * 1024 * 1024,
+            max_population_index_bytes: 4 * 1024 * 1024,
+            max_population_count: 300,
+            max_setting_count: 512,
+            max_baseline_rng_count: 128,
+            max_string_bytes: 256 * 1024,
+            max_total_string_bytes: 4 * 1024 * 1024,
+            max_weight_floats: 8_000_000,
+            max_recurrent_floats: 1_000_000,
+            max_numeric_stored_bytes: 64 * 1024 * 1024,
+            max_numeric_candidate_bytes: 64 * 1024 * 1024,
+            max_total_decoded_bytes: 128 * 1024 * 1024,
         }
     }
 
@@ -3969,6 +5344,7 @@ mod tests {
                 sensor_generation: self.sensor_generation,
                 generation_elapsed_seconds: self.generation_elapsed_seconds,
                 wall_accumulator_seconds: self.wall_accumulator_seconds,
+                mutation: RunningStepMutationContract::default(),
             }
         }
     }
@@ -4053,6 +5429,47 @@ mod tests {
             grace_expires_at_ms: None,
             takeover_committed_at_ms: None,
         }
+    }
+
+    fn push_connected_external_fixture(
+        candidate: &mut StateCandidate,
+        graph: &CompiledGraph,
+        snake_id: u64,
+        frame_v1_id: u32,
+        lease_id: u64,
+        connection_id: u64,
+        position: WorldPoint,
+    ) {
+        push_external_snake(candidate, graph, snake_id, frame_v1_id, position);
+        let snake_index = candidate.world.snakes.len() - 1;
+        let body_start = candidate.world.snakes[snake_index].body.start;
+        candidate
+            .world
+            .body_points
+            .extend((1..5).map(|offset| WorldPoint {
+                x: position.x - (offset as f64 * 7.5),
+                y: position.y,
+            }));
+        let snake = &mut candidate.world.snakes[snake_index];
+        snake.body = BodyRange {
+            start: body_start,
+            len: 5,
+        };
+        snake.target_length = 5.0;
+        snake.radius = 9.0;
+        snake.speed = 165.0;
+        snake.points = 10.0;
+        snake.delivered_observation_points = 2.0;
+        candidate.world.controller_leases.push(connected_lease(
+            lease_id,
+            snake_id,
+            connection_id,
+            &format!("external-delivery-{lease_id}"),
+        ));
+        candidate.allocators.next_controller_lease_id = candidate
+            .allocators
+            .next_controller_lease_id
+            .max(lease_id + 1);
     }
 
     #[test]
@@ -4393,6 +5810,7 @@ mod tests {
                 sensor_generation,
                 generation_elapsed_seconds: 1.0 / 60.0,
                 wall_accumulator_seconds: 0.125,
+                mutation: RunningStepMutationContract::default(),
             })
             .expect("complete valid step must publish");
 
@@ -4657,6 +6075,22 @@ mod tests {
         assert_eq!(authority.state(), &source);
         assert_eq!(authority.memory_estimate(), source_memory);
         assert!(invalid.world.snakes[0].position.x.is_nan());
+
+        let invalid_recurrent_key = authority
+            .begin_running_step()
+            .expect("invalid recurrent attempt must begin");
+        let mut invalid_recurrent = RunningStepBuffers::from_state(authority.state());
+        invalid_recurrent.brains[0].recurrent[0] = f32::NAN;
+        assert!(matches!(
+            authority.publish_running_step(invalid_recurrent.replacement(invalid_recurrent_key)),
+            Err(StateError::NonFinite {
+                field: "brains.recurrent",
+                ..
+            })
+        ));
+        assert_eq!(authority.state(), &source);
+        assert_eq!(authority.memory_estimate(), source_memory);
+        assert!(invalid_recurrent.brains[0].recurrent[0].is_nan());
 
         let oversized_key = authority
             .begin_running_step()
@@ -5435,7 +6869,7 @@ mod tests {
         )
         .expect("complete admitted config must construct the coordinator");
 
-        let outcome = coordinator
+        let outcome = match coordinator
             .advance_nonterminal(
                 &mut authority,
                 RunningStepInputs {
@@ -5443,7 +6877,16 @@ mod tests {
                     wall_accumulator_seconds: 0.125,
                 },
             )
-            .expect("ordinary nonterminal step must publish");
+            .expect("ordinary nonterminal step must publish")
+        {
+            RunningStepProgress::Published(outcome) => outcome,
+            RunningStepProgress::ExternalDeliveryPending(_) => {
+                panic!("ordinary neural step must not require external delivery")
+            }
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                panic!("ordinary neural step must not end the generation")
+            }
+        };
 
         assert_eq!(outcome.publication.completed_step, 1);
         assert_eq!(outcome.diagnostics.physics.expected_substeps, 3);
@@ -5468,6 +6911,945 @@ mod tests {
         assert_eq!(authority.state().identity, source.identity);
         assert_eq!(authority.state().population, source.population);
         assert_eq!(authority.state().phase, AuthorityPhase::Running);
+    }
+
+    #[test]
+    fn scheduler_requires_a_fresh_command_service_boundary_before_each_overdue_step() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        set_complete_setting(
+            &mut candidate,
+            "simSpeed",
+            NormalizedSettingValue::Float(12.0),
+        );
+        candidate.config.requested_sim_speed = 12.0;
+        refresh_config_hash(&mut candidate);
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let mut running = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("12x fixture must construct the running coordinator");
+        let mut scheduler = FixedStepScheduler::try_new(
+            &authority,
+            FixedStepSchedulerPolicy::provisional_defaults(),
+        )
+        .expect("running authority must construct the scheduler");
+
+        scheduler
+            .reset_wall_clock(&authority, 1_000)
+            .expect("async initialization must reset the scheduler clock");
+        let initialized = scheduler.diagnostics();
+        for repeated_wall_ms in [2_000, 999] {
+            assert_eq!(
+                scheduler.reset_wall_clock(&authority, repeated_wall_ms),
+                Err(SchedulerError::ClockAlreadyInitialized),
+                "neither forward nor backward rebasing may hide or manufacture debt"
+            );
+            assert_eq!(
+                scheduler.diagnostics(),
+                initialized,
+                "a rejected rebase must be atomic"
+            );
+        }
+        let readiness = scheduler
+            .service_after_command_drain(&authority, 1_017, SchedulerServiceMode::Interactive)
+            .expect("one explicit service boundary must observe current wall debt");
+        assert!(matches!(
+            readiness,
+            SchedulerReadiness::StepDue { due_steps: 12, .. }
+        ));
+        let step = scheduler
+            .prepare_due_step(&authority)
+            .expect("one serviced step must become available");
+        assert_eq!(step.wall_now_ms(), 1_017);
+        assert_eq!(step.service_mode(), SchedulerServiceMode::Interactive);
+        let progress = running
+            .advance_nonterminal(&mut authority, step.running_step_inputs())
+            .expect("the scheduled nonterminal step must publish");
+        let publication = match progress {
+            RunningStepProgress::Published(outcome) => outcome.publication,
+            RunningStepProgress::ExternalDeliveryPending(_) => {
+                panic!("the neural-only fixture must not wait for Node delivery")
+            }
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                panic!("the scheduled fixture must remain nonterminal")
+            }
+        };
+
+        let key = publication.key;
+        let mut different_hash = key.config_hash();
+        different_hash[0] ^= 1;
+        let forged_keys = [
+            PhysicsStepKey::new(
+                key.world_epoch().checked_add(1).unwrap(),
+                key.generation(),
+                key.source_completed_step(),
+                key.population_epoch(),
+                key.config_revision(),
+                key.config_hash(),
+                key.operation_epoch(),
+            ),
+            PhysicsStepKey::new(
+                key.world_epoch(),
+                key.generation().checked_add(1).unwrap(),
+                key.source_completed_step(),
+                key.population_epoch(),
+                key.config_revision(),
+                key.config_hash(),
+                key.operation_epoch(),
+            ),
+            PhysicsStepKey::new(
+                key.world_epoch(),
+                key.generation(),
+                key.source_completed_step().checked_add(1).unwrap(),
+                key.population_epoch(),
+                key.config_revision(),
+                key.config_hash(),
+                key.operation_epoch(),
+            ),
+            PhysicsStepKey::new(
+                key.world_epoch(),
+                key.generation(),
+                key.source_completed_step(),
+                key.population_epoch().checked_add(1).unwrap(),
+                key.config_revision(),
+                key.config_hash(),
+                key.operation_epoch(),
+            ),
+            PhysicsStepKey::new(
+                key.world_epoch(),
+                key.generation(),
+                key.source_completed_step(),
+                key.population_epoch(),
+                key.config_revision().checked_add(1).unwrap(),
+                key.config_hash(),
+                key.operation_epoch(),
+            ),
+            PhysicsStepKey::new(
+                key.world_epoch(),
+                key.generation(),
+                key.source_completed_step(),
+                key.population_epoch(),
+                key.config_revision(),
+                different_hash,
+                key.operation_epoch(),
+            ),
+            PhysicsStepKey::new(
+                key.world_epoch(),
+                key.generation(),
+                key.source_completed_step(),
+                key.population_epoch(),
+                key.config_revision(),
+                key.config_hash(),
+                key.operation_epoch().checked_add(1).unwrap(),
+            ),
+        ];
+        let pending = scheduler.diagnostics();
+        for forged_key in forged_keys {
+            assert_eq!(
+                scheduler.commit_step(
+                    &authority,
+                    step,
+                    RunningStepPublication {
+                        key: forged_key,
+                        ..publication
+                    },
+                ),
+                Err(SchedulerError::PublicationMismatch {
+                    field: "complete authority publication identity",
+                })
+            );
+            assert_eq!(
+                scheduler.diagnostics(),
+                pending,
+                "a forged key must not retire or mutate the pending ticket"
+            );
+        }
+        let mut wrong_memory = publication.memory;
+        wrong_memory.total_bytes = wrong_memory.total_bytes.checked_add(1).unwrap();
+        assert_eq!(
+            scheduler.commit_step(
+                &authority,
+                step,
+                RunningStepPublication {
+                    memory: wrong_memory,
+                    ..publication
+                },
+            ),
+            Err(SchedulerError::PublicationMismatch {
+                field: "complete authority publication identity",
+            })
+        );
+        assert_eq!(scheduler.diagnostics(), pending);
+
+        scheduler
+            .commit_step(&authority, step, publication)
+            .expect("the exact publication must retire the scheduler ticket");
+
+        let diagnostics = scheduler.diagnostics();
+        assert_eq!(diagnostics.completed_steps, 1);
+        assert_eq!(diagnostics.command_service_boundaries, 1);
+        assert_eq!(diagnostics.interactive_service_boundaries, 1);
+        assert!(diagnostics.pending_simulation_seconds > candidate_fixed_dt(&authority));
+        assert_eq!(
+            authority
+                .state()
+                .generation
+                .wall_accumulator_seconds
+                .to_bits(),
+            step.wall_accumulator_after_step().to_bits()
+        );
+        assert_eq!(
+            scheduler.prepare_due_step(&authority),
+            Err(SchedulerError::CommandServiceRequired)
+        );
+
+        let second_readiness = scheduler
+            .service_after_command_drain(&authority, 1_017, SchedulerServiceMode::Interactive)
+            .expect("a second overdue step requires a second service boundary");
+        assert!(matches!(
+            second_readiness,
+            SchedulerReadiness::StepDue { due_steps: 11, .. }
+        ));
+        let rejected = scheduler
+            .prepare_due_step(&authority)
+            .expect("the newly serviced second step must be available");
+        let debt_before_rejection = scheduler.diagnostics().pending_simulation_seconds;
+        scheduler
+            .reject_step(&authority, rejected)
+            .expect("a failed attempt must retain its scheduling debt");
+        assert_eq!(
+            scheduler.diagnostics().pending_simulation_seconds.to_bits(),
+            debt_before_rejection.to_bits()
+        );
+        assert_eq!(authority.state().generation.completed_step, 1);
+        assert_eq!(
+            scheduler.prepare_due_step(&authority),
+            Err(SchedulerError::CommandServiceRequired)
+        );
+    }
+
+    #[test]
+    fn scheduler_holds_debt_while_external_delivery_blocks_publication() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            EXTERNAL_ENTITY_ID_START,
+            2,
+            1,
+            7,
+            WorldPoint {
+                x: 1_000.0,
+                y: 1_000.0,
+            },
+        );
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let source = authority.state().clone();
+        let mut running = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("external fixture must construct the running coordinator");
+        let mut scheduler = FixedStepScheduler::try_new(
+            &authority,
+            FixedStepSchedulerPolicy::provisional_defaults(),
+        )
+        .expect("external fixture must construct the scheduler");
+        scheduler.reset_wall_clock(&authority, 100).unwrap();
+        assert!(matches!(
+            scheduler
+                .service_after_command_drain(&authority, 117, SchedulerServiceMode::Interactive,)
+                .unwrap(),
+            SchedulerReadiness::StepDue { due_steps: 1, .. }
+        ));
+        let step = scheduler.prepare_due_step(&authority).unwrap();
+        let debt_before_publication = scheduler.diagnostics().pending_simulation_seconds;
+        let event = match running
+            .advance_nonterminal(&mut authority, step.running_step_inputs())
+            .expect("complete external step must await a local send result")
+        {
+            RunningStepProgress::ExternalDeliveryPending(batch) => batch.events()[0],
+            RunningStepProgress::Published(_) => panic!("external delivery must block the swap"),
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                panic!("external delivery fixture must remain nonterminal")
+            }
+        };
+        assert_eq!(authority.state(), &source);
+        assert!(scheduler.diagnostics().step_pending);
+        assert_eq!(
+            scheduler.diagnostics().pending_simulation_seconds.to_bits(),
+            debt_before_publication.to_bits()
+        );
+        assert_eq!(
+            scheduler.service_after_command_drain(
+                &authority,
+                118,
+                SchedulerServiceMode::Interactive,
+            ),
+            Err(SchedulerError::StepPending)
+        );
+
+        let accepted = ExternalDeliveryResult {
+            step_key: event.step_key,
+            event_sequence: event.event_sequence,
+            connection_id: event.connection_id,
+            lease_id: event.lease_id,
+            accepted: true,
+        };
+        let publication = match running
+            .submit_external_delivery_results(&mut authority, &[accepted])
+            .expect("matching local result must publish")
+            .state
+        {
+            ExternalDeliveryState::Published(outcome) => outcome.publication,
+            _ => panic!("the sole resolved event must publish the step"),
+        };
+        scheduler
+            .commit_step(&authority, step, publication)
+            .expect("the delayed exact publication must consume one step of debt");
+        assert!(!scheduler.diagnostics().step_pending);
+        assert_eq!(scheduler.diagnostics().completed_steps, 1);
+        assert_eq!(authority.state().generation.completed_step, 1);
+        assert_eq!(
+            authority
+                .state()
+                .generation
+                .wall_accumulator_seconds
+                .to_bits(),
+            step.wall_accumulator_after_step().to_bits()
+        );
+    }
+
+    #[test]
+    fn scheduler_holds_terminal_ticket_and_debt_until_explicit_transition_discard() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        set_complete_setting(
+            &mut candidate,
+            "generationSeconds",
+            NormalizedSettingValue::Float(8.0),
+        );
+        set_complete_setting(
+            &mut candidate,
+            "observer.earlyEndMinSeconds",
+            NormalizedSettingValue::Float(50.0),
+        );
+        candidate.generation.elapsed_seconds = 8.0 - (1.0 / 120.0);
+        refresh_config_hash(&mut candidate);
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let source = authority.state().clone();
+        let mut running = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("terminal fixture must construct the running coordinator");
+        let mut scheduler = FixedStepScheduler::try_new(
+            &authority,
+            FixedStepSchedulerPolicy::provisional_defaults(),
+        )
+        .expect("terminal fixture must construct the scheduler");
+        scheduler.reset_wall_clock(&authority, 100).unwrap();
+        scheduler
+            .service_after_command_drain(&authority, 117, SchedulerServiceMode::Background)
+            .unwrap();
+        let step = scheduler.prepare_due_step(&authority).unwrap();
+        let retained_debt = scheduler.diagnostics().pending_simulation_seconds;
+        let transition = match running
+            .advance_nonterminal(&mut authority, step.running_step_inputs())
+            .expect("terminal result must stage its generation boundary")
+        {
+            RunningStepProgress::GenerationTransitionPending(transition) => transition,
+            other => panic!("expected pending generation transition, got {other:?}"),
+        };
+        assert_eq!(transition.reason(), GenerationTransitionReason::Duration);
+        assert_eq!(transition.candidate().generation.generation, 2);
+        let transition_source_key = transition.source_key();
+        assert_eq!(authority.state(), &source);
+        assert!(scheduler.diagnostics().step_pending);
+        assert_eq!(
+            scheduler.diagnostics().pending_simulation_seconds.to_bits(),
+            retained_debt.to_bits()
+        );
+        assert_eq!(scheduler.diagnostics().completed_steps, 0);
+        assert_eq!(
+            scheduler.prepare_due_step(&authority),
+            Err(SchedulerError::StepPending)
+        );
+        assert!(running
+            .discard_pending_generation_transition(&authority, transition_source_key)
+            .expect("matching explicit discard must succeed"));
+        assert!(running.pending_generation_transition().is_none());
+        scheduler
+            .reject_step(&authority, step)
+            .expect("discarded persistence handoff must reject its scheduler ticket");
+        assert_eq!(
+            scheduler.diagnostics().pending_simulation_seconds.to_bits(),
+            retained_debt.to_bits()
+        );
+        assert_eq!(scheduler.diagnostics().completed_steps, 0);
+        assert_eq!(
+            scheduler.prepare_due_step(&authority),
+            Err(SchedulerError::CommandServiceRequired)
+        );
+    }
+
+    #[test]
+    fn scheduler_rebind_excludes_generation_persistence_wait_from_wall_debt() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        set_complete_setting(
+            &mut candidate,
+            "generationSeconds",
+            NormalizedSettingValue::Float(8.0),
+        );
+        set_complete_setting(
+            &mut candidate,
+            "observer.earlyEndMinSeconds",
+            NormalizedSettingValue::Float(50.0),
+        );
+        candidate.generation.elapsed_seconds = 8.0 - (1.0 / 120.0);
+        refresh_config_hash(&mut candidate);
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("terminal fixture must construct the coordinator");
+        let mut scheduler = FixedStepScheduler::try_new(
+            &authority,
+            FixedStepSchedulerPolicy::provisional_defaults(),
+        )
+        .expect("terminal fixture must construct the scheduler");
+        scheduler.reset_wall_clock(&authority, 100).unwrap();
+        scheduler
+            .service_after_command_drain(&authority, 117, SchedulerServiceMode::Background)
+            .unwrap();
+        let step = scheduler.prepare_due_step(&authority).unwrap();
+        match coordinator
+            .advance_nonterminal(&mut authority, step.running_step_inputs())
+            .expect("terminal scheduled step must stage its generation boundary")
+        {
+            RunningStepProgress::GenerationTransitionPending(_) => {}
+            other => panic!("expected pending generation transition, got {other:?}"),
+        }
+        let directory = GenerationHandoffDirectory::new();
+        let descriptor = coordinator
+            .publish_pending_generation_checkpoint(
+                &authority,
+                directory.path(),
+                CheckpointOperationId::parse("00000000000000000000000000000083").unwrap(),
+                &generation_handoff_checkpoint_limits(),
+                &default_graph_limits(),
+            )
+            .expect("terminal checkpoint must publish");
+        coordinator
+            .acknowledge_pending_generation_persistence(&authority, &descriptor)
+            .expect("exact metadata commit must construct the base world");
+        assert!(matches!(
+            coordinator
+                .prepare_acknowledged_generation_reassignments(&authority)
+                .expect("no-controller generation needs no delivery"),
+            GenerationReassignmentProgress::Ready(_)
+        ));
+        let publication = coordinator
+            .publish_acknowledged_generation_start(&mut authority)
+            .expect("fully durable no-controller generation must publish");
+        assert_eq!(publication.external_assignments, 0);
+        assert!(publication.unavailable_controller_reservations.is_empty());
+        assert!(scheduler.diagnostics().step_pending);
+        scheduler
+            .commit_generation_transition(&authority, step, &publication, 10_000)
+            .expect("scheduler must rebind to the exact running successor");
+        let after_rebind = scheduler.diagnostics();
+        assert!(!after_rebind.step_pending);
+        assert_eq!(after_rebind.completed_steps, 1);
+        assert_eq!(
+            after_rebind.pending_simulation_seconds.to_bits(),
+            step.wall_accumulator_after_step().to_bits()
+        );
+        assert!((after_rebind.observed_wall_seconds - 0.017).abs() < 1.0e-12);
+
+        scheduler
+            .service_after_command_drain(&authority, 10_017, SchedulerServiceMode::Background)
+            .expect("new generation must accept the next command-service boundary");
+        let after_next_wall = scheduler.diagnostics();
+        assert!((after_next_wall.observed_wall_seconds - 0.034).abs() < 1.0e-12);
+        assert!(after_next_wall.pending_simulation_seconds < 0.1);
+    }
+
+    #[test]
+    fn exact_persistence_acknowledgement_precedes_next_world_construction() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        set_complete_setting(
+            &mut candidate,
+            "generationSeconds",
+            NormalizedSettingValue::Float(8.0),
+        );
+        set_complete_setting(
+            &mut candidate,
+            "observer.earlyEndMinSeconds",
+            NormalizedSettingValue::Float(50.0),
+        );
+        candidate.generation.elapsed_seconds = 8.0 - (1.0 / 120.0);
+        refresh_config_hash(&mut candidate);
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let source = authority.state().clone();
+        let limits = RunningStepWorkLimits::provisional_defaults();
+        let expected_projection = authority
+            .running_step_config(limits)
+            .expect("terminal settings must project");
+        let mut coordinator = RunningStepCoordinator::try_new(&authority, limits)
+            .expect("terminal fixture must construct the coordinator");
+        let transition = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("terminal result must stage its exact boundary")
+        {
+            RunningStepProgress::GenerationTransitionPending(transition) => transition,
+            other => panic!("expected pending generation transition, got {other:?}"),
+        };
+        let source_key = transition.source_key();
+        assert!(transition.checkpoint_descriptor().is_none());
+        assert!(!transition.persistence_acknowledged());
+        assert!(matches!(
+            coordinator.prepare_acknowledged_generation_start(&authority),
+            Err(RunningStepError::GenerationPersistenceNotAcknowledged)
+        ));
+
+        let directory = GenerationHandoffDirectory::new();
+        let operation = CheckpointOperationId::parse("00000000000000000000000000000081").unwrap();
+        let descriptor = coordinator
+            .publish_pending_generation_checkpoint(
+                &authority,
+                directory.path(),
+                operation.clone(),
+                &generation_handoff_checkpoint_limits(),
+                &default_graph_limits(),
+            )
+            .expect("managed checkpoint publication must succeed");
+        assert!(directory
+            .path()
+            .join(&descriptor.relative_filename)
+            .is_file());
+        assert_eq!(
+            coordinator
+                .publish_pending_generation_checkpoint(
+                    &authority,
+                    directory.path(),
+                    operation,
+                    &generation_handoff_checkpoint_limits(),
+                    &default_graph_limits(),
+                )
+                .expect("an exact retry must reuse the retained descriptor"),
+            descriptor
+        );
+        assert!(matches!(
+            coordinator.publish_pending_generation_checkpoint(
+                &authority,
+                directory.path(),
+                CheckpointOperationId::parse("00000000000000000000000000000082").unwrap(),
+                &generation_handoff_checkpoint_limits(),
+                &default_graph_limits(),
+            ),
+            Err(RunningStepError::GenerationCheckpointAlreadyPublished { .. })
+        ));
+
+        let mut wrong = descriptor.clone();
+        let replacement = if wrong.logical_root_sha256.ends_with('0') {
+            "1"
+        } else {
+            "0"
+        };
+        wrong.logical_root_sha256.replace_range(63..64, replacement);
+        assert!(matches!(
+            coordinator.acknowledge_pending_generation_persistence(&authority, &wrong),
+            Err(
+                RunningStepError::GenerationPersistenceAcknowledgementMismatch {
+                    field: "logical root"
+                }
+            )
+        ));
+        assert_eq!(authority.state(), &source);
+        assert!(!coordinator
+            .pending_generation_transition()
+            .expect("wrong acknowledgement must retain the transition")
+            .persistence_acknowledged());
+
+        let (first_world, first_rng, first_allocators) = {
+            let prepared = coordinator
+                .acknowledge_pending_generation_persistence(&authority, &descriptor)
+                .expect("the exact committed descriptor may construct the next world");
+            let expected_snakes = prepared
+                .source()
+                .config
+                .population_count
+                .checked_add(prepared.source().config.baseline_count)
+                .unwrap();
+            assert_eq!(prepared.world().snakes.len(), expected_snakes);
+            assert_eq!(
+                prepared.world().pellets.len(),
+                expected_projection.world_step.prefix.ambient.target_count
+            );
+            (
+                prepared.world().clone(),
+                prepared.rng().clone(),
+                prepared.allocators().clone(),
+            )
+        };
+        assert_eq!(authority.state(), &source);
+        let retained = coordinator
+            .pending_generation_transition()
+            .expect("acknowledged transition must remain pending until final publication");
+        assert_eq!(retained.source_key(), source_key);
+        assert_eq!(retained.checkpoint_descriptor(), Some(&descriptor));
+        assert!(retained.persistence_acknowledged());
+        assert!(matches!(
+            coordinator.discard_pending_generation_transition(&authority, source_key),
+            Err(RunningStepError::GenerationPersistenceAlreadyCommitted)
+        ));
+
+        let retried = coordinator
+            .prepare_acknowledged_generation_start(&authority)
+            .expect("a successful construction must be reborrowed without new draws");
+        assert_eq!(retried.world(), &first_world);
+        assert_eq!(retried.rng(), &first_rng);
+        assert_eq!(retried.allocators(), &first_allocators);
+        assert_eq!(authority.state(), &source);
+    }
+
+    #[test]
+    fn durable_generation_boundary_reassigns_connected_controller_before_authority_swap() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            EXTERNAL_ENTITY_ID_START,
+            2,
+            1,
+            7,
+            WorldPoint {
+                x: 1_200.0,
+                y: -1_200.0,
+            },
+        );
+        set_complete_setting(
+            &mut candidate,
+            "generationSeconds",
+            NormalizedSettingValue::Float(8.0),
+        );
+        set_complete_setting(
+            &mut candidate,
+            "observer.earlyEndMinSeconds",
+            NormalizedSettingValue::Float(50.0),
+        );
+        candidate.generation.elapsed_seconds = 8.0 - (1.0 / 120.0);
+        refresh_config_hash(&mut candidate);
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let source = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("terminal external fixture must construct the coordinator");
+        let transition = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 500,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("terminal external fixture must stage a generation boundary")
+        {
+            RunningStepProgress::GenerationTransitionPending(transition) => transition,
+            other => panic!("expected pending generation transition, got {other:?}"),
+        };
+        let source_key = transition.source_key();
+        let directory = GenerationHandoffDirectory::new();
+        let operation = CheckpointOperationId::parse("00000000000000000000000000000091")
+            .expect("test operation ID");
+        let descriptor = coordinator
+            .publish_pending_generation_checkpoint(
+                &authority,
+                directory.path(),
+                operation,
+                &generation_handoff_checkpoint_limits(),
+                &default_graph_limits(),
+            )
+            .expect("generation checkpoint file must publish");
+        coordinator
+            .acknowledge_pending_generation_persistence(&authority, &descriptor)
+            .expect("exact metadata acknowledgement must construct the generation base");
+
+        let (event, token) = match coordinator
+            .prepare_acknowledged_generation_reassignments(&authority)
+            .expect("connected owner must stage one reliable generation assignment")
+        {
+            GenerationReassignmentProgress::DeliveryPending(batch) => {
+                assert_eq!(batch.events().len(), 1);
+                assert_eq!(batch.remaining(), 1);
+                let event = batch.events()[0];
+                assert_eq!(event.step_key, source_key);
+                assert_eq!(event.connection_id, 7);
+                assert_eq!(event.controller_kind, ControllerKind::Player);
+                assert!(matches!(
+                    event.delivery_kind,
+                    ExternalDeliveryEventKind::ReplacementAssignment { .. }
+                ));
+                assert!(event.snake_id >= EXTERNAL_ENTITY_ID_START);
+                let token = batch
+                    .resume_token(0)
+                    .expect("assignment must carry a fresh token")
+                    .to_owned();
+                assert!(!token.is_empty());
+                assert_ne!(token, "external-delivery-1");
+                (event, token)
+            }
+            GenerationReassignmentProgress::Ready(_) => {
+                panic!("connected owner must wait for its exact local send result")
+            }
+        };
+        assert_eq!(authority.state(), &source);
+
+        let stale = ExternalDeliveryResult {
+            step_key: source_key,
+            event_sequence: event.event_sequence,
+            connection_id: event.connection_id + 1,
+            lease_id: event.lease_id,
+            accepted: true,
+        };
+        let pending = coordinator
+            .submit_external_delivery_results(&mut authority, &[stale])
+            .expect("stale connection result must be ignored");
+        assert_eq!(pending.ignored_results, 1);
+        assert!(matches!(pending.state, ExternalDeliveryState::Pending(_)));
+        assert_eq!(authority.state(), &source);
+
+        let accepted = ExternalDeliveryResult {
+            step_key: source_key,
+            event_sequence: event.event_sequence,
+            connection_id: event.connection_id,
+            lease_id: event.lease_id,
+            accepted: true,
+        };
+        let resolved = coordinator
+            .submit_external_delivery_results(&mut authority, &[accepted])
+            .expect("exact assignment result must resolve the generation handoff");
+        assert_eq!(resolved.matched_acceptances, 1);
+        assert!(matches!(
+            resolved.state,
+            ExternalDeliveryState::GenerationAssignmentsReady(transition)
+                if transition.source_key() == source_key
+                    && transition.persistence_acknowledged()
+        ));
+        assert_eq!(authority.state(), &source);
+        assert!(matches!(
+            coordinator
+                .prepare_acknowledged_generation_reassignments(&authority)
+                .expect("resolved assignment must be reborrowed without new entropy"),
+            GenerationReassignmentProgress::Ready(transition)
+                if transition.source_key() == source_key
+        ));
+        let publication = coordinator
+            .publish_acknowledged_generation_start(&mut authority)
+            .expect("durable and assignment-resolved generation must publish atomically");
+        assert_eq!(publication.source_key, source_key);
+        assert_eq!(publication.world_epoch, authority.world_epoch());
+        assert_eq!(publication.generation, source.generation.generation + 1);
+        assert_eq!(
+            publication.completed_step,
+            source.generation.completed_step + 1
+        );
+        assert_eq!(
+            publication.population_epoch,
+            source.generation.population_epoch + 1
+        );
+        assert_eq!(publication.memory, authority.memory_estimate());
+        assert_eq!(publication.external_assignments, 1);
+        assert!(publication.unavailable_controller_reservations.is_empty());
+        assert_eq!(authority.state().phase, AuthorityPhase::Running);
+        assert_eq!(
+            authority
+                .state()
+                .generation
+                .wall_accumulator_seconds
+                .to_bits(),
+            0.0_f64.to_bits()
+        );
+        let replacement = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == event.snake_id)
+            .expect("published generation must contain the assigned snake");
+        assert!(replacement.alive);
+        assert_eq!(replacement.kind, SnakeKind::External);
+        let lease = authority
+            .state()
+            .world
+            .controller_leases
+            .iter()
+            .find(|lease| lease.id == event.lease_id)
+            .expect("published generation must contain the accepted lease");
+        assert_eq!(lease.connection_id, Some(event.connection_id));
+        assert_eq!(lease.resume_token, token);
+        assert!(coordinator.pending_generation_transition().is_none());
+        assert!(matches!(
+            coordinator.advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 501,
+                    wall_accumulator_seconds: 0.0,
+                }
+            ),
+            Err(RunningStepError::AuthorityMismatch {
+                field: "world epoch"
+            })
+        ));
+        RunningStepCoordinator::try_new(&authority, RunningStepWorkLimits::provisional_defaults())
+            .expect("the published successor must admit a fresh running coordinator");
+    }
+
+    #[test]
+    fn durable_generation_boundary_retains_disconnected_token_without_hidden_reassignment() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            EXTERNAL_ENTITY_ID_START,
+            2,
+            1,
+            7,
+            WorldPoint {
+                x: 1_200.0,
+                y: -1_200.0,
+            },
+        );
+        let source_snake_id = candidate.world.controller_leases[0].snake_id;
+        let source_token = candidate.world.controller_leases[0].resume_token.clone();
+        let source_scope = candidate.world.controller_leases[0].scope.clone();
+        let external_snake = candidate
+            .world
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == source_snake_id)
+            .expect("external fixture snake must exist");
+        external_snake.turn = 0.0;
+        external_snake.input_boost = false;
+        let lease = &mut candidate.world.controller_leases[0];
+        lease.connection_id = None;
+        lease.status = ControllerLeaseStatus::ReservedNeutral;
+        lease.last_observed_at_ms = 200;
+        lease.disconnected_at_ms = Some(200);
+        lease.input_hold_expires_at_ms = Some(600);
+        lease.grace_expires_at_ms = Some(30_200);
+        set_complete_setting(
+            &mut candidate,
+            "generationSeconds",
+            NormalizedSettingValue::Float(8.0),
+        );
+        set_complete_setting(
+            &mut candidate,
+            "observer.earlyEndMinSeconds",
+            NormalizedSettingValue::Float(50.0),
+        );
+        candidate.generation.elapsed_seconds = 8.0 - (1.0 / 120.0);
+        refresh_config_hash(&mut candidate);
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let source = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("terminal disconnected fixture must construct the coordinator");
+        let transition = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 1_000,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("terminal disconnected fixture must stage a generation boundary")
+        {
+            RunningStepProgress::GenerationTransitionPending(transition) => transition,
+            other => panic!("expected pending generation transition, got {other:?}"),
+        };
+        let source_key = transition.source_key();
+        let directory = GenerationHandoffDirectory::new();
+        let descriptor = coordinator
+            .publish_pending_generation_checkpoint(
+                &authority,
+                directory.path(),
+                CheckpointOperationId::parse("00000000000000000000000000000092").unwrap(),
+                &generation_handoff_checkpoint_limits(),
+                &default_graph_limits(),
+            )
+            .expect("generation checkpoint file must publish");
+        coordinator
+            .acknowledge_pending_generation_persistence(&authority, &descriptor)
+            .expect("exact metadata acknowledgement must construct the generation base");
+
+        assert!(matches!(
+            coordinator
+                .prepare_acknowledged_generation_reassignments(&authority)
+                .expect("disconnected owner needs no assignment delivery"),
+            GenerationReassignmentProgress::Ready(ready)
+                if ready.source_key() == source_key
+        ));
+        let unavailable = coordinator
+            .pending_unavailable_controller_reservations()
+            .expect("disconnected token outcome must remain inspectable before publication");
+        assert_eq!(unavailable.len(), 1);
+        assert_eq!(unavailable[0].source_lease_id, 1);
+        assert_eq!(unavailable[0].source_snake_id, source_snake_id);
+        assert_eq!(unavailable[0].controller_kind, ControllerKind::Player);
+        assert_eq!(unavailable[0].scope, source_scope);
+        assert_eq!(unavailable[0].resume_token, source_token);
+        assert_eq!(unavailable[0].disconnected_at_ms, Some(200));
+        assert_eq!(unavailable[0].grace_expires_at_ms, Some(30_200));
+        assert_eq!(
+            unavailable[0].reason,
+            crate::engine::external_replacement::UnavailableControllerReason::SnakeUnavailable
+        );
+        let expected_unavailable = unavailable[0].clone();
+        assert_eq!(authority.state(), &source);
+
+        let publication = coordinator
+            .publish_acknowledged_generation_start(&mut authority)
+            .expect("durable disconnected generation must publish without a hidden snake");
+        assert_eq!(publication.source_key, source_key);
+        assert_eq!(publication.external_assignments, 0);
+        assert_eq!(
+            publication.unavailable_controller_reservations,
+            vec![expected_unavailable]
+        );
+        assert!(authority.state().world.controller_leases.is_empty());
+        assert!(authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .all(|snake| snake.kind != SnakeKind::External));
+        assert!(coordinator.pending_generation_transition().is_none());
+        RunningStepCoordinator::try_new(&authority, RunningStepWorkLimits::provisional_defaults())
+            .expect("the published successor must admit a fresh running coordinator");
+    }
+
+    fn candidate_fixed_dt(authority: &AuthoritativeState) -> f64 {
+        authority.state().config.fixed_step_seconds
     }
 
     #[test]
@@ -5554,46 +7936,22 @@ mod tests {
     }
 
     #[test]
-    fn external_delivery_and_regressing_wall_clock_fail_before_authority_changes() {
+    fn external_delivery_acceptance_publishes_once_and_stale_results_are_ignored() {
         let graph = default_graph();
         let mut candidate = complete_running_candidate(&graph);
         let external_id = EXTERNAL_ENTITY_ID_START;
-        push_external_snake(
+        push_connected_external_fixture(
             &mut candidate,
             &graph,
             external_id,
             2,
+            1,
+            7,
             WorldPoint {
                 x: 1_000.0,
                 y: 1_000.0,
             },
         );
-        let external_index = candidate.world.snakes.len() - 1;
-        let body_start = candidate.world.snakes[external_index].body.start;
-        let head = candidate.world.snakes[external_index].position;
-        candidate
-            .world
-            .body_points
-            .extend((1..5).map(|offset| WorldPoint {
-                x: head.x - (offset as f64 * 7.5),
-                y: head.y,
-            }));
-        let external = &mut candidate.world.snakes[external_index];
-        external.body = BodyRange {
-            start: body_start,
-            len: 5,
-        };
-        external.target_length = 5.0;
-        external.radius = 9.0;
-        external.speed = 165.0;
-        candidate.world.controller_leases.push(connected_lease(
-            1,
-            external_id,
-            7,
-            "external-delivery",
-        ));
-        candidate.allocators.next_controller_lease_id = 2;
-
         let mut authority = own_complete_running(candidate, Arc::clone(&graph));
         let source = authority.state().clone();
         let mut coordinator = RunningStepCoordinator::try_new(
@@ -5602,19 +7960,1136 @@ mod tests {
         )
         .expect("external fixture must construct the coordinator");
 
-        assert!(matches!(
-            coordinator.advance_nonterminal(
+        let event = match coordinator
+            .advance_nonterminal(
                 &mut authority,
                 RunningStepInputs {
                     wall_now_ms: 100,
                     wall_accumulator_seconds: 0.0,
                 },
-            ),
-            Err(RunningStepError::ExternalDeliveryRequired { count: 1 })
-        ));
+            )
+            .expect("complete external step must await local Node acceptance")
+        {
+            RunningStepProgress::ExternalDeliveryPending(batch) => {
+                assert_eq!(batch.events().len(), 1);
+                assert_eq!(batch.observation(0).unwrap().len(), 83);
+                assert_eq!(batch.remaining(), 1);
+                assert_eq!(batch.is_accepted(0), Some(false));
+                batch.events()[0]
+            }
+            RunningStepProgress::Published(_) => {
+                panic!("external score marker must not publish before Node acceptance")
+            }
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                panic!("external observation fixture must remain nonterminal")
+            }
+        };
         assert_eq!(authority.state(), &source);
         assert_eq!(coordinator.last_wall_now_ms(), Some(100));
+        assert!(matches!(
+            coordinator.advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 101,
+                    wall_accumulator_seconds: 0.0,
+                },
+            ),
+            Err(RunningStepError::ExternalDeliveryPending { count: 1 })
+        ));
+        assert_eq!(authority.state(), &source);
 
+        let stale = ExternalDeliveryResult {
+            step_key: event.step_key,
+            event_sequence: event.event_sequence,
+            connection_id: event.connection_id,
+            lease_id: event.lease_id + 1,
+            accepted: true,
+        };
+        let replaced_connection = ExternalDeliveryResult {
+            lease_id: event.lease_id,
+            connection_id: event.connection_id + 1,
+            ..stale
+        };
+        let stale_resolution = coordinator
+            .submit_external_delivery_results(&mut authority, &[stale, replaced_connection])
+            .expect("stale assignment result must be ignored");
+        assert_eq!(stale_resolution.matched_acceptances, 0);
+        assert_eq!(stale_resolution.ignored_results, 2);
+        assert!(matches!(
+            stale_resolution.state,
+            ExternalDeliveryState::Pending(batch) if batch.remaining() == 1
+        ));
+        assert_eq!(authority.state(), &source);
+
+        let accepted = ExternalDeliveryResult {
+            step_key: event.step_key,
+            event_sequence: event.event_sequence,
+            connection_id: event.connection_id,
+            lease_id: event.lease_id,
+            accepted: true,
+        };
+        let resolution = coordinator
+            .submit_external_delivery_results(&mut authority, &[accepted])
+            .expect("matching accepted result must publish the complete step");
+        let outcome = match resolution.state {
+            ExternalDeliveryState::Published(outcome) => outcome,
+            _ => panic!("the only matching event must complete publication"),
+        };
+        assert_eq!(resolution.matched_acceptances, 1);
+        assert_eq!(resolution.ignored_results, 0);
+        assert_eq!(outcome.publication.completed_step, 1);
+        let published_external = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == external_id)
+            .unwrap();
+        assert_eq!(published_external.delivered_observation_points, 10.01);
+
+        let published = authority.state().clone();
+        let duplicate = coordinator
+            .submit_external_delivery_results(&mut authority, &[accepted])
+            .expect("duplicate accepted result after publication must be ignored");
+        assert_eq!(duplicate.matched_acceptances, 0);
+        assert_eq!(duplicate.ignored_results, 1);
+        assert!(matches!(duplicate.state, ExternalDeliveryState::Idle));
+        assert_eq!(authority.state(), &published);
+    }
+
+    #[test]
+    fn failed_external_delivery_publishes_the_step_with_a_disconnected_controller() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        let external_id = EXTERNAL_ENTITY_ID_START;
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            external_id,
+            2,
+            1,
+            7,
+            WorldPoint {
+                x: 1_000.0,
+                y: 1_000.0,
+            },
+        );
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("external fixture must construct the coordinator");
+        let inputs = RunningStepInputs {
+            wall_now_ms: 100,
+            wall_accumulator_seconds: 0.0,
+        };
+
+        let first_event = match coordinator
+            .advance_nonterminal(&mut authority, inputs)
+            .expect("first attempt must stage")
+        {
+            RunningStepProgress::ExternalDeliveryPending(batch) => batch.events()[0],
+            RunningStepProgress::Published(_) => panic!("external event must defer publication"),
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                panic!("external send-failure fixture must remain nonterminal")
+            }
+        };
+        let rejected = ExternalDeliveryResult {
+            step_key: first_event.step_key,
+            event_sequence: first_event.event_sequence,
+            connection_id: first_event.connection_id,
+            lease_id: first_event.lease_id,
+            accepted: false,
+        };
+        let resolution = coordinator
+            .submit_external_delivery_results(&mut authority, &[rejected])
+            .expect("matching failed send must publish the prevalidated disconnect");
+        let outcome = match resolution.state {
+            ExternalDeliveryState::Published(outcome) => outcome,
+            _ => panic!("the failed send must resolve the only pending event"),
+        };
+        assert_eq!(resolution.matched_acceptances, 0);
+        assert_eq!(resolution.matched_failures, 1);
+        assert_eq!(resolution.ignored_results, 0);
+        assert_eq!(outcome.publication.completed_step, 1);
+        assert_eq!(outcome.diagnostics.external_deliveries_pending, 0);
+        assert_eq!(authority.state().generation.completed_step, 1);
+        assert_eq!(
+            authority
+                .state()
+                .world
+                .snakes
+                .iter()
+                .find(|snake| snake.id == external_id)
+                .unwrap()
+                .delivered_observation_points,
+            2.0
+        );
+        let lease = authority
+            .state()
+            .world
+            .controller_leases
+            .iter()
+            .find(|lease| lease.id == first_event.lease_id)
+            .unwrap();
+        assert_eq!(lease.connection_id, None);
+        assert_eq!(lease.status, ControllerLeaseStatus::HoldingLastInput);
+        assert_eq!(lease.disconnected_at_ms, Some(inputs.wall_now_ms));
+        assert_eq!(lease.input_hold_expires_at_ms, Some(600));
+        assert_eq!(lease.grace_expires_at_ms, Some(30_100));
+
+        let stale_acceptance = ExternalDeliveryResult {
+            accepted: true,
+            ..rejected
+        };
+        let stale = coordinator
+            .submit_external_delivery_results(&mut authority, &[stale_acceptance])
+            .expect("result after publication must be ignored");
+        assert_eq!(stale.matched_acceptances, 0);
+        assert_eq!(stale.matched_failures, 0);
+        assert_eq!(stale.ignored_results, 1);
+        assert!(matches!(stale.state, ExternalDeliveryState::Idle));
+
+        assert!(matches!(
+            coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 101,
+                        wall_accumulator_seconds: 0.0,
+                    },
+                )
+                .expect("disconnected grace must no longer emit to the failed socket"),
+            RunningStepProgress::Published(_)
+        ));
+        assert_eq!(authority.state().generation.completed_step, 2);
+    }
+
+    #[test]
+    fn multiple_external_observations_publish_only_after_every_matching_acceptance() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        let first_id = EXTERNAL_ENTITY_ID_START;
+        let second_id = EXTERNAL_ENTITY_ID_START + 1;
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            first_id,
+            2,
+            1,
+            7,
+            WorldPoint {
+                x: 1_000.0,
+                y: 1_000.0,
+            },
+        );
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            second_id,
+            3,
+            2,
+            8,
+            WorldPoint {
+                x: -1_000.0,
+                y: 1_000.0,
+            },
+        );
+        candidate.world.controller_leases.last_mut().unwrap().kind =
+            ControllerKind::ReinforcementLearning;
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let source = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("two-controller fixture must construct the coordinator");
+
+        let events = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("complete step must stage both observations")
+        {
+            RunningStepProgress::ExternalDeliveryPending(batch) => {
+                assert_eq!(batch.events().len(), 2);
+                assert_eq!(batch.remaining(), 2);
+                [batch.events()[0], batch.events()[1]]
+            }
+            RunningStepProgress::Published(_) => panic!("both events must require acceptance"),
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                panic!("two-controller fixture must remain nonterminal")
+            }
+        };
+        assert!(events[0].snake_id < events[1].snake_id);
+        assert_eq!(events[0].controller_kind, ControllerKind::Player);
+        assert_eq!(
+            events[1].controller_kind,
+            ControllerKind::ReinforcementLearning
+        );
+
+        let first_result = ExternalDeliveryResult {
+            step_key: events[0].step_key,
+            event_sequence: events[0].event_sequence,
+            connection_id: events[0].connection_id,
+            lease_id: events[0].lease_id,
+            accepted: true,
+        };
+        let first = coordinator
+            .submit_external_delivery_results(&mut authority, &[first_result])
+            .expect("first exact result must be retained without publication");
+        assert_eq!(first.matched_acceptances, 1);
+        assert!(matches!(
+            first.state,
+            ExternalDeliveryState::Pending(batch)
+                if batch.remaining() == 1 && batch.is_accepted(0) == Some(true)
+        ));
+        assert_eq!(authority.state(), &source);
+
+        let duplicate = coordinator
+            .submit_external_delivery_results(&mut authority, &[first_result])
+            .expect("duplicate acceptance must be ignored");
+        assert_eq!(duplicate.matched_acceptances, 0);
+        assert_eq!(duplicate.ignored_results, 1);
+        assert!(matches!(
+            duplicate.state,
+            ExternalDeliveryState::Pending(batch) if batch.remaining() == 1
+        ));
+        assert_eq!(authority.state(), &source);
+
+        let duplicate_failure = ExternalDeliveryResult {
+            accepted: false,
+            ..first_result
+        };
+        let duplicate_failure_resolution = coordinator
+            .submit_external_delivery_results(&mut authority, &[duplicate_failure])
+            .expect("a negative duplicate cannot override prior acceptance");
+        assert_eq!(duplicate_failure_resolution.matched_acceptances, 0);
+        assert_eq!(duplicate_failure_resolution.matched_failures, 0);
+        assert_eq!(duplicate_failure_resolution.ignored_results, 1);
+        assert!(matches!(
+            duplicate_failure_resolution.state,
+            ExternalDeliveryState::Pending(batch)
+                if batch.remaining() == 1
+                    && batch.status(0) == Some(ExternalDeliveryStatus::Accepted)
+        ));
+        assert_eq!(authority.state(), &source);
+
+        let second_result = ExternalDeliveryResult {
+            step_key: events[1].step_key,
+            event_sequence: events[1].event_sequence,
+            connection_id: events[1].connection_id,
+            lease_id: events[1].lease_id,
+            accepted: true,
+        };
+        let completed = coordinator
+            .submit_external_delivery_results(&mut authority, &[second_result])
+            .expect("last exact result must publish once");
+        let completed_outcome = match completed.state {
+            ExternalDeliveryState::Published(outcome) => outcome,
+            _ => panic!("last exact acceptance must publish"),
+        };
+        assert_eq!(completed.matched_failures, 0);
+        assert_eq!(completed_outcome.diagnostics.external_deliveries_pending, 0);
+        for snake_id in [first_id, second_id] {
+            let snake = authority
+                .state()
+                .world
+                .snakes
+                .iter()
+                .find(|snake| snake.id == snake_id)
+                .unwrap();
+            assert_eq!(snake.delivered_observation_points, 10.01);
+        }
+        assert_eq!(authority.state().generation.completed_step, 1);
+    }
+
+    #[test]
+    fn mixed_external_results_advance_only_accepted_markers_and_disconnect_failures() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        let accepted_id = EXTERNAL_ENTITY_ID_START;
+        let failed_id = EXTERNAL_ENTITY_ID_START + 1;
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            accepted_id,
+            2,
+            1,
+            7,
+            WorldPoint {
+                x: 1_000.0,
+                y: 1_000.0,
+            },
+        );
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            failed_id,
+            3,
+            2,
+            8,
+            WorldPoint {
+                x: -1_000.0,
+                y: 1_000.0,
+            },
+        );
+        candidate.world.controller_leases.last_mut().unwrap().kind =
+            ControllerKind::ReinforcementLearning;
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("mixed-result fixture must construct the coordinator");
+        let events = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("both external observations must stage")
+        {
+            RunningStepProgress::ExternalDeliveryPending(batch) => {
+                [batch.events()[0], batch.events()[1]]
+            }
+            RunningStepProgress::Published(_) => panic!("both events require local results"),
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                panic!("mixed-result fixture must remain nonterminal")
+            }
+        };
+        let accepted = ExternalDeliveryResult {
+            step_key: events[0].step_key,
+            event_sequence: events[0].event_sequence,
+            connection_id: events[0].connection_id,
+            lease_id: events[0].lease_id,
+            accepted: true,
+        };
+        let failed = ExternalDeliveryResult {
+            step_key: events[1].step_key,
+            event_sequence: events[1].event_sequence,
+            connection_id: events[1].connection_id,
+            lease_id: events[1].lease_id,
+            accepted: false,
+        };
+        let resolution = coordinator
+            .submit_external_delivery_results(&mut authority, &[failed, accepted])
+            .expect("prevalidated mixed results must publish atomically");
+        assert_eq!(resolution.matched_acceptances, 1);
+        assert_eq!(resolution.matched_failures, 1);
+        assert_eq!(resolution.ignored_results, 0);
+        let outcome = match resolution.state {
+            ExternalDeliveryState::Published(outcome) => outcome,
+            _ => panic!("all resolved events must publish exactly once"),
+        };
+        assert_eq!(outcome.diagnostics.external_deliveries_pending, 0);
+
+        let accepted_snake = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == accepted_id)
+            .unwrap();
+        let failed_snake = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == failed_id)
+            .unwrap();
+        assert_eq!(accepted_snake.delivered_observation_points, 10.01);
+        assert_eq!(failed_snake.delivered_observation_points, 2.0);
+        let accepted_lease = authority
+            .state()
+            .world
+            .controller_leases
+            .iter()
+            .find(|lease| lease.snake_id == accepted_id)
+            .unwrap();
+        let failed_lease = authority
+            .state()
+            .world
+            .controller_leases
+            .iter()
+            .find(|lease| lease.snake_id == failed_id)
+            .unwrap();
+        assert_eq!(accepted_lease.status, ControllerLeaseStatus::Connected);
+        assert_eq!(accepted_lease.connection_id, Some(7));
+        assert_eq!(failed_lease.status, ControllerLeaseStatus::HoldingLastInput);
+        assert_eq!(failed_lease.connection_id, None);
+        assert_eq!(authority.state().generation.completed_step, 1);
+    }
+
+    #[test]
+    fn repeated_external_delivery_reuses_every_reported_bridge_capacity() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            EXTERNAL_ENTITY_ID_START,
+            2,
+            1,
+            7,
+            WorldPoint {
+                x: 1_000.0,
+                y: 1_000.0,
+            },
+        );
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("external fixture must construct the coordinator");
+        let mut warmed_capacities = None;
+
+        for boundary in 0..24u64 {
+            let event = match coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 100 + boundary,
+                        wall_accumulator_seconds: 0.0,
+                    },
+                )
+                .expect("external boundary must stage")
+            {
+                RunningStepProgress::ExternalDeliveryPending(batch) => batch.events()[0],
+                RunningStepProgress::Published(_) => {
+                    panic!("external boundary must await local acceptance")
+                }
+                RunningStepProgress::GenerationTransitionPending(_) => {
+                    panic!("warmed external boundary must remain nonterminal")
+                }
+            };
+            let pending = coordinator.external_delivery_diagnostics();
+            assert_eq!(pending.pending_events, 1);
+            assert_eq!(pending.remaining_events, 1);
+            let capacities = (
+                pending.event_capacity,
+                pending.acceptance_capacity,
+                pending.disconnect_capacity,
+                pending.observation_capacity,
+            );
+            if let Some(expected) = warmed_capacities {
+                assert_eq!(capacities, expected);
+            } else {
+                warmed_capacities = Some(capacities);
+            }
+
+            let accepted = ExternalDeliveryResult {
+                step_key: event.step_key,
+                event_sequence: event.event_sequence,
+                connection_id: event.connection_id,
+                lease_id: event.lease_id,
+                accepted: true,
+            };
+            assert!(matches!(
+                coordinator
+                    .submit_external_delivery_results(&mut authority, &[accepted])
+                    .expect("matching result must publish")
+                    .state,
+                ExternalDeliveryState::Published(_)
+            ));
+            let idle = coordinator.external_delivery_diagnostics();
+            assert_eq!(idle.pending_events, 0);
+            assert_eq!(idle.remaining_events, 0);
+            assert_eq!(
+                (
+                    idle.event_capacity,
+                    idle.acceptance_capacity,
+                    idle.disconnect_capacity,
+                    idle.observation_capacity,
+                ),
+                warmed_capacities.unwrap()
+            );
+        }
+        assert_eq!(authority.state().generation.completed_step, 24);
+    }
+
+    #[test]
+    fn superseded_operation_ignores_its_old_external_result_without_publication() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            EXTERNAL_ENTITY_ID_START,
+            2,
+            1,
+            7,
+            WorldPoint {
+                x: 1_000.0,
+                y: 1_000.0,
+            },
+        );
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let source = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("external fixture must construct the coordinator");
+        let event = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("external step must stage")
+        {
+            RunningStepProgress::ExternalDeliveryPending(batch) => batch.events()[0],
+            RunningStepProgress::Published(_) => panic!("external event must defer publication"),
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                panic!("stale-result fixture must remain nonterminal")
+            }
+        };
+        authority
+            .begin_running_step()
+            .expect("a newer operation must supersede the retained proposal");
+        let result = ExternalDeliveryResult {
+            step_key: event.step_key,
+            event_sequence: event.event_sequence,
+            connection_id: event.connection_id,
+            lease_id: event.lease_id,
+            accepted: true,
+        };
+        let resolution = coordinator
+            .submit_external_delivery_results(&mut authority, &[result])
+            .expect("superseded result must be ignored");
+        assert_eq!(resolution.matched_acceptances, 0);
+        assert_eq!(resolution.ignored_results, 1);
+        assert!(matches!(resolution.state, ExternalDeliveryState::Idle));
+        assert_eq!(authority.state(), &source);
+    }
+
+    #[test]
+    fn terminal_or_failed_admission_never_exposes_an_external_delivery_batch() {
+        let graph = default_graph();
+
+        let mut terminal = complete_running_candidate(&graph);
+        push_connected_external_fixture(
+            &mut terminal,
+            &graph,
+            EXTERNAL_ENTITY_ID_START,
+            2,
+            1,
+            7,
+            WorldPoint {
+                x: 1_000.0,
+                y: 1_000.0,
+            },
+        );
+        set_complete_setting(
+            &mut terminal,
+            "generationSeconds",
+            NormalizedSettingValue::Float(8.0),
+        );
+        set_complete_setting(
+            &mut terminal,
+            "observer.earlyEndMinSeconds",
+            NormalizedSettingValue::Float(50.0),
+        );
+        terminal.generation.elapsed_seconds = 8.0 - (1.0 / 120.0);
+        refresh_config_hash(&mut terminal);
+        let mut terminal_authority = own_complete_running(terminal, Arc::clone(&graph));
+        let terminal_source = terminal_authority.state().clone();
+        let mut terminal_coordinator = RunningStepCoordinator::try_new(
+            &terminal_authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("terminal fixture must construct the coordinator");
+        let transition = match terminal_coordinator
+            .advance_nonterminal(
+                &mut terminal_authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("terminal attempt must stage one generation transition")
+        {
+            RunningStepProgress::GenerationTransitionPending(transition) => transition,
+            other => panic!("expected pending generation transition, got {other:?}"),
+        };
+        assert_eq!(transition.reason(), GenerationTransitionReason::Duration);
+        assert_eq!(terminal_authority.state(), &terminal_source);
+        assert!(matches!(
+            terminal_coordinator
+                .submit_external_delivery_results(&mut terminal_authority, &[])
+                .expect("terminal attempt must retain no bridge batch")
+                .state,
+            ExternalDeliveryState::Idle
+        ));
+
+        let mut inadmissible = complete_running_candidate(&graph);
+        push_connected_external_fixture(
+            &mut inadmissible,
+            &graph,
+            EXTERNAL_ENTITY_ID_START,
+            2,
+            1,
+            7,
+            WorldPoint {
+                x: 1_000.0,
+                y: 1_000.0,
+            },
+        );
+        let mut inadmissible_authority = own_complete_running(inadmissible, Arc::clone(&graph));
+        let inadmissible_source = inadmissible_authority.state().clone();
+        let mut inadmissible_coordinator = RunningStepCoordinator::try_new(
+            &inadmissible_authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("memory fixture must construct the coordinator");
+        inadmissible_authority.memory_ceiling_bytes = 1;
+        assert!(matches!(
+            inadmissible_coordinator.advance_nonterminal(
+                &mut inadmissible_authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            ),
+            Err(RunningStepError::State(error))
+                if matches!(*error, StateError::MemoryCeilingExceeded { .. })
+        ));
+        assert_eq!(inadmissible_authority.state(), &inadmissible_source);
+        assert!(matches!(
+            inadmissible_coordinator
+                .submit_external_delivery_results(&mut inadmissible_authority, &[])
+                .expect("failed admission must expose no bridge batch")
+                .state,
+            ExternalDeliveryState::Idle
+        ));
+    }
+
+    #[test]
+    fn controlled_wall_death_waits_for_reliable_replacement_assignment_before_publication() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        let old_snake_id = EXTERNAL_ENTITY_ID_START;
+        let old_lease_id = 1;
+        let connection_id = 7;
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            old_snake_id,
+            2,
+            old_lease_id,
+            connection_id,
+            WorldPoint { x: 3_490.5, y: 0.0 },
+        );
+        let source = candidate.clone();
+        let old_token = source
+            .world
+            .controller_leases
+            .last()
+            .unwrap()
+            .resume_token
+            .clone();
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("controlled wall-death fixture must construct the coordinator");
+
+        let (event, new_token) = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("controlled death must stage one reliable replacement assignment")
+        {
+            RunningStepProgress::ExternalDeliveryPending(batch) => {
+                assert_eq!(batch.events().len(), 1);
+                assert_eq!(batch.remaining(), 1);
+                assert_eq!(batch.observation(0), None);
+                let event = batch.events()[0];
+                assert!(matches!(
+                    event.delivery_kind,
+                    ExternalDeliveryEventKind::ReplacementAssignment { frame_v1_id }
+                        if frame_v1_id == source.allocators.next_frame_v1_id
+                ));
+                assert_eq!(event.snake_id, source.allocators.next_external_id);
+                assert_eq!(event.lease_id, source.allocators.next_controller_lease_id);
+                assert_eq!(event.connection_id, connection_id);
+                assert!(event.position.x.is_finite() && event.position.y.is_finite());
+                assert!(event.direction.is_finite());
+                let token = batch
+                    .resume_token(0)
+                    .expect("replacement assignment must carry one opaque token")
+                    .to_owned();
+                assert_eq!(token.len(), 32);
+                assert_ne!(token, old_token);
+                (event, token)
+            }
+            RunningStepProgress::Published(_) => {
+                panic!("replacement assignment must resolve before authority publication")
+            }
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                panic!("controlled wall-death fixture must remain nonterminal")
+            }
+        };
+        assert_eq!(authority.state(), &source);
+
+        let stale = ExternalDeliveryResult {
+            step_key: event.step_key,
+            event_sequence: event.event_sequence,
+            connection_id: event.connection_id,
+            lease_id: old_lease_id,
+            accepted: true,
+        };
+        let stale_resolution = coordinator
+            .submit_external_delivery_results(&mut authority, &[stale])
+            .expect("superseded lease result must be ignored");
+        assert_eq!(stale_resolution.matched_acceptances, 0);
+        assert_eq!(stale_resolution.ignored_results, 1);
+        assert!(matches!(
+            stale_resolution.state,
+            ExternalDeliveryState::Pending(batch) if batch.remaining() == 1
+        ));
+        assert_eq!(authority.state(), &source);
+
+        let accepted = ExternalDeliveryResult {
+            step_key: event.step_key,
+            event_sequence: event.event_sequence,
+            connection_id: event.connection_id,
+            lease_id: event.lease_id,
+            accepted: true,
+        };
+        let resolution = coordinator
+            .submit_external_delivery_results(&mut authority, &[accepted])
+            .expect("accepted replacement assignment must publish the complete fixed step");
+        assert_eq!(resolution.matched_acceptances, 1);
+        assert_eq!(resolution.matched_failures, 0);
+        let outcome = match resolution.state {
+            ExternalDeliveryState::Published(outcome) => outcome,
+            _ => panic!("the resolved replacement must publish exactly once"),
+        };
+        assert_eq!(outcome.publication.completed_step, 1);
+        assert_eq!(outcome.diagnostics.external_deliveries_pending, 0);
+
+        let published = authority.state();
+        assert!(published
+            .world
+            .snakes
+            .iter()
+            .all(|snake| snake.id != old_snake_id));
+        let replacement = published
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == event.snake_id)
+            .expect("fresh replacement snake must become authoritative");
+        assert!(replacement.alive);
+        assert_eq!(replacement.kind, SnakeKind::External);
+        assert_eq!(replacement.position, event.position);
+        assert_eq!(replacement.direction, event.direction);
+        assert_eq!(replacement.body.len, 5);
+        assert_eq!(
+            published.world.body_points[replacement.body.start],
+            replacement.position
+        );
+        let lease = published
+            .world
+            .controller_leases
+            .iter()
+            .find(|lease| lease.id == event.lease_id)
+            .expect("fresh replacement lease must become authoritative");
+        assert_eq!(lease.snake_id, event.snake_id);
+        assert_eq!(lease.connection_id, Some(connection_id));
+        assert_eq!(lease.status, ControllerLeaseStatus::Connected);
+        assert_eq!(lease.resume_token, new_token);
+        assert_eq!(lease.latest_action.turn, 0.0);
+        assert!(!lease.latest_action.boost);
+
+        let brain = published
+            .brains
+            .iter()
+            .find(|brain| brain.owner == BrainOwner::Entity(event.snake_id))
+            .expect("fresh replacement brain must become authoritative");
+        assert_eq!(brain.handle.id, source.allocators.next_brain_id);
+        assert_eq!(
+            brain.non_population_weights.as_ref().unwrap().len(),
+            graph.total_parameters
+        );
+        assert!(brain
+            .non_population_weights
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|weight| weight.to_bits() != 0));
+        assert_eq!(brain.recurrent.len(), graph.total_state_size);
+        assert!(brain.recurrent.iter().all(|value| value.to_bits() == 0));
+        assert_ne!(
+            published.rng.external_controller,
+            source.rng.external_controller
+        );
+        assert_eq!(published.rng.evolution, source.rng.evolution);
+        assert_eq!(
+            published.allocators.next_external_id,
+            source.allocators.next_external_id + 1
+        );
+        assert_eq!(
+            published.allocators.next_frame_v1_id,
+            source.allocators.next_frame_v1_id + 1
+        );
+        assert_eq!(
+            published.allocators.next_brain_id,
+            source.allocators.next_brain_id + 1
+        );
+        assert_eq!(
+            published.allocators.next_controller_lease_id,
+            source.allocators.next_controller_lease_id + 1
+        );
+
+        let published = published.clone();
+        let duplicate = coordinator
+            .submit_external_delivery_results(&mut authority, &[accepted])
+            .expect("duplicate replacement result after publication must be ignored");
+        assert_eq!(duplicate.matched_acceptances, 0);
+        assert_eq!(duplicate.ignored_results, 1);
+        assert!(matches!(duplicate.state, ExternalDeliveryState::Idle));
+        assert_eq!(authority.state(), &published);
+    }
+
+    #[test]
+    fn failed_replacement_assignment_keeps_the_known_token_and_disconnect_grace() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        let old_snake_id = EXTERNAL_ENTITY_ID_START;
+        let old_lease_id = 1;
+        let connection_id = 7;
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            old_snake_id,
+            2,
+            old_lease_id,
+            connection_id,
+            WorldPoint { x: 3_490.5, y: 0.0 },
+        );
+        let old_token = candidate
+            .world
+            .controller_leases
+            .last()
+            .unwrap()
+            .resume_token
+            .clone();
+        let source = candidate.clone();
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("failed-assignment fixture must construct the coordinator");
+        let (event, rejected_token) = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("controlled death must stage its assignment")
+        {
+            RunningStepProgress::ExternalDeliveryPending(batch) => {
+                (batch.events()[0], batch.resume_token(0).unwrap().to_owned())
+            }
+            RunningStepProgress::Published(_) => panic!("assignment must resolve first"),
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                panic!("failed-assignment fixture must remain nonterminal")
+            }
+        };
+        assert_ne!(rejected_token, old_token);
+        assert_eq!(authority.state(), &source);
+
+        let rejected = ExternalDeliveryResult {
+            step_key: event.step_key,
+            event_sequence: event.event_sequence,
+            connection_id: event.connection_id,
+            lease_id: event.lease_id,
+            accepted: false,
+        };
+        let resolution = coordinator
+            .submit_external_delivery_results(&mut authority, &[rejected])
+            .expect("failed local assignment send must publish the disconnected replacement");
+        assert_eq!(resolution.matched_failures, 1);
+        assert!(matches!(
+            resolution.state,
+            ExternalDeliveryState::Published(_)
+        ));
+
+        let published = authority.state();
+        assert!(published
+            .world
+            .snakes
+            .iter()
+            .all(|snake| snake.id != old_snake_id));
+        let replacement = published
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == event.snake_id)
+            .expect("failed delivery must not discard the fresh snake");
+        assert!(replacement.alive);
+        assert_eq!(replacement.turn, 0.0);
+        assert!(!replacement.input_boost);
+        let lease = published
+            .world
+            .controller_leases
+            .iter()
+            .find(|lease| lease.id == event.lease_id)
+            .expect("fresh lease must enter disconnect grace");
+        assert_eq!(lease.resume_token, old_token);
+        assert_ne!(lease.resume_token, rejected_token);
+        assert_eq!(lease.connection_id, None);
+        assert_eq!(lease.status, ControllerLeaseStatus::HoldingLastInput);
+        assert_eq!(lease.disconnected_at_ms, Some(100));
+        assert_eq!(lease.input_hold_expires_at_ms, Some(600));
+        assert_eq!(lease.grace_expires_at_ms, Some(30_100));
+        assert_eq!(lease.takeover_committed_at_ms, None);
+
+        let duplicate = coordinator
+            .submit_external_delivery_results(
+                &mut authority,
+                &[ExternalDeliveryResult {
+                    accepted: true,
+                    ..rejected
+                }],
+            )
+            .expect("late acceptance after a failed assignment must be ignored");
+        assert_eq!(duplicate.matched_acceptances, 0);
+        assert_eq!(duplicate.ignored_results, 1);
+        assert!(matches!(duplicate.state, ExternalDeliveryState::Idle));
+    }
+
+    #[test]
+    fn already_disconnected_controlled_death_removes_only_the_dead_lease() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        let old_snake_id = EXTERNAL_ENTITY_ID_START;
+        let old_lease_id = 1;
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            old_snake_id,
+            2,
+            old_lease_id,
+            7,
+            WorldPoint { x: 3_490.5, y: 0.0 },
+        );
+        let lease = candidate.world.controller_leases.last_mut().unwrap();
+        lease.connection_id = None;
+        lease.status = ControllerLeaseStatus::HoldingLastInput;
+        lease.disconnected_at_ms = Some(100);
+        lease.input_hold_expires_at_ms = Some(600);
+        lease.grace_expires_at_ms = Some(30_100);
+        let snake = candidate.world.snakes.last_mut().unwrap();
+        snake.turn = lease.latest_action.turn;
+        snake.input_boost = lease.latest_action.boost;
+        let source_rng = candidate.rng.clone();
+        let source_allocators = candidate.allocators.clone();
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("disconnected wall-death fixture must construct the coordinator");
+
+        let outcome = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("a disconnected controlled death needs no Node assignment result")
+        {
+            RunningStepProgress::Published(outcome) => outcome,
+            RunningStepProgress::ExternalDeliveryPending(_) => {
+                panic!("a disconnected dead owner has no socket to receive an assignment")
+            }
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                panic!("disconnected controlled-death fixture must remain nonterminal")
+            }
+        };
+        assert_eq!(outcome.diagnostics.external_replacement.replacements, 0);
+        assert_eq!(
+            outcome.diagnostics.external_replacement.removed_dead_leases,
+            1
+        );
+        let published = authority.state();
+        let dead = published
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == old_snake_id)
+            .expect("the dead body remains part of the running world boundary");
+        assert!(!dead.alive);
+        assert!(published
+            .world
+            .controller_leases
+            .iter()
+            .all(|lease| lease.id != old_lease_id));
+        assert_eq!(
+            published.rng.external_controller,
+            source_rng.external_controller
+        );
+        assert_eq!(
+            published.allocators.next_external_id,
+            source_allocators.next_external_id
+        );
+        assert_eq!(
+            published.allocators.next_brain_id,
+            source_allocators.next_brain_id
+        );
+        assert_eq!(
+            published.allocators.next_controller_lease_id,
+            source_allocators.next_controller_lease_id
+        );
+    }
+
+    #[test]
+    fn regressing_controller_wall_clock_never_starts_a_new_attempt() {
+        let graph = default_graph();
+        let candidate = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("complete admitted config must construct the coordinator");
+        assert!(matches!(
+            coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 100,
+                        wall_accumulator_seconds: 0.0,
+                    },
+                )
+                .expect("first boundary must publish"),
+            RunningStepProgress::Published(_)
+        ));
+        let source = authority.state().clone();
         assert!(matches!(
             coordinator.advance_nonterminal(
                 &mut authority,
@@ -5671,22 +9146,81 @@ mod tests {
             )
             .expect("terminal fixture must construct the coordinator");
 
-            assert!(matches!(
-                coordinator.advance_nonterminal(
+            let transition = match coordinator
+                .advance_nonterminal(
                     &mut authority,
                     RunningStepInputs {
                         wall_now_ms: 200,
                         wall_accumulator_seconds: 0.0,
                     },
-                ),
-                Err(RunningStepError::GenerationTransitionRequired {
-                    reason,
-                    alive_evolved: 1,
-                    ..
-                }) if reason == expected_reason
-            ));
+                )
+                .expect("terminal guard must stage a generation transition")
+            {
+                RunningStepProgress::GenerationTransitionPending(transition) => transition,
+                other => panic!("expected pending generation transition, got {other:?}"),
+            };
+            assert_eq!(transition.reason(), expected_reason);
+            assert_eq!(transition.alive_evolved(), 1);
             assert_eq!(authority.state(), &source);
         }
+    }
+
+    #[test]
+    fn terminal_guard_runs_before_old_generation_external_replacement() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            EXTERNAL_ENTITY_ID_START,
+            2,
+            1,
+            7,
+            WorldPoint { x: 3_490.5, y: 0.0 },
+        );
+        set_complete_setting(
+            &mut candidate,
+            "generationSeconds",
+            NormalizedSettingValue::Float(8.0),
+        );
+        set_complete_setting(
+            &mut candidate,
+            "observer.earlyEndMinSeconds",
+            NormalizedSettingValue::Float(50.0),
+        );
+        candidate.generation.elapsed_seconds = 8.0 - (1.0 / 120.0);
+        candidate.allocators.next_external_id = BASELINE_ENTITY_ID_START;
+        refresh_config_hash(&mut candidate);
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let source = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .expect("terminal controlled-death fixture must construct the coordinator");
+
+        let transition = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .expect("terminal wall death must stage a generation transition")
+        {
+            RunningStepProgress::GenerationTransitionPending(transition) => transition,
+            other => panic!("expected pending generation transition, got {other:?}"),
+        };
+        assert_eq!(transition.reason(), GenerationTransitionReason::Duration);
+        assert_eq!(authority.state(), &source);
+        assert!(matches!(
+            coordinator
+                .submit_external_delivery_results(&mut authority, &[])
+                .expect("terminal attempt must expose no replacement assignment")
+                .state,
+            ExternalDeliveryState::Idle
+        ));
     }
 
     #[test]

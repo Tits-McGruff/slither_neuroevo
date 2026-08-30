@@ -222,11 +222,13 @@ describe('experimental native bridge real-addon integration', () => {
   });
 
   it('has only a coarse experimental surface, never per-snake, layer, or fixed-step controls', () => {
-    const roots = exportedNativeRoots(loadNativeBinding());
+    const binding = loadNativeBinding();
+    const roots = exportedNativeRoots(binding);
     expect(roots).toContain('ExperimentalRustEngine');
+    expect(roots).toContain('ExperimentalStage6aFreshRunSession');
     expect(roots).toContain('experimentalEngineContractVersion');
     expect(roots.filter(name => /(?:snake|layer|fixed.?step|world.?step|neural.?step)/i.test(name))).toEqual([]);
-    expect(Object.getOwnPropertyNames(loadNativeBinding().ExperimentalRustEngine.prototype).sort()).toEqual([
+    expect(Object.getOwnPropertyNames(binding.ExperimentalRustEngine.prototype).sort()).toEqual([
       'constructor',
       'drainOutputs',
       'health',
@@ -235,6 +237,20 @@ describe('experimental native bridge real-addon integration', () => {
       'requestStop',
       'start',
       'submitProbeBatch'
+    ]);
+    const freshRunConstructor = (binding as unknown as Record<string, unknown>)[
+      'ExperimentalStage6aFreshRunSession'
+    ];
+    expect(freshRunConstructor).toBeTypeOf('function');
+    expect(Object.getOwnPropertyNames(
+      (freshRunConstructor as { prototype: object }).prototype
+    ).sort()).toEqual([
+      'acknowledgeRunStartPersistence',
+      'activateRunningAuthority',
+      'constructor',
+      'initialize',
+      'publishRunStartCheckpoint',
+      'snapshot'
     ]);
   });
 

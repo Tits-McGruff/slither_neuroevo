@@ -1,0 +1,369 @@
+{
+  "schema": "slither-stage5-rust-single-worker-complete-step-benchmark-v2",
+  "version": 2,
+  "evidenceClass": "new measured target-VM single-worker Rust complete-step result (rust-scalar-v1)",
+  "caveat": "Source-shaped deterministic synthetic single-worker fixed-step benchmark with an explicitly recorded neural math backend. It drives one admitted Rust authority through corrected sensing, distinct stateful population brains, baseline control, movement, food, continuous collision, effects, accounting, and atomic publication. Allocation distributions count allocation operations by measured phase; they do not correlate individual operations with retained-capacity changes and therefore do not prove either a fixed allocation floor or an allocation-free steady state. The benchmark does not include the scheduler pump, N-API/Node bridge, browser or Protocol 2 RL client, frame packing, generation transition/evolution, persistence, a sustained round, the persistent calculation-worker pool, or production cutover.",
+  "source": {
+    "nativeBuildIdentifier": "slither_native/0.1.0+7925faf7aef3.9912eff9755c5a52",
+    "nativeSourceSha256": "4d83339805fe5f5737f7131b0e68faee3fd0a15731bc98cb1c5fa5462f14de50",
+    "nativeBuildContractSha256": "sha256:1fb16b35a1b51f7f0cd24193df2af9668ae71c93f702311812c144c61e047cd1",
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "rustcVersion": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+    "buildProfile": "release",
+    "buildClass": "test-hooks"
+  },
+  "environment": {
+    "capturedAtEpochMs": 1787598444470,
+    "declaration": "owner-target-vm",
+    "operatingSystem": "linux",
+    "architecture": "x86_64",
+    "hostname": "oxygen",
+    "availableParallelism": 8,
+    "distributionId": "debian",
+    "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+    "totalMemoryBytes": 16775352320,
+    "ownerTargetVmValidated": true,
+    "fixtureRssBytes": 20946944,
+    "processPeakRssBytes": 25321472,
+    "finalRssBytes": 25321472
+  },
+  "workload": {
+    "fixtureVersion": 2,
+    "fixtureClass": "source-shaped deterministic synthetic admitted authority",
+    "scenario": "P1",
+    "description": "300 evolved snakes with different weights and recurrent state, 10 baseline bots, five-point bodies, 3500 pellets, 83-input 64/64 MLP, GRU-16, Dense-2",
+    "evolvedPopulation": 300,
+    "baselineSnakes": 10,
+    "totalLiveSnakes": 310,
+    "bodyPointsPerSnake": 5,
+    "initialPellets": 3500,
+    "sensorBins": 16,
+    "sensorInputSize": 83,
+    "parametersPerBrain": 13458,
+    "recurrentFloatsPerBrain": 16,
+    "graphLayoutSha256": "ced9f12f73d0925efd0d75a872e818a878fb838b552c5daa60e3566a4c64e4b6",
+    "initialWorldSha256": "e6607f286d66d61578abdf8e2f62d559f0ea8f2a98922d43fa7a2f07971397c1",
+    "weightsSha256": "c1ece367f7325124d15aedbb4a7c3278917e998b968bf2250d75d7f39a7d8abe",
+    "initialRecurrentSha256": "48fe75ac4a5f45fa8feda11977a5cc940fd59380cb0fe16b752489d062b6a5b2",
+    "uniqueWeightBlocks": 300,
+    "uniqueInitialRecurrentBlocks": 300,
+    "warmupSteps": 3,
+    "measuredSteps": 30
+  },
+  "path": {
+    "authorityOwner": "Rust",
+    "graphTraversalOwner": "Rust",
+    "mathBackend": "rust-scalar-v1",
+    "calculationWorkers": 1,
+    "napiCallsPerStep": 0,
+    "completeCorrectedSensing": true,
+    "completeHeterogeneousInference": true,
+    "completeMovementFoodCollision": true,
+    "completeAuthorityPublication": true,
+    "schedulerInMeasuredInterval": false,
+    "nodeBridgeInMeasuredInterval": false,
+    "browserOrRlInMeasuredInterval": false,
+    "generationTransitionInMeasuredInterval": false
+  },
+  "memory": {
+    "packedWeightBytes": 16149600,
+    "authoritativeRecurrentBytes": 19200,
+    "admittedStructuralBytes": 3208776,
+    "admittedGraphBytes": 3774,
+    "admittedSpatialBytes": 268435456,
+    "admittedScratchBytes": 1073741824,
+    "admittedTotalBytes": 1369185229,
+    "admissionCeilingBytes": 2442927053
+  },
+  "result": {
+    "completeFixedStepMs": {
+      "count": 30,
+      "min": 33.245788999999995,
+      "p50": 37.816478000000004,
+      "p95": 43.594814299999996,
+      "p99": 44.124702479999996,
+      "max": 44.332687,
+      "mean": 38.0484914
+    },
+    "coarsePhaseMs": {
+      "authorityBeginMs": {
+        "count": 30,
+        "min": 0.00064,
+        "p50": 0.000845,
+        "p95": 0.0011049999999999996,
+        "p99": 0.0011926,
+        "max": 0.0012100000000000001,
+        "mean": 0.0008377333333333333
+      },
+      "prefixMs": {
+        "count": 30,
+        "min": 0.045800999999999994,
+        "p50": 0.054830500000000004,
+        "p95": 0.07582349999999993,
+        "p99": 0.0852475,
+        "max": 0.085871,
+        "mean": 0.056789766666666665
+      },
+      "controlSelectionMs": {
+        "count": 30,
+        "min": 24.394633,
+        "p50": 27.101754,
+        "p95": 31.810873100000002,
+        "p99": 32.26894097,
+        "max": 32.439695,
+        "mean": 27.819117366666667
+      },
+      "controlCommitMs": {
+        "count": 30,
+        "min": 0.057981,
+        "p50": 0.0808405,
+        "p95": 0.09580050000000001,
+        "p99": 0.0994246,
+        "max": 0.10063100000000001,
+        "mean": 0.07688083333333333
+      },
+      "worldStepMs": {
+        "count": 30,
+        "min": 8.401548,
+        "p50": 10.1756525,
+        "p95": 11.4661069,
+        "p99": 11.53287049,
+        "max": 11.559817,
+        "mean": 9.890533900000001
+      },
+      "generationGuardMs": {
+        "count": 30,
+        "min": 0.00041,
+        "p50": 0.00044,
+        "p95": 0.0009459999999999978,
+        "p99": 0.0017528000000000005,
+        "max": 0.00195,
+        "mean": 0.000533
+      },
+      "publicationMs": {
+        "count": 30,
+        "min": 0.146732,
+        "p50": 0.21067200000000003,
+        "p95": 0.25406644999999994,
+        "p99": 0.27000601,
+        "max": 0.27558299999999997,
+        "mean": 0.2023664666666667
+      },
+      "unattributedMs": {
+        "count": 30,
+        "min": 0.0010000000000047748,
+        "p50": 0.0013599999999946988,
+        "p95": 0.001989999999992874,
+        "p99": 0.0022339000000026485,
+        "max": 0.002260000000006812,
+        "mean": 0.0014323333333325177
+      }
+    },
+    "allocatorOperationsPerCompleteStep": {
+      "count": 30,
+      "min": 7,
+      "max": 29,
+      "mean": 17.4,
+      "nonzeroPasses": 30
+    },
+    "coarsePhaseAllocatorOperations": {
+      "authorityBegin": {
+        "count": 30,
+        "min": 0,
+        "max": 0,
+        "mean": 0.0,
+        "nonzeroPasses": 0
+      },
+      "prefix": {
+        "count": 30,
+        "min": 0,
+        "max": 1,
+        "mean": 0.9,
+        "nonzeroPasses": 27
+      },
+      "controlSelection": {
+        "count": 30,
+        "min": 0,
+        "max": 4,
+        "mean": 2.6666666666666665,
+        "nonzeroPasses": 27
+      },
+      "controlCommit": {
+        "count": 30,
+        "min": 0,
+        "max": 1,
+        "mean": 0.9,
+        "nonzeroPasses": 27
+      },
+      "worldStep": {
+        "count": 30,
+        "min": 1,
+        "max": 23,
+        "mean": 12.933333333333334,
+        "nonzeroPasses": 30
+      },
+      "generationGuard": {
+        "count": 30,
+        "min": 0,
+        "max": 0,
+        "mean": 0.0,
+        "nonzeroPasses": 0
+      },
+      "publication": {
+        "count": 30,
+        "min": 0,
+        "max": 0,
+        "mean": 0.0,
+        "nonzeroPasses": 0
+      },
+      "unattributed": {
+        "count": 30,
+        "min": 0,
+        "max": 0,
+        "mean": 0.0,
+        "nonzeroPasses": 0
+      }
+    },
+    "physicsPhaseAllocatorOperations": {
+      "begin": {
+        "count": 30,
+        "min": 0,
+        "max": 3,
+        "mean": 1.2666666666666666,
+        "nonzeroPasses": 28
+      },
+      "pelletIndex": {
+        "count": 30,
+        "min": 0,
+        "max": 0,
+        "mean": 0.0,
+        "nonzeroPasses": 0
+      },
+      "movement": {
+        "count": 30,
+        "min": 0,
+        "max": 3,
+        "mean": 1.5,
+        "nonzeroPasses": 28
+      },
+      "food": {
+        "count": 30,
+        "min": 0,
+        "max": 6,
+        "mean": 3.0,
+        "nonzeroPasses": 29
+      },
+      "collision": {
+        "count": 30,
+        "min": 0,
+        "max": 9,
+        "mean": 4.5,
+        "nonzeroPasses": 27
+      },
+      "effects": {
+        "count": 30,
+        "min": 0,
+        "max": 2,
+        "mean": 0.3,
+        "nonzeroPasses": 8
+      },
+      "resultApplication": {
+        "count": 30,
+        "min": 0,
+        "max": 4,
+        "mean": 2.3666666666666667,
+        "nonzeroPasses": 29
+      },
+      "accept": {
+        "count": 30,
+        "min": 0,
+        "max": 0,
+        "mean": 0.0,
+        "nonzeroPasses": 0
+      },
+      "finalize": {
+        "count": 30,
+        "min": 0,
+        "max": 0,
+        "mean": 0.0,
+        "nonzeroPasses": 0
+      }
+    },
+    "cpu": {
+      "source": "Linux clock_gettime(CLOCK_PROCESS_CPUTIME_ID)",
+      "wallSeconds": 1.141575934,
+      "processCpuSeconds": 1.141348806,
+      "averageOneCoreUtilizationPercent": 99.98010399542989
+    },
+    "measuredWallSeconds": 1.141575934,
+    "measuredSimulatedSeconds": 0.5,
+    "achievedSimulatedSecondsPerWallSecond": 0.4379910132198004,
+    "initialCompletedStep": 0,
+    "finalCompletedStep": 33,
+    "finalGenerationElapsedSeconds": 0.55,
+    "finalAliveEvolved": 300,
+    "finalAliveBaselines": 10,
+    "finalPellets": 3482,
+    "distinctFinalPopulationActions": 300,
+    "finalWorldSha256": "1bd433de00437058dbd700e9ea6cd0b26c72991a6ca17ae1fb96c6c862fa97b8",
+    "finalRecurrentSha256": "2295591e6421caf7e4118d8af59760f98405d6703c4d5729abe915bd3f0e6b58",
+    "authorityChanged": true,
+    "recurrentStateChanged": true,
+    "firstMeasuredStep": {
+      "controls": 310,
+      "baselineObservations": 10,
+      "externalObservations": 0,
+      "neuralEvaluations": 300,
+      "neuralHeld": 0,
+      "physicsSubstepsExpected": 3,
+      "physicsSubstepsCompleted": 3,
+      "snakes": 310,
+      "bodyPoints": 1594,
+      "pellets": 3471,
+      "deathsInLastSubstep": 0,
+      "awardsInLastSubstep": 0,
+      "controlSnakeCapacity": 310,
+      "controlBrainCapacity": 300,
+      "physicsSnakeCapacity": 310,
+      "physicsBodyCapacity": 1594,
+      "physicsPelletCapacity": 3475,
+      "pelletIndexEstimatedBytes": 389088
+    },
+    "finalMeasuredStep": {
+      "controls": 310,
+      "baselineObservations": 10,
+      "externalObservations": 0,
+      "neuralEvaluations": 300,
+      "neuralHeld": 0,
+      "physicsSubstepsExpected": 3,
+      "physicsSubstepsCompleted": 3,
+      "snakes": 310,
+      "bodyPoints": 1672,
+      "pellets": 3482,
+      "deathsInLastSubstep": 0,
+      "awardsInLastSubstep": 0,
+      "controlSnakeCapacity": 310,
+      "controlBrainCapacity": 300,
+      "physicsSnakeCapacity": 310,
+      "physicsBodyCapacity": 1672,
+      "physicsPelletCapacity": 3500,
+      "pelletIndexEstimatedBytes": 389088
+    },
+    "antiOptimizationStateAccumulator": -0.00008469907060379528
+  },
+  "command": [
+    "/tmp/slither-stage5-7925faf7/native/target/release/stage5-step-benchmark",
+    "--scenario",
+    "P1",
+    "--math-backend",
+    "scalar",
+    "--warmup-steps",
+    "3",
+    "--steps",
+    "30",
+    "--environment",
+    "owner-target-vm",
+    "--output",
+    "/tmp/stage5-step-v2-current/oxygen-P1-scalar.json"
+  ]
+}

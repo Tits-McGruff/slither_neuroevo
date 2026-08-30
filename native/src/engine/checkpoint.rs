@@ -297,6 +297,45 @@ pub struct CheckpointDescriptor {
     pub write_validation_policy: CheckpointWriteValidationPolicy,
 }
 
+impl CheckpointDescriptor {
+    /// Return the first identity-bearing field that differs from a committed echo.
+    ///
+    /// The final structural equality check covers every remaining bounded
+    /// descriptor field. Keeping this comparison beside the descriptor prevents
+    /// run-start and generation acknowledgement barriers from drifting apart.
+    #[must_use]
+    pub fn first_mismatch(&self, actual: &Self) -> Option<&'static str> {
+        if self.protocol_version != actual.protocol_version {
+            return Some("protocol version");
+        }
+        if self.operation_id != actual.operation_id {
+            return Some("operation ID");
+        }
+        if self.transition_epoch_hex != actual.transition_epoch_hex {
+            return Some("transition epoch");
+        }
+        if self.run_id != actual.run_id {
+            return Some("run ID");
+        }
+        if self.generation_hex != actual.generation_hex {
+            return Some("generation");
+        }
+        if self.completed_step_hex != actual.completed_step_hex {
+            return Some("completed step");
+        }
+        if self.logical_root_sha256 != actual.logical_root_sha256 {
+            return Some("logical root");
+        }
+        if self.relative_filename != actual.relative_filename {
+            return Some("relative filename");
+        }
+        if self != actual {
+            return Some("descriptor content");
+        }
+        None
+    }
+}
+
 /// Immutable content facts recovered from a checkpoint without publication correlation metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckpointContentDescriptor {

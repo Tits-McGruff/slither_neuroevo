@@ -333,6 +333,21 @@ pub struct PhysicsStepDiagnostics {
     pub pellet_order_capacity: usize,
 }
 
+/// Test-hook-only allocation counts inside the complete physics transaction.
+#[cfg(feature = "engine-test-hooks")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PhysicsPhaseAllocations {
+    pub begin: u64,
+    pub pellet_index: u64,
+    pub movement: u64,
+    pub food: u64,
+    pub collision: u64,
+    pub effects: u64,
+    pub result_application: u64,
+    pub accept: u64,
+    pub finalize: u64,
+}
+
 /// Read-only complete physics result for later full-step publication.
 #[derive(Clone, Copy, Debug)]
 pub struct PreparedPhysicsStep<'step> {
@@ -405,8 +420,9 @@ impl<'step> PreparedPhysicsStep<'step> {
     /// Complete physical world after every declared collision substep.
     ///
     /// Controller leases carry the already-committed control boundary through
-    /// physics unchanged. A controlled death still rejects until the later
-    /// full-step transaction can stage its replacement assignment atomically.
+    /// physics unchanged. A controlled death remains only an intermediate
+    /// result: the complete world-step transaction must stage its replacement
+    /// assignment before this world can become publishable authority.
     #[must_use]
     pub const fn world(self) -> &'step WorldState {
         self.world
@@ -461,6 +477,12 @@ pub struct PhysicsPipelineWorkspace {
     collision: CollisionWorkspace,
     effects: EffectWorkspace,
     substep: PhysicsSubstepWorkspace,
+    #[cfg(feature = "engine-test-hooks")]
+    allocation_snapshot: Option<fn() -> u64>,
+    #[cfg(feature = "engine-test-hooks")]
+    allocation_cursor: Option<u64>,
+    #[cfg(feature = "engine-test-hooks")]
+    phase_allocations: PhysicsPhaseAllocations,
 }
 
 impl Default for PhysicsPipelineWorkspace {
@@ -472,6 +494,12 @@ impl Default for PhysicsPipelineWorkspace {
             collision: CollisionWorkspace::default(),
             effects: EffectWorkspace::default(),
             substep: PhysicsSubstepWorkspace::default(),
+            #[cfg(feature = "engine-test-hooks")]
+            allocation_snapshot: None,
+            #[cfg(feature = "engine-test-hooks")]
+            allocation_cursor: None,
+            #[cfg(feature = "engine-test-hooks")]
+            phase_allocations: PhysicsPhaseAllocations::default(),
         }
     }
 }
@@ -494,6 +522,35 @@ impl PhysicsPipelineWorkspace {
     pub fn pellet_index_diagnostics(&self) -> PelletIndexDiagnostics {
         self.pellet_index.diagnostics()
     }
+
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn reset_allocation_tracking(&mut self, snapshot: Option<fn() -> u64>) {
+        self.allocation_snapshot = snapshot;
+        self.allocation_cursor = snapshot.map(|snapshot| snapshot());
+        self.phase_allocations = PhysicsPhaseAllocations::default();
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn record_begin_allocations(&mut self) {
+        self.phase_allocations.begin =
+            allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn record_finalize_allocations(&mut self) {
+        self.phase_allocations.finalize =
+            self.phase_allocations
+                .finalize
+                .saturating_add(allocation_delta(
+                    self.allocation_snapshot,
+                    &mut self.allocation_cursor,
+                ));
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) const fn phase_allocations(&self) -> PhysicsPhaseAllocations {
+        self.phase_allocations
+    }
 }
 
 /// Reusable storage for one checked substep outcome before it joins a step.
@@ -501,6 +558,7 @@ impl PhysicsPipelineWorkspace {
 struct PhysicsSubstepWorkspace {
     next_world: WorldState,
     next_rng: Option<RngStateBundle>,
+    rng_copy_scratch: RngCopyScratch,
     next_allocators: Option<AllocatorState>,
     death_markers: Vec<bool>,
     baseline_deaths: Vec<BaselineDeathEvent>,
@@ -519,7 +577,6 @@ impl PhysicsSubstepWorkspace {
         expected_source: &WorldState,
         key: PhysicsSubstepKey,
         config: PhysicsConfig,
-        controlled_snake_ids: &[u64],
     ) -> Result<(), PhysicsError> {
         self.clear();
         key.step.validate()?;
@@ -582,11 +639,6 @@ impl PhysicsSubstepWorkspace {
             if snake.id != death.victim_id || self.death_markers[death.victim_index] {
                 return Err(PhysicsError::ShapeMismatch);
             }
-            if controlled_snake_ids.binary_search(&death.victim_id).is_ok() {
-                return Err(PhysicsError::ControllerReplacementRequired {
-                    snake_id: death.victim_id,
-                });
-            }
             self.death_markers[death.victim_index] = true;
             snake.alive = false;
             self.deaths += 1;
@@ -634,11 +686,12 @@ impl PhysicsSubstepWorkspace {
 
         validate_physical_world(&self.next_world, &mut self.validation)?;
         validate_baseline_events(&self.baseline_deaths, &self.next_world.snakes)?;
-        if let Some(next_rng) = &mut self.next_rng {
-            next_rng.clone_from(effects.rng());
-        } else {
-            self.next_rng = Some(effects.rng().clone());
-        }
+        copy_rng_bundle_reusing(
+            &mut self.next_rng,
+            &mut self.rng_copy_scratch,
+            effects.rng(),
+        )
+        .map_err(map_reuse_error)?;
         self.next_allocators = Some(effects.allocators().clone());
         self.ready = Some(key);
         self.staged_config = Some(config);
@@ -842,7 +895,6 @@ impl PhysicsStepWorkspace {
                 .allocators
                 .as_ref()
                 .ok_or(PhysicsError::StepNotStarted)?;
-            let controlled_snake_ids = self.controlled_snake_ids.as_slice();
             let PhysicsPipelineWorkspace {
                 pellet_index,
                 movement,
@@ -850,12 +902,24 @@ impl PhysicsStepWorkspace {
                 collision,
                 effects,
                 substep,
+                #[cfg(feature = "engine-test-hooks")]
+                allocation_snapshot,
+                #[cfg(feature = "engine-test-hooks")]
+                allocation_cursor,
+                #[cfg(feature = "engine-test-hooks")]
+                phase_allocations,
             } = pipeline;
             pellet_index.rebuild(
                 world,
                 config.pellet_index_cell_size,
                 config.maximum_pellet_index_entries,
             )?;
+            #[cfg(feature = "engine-test-hooks")]
+            {
+                phase_allocations.pellet_index = phase_allocations
+                    .pellet_index
+                    .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
+            }
             let movement = movement.prepare(
                 world,
                 config.movement,
@@ -863,6 +927,12 @@ impl PhysicsStepWorkspace {
                 config.maximum_body_points,
                 config.maximum_pellets,
             )?;
+            #[cfg(feature = "engine-test-hooks")]
+            {
+                phase_allocations.movement = phase_allocations
+                    .movement
+                    .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
+            }
             let indexed = IndexedPelletWorld::from_index(
                 world,
                 std::mem::replace(pellet_index, PelletSpatialIndex::empty()),
@@ -877,7 +947,19 @@ impl PhysicsStepWorkspace {
             );
             *pellet_index = indexed.into_index();
             let food = food_result?;
+            #[cfg(feature = "engine-test-hooks")]
+            {
+                phase_allocations.food = phase_allocations
+                    .food
+                    .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
+            }
             let collision = collision.prepare(food, config.collision)?;
+            #[cfg(feature = "engine-test-hooks")]
+            {
+                phase_allocations.collision = phase_allocations
+                    .collision
+                    .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
+            }
             let effects = effects.prepare(
                 collision,
                 rng,
@@ -887,9 +969,33 @@ impl PhysicsStepWorkspace {
                 config.death,
                 config.maximum_pellets,
             )?;
-            substep.prepare(effects, world, prepared_key, config, controlled_snake_ids)?;
+            #[cfg(feature = "engine-test-hooks")]
+            {
+                phase_allocations.effects = phase_allocations
+                    .effects
+                    .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
+            }
+            substep.prepare(effects, world, prepared_key, config)?;
+            #[cfg(feature = "engine-test-hooks")]
+            {
+                phase_allocations.result_application = phase_allocations
+                    .result_application
+                    .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
+            }
         }
-        self.accept_prepared_substep(&mut pipeline.substep, prepared_key)
+        self.accept_prepared_substep(&mut pipeline.substep, prepared_key)?;
+        #[cfg(feature = "engine-test-hooks")]
+        {
+            pipeline.phase_allocations.accept =
+                pipeline
+                    .phase_allocations
+                    .accept
+                    .saturating_add(allocation_delta(
+                        pipeline.allocation_snapshot,
+                        &mut pipeline.allocation_cursor,
+                    ));
+        }
+        Ok(())
     }
 
     /// Atomically replace the working boundary with one completely prepared substep.
@@ -1238,6 +1344,16 @@ fn reserve_for<T>(
     Ok(())
 }
 
+#[cfg(feature = "engine-test-hooks")]
+fn allocation_delta(snapshot: Option<fn() -> u64>, cursor: &mut Option<u64>) -> u64 {
+    let Some(snapshot) = snapshot else {
+        return 0;
+    };
+    let current = snapshot();
+    let previous = cursor.replace(current).unwrap_or(current);
+    current.saturating_sub(previous)
+}
+
 /// Checked physics staging failure. No variant publishes partial authority.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PhysicsError {
@@ -1281,8 +1397,6 @@ pub enum PhysicsError {
     AwardWithoutDeath { victim_id: u64 },
     /// A baseline death event disagrees with staged snake state.
     InvalidBaselineDeath(u64),
-    /// Replacement assignment/spawn must be staged before this death can publish.
-    ControllerReplacementRequired { snake_id: u64 },
     /// Stable kill count overflowed.
     KillCountOverflow { killer_id: u64 },
     /// Kill points produced NaN or infinity.
@@ -1353,10 +1467,6 @@ impl Display for PhysicsError {
             Self::InvalidBaselineDeath(id) => {
                 write!(formatter, "invalid baseline death event for snake {id}")
             }
-            Self::ControllerReplacementRequired { snake_id } => write!(
-                formatter,
-                "controlled snake {snake_id} died before replacement assignment was staged"
-            ),
             Self::KillCountOverflow { killer_id } => {
                 write!(formatter, "killer {killer_id} kill count overflowed")
             }
@@ -1770,7 +1880,7 @@ mod tests {
     }
 
     #[test]
-    fn controlled_death_rejects_until_replacement_is_staged() {
+    fn controlled_death_remains_a_complete_intermediate_physics_result() {
         let mut source = body_collision_world(SnakeKind::External, false);
         source.controller_leases.push(lease(7));
         let source_copy = source.clone();
@@ -1784,17 +1894,13 @@ mod tests {
             1,
         )
         .unwrap();
-        let before = step.world().unwrap().clone();
         let mut phases = PhaseWorkspaces::default();
-        let error = step
-            .advance_substep(&mut phases, key(1))
-            .expect_err("controlled death needs atomic replacement");
-        assert_eq!(
-            error,
-            PhysicsError::ControllerReplacementRequired { snake_id: 7 }
-        );
+        step.advance_substep(&mut phases, key(1))
+            .expect("physics must retain the controlled death for the outer replacement join");
         assert!(phases.substep.ready.is_none());
-        assert_eq!(step.world().unwrap(), &before);
+        let prepared = step.finish(key(1)).expect("complete intermediate physics");
+        assert!(!snake_by_id(prepared.world(), 7).alive);
+        assert_eq!(prepared.world().controller_leases, source.controller_leases);
         assert_eq!(source, source_copy);
     }
 

@@ -97,7 +97,8 @@ external event range and neural delivery/recurrent result; and only then
 applies the infallible internal commit. Baseline and due-neural observation
 markers advance because those observations were consumed inside Rust.
 External observation markers remain unchanged and travel with the retained
-packed event until matching Node acceptance is implemented. Initial grace
+packed event until the nonterminal coordinator receives the matching local
+Node result described below. Initial grace
 expiry clears the expired external action before applying the zero-state
 neural result, while later `NeuralTakeover` boundaries do not neutralize an
 already-held neural action. Immutable non-population weights become reusable
@@ -106,8 +107,9 @@ handle, owner and shape; recurrent blocks are refreshed and published on every
 applicable boundary. The working result is a
 physics input, not authority. `engine::world_step` now consumes that boundary
 through complete non-authoritative physics and post-physics continuation
-staging; current-state key/config projection, generation decisions and the
-single final swap remain the later authority coordinator's responsibility.
+staging; the private authority coordinator below owns current-state key/config
+projection, the nonterminal generation guard, external delivery resolution and
+the single final swap.
 
 ## Per-step scalar accounting
 
@@ -538,17 +540,15 @@ effect result and label it as current. It exposes a complete result only after
 every declared substep has joined. Errors may change retained scratch capacity
 but do not change the source world or expose a successful result. Controller
 leases are copied with checked reusable outer and text storage and are carried
-unchanged through every physical substep. Every snake still named by a lease,
-including a record of a completed neural takeover, remains fail-closed on death
-until the later authority coordinator can atomically remove or replace the
-associated controller lifecycle state. A collision involving such a snake is
-therefore rejected with an explicit replacement-required result rather than
-producing a world that contains a lease targeting a dead snake. The later
-coordinator must project the key and full phase configuration from the same
-admitted authority, revalidate both against the exact retained
-`WorldStepConfig`, combine controller/recurrent and before/after-step state,
-and perform the single authoritative swap. This working transaction alone is
-not that publication boundary.
+unchanged through every physical substep. A snake named by a lease may die in
+this intermediate transaction; its dead record and lease remain together so
+the complete coordinator can resolve them without hiding the collision. The
+physics transaction cannot publish that intermediate boundary by itself. The
+joined world step requires the graph, wall time, external-controller RNG,
+identity allocators and placement contract before it can replace or remove the
+lease target. A low-level caller that omits that context receives
+`ExternalReplacementContextRequired`. The complete coordinator now supplies
+that context and performs the single authoritative swap described below.
 
 ## Complete post-control world-step staging
 
@@ -567,23 +567,24 @@ that baseline slot, and advances the generation-best sensor continuation from
 the post-physics world. It retains the post-control brain state, generation
 elapsed time, ambient accumulator, controller leases, RNG/allocator
 continuations, and packed external observations whose delivery boundary still
-awaits matching Node acceptance. Checked lease/RNG copies retain their outer,
+awaits a matching local Node accepted/failed result. Checked lease/RNG copies retain their outer,
 per-baseline and string storage across warmed attempts.
 
 Focused integration coverage drives one real prefix, shared corrected sensing,
 baseline/external/neural/takeover selection, complete heterogeneous inference,
 internal control commit and all three default physics substeps. It also proves
 same-step baseline death timing; stable warmed diagnostics; rejection of stale
-or inconsistent phase configuration; and fail-closed controlled death without
-source-world, RNG, allocator, lifecycle or brain writes.
+or inconsistent phase configuration; and explicit low-level rejection when a
+controlled death is staged without the graph and external-replacement context.
 
 This result is deliberately still not authority when used by itself. The
 nonterminal coordinator described below now projects its configuration from the
-admitted state, drives this workspace and performs the one final swap for an
-internally controlled step that does not end the generation. External delivery,
-controller death/replacement, terminal generation transition, and the reviewed
-impossible-respawn outcome remain explicit fail-closed boundaries rather than
-TypeScript fallbacks.
+admitted state, drives this workspace, resolves matching local Node-send results
+for packed player/RL observations, and performs the one final swap for a step
+that does not end the generation. It now also resolves controller death and
+replacement before exposing the reliable event batch. Terminal generation
+transition and the reviewed impossible-respawn outcome remain explicit
+fail-closed boundaries rather than TypeScript fallbacks.
 
 ## Atomic nonterminal running-step publication primitive
 
@@ -603,9 +604,12 @@ replacement.
 Before any swap, publication requires an exact current key, exactly one
 admitted fixed-delta increase in generation time, non-regressing generation
 best, unchanged brain handles/owners/non-population weight bits, unchanged
-evolution and external-controller RNG streams, unchanged non-gameplay allocator
-domains and non-regressing gameplay allocators. It then swaps all large mutable
-buffers once, recomputes the complete admitted memory estimate and reruns every
+evolution RNG, unchanged non-gameplay allocator domains and non-regressing
+gameplay allocators. The controlled-death path is the one narrow exception: an
+opaque workspace proof binds the exact provisional world, external-controller
+RNG, allocator and brain payload plus the exact replacement/removal counts. It
+then swaps all large mutable buffers once, recomputes the complete admitted
+memory estimate and reruns every
 mutable state validator while exclusive authority access is held. A validation
 or memory-ceiling failure restores the prior scalars and swaps every old buffer
 back; the unwind path performs the same restoration before resuming the panic.
@@ -711,38 +715,79 @@ matching config, graph, handles and epochs. Failed staging may change reusable
 scratch and advances the attempt epoch, but it cannot replace the authoritative
 `StateCandidate`.
 
-This entrance is deliberately restricted to a definitely nonterminal step for
-which no external observation awaits a Node send result. An external delivery
-request stops before the internal control commit and physics. A terminal
-post-physics result stops before publication so Stage 6 can later consume that
-exact result while evolving/replacing the generation atomically. Death of a
-lease-owned snake, an impossible due-baseline spawn, or any capacity/math/index
-failure propagates as a complete rejected attempt. There is no TypeScript
-fallback and no partial frame, stats or checkpoint result.
+This entrance remains restricted to a definitely nonterminal step, but it now
+supports the retained external player/RL observation batch. Rust completes the
+internal control commit, every physics substep, post-step lifecycle work and the
+generation guard before an event becomes visible. It then prevalidates the
+canonical event ranges, exact snake/lease/connection identities, score markers,
+both accepted-send and failed-send controller outcomes, complete mutable state,
+memory ceiling, publication buffers and process-local preflight identity. A
+terminal post-physics result therefore still exposes no observation and stops
+before publication so Stage 6 can later evolve/replace the generation
+atomically. Death of a lease-owned snake during physics, an impossible due-
+baseline spawn, or any capacity/math/index failure remains a complete rejected
+attempt. There is no TypeScript fallback and no partial frame, stats or
+checkpoint result.
+
+The borrowed bridge batch carries one monotonic event sequence plus the full
+step, connection and assignment epochs for every packed observation. Node's
+local result is first-result-wins. Unknown, stale, replaced and duplicate
+results of either polarity are ignored. Partial resolution keeps the complete
+working step private and leaves authority unchanged. Once every event resolves,
+an accepted result advances only that event's prevalidated
+`delivered_observation_points` marker. A failed result leaves that marker
+unchanged, so its delta remains accumulated, and applies the exact prevalidated
+disconnect at the retained fixed-step wall boundary. The existing configurable
+500-ms input hold and 30-second exclusive grace therefore take effect without a
+player/brain mixture or immediate retry on the failed socket. Accepted and
+failed results may coexist in one batch.
+
+Every recoverable validation/allocation operation occurs before the batch is
+exposed. After the first local result changes retained status, the private path
+contains only prevalidated marker/disconnect writes and the preflighted
+authority swap; the final publication method returns no `Result`. Published
+diagnostics report zero pending deliveries. Event-envelope, status,
+disconnect-proposal and packed-observation capacities remain retained across
+warmed steps.
 
 Focused authority tests prove one real default three-substep publication with
 world, gameplay RNG, recurrent state, elapsed time and scheduler debt advancing
-while immutable run/population identity stays fixed; pending external delivery
-and a later regressing clock leave authority unchanged; both duration and
+while immutable run/population identity stays fixed; stale external results and
+a later regressing clock leave authority unchanged; both duration and
 early-alive generation guards withhold publication; and invalid scheduler debt
-does not begin an attempt. A warmed coordinator is also rejected by a second
-authority that deliberately has the same persisted identity, config, graph and
-brain handles but different non-population weight bytes. This is still an
-internal Rust vertical slice. Node
-delivery acceptance, controller death/replacement, the actual generation
-transition/evolution, scheduler pumping, frames, browser/LAN, Protocol 2 RL,
-complete-step allocation/performance evidence, Oxygen validation, persistence
-integration and production cutover remain open.
+does not begin an attempt. External coverage includes all-accepted, all-failed
+and mixed player/RL batches, partial multi-call acceptance, a later negative
+duplicate that cannot override prior acceptance, exact marker behavior,
+disconnect deadlines, stale connection/lease/operation rejection, pre-exposure
+physics/generation/memory failure and 24-step retained capacities. A warmed
+coordinator is also rejected by a second authority that deliberately has the
+same persisted identity, config, graph and brain handles but different non-
+population weight bytes.
 
-Windows validation of this slice passed 339 all-feature release library tests
-plus both enabled benchmark-binary tests, 327 no-default-feature release library
-tests, strict release all-target Clippy, rustdoc, rustfmt and diff checks. One
-existing independent read-only reviewer inspected the stable authority diff
-without starting a duplicate build. It found the cross-authority warmed-weight
-cache defect described above; the process-unique world incarnation and focused
-two-authority regression corrected it, and its final static recheck found no
-remaining blocker, P1 or P2. The reviewer changed no files and no review turn
-was blocked or wasted.
+This is still an internal Rust vertical slice. The actual Node/N-API drain and
+`ws.send` call are not connected, so the tests supply the same small accepted/
+failed result that the thin bridge must later return; they do not claim socket,
+browser, LAN or trainer integration. Controlled-death replacement is now joined
+internally as described below. Serial evolution and the terminal managed-file
+checkpoint handoff are also joined in the later generation section, while the
+SQLite metadata acknowledgement, successor-world spawn and authority swap
+remain open. Node/N-API scheduler-pump wiring, browser/LAN, Protocol 2 RL,
+persistence integration and production cutover also remain open. Complete-step
+allocation/performance evidence exists only for ordinary nonterminal fixtures;
+the rare replacement and terminal paths have not been measured as production
+server paths.
+
+Windows validation of the extended slice passed 346 all-feature/all-target
+release library tests plus both enabled benchmark-binary tests, 334 no-default-
+feature release library tests, strict release all-target Clippy, rustdoc,
+rustfmt and diff checks. One existing independent read-only reviewer inspected
+the external-delivery authority transition without starting a duplicate build.
+It found three P1 defects—negative duplicates overriding acceptance, failed
+sends leaving a live lease, and fallible validation after Node acceptance—plus
+one P2 stale pending diagnostic. First-result-wins status, prevalidated
+disconnect alternatives, the infallible post-result path and post-commit
+diagnostics corrected them. Its final recheck found no remaining blocker, P1 or
+P2. The reviewer changed no files and no review turn was blocked or wasted.
 
 ## Spawn correction
 
@@ -794,14 +839,501 @@ and the RNG continuation after three draws. Rust compares the literal captured
 coordinates with an explicit cross-language tolerance and the continuation
 state exactly; it does not derive the expected body through its own helper.
 
+## Random genome initialization
+
+`src/mlp.ts::Genome.random()` walks the compiled graph's parameter ranges in
+compiled-node order. Input, Split and Concat consume no draws. MLP parameters
+each use `(rng() * 2 - 1) * 0.6`; Dense parameters use the corresponding `0.45`
+scale and the currently inert `[-5, 5]` clamp. GRU, LSTM and RRU constructors
+then consume all input-weight draws, all recurrent-weight draws and finally
+their gate-bias draws in packed runtime order. Input weights use scale `0.35`,
+recurrent weights use `0.18`, ordinary biases use `0.10`, and the configured
+GRU update, LSTM forget and RRU reset bias is added only to its named gate.
+Assignment into `Float32Array` rounds each JavaScript Float64 result to one
+packed Float32 immediately.
+
+`engine::genome` version 1 implements that formula against the canonical Rust
+compiled graph. It first validates every contiguous node range and all three
+reset-only bias settings, fallibly reserves the complete packed output, restores
+an immutable source RNG copy, consumes exactly one uniform draw per parameter,
+and returns the complete vector with its exact continuation. Uniform draws do
+not consume or alter a cached Gaussian spare. Source graph container order is
+irrelevant after canonical compilation. A malformed graph range, invalid
+setting, invalid RNG state or reservation failure returns no initialized
+genome and cannot advance the borrowed authoritative stream.
+
+The executable current-source generator
+`scripts/stage5/generate-genome-init-fixture.ts` runs the real
+`Genome.random()` path at TypeScript source revision
+`258ac69e80df411fa724ad16f1b2cb19e1ae210c`. The retained native input
+`native/fixtures/genome-init-reference.json` covers every node type,
+non-default recurrent biases, all 129 exact Float32 bit patterns and the exact
+xorshift continuation. The fixture is part of the native source-content hash,
+and regeneration is compared as parsed JSON rather than trusting copied
+numbers. This compatibility fixture deliberately uses a chain whose current
+TypeScript locale order and canonical raw-UTF-8 Rust order coincide; legacy
+locale-dependent graph layouts still require their separately documented
+weight remapping.
+
+The cross-language result deliberately does not claim identical serialized
+Gaussian algorithm metadata. The fixture makes no Gaussian draw: it proves the
+uniform xorshift continuation and unchanged spare value. TypeScript labels its
+legacy V8 transform `box-muller-polar`, while newly admitted Rust state uses the
+versioned Rust standard-library transform label; conversion between those
+identities remains the existing explicit migration seam.
+
+The strict running-step projection now requires the three bias values with the
+same reset-only ranges as the current UI. Stream ownership is not inferred by
+the initializer: the joined external-controller replacement transaction now
+supplies and publishes only the isolated external-controller stream, while the
+later generation/evolution path must supply the evolution stream. Evolution is
+not claimed by this standalone primitive.
+
+## Controlled external-death replacement
+
+Current TypeScript calls
+`ControllerRegistry::reassignDeadSnakes(() => World::spawnExternalSnake().id)`
+after `SimCore::update`. `World::spawnExternalSnake()` creates the genome from
+the evolution stream, creates geometry from the world stream, and may reuse a
+dead external snake ID. The registry then creates a token and attempts the
+assignment send before changing its own indexes. A failed send removes the
+lease, but the already-created world snake and consumed world/evolution draws
+remain. That current-source order explains the old behavior; its RNG
+contamination, identity reuse and non-atomic world/lease/send split are
+correction targets, not compatibility requirements.
+
+`engine::external_replacement` version 1 operates on the complete post-physics
+working boundary. It visits dead lease targets in stable lease-ID order. A dead
+lease with no live connection is removed without consuming a token, RNG draw or
+new identity. Each connected player or Protocol 2 RL owner instead receives a
+fresh internal external-snake ID, exact frame-v1 ID, brain handle and lease ID;
+a complete collision-safe body; current TypeScript-compatible random graph
+weights drawn only from the isolated external-controller RNG; zero recurrent
+state; and a 24-byte operating-system-entropy token encoded as 32 unpadded
+base64url characters. Existing live bodies and earlier replacements are
+placement obstacles. Aggregate candidate and geometry ceilings reject the
+whole attempt rather than reducing the configured population or publishing a
+partial batch.
+
+The dead snake's pre-movement observation is removed. Reliable replacement
+assignments are emitted before surviving ordinary sensor observations, with
+the exact new position and direction. Authority remains unchanged until every
+event has a first matching local result. Acceptance installs the new token and
+keeps exclusive external ownership. Failure preserves the old known token,
+disconnects at the retained wall boundary, applies the selected 500-ms input
+hold and 30-second exclusive grace, and cannot mix the player with a brain.
+Stale or duplicate results are ignored. Once all results resolve, the complete
+world, external RNG, allocators, brain records, lease state, controller markers,
+physics result and scheduler continuation publish together.
+
+Before any event is exposed, an opaque replacement-workspace proof binds the
+exact provisional world, RNG, allocator and brain payload and the exact
+replacement/removal counts. The final post-result swap additionally requires a
+sealed replacement wrapper that only `engine::running_step` can construct;
+another engine module cannot combine a retained preflight token with arbitrary
+mutable buffers. Authority rechecks the key, buffer/scalar identity, mutation
+counts and unchanged admitted memory estimate before the swap, restoring the
+old authority on a memory mismatch. Focused tests cover accepted assignment,
+failed assignment and exact grace, disconnected-death removal, stale/duplicate
+results, entropy/work-limit failure, isolated RNG and allocator continuations,
+zero recurrent state, opaque-proof substitution rejection and complete
+authority immutability while delivery remains pending.
+
+This is still an internal Rust contract. The N-API/Node socket call, browser
+assignment handling, separate trainer assignment handling and real LAN failure
+path remain Stage 6A integration work; no socket-delivery or production-latency
+claim is made by the Rust-only result tests.
+
 ## Scheduler correction
 
 `src/sim/SimCore.ts::update()` correctly derives whole fixed steps from wall
 time times requested `simSpeed`, passes exactly `fixedDt` to each world step,
 and records dropped debt at the pump cap. The current Node pump can still spend
-too long inside one catch-up slice. Rust checks commands and newest accepted
-actions before every overdue step, exposes overload, and gives Node/socket work
-a service opportunity between overdue steps when interactive control exists.
+too long inside one catch-up slice.
+
+`engine::scheduler` version 1 is the first Rust-owned scheduling contract. It
+binds itself to one process-local authoritative world incarnation and copies
+the admitted config revision/hash, fixed delta, requested `simSpeed`, completed
+step and fractional debt from that authority. Wall-clock initialization is a
+single-use startup operation: a later forward or backward rebase rejects
+without changing debt or diagnostics. Each observed elapsed wall interval adds
+`elapsed * simSpeed` requested simulation time; `simSpeed` never changes the
+fixed delta supplied to the world.
+
+The provisional default retains enough debt for one complete next fixed step
+plus 250 ms of real-wall catch-up backlog. Older excess demand is discarded
+with latest and lifetime values reported in both simulated and wall seconds;
+the overload indicator stays raised while the retained due backlog drains. A
+low-rate configuration whose one fixed step takes longer than that horizon can
+still mature one complete step. The horizon is operational policy, not a
+physics shortcut, and remains provisional until the approved P0-P3 VM
+measurements.
+
+The thin bridge must explicitly call one service boundary after it drains
+commands and newest accepted actions. That boundary authorizes at most one
+step ticket, even when many steps are overdue; another step requires another
+drain/service opportunity. A ticket awaiting player/RL observation delivery
+blocks another service or step. A rejected physics or terminal attempt retains
+all debt and requires another command-service boundary. A successful step
+spends exactly one fixed delta only after the authority has published the
+ticket's exact remaining accumulator and a publication matching the current
+world, generation, source step, population, config revision/hash, operation
+epoch and admitted memory result. Foreign, stale or fabricated publication
+fields cannot retire a ticket.
+
+Focused Rust tests cover startup initialization, forward/backward rebase
+rejection, 12x debt without delta enlargement, a 1 Hz/0.1x maturation case,
+catch-up dropping, regressing time, one service per overdue step, external-
+delivery blocking, terminal rejection/debt retention, all seven forged key
+components and a forged memory result. Current Windows validation passed 354
+all-feature/all-target release library tests plus both enabled benchmark-
+binary tests, 342 no-default-feature release library tests, strict release all-
+target Clippy, rustdoc, rustfmt and diff checks.
+
+One existing independent reviewer performed the required read-only scheduler/
+authority review. It found two P1 defects: reusable clock rebasing and commit
+validation that did not bind the complete publication identity. One-shot clock
+initialization, full authority-publication validation and the focused
+regressions corrected both; the final recheck found no blocker, P1 or P2. The
+reviewer changed no files, ran no duplicate build and no review turn was
+blocked or wasted.
+
+This does not yet claim that the real Node/N-API pump invokes the boundary,
+drains every queue, or yields socket work between tickets. It also does not yet
+provide recent-window achieved speed, fixed-step percentiles, browser input
+latency or control-message latency. The isolated complete-step Oxygen
+checkpoint below does not exercise this scheduler/Node boundary, so those
+integration gates remain open.
+
+## Complete nonterminal step performance checkpoint
+
+`engine::step_fixture` version 2 constructs admitted P0-P3 running authorities
+with the approved default/large graphs, differently weighted and nonzero-
+recurrent population brains, ten baseline bots, five-point bodies and 3,500
+pellets. One `RunningStepCoordinator` then advances the real corrected sensing,
+controller selection, heterogeneous graph, movement, food, continuous
+collision, effects, accounting and reversible authority publication. Coarse
+test-hook timers cover non-overlapping phases; a process allocator records
+allocation operations around each complete step.
+
+The coordinator now resolves the exact versioned neural math backend in
+`RunIdentity` and builds the graph plan with it. It no longer silently runtime-
+detects SSE2 while a run claims scalar continuation. Unknown or unavailable
+backends fail construction. The evidence runner requires explicit `scalar` or
+`sse2`, verifies the coordinator selection and records the exact stable label.
+Initial and final recurrent-state proofs use the same logical digest over
+brain identities, epochs, lengths and Float32 bytes.
+
+Publication originally rescanned every immutable population weight on every
+fixed step through full population validation. P3 profiling attributed about
+58.5 ms of one development-machine step to that publication scan. A running
+step cannot replace population records or genome weights, and its pre-swap
+contract already checks every brain handle, owner, shape and non-population
+weight. The hot publication validator now checks every mutable recurrent block
+for exact length and finiteness, then retains full post-swap world, RNG,
+allocator, continuation and memory admission. Focused regressions reject a
+non-finite recurrent block and forbidden immutable weight changes with complete
+rollback. The same development P3 publication phase fell to about 0.28 ms; this
+is a profiling observation, not retained owner-VM evidence.
+
+The retained owner-VM artifacts and hashes are under `step-v1/`. Exact working
+source SHA-256
+`b59cf03ff5a67db7fee1908290282621c5e465bd6fd41ac0bdce256ad20d7f97`
+was built in an isolated `/tmp` checkout on Debian host `oxygen`; the live app
+checkout and saves were untouched. Each valid run used three stateful warm-up
+steps and 30 measured steps with every configured evolved snake and baseline
+still alive. Longer P1 attempts were rejected after legitimate collisions
+reduced the active workload and are not retained.
+
+Oxygen single-worker SSE2 p95 was 9.42/47.73/19.16/89.14 ms for P0/P1/P2/P3,
+or 2.07/0.45/0.95/0.21 simulated seconds per wall second. Scalar p95 was
+11.22/43.89/30.31/155.71 ms. P0 clears this isolated real-time checkpoint; P1
+and P2 do not, and P3 remains capacity-only. Control selection dominates every
+miss. The complete path still performs about 920 allocation operations per P0/
+P2 step and 1,132 per P1/P3 step. Allocation removal and the approved bounded
+calculation-worker path remain mandatory; the result does not authorize weaker
+sensors, collision, physics or workloads.
+
+The eight reports are exact source-hash evidence, not yet clean-commit
+evidence. Local validation passed 357 all-feature/all-target release library
+tests, all enabled benchmark binaries and strict release all-target Clippy. One
+independent read-only reviewer found two P1 evidence defects in the first
+unretained harness: incomparable initial/final recurrent hashes and false
+scalar provenance while execution runtime-selected SSE2. The common digest and
+run-identity-bound explicit backend corrected both; final review found no
+remaining blocker/P1/P2. The reviewer changed no files and no reviewer turn was
+blocked or wasted. One remote build attempt was wasted because the transfer
+overlay omitted `inference.rs`; the complete overlay then built and produced
+the retained reports.
+
+The follow-up artifacts under `step-v2/` retain the reusable-staging pass.
+Test-hook-only counters now attribute non-overlapping allocation operations to
+the coarse authority/prefix/control/world/generation/publication phases and to
+the nested physics phases. Reusable serialized-RNG copying retains absent
+Gaussian-spare text storage, effect/physics staging no longer clones complete
+RNG bundles, baseline control reuses its result state, and authoritative
+publication reuses validation scratch instead of allocating temporary identity
+lists. Production builds do not include the counters.
+
+Independent review found one P1 reuse defect before the follow-up evidence was
+retained: after a reset/import-style baseline-count reduction, Gaussian-spare
+scratch kept its larger logical length and generated effects rejected the
+otherwise valid smaller bundle. The active-prefix correction retains spare
+storage without treating it as active state. A three-to-one-baseline regression
+executes real death-pellet generation, compares pellets, RNG, allocator and
+baseline-death continuation with a fresh workspace, then compares a second
+exact continuation. The reviewer also required the allocation evidence to stop
+short of classifying uncorrelated counts as capacity growth or a fixed floor;
+the runner and retained README now state that limit explicitly. Its final
+read-only recheck found no blocker/P1/P2 and changed no files.
+
+Exact working source SHA-256
+`4d83339805fe5f5737f7131b0e68faee3fd0a15731bc98cb1c5fa5462f14de50`
+was rebuilt in the disposable Oxygen checkout after that correction. The eight
+three-warm-up/30-measured-step reports share that source, explicit scalar/SSE2
+backend and validated owner-VM identity. The live `/opt` checkout and saves
+were untouched. SSE2 mean/p95/p99 was 7.17/7.94/8.67 ms for P0,
+32.93/35.51/36.41 ms for P1, 15.12/17.49/17.86 ms for P2 and
+84.39/100.12/100.71 ms for P3. Short-run achieved simulated/wall ratios were
+2.32/0.51/1.10/0.20. P0 clears this isolated checkpoint; P2 SSE2 clears only
+the short average-rate checkpoint, not its later ten-minute/server/generation
+gate; P1 still fails and P3 remains capacity-only. Control selection remains
+the dominant limit.
+
+Mean allocation-operation counts fell from the first checkpoint's roughly
+920-1,132 to 8.37-17.40. Publication recorded zero operations in every measured
+pass. These are raw per-phase operation counts. They are not correlated with
+per-step buffer growth, so neither intermediate equal capacities nor a zero
+sample is presented as proof of a general allocation-free steady state. A
+future fixed-versus-growth claim requires correlated samples or a controlled
+warmed/no-growth fixture.
+
+Both checkpoints exclude the real scheduler pump, Node/N-API, browser/LAN,
+Protocol 2 RL, frames, generation transition/evolution, persistence and a
+sustained round. Thirty samples identify current subsystem shares but are not a
+final tail-latency or cutover result.
+
+## Serial generation evolution preparation
+
+Current-source behavior was mapped from `World._endGeneration()` and
+`tournamentPick()` in `src/world.ts`, `Snake.computeFitness()` in
+`src/snake.ts`, and `crossover()`, recurrent-block crossover, and `mutate()` in
+`src/mlp.ts`. The TypeScript generation boundary currently performs these
+operations in order:
+
+1. map each evolved snake to its durable population slot;
+2. calculate the generation maximum points value, logarithmic normalized
+   points, the `1e-6` top-points set, and configured fitness terms;
+3. sort by descending fitness, relying on stable source order for exact ties;
+4. calculate the eight-field generation summary and select the generation's
+   Hall-of-Fame genome and snake metadata;
+5. clone at least one elite, then fill the remaining dense population with
+   size-five tournament selection, configured crossover, graph-node-specific
+   mutation, `[-5, 5]` clamping, and zero child fitness; and
+6. publish the new population, advance the generation, clear transient state,
+   emit the exact generation boundary, and only then draw the new world.
+
+`engine::evolution` version 1 implements only the serial preparation in steps
+1-5. It accepts borrowed world, packed population, compiled graph and evolution
+RNG state; validates the complete input and output bounds before exposing a
+result; and returns one prepared population, source fitness vector, stable
+source-slot order, eight-field summary, Hall-of-Fame candidate, next
+best-ever value and exact RNG continuation. It never writes the source world,
+population or RNG. Every evolved member retains distinct packed Float32
+weights, and recurrent crossover selects one parent per hidden unit across all
+of that unit's input rows, recurrent rows and gate biases for GRU, LSTM and RRU
+layouts. Mutation walks compiled graph parameter order and uses the configured
+recurrent or ordinary rate and standard deviation for each node.
+
+The implementation makes the current stable-sort dependency explicit by using
+descending fitness followed by durable source slot. Tournament ties retain the
+first sampled candidate, matching TypeScript. The current empty-parameter RMS
+diagnostic produces `NaN` and therefore places each empty genome in a separate
+diagnostic species; this oddity is preserved as observed behavior rather than
+silently normalized. TypeScript/Rust uncached Gaussian values may differ by one
+Float64 ULP under the already documented RNG compatibility rule. Accordingly,
+the retained fixture requires exact uniform state and cached-spare presence,
+while comparing final Float32 weights within `1e-6`; it does not claim
+cross-runtime bit identity for Gaussian mutation.
+
+The current TypeScript code truncates `fitnessHistory` to 100 entries and adds
+Hall-of-Fame data through its existing global helper. Those are reference
+behaviors to correct, not destination contracts: the approved Rust path must
+preserve every compact eight-field generation summary, keep Hall of Fame
+run-scoped, and apply the selected best-50-unique-plus-pinned policy only after
+existing data migration is verified. The prepared result deliberately does
+not allocate new lineage identities, bind new brain handles, spawn the next
+world, mutate authoritative state, publish history/Hall-of-Fame metadata, or
+construct a checkpoint. The later generation-boundary transaction must do all
+of those atomically in the approved order and must bind the evolution settings
+to the authority's admitted configuration.
+
+The fixture generator executes current TypeScript source identified as Git
+revision `7925faf7aef33bd3de3e1b6d3c021c4320a8dd68`. It retains a four-member
+83-to-MLP-to-GRU-to-Dense population with distinct weights and source stats,
+the complete next packed population, evolution RNG continuation, summary,
+Hall-of-Fame candidate and best-ever value. Regeneration and Rust comparison
+both pass. Reversing the world snake container cannot alter the result, equal
+fitness uses stable source-slot order, malformed late input produces no source
+write, and focused GRU/LSTM/RRU tests cover every recurrent unit region.
+
+The required independent selection-pressure review was requested only after
+the concrete implementation existed, but the reviewer could not begin because
+its separate usage limit was exhausted. No replacement reviewer was spawned
+while that blocker remained unchanged. This slice therefore remains awaiting
+independent review and is not a Stage 6 evolution or generation-transition exit
+claim despite its direct validation passing.
+
+## Direct display-frame v1 preparation
+
+Current-source behavior was mapped from `src/serializer.ts`,
+`src/protocol/frame.ts`, `src/render.ts`, and the server-mode camera and render
+calls in `src/main.ts`. `engine::frame_v1` version 1 packs that existing
+Float32 wire layout directly into caller-owned reusable bytes. It writes the
+four authoritative header values, every alive snake in current world-array
+order, every body point, and every pellet with the current type/color mapping.
+It does not clone a `World`, construct JavaScript objects, or cross Node while
+walking entities.
+
+The last three frame-v1 header fields remain presentation-only. The packer
+echoes an explicit caller-supplied view descriptor or documented neutral
+defaults. The current browser always calls `renderWorldStruct` with its own
+locally smoothed camera and zoom overrides, confirming that those header
+values do not make camera state authoritative in Rust. A later thin routing
+integration may echo a per-connection descriptor as the approved plan allows.
+
+The packer performs complete checked sizing and value validation before
+changing its output. It rejects non-finite or out-of-Float32 values, malformed
+body ranges, unknown pellet kinds, admitted-frame-ceiling violations, and IDs
+outside frame v1's exact Float32 integer range. A failed attempt leaves the
+previous output bytes untouched; a successful warmed call reuses caller
+capacity. Returned small metadata includes the exact packed byte length so the
+Node welcome path can later stop serializing a complete world merely to obtain
+that value.
+
+`scripts/stage6/generate-frame-v1-fixture.ts` executes the current TypeScript
+serializer over a mixed alive/dead world and retains every output Float32 bit.
+Rust reproduces the artifact exactly, including view fields and all four pellet
+kinds. Focused tests also cover neutral view defaults, warmed reuse, exact-ID
+rejection, malformed bodies, late validation failure, and unchanged output on
+failure.
+
+This is frame preparation only. It is not yet exposed through the coarse N-API
+bridge, routed to WebSockets, double-buffered, consumed in a real browser/LAN
+session, or used by `refreshWelcomeState()`. Frame-v1 capacity and exact-ID
+limits remain explicit, and optional frame v2 remains post-cutover unless
+production measurement promotes the smallest necessary protocol change.
+
+## Durable next-generation boundary preparation
+
+`engine::generation` version 1 joins the source-matched evolution result to a
+complete pre-spawn `StateCandidate` while the old running authority remains
+unchanged. It requires the exact post-step world, RNG and allocator
+continuations; verifies one fixed delta of elapsed generation time; rejects
+evolution-RNG contamination and allocator regression; and projects every
+selection-pressure setting from the admitted normalized configuration. The
+configuration contract now also includes
+`baselineBots.seed` and `baselineBots.randomizeSeedPerGen`, because current
+`BaselineBotManager.resetForGeneration()` derives new per-slot streams at each
+generation boundary.
+
+The prepared population keeps dense slots, moves each new packed Float32
+weight buffer once, advances the population epoch, allocates fresh brain and
+genome identities, records elite/child lineage, and zeroes every recurrent
+state. It advances generation and completed-step identity, carries the exact
+post-step world/external RNG and allocator continuations, installs evolution's
+RNG continuation, reconstructs baseline streams with the current
+`deriveBotSeed` formula, and leaves world snakes, bodies, pellets, controller
+leases and scheduling debt empty at the approved durable pre-spawn boundary.
+Its separate small handoff contains the completed generation's eight-field
+summary and run-scoped Hall-of-Fame candidate. Preparation verifies that the
+selected genome is preserved bit-exactly as the slot-zero elite in the staged
+next population, and metadata references that slot rather than retaining a
+second weights copy.
+
+Focused tests prove that preparation cannot mutate the old source or supplied
+post-step continuations, produces a fully admissible exact boundary, matches
+retained TypeScript baseline-seed vectors, and rejects stale continuations,
+elapsed-time mismatch, ID exhaustion and allocator regression. One test sends
+the prepared candidate through the production checkpoint-v3 managed-file
+writer and restore reader and compares the decoded boundary bit-exactly. The
+test uses a unique operating-system temporary directory and does not touch the
+owner database, managed checkpoint directory or save files.
+
+Current-source tracing of `World._spawnAll()`, `Snake` construction,
+`BaselineBotManager.resetForGeneration()` and `World._initPellets()` establishes
+the post-checkpoint draw order. Evolved snakes are visited in dense population
+order and each consumes angle, area-uniform radius and heading from the world
+RNG. Baseline slots follow in stable slot order using only their independently
+derived streams. The complete initial ambient target is then generated at
+generation time zero from the continued world RNG. No external-controller
+snake is part of `_spawnAll()`; the server's later
+`ControllerRegistry.reassignDeadSnakes()` creates fresh snakes only for live
+connected controllers. Disconnected reservations are not automatically
+assigned a new snake.
+
+`engine::generation_start` version 1 now stages the complete evolved/baseline
+world and time-zero ambient fill from an admitted pre-spawn boundary. Gameplay
+values are re-projected from that boundary's normalized configuration; a
+caller supplies only explicit non-gameplay work ceilings. Evolved placement is
+one stable world-RNG batch, each baseline advances only its own slot stream,
+and the ambient fill continues the post-evolved world stream. It reserves
+separate monotonic internal, baseline and exact frame-v1 identities, binds
+every evolved snake to its dense population brain, installs the pending-first-
+neural-action sentinel, initializes every baseline lifecycle slot, leaves
+controller leases empty and resets generation sensor state. Every complete
+body is checked against the wall and all prior bodies. A valid configuration
+whose requested bodies cannot fit returns an explicit placement failure; it
+never reduces the population or exposes partially advanced RNG/allocators.
+Focused tests cover baseline-stream isolation, full running-state admission,
+ID exhaustion, stale source/config rejection, impossible geometry, unchanged
+source state and warmed retained storage.
+
+The private running-step coordinator now supplies the opaque postphysics world,
+RNG and allocator continuations to this builder. It evaluates the generation
+guard before spending old-generation external-controller RNG or identities,
+admits the complete current-plus-successor memory charge, invalidates the old
+step-publication scratch, and retains one source-keyed pending generation
+transition while the current authority remains unchanged. Starting another
+fixed step is rejected during that handoff. A production checkpoint-v3 writer
+seam can write the immutable managed file from the admitted successor without
+changing authority or SQLite, and an exact-key escape hatch can discard a
+reviewed failed handoff only when the caller also rejects the held scheduler
+ticket. Tests prove that a terminal controlled death reaches this path even
+when old-generation replacement-ID allocation would fail, and that scheduler
+debt and the due ticket are neither spent nor released implicitly.
+
+The coordinator now retains the first immutable checkpoint descriptor and
+accepts a persistence success only when the worker echoes that complete exact
+descriptor, including operation, transition, run, generation, completed-step,
+logical-root and managed-path identity. A wrong or premature acknowledgement
+changes nothing. The exact acknowledgement is recorded before next-world
+construction; if construction then fails, the durable boundary remains the
+current database meaning and the deterministic construction can be retried
+without rerunning evolution or acknowledging SQLite again. A successful
+construction is retained and reborrowed without repeating RNG draws. Once the
+commit is acknowledged, the transition cannot use the old uncommitted-discard
+escape hatch. The focused integration writes only to a unique operating-system
+temporary directory and simulates the small commit acknowledgement; no Node
+persistence worker or SQLite schema is connected yet.
+
+The following terminal work remains open:
+
+- connect the selected persistence worker so its real `synchronous=FULL`
+  metadata/current-pointer, compact-history and run-scoped Hall-of-Fame
+  transaction produces the exact acknowledgement already enforced by Rust;
+- apply the reviewed controller reassignment/invalidation semantics without
+  sending a replacement assignment for a snake immediately cleared by the
+  generation boundary;
+- publish the successor authority and explicitly complete the scheduler ticket,
+  rebasing the wall clock so persistence wait is not charged as simulation
+  debt; and
+- connect and exercise the handoff through the coarse Node bridge, persistence
+  worker, browser/LAN and Protocol 2 trainer.
+
+The independent selection-pressure/authority review gate is still open because
+the requested reviewer turn could not start after its separate usage limit was
+exhausted. No Stage 6 exit or production-authority claim is made.
 
 ## Named evidence retained for the port
 
@@ -819,6 +1351,19 @@ a service opportunity between overdue steps when interactive control exists.
   `docs/todo/evidence/stage5/typescript-spawn-fixtures.json` retain the current
   constructor draw/body order and exact RNG continuation as executable
   non-performance evidence.
+- `scripts/stage5/generate-genome-init-fixture.ts` and the source-identified
+  `native/fixtures/genome-init-reference.json` retain every current random
+  brain-initialization formula, exact Float32 bits and uniform continuation as
+  executable non-performance evidence.
+- `scripts/stage6/generate-evolution-fixture.ts` and the source-identified
+  `native/fixtures/evolution-reference.json` retain current fitness, stable
+  selection, crossover, mutation, compact summary, Hall-of-Fame candidate and
+  evolution-RNG continuation as executable non-performance evidence.
+- `scripts/stage6/generate-frame-v1-fixture.ts` and the source-identified
+  `native/fixtures/frame-v1-reference.json` retain the current complete
+  Float32 display-frame v1 bits, explicit presentation descriptor, alive/dead
+  filtering, body order and pellet encodings as executable non-performance
+  evidence.
 - `scripts/stage5/generate-baseline-control-fixtures.ts` and
   `docs/todo/evidence/stage5/typescript-baseline-control-fixtures.json` retain
   baseline life-stage formulas, transitions, actions and uniform continuation
