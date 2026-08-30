@@ -11,11 +11,11 @@ use super::checkpoint::{
     publish_checkpoint, CheckpointDescriptor, CheckpointError, CheckpointLimits,
     CheckpointOperationId,
 };
-use super::generation_start::{
-    GenerationStartConfig, GenerationStartError, GenerationStartWorkspace,
-};
 use super::frame_v1::{
     pack_authoritative_frame_v1_into, FrameV1Error, FrameV1Metadata, FrameV1ViewDescriptor,
+};
+use super::generation_start::{
+    GenerationStartConfig, GenerationStartError, GenerationStartWorkspace,
 };
 use super::graph::{GraphBundle, GraphLimits};
 use super::state::{
@@ -308,7 +308,10 @@ impl Display for RunStartTransitionError {
                 write!(formatter, "run-start authority has already been published")
             }
             Self::AuthorityNotPublished => {
-                write!(formatter, "run-start frame-v1 requires published running authority")
+                write!(
+                    formatter,
+                    "run-start frame-v1 requires published running authority"
+                )
             }
         }
     }

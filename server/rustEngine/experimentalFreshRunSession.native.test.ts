@@ -4,12 +4,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
+import { FRAME_HEADER_FLOATS, readFrameHeader } from '../../src/protocol/frame.ts';
 import {
   CheckpointPersistenceClient,
   type ManagedCheckpointCommitResult
 } from './checkpointPersistenceClient.ts';
 import {
   loadExperimentalFreshRunSession,
+  type ExperimentalFreshRunFrameV1,
   type ExperimentalFreshRunNativeBinding,
   type ExperimentalFreshRunNativeHandle
 } from './experimentalFreshRunSession.ts';
@@ -94,6 +96,51 @@ async function closeClient(client: CheckpointPersistenceClient): Promise<void> {
   if (index >= 0) clients.splice(index, 1);
 }
 
+/** Validate one Rust payload by walking the current browser frame-v1 layout. */
+function expectCompleteFrameV1(frame: ExperimentalFreshRunFrameV1): void {
+  const bytes = Uint8Array.from(frame.bytes);
+  expect(bytes.byteLength % Float32Array.BYTES_PER_ELEMENT).toBe(0);
+  const floats = new Float32Array(
+    bytes.buffer,
+    bytes.byteOffset,
+    bytes.byteLength / Float32Array.BYTES_PER_ELEMENT
+  );
+  const header = readFrameHeader(floats);
+  expect(header).toEqual({
+    generation: 1,
+    totalSnakes: 65,
+    aliveCount: 65,
+    worldRadius: 3_500,
+    cameraX: 0,
+    cameraY: 0,
+    zoom: 1
+  });
+  let cursor = FRAME_HEADER_FLOATS;
+  for (let snake = 0; snake < header.aliveCount; snake += 1) {
+    expect(cursor + 8).toBeLessThanOrEqual(floats.length);
+    const pointCount = floats[cursor + 7] ?? Number.NaN;
+    expect(Number.isInteger(pointCount)).toBe(true);
+    expect(pointCount).toBeGreaterThanOrEqual(0);
+    cursor += 8 + pointCount * 2;
+    expect(cursor).toBeLessThanOrEqual(floats.length);
+  }
+  expect(cursor).toBeLessThan(floats.length);
+  const pelletCount = floats[cursor] ?? Number.NaN;
+  expect(pelletCount).toBe(3_500);
+  cursor += 1 + pelletCount * 5;
+  expect(cursor).toBe(floats.length);
+  expect(frame).toMatchObject({
+    generation: '0000000000000001',
+    totalSnakes: '0000000000000041',
+    aliveSnakes: '0000000000000041',
+    pellets: '0000000000000dac',
+    floatLength: '00000000000048f6',
+    byteLength: '00000000000123d8'
+  });
+  expect(BigInt(`0x${frame.floatLength}`)).toBe(BigInt(floats.length));
+  expect(BigInt(`0x${frame.byteLength}`)).toBe(BigInt(bytes.byteLength));
+}
+
 afterEach(async () => {
   for (const client of clients.splice(0)) await client.close().catch(() => {});
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -110,6 +157,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
         'activateRunningAuthority',
         'constructor',
         'initialize',
+        'publishInitialFrameV1',
         'publishRunStartCheckpoint',
         'snapshot'
       ]);
@@ -133,6 +181,10 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       snakeCount: '0000000000000000',
       pelletCount: '0000000000000000'
     });
+    await expect(invokeAsync(() => donor.publishInitialFrameV1())).rejects.toThrow(
+      /frame-v1.*requires published running authority/i
+    );
+    expect(donor.snapshot()).toMatchObject({ initialFramePublished: false });
     await expect(invokeAsync(() => donor.activateRunningAuthority())).rejects.toThrow(
       /persistence.*acknowledgement/i
     );
@@ -296,9 +348,31 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       checkpointPublished: true,
       persistenceAcknowledged: true,
       authorityPublished: true,
+      initialFramePublished: false,
       snakeCount: '0000000000000041',
       pelletCount: '0000000000000dac',
       faultDetail: undefined
+    });
+    const initialFrame = await session.publishInitialFrameV1();
+    expectCompleteFrameV1(initialFrame);
+    expect(session.snapshot()).toEqual({
+      phase: 'running',
+      transitionEpoch: committed.transitionEpoch,
+      generation: '0000000000000001',
+      completedStep: '0000000000000000',
+      checkpointPublished: true,
+      persistenceAcknowledged: true,
+      authorityPublished: true,
+      initialFramePublished: true,
+      snakeCount: '0000000000000041',
+      pelletCount: '0000000000000dac',
+      faultDetail: undefined
+    });
+    await expect(session.publishInitialFrameV1()).rejects.toThrow(/already.*published/i);
+    expect(session.snapshot()).toMatchObject({
+      phase: 'running',
+      authorityPublished: true,
+      initialFramePublished: true
     });
     await expect(session.activateRunningAuthority()).rejects.toThrow(/already.*published/i);
     await expect(session.commitPendingRunStart(operationId)).rejects.toThrow(/already.*published/i);

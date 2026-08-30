@@ -38,6 +38,7 @@ const REQUIRED_FRESH_RUN_METHODS = [
   'activateRunningAuthority',
   'constructor',
   'initialize',
+  'publishInitialFrameV1',
   'publishRunStartCheckpoint',
   'snapshot'
 ] as const;
@@ -46,6 +47,7 @@ const REQUIRED_FRESH_RUN_HANDLE_METHODS = [
   'acknowledgeRunStartPersistence',
   'activateRunningAuthority',
   'initialize',
+  'publishInitialFrameV1',
   'publishRunStartCheckpoint',
   'snapshot'
 ] as const;
@@ -60,6 +62,7 @@ export type ExperimentalFreshRunPhase =
   | 'awaitingPersistence'
   | 'durableBoundary'
   | 'activating'
+  | 'publishingInitialFrame'
   | 'running'
   | 'faulted';
 
@@ -79,6 +82,8 @@ export interface ExperimentalFreshRunSnapshot {
   persistenceAcknowledged: boolean | undefined;
   /** Whether running authority has published. */
   authorityPublished: boolean | undefined;
+  /** Whether Rust has packed the one neutral-view startup frame. */
+  initialFramePublished: boolean | undefined;
   /** Exact authoritative snake count after initialization. */
   snakeCount: U64Hex | undefined;
   /** Exact authoritative pellet count after initialization. */
@@ -99,6 +104,24 @@ export interface ExperimentalFreshRunPublication {
   populationEpoch: U64Hex;
 }
 
+/** One bounded replaceable frame-v1 payload packed by retained Rust authority. */
+export interface ExperimentalFreshRunFrameV1 {
+  /** Complete little-endian Float32 frame bytes. */
+  bytes: Uint8Array;
+  /** Exact authoritative generation encoded in the frame. */
+  generation: U64Hex;
+  /** Exact number of authoritative snake records. */
+  totalSnakes: U64Hex;
+  /** Exact number of alive snake records encoded in the frame. */
+  aliveSnakes: U64Hex;
+  /** Exact number of pellet records encoded in the frame. */
+  pellets: U64Hex;
+  /** Exact number of Float32 entries in the frame. */
+  floatLength: U64Hex;
+  /** Exact number of bytes in the frame. */
+  byteLength: U64Hex;
+}
+
 /** Native session handle admitted only after the production-addon handshake. */
 export interface ExperimentalFreshRunNativeHandle extends RustRunStartPersistencePort {
   /** Publish the Rust-owned immutable checkpoint descriptor. */
@@ -109,6 +132,8 @@ export interface ExperimentalFreshRunNativeHandle extends RustRunStartPersistenc
   initialize(): Promise<unknown>;
   /** Construct and publish the running world off the Node loop. */
   activateRunningAuthority(): Promise<unknown>;
+  /** Pack the one neutral-view startup frame directly from Rust authority. */
+  publishInitialFrameV1(): Promise<unknown>;
   /** Read bounded scalar state without copying a world or population. */
   snapshot(): unknown;
 }
@@ -283,6 +308,11 @@ export class ExperimentalFreshRunSession {
     return parseFreshRunPublication(await this.native.activateRunningAuthority());
   }
 
+  /** Pack the one neutral-view startup frame directly from retained Rust authority. */
+  public async publishInitialFrameV1(): Promise<ExperimentalFreshRunFrameV1> {
+    return parseFreshRunFrameV1(await this.native.publishInitialFrameV1());
+  }
+
   /** Read only the native session's bounded scalar proof. */
   public snapshot(): ExperimentalFreshRunSnapshot {
     return parseFreshRunSnapshot(this.native.snapshot());
@@ -428,6 +458,7 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
     'checkpointPublished',
     'persistenceAcknowledged',
     'authorityPublished',
+    'initialFramePublished',
     'snakeCount',
     'pelletCount',
     'faultDetail'
@@ -435,7 +466,7 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
   const phases: readonly ExperimentalFreshRunPhase[] = [
     'created', 'initializing', 'pendingDurability', 'publishingCheckpoint',
     'acknowledgingPersistence', 'awaitingPersistence', 'durableBoundary',
-    'activating', 'running', 'faulted'
+    'activating', 'publishingInitialFrame', 'running', 'faulted'
   ];
   if (typeof raw['phase'] !== 'string' ||
     !phases.includes(raw['phase'] as ExperimentalFreshRunPhase)) {
@@ -452,6 +483,10 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
       'persistenceAcknowledged'
     ),
     authorityPublished: parseOptionalBoolean(raw['authorityPublished'], 'authorityPublished'),
+    initialFramePublished: parseOptionalBoolean(
+      raw['initialFramePublished'],
+      'initialFramePublished'
+    ),
     snakeCount: parseOptionalU64Hex(raw['snakeCount'], 'snakeCount'),
     pelletCount: parseOptionalU64Hex(raw['pelletCount'], 'pelletCount'),
     faultDetail: parseOptionalFaultDetail(raw['faultDetail'])
@@ -462,6 +497,7 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
     snapshot.checkpointPublished,
     snapshot.persistenceAcknowledged,
     snapshot.authorityPublished,
+    snapshot.initialFramePublished,
     snapshot.snakeCount,
     snapshot.pelletCount
   ];
@@ -489,7 +525,7 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
   if (snapshot.transitionEpoch === undefined &&
     ![
       'created', 'initializing', 'publishingCheckpoint',
-      'acknowledgingPersistence', 'activating', 'faulted'
+      'acknowledgingPersistence', 'activating', 'publishingInitialFrame', 'faulted'
     ]
       .includes(snapshot.phase)) {
     throw new TypeError('experimental fresh-run stable phase omits retained transition metadata');
@@ -497,6 +533,9 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
   if (snapshot.transitionEpoch !== undefined &&
     (snapshot.phase === 'created' || snapshot.phase === 'faulted')) {
     throw new TypeError('experimental fresh-run phase unexpectedly retains transition metadata');
+  }
+  if (snapshot.initialFramePublished === true && snapshot.authorityPublished !== true) {
+    throw new TypeError('experimental fresh-run frame was published before running authority');
   }
   return snapshot;
 }
@@ -520,4 +559,47 @@ function parseFreshRunPublication(value: unknown): ExperimentalFreshRunPublicati
     throw new TypeError('experimental fresh-run publication has invalid authority epochs');
   }
   return publication;
+}
+
+/** Validate one Rust-packed frame without narrowing any routing metadata. */
+function parseFreshRunFrameV1(value: unknown): ExperimentalFreshRunFrameV1 {
+  const raw = asRecord(value, 'experimental fresh-run frame-v1');
+  requireOnlyKeys(raw, [
+    'bytes',
+    'generation',
+    'totalSnakes',
+    'aliveSnakes',
+    'pellets',
+    'floatLength',
+    'byteLength'
+  ]);
+  if (!(raw['bytes'] instanceof Uint8Array)) {
+    throw new TypeError('experimental fresh-run frame-v1 bytes must be a Uint8Array');
+  }
+  const frame: ExperimentalFreshRunFrameV1 = {
+    bytes: raw['bytes'],
+    generation: parseU64Hex(raw['generation'], 'generation'),
+    totalSnakes: parseU64Hex(raw['totalSnakes'], 'totalSnakes'),
+    aliveSnakes: parseU64Hex(raw['aliveSnakes'], 'aliveSnakes'),
+    pellets: parseU64Hex(raw['pellets'], 'pellets'),
+    floatLength: parseU64Hex(raw['floatLength'], 'floatLength'),
+    byteLength: parseU64Hex(raw['byteLength'], 'byteLength')
+  };
+  const totalSnakes = BigInt(`0x${frame.totalSnakes}`);
+  const aliveSnakes = BigInt(`0x${frame.aliveSnakes}`);
+  const floatLength = BigInt(`0x${frame.floatLength}`);
+  const byteLength = BigInt(`0x${frame.byteLength}`);
+  if (frame.generation !== '0000000000000001') {
+    throw new TypeError('experimental fresh-run frame-v1 is not generation one');
+  }
+  if (aliveSnakes > totalSnakes) {
+    throw new TypeError('experimental fresh-run frame-v1 alive count exceeds total snakes');
+  }
+  if (floatLength * 4n !== byteLength) {
+    throw new TypeError('experimental fresh-run frame-v1 float and byte lengths disagree');
+  }
+  if (byteLength !== BigInt(frame.bytes.byteLength)) {
+    throw new TypeError('experimental fresh-run frame-v1 payload length disagrees with metadata');
+  }
+  return frame;
 }

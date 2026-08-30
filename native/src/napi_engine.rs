@@ -33,6 +33,7 @@ use crate::engine::contract::{
     ReliableEvent, SequencedCommand, ENGINE_CONTRACT_VERSION,
 };
 use crate::engine::error::{truncate_utf8, EngineError, EngineErrorCode, MAX_ERROR_DETAIL_BYTES};
+use crate::engine::frame_v1::FrameV1Metadata;
 use crate::engine::fresh_run::{prepare_stage6a_p0_fresh_run, Stage6aP0FreshRunRequest};
 use crate::engine::queues::WakeSink;
 use crate::engine::run_start::PendingRunStartTransition;
@@ -86,6 +87,8 @@ const FRESH_OPERATION_CHECKPOINT: u8 = 2;
 const FRESH_OPERATION_ACTIVATE: u8 = 3;
 /// Exact persistence acknowledgement owns the synchronous mutation root.
 const FRESH_OPERATION_ACKNOWLEDGE: u8 = 4;
+/// One neutral-view frame-v1 payload is being packed from running authority.
+const FRESH_OPERATION_INITIAL_FRAME: u8 = 5;
 /// Exact enumerable string keys admitted by a persistence acknowledgement.
 const CHECKPOINT_DESCRIPTOR_INPUT_KEYS: [&str; 23] = [
     "protocolVersion",
@@ -303,6 +306,36 @@ pub struct Stage6RunStartPublication {
     pub population_epoch: String,
 }
 
+/// One replaceable browser frame packed directly from retained Rust authority.
+#[napi(object)]
+pub struct ExperimentalFreshRunFrameV1 {
+    /// Complete little-endian frame-v1 bytes; no population/archive bytes appear here.
+    pub bytes: Uint8Array,
+    /// Exact authoritative generation written into the frame.
+    pub generation: String,
+    /// Exact number of authoritative snake records.
+    pub total_snakes: String,
+    /// Exact number of alive snake records present in the frame.
+    pub alive_snakes: String,
+    /// Exact number of pellet records present in the frame.
+    pub pellets: String,
+    /// Exact number of Float32 entries in the frame.
+    pub float_length: String,
+    /// Exact number of bytes in the frame.
+    pub byte_length: String,
+}
+
+/// Rust-only frame payload and checked scalar metadata produced by a worker.
+pub struct FreshRunFrameV1Output {
+    bytes: Vec<u8>,
+    generation: u64,
+    total_snakes: u64,
+    alive_snakes: u64,
+    pellets: u64,
+    float_length: u64,
+    byte_length: u64,
+}
+
 /// Bounded scalar view of the experimental fixed-P0 fresh-run session.
 #[napi(object)]
 pub struct ExperimentalFreshRunSnapshot {
@@ -320,6 +353,8 @@ pub struct ExperimentalFreshRunSnapshot {
     pub persistence_acknowledged: Option<bool>,
     /// Whether the collision-safe running authority has published.
     pub authority_published: Option<bool>,
+    /// Whether the one initial neutral-view frame has been packed.
+    pub initial_frame_published: Option<bool>,
     /// Exact current authoritative snake count once construction has completed.
     pub snake_count: Option<String>,
     /// Exact current authoritative pellet count once construction has completed.
@@ -338,6 +373,7 @@ pub struct FreshRunScalarSnapshot {
     checkpoint_published: Option<bool>,
     persistence_acknowledged: Option<bool>,
     authority_published: Option<bool>,
+    initial_frame_published: Option<bool>,
     snake_count: Option<usize>,
     pellet_count: Option<usize>,
     fault_detail: Option<String>,
@@ -347,6 +383,7 @@ pub struct FreshRunScalarSnapshot {
 #[derive(Default)]
 struct ExperimentalFreshRunInner {
     transition: Option<PendingRunStartTransition>,
+    initial_frame_published: bool,
     fault_detail: Option<String>,
 }
 
@@ -489,6 +526,25 @@ impl ExperimentalStage6aFreshRunSession {
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
         }))
+    }
+
+    /// Pack exactly one bounded neutral-view frame from running Rust authority.
+    #[napi(catch_unwind)]
+    pub fn publish_initial_frame_v1(
+        &self,
+    ) -> Result<AsyncTask<PublishExperimentalFreshRunInitialFrameTask>> {
+        self.begin_operation(FRESH_OPERATION_INITIAL_FRAME)?;
+        if let Err(error) = ensure_fresh_transition_present(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(AsyncTask::new(
+            PublishExperimentalFreshRunInitialFrameTask {
+                inner: Arc::clone(&self.inner),
+                active_operation: Arc::clone(&self.active_operation),
+            },
+        ))
     }
 
     /// Return bounded scalar proof without blocking the Node event loop.
@@ -677,6 +733,63 @@ impl Task for ActivateExperimentalFreshRunTask {
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
         Ok(run_start_publication_to_napi(output))
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.active_operation
+            .store(FRESH_OPERATION_IDLE, Ordering::Release);
+        Ok(())
+    }
+}
+
+/// Async one-shot frame-v1 packing from the retained running authority.
+pub struct PublishExperimentalFreshRunInitialFrameTask {
+    inner: Arc<Mutex<ExperimentalFreshRunInner>>,
+    active_operation: Arc<AtomicU8>,
+}
+
+impl Task for PublishExperimentalFreshRunInitialFrameTask {
+    type Output = FreshRunFrameV1Output;
+    type JsValue = ExperimentalFreshRunFrameV1;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            let mut inner = lock_recover(&self.inner);
+            if let Some(detail) = inner.fault_detail.as_deref() {
+                return Err(format!(
+                    "experimental fresh-run session is faulted: {detail}"
+                ));
+            }
+            if inner.initial_frame_published {
+                return Err(
+                    "experimental fresh-run initial frame-v1 is already published".to_owned(),
+                );
+            }
+            let transition = inner
+                .transition
+                .as_ref()
+                .ok_or_else(|| "experimental fresh run has not been initialized".to_owned())?;
+            let mut bytes = Vec::new();
+            let metadata = transition
+                .pack_initial_frame_v1(&mut bytes)
+                .map_err(|error| error.to_string())?;
+            let output =
+                fresh_run_frame_v1_output(bytes, metadata).map_err(|error| error.to_string())?;
+            inner.initial_frame_published = true;
+            Ok(output)
+        })) {
+            Ok(Ok(frame)) => Ok(frame),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(fault_experimental_fresh_run(
+                &self.inner,
+                "experimental fresh-run initial frame-v1 publication panicked",
+                payload.as_ref(),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(fresh_run_frame_v1_to_napi(output))
     }
 
     fn finally(self, _env: Env) -> Result<()> {
@@ -1281,6 +1394,7 @@ const fn fresh_operation_phase(operation: u8) -> Option<&'static str> {
         FRESH_OPERATION_CHECKPOINT => Some("publishingCheckpoint"),
         FRESH_OPERATION_ACTIVATE => Some("activating"),
         FRESH_OPERATION_ACKNOWLEDGE => Some("acknowledgingPersistence"),
+        FRESH_OPERATION_INITIAL_FRAME => Some("publishingInitialFrame"),
         _ => None,
     }
 }
@@ -1301,6 +1415,7 @@ fn busy_fresh_run_snapshot(operation: u8) -> Result<FreshRunScalarSnapshot> {
         checkpoint_published: None,
         persistence_acknowledged: None,
         authority_published: None,
+        initial_frame_published: None,
         snake_count: None,
         pellet_count: None,
         fault_detail: None,
@@ -1321,6 +1436,7 @@ fn fresh_run_scalar_snapshot(
             checkpoint_published: None,
             persistence_acknowledged: None,
             authority_published: None,
+            initial_frame_published: None,
             snake_count: None,
             pellet_count: None,
             fault_detail: Some(detail.clone()),
@@ -1351,6 +1467,7 @@ fn fresh_run_scalar_snapshot(
             checkpoint_published: None,
             persistence_acknowledged: None,
             authority_published: None,
+            initial_frame_published: None,
             snake_count: None,
             pellet_count: None,
             fault_detail: None,
@@ -1364,6 +1481,7 @@ fn fresh_run_scalar_snapshot(
         checkpoint_published: Some(transition.checkpoint_published()),
         persistence_acknowledged: Some(transition.persistence_acknowledged()),
         authority_published: Some(transition.authority_published()),
+        initial_frame_published: Some(inner.initial_frame_published),
         snake_count: Some(transition.snake_count()),
         pellet_count: Some(transition.pellet_count()),
         fault_detail: None,
@@ -1404,10 +1522,56 @@ fn fresh_run_snapshot_to_napi(
         checkpoint_published: snapshot.checkpoint_published,
         persistence_acknowledged: snapshot.persistence_acknowledged,
         authority_published: snapshot.authority_published,
+        initial_frame_published: snapshot.initial_frame_published,
         snake_count,
         pellet_count,
         fault_detail: snapshot.fault_detail,
     })
+}
+
+/// Check and convert frame routing metadata before exposing exact hex scalars.
+fn fresh_run_frame_v1_output(
+    bytes: Vec<u8>,
+    metadata: FrameV1Metadata,
+) -> Result<FreshRunFrameV1Output> {
+    if metadata.byte_length != bytes.len() {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "fresh-run frame-v1 byte metadata does not match its payload",
+        ));
+    }
+    Ok(FreshRunFrameV1Output {
+        bytes,
+        generation: metadata.generation,
+        total_snakes: frame_usize_to_u64(metadata.total_snakes, "totalSnakes")?,
+        alive_snakes: frame_usize_to_u64(metadata.alive_snakes, "aliveSnakes")?,
+        pellets: frame_usize_to_u64(metadata.pellets, "pellets")?,
+        float_length: frame_usize_to_u64(metadata.float_length, "floatLength")?,
+        byte_length: frame_usize_to_u64(metadata.byte_length, "byteLength")?,
+    })
+}
+
+/// Convert one supported-target frame count without JavaScript Number narrowing.
+fn frame_usize_to_u64(value: usize, field: &str) -> Result<u64> {
+    u64::try_from(value).map_err(|_| {
+        Error::new(
+            Status::GenericFailure,
+            format!("fresh-run frame-v1 {field} exceeds the N-API scalar domain"),
+        )
+    })
+}
+
+/// Move one worker-produced frame into a typed array with exact hex metadata.
+fn fresh_run_frame_v1_to_napi(output: FreshRunFrameV1Output) -> ExperimentalFreshRunFrameV1 {
+    ExperimentalFreshRunFrameV1 {
+        bytes: Uint8Array::from(output.bytes),
+        generation: u64_hex(output.generation),
+        total_snakes: u64_hex(output.total_snakes),
+        alive_snakes: u64_hex(output.alive_snakes),
+        pellets: u64_hex(output.pellets),
+        float_length: u64_hex(output.float_length),
+        byte_length: u64_hex(output.byte_length),
+    }
 }
 
 /// Convert one successful run-start activation without exposing state memory.
@@ -3185,6 +3349,19 @@ mod tests {
         session
             .begin_operation(FRESH_OPERATION_CHECKPOINT)
             .expect("operation slot is reusable after completion");
+        session
+            .active_operation
+            .store(FRESH_OPERATION_IDLE, Ordering::Release);
+        session
+            .begin_operation(FRESH_OPERATION_INITIAL_FRAME)
+            .expect("initial frame owns the same coarse operation slot");
+        let publishing_frame = fresh_run_scalar_snapshot(
+            &lock_recover(&session.inner),
+            session.active_operation.load(Ordering::Acquire),
+        )
+        .expect("initial frame snapshot");
+        assert_eq!(publishing_frame.phase, "publishingInitialFrame");
+        assert_eq!(publishing_frame.initial_frame_published, None);
     }
 
     #[test]

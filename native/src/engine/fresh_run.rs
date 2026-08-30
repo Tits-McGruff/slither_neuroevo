@@ -530,6 +530,7 @@ mod tests {
     use serde::Deserialize;
     use sha2::{Digest, Sha256};
     use std::collections::BTreeMap;
+    use std::mem::size_of;
     use std::path::{Path, PathBuf};
 
     /// Two GiB admits the conservative fixed P0 scratch envelope in local tests.

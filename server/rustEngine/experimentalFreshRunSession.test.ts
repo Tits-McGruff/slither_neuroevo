@@ -7,6 +7,7 @@ import type {
 import {
   createExperimentalFreshRunSession,
   validateExperimentalFreshRunBinding,
+  type ExperimentalFreshRunFrameV1,
   type ExperimentalFreshRunNativeHandle,
   type ExperimentalFreshRunSnapshot
 } from './experimentalFreshRunSession.ts';
@@ -75,10 +76,25 @@ function snapshot(
     checkpointPublished: false,
     persistenceAcknowledged: false,
     authorityPublished: false,
+    initialFramePublished: false,
     snakeCount: '0000000000000000',
     pelletCount: '0000000000000000',
     faultDetail: undefined,
     ...overrides
+  };
+}
+
+/** Build one minimal complete frame-v1 payload with exact routing metadata. */
+function initialFrameV1(): ExperimentalFreshRunFrameV1 {
+  const floats = new Float32Array([1, 0, 0, 3_500, 0, 0, 1, 0]);
+  return {
+    bytes: new Uint8Array(floats.buffer, floats.byteOffset, floats.byteLength),
+    generation: '0000000000000001',
+    totalSnakes: '0000000000000000',
+    aliveSnakes: '0000000000000000',
+    pellets: '0000000000000000',
+    floatLength: '0000000000000008',
+    byteLength: '0000000000000020'
   };
 }
 
@@ -156,6 +172,19 @@ class FakeFreshRunSession implements ExperimentalFreshRunNativeHandle {
     };
   }
 
+  /** Return one Rust-shaped initial display frame and retain its scalar marker. */
+  public async publishInitialFrameV1(): Promise<unknown> {
+    this.current = snapshot('running', {
+      checkpointPublished: true,
+      persistenceAcknowledged: true,
+      authorityPublished: true,
+      initialFramePublished: true,
+      snakeCount: '0000000000000041',
+      pelletCount: '0000000000000dac'
+    });
+    return initialFrameV1();
+  }
+
   /** Read the current scalar state. */
   public snapshot(): unknown {
     return this.current;
@@ -231,6 +260,15 @@ describe('experimental fixed-P0 fresh-run session', () => {
       phase: 'running',
       snakeCount: '0000000000000041',
       pelletCount: '0000000000000dac'
+    });
+    await expect(session.publishInitialFrameV1()).resolves.toMatchObject({
+      generation: '0000000000000001',
+      floatLength: '0000000000000008',
+      byteLength: '0000000000000020'
+    });
+    expect(session.snapshot()).toMatchObject({
+      phase: 'running',
+      initialFramePublished: true
     });
   });
 
@@ -318,6 +356,40 @@ describe('experimental fixed-P0 fresh-run session', () => {
     await expect(session.initialize()).rejects.toThrow(/transitionEpoch.*hexadecimal/i);
   });
 
+  it('rejects narrowed, expanded, or length-inconsistent native frame output', async () => {
+    const evidence = createEvidence();
+    const binding = fakeBinding(evidence) as Record<string, unknown>;
+    let output: unknown = { ...initialFrameV1(), totalSnakes: 0 };
+    class InvalidFrameFreshRunSession extends FakeFreshRunSession {
+      /** Return the selected malformed frame through the normal wrapper parser. */
+      public override async publishInitialFrameV1(): Promise<unknown> {
+        return output;
+      }
+    }
+    binding['ExperimentalStage6aFreshRunSession'] = class extends InvalidFrameFreshRunSession {
+      /** Bind evidence for the malformed-frame fixture. */
+      public constructor(runId: string, seedHex: string, memoryHex: U64Hex) {
+        super(evidence, runId, seedHex, memoryHex);
+      }
+    };
+    const session = createExperimentalFreshRunSession({
+      binding,
+      sourceIdentity: SOURCE_IDENTITY,
+      runId: 'lineage',
+      seed: 1,
+      memoryCeilingBytes: 1n,
+      managedDirectory: 'managed',
+      persistence: { async commit(value) { return commitResult(value as ManagedCheckpointDescriptor); } }
+    });
+    await expect(session.publishInitialFrameV1()).rejects.toThrow(/totalSnakes.*hexadecimal/i);
+    output = { ...initialFrameV1(), unexpectedPopulation: [] };
+    await expect(session.publishInitialFrameV1()).rejects.toThrow(/unknown field/i);
+    output = { ...initialFrameV1(), byteLength: '000000000000001c' };
+    await expect(session.publishInitialFrameV1()).rejects.toThrow(/lengths disagree/i);
+    output = { ...initialFrameV1(), bytes: new Uint8Array(28) };
+    await expect(session.publishInitialFrameV1()).rejects.toThrow(/payload length disagrees/i);
+  });
+
   it('accepts only a bounded internally consistent terminal fault snapshot', () => {
     const evidence = createEvidence();
     const binding = fakeBinding(evidence) as Record<string, unknown>;
@@ -350,6 +422,7 @@ describe('experimental fixed-P0 fresh-run session', () => {
       checkpointPublished: undefined,
       persistenceAcknowledged: undefined,
       authorityPublished: undefined,
+      initialFramePublished: undefined,
       snakeCount: undefined,
       pelletCount: undefined,
       faultDetail: 'construction panic'
