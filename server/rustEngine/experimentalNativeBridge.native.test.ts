@@ -249,6 +249,7 @@ describe('experimental native bridge real-addon integration', () => {
       'activateRunningAuthority',
       'constructor',
       'initialize',
+      'publishFirstScheduledFrameV1',
       'publishInitialFrameV1',
       'publishRunStartCheckpoint',
       'snapshot'

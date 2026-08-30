@@ -18,6 +18,11 @@ use super::generation_start::{
     GenerationStartConfig, GenerationStartError, GenerationStartWorkspace,
 };
 use super::graph::{GraphBundle, GraphLimits};
+use super::running_step::{RunningStepCoordinator, RunningStepError, RunningStepProgress};
+use super::scheduler::{
+    FixedStepScheduler, FixedStepSchedulerPolicy, SchedulerError, SchedulerReadiness,
+    SchedulerServiceMode,
+};
 use super::state::{
     AuthoritativeState, AuthorityPhase, GenerationBoundaryKind, RunStartPublication,
     StateAdmissionPolicy, StateCandidate, StateError,
@@ -62,6 +67,8 @@ pub struct PendingRunStartTransition {
     checkpoint_descriptor: Option<CheckpointDescriptor>,
     persistence_acknowledged: bool,
     authority_published: bool,
+    first_scheduled_step_attempted: bool,
+    first_scheduled_frame_published: bool,
 }
 
 impl PendingRunStartTransition {
@@ -93,6 +100,8 @@ impl PendingRunStartTransition {
             checkpoint_descriptor: None,
             persistence_acknowledged: false,
             authority_published: false,
+            first_scheduled_step_attempted: false,
+            first_scheduled_frame_published: false,
         })
     }
 
@@ -199,6 +208,71 @@ impl PendingRunStartTransition {
         )?)
     }
 
+    /// Execute exactly one Rust-scheduled fixed step and pack its resulting frame.
+    ///
+    /// This is the bounded forward bridge used by the experimental fixed-P0
+    /// session before the continuous background runtime is connected. The
+    /// caller supplies no clock, scheduler debt, controls, world data, IDs, or
+    /// statistics. Rust derives the smallest whole-millisecond service boundary
+    /// that makes one admitted fixed delta due, executes the complete running
+    /// coordinator, commits the exact scheduler ticket, and then packs frame v1.
+    ///
+    /// Once execution begins the operation is permanently single-use. That
+    /// prevents an unexpected delivery/generation branch or a post-publication
+    /// frame failure from being retried as a second hidden authoritative step.
+    pub fn publish_first_scheduled_frame_v1(
+        &mut self,
+        output: &mut Vec<u8>,
+    ) -> Result<FrameV1Metadata, RunStartTransitionError> {
+        if !self.authority_published {
+            return Err(RunStartTransitionError::AuthorityNotPublished);
+        }
+        if self.first_scheduled_step_attempted {
+            return Err(RunStartTransitionError::FirstScheduledStepAlreadyAttempted);
+        }
+        self.first_scheduled_step_attempted = true;
+
+        let mut coordinator = RunningStepCoordinator::try_new(&self.authority, self.work_limits)?;
+        let mut scheduler = FixedStepScheduler::try_new(
+            &self.authority,
+            FixedStepSchedulerPolicy::provisional_defaults(),
+        )?;
+        scheduler.reset_wall_clock(&self.authority, 0)?;
+        let service_wall_ms = first_step_service_wall_ms(&self.authority)?;
+        let readiness = scheduler.service_after_command_drain(
+            &self.authority,
+            service_wall_ms,
+            SchedulerServiceMode::Background,
+        )?;
+        if !matches!(readiness, SchedulerReadiness::StepDue { .. }) {
+            return Err(RunStartTransitionError::FirstScheduledStepNotDue);
+        }
+        let step = scheduler.prepare_due_step(&self.authority)?;
+        let publication = match coordinator
+            .advance_nonterminal(&mut self.authority, step.running_step_inputs())?
+        {
+            RunningStepProgress::Published(outcome) => outcome.publication,
+            RunningStepProgress::ExternalDeliveryPending(batch) => {
+                return Err(
+                    RunStartTransitionError::UnexpectedFirstStepExternalDelivery {
+                        remaining: batch.remaining(),
+                    },
+                );
+            }
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                return Err(RunStartTransitionError::UnexpectedFirstStepGenerationTransition);
+            }
+        };
+        scheduler.commit_step(&self.authority, step, publication)?;
+        let metadata = pack_authoritative_frame_v1_into(
+            &self.authority,
+            FrameV1ViewDescriptor::default(),
+            output,
+        )?;
+        self.first_scheduled_frame_published = true;
+        Ok(metadata)
+    }
+
     /// Exact Rust-owned transition correlation token.
     #[must_use]
     pub const fn transition_epoch(&self) -> u64 {
@@ -233,6 +307,18 @@ impl PendingRunStartTransition {
     #[must_use]
     pub const fn authority_published(&self) -> bool {
         self.authority_published
+    }
+
+    /// Whether the one experimental scheduled-step attempt has started.
+    #[must_use]
+    pub const fn first_scheduled_step_attempted(&self) -> bool {
+        self.first_scheduled_step_attempted
+    }
+
+    /// Whether that exact step also produced its post-publication frame.
+    #[must_use]
+    pub const fn first_scheduled_frame_published(&self) -> bool {
+        self.first_scheduled_frame_published
     }
 
     /// Current authoritative snake count as bounded activation proof.
@@ -273,6 +359,18 @@ pub enum RunStartTransitionError {
     AuthorityAlreadyPublished,
     /// Display publication was attempted before running authority existed.
     AuthorityNotPublished,
+    /// The bounded first scheduled-step bridge was already consumed.
+    FirstScheduledStepAlreadyAttempted,
+    /// Rust's internally derived service boundary did not make one step due.
+    FirstScheduledStepNotDue,
+    /// Fixed-P0 unexpectedly required a Node delivery on its first step.
+    UnexpectedFirstStepExternalDelivery { remaining: usize },
+    /// Fixed-P0 unexpectedly reached a generation boundary on its first step.
+    UnexpectedFirstStepGenerationTransition,
+    /// Complete running-step construction or publication failed.
+    RunningStep(Box<RunningStepError>),
+    /// Rust-owned fixed-step scheduling failed.
+    Scheduler(Box<SchedulerError>),
 }
 
 impl Display for RunStartTransitionError {
@@ -313,6 +411,28 @@ impl Display for RunStartTransitionError {
                     "run-start frame-v1 requires published running authority"
                 )
             }
+            Self::FirstScheduledStepAlreadyAttempted => write!(
+                formatter,
+                "run-start first scheduled frame-v1 step has already been attempted"
+            ),
+            Self::FirstScheduledStepNotDue => write!(
+                formatter,
+                "run-start internally derived scheduler boundary did not make one step due"
+            ),
+            Self::UnexpectedFirstStepExternalDelivery { remaining } => write!(
+                formatter,
+                "run-start fixed-P0 first step unexpectedly requires {remaining} external deliveries"
+            ),
+            Self::UnexpectedFirstStepGenerationTransition => write!(
+                formatter,
+                "run-start fixed-P0 first step unexpectedly reached a generation transition"
+            ),
+            Self::RunningStep(error) => {
+                write!(formatter, "run-start first scheduled step failed: {error}")
+            }
+            Self::Scheduler(error) => {
+                write!(formatter, "run-start first scheduled step scheduler failed: {error}")
+            }
         }
     }
 }
@@ -324,6 +444,8 @@ impl Error for RunStartTransitionError {
             Self::Checkpoint(error) => Some(error),
             Self::GenerationStart(error) => Some(error),
             Self::Frame(error) => Some(error),
+            Self::RunningStep(error) => Some(error),
+            Self::Scheduler(error) => Some(error),
             _ => None,
         }
     }
@@ -351,4 +473,30 @@ impl From<FrameV1Error> for RunStartTransitionError {
     fn from(error: FrameV1Error) -> Self {
         Self::Frame(Box::new(error))
     }
+}
+
+impl From<RunningStepError> for RunStartTransitionError {
+    fn from(error: RunningStepError) -> Self {
+        Self::RunningStep(Box::new(error))
+    }
+}
+
+impl From<SchedulerError> for RunStartTransitionError {
+    fn from(error: SchedulerError) -> Self {
+        Self::Scheduler(Box::new(error))
+    }
+}
+
+/// Derive the smallest positive whole-millisecond boundary that requests one step.
+fn first_step_service_wall_ms(
+    authority: &AuthoritativeState,
+) -> Result<u64, RunStartTransitionError> {
+    let state = authority.state();
+    let required_wall_seconds = state.config.fixed_step_seconds / state.config.requested_sim_speed;
+    let required_wall_ms = (required_wall_seconds * 1_000.0).ceil();
+    if !required_wall_ms.is_finite() || required_wall_ms < 1.0 || required_wall_ms > u64::MAX as f64
+    {
+        return Err(RunStartTransitionError::FirstScheduledStepNotDue);
+    }
+    Ok(required_wall_ms as u64)
 }

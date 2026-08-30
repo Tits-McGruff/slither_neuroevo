@@ -38,6 +38,7 @@ const REQUIRED_FRESH_RUN_METHODS = [
   'activateRunningAuthority',
   'constructor',
   'initialize',
+  'publishFirstScheduledFrameV1',
   'publishInitialFrameV1',
   'publishRunStartCheckpoint',
   'snapshot'
@@ -47,6 +48,7 @@ const REQUIRED_FRESH_RUN_HANDLE_METHODS = [
   'acknowledgeRunStartPersistence',
   'activateRunningAuthority',
   'initialize',
+  'publishFirstScheduledFrameV1',
   'publishInitialFrameV1',
   'publishRunStartCheckpoint',
   'snapshot'
@@ -63,6 +65,7 @@ export type ExperimentalFreshRunPhase =
   | 'durableBoundary'
   | 'activating'
   | 'publishingInitialFrame'
+  | 'publishingFirstScheduledFrame'
   | 'running'
   | 'faulted';
 
@@ -84,6 +87,8 @@ export interface ExperimentalFreshRunSnapshot {
   authorityPublished: boolean | undefined;
   /** Whether Rust has packed the one neutral-view startup frame. */
   initialFramePublished: boolean | undefined;
+  /** Whether the first complete scheduled step and its frame have published. */
+  firstScheduledFramePublished: boolean | undefined;
   /** Exact authoritative snake count after initialization. */
   snakeCount: U64Hex | undefined;
   /** Exact authoritative pellet count after initialization. */
@@ -110,6 +115,8 @@ export interface ExperimentalFreshRunFrameV1 {
   bytes: Uint8Array;
   /** Exact authoritative generation encoded in the frame. */
   generation: U64Hex;
+  /** Exact completed fixed-step count represented by the frame. */
+  completedStep: U64Hex;
   /** Exact number of authoritative snake records. */
   totalSnakes: U64Hex;
   /** Exact number of alive snake records encoded in the frame. */
@@ -134,6 +141,8 @@ export interface ExperimentalFreshRunNativeHandle extends RustRunStartPersistenc
   activateRunningAuthority(): Promise<unknown>;
   /** Pack the one neutral-view startup frame directly from Rust authority. */
   publishInitialFrameV1(): Promise<unknown>;
+  /** Execute one Rust-scheduled step and pack its resulting frame. */
+  publishFirstScheduledFrameV1(): Promise<unknown>;
   /** Read bounded scalar state without copying a world or population. */
   snapshot(): unknown;
 }
@@ -310,7 +319,18 @@ export class ExperimentalFreshRunSession {
 
   /** Pack the one neutral-view startup frame directly from retained Rust authority. */
   public async publishInitialFrameV1(): Promise<ExperimentalFreshRunFrameV1> {
-    return parseFreshRunFrameV1(await this.native.publishInitialFrameV1());
+    return parseFreshRunFrameV1(
+      await this.native.publishInitialFrameV1(),
+      '0000000000000000'
+    );
+  }
+
+  /** Execute exactly one Rust-scheduled step and pack its resulting frame. */
+  public async publishFirstScheduledFrameV1(): Promise<ExperimentalFreshRunFrameV1> {
+    return parseFreshRunFrameV1(
+      await this.native.publishFirstScheduledFrameV1(),
+      '0000000000000001'
+    );
   }
 
   /** Read only the native session's bounded scalar proof. */
@@ -459,6 +479,7 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
     'persistenceAcknowledged',
     'authorityPublished',
     'initialFramePublished',
+    'firstScheduledFramePublished',
     'snakeCount',
     'pelletCount',
     'faultDetail'
@@ -466,7 +487,8 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
   const phases: readonly ExperimentalFreshRunPhase[] = [
     'created', 'initializing', 'pendingDurability', 'publishingCheckpoint',
     'acknowledgingPersistence', 'awaitingPersistence', 'durableBoundary',
-    'activating', 'publishingInitialFrame', 'running', 'faulted'
+    'activating', 'publishingInitialFrame', 'publishingFirstScheduledFrame',
+    'running', 'faulted'
   ];
   if (typeof raw['phase'] !== 'string' ||
     !phases.includes(raw['phase'] as ExperimentalFreshRunPhase)) {
@@ -487,6 +509,10 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
       raw['initialFramePublished'],
       'initialFramePublished'
     ),
+    firstScheduledFramePublished: parseOptionalBoolean(
+      raw['firstScheduledFramePublished'],
+      'firstScheduledFramePublished'
+    ),
     snakeCount: parseOptionalU64Hex(raw['snakeCount'], 'snakeCount'),
     pelletCount: parseOptionalU64Hex(raw['pelletCount'], 'pelletCount'),
     faultDetail: parseOptionalFaultDetail(raw['faultDetail'])
@@ -498,6 +524,7 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
     snapshot.persistenceAcknowledged,
     snapshot.authorityPublished,
     snapshot.initialFramePublished,
+    snapshot.firstScheduledFramePublished,
     snapshot.snakeCount,
     snapshot.pelletCount
   ];
@@ -510,10 +537,13 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
   if (snapshot.transitionEpoch === '0000000000000000') {
     throw new TypeError('experimental fresh-run snapshot has a zero transition epoch');
   }
+  if (snapshot.transitionEpoch !== undefined && snapshot.generation !== '0000000000000001') {
+    throw new TypeError('experimental fresh-run snapshot is not generation one');
+  }
   if (snapshot.transitionEpoch !== undefined &&
-    (snapshot.generation !== '0000000000000001' ||
-      snapshot.completedStep !== '0000000000000000')) {
-    throw new TypeError('experimental fresh-run snapshot is not generation one at step zero');
+    snapshot.completedStep !== '0000000000000000' &&
+    snapshot.completedStep !== '0000000000000001') {
+    throw new TypeError('experimental fresh-run snapshot has an unsupported completed step');
   }
   if (snapshot.phase === 'faulted') {
     if (snapshot.faultDetail === undefined || snapshot.transitionEpoch !== undefined) {
@@ -525,7 +555,8 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
   if (snapshot.transitionEpoch === undefined &&
     ![
       'created', 'initializing', 'publishingCheckpoint',
-      'acknowledgingPersistence', 'activating', 'publishingInitialFrame', 'faulted'
+      'acknowledgingPersistence', 'activating', 'publishingInitialFrame',
+      'publishingFirstScheduledFrame', 'faulted'
     ]
       .includes(snapshot.phase)) {
     throw new TypeError('experimental fresh-run stable phase omits retained transition metadata');
@@ -536,6 +567,18 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
   }
   if (snapshot.initialFramePublished === true && snapshot.authorityPublished !== true) {
     throw new TypeError('experimental fresh-run frame was published before running authority');
+  }
+  if (snapshot.firstScheduledFramePublished === true &&
+    (snapshot.authorityPublished !== true || snapshot.initialFramePublished !== true)) {
+    throw new TypeError('experimental fresh-run scheduled frame lacks its authority prerequisites');
+  }
+  if (snapshot.transitionEpoch !== undefined) {
+    const expectedCompletedStep = snapshot.firstScheduledFramePublished === true
+      ? '0000000000000001'
+      : '0000000000000000';
+    if (snapshot.completedStep !== expectedCompletedStep) {
+      throw new TypeError('experimental fresh-run scheduled-frame state mismatches completed step');
+    }
   }
   return snapshot;
 }
@@ -562,11 +605,15 @@ function parseFreshRunPublication(value: unknown): ExperimentalFreshRunPublicati
 }
 
 /** Validate one Rust-packed frame without narrowing any routing metadata. */
-function parseFreshRunFrameV1(value: unknown): ExperimentalFreshRunFrameV1 {
+function parseFreshRunFrameV1(
+  value: unknown,
+  expectedCompletedStep: U64Hex
+): ExperimentalFreshRunFrameV1 {
   const raw = asRecord(value, 'experimental fresh-run frame-v1');
   requireOnlyKeys(raw, [
     'bytes',
     'generation',
+    'completedStep',
     'totalSnakes',
     'aliveSnakes',
     'pellets',
@@ -579,6 +626,7 @@ function parseFreshRunFrameV1(value: unknown): ExperimentalFreshRunFrameV1 {
   const frame: ExperimentalFreshRunFrameV1 = {
     bytes: raw['bytes'],
     generation: parseU64Hex(raw['generation'], 'generation'),
+    completedStep: parseU64Hex(raw['completedStep'], 'completedStep'),
     totalSnakes: parseU64Hex(raw['totalSnakes'], 'totalSnakes'),
     aliveSnakes: parseU64Hex(raw['aliveSnakes'], 'aliveSnakes'),
     pellets: parseU64Hex(raw['pellets'], 'pellets'),
@@ -591,6 +639,9 @@ function parseFreshRunFrameV1(value: unknown): ExperimentalFreshRunFrameV1 {
   const byteLength = BigInt(`0x${frame.byteLength}`);
   if (frame.generation !== '0000000000000001') {
     throw new TypeError('experimental fresh-run frame-v1 is not generation one');
+  }
+  if (frame.completedStep !== expectedCompletedStep) {
+    throw new TypeError('experimental fresh-run frame-v1 completed step is unexpected');
   }
   if (aliveSnakes > totalSnakes) {
     throw new TypeError('experimental fresh-run frame-v1 alive count exceeds total snakes');

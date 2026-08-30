@@ -89,6 +89,8 @@ const FRESH_OPERATION_ACTIVATE: u8 = 3;
 const FRESH_OPERATION_ACKNOWLEDGE: u8 = 4;
 /// One neutral-view frame-v1 payload is being packed from running authority.
 const FRESH_OPERATION_INITIAL_FRAME: u8 = 5;
+/// One complete scheduled step and its resulting frame are being published.
+const FRESH_OPERATION_FIRST_SCHEDULED_FRAME: u8 = 6;
 /// Exact enumerable string keys admitted by a persistence acknowledgement.
 const CHECKPOINT_DESCRIPTOR_INPUT_KEYS: [&str; 23] = [
     "protocolVersion",
@@ -313,6 +315,8 @@ pub struct ExperimentalFreshRunFrameV1 {
     pub bytes: Uint8Array,
     /// Exact authoritative generation written into the frame.
     pub generation: String,
+    /// Exact completed fixed-step count for the packed authority.
+    pub completed_step: String,
     /// Exact number of authoritative snake records.
     pub total_snakes: String,
     /// Exact number of alive snake records present in the frame.
@@ -329,6 +333,7 @@ pub struct ExperimentalFreshRunFrameV1 {
 pub struct FreshRunFrameV1Output {
     bytes: Vec<u8>,
     generation: u64,
+    completed_step: u64,
     total_snakes: u64,
     alive_snakes: u64,
     pellets: u64,
@@ -355,6 +360,8 @@ pub struct ExperimentalFreshRunSnapshot {
     pub authority_published: Option<bool>,
     /// Whether the one initial neutral-view frame has been packed.
     pub initial_frame_published: Option<bool>,
+    /// Whether one complete Rust-scheduled step and its frame have published.
+    pub first_scheduled_frame_published: Option<bool>,
     /// Exact current authoritative snake count once construction has completed.
     pub snake_count: Option<String>,
     /// Exact current authoritative pellet count once construction has completed.
@@ -374,6 +381,7 @@ pub struct FreshRunScalarSnapshot {
     persistence_acknowledged: Option<bool>,
     authority_published: Option<bool>,
     initial_frame_published: Option<bool>,
+    first_scheduled_frame_published: Option<bool>,
     snake_count: Option<usize>,
     pellet_count: Option<usize>,
     fault_detail: Option<String>,
@@ -384,6 +392,7 @@ pub struct FreshRunScalarSnapshot {
 struct ExperimentalFreshRunInner {
     transition: Option<PendingRunStartTransition>,
     initial_frame_published: bool,
+    first_scheduled_frame_published: bool,
     fault_detail: Option<String>,
 }
 
@@ -541,6 +550,25 @@ impl ExperimentalStage6aFreshRunSession {
         }
         Ok(AsyncTask::new(
             PublishExperimentalFreshRunInitialFrameTask {
+                inner: Arc::clone(&self.inner),
+                active_operation: Arc::clone(&self.active_operation),
+            },
+        ))
+    }
+
+    /// Execute the first Rust-scheduled fixed step and pack its resulting frame.
+    #[napi(catch_unwind)]
+    pub fn publish_first_scheduled_frame_v1(
+        &self,
+    ) -> Result<AsyncTask<PublishExperimentalFreshRunFirstScheduledFrameTask>> {
+        self.begin_operation(FRESH_OPERATION_FIRST_SCHEDULED_FRAME)?;
+        if let Err(error) = ensure_fresh_transition_present(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(AsyncTask::new(
+            PublishExperimentalFreshRunFirstScheduledFrameTask {
                 inner: Arc::clone(&self.inner),
                 active_operation: Arc::clone(&self.active_operation),
             },
@@ -773,8 +801,8 @@ impl Task for PublishExperimentalFreshRunInitialFrameTask {
             let metadata = transition
                 .pack_initial_frame_v1(&mut bytes)
                 .map_err(|error| error.to_string())?;
-            let output =
-                fresh_run_frame_v1_output(bytes, metadata).map_err(|error| error.to_string())?;
+            let output = fresh_run_frame_v1_output(bytes, metadata, transition.completed_step())
+                .map_err(|error| error.to_string())?;
             inner.initial_frame_published = true;
             Ok(output)
         })) {
@@ -783,6 +811,86 @@ impl Task for PublishExperimentalFreshRunInitialFrameTask {
             Err(payload) => Err(fault_experimental_fresh_run(
                 &self.inner,
                 "experimental fresh-run initial frame-v1 publication panicked",
+                payload.as_ref(),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(fresh_run_frame_v1_to_napi(output))
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.active_operation
+            .store(FRESH_OPERATION_IDLE, Ordering::Release);
+        Ok(())
+    }
+}
+
+/// Async one-shot complete scheduled step plus post-publication frame packing.
+pub struct PublishExperimentalFreshRunFirstScheduledFrameTask {
+    inner: Arc<Mutex<ExperimentalFreshRunInner>>,
+    active_operation: Arc<AtomicU8>,
+}
+
+impl Task for PublishExperimentalFreshRunFirstScheduledFrameTask {
+    type Output = FreshRunFrameV1Output;
+    type JsValue = ExperimentalFreshRunFrameV1;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            let mut inner = lock_recover(&self.inner);
+            if let Some(detail) = inner.fault_detail.as_deref() {
+                return Err(format!(
+                    "experimental fresh-run session is faulted: {detail}"
+                ));
+            }
+            if !inner.initial_frame_published {
+                return Err(
+                    "experimental fresh-run first scheduled frame-v1 requires the initial frame"
+                        .to_owned(),
+                );
+            }
+            if inner.first_scheduled_frame_published {
+                return Err(
+                    "experimental fresh-run first scheduled frame-v1 is already published"
+                        .to_owned(),
+                );
+            }
+
+            let result = (|| {
+                let transition = inner
+                    .transition
+                    .as_mut()
+                    .ok_or_else(|| "experimental fresh run has not been initialized".to_owned())?;
+                let mut bytes = Vec::new();
+                let metadata = transition
+                    .publish_first_scheduled_frame_v1(&mut bytes)
+                    .map_err(|error| error.to_string())?;
+                fresh_run_frame_v1_output(bytes, metadata, transition.completed_step())
+                    .map_err(|error| error.to_string())
+            })();
+
+            match result {
+                Ok(output) => {
+                    inner.first_scheduled_frame_published = true;
+                    Ok(output)
+                }
+                Err(detail) => {
+                    let retained = retain_experimental_fresh_run_fault(
+                        &mut inner,
+                        "experimental fresh-run first scheduled frame-v1 failed",
+                        &detail,
+                    );
+                    Err(retained)
+                }
+            }
+        })) {
+            Ok(Ok(frame)) => Ok(frame),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(fault_experimental_fresh_run(
+                &self.inner,
+                "experimental fresh-run first scheduled frame-v1 panicked",
                 payload.as_ref(),
             )),
         }
@@ -1337,15 +1445,18 @@ fn fault_experimental_fresh_run(
     Error::new(Status::GenericFailure, retained)
 }
 
-/// Bound panic text before allocating retained or N-API-visible diagnostics.
-fn bounded_fresh_run_panic_detail(context: &str, payload: &(dyn std::any::Any + Send)) -> String {
-    let source = if let Some(message) = payload.downcast_ref::<&str>() {
-        *message
-    } else if let Some(message) = payload.downcast_ref::<String>() {
-        message.as_str()
-    } else {
-        "non-string panic payload"
-    };
+/// Retain the first bounded non-retryable authority-operation failure.
+fn retain_experimental_fresh_run_fault(
+    inner: &mut ExperimentalFreshRunInner,
+    context: &str,
+    source: &str,
+) -> String {
+    let detail = bounded_fresh_run_error_detail(context, source);
+    inner.fault_detail.get_or_insert(detail).clone()
+}
+
+/// Join bounded context and source text without retaining unbounded diagnostics.
+fn bounded_fresh_run_error_detail(context: &str, source: &str) -> String {
     let mut detail = truncate_utf8(context, MAX_ERROR_DETAIL_BYTES);
     if detail.len() < MAX_ERROR_DETAIL_BYTES {
         let separator = ": ";
@@ -1359,6 +1470,18 @@ fn bounded_fresh_run_panic_detail(context: &str, payload: &(dyn std::any::Any + 
         ));
     }
     detail
+}
+
+/// Bound panic text before allocating retained or N-API-visible diagnostics.
+fn bounded_fresh_run_panic_detail(context: &str, payload: &(dyn std::any::Any + Send)) -> String {
+    let source = if let Some(message) = payload.downcast_ref::<&str>() {
+        *message
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.as_str()
+    } else {
+        "non-string panic payload"
+    };
+    bounded_fresh_run_error_detail(context, source)
 }
 
 /// Ensure initialization has not already installed authority before scheduling.
@@ -1395,6 +1518,7 @@ const fn fresh_operation_phase(operation: u8) -> Option<&'static str> {
         FRESH_OPERATION_ACTIVATE => Some("activating"),
         FRESH_OPERATION_ACKNOWLEDGE => Some("acknowledgingPersistence"),
         FRESH_OPERATION_INITIAL_FRAME => Some("publishingInitialFrame"),
+        FRESH_OPERATION_FIRST_SCHEDULED_FRAME => Some("publishingFirstScheduledFrame"),
         _ => None,
     }
 }
@@ -1416,6 +1540,7 @@ fn busy_fresh_run_snapshot(operation: u8) -> Result<FreshRunScalarSnapshot> {
         persistence_acknowledged: None,
         authority_published: None,
         initial_frame_published: None,
+        first_scheduled_frame_published: None,
         snake_count: None,
         pellet_count: None,
         fault_detail: None,
@@ -1437,6 +1562,7 @@ fn fresh_run_scalar_snapshot(
             persistence_acknowledged: None,
             authority_published: None,
             initial_frame_published: None,
+            first_scheduled_frame_published: None,
             snake_count: None,
             pellet_count: None,
             fault_detail: Some(detail.clone()),
@@ -1468,6 +1594,7 @@ fn fresh_run_scalar_snapshot(
             persistence_acknowledged: None,
             authority_published: None,
             initial_frame_published: None,
+            first_scheduled_frame_published: None,
             snake_count: None,
             pellet_count: None,
             fault_detail: None,
@@ -1482,6 +1609,7 @@ fn fresh_run_scalar_snapshot(
         persistence_acknowledged: Some(transition.persistence_acknowledged()),
         authority_published: Some(transition.authority_published()),
         initial_frame_published: Some(inner.initial_frame_published),
+        first_scheduled_frame_published: Some(inner.first_scheduled_frame_published),
         snake_count: Some(transition.snake_count()),
         pellet_count: Some(transition.pellet_count()),
         fault_detail: None,
@@ -1523,6 +1651,7 @@ fn fresh_run_snapshot_to_napi(
         persistence_acknowledged: snapshot.persistence_acknowledged,
         authority_published: snapshot.authority_published,
         initial_frame_published: snapshot.initial_frame_published,
+        first_scheduled_frame_published: snapshot.first_scheduled_frame_published,
         snake_count,
         pellet_count,
         fault_detail: snapshot.fault_detail,
@@ -1533,6 +1662,7 @@ fn fresh_run_snapshot_to_napi(
 fn fresh_run_frame_v1_output(
     bytes: Vec<u8>,
     metadata: FrameV1Metadata,
+    completed_step: u64,
 ) -> Result<FreshRunFrameV1Output> {
     if metadata.byte_length != bytes.len() {
         return Err(Error::new(
@@ -1543,6 +1673,7 @@ fn fresh_run_frame_v1_output(
     Ok(FreshRunFrameV1Output {
         bytes,
         generation: metadata.generation,
+        completed_step,
         total_snakes: frame_usize_to_u64(metadata.total_snakes, "totalSnakes")?,
         alive_snakes: frame_usize_to_u64(metadata.alive_snakes, "aliveSnakes")?,
         pellets: frame_usize_to_u64(metadata.pellets, "pellets")?,
@@ -1566,6 +1697,7 @@ fn fresh_run_frame_v1_to_napi(output: FreshRunFrameV1Output) -> ExperimentalFres
     ExperimentalFreshRunFrameV1 {
         bytes: Uint8Array::from(output.bytes),
         generation: u64_hex(output.generation),
+        completed_step: u64_hex(output.completed_step),
         total_snakes: u64_hex(output.total_snakes),
         alive_snakes: u64_hex(output.alive_snakes),
         pellets: u64_hex(output.pellets),
@@ -3362,6 +3494,19 @@ mod tests {
         .expect("initial frame snapshot");
         assert_eq!(publishing_frame.phase, "publishingInitialFrame");
         assert_eq!(publishing_frame.initial_frame_published, None);
+        session
+            .active_operation
+            .store(FRESH_OPERATION_IDLE, Ordering::Release);
+        session
+            .begin_operation(FRESH_OPERATION_FIRST_SCHEDULED_FRAME)
+            .expect("first scheduled frame owns the same coarse operation slot");
+        let publishing_scheduled = fresh_run_scalar_snapshot(
+            &lock_recover(&session.inner),
+            session.active_operation.load(Ordering::Acquire),
+        )
+        .expect("first scheduled frame snapshot");
+        assert_eq!(publishing_scheduled.phase, "publishingFirstScheduledFrame");
+        assert_eq!(publishing_scheduled.first_scheduled_frame_published, None);
     }
 
     #[test]

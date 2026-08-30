@@ -77,6 +77,7 @@ function snapshot(
     persistenceAcknowledged: false,
     authorityPublished: false,
     initialFramePublished: false,
+    firstScheduledFramePublished: false,
     snakeCount: '0000000000000000',
     pelletCount: '0000000000000000',
     faultDetail: undefined,
@@ -90,6 +91,7 @@ function initialFrameV1(): ExperimentalFreshRunFrameV1 {
   return {
     bytes: new Uint8Array(floats.buffer, floats.byteOffset, floats.byteLength),
     generation: '0000000000000001',
+    completedStep: '0000000000000000',
     totalSnakes: '0000000000000000',
     aliveSnakes: '0000000000000000',
     pellets: '0000000000000000',
@@ -185,6 +187,24 @@ class FakeFreshRunSession implements ExperimentalFreshRunNativeHandle {
     return initialFrameV1();
   }
 
+  /** Return one post-step frame and retain exact one-step scalar state. */
+  public async publishFirstScheduledFrameV1(): Promise<unknown> {
+    this.current = snapshot('running', {
+      completedStep: '0000000000000001',
+      checkpointPublished: true,
+      persistenceAcknowledged: true,
+      authorityPublished: true,
+      initialFramePublished: true,
+      firstScheduledFramePublished: true,
+      snakeCount: '0000000000000041',
+      pelletCount: '0000000000000da8'
+    });
+    return {
+      ...initialFrameV1(),
+      completedStep: '0000000000000001'
+    };
+  }
+
   /** Read the current scalar state. */
   public snapshot(): unknown {
     return this.current;
@@ -263,12 +283,23 @@ describe('experimental fixed-P0 fresh-run session', () => {
     });
     await expect(session.publishInitialFrameV1()).resolves.toMatchObject({
       generation: '0000000000000001',
+      completedStep: '0000000000000000',
       floatLength: '0000000000000008',
       byteLength: '0000000000000020'
     });
     expect(session.snapshot()).toMatchObject({
       phase: 'running',
       initialFramePublished: true
+    });
+    await expect(session.publishFirstScheduledFrameV1()).resolves.toMatchObject({
+      generation: '0000000000000001',
+      completedStep: '0000000000000001',
+      pellets: '0000000000000000'
+    });
+    expect(session.snapshot()).toMatchObject({
+      phase: 'running',
+      completedStep: '0000000000000001',
+      firstScheduledFramePublished: true
     });
   });
 
@@ -388,6 +419,8 @@ describe('experimental fixed-P0 fresh-run session', () => {
     await expect(session.publishInitialFrameV1()).rejects.toThrow(/lengths disagree/i);
     output = { ...initialFrameV1(), bytes: new Uint8Array(28) };
     await expect(session.publishInitialFrameV1()).rejects.toThrow(/payload length disagrees/i);
+    output = { ...initialFrameV1(), completedStep: '0000000000000001' };
+    await expect(session.publishInitialFrameV1()).rejects.toThrow(/completed step.*unexpected/i);
   });
 
   it('accepts only a bounded internally consistent terminal fault snapshot', () => {
@@ -423,6 +456,7 @@ describe('experimental fixed-P0 fresh-run session', () => {
       persistenceAcknowledged: undefined,
       authorityPublished: undefined,
       initialFramePublished: undefined,
+      firstScheduledFramePublished: undefined,
       snakeCount: undefined,
       pelletCount: undefined,
       faultDetail: 'construction panic'

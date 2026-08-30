@@ -96,8 +96,23 @@ async function closeClient(client: CheckpointPersistenceClient): Promise<void> {
   if (index >= 0) clients.splice(index, 1);
 }
 
+/** Exact scalar expectations for one real Rust frame walk. */
+interface FrameExpectation {
+  /** Completed authoritative step represented by the frame. */
+  completedStep: string;
+  /** Exact pellet records expected after the represented authority boundary. */
+  pellets: number;
+  /** Exact Float32 entry count. */
+  floatLength: string;
+  /** Exact byte count. */
+  byteLength: string;
+}
+
 /** Validate one Rust payload by walking the current browser frame-v1 layout. */
-function expectCompleteFrameV1(frame: ExperimentalFreshRunFrameV1): void {
+function expectCompleteFrameV1(
+  frame: ExperimentalFreshRunFrameV1,
+  expected: FrameExpectation
+): void {
   const bytes = Uint8Array.from(frame.bytes);
   expect(bytes.byteLength % Float32Array.BYTES_PER_ELEMENT).toBe(0);
   const floats = new Float32Array(
@@ -126,16 +141,17 @@ function expectCompleteFrameV1(frame: ExperimentalFreshRunFrameV1): void {
   }
   expect(cursor).toBeLessThan(floats.length);
   const pelletCount = floats[cursor] ?? Number.NaN;
-  expect(pelletCount).toBe(3_500);
+  expect(pelletCount).toBe(expected.pellets);
   cursor += 1 + pelletCount * 5;
   expect(cursor).toBe(floats.length);
   expect(frame).toMatchObject({
     generation: '0000000000000001',
+    completedStep: expected.completedStep,
     totalSnakes: '0000000000000041',
     aliveSnakes: '0000000000000041',
-    pellets: '0000000000000dac',
-    floatLength: '00000000000048f6',
-    byteLength: '00000000000123d8'
+    pellets: expected.pellets.toString(16).padStart(16, '0'),
+    floatLength: expected.floatLength,
+    byteLength: expected.byteLength
   });
   expect(BigInt(`0x${frame.floatLength}`)).toBe(BigInt(floats.length));
   expect(BigInt(`0x${frame.byteLength}`)).toBe(BigInt(bytes.byteLength));
@@ -157,6 +173,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
         'activateRunningAuthority',
         'constructor',
         'initialize',
+        'publishFirstScheduledFrameV1',
         'publishInitialFrameV1',
         'publishRunStartCheckpoint',
         'snapshot'
@@ -185,6 +202,9 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       /frame-v1.*requires published running authority/i
     );
     expect(donor.snapshot()).toMatchObject({ initialFramePublished: false });
+    await expect(invokeAsync(() => donor.publishFirstScheduledFrameV1())).rejects.toThrow(
+      /requires the initial frame/i
+    );
     await expect(invokeAsync(() => donor.activateRunningAuthority())).rejects.toThrow(
       /persistence.*acknowledgement/i
     );
@@ -349,12 +369,20 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       persistenceAcknowledged: true,
       authorityPublished: true,
       initialFramePublished: false,
+      firstScheduledFramePublished: false,
       snakeCount: '0000000000000041',
       pelletCount: '0000000000000dac',
       faultDetail: undefined
     });
+    await expect(session.publishFirstScheduledFrameV1()).rejects.toThrow(/requires the initial/i);
     const initialFrame = await session.publishInitialFrameV1();
-    expectCompleteFrameV1(initialFrame);
+    expectCompleteFrameV1(initialFrame, {
+      completedStep: '0000000000000000',
+      pellets: 3_500,
+      floatLength: '00000000000048f6',
+      byteLength: '00000000000123d8'
+    });
+    const initialBytes = Uint8Array.from(initialFrame.bytes);
     expect(session.snapshot()).toEqual({
       phase: 'running',
       transitionEpoch: committed.transitionEpoch,
@@ -364,15 +392,32 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       persistenceAcknowledged: true,
       authorityPublished: true,
       initialFramePublished: true,
+      firstScheduledFramePublished: false,
       snakeCount: '0000000000000041',
       pelletCount: '0000000000000dac',
       faultDetail: undefined
     });
     await expect(session.publishInitialFrameV1()).rejects.toThrow(/already.*published/i);
+    const scheduledFrame = await session.publishFirstScheduledFrameV1();
+    expectCompleteFrameV1(scheduledFrame, {
+      completedStep: '0000000000000001',
+      pellets: 3_495,
+      floatLength: '00000000000048e7',
+      byteLength: '000000000001239c'
+    });
+    expect(Uint8Array.from(scheduledFrame.bytes)).not.toEqual(initialBytes);
     expect(session.snapshot()).toMatchObject({
       phase: 'running',
       authorityPublished: true,
-      initialFramePublished: true
+      initialFramePublished: true,
+      firstScheduledFramePublished: true,
+      completedStep: '0000000000000001',
+      pelletCount: '0000000000000da7'
+    });
+    await expect(session.publishFirstScheduledFrameV1()).rejects.toThrow(/already.*published/i);
+    expect(session.snapshot()).toMatchObject({
+      completedStep: '0000000000000001',
+      firstScheduledFramePublished: true
     });
     await expect(session.activateRunningAuthority()).rejects.toThrow(/already.*published/i);
     await expect(session.commitPendingRunStart(operationId)).rejects.toThrow(/already.*published/i);

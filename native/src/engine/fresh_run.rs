@@ -1123,6 +1123,11 @@ mod tests {
             pending.pack_initial_frame_v1(&mut frame),
             Err(RunStartTransitionError::AuthorityNotPublished)
         ));
+        assert!(matches!(
+            pending.publish_first_scheduled_frame_v1(&mut frame),
+            Err(RunStartTransitionError::AuthorityNotPublished)
+        ));
+        assert!(!pending.first_scheduled_step_attempted());
         assert!(frame.is_empty());
         assert!(matches!(
             pending.publish_running_authority(),
@@ -1194,6 +1199,33 @@ mod tests {
         assert_eq!(frame_metadata.pellets, 3_500);
         assert_eq!(frame_metadata.byte_length, frame.len());
         assert_eq!(frame_metadata.float_length * size_of::<f32>(), frame.len());
+        let initial_frame = frame.clone();
+        let scheduled_metadata = pending
+            .publish_first_scheduled_frame_v1(&mut frame)
+            .expect("Rust must schedule, publish, and pack exactly one complete fixed-P0 step");
+        assert_eq!(pending.completed_step(), 1);
+        assert!(pending.first_scheduled_step_attempted());
+        assert!(pending.first_scheduled_frame_published());
+        assert_eq!(scheduled_metadata.generation, 1);
+        assert_eq!(
+            scheduled_metadata.total_snakes,
+            STAGE6A_P0_POPULATION_COUNT + STAGE6A_P0_BASELINE_COUNT
+        );
+        assert_eq!(
+            scheduled_metadata.alive_snakes,
+            scheduled_metadata.total_snakes
+        );
+        assert_eq!(scheduled_metadata.pellets, 3_496);
+        assert_eq!(scheduled_metadata.byte_length, frame.len());
+        assert_ne!(
+            frame, initial_frame,
+            "one complete step must change display state"
+        );
+        assert!(matches!(
+            pending.publish_first_scheduled_frame_v1(&mut frame),
+            Err(RunStartTransitionError::FirstScheduledStepAlreadyAttempted)
+        ));
+        assert_eq!(pending.completed_step(), 1);
         assert!(matches!(
             pending.publish_running_authority(),
             Err(RunStartTransitionError::AuthorityAlreadyPublished)
