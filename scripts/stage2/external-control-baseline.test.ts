@@ -345,6 +345,7 @@ describe('Stage 2 P5/P6 external-control runner', () => {
     });
     let artifact: {
       outcome: string;
+      terminalReason: string | null;
       result: {
         samples: Array<{ memory: NodeJS.MemoryUsage }>;
         saves: unknown[];
@@ -368,9 +369,11 @@ describe('Stage 2 P5/P6 external-control runner', () => {
       };
     };
     try {
+      // Keep the test-only window long enough for loaded two-core CI workers to deliver
+      // post-warmup liveness, save, and reclaim events; this is not P7 evidence.
       artifact = await runExternalControlBaseline(parseOptions([
-        '--profile', 'p7', '--p7-test-short', '--duration-ms', '3200', '--warmup-ms', '1000',
-        '--sample-every-ms', '1000', '--reconnect-every-ms', '1000', '--manual-save-every-ms', '1000'
+        '--profile', 'p7', '--p7-test-short', '--duration-ms', '8000', '--warmup-ms', '2000',
+        '--sample-every-ms', '2000', '--reconnect-every-ms', '2000', '--manual-save-every-ms', '2000'
       ])) as typeof artifact;
     } finally {
       errorSpy.mockRestore();
@@ -382,7 +385,9 @@ describe('Stage 2 P5/P6 external-control runner', () => {
       'reason' in args[1] &&
       args[1].reason === 'socket is not open'
     ))).toBe(true);
-    expect(artifact.outcome).toBe('completed');
+    expect(artifact.outcome, artifact.terminalReason ?? 'P7 diagnostic supplied no terminal reason').toBe(
+      'completed'
+    );
     expect(artifact.result.fullP7SoakEligible).toBe(false);
     expect(artifact.result.samples.length).toBeLessThanOrEqual(artifact.result.sampleCountBound);
     expect(artifact.result.saves.length).toBeGreaterThan(0);

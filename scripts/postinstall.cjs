@@ -1,5 +1,5 @@
 /**
- * Runs the native dependency install using npm without relying on PATH resolution.
+ * Runs the lockfile-pinned native dependency install without relying on PATH resolution.
  *
  * @returns {void} No return value.
  */
@@ -8,7 +8,7 @@ function runPostinstall() {
   const npmExecPath = process.env.npm_execpath
 
   const command = npmExecPath ? process.execPath : process.platform === "win32" ? "npm.cmd" : "npm"
-  const args = npmExecPath ? [npmExecPath, "--prefix", "native", "install"] : ["--prefix", "native", "install"]
+  const args = npmExecPath ? [npmExecPath, "--prefix", "native", "ci"] : ["--prefix", "native", "ci"]
 
   const result = spawnSync(command, args, { stdio: "inherit" })
   if (result.error) {

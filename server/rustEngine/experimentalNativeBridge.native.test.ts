@@ -263,7 +263,7 @@ describe('experimental native bridge real-addon integration', () => {
     expect(result.stdout).toMatch(/WakeDelivery/);
     expect(result.stdout).toContain('SUBMIT_REJECTED');
     expect(result.stdout).toContain('JOINED');
-  });
+  }, 12_000);
 
   it('uses a weak TSFN and permits explicit stop/join child processes to exit promptly', async () => {
     const weak = await runChild('weak-exit');

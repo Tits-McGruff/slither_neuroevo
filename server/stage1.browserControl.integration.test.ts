@@ -157,7 +157,9 @@ describe('Stage 1 browser-player transmission correction', () => {
 
   it('keeps the normal onSensors callback free of player-action transmission', () => {
     const source = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
-    const callback = source.match(/onSensors:\s*\(msg\)\s*=>\s*\{([\s\S]*?)\n\s*\},\n\s*onSettingsApplied:/);
+    const callback = source.match(
+      /onSensors:\s*\(msg\)\s*=>\s*\{([\s\S]*?)\r?\n\s*\},\r?\n\s*onSettingsApplied:/
+    );
     expect(callback?.[1]).not.toMatch(/sendAction|requestImmediate|sendPlayerAction/);
   });
 });
