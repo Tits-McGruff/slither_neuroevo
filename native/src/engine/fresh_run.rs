@@ -534,13 +534,15 @@ mod tests {
     use crate::engine::frame_v1::FrameV1ViewDescriptor;
     use crate::engine::queues::NoopWakeSink;
     use crate::engine::running_loop::{
-        RunningAuthorityLoopError, RunningAuthorityLoopProgress, RunningAuthorityLoopState,
-        RunningFramePublication,
+        RunningAuthorityDeliveryState, RunningAuthorityLoopError, RunningAuthorityLoopProgress,
+        RunningAuthorityLoopState, RunningFramePublication,
     };
     use crate::engine::runtime::EngineRuntime;
     use crate::engine::scheduler::{FixedStepSchedulerPolicy, SchedulerServiceMode};
     use crate::engine::state::NormalizedSettingValue;
-    use crate::engine::LifecycleState;
+    use crate::engine::{
+        ExternalDeliveryResult, GenerationReassignmentProgress, LifecycleState, RunningStepError,
+    };
     use serde::Deserialize;
     use sha2::{Digest, Sha256};
     use std::collections::BTreeMap;
@@ -1665,6 +1667,141 @@ mod tests {
             std::ptr::from_ref(retained.commit_record()).addr(),
             commit_address
         );
+
+        let source_world_epoch = running.world_epoch();
+        assert!(matches!(
+            running.publish_acknowledged_generation_start(10_000, None),
+            Err(RunningAuthorityLoopError::RunningStep(error))
+                if matches!(*error, RunningStepError::GenerationPersistenceNotAcknowledged)
+        ));
+        assert_eq!(running.world_epoch(), source_world_epoch);
+        assert_eq!(running.completed_step(), 7);
+        assert_eq!(running.scheduler_diagnostics(), diagnostics_before_retry);
+
+        let managed = TestDirectory::create("retained-generation-checkpoint");
+        let operation = CheckpointOperationId::parse("60708090a0b0c0d0e0f0001020304050")
+            .expect("test operation ID must be canonical");
+        let publication = running
+            .publish_pending_generation_checkpoint(managed.path(), operation.clone())
+            .expect("retained transition must publish one immutable checkpoint");
+        let retry = running
+            .publish_pending_generation_checkpoint(managed.path(), operation)
+            .expect("same operation must return the exact prior publication");
+        assert_eq!(retry, publication);
+        assert_eq!(running.world_epoch(), source_world_epoch);
+        assert_eq!(running.completed_step(), 7);
+        assert_eq!(running.scheduler_diagnostics(), diagnostics_before_retry);
+        assert_eq!(
+            std::ptr::from_ref(
+                running
+                    .pending_generation_transition()
+                    .expect("checkpoint retry must retain the same transition")
+                    .candidate()
+            )
+            .addr(),
+            candidate_address
+        );
+        let stale_before_assignment = running
+            .submit_external_delivery_results(
+                &[ExternalDeliveryResult {
+                    step_key: source_key,
+                    event_sequence: 1,
+                    connection_id: 1,
+                    lease_id: 1,
+                    accepted: true,
+                }],
+                None,
+            )
+            .expect("stale result before reassignment staging must be ignored");
+        assert_eq!(stale_before_assignment.ignored_results, 1);
+        assert_eq!(
+            stale_before_assignment.state,
+            RunningAuthorityDeliveryState::Idle
+        );
+        assert_eq!(running.world_epoch(), source_world_epoch);
+        assert_eq!(running.scheduler_diagnostics(), diagnostics_before_retry);
+
+        let mut mismatched = publication.descriptor.clone();
+        mismatched.logical_root_sha256 = "0".repeat(64);
+        mismatched.relative_filename = format!("{}.checkpoint-v3", mismatched.logical_root_sha256);
+        assert!(matches!(
+            running.acknowledge_pending_generation_persistence(&mismatched),
+            Err(RunningAuthorityLoopError::RunningStep(error))
+                if matches!(
+                    *error,
+                    RunningStepError::GenerationPersistenceAcknowledgementMismatch { .. }
+                )
+        ));
+        assert_eq!(running.world_epoch(), source_world_epoch);
+        assert!(!running
+            .pending_generation_transition()
+            .expect("mismatched acknowledgement must retain the transition")
+            .persistence_acknowledged());
+
+        running
+            .acknowledge_pending_generation_persistence(&publication.descriptor)
+            .expect("exact committed descriptor must be retained");
+        assert!(running
+            .pending_generation_transition()
+            .expect("acknowledged transition must remain pending")
+            .persistence_acknowledged());
+        assert_eq!(running.world_epoch(), source_world_epoch);
+        assert!(matches!(
+            running.publish_acknowledged_generation_start(10_000, None),
+            Err(RunningAuthorityLoopError::RunningStep(error))
+                if matches!(
+                    *error,
+                    RunningStepError::PendingDeliveryStateMismatch {
+                        field: "generation delivery context"
+                    }
+                )
+        ));
+        assert_eq!(running.world_epoch(), source_world_epoch);
+
+        assert!(matches!(
+            running
+                .prepare_acknowledged_generation_reassignments()
+                .expect("controller-free successor must prepare deterministically"),
+            GenerationReassignmentProgress::Ready(_)
+        ));
+        let generation_start = running
+            .publish_acknowledged_generation_start(10_000, None)
+            .expect("durable assignment-ready successor must publish exactly once");
+        assert_eq!(generation_start.ticket_sequence, ticket_sequence);
+        assert_eq!(generation_start.publication.source_key, source_key);
+        assert_eq!(generation_start.publication.generation, 2);
+        assert_eq!(generation_start.publication.completed_step, 8);
+        assert_eq!(running.generation(), 2);
+        assert_eq!(running.completed_step(), 8);
+        assert_ne!(running.world_epoch(), source_world_epoch);
+        assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
+        let rebound_diagnostics = running.scheduler_diagnostics();
+        assert_eq!(rebound_diagnostics.completed_steps, 8);
+        assert!(!rebound_diagnostics.step_pending);
+        assert!(matches!(
+            running.publish_acknowledged_generation_start(10_000, None),
+            Err(RunningAuthorityLoopError::InvalidActionState { .. })
+        ));
+        assert_eq!(running.generation(), 2);
+        assert_eq!(running.completed_step(), 8);
+
+        assert!(matches!(
+            running
+                .service_after_command_drain(10_000, SchedulerServiceMode::Background, None,)
+                .expect("resume origin must exclude persistence wait"),
+            RunningAuthorityLoopProgress::Idle { .. }
+        ));
+        let next = running
+            .service_after_command_drain(11_000, SchedulerServiceMode::Background, None)
+            .expect("rebound coordinator and scheduler must publish the next generation step");
+        assert!(matches!(
+            next,
+            RunningAuthorityLoopProgress::Published { publication, .. }
+                if publication.completed_step == 9
+        ));
+        assert_eq!(running.generation(), 2);
+        assert_eq!(running.completed_step(), 9);
+        assert_eq!(running.scheduler_diagnostics().completed_steps, 9);
     }
 
     #[test]

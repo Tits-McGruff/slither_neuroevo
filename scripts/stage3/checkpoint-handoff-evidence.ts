@@ -32,7 +32,7 @@ const VITEST_ENTRY = join(REPOSITORY_ROOT, 'node_modules', 'vitest', 'vitest.mjs
 /** Hard ceiling for an isolated release build, including a cold Cargo cache. */
 const BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
 
-/** Hard ceiling for five local integration assertions with no network listeners. */
+/** Hard ceiling for the focused local integration assertions with no network listeners. */
 const TEST_TIMEOUT_MS = 2 * 60 * 1_000;
 
 /** Return the platform cdylib Cargo emits before it receives a `.node` suffix. */

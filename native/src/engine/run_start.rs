@@ -301,6 +301,8 @@ impl PendingRunStartTransition {
             self.work_limits,
             policy,
             wall_origin_ms,
+            &self.checkpoint_limits,
+            &self.graph_limits,
         ) {
             Ok(prepared) => prepared,
             Err(error) => {

@@ -832,7 +832,9 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         generationCheckpointPublications: 1,
         authorityPublications: 1
       });
-      expect(() => session.publishGenerationStart()).toThrow(/authority changed: world epoch/i);
+      expect(() => session.publishGenerationStart()).toThrow(
+        /requires generation-transition-pending state/i
+      );
       await closeClient(client);
 
       expect(readCurrentPointer(paths.databasePath, runStart.runId)).toEqual({

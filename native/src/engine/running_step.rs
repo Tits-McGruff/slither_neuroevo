@@ -32,10 +32,10 @@ use super::physics::PhysicsPhaseAllocations;
 use super::physics::PhysicsStepKey;
 use super::sensors::{SensorError, SensorEvaluator};
 use super::state::{
-    AuthoritativeState, ControllerKind, ControllerLeaseStatus, FixedStepContinuationState,
-    GenerationStartPreflight, GenerationStartPublication, GenerationStartReplacement,
-    RunningStepPreflight, RunningStepPublication, RunningStepReplacement, SnakeKind,
-    StateCandidate, StateError, WorldPoint, WorldState,
+    AuthoritativeState, AuthorityPhase, ControllerKind, ControllerLeaseStatus,
+    FixedStepContinuationState, GenerationStartPreflight, GenerationStartPublication,
+    GenerationStartReplacement, RunningStepPreflight, RunningStepPublication,
+    RunningStepReplacement, SnakeKind, StateCandidate, StateError, WorldPoint, WorldState,
 };
 use super::step_config::{
     GenerationGuardConfig, RunningStepConfigProjection, RunningStepWorkLimits, StepConfigError,
@@ -436,6 +436,18 @@ enum PendingExternalSource {
 enum PendingDeliveryContext {
     RunningStep,
     GenerationStart,
+}
+
+/// Prevalidated in-place coordinator rebind after one generation publication.
+///
+/// Construction is fallible while the published successor can still be
+/// compared with every retained coordinator identity. Applying the token only
+/// changes the process-local world epoch, preserving all reusable workspaces
+/// and the monotonic external-event sequence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PreparedCoordinatorGenerationRebind {
+    source_world_epoch: u64,
+    successor_world_epoch: u64,
 }
 
 /// Reason a completed physical step must enter the later generation transition.
@@ -1415,8 +1427,8 @@ impl RunningStepCoordinator {
     /// every connected-controller assignment have resolved.
     ///
     /// Success consumes the retained terminal boundary and leaves this
-    /// coordinator bound to the replaced authority; the runtime must construct
-    /// a fresh coordinator for the publication's new world/population epoch.
+    /// coordinator ready for an in-place world-epoch rebind. The caller must
+    /// validate and commit that rebind before attempting another fixed step.
     pub fn publish_acknowledged_generation_start(
         &mut self,
         authority: &mut AuthoritativeState,
@@ -1491,6 +1503,80 @@ impl RunningStepCoordinator {
         self.control_commit.invalidate_publication();
         self.clear_pending_metadata();
         Ok(publication)
+    }
+
+    /// Validate that one completed generation publication can reuse this
+    /// coordinator without reallocating its large persistent workspaces.
+    ///
+    /// This runs only after the authority swap, while the caller still retains
+    /// the exact publication record. It does not mutate the coordinator; the
+    /// resulting private token is committed only after the scheduler retires
+    /// the same terminal ticket.
+    pub(crate) fn prepare_published_generation_rebind(
+        &self,
+        authority: &AuthoritativeState,
+        publication: &GenerationStartPublication,
+    ) -> Result<PreparedCoordinatorGenerationRebind, RunningStepError> {
+        if self.pending_generation.is_some()
+            || self.pending_key.is_some()
+            || self.pending_inputs.is_some()
+            || self.pending_preflight.is_some()
+            || self.pending_delivery_context.is_some()
+            || !self.pending_events.is_empty()
+            || !self.pending_statuses.is_empty()
+            || !self.pending_sources.is_empty()
+            || !self.pending_observations.is_empty()
+            || !self.pending_observation_statuses.is_empty()
+            || self.pending_token_count != 0
+        {
+            return Err(RunningStepError::PendingDeliveryStateMismatch {
+                field: "generation coordinator rebind state",
+            });
+        }
+
+        let state = authority.state();
+        if publication.source_key.world_epoch() != self.world_epoch
+            || publication.source_key.config_revision() != self.config_revision
+        {
+            return Err(RunningStepError::AuthorityMismatch {
+                field: "generation rebind source identity",
+            });
+        }
+        if authority.world_epoch() != publication.world_epoch
+            || state.phase != AuthorityPhase::Running
+            || state.generation.generation != publication.generation
+            || state.generation.completed_step != publication.completed_step
+            || state.generation.population_epoch != publication.population_epoch
+            || authority.memory_estimate() != publication.memory
+        {
+            return Err(RunningStepError::AuthorityMismatch {
+                field: "generation rebind successor identity",
+            });
+        }
+        if state.identity.config_revision != self.config_revision
+            || state.identity.config_hash != self.config_hash
+            || authority.graph().layout_digest_sha256 != self.graph_layout_digest
+            || state.identity.math_backend != self.math_backend.label()
+        {
+            return Err(RunningStepError::AuthorityMismatch {
+                field: "generation rebind immutable contract",
+            });
+        }
+
+        Ok(PreparedCoordinatorGenerationRebind {
+            source_world_epoch: self.world_epoch,
+            successor_world_epoch: publication.world_epoch,
+        })
+    }
+
+    /// Apply one already-validated coordinator rebind without allocation or a
+    /// second fallible authority operation.
+    pub(crate) fn commit_published_generation_rebind(
+        &mut self,
+        prepared: PreparedCoordinatorGenerationRebind,
+    ) {
+        debug_assert_eq!(self.world_epoch, prepared.source_world_epoch);
+        self.world_epoch = prepared.successor_world_epoch;
     }
 
     /// Explicitly discard one exact pending transition without changing authority.
