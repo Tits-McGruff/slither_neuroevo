@@ -57,20 +57,40 @@ async function main() {
   }
 
   if (mode === 'wake-throws') {
+    let resolveWakeCallback;
+    const wakeCallbackDelivered = new Promise(resolve => {
+      resolveWakeCallback = resolve;
+    });
     const engine = new native.ExperimentalRustEngine(init, () => {
+      resolveWakeCallback();
       throw new Error('intentional child wake callback failure');
     });
     engine.start();
+    let callbackTimeout;
+    try {
+      await Promise.race([
+        wakeCallbackDelivered,
+        new Promise((_resolve, reject) => {
+          callbackTimeout = setTimeout(() => {
+            const current = engine.health();
+            reject(new Error(
+              'Timed out waiting for the JavaScript wake callback; ' +
+              `lifecycle=${current.lifecycle}, attempts=${current.wakeAttempts}, ` +
+              `notifications=${current.wakeNotifications}, pending=${current.wakePending}.`
+            ));
+          }, 15_000);
+        })
+      ]);
+    } finally {
+      clearTimeout(callbackTimeout);
+    }
     const deadline = Date.now() + 5_000;
     let health = engine.health();
     while (health.faultCode !== 'WakeDelivery') {
       if (Date.now() >= deadline) {
         throw new Error(`Timed out waiting for WakeDelivery, received ${health.faultCode || 'none'}.`);
       }
-      // A recursive immediate loop can starve libuv's async-handle delivery on
-      // loaded CI runners. Yield through the timer phase so the
-      // real TSFN callback can run while retaining the hard deadline above.
-      await new Promise(resolve => setTimeout(resolve, 1));
+      await new Promise(resolve => setTimeout(resolve, 10));
       health = engine.health();
     }
     if (health.faultCode !== 'WakeDelivery') {

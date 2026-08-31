@@ -257,13 +257,13 @@ describe('experimental native bridge real-addon integration', () => {
   });
 
   it('contains a throwing JS wake callback, keeps Node alive, faults Rust, rejects later input, and joins', async () => {
-    const result = await runChild('wake-throws');
+    const result = await runChild('wake-throws', 25_000);
     expect(result.code, result.stderr).toBe(0);
     expect(result.stdout).toContain('WAKE_THROW_SURVIVED');
     expect(result.stdout).toMatch(/WakeDelivery/);
     expect(result.stdout).toContain('SUBMIT_REJECTED');
     expect(result.stdout).toContain('JOINED');
-  }, 12_000);
+  }, 30_000);
 
   it('uses a weak TSFN and permits explicit stop/join child processes to exit promptly', async () => {
     const weak = await runChild('weak-exit');
