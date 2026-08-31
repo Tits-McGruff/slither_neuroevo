@@ -134,13 +134,19 @@ race tests. The main-agent source audit then closed all ordinary output
 producers after either terminal result, preventing a later `Started`, probe,
 discrete, stats or frame event.
 
-The reviewer reached its separate usage limit before it could inspect the
-revised final diff. Per the repository policy, no unchanged-condition
-replacement reviewer was created. The initial review was valuable and its
-findings were reconciled against source and passing tests, but a completed
-independent recheck is still open. This commit is therefore recorded as a
-tested remote-backup checkpoint, not as the independently finalized authority
-boundary or a passed Stage 6A gate.
+The first review turn reached its separate usage limit before the revised diff
+could be checked, so no unchanged-condition replacement was created. After
+that limit reset, the same reviewer completed a read-only recheck of exact
+commit `0fec33cc03c678fdd501fd69f3aa519992755539` and found no blocker, P1, P2
+or P3. It independently reproduced 18 queue tests, 7 runtime tests, 12
+fresh-run tests, rustfmt, commit-range diff checking and the negative
+production-surface search. The reviewer changed no files.
+
+The recheck also retained two test limitations rather than defects:
+thread-spawn failure and a background service error are source-proven but lack
+deterministic injection tests. External-delivery/generation completion and all
+production bridge work remain later slices. This slice's independent review
+gate is satisfied; no Stage 6A gate is implied.
 
 ## Limits and open gates
 
@@ -154,8 +160,6 @@ boundary or a passed Stage 6A gate.
   this runtime cannot yet deliver the matching completion and resume it.
 - The implementation has no production N-API or Node composition and is not
   selected by normal server startup.
-- The independent final-diff recheck remains open until the existing
-  reviewer's usage limit resets or another policy-valid condition changes.
 - Reset, New Run, resume/recovery, browser rendering and controls, trusted-LAN
   transport, the separate RL trainer, Debian/Oxygen execution, retention,
   export/import, compatibility, corrupt-latest recovery, performance and
