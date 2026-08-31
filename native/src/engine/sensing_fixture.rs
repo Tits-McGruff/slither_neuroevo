@@ -1307,7 +1307,7 @@ pub(crate) fn linux_total_memory_bytes() -> Option<u64> {
             .lines()
             .find(|line| line.starts_with("MemTotal:"))?;
         let kib = line.split_whitespace().nth(1)?.parse::<u64>().ok()?;
-        return kib.checked_mul(1024);
+        kib.checked_mul(1024)
     }
     #[cfg(not(target_os = "linux"))]
     None
@@ -1319,7 +1319,7 @@ pub(crate) fn linux_process_status_bytes(label: &str) -> Option<u64> {
         let document = fs::read_to_string("/proc/self/status").ok()?;
         let line = document.lines().find(|line| line.starts_with(label))?;
         let kib = line.split_whitespace().nth(1)?.parse::<u64>().ok()?;
-        return kib.checked_mul(1024);
+        kib.checked_mul(1024)
     }
     #[cfg(not(target_os = "linux"))]
     {
