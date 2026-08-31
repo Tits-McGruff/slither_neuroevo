@@ -75,6 +75,8 @@ pub mod run_start;
 /// Retained real run-start handoff integration fixture.
 #[cfg(feature = "engine-test-hooks")]
 pub mod run_start_handoff_fixture;
+/// Retained scheduler/coordinator ownership across authoritative steps.
+pub mod running_loop;
 /// Private complete nonterminal fixed-step orchestration and publication.
 mod running_step;
 /// One-shot owner of the background coordinator lifecycle.
@@ -106,9 +108,9 @@ pub use coordinator::LifecycleState;
 pub use running_step::{
     ExternalDeliveryDiagnostics, ExternalDeliveryEventKind, ExternalDeliveryResolution,
     ExternalDeliveryResult, ExternalDeliveryState, ExternalObservationBatch,
-    ExternalObservationEvent, GenerationReassignmentProgress, GenerationTransitionReason,
-    RunningStepCoordinator, RunningStepError, RunningStepInputs, RunningStepOutcome,
-    RunningStepProgress, RUNNING_STEP_COORDINATOR_VERSION,
+    ExternalObservationEvent, GenerationReassignmentProgress, GenerationTransitionBatch,
+    GenerationTransitionReason, RunningStepCoordinator, RunningStepError, RunningStepInputs,
+    RunningStepOutcome, RunningStepProgress, RUNNING_STEP_COORDINATOR_VERSION,
 };
 pub use scheduler::{
     FixedStepScheduler, FixedStepSchedulerDiagnostics, FixedStepSchedulerPolicy, ScheduledStep,

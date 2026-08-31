@@ -18,6 +18,7 @@ use super::generation_start::{
     GenerationStartConfig, GenerationStartError, GenerationStartWorkspace,
 };
 use super::graph::{GraphBundle, GraphLimits};
+use super::running_loop::{RunningAuthorityLoop, RunningAuthorityLoopError};
 use super::running_step::{RunningStepCoordinator, RunningStepError, RunningStepProgress};
 use super::scheduler::{
     FixedStepScheduler, FixedStepSchedulerPolicy, SchedulerError, SchedulerReadiness,
@@ -273,6 +274,48 @@ impl PendingRunStartTransition {
         Ok(metadata)
     }
 
+    /// Consume an activated step-zero authority into its retained Rust loop.
+    ///
+    /// This is the future background-thread handoff. The experimental one-shot
+    /// step and the retained loop are deliberately exclusive so two scheduler
+    /// owners can never advance the same authority incarnation.
+    pub fn into_running_loop(
+        self,
+        policy: FixedStepSchedulerPolicy,
+        wall_origin_ms: u64,
+    ) -> Result<RunningAuthorityLoop, RunStartLoopHandoffError> {
+        if !self.authority_published {
+            return Err(RunStartLoopHandoffError::new(
+                self,
+                RunStartTransitionError::AuthorityNotPublished,
+            ));
+        }
+        if self.first_scheduled_step_attempted {
+            return Err(RunStartLoopHandoffError::new(
+                self,
+                RunStartTransitionError::ExperimentalStepAlreadyOwnsAuthority,
+            ));
+        }
+        let prepared = match RunningAuthorityLoop::prepare(
+            &self.authority,
+            self.work_limits,
+            policy,
+            wall_origin_ms,
+        ) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                return Err(RunStartLoopHandoffError::new(
+                    self,
+                    RunStartTransitionError::from(error),
+                ))
+            }
+        };
+        Ok(RunningAuthorityLoop::from_prepared(
+            self.authority,
+            prepared,
+        ))
+    }
+
     /// Exact Rust-owned transition correlation token.
     #[must_use]
     pub const fn transition_epoch(&self) -> u64 {
@@ -334,6 +377,52 @@ impl PendingRunStartTransition {
     }
 }
 
+/// Recoverable failure before run-start authority moves into the retained loop.
+#[derive(Debug)]
+pub struct RunStartLoopHandoffError {
+    transition: Box<PendingRunStartTransition>,
+    error: RunStartTransitionError,
+}
+
+impl RunStartLoopHandoffError {
+    fn new(transition: PendingRunStartTransition, error: RunStartTransitionError) -> Self {
+        Self {
+            transition: Box::new(transition),
+            error,
+        }
+    }
+
+    /// Inspect the failed precondition or construction error.
+    #[must_use]
+    pub const fn error(&self) -> &RunStartTransitionError {
+        &self.error
+    }
+
+    /// Recover the exact unchanged run-start transition for retry or shutdown.
+    #[must_use]
+    pub fn into_transition(self) -> PendingRunStartTransition {
+        *self.transition
+    }
+
+    /// Recover both the exact transition and its bounded failure.
+    #[must_use]
+    pub fn into_parts(self) -> (PendingRunStartTransition, RunStartTransitionError) {
+        (*self.transition, self.error)
+    }
+}
+
+impl Display for RunStartLoopHandoffError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "run-start loop handoff failed: {}", self.error)
+    }
+}
+
+impl Error for RunStartLoopHandoffError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
 /// Failure before a fresh run becomes running authority.
 #[derive(Debug)]
 pub enum RunStartTransitionError {
@@ -361,6 +450,8 @@ pub enum RunStartTransitionError {
     AuthorityNotPublished,
     /// The bounded first scheduled-step bridge was already consumed.
     FirstScheduledStepAlreadyAttempted,
+    /// The one-shot experiment already created a different scheduler owner.
+    ExperimentalStepAlreadyOwnsAuthority,
     /// Rust's internally derived service boundary did not make one step due.
     FirstScheduledStepNotDue,
     /// Fixed-P0 unexpectedly required a Node delivery on its first step.
@@ -371,6 +462,8 @@ pub enum RunStartTransitionError {
     RunningStep(Box<RunningStepError>),
     /// Rust-owned fixed-step scheduling failed.
     Scheduler(Box<SchedulerError>),
+    /// Retained running-authority loop construction failed.
+    RunningLoop(Box<RunningAuthorityLoopError>),
 }
 
 impl Display for RunStartTransitionError {
@@ -415,6 +508,10 @@ impl Display for RunStartTransitionError {
                 formatter,
                 "run-start first scheduled frame-v1 step has already been attempted"
             ),
+            Self::ExperimentalStepAlreadyOwnsAuthority => write!(
+                formatter,
+                "run-start one-shot scheduled step already owns this authority handoff"
+            ),
             Self::FirstScheduledStepNotDue => write!(
                 formatter,
                 "run-start internally derived scheduler boundary did not make one step due"
@@ -433,6 +530,9 @@ impl Display for RunStartTransitionError {
             Self::Scheduler(error) => {
                 write!(formatter, "run-start first scheduled step scheduler failed: {error}")
             }
+            Self::RunningLoop(error) => {
+                write!(formatter, "run-start retained running loop failed: {error}")
+            }
         }
     }
 }
@@ -446,6 +546,7 @@ impl Error for RunStartTransitionError {
             Self::Frame(error) => Some(error),
             Self::RunningStep(error) => Some(error),
             Self::Scheduler(error) => Some(error),
+            Self::RunningLoop(error) => Some(error),
             _ => None,
         }
     }
@@ -484,6 +585,12 @@ impl From<RunningStepError> for RunStartTransitionError {
 impl From<SchedulerError> for RunStartTransitionError {
     fn from(error: SchedulerError) -> Self {
         Self::Scheduler(Box::new(error))
+    }
+}
+
+impl From<RunningAuthorityLoopError> for RunStartTransitionError {
+    fn from(error: RunningAuthorityLoopError) -> Self {
+        Self::RunningLoop(Box::new(error))
     }
 }
 

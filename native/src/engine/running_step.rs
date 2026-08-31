@@ -1024,6 +1024,13 @@ impl RunningStepCoordinator {
         self.last_wall_now_ms
     }
 
+    /// Reborrow the exact unresolved reliable-delivery batch without mutation.
+    #[must_use]
+    pub fn pending_external_delivery(&self) -> Option<ExternalObservationBatch<'_>> {
+        self.pending_key?;
+        Some(self.pending_batch_prevalidated())
+    }
+
     /// Inspect the retained terminal boundary without rerunning evolution.
     #[must_use]
     pub fn pending_generation_transition(&self) -> Option<GenerationTransitionBatch<'_>> {
