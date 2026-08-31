@@ -2423,7 +2423,7 @@ fn decode_sha256_identity(field: &'static str, identity: &str) -> Result<[u8; 32
         return invalid(field, "must contain exactly 64 lowercase hex digits");
     }
     let mut output = [0_u8; 32];
-    for (index, pair) in bytes.chunks_exact(2).enumerate() {
+    for (index, pair) in bytes.as_chunks::<2>().0.iter().enumerate() {
         let high = lowercase_hex_nibble(pair[0])
             .ok_or_else(|| invalid_error(field, "must contain lowercase hexadecimal digits"))?;
         let low = lowercase_hex_nibble(pair[1])

@@ -3124,9 +3124,8 @@ fn decode_numeric_role(
                     ));
                 }
                 hasher.update(&buffer[..take]);
-                for bytes in buffer[..take].chunks_exact(4) {
-                    output
-                        .push_bits(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))?;
+                for bytes in buffer[..take].as_chunks::<4>().0 {
+                    output.push_bits(u32::from_le_bytes(*bytes))?;
                 }
                 remaining -= take as u64;
             }

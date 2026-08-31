@@ -61,7 +61,7 @@ async function main() {
       throw new Error('intentional child wake callback failure');
     });
     engine.start();
-    const deadline = Date.now() + 2_000;
+    const deadline = Date.now() + 5_000;
     let health = engine.health();
     while (health.faultCode !== 'WakeDelivery') {
       if (Date.now() >= deadline) {

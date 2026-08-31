@@ -2293,7 +2293,7 @@ fn encode_base64url_24(
 ) -> Result<(), ExternalReplacementError> {
     reserve_string(output, RESUME_TOKEN_LENGTH, "replacement resume token")?;
     output.clear();
-    for chunk in bytes.chunks_exact(3) {
+    for chunk in bytes.as_chunks::<3>().0 {
         let bits = (u32::from(chunk[0]) << 16) | (u32::from(chunk[1]) << 8) | u32::from(chunk[2]);
         output.push(BASE64URL[((bits >> 18) & 0x3f) as usize] as char);
         output.push(BASE64URL[((bits >> 12) & 0x3f) as usize] as char);

@@ -484,8 +484,13 @@ function nextTurn(): Promise<void> {
  * @param durationMs - Positive bounded wait duration.
  * @returns Resolution after at least the requested wall duration.
  */
-function waitWallDuration(durationMs: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, durationMs));
+async function waitWallDuration(durationMs: number): Promise<void> {
+  const deadline = performance.now() + durationMs;
+  while (true) {
+    const remainingMs = deadline - performance.now();
+    if (remainingMs <= 0) return;
+    await new Promise(resolve => setTimeout(resolve, Math.max(1, Math.ceil(remainingMs))));
+  }
 }
 
 /**
