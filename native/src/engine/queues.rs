@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::time::Duration;
 
 use super::contract::{
     CommandBatch, CompletedEvent, DiscreteEvent, EngineFault, FrameEvent, InboundLimits,
@@ -85,6 +86,17 @@ pub struct InboundQueue {
     state: Mutex<InboundState>,
     ready: Condvar,
     stop_requested: AtomicBool,
+}
+
+/// Reason the background coordinator's condition-variable wait completed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InboundWaitResult {
+    /// One or more command batches are ready for the next atomic drain.
+    CommandsReady,
+    /// The Rust-owned scheduler timeout elapsed without an inbound command.
+    TimedOut,
+    /// Stop was requested after every previously accepted batch was drained.
+    Stopped,
 }
 
 impl InboundQueue {
@@ -217,6 +229,55 @@ impl InboundQueue {
         }
     }
 
+    /// Wait without busy polling for commands, stop, or an optional Rust timer.
+    ///
+    /// This operation never removes a batch. The running coordinator follows a
+    /// `CommandsReady` or `TimedOut` result with [`Self::drain_step_boundary`],
+    /// whose mutex release linearizes the command/action cutoff for one step.
+    pub(crate) fn wait_until_ready(&self, timeout: Option<Duration>) -> InboundWaitResult {
+        let state = lock_recover(&self.state);
+        let state = match timeout {
+            Some(timeout) => {
+                let (state, _) =
+                    wait_timeout_while_recover(&self.ready, state, timeout, |current| {
+                        current.queue.is_empty() && !self.stop_requested.load(Ordering::Acquire)
+                    });
+                state
+            }
+            None => {
+                let mut state = state;
+                while state.queue.is_empty() && !self.stop_requested.load(Ordering::Acquire) {
+                    state = wait_recover(&self.ready, state);
+                }
+                state
+            }
+        };
+
+        if !state.queue.is_empty() {
+            InboundWaitResult::CommandsReady
+        } else if self.stop_requested.load(Ordering::Acquire) {
+            InboundWaitResult::Stopped
+        } else {
+            InboundWaitResult::TimedOut
+        }
+    }
+
+    /// Drain every command accepted before one fixed-step boundary.
+    ///
+    /// The caller owns and reuses `output`. Commands accepted after this
+    /// method releases the queue mutex belong to the following boundary.
+    pub(crate) fn drain_step_boundary(&self, output: &mut Vec<CommandBatch>) -> bool {
+        output.clear();
+        let mut state = lock_recover(&self.state);
+        output.reserve(state.queue.len());
+        while let Some(queued) = state.queue.pop_front() {
+            state.commands = state.commands.saturating_sub(queued.command_count);
+            state.owned_bytes = state.owned_bytes.saturating_sub(queued.owned_bytes);
+            output.push(queued.batch);
+        }
+        self.stop_requested.load(Ordering::Acquire)
+    }
+
     /// Set the out-of-band stop flag and wake the coordinator.
     pub fn request_stop(&self) {
         self.stop_requested.store(true, Ordering::Release);
@@ -345,6 +406,14 @@ struct OutputState {
     stats_evictions: u64,
     frame_evictions: u64,
     reserved_fault: Option<EngineFault>,
+    terminal: OutputTerminalState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OutputTerminalState {
+    Open,
+    Stopped,
+    Faulted,
 }
 
 /// Priority-aware bounded output with coalesced wake notifications.
@@ -396,6 +465,7 @@ impl OutputQueue {
                 stats_evictions: 0,
                 frame_evictions: 0,
                 reserved_fault: None,
+                terminal: OutputTerminalState::Open,
             }),
             sink,
             generation: AtomicU64::new(0),
@@ -409,7 +479,72 @@ impl OutputQueue {
 
     /// Enqueue one reliable event or return an observable overflow error.
     pub fn push_reliable(&self, event: ReliableEvent) -> Result<(), EngineError> {
+        if matches!(event, ReliableEvent::Stopped) {
+            return self.publish_orderly_stopped().map(|_| ());
+        }
         self.push_reliable_batch(vec![event])
+    }
+
+    /// Publish one orderly terminal event with wake-failure rollback.
+    ///
+    /// The output mutex linearizes orderly stop against the reserved fault.
+    /// If the wake fails before any consumer drains this event, it is removed
+    /// so the coordinator can publish a fault without a contradictory stop.
+    /// If a polling consumer already drained it, orderly stop is complete and
+    /// the wake failure cannot retroactively replace that delivered outcome.
+    pub(crate) fn publish_orderly_stopped(&self) -> Result<bool, EngineError> {
+        {
+            let mut state = lock_recover(&self.state);
+            match state.terminal {
+                OutputTerminalState::Faulted => return Ok(false),
+                OutputTerminalState::Stopped => {
+                    return Err(EngineError::new(
+                        EngineErrorCode::InvalidLifecycle,
+                        "orderly stop was already published",
+                    ))
+                }
+                OutputTerminalState::Open => {}
+            }
+            if state.reliable.len() >= self.limits.max_reliable {
+                state.priority_overflows = state.priority_overflows.saturating_add(1);
+                return Err(EngineError::new(
+                    EngineErrorCode::QueueCountLimit,
+                    "reliable output queue limit reached before orderly stop",
+                ));
+            }
+            if state
+                .reliable
+                .iter()
+                .any(|event| matches!(event, ReliableEvent::Stopped))
+            {
+                return Err(EngineError::new(
+                    EngineErrorCode::InvalidLifecycle,
+                    "untracked orderly stop already exists in reliable output",
+                ));
+            }
+            state.reliable.push_back(ReliableEvent::Stopped);
+            state.terminal = OutputTerminalState::Stopped;
+            update_output_high_water(&mut state);
+        }
+
+        match self.signal_change() {
+            Ok(()) => Ok(true),
+            Err(error) => {
+                let mut state = lock_recover(&self.state);
+                let retained = state
+                    .reliable
+                    .iter()
+                    .position(|event| matches!(event, ReliableEvent::Stopped));
+                if let Some(position) = retained {
+                    let removed = state.reliable.remove(position);
+                    debug_assert!(matches!(removed, Some(ReliableEvent::Stopped)));
+                    state.terminal = OutputTerminalState::Open;
+                    Err(error)
+                } else {
+                    Ok(true)
+                }
+            }
+        }
     }
 
     /// Enqueue a complete reliable result batch or leave all queued output
@@ -424,6 +559,12 @@ impl OutputQueue {
         }
         let mut incoming_bytes = 0usize;
         for event in &events {
+            if matches!(event, ReliableEvent::Stopped) {
+                return Err(EngineError::new(
+                    EngineErrorCode::InvalidLifecycle,
+                    "orderly stop must be published as one terminal event",
+                ));
+            }
             let bytes = reliable_owned_bytes(event);
             self.validate_event_size(bytes)?;
             incoming_bytes = incoming_bytes.checked_add(bytes).ok_or_else(|| {
@@ -435,6 +576,7 @@ impl OutputQueue {
         }
 
         let mut state = lock_recover(&self.state);
+        ensure_output_open(&state)?;
         let next_count = state.reliable.len().checked_add(events.len());
         let next_class = state.reliable_owned_bytes.checked_add(incoming_bytes);
         let nonreplaceable_bytes = state
@@ -485,6 +627,7 @@ impl OutputQueue {
     pub fn push_discrete(&self, event: DiscreteEvent) -> Result<(), EngineError> {
         let bytes = event.payload.capacity();
         let mut state = lock_recover(&self.state);
+        ensure_output_open(&state)?;
         if let Err(error) = self.validate_event_size(bytes) {
             state.priority_overflows = state.priority_overflows.saturating_add(1);
             return Err(error);
@@ -531,6 +674,7 @@ impl OutputQueue {
         let bytes = event.payload.capacity();
         self.validate_event_size(bytes)?;
         let mut state = lock_recover(&self.state);
+        ensure_output_open(&state)?;
         if state
             .stats
             .as_ref()
@@ -570,6 +714,7 @@ impl OutputQueue {
         let bytes = event.payload.capacity();
         self.validate_event_size(bytes)?;
         let mut state = lock_recover(&self.state);
+        ensure_output_open(&state)?;
         if event.connection_id == 0 {
             return Err(EngineError::new(
                 EngineErrorCode::InvalidCommand,
@@ -615,17 +760,32 @@ impl OutputQueue {
         Ok(result)
     }
 
-    /// Publish the first fault in a reserved slot outside normal queue capacity.
-    pub fn publish_reserved_fault(&self, fault: EngineFault) {
+    /// Retain the first fault and suppress any later orderly-stop publication.
+    pub(crate) fn retain_reserved_fault(&self, fault: EngineFault) -> bool {
         let mut state = lock_recover(&self.state);
-        if state.reserved_fault.is_some() {
-            return;
+        if state.terminal != OutputTerminalState::Open || state.reserved_fault.is_some() {
+            return false;
         }
+        state.terminal = OutputTerminalState::Faulted;
+        state
+            .reliable
+            .retain(|event| !matches!(event, ReliableEvent::Stopped));
         state.reserved_fault = Some(fault);
-        drop(state);
+        true
+    }
+
+    /// Signal a fault already retained outside normal output capacity.
+    pub(crate) fn signal_retained_fault(&self) {
         // The retained fault and health state remain observable even when the
         // external wake mechanism is already closing or broken.
         let _ = self.signal_change();
+    }
+
+    /// Publish the first fault in a reserved slot outside normal queue capacity.
+    pub fn publish_reserved_fault(&self, fault: EngineFault) {
+        if self.retain_reserved_fault(fault) {
+            self.signal_retained_fault();
+        }
     }
 
     /// Drain a bounded batch in strict priority order and safely re-arm wakes.
@@ -807,6 +967,17 @@ fn reliable_owned_bytes(event: &ReliableEvent) -> usize {
     }
 }
 
+fn ensure_output_open(state: &OutputState) -> Result<(), EngineError> {
+    if state.terminal == OutputTerminalState::Open {
+        Ok(())
+    } else {
+        Err(EngineError::new(
+            EngineErrorCode::InvalidLifecycle,
+            "engine output is already terminal",
+        ))
+    }
+}
+
 fn evict_replaceable_for(state: &mut OutputState, incoming: usize, limit: usize) {
     if state
         .total_owned_bytes
@@ -937,6 +1108,18 @@ fn wait_recover<'a, T>(condition: &Condvar, guard: MutexGuard<'a, T>) -> MutexGu
     }
 }
 
+fn wait_timeout_while_recover<'a, T>(
+    condition: &Condvar,
+    guard: MutexGuard<'a, T>,
+    timeout: Duration,
+    mut predicate: impl FnMut(&mut T) -> bool,
+) -> (MutexGuard<'a, T>, std::sync::WaitTimeoutResult) {
+    match condition.wait_timeout_while(guard, timeout, &mut predicate) {
+        Ok(result) => result,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::contract::{EngineCommand, SequencedCommand, ENGINE_CONTRACT_VERSION};
@@ -1041,6 +1224,36 @@ mod tests {
     }
 
     #[test]
+    fn timed_wait_and_atomic_step_boundary_drain_preserve_queue_order() {
+        let queue = InboundQueue::new(inbound_limits());
+        assert_eq!(
+            queue.wait_until_ready(Some(Duration::from_millis(1))),
+            InboundWaitResult::TimedOut
+        );
+        queue
+            .try_push(batch(vec![probe(1, 1), probe(2, 1)]))
+            .assert_ok();
+        queue.try_push(batch(vec![probe(3, 1)])).assert_ok();
+        assert_eq!(
+            queue.wait_until_ready(Some(Duration::from_secs(1))),
+            InboundWaitResult::CommandsReady
+        );
+
+        let mut drained = Vec::with_capacity(2);
+        assert!(!queue.drain_step_boundary(&mut drained));
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[0].commands[0].sequence, 1);
+        assert_eq!(drained[1].commands[0].sequence, 3);
+        let metrics = queue.metrics();
+        assert_eq!(metrics.batches, 0);
+        assert_eq!(metrics.commands, 0);
+        assert_eq!(metrics.owned_bytes, 0);
+
+        queue.request_stop();
+        assert_eq!(queue.wait_until_ready(None), InboundWaitResult::Stopped);
+    }
+
+    #[test]
     fn fault_stop_discards_accepted_work_and_closes_admission() {
         let queue = InboundQueue::new(inbound_limits());
         queue
@@ -1081,6 +1294,19 @@ mod tests {
     impl WakeSink for PanickingWake {
         fn notify(&self) -> Result<(), EngineError> {
             panic!("wake panic must be contained")
+        }
+    }
+
+    struct BlockingWake {
+        entered: Arc<Barrier>,
+        release: Arc<Barrier>,
+    }
+
+    impl WakeSink for BlockingWake {
+        fn notify(&self) -> Result<(), EngineError> {
+            self.entered.wait();
+            self.release.wait();
+            Ok(())
         }
     }
 
@@ -1348,14 +1574,133 @@ mod tests {
     }
 
     #[test]
+    fn orderly_stop_wake_failure_rolls_back_before_reserved_fault() {
+        let queue = OutputQueue::new(output_limits(), Arc::new(FailingWake));
+        let error = queue
+            .publish_orderly_stopped()
+            .expect_err("an undelivered stop must roll back");
+        assert_eq!(error.code, EngineErrorCode::WakeDelivery);
+        assert!(!queue
+            .drain(8, 100)
+            .events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Reliable(ReliableEvent::Stopped))));
+
+        queue.publish_reserved_fault(EngineError::new(EngineErrorCode::Faulted, "fault").into());
+        let events = queue.drain(8, 100).events;
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Fault(_))));
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Reliable(ReliableEvent::Stopped))));
+    }
+
+    #[test]
+    fn output_mutex_linearizes_orderly_stop_against_reserved_fault() {
+        let fault_first = OutputQueue::new(output_limits(), Arc::new(NoopWakeSink));
+        fault_first
+            .publish_reserved_fault(EngineError::new(EngineErrorCode::Faulted, "first").into());
+        assert!(!fault_first
+            .publish_orderly_stopped()
+            .expect("fault must suppress, not fail, a later stop"));
+        let fault_events = fault_first.drain(8, 100).events;
+        assert!(fault_events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Fault(_))));
+        assert!(!fault_events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Reliable(ReliableEvent::Stopped))));
+
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let stop_first = Arc::new(OutputQueue::new(
+            output_limits(),
+            Arc::new(BlockingWake {
+                entered: Arc::clone(&entered),
+                release: Arc::clone(&release),
+            }),
+        ));
+        let producer = {
+            let queue = Arc::clone(&stop_first);
+            thread::spawn(move || queue.publish_orderly_stopped())
+        };
+        entered.wait();
+        stop_first
+            .publish_reserved_fault(EngineError::new(EngineErrorCode::Faulted, "late").into());
+        release.wait();
+        assert!(matches!(producer.join(), Ok(Ok(true))));
+        let stop_events = stop_first.drain(8, 100).events;
+        assert!(stop_events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Reliable(ReliableEvent::Stopped))));
+        assert!(!stop_events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Fault(_))));
+    }
+
+    #[test]
+    fn terminal_outcome_rejects_every_later_output_publication() {
+        for queue in [
+            {
+                let queue = OutputQueue::new(output_limits(), Arc::new(NoopWakeSink));
+                queue
+                    .push_reliable(ReliableEvent::Stopped)
+                    .expect("one orderly stop must publish");
+                queue
+            },
+            {
+                let queue = OutputQueue::new(output_limits(), Arc::new(NoopWakeSink));
+                queue.publish_reserved_fault(
+                    EngineError::new(EngineErrorCode::Faulted, "terminal fault").into(),
+                );
+                queue
+            },
+        ] {
+            assert!(queue.push_reliable(ReliableEvent::Started).is_err());
+            assert!(queue
+                .push_discrete(DiscreteEvent {
+                    sequence: 1,
+                    payload: vec![1],
+                })
+                .is_err());
+            assert!(queue
+                .replace_stats(StatsEvent {
+                    sequence: 1,
+                    payload: vec![1],
+                })
+                .is_err());
+            assert!(queue
+                .replace_frame(FrameEvent {
+                    connection_id: 1,
+                    sequence: 1,
+                    payload: vec![1],
+                })
+                .is_err());
+        }
+    }
+
+    #[test]
     fn wake_is_coalesced_and_rearmed_after_empty_drain() {
         let wake = Arc::new(CountWake::default());
         let queue = OutputQueue::new(output_limits(), wake.clone());
         queue.push_reliable(ReliableEvent::Started).assert_ok();
-        queue.push_reliable(ReliableEvent::Stopped).assert_ok();
+        queue
+            .push_reliable(ReliableEvent::ProbeResult {
+                sequence: 1,
+                correlation_id: 1,
+                payload: vec![1],
+            })
+            .assert_ok();
         assert_eq!(wake.0.load(Ordering::Relaxed), 1);
         assert!(!queue.drain(8, 100).more_work);
-        queue.push_reliable(ReliableEvent::Started).assert_ok();
+        queue
+            .push_reliable(ReliableEvent::ProbeResult {
+                sequence: 2,
+                correlation_id: 2,
+                payload: vec![2],
+            })
+            .assert_ok();
         assert_eq!(wake.0.load(Ordering::Relaxed), 2);
     }
 

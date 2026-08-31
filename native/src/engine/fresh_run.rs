@@ -527,18 +527,26 @@ impl From<RunStartTransitionError> for FreshRunError {
 mod tests {
     use super::*;
     use crate::engine::checkpoint::{CheckpointBoundaryKind, CheckpointOperationId};
+    use crate::engine::contract::{
+        CommandBatch, CompletedEvent, EngineCommand, EngineInit, InboundLimits, OutputLimits,
+        ReliableEvent, SequencedCommand,
+    };
     use crate::engine::frame_v1::FrameV1ViewDescriptor;
+    use crate::engine::queues::NoopWakeSink;
     use crate::engine::running_loop::{
         RunningAuthorityLoopError, RunningAuthorityLoopProgress, RunningAuthorityLoopState,
         RunningFramePublication,
     };
+    use crate::engine::runtime::EngineRuntime;
     use crate::engine::scheduler::{FixedStepSchedulerPolicy, SchedulerServiceMode};
     use crate::engine::state::NormalizedSettingValue;
+    use crate::engine::LifecycleState;
     use serde::Deserialize;
     use sha2::{Digest, Sha256};
     use std::collections::BTreeMap;
     use std::mem::size_of;
     use std::path::{Path, PathBuf};
+    use std::time::{Duration, Instant};
 
     /// Two GiB admits the conservative fixed P0 scratch envelope in local tests.
     const TEST_MEMORY_CEILING: usize = 2 * 1024 * MIB;
@@ -623,6 +631,59 @@ mod tests {
             prepared.work_limits,
         )
         .expect("short valid test boundary must admit")
+    }
+
+    /// Queue limits for one local real-authority thread integration test.
+    fn running_runtime_init() -> EngineInit {
+        EngineInit {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            inbound: InboundLimits {
+                max_batches: 4,
+                max_commands: 8,
+                max_owned_bytes: 64,
+                max_batch_commands: 4,
+                max_batch_owned_bytes: 32,
+            },
+            output: OutputLimits {
+                max_reliable: 8,
+                max_reliable_owned_bytes: 64,
+                max_discrete: 4,
+                max_discrete_owned_bytes: 64,
+                max_total_owned_bytes: 128,
+                max_event_owned_bytes: 64,
+                max_frame_connections: 4,
+            },
+        }
+    }
+
+    /// One exact sequenced probe for coarse queue/wake integration.
+    fn runtime_probe(sequence: u64, value: u8) -> CommandBatch {
+        CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: vec![SequencedCommand {
+                sequence,
+                command: EngineCommand::Probe {
+                    correlation_id: sequence + 100,
+                    payload: vec![value],
+                },
+            }]
+            .into_boxed_slice(),
+        }
+    }
+
+    /// Wait only on bounded scalar health; never borrow background authority.
+    fn wait_for_runtime(runtime: &EngineRuntime, predicate: impl Fn() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            if predicate() {
+                return;
+            }
+            std::thread::yield_now();
+        }
+        panic!(
+            "running runtime condition not reached: {:?}",
+            runtime.health()
+        );
     }
 
     #[derive(Deserialize)]
@@ -1604,6 +1665,172 @@ mod tests {
             std::ptr::from_ref(retained.commit_record()).addr(),
             commit_address
         );
+    }
+
+    #[test]
+    fn background_runtime_owns_steps_waits_and_restores_one_loop() {
+        let running = activate_pending_run_start(
+            prepare_stage6a_p0_fresh_run(request(0x6070_8090))
+                .expect("complete fresh run must enter durability"),
+            "background-running",
+            "60708090a0b0c0d0e0f0001020304050",
+        )
+        .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+        .expect("durable step-zero authority must enter one unserviced loop");
+        let expected_memory = running.authoritative_memory_bytes();
+
+        let mut invalid_init = running_runtime_init();
+        invalid_init.inbound.max_batches = 0;
+        let failed =
+            EngineRuntime::new_running_authority(invalid_init, running, Arc::new(NoopWakeSink))
+                .expect_err("invalid queue limits must return the exact loop");
+        assert_eq!(
+            failed.error().code,
+            crate::engine::error::EngineErrorCode::InvalidConfiguration
+        );
+        let running = failed.into_running_loop();
+        assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
+        assert_eq!(running.completed_step(), 0);
+
+        let runtime = EngineRuntime::new_running_authority(
+            running_runtime_init(),
+            running,
+            Arc::new(NoopWakeSink),
+        )
+        .expect("valid runtime must retain the exact loop before thread start");
+        assert!(runtime.owns_authoritative_state());
+        assert_eq!(
+            runtime.authoritative_state_memory_bytes(),
+            Some(expected_memory)
+        );
+        assert!(runtime.running_authority_retained_for_test());
+        runtime.start().expect("one background thread must start");
+
+        wait_for_runtime(&runtime, || {
+            runtime
+                .health()
+                .running_authority
+                .is_some_and(|health| health.wait_calls > 0)
+        });
+        runtime
+            .try_submit(runtime_probe(1, 7))
+            .expect("coarse probe must wake the real authority thread");
+        wait_for_runtime(&runtime, || {
+            let health = runtime.health();
+            health.processed_commands == 1
+                && health
+                    .running_authority
+                    .is_some_and(|running| running.completed_step >= 3)
+        });
+
+        runtime.request_stop();
+        runtime
+            .join()
+            .expect("orderly real-authority stop must join");
+        let health = runtime.health();
+        assert_eq!(health.lifecycle, LifecycleState::Stopped);
+        assert!(health.fault.is_none());
+        assert_eq!(health.processed_batches, 1);
+        assert_eq!(health.processed_commands, 1);
+        let running_health = health
+            .running_authority
+            .expect("real runtime must retain bounded authority health");
+        assert_eq!(running_health.loop_state, RunningAuthorityLoopState::Ready);
+        assert!(running_health.completed_step >= 3);
+        assert_eq!(
+            running_health.scheduler_completed_steps,
+            running_health.completed_step
+        );
+        assert!(running_health.command_service_boundaries > running_health.completed_step);
+        assert!(running_health.wait_calls > 0);
+        assert!(running_health.timeout_wakes > 0);
+        assert!(runtime.running_authority_retained_for_test());
+
+        let events = runtime
+            .drain_outputs(usize::MAX, usize::MAX)
+            .expect("bounded output drain must succeed")
+            .events;
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Reliable(ReliableEvent::Started))));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            CompletedEvent::Reliable(ReliableEvent::ProbeResult {
+                sequence: 1,
+                correlation_id: 101,
+                payload,
+            }) if payload == &[7]
+        )));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Reliable(ReliableEvent::Stopped))));
+    }
+
+    #[test]
+    fn background_runtime_catches_panic_and_restores_faulted_owner_once() {
+        let running = activate_pending_run_start(
+            prepare_stage6a_p0_fresh_run(request(0x7080_90a0))
+                .expect("complete fresh run must enter durability"),
+            "background-panic",
+            "708090a0b0c0d0e0f000102030405060",
+        )
+        .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+        .expect("durable step-zero authority must enter one unserviced loop");
+        let runtime = EngineRuntime::new_running_authority(
+            running_runtime_init(),
+            running,
+            Arc::new(NoopWakeSink),
+        )
+        .expect("valid runtime must retain one loop");
+        runtime.start().expect("one background thread must start");
+        wait_for_runtime(&runtime, || {
+            runtime
+                .health()
+                .running_authority
+                .is_some_and(|health| health.wait_calls > 0)
+        });
+        runtime
+            .try_submit(CommandBatch {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                commands: vec![SequencedCommand {
+                    sequence: 1,
+                    command: EngineCommand::PanicForTest,
+                }]
+                .into_boxed_slice(),
+            })
+            .expect("test panic command must enter the coarse queue");
+        wait_for_runtime(&runtime, || {
+            runtime.health().lifecycle == LifecycleState::Faulted
+        });
+        let completed_before_join = runtime
+            .health()
+            .running_authority
+            .expect("fault retains bounded running health")
+            .completed_step;
+        runtime
+            .join()
+            .expect("caught background panic must still join cleanly");
+        let health = runtime.health();
+        assert_eq!(health.lifecycle, LifecycleState::Stopped);
+        assert!(health.fault.is_some());
+        assert_eq!(
+            health
+                .running_authority
+                .expect("joined fault retains bounded running health")
+                .completed_step,
+            completed_before_join
+        );
+        assert!(runtime.running_authority_retained_for_test());
+        let events = runtime
+            .drain_outputs(usize::MAX, usize::MAX)
+            .expect("fault output drain must succeed")
+            .events;
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Fault(_))));
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Reliable(ReliableEvent::Stopped))));
     }
 
     #[test]

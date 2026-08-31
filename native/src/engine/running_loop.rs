@@ -104,6 +104,7 @@ pub struct RunningAuthorityLoop {
     authority: AuthoritativeState,
     scheduler: FixedStepScheduler,
     coordinator: RunningStepCoordinator,
+    wall_origin_ms: u64,
     pending_step: Option<ScheduledStep>,
     pending_due_steps: Option<usize>,
     state: RunningAuthorityLoopState,
@@ -113,6 +114,7 @@ pub struct RunningAuthorityLoop {
 pub(crate) struct PreparedRunningAuthorityLoop {
     scheduler: FixedStepScheduler,
     coordinator: RunningStepCoordinator,
+    wall_origin_ms: u64,
 }
 
 impl RunningAuthorityLoop {
@@ -133,6 +135,7 @@ impl RunningAuthorityLoop {
         Ok(PreparedRunningAuthorityLoop {
             scheduler,
             coordinator,
+            wall_origin_ms,
         })
     }
 
@@ -145,6 +148,7 @@ impl RunningAuthorityLoop {
             authority,
             scheduler: prepared.scheduler,
             coordinator: prepared.coordinator,
+            wall_origin_ms: prepared.wall_origin_ms,
             pending_step: None,
             pending_due_steps: None,
             state: RunningAuthorityLoopState::Ready,
@@ -215,6 +219,12 @@ impl RunningAuthorityLoop {
         self.authority.memory_estimate().frame_bytes
     }
 
+    /// Total admitted authoritative-state bytes as bounded runtime metadata.
+    #[must_use]
+    pub fn authoritative_memory_bytes(&self) -> usize {
+        self.authority.memory_estimate().total_bytes
+    }
+
     /// Current operational scheduler diagnostics.
     #[must_use]
     pub fn scheduler_diagnostics(&self) -> FixedStepSchedulerDiagnostics {
@@ -237,6 +247,39 @@ impl RunningAuthorityLoop {
             return None;
         }
         self.coordinator.pending_generation_transition()
+    }
+
+    /// Verify this unserviced loop can adopt a fresh thread-local clock.
+    ///
+    /// The background coordinator measures elapsed monotonic time from zero at
+    /// its actual thread root. Requiring the matching prepared origin excludes
+    /// asynchronous construction and thread-spawn delay from scheduler debt.
+    pub(crate) fn validate_background_start(&self) -> Result<(), RunningAuthorityLoopError> {
+        let diagnostics = self.scheduler.diagnostics();
+        if self.wall_origin_ms != 0 {
+            return Err(RunningAuthorityLoopError::InvalidBackgroundStart {
+                field: "wall-clock origin",
+            });
+        }
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err(RunningAuthorityLoopError::InvalidBackgroundStart {
+                field: "loop state",
+            });
+        }
+        if self.pending_step.is_some()
+            || self.pending_due_steps.is_some()
+            || diagnostics.step_pending
+        {
+            return Err(RunningAuthorityLoopError::InvalidBackgroundStart {
+                field: "pending scheduler work",
+            });
+        }
+        if diagnostics.completed_steps != 0 || diagnostics.command_service_boundaries != 0 {
+            return Err(RunningAuthorityLoopError::InvalidBackgroundStart {
+                field: "prior scheduler service",
+            });
+        }
+        Ok(())
     }
 
     fn service_ready_boundary(
@@ -368,6 +411,8 @@ pub enum RunningAuthorityLoopError {
     AlreadyFaulted,
     /// Retained blocker and scheduler ownership became inconsistent.
     RetainedStateMismatch { field: &'static str },
+    /// The loop was already serviced or prepared against another clock origin.
+    InvalidBackgroundStart { field: &'static str },
     /// Rust-owned fixed-step scheduling failed.
     Scheduler(Box<SchedulerError>),
     /// Complete authoritative step staging or publication failed.
@@ -386,6 +431,12 @@ impl Display for RunningAuthorityLoopError {
                     "running authority loop retained-state mismatch: {field}"
                 )
             }
+            Self::InvalidBackgroundStart { field } => {
+                write!(
+                    formatter,
+                    "running authority loop cannot enter background runtime: {field}"
+                )
+            }
             Self::Scheduler(error) => {
                 write!(formatter, "running authority scheduler failed: {error}")
             }
@@ -401,7 +452,9 @@ impl Error for RunningAuthorityLoopError {
             Self::Scheduler(error) => Some(error),
             Self::RunningStep(error) => Some(error),
             Self::Frame(error) => Some(error),
-            Self::AlreadyFaulted | Self::RetainedStateMismatch { .. } => None,
+            Self::AlreadyFaulted
+            | Self::RetainedStateMismatch { .. }
+            | Self::InvalidBackgroundStart { .. } => None,
         }
     }
 }

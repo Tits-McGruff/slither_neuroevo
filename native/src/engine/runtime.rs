@@ -1,19 +1,23 @@
-//! One-shot pure-Rust runtime owning the background coordinator thread.
+//! Pure-Rust runtime owning one background coordinator thread.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{Builder, JoinHandle};
+use std::{error::Error, fmt::Display};
 
 #[cfg(test)]
 use super::contract::CompletedEvent;
 use super::contract::{CommandBatch, EngineFault, EngineInit};
+pub use super::coordinator::RunningAuthorityHealth;
 use super::coordinator::{
-    fault_and_stop, panic_error, run_coordinator, CoordinatorState, LifecycleState,
+    fault_and_stop, panic_error, run_coordinator, run_running_coordinator, CoordinatorState,
+    LifecycleState, RunningAuthorityMetrics,
 };
 use super::error::{EngineError, EngineErrorCode};
 use super::queues::{
     DrainResult, InboundMetrics, InboundQueue, OutputMetrics, OutputQueue, WakeMetrics, WakeSink,
 };
+use super::running_loop::RunningAuthorityLoop;
 use super::state::AuthoritativeState;
 
 /// Small health snapshot that never copies authoritative world state.
@@ -31,6 +35,8 @@ pub struct EngineHealth {
     pub processed_batches: u64,
     /// Fully processed commands.
     pub processed_commands: u64,
+    /// Bounded autonomous-authority state when the real loop mode is selected.
+    pub running_authority: Option<RunningAuthorityHealth>,
     /// First retained fault, if any.
     pub fault: Option<EngineFault>,
 }
@@ -45,10 +51,66 @@ pub struct EngineRuntime {
     thread: Mutex<Option<JoinHandle<()>>>,
 }
 
+/// Recoverable failure before a retained loop enters the background runtime.
+#[derive(Debug)]
+pub struct RunningAuthorityRuntimeCreationError {
+    running: Box<RunningAuthorityLoop>,
+    error: EngineError,
+}
+
+impl RunningAuthorityRuntimeCreationError {
+    fn new(running: RunningAuthorityLoop, error: EngineError) -> Self {
+        Self {
+            running: Box::new(running),
+            error,
+        }
+    }
+
+    /// Inspect the bounded runtime configuration or handoff failure.
+    #[must_use]
+    pub const fn error(&self) -> &EngineError {
+        &self.error
+    }
+
+    /// Recover the exact retained loop without reconstructing authority.
+    #[must_use]
+    pub fn into_running_loop(self) -> RunningAuthorityLoop {
+        *self.running
+    }
+
+    /// Recover both the exact retained loop and the bounded failure.
+    #[must_use]
+    pub fn into_parts(self) -> (RunningAuthorityLoop, EngineError) {
+        (*self.running, self.error)
+    }
+}
+
+impl Display for RunningAuthorityRuntimeCreationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "running-authority runtime creation failed: {}",
+            self.error
+        )
+    }
+}
+
+impl Error for RunningAuthorityRuntimeCreationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
 /// Explicit separation between the temporary probe bridge and real Rust authority.
 enum RuntimeMode {
     /// Own one validated state skeleton before the coordinator can start.
     Authoritative(Arc<Mutex<AuthoritativeState>>),
+    /// Transfer one unserviced retained loop into the coordinator thread.
+    RunningAuthority {
+        loop_slot: Arc<Mutex<Option<RunningAuthorityLoop>>>,
+        metrics: Arc<RunningAuthorityMetrics>,
+        memory_bytes: usize,
+    },
     /// Exercise only the coarse bridge; no game state exists in this mode.
     ExperimentalProbe,
 }
@@ -58,6 +120,7 @@ impl RuntimeMode {
     fn name(&self) -> &'static str {
         match self {
             Self::Authoritative(_) => "authoritative",
+            Self::RunningAuthority { .. } => "running-authoritative",
             Self::ExperimentalProbe => "experimental-probe",
         }
     }
@@ -85,6 +148,41 @@ impl EngineRuntime {
         Ok(Self::new_with_validated_mode(
             init,
             RuntimeMode::Authoritative(Arc::new(Mutex::new(state))),
+            wake_sink,
+        ))
+    }
+
+    /// Validate and retain one unserviced loop for background thread ownership.
+    ///
+    /// Every failure returns the exact loop to its prior owner. The loop must
+    /// have been prepared at wall origin zero and never serviced; the actual
+    /// coordinator thread starts its Rust monotonic elapsed clock from zero.
+    pub fn new_running_authority(
+        init: EngineInit,
+        running: RunningAuthorityLoop,
+        wake_sink: Arc<dyn WakeSink>,
+    ) -> Result<Self, RunningAuthorityRuntimeCreationError> {
+        if let Err(error) = init.validate() {
+            return Err(RunningAuthorityRuntimeCreationError::new(running, error));
+        }
+        if let Err(error) = running.validate_background_start() {
+            return Err(RunningAuthorityRuntimeCreationError::new(
+                running,
+                EngineError::new(
+                    EngineErrorCode::InvalidLifecycle,
+                    format!("invalid retained-loop handoff: {error}"),
+                ),
+            ));
+        }
+        let memory_bytes = running.authoritative_memory_bytes();
+        let metrics = Arc::new(RunningAuthorityMetrics::new(&running));
+        Ok(Self::new_with_validated_mode(
+            init,
+            RuntimeMode::RunningAuthority {
+                loop_slot: Arc::new(Mutex::new(Some(running))),
+                metrics,
+                memory_bytes,
+            },
             wake_sink,
         ))
     }
@@ -118,10 +216,13 @@ impl EngineRuntime {
         }
     }
 
-    /// Report whether this runtime owns a validated authoritative state skeleton.
+    /// Report whether this runtime owns validated or running authority.
     #[must_use]
     pub fn owns_authoritative_state(&self) -> bool {
-        self.authoritative_state_memory_bytes().is_some()
+        matches!(
+            &self.mode,
+            RuntimeMode::Authoritative(_) | RuntimeMode::RunningAuthority { .. }
+        )
     }
 
     /// Report admitted authoritative-state bytes without exposing or copying game state.
@@ -131,6 +232,7 @@ impl EngineRuntime {
             RuntimeMode::Authoritative(state) => {
                 Some(lock_recover(state).memory_estimate().total_bytes)
             }
+            RuntimeMode::RunningAuthority { memory_bytes, .. } => Some(*memory_bytes),
             RuntimeMode::ExperimentalProbe => None,
         }
     }
@@ -142,7 +244,16 @@ impl EngineRuntime {
     ) -> Option<MutexGuard<'_, AuthoritativeState>> {
         match &self.mode {
             RuntimeMode::Authoritative(state) => Some(lock_recover(state)),
-            RuntimeMode::ExperimentalProbe => None,
+            RuntimeMode::RunningAuthority { .. } | RuntimeMode::ExperimentalProbe => None,
+        }
+    }
+
+    /// Report whether the background thread restored its exact loop after exit.
+    #[cfg(test)]
+    pub(crate) fn running_authority_retained_for_test(&self) -> bool {
+        match &self.mode {
+            RuntimeMode::RunningAuthority { loop_slot, .. } => lock_recover(loop_slot).is_some(),
+            RuntimeMode::Authoritative(_) | RuntimeMode::ExperimentalProbe => false,
         }
     }
 
@@ -162,17 +273,27 @@ impl EngineRuntime {
         let inbound = self.inbound.clone();
         let output = self.output.clone();
         let coordinator = self.coordinator.clone();
+        let running_work = match &self.mode {
+            RuntimeMode::RunningAuthority {
+                loop_slot, metrics, ..
+            } => Some((Arc::clone(loop_slot), Arc::clone(metrics))),
+            RuntimeMode::Authoritative(_) | RuntimeMode::ExperimentalProbe => None,
+        };
         let spawn = Builder::new()
             .name("slither-engine-coordinator".to_owned())
             .spawn(move || {
-                let result = catch_unwind(AssertUnwindSafe(|| {
-                    run_coordinator(&inbound, &output, &coordinator);
-                }));
-                match result {
-                    Ok(()) => coordinator.mark_normal_stopped(),
-                    Err(payload) => {
-                        let error = panic_error(payload.as_ref());
-                        fault_and_stop(&inbound, &output, &coordinator, error);
+                if let Some((loop_slot, metrics)) = running_work {
+                    run_running_thread_root(&inbound, &output, &coordinator, &loop_slot, &metrics);
+                } else {
+                    let result = catch_unwind(AssertUnwindSafe(|| {
+                        run_coordinator(&inbound, &output, &coordinator);
+                    }));
+                    match result {
+                        Ok(()) => coordinator.mark_normal_stopped(),
+                        Err(payload) => {
+                            let error = panic_error(payload.as_ref());
+                            fault_and_stop(&inbound, &output, &coordinator, error);
+                        }
                     }
                 }
             });
@@ -296,6 +417,10 @@ impl EngineRuntime {
     /// Return a small consistent-enough operational snapshot.
     pub fn health(&self) -> EngineHealth {
         let (processed_batches, processed_commands) = self.coordinator.processed();
+        let running_authority = match &self.mode {
+            RuntimeMode::RunningAuthority { metrics, .. } => Some(metrics.snapshot()),
+            RuntimeMode::Authoritative(_) | RuntimeMode::ExperimentalProbe => None,
+        };
         EngineHealth {
             lifecycle: self.coordinator.lifecycle(),
             inbound: self.inbound.metrics(),
@@ -303,6 +428,7 @@ impl EngineRuntime {
             wake: self.output.wake_metrics(),
             processed_batches,
             processed_commands,
+            running_authority,
             fault: self.coordinator.fault(),
         }
     }
@@ -320,6 +446,54 @@ impl EngineRuntime {
             if !drained.more_work {
                 return events;
             }
+        }
+    }
+}
+
+fn run_running_thread_root(
+    inbound: &Arc<InboundQueue>,
+    output: &Arc<OutputQueue>,
+    coordinator: &Arc<CoordinatorState>,
+    loop_slot: &Arc<Mutex<Option<RunningAuthorityLoop>>>,
+    metrics: &Arc<RunningAuthorityMetrics>,
+) {
+    let Some(mut running) = lock_recover(loop_slot).take() else {
+        fault_and_stop(
+            inbound,
+            output,
+            coordinator,
+            EngineError::new(
+                EngineErrorCode::InvalidLifecycle,
+                "running-authority thread started without its retained loop",
+            ),
+        );
+        return;
+    };
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        run_running_coordinator(inbound, output, coordinator, &mut running, metrics)
+    }));
+    metrics.observe(&running);
+    let prior = lock_recover(loop_slot).replace(running);
+    if prior.is_some() {
+        fault_and_stop(
+            inbound,
+            output,
+            coordinator,
+            EngineError::new(
+                EngineErrorCode::Faulted,
+                "running-authority loop slot was unexpectedly occupied at thread exit",
+            ),
+        );
+        return;
+    }
+
+    match result {
+        Ok(Ok(())) => coordinator.mark_normal_stopped(),
+        Ok(Err(error)) => fault_and_stop(inbound, output, coordinator, error),
+        Err(payload) => {
+            let error = panic_error(payload.as_ref());
+            fault_and_stop(inbound, output, coordinator, error);
         }
     }
 }
@@ -529,6 +703,40 @@ mod tests {
             assert!(joiner.join().is_ok());
         }
         assert_eq!(runtime.health().lifecycle, LifecycleState::Stopped);
+    }
+
+    #[test]
+    fn bridge_fault_racing_started_wake_suppresses_orderly_stop() {
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let runtime = EngineRuntime::new_experimental_probe(
+            init(),
+            Arc::new(BlockingWake {
+                entered: Arc::clone(&entered),
+                release: Arc::clone(&release),
+            }),
+        )
+        .assert_ok();
+        runtime.start().assert_ok();
+        entered.wait();
+        runtime.report_bridge_fault(EngineError::new(
+            EngineErrorCode::WakeDelivery,
+            "fault racing blocked wake",
+        ));
+        release.wait();
+        wait_until(&runtime, |health| {
+            health.lifecycle == LifecycleState::Faulted
+        });
+        runtime.join().assert_ok();
+
+        let events = runtime.drain_all_for_test();
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, CompletedEvent::Fault(_))));
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            CompletedEvent::Reliable(super::super::contract::ReliableEvent::Stopped)
+        )));
     }
 
     #[test]
