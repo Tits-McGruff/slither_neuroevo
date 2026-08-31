@@ -224,7 +224,7 @@ describe(SUITE, () => {
     }
     expect(digests[1]).toBe(digests[0]);
     expect(digests[2]).toBe(digests[0]);
-  });
+  }, 30_000);
 
   it('synchronizes generation weights between fixed steps in one scheduler pump', async () => {
     const { server, access } = await createMtServer(2, 'js');

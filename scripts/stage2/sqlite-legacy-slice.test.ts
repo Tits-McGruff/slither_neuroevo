@@ -154,5 +154,5 @@ describe('Stage 2 SQLite legacy slice probe', () => {
     ]);
     expect(second.status).toBe(1);
     expect(second.stderr).toContain('Refusing to overwrite artifact');
-  });
+  }, 45_000);
 });

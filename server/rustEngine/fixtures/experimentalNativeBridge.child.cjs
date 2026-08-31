@@ -67,7 +67,10 @@ async function main() {
       if (Date.now() >= deadline) {
         throw new Error(`Timed out waiting for WakeDelivery, received ${health.faultCode || 'none'}.`);
       }
-      await new Promise(resolve => setImmediate(resolve));
+      // A recursive immediate loop can starve libuv's async-handle delivery on
+      // loaded CI runners. Yield through the timer phase so the
+      // real TSFN callback can run while retaining the hard deadline above.
+      await new Promise(resolve => setTimeout(resolve, 1));
       health = engine.health();
     }
     if (health.faultCode !== 'WakeDelivery') {
