@@ -88,7 +88,12 @@ async function main() {
     let health = engine.health();
     while (health.faultCode !== 'WakeDelivery') {
       if (Date.now() >= deadline) {
-        throw new Error(`Timed out waiting for WakeDelivery, received ${health.faultCode || 'none'}.`);
+        throw new Error(
+          `Timed out waiting for WakeDelivery, received ${health.faultCode || 'none'}; ` +
+          `lifecycle=${health.lifecycle}, outputHasReservedFault=${health.outputHasReservedFault}, ` +
+          `attempts=${health.wakeAttempts}, notifications=${health.wakeNotifications}, ` +
+          `failures=${health.wakeFailures}, pending=${health.wakePending}.`
+        );
       }
       await new Promise(resolve => setTimeout(resolve, 10));
       health = engine.health();

@@ -186,15 +186,15 @@ impl CoordinatorState {
     }
 
     /// Publish the first fault without using normal output capacity.
-    pub(crate) fn publish_fault(&self, output: &OutputQueue, error: EngineError) {
+    pub(crate) fn publish_fault(&self, output: &OutputQueue, error: EngineError) -> bool {
         let fault = EngineFault::from(error);
         let mut lifecycle = lock_recover(&self.lifecycle);
         if *lifecycle == LifecycleState::Stopped {
-            return;
+            return false;
         }
         let mut retained = lock_recover(&self.fault);
         if retained.is_some() {
-            return;
+            return true;
         }
         let previous_lifecycle = *lifecycle;
         *retained = Some(fault.clone());
@@ -202,11 +202,12 @@ impl CoordinatorState {
         if !output.retain_reserved_fault(fault) {
             *retained = None;
             *lifecycle = previous_lifecycle;
-            return;
+            return false;
         }
         drop(retained);
         drop(lifecycle);
         output.signal_retained_fault();
+        true
     }
 
     /// Snapshot processed work counters.
@@ -236,8 +237,10 @@ pub(crate) fn fault_and_stop(
     state: &CoordinatorState,
     error: EngineError,
 ) {
-    inbound.request_fault_stop();
-    state.publish_fault(output, error);
+    // Mark fault-stop before publishing so neither coordinator path can
+    // dequeue raced work or mistake the shutdown for an orderly stop. The
+    // queue accounts and discards every still-accepted batch before waking.
+    inbound.request_fault_stop(|| state.publish_fault(output, error));
 }
 
 /// Run until out-of-band stop, a caught outer panic, or an output fault.
@@ -258,7 +261,7 @@ pub(crate) fn run_coordinator(
         }
     }
 
-    if let Err(error) = output.publish_orderly_stopped() {
+    if let Err(error) = publish_orderly_stopped(inbound, output) {
         fault_and_stop(inbound, output, state, error);
     }
 }
@@ -290,7 +293,7 @@ pub(crate) fn run_running_coordinator(
                 let result = inbound.wait_until_ready(Some(timeout));
                 metrics.record_wake(result);
                 if result == InboundWaitResult::Stopped {
-                    publish_orderly_stopped(output)?;
+                    publish_orderly_stopped(inbound, output)?;
                     return Ok(());
                 }
             }
@@ -299,7 +302,7 @@ pub(crate) fn run_running_coordinator(
                 let result = inbound.wait_until_ready(None);
                 metrics.record_wake(result);
                 if result == InboundWaitResult::Stopped {
-                    publish_orderly_stopped(output)?;
+                    publish_orderly_stopped(inbound, output)?;
                     return Ok(());
                 }
             }
@@ -310,7 +313,7 @@ pub(crate) fn run_running_coordinator(
             process_command_batch(batch, output, state)?;
         }
         if stop_requested {
-            publish_orderly_stopped(output)?;
+            publish_orderly_stopped(inbound, output)?;
             return Ok(());
         }
 
@@ -349,8 +352,11 @@ pub(crate) fn run_running_coordinator(
     }
 }
 
-fn publish_orderly_stopped(output: &OutputQueue) -> Result<(), EngineError> {
-    output.publish_orderly_stopped().map(|_| ())
+fn publish_orderly_stopped(
+    inbound: &InboundQueue,
+    output: &OutputQueue,
+) -> Result<(), EngineError> {
+    inbound.publish_orderly_stopped(output)
 }
 
 fn process_command_batch(
