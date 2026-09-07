@@ -248,5 +248,7 @@ describe('Stage 2 graph baseline fixtures', () => {
     } finally {
       fs.rmSync(temporaryDirectory, { recursive: true, force: true });
     }
-  });
+  // Four independent Node/tsx process starts share this integration test's
+  // budget, including when the full test matrix loads the host.
+  }, 20_000);
 });

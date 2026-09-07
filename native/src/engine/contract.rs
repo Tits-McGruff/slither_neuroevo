@@ -1,7 +1,15 @@
 //! Versioned, N-API-independent contracts for the Rust engine spine.
 
+use super::checkpoint::{CheckpointDescriptor, CheckpointOperationId};
 use super::error::{truncate_utf8, MAX_ERROR_DETAIL_BYTES};
 use super::error::{EngineError, EngineErrorCode};
+use super::external_replacement::UnavailableControllerReservation;
+use super::generation::GenerationCommitRecord;
+use super::physics::PhysicsStepKey;
+use super::running_loop::RunningGenerationStartResolution;
+use super::running_step::GenerationTransitionReason;
+use super::state::ControllerKind;
+use std::mem::size_of;
 
 /// First supported engine-spine contract version.
 pub const ENGINE_CONTRACT_VERSION: u32 = 1;
@@ -132,6 +140,8 @@ pub enum EngineCommand {
         /// Payload retained and echoed by the background coordinator.
         payload: Vec<u8>,
     },
+    /// One typed control operation for the retained Rust-owned authority loop.
+    RunningAuthority(RunningAuthorityCommand),
     /// Explicit representation for a command kind that this contract cannot execute.
     Unsupported {
         /// Numeric kind retained for a clear rejection at a future parser boundary.
@@ -149,6 +159,7 @@ impl EngineCommand {
     pub fn owned_bytes(&self) -> Result<usize, EngineError> {
         match self {
             Self::Probe { payload, .. } => Ok(payload.capacity()),
+            Self::RunningAuthority(command) => command.owned_bytes(),
             Self::Unsupported {
                 declared_owned_bytes,
                 ..
@@ -162,6 +173,7 @@ impl EngineCommand {
     pub fn validate_supported(&self) -> Result<(), EngineError> {
         match self {
             Self::Probe { .. } => Ok(()),
+            Self::RunningAuthority(command) => command.validate(),
             Self::Unsupported { kind, .. } => Err(EngineError::new(
                 EngineErrorCode::InvalidCommand,
                 format!("unsupported engine command kind {kind}"),
@@ -170,6 +182,278 @@ impl EngineCommand {
             Self::PanicForTest => Ok(()),
         }
     }
+
+    /// Whether this command may execute only while the background thread owns
+    /// a retained authoritative loop.
+    #[must_use]
+    pub const fn is_running_authority_control(&self) -> bool {
+        matches!(self, Self::RunningAuthority(_))
+    }
+
+    /// Conservative reliable-output bytes reserved before this command may
+    /// mutate retained authority state.
+    fn response_reserved_owned_bytes(&self, limits: &OutputLimits) -> usize {
+        match self {
+            Self::Probe { payload, .. } => payload.capacity(),
+            Self::RunningAuthority(_) => limits.max_event_owned_bytes,
+            Self::Unsupported { .. } => 0,
+            #[cfg(any(test, feature = "engine-test-hooks"))]
+            Self::PanicForTest => 0,
+        }
+    }
+}
+
+/// One exact local-send receipt. Rust reconstructs the full retained step key;
+/// JavaScript supplies only correlation fields that it previously received.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExternalDeliveryReceipt {
+    /// Process-local operation epoch emitted by Rust.
+    pub operation_epoch: u64,
+    /// Monotonic reliable-event sequence emitted by Rust.
+    pub event_sequence: u64,
+    /// Exact live socket epoch to which Node attempted delivery.
+    pub connection_id: u64,
+    /// Exact controller lease epoch to which Node attempted delivery.
+    pub lease_id: u64,
+    /// Whether the local socket send path accepted the event.
+    pub accepted: bool,
+}
+
+/// Typed commands that can resume a blocked retained generation transition.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RunningAuthorityCommand {
+    /// Publish or exactly retry the Rust-admitted immutable generation file.
+    PublishGenerationCheckpoint {
+        /// Server-controlled managed directory encoded as one bounded UTF-8 path.
+        managed_directory: String,
+        /// Exact bounded file-publication correlation token.
+        operation_id: CheckpointOperationId,
+    },
+    /// Retain only the complete descriptor returned by the SQLite worker.
+    AcknowledgeGenerationPersistence {
+        /// Exact worker-committed descriptor; Rust compares every field.
+        descriptor: Box<CheckpointDescriptor>,
+    },
+    /// Construct or reborrow deterministic connected-controller assignments.
+    PrepareGenerationReassignments,
+    /// Apply local delivery receipts without accepting a JavaScript-made step key.
+    SubmitGenerationAssignmentReceipts {
+        /// Bounded receipts correlated to the retained Rust events.
+        receipts: Box<[ExternalDeliveryReceipt]>,
+    },
+    /// Perform the final swap only after persistence and delivery barriers pass.
+    PublishAcknowledgedGenerationStart,
+}
+
+impl RunningAuthorityCommand {
+    fn validate(&self) -> Result<(), EngineError> {
+        match self {
+            Self::PublishGenerationCheckpoint {
+                managed_directory, ..
+            } if managed_directory.is_empty()
+                || managed_directory.len() > 32_768
+                || managed_directory.contains('\0') =>
+            {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "managed checkpoint directory must be nonempty, NUL-free, and at most 32768 UTF-8 bytes",
+                ))
+            }
+            Self::SubmitGenerationAssignmentReceipts { receipts } if receipts.is_empty() => {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "generation assignment receipt batch must not be empty",
+                ))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn owned_bytes(&self) -> Result<usize, EngineError> {
+        match self {
+            Self::PublishGenerationCheckpoint {
+                managed_directory,
+                operation_id,
+            } => managed_directory
+                .capacity()
+                .checked_add(operation_id.owned_bytes())
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "generation checkpoint command byte accounting overflowed",
+                    )
+                }),
+            Self::AcknowledgeGenerationPersistence { descriptor } => {
+                Ok(size_of::<CheckpointDescriptor>().saturating_add(descriptor.owned_bytes()))
+            }
+            Self::PrepareGenerationReassignments | Self::PublishAcknowledgedGenerationStart => {
+                Ok(0)
+            }
+            Self::SubmitGenerationAssignmentReceipts { receipts } => receipts
+                .len()
+                .checked_mul(size_of::<ExternalDeliveryReceipt>())
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "generation assignment receipt byte accounting overflowed",
+                    )
+                }),
+        }
+    }
+}
+
+/// One Rust-owned controller reassignment envelope. No population or archive
+/// bytes are copied into this bridge record.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RunningGenerationAssignment {
+    /// Exact source operation epoch.
+    pub operation_epoch: u64,
+    /// Monotonic external event identity.
+    pub event_sequence: u64,
+    /// Exact live socket epoch.
+    pub connection_id: u64,
+    /// Exact controller lease epoch.
+    pub lease_id: u64,
+    /// Browser player or separate Protocol 2 client.
+    pub controller_kind: ControllerKind,
+    /// Fresh successor snake identity.
+    pub snake_id: u64,
+    /// Fresh browser/frame-v1 exact identity.
+    pub frame_v1_id: u32,
+    /// Fresh Rust-generated opaque reclaim token.
+    pub resume_token: Box<str>,
+}
+
+/// Exact result state after applying one batch of generation assignment receipts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GenerationAssignmentReceiptState {
+    /// At least one retained assignment still needs a local result.
+    Pending {
+        /// Exact unresolved assignment count.
+        remaining: usize,
+    },
+    /// Every required assignment resolved while the old authority remains current.
+    Ready {
+        /// Exact terminal source step identity.
+        source_key: PhysicsStepKey,
+        /// Fully admitted successor generation.
+        successor_generation: u64,
+        /// Fully admitted successor completed-step chronology.
+        successor_completed_step: u64,
+    },
+}
+
+/// Reliable events emitted by the background Rust authority path.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RunningAuthorityEvent {
+    /// The retained terminal step is waiting for its generation handoff.
+    GenerationTransitionPending {
+        /// Retained scheduler ticket identity.
+        ticket_sequence: u64,
+        /// Exact terminal source step identity.
+        source_key: PhysicsStepKey,
+        /// Rule that ended the generation.
+        reason: GenerationTransitionReason,
+        /// Fully admitted successor generation.
+        successor_generation: u64,
+        /// Fully admitted successor completed-step chronology.
+        successor_completed_step: u64,
+    },
+    /// Rust published the immutable file and its authoritative compact metadata.
+    GenerationCheckpointPublished {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Exact immutable descriptor and Rust-constructed commit record.
+        descriptor: Box<CheckpointDescriptor>,
+        /// Exact compact history and Hall-of-Fame reference.
+        commit_record: GenerationCommitRecord,
+    },
+    /// Rust retained the worker's complete matching descriptor.
+    GenerationPersistenceAcknowledged {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Exact acknowledged operation token.
+        operation_id: CheckpointOperationId,
+    },
+    /// Rust staged or reborrowed every required fresh-snake assignment.
+    GenerationReassignmentsPrepared {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Whether no local delivery remains before final publication.
+        ready: bool,
+        /// Canonically ordered Rust-owned assignments.
+        assignments: Box<[RunningGenerationAssignment]>,
+    },
+    /// Rust applied one bounded receipt batch without swapping authority.
+    GenerationAssignmentReceiptsApplied {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Newly accepted exact assignments.
+        matched_acceptances: usize,
+        /// Newly failed exact assignments.
+        matched_failures: usize,
+        /// Stale, duplicate, or mismatched receipts ignored.
+        ignored_receipts: usize,
+        /// Retained barrier state after applying the receipts.
+        state: GenerationAssignmentReceiptState,
+    },
+    /// The one final old-to-new authority swap and scheduler rebind succeeded.
+    GenerationStartPublished {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Complete Rust publication and retired scheduler ticket.
+        resolution: RunningGenerationStartResolution,
+    },
+    /// A recoverable premature, stale, or mismatched control changed no authority.
+    CommandRejected {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Stable boundary error category.
+        code: EngineErrorCode,
+        /// Bounded human diagnostic.
+        detail: String,
+    },
+}
+
+impl RunningAuthorityEvent {
+    /// Heap bytes retained by this reliable bridge event.
+    #[must_use]
+    pub fn owned_bytes(&self) -> usize {
+        match self {
+            Self::GenerationTransitionPending { .. }
+            | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
+            Self::GenerationCheckpointPublished { descriptor, .. } => {
+                size_of::<CheckpointDescriptor>().saturating_add(descriptor.owned_bytes())
+            }
+            Self::GenerationPersistenceAcknowledged { operation_id, .. } => {
+                operation_id.owned_bytes()
+            }
+            Self::GenerationReassignmentsPrepared { assignments, .. } => assignments
+                .len()
+                .saturating_mul(size_of::<RunningGenerationAssignment>())
+                .saturating_add(assignments.iter().fold(0usize, |bytes, assignment| {
+                    bytes.saturating_add(assignment.resume_token.len())
+                })),
+            Self::GenerationStartPublished { resolution, .. } => {
+                let reservations = &resolution.publication.unavailable_controller_reservations;
+                generation_start_owned_bytes(reservations, reservations.capacity())
+            }
+            Self::CommandRejected { detail, .. } => detail.capacity(),
+        }
+    }
+}
+
+fn generation_start_owned_bytes(
+    reservations: &[UnavailableControllerReservation],
+    capacity: usize,
+) -> usize {
+    capacity
+        .saturating_mul(size_of::<UnavailableControllerReservation>())
+        .saturating_add(reservations.iter().fold(0usize, |bytes, reservation| {
+            bytes
+                .saturating_add(reservation.scope.capacity())
+                .saturating_add(reservation.resume_token.capacity())
+        }))
 }
 
 /// One all-or-nothing inbound command batch.
@@ -245,8 +529,18 @@ impl CommandBatch {
                 "command batch leaves no reliable lifecycle-event capacity",
             ));
         }
-        if shape.owned_bytes > limits.max_reliable_owned_bytes
-            || shape.owned_bytes > limits.max_total_owned_bytes
+        let response_owned_bytes = self.commands.iter().try_fold(0usize, |bytes, command| {
+            bytes
+                .checked_add(command.command.response_reserved_owned_bytes(limits))
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "command-batch response byte accounting overflowed",
+                    )
+                })
+        })?;
+        if response_owned_bytes > limits.max_reliable_owned_bytes
+            || response_owned_bytes > limits.max_total_owned_bytes
         {
             return Err(EngineError::new(
                 EngineErrorCode::QueueByteLimit,
@@ -254,13 +548,12 @@ impl CommandBatch {
             ));
         }
         for command in &self.commands {
-            if let EngineCommand::Probe { payload, .. } = &command.command {
-                if payload.capacity() > limits.max_event_owned_bytes {
-                    return Err(EngineError::new(
-                        EngineErrorCode::QueueByteLimit,
-                        "one command response exceeds the output event byte limit",
-                    ));
-                }
+            if command.command.response_reserved_owned_bytes(limits) > limits.max_event_owned_bytes
+            {
+                return Err(EngineError::new(
+                    EngineErrorCode::QueueByteLimit,
+                    "one command response exceeds the output event byte limit",
+                ));
             }
         }
         Ok(shape)
@@ -294,8 +587,24 @@ pub enum ReliableEvent {
         /// Echoed bounded payload.
         payload: Vec<u8>,
     },
+    /// Typed retained-authority control or lifecycle output.
+    RunningAuthority(Box<RunningAuthorityEvent>),
     /// Coordinator stopped without a caught fault.
     Stopped,
+}
+
+impl ReliableEvent {
+    /// Return heap bytes retained by this reliable event.
+    #[must_use]
+    pub fn owned_bytes(&self) -> usize {
+        match self {
+            Self::ProbeResult { payload, .. } => payload.capacity(),
+            Self::RunningAuthority(event) => {
+                size_of::<RunningAuthorityEvent>().saturating_add(event.owned_bytes())
+            }
+            Self::Started | Self::Stopped => 0,
+        }
+    }
 }
 
 /// Non-replaceable discrete event placeholder for later generation/Hall-of-Fame work.
@@ -384,8 +693,7 @@ impl CompletedEvent {
     pub fn owned_bytes(&self) -> usize {
         match self {
             Self::Fault(fault) => fault.detail.len(),
-            Self::Reliable(ReliableEvent::ProbeResult { payload, .. }) => payload.capacity(),
-            Self::Reliable(ReliableEvent::Started | ReliableEvent::Stopped) => 0,
+            Self::Reliable(event) => event.owned_bytes(),
             Self::Discrete(event) => event.payload.capacity(),
             Self::Stats(event) => event.payload.capacity(),
             Self::Frame(event) => event.payload.capacity(),

@@ -394,6 +394,8 @@ pub enum ReplaceResult {
 /// Observable output queue counters.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct OutputMetrics {
+    /// Authority waits for a complete reliable reply to fit after a consumer drain.
+    pub capacity_waits: u64,
     /// Normally queued reliable events.
     pub reliable: usize,
     /// Reliable owned bytes.
@@ -436,6 +438,10 @@ pub struct OutputMetrics {
 
 #[derive(Debug)]
 struct OutputState {
+    authority_reply_reserved: bool,
+    deferred_fault: Option<EngineFault>,
+    capacity_wait_cancelled: bool,
+    capacity_waits: u64,
     reliable: VecDeque<ReliableEvent>,
     reliable_owned_bytes: usize,
     discrete: VecDeque<DiscreteEvent>,
@@ -470,6 +476,7 @@ enum OutputTerminalState {
 pub struct OutputQueue {
     limits: OutputLimits,
     state: Mutex<OutputState>,
+    capacity_ready: Condvar,
     sink: Arc<dyn WakeSink>,
     generation: AtomicU64,
     notified: AtomicBool,
@@ -489,12 +496,70 @@ impl std::fmt::Debug for OutputQueue {
     }
 }
 
+/// One reply admitted before an authoritative operation starts. A racing fault
+/// closes future admission, but cannot revoke this reply's count/byte capacity.
+pub(crate) struct ReliableReplyReservation<'queue> {
+    queue: &'queue OutputQueue,
+    bytes: usize,
+    completed: bool,
+}
+
+impl ReliableReplyReservation<'_> {
+    /// Fill the admitted slot, then expose any terminal fault ordered after it.
+    pub(crate) fn publish(mut self, event: ReliableEvent) -> Result<(), EngineError> {
+        let bytes = event.owned_bytes();
+        if bytes > self.bytes || matches!(event, ReliableEvent::Stopped) {
+            return Err(EngineError::new(
+                EngineErrorCode::Faulted,
+                "authoritative reply exceeded its admitted reservation",
+            ));
+        }
+        let mut state = lock_recover(&self.queue.state);
+        debug_assert!(state.authority_reply_reserved);
+        evict_replaceable_for(&mut state, bytes, self.queue.limits.max_total_owned_bytes);
+        state.reliable_owned_bytes += bytes;
+        state.total_owned_bytes += bytes;
+        state.reliable.push_back(event);
+        state.authority_reply_reserved = false;
+        if let Some(fault) = state.deferred_fault.take() {
+            state.reserved_fault = Some(fault);
+        }
+        update_output_high_water(&mut state);
+        self.completed = true;
+        drop(state);
+        self.queue.signal_change()
+    }
+}
+
+impl Drop for ReliableReplyReservation<'_> {
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+        let mut state = lock_recover(&self.queue.state);
+        state.authority_reply_reserved = false;
+        let deferred = state.deferred_fault.take();
+        let signal_fault = deferred.is_some();
+        if let Some(fault) = deferred {
+            state.reserved_fault = Some(fault);
+        }
+        drop(state);
+        if signal_fault {
+            self.queue.signal_retained_fault();
+        }
+    }
+}
+
 impl OutputQueue {
     /// Create an empty output queue from already validated limits.
     pub fn new(limits: OutputLimits, sink: Arc<dyn WakeSink>) -> Self {
         Self {
             limits,
             state: Mutex::new(OutputState {
+                authority_reply_reserved: false,
+                deferred_fault: None,
+                capacity_wait_cancelled: false,
+                capacity_waits: 0,
                 reliable: VecDeque::new(),
                 reliable_owned_bytes: 0,
                 discrete: VecDeque::new(),
@@ -518,6 +583,7 @@ impl OutputQueue {
                 terminal: OutputTerminalState::Open,
             }),
             sink,
+            capacity_ready: Condvar::new(),
             generation: AtomicU64::new(0),
             notified: AtomicBool::new(false),
             notifications: AtomicU64::new(0),
@@ -525,6 +591,12 @@ impl OutputQueue {
             notification_failures: AtomicU64::new(0),
             rearm_races: AtomicU64::new(0),
         }
+    }
+
+    /// Configured per-event byte reservation used before authority mutations.
+    #[must_use]
+    pub(crate) const fn max_event_owned_bytes(&self) -> usize {
+        self.limits.max_event_owned_bytes
     }
 
     /// Enqueue one reliable event or return an observable overflow error.
@@ -562,6 +634,7 @@ impl OutputQueue {
             }
             OutputTerminalState::Open => {}
         }
+        ensure_output_open(&state)?;
         if state.reliable.len() >= self.limits.max_reliable {
             state.priority_overflows = state.priority_overflows.saturating_add(1);
             return Err(EngineError::new(
@@ -682,6 +755,132 @@ impl OutputQueue {
         update_output_high_water(&mut state);
         drop(state);
         self.signal_change()
+    }
+
+    /// Verify that one authority-command response can publish before the
+    /// command mutates retained state. The authority thread is the sole normal
+    /// reliable producer, so a successful check remains valid unless an
+    /// out-of-band terminal fault closes the queue; mutation paths must use
+    /// `reserve_authority_reply` to order admission against that closure.
+    #[cfg(test)]
+    pub(crate) fn preflight_reliable_reservation(
+        &self,
+        event_owned_bytes: &[usize],
+    ) -> Result<(), EngineError> {
+        if event_owned_bytes.is_empty() {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidCommand,
+                "reliable output reservation must not be empty",
+            ));
+        }
+        let mut incoming_bytes = 0usize;
+        for bytes in event_owned_bytes {
+            self.validate_event_size(*bytes)?;
+            incoming_bytes = incoming_bytes.checked_add(*bytes).ok_or_else(|| {
+                EngineError::new(
+                    EngineErrorCode::QueueByteLimit,
+                    "reliable output reservation byte accounting overflowed",
+                )
+            })?;
+        }
+
+        let mut state = lock_recover(&self.state);
+        ensure_output_open(&state)?;
+        self.check_reliable_reservation(&mut state, event_owned_bytes.len(), incoming_bytes)
+    }
+
+    /// Admit one authoritative reply atomically against terminal closure. The
+    /// coordinator is the sole normal producer; consumers remain free to drain
+    /// during checkpoint IO. Other publication attempts cannot steal the slot.
+    pub(crate) fn reserve_authority_reply(
+        &self,
+        bytes: usize,
+    ) -> Result<ReliableReplyReservation<'_>, EngineError> {
+        self.validate_event_size(bytes)?;
+        let mut state = lock_recover(&self.state);
+        self.check_reliable_reservation(&mut state, 1, bytes)?;
+        state.authority_reply_reserved = true;
+        Ok(ReliableReplyReservation {
+            queue: self,
+            bytes,
+            completed: false,
+        })
+    }
+
+    fn check_reliable_reservation(
+        &self,
+        state: &mut OutputState,
+        count: usize,
+        incoming_bytes: usize,
+    ) -> Result<(), EngineError> {
+        ensure_output_open(state)?;
+        let next_count = state.reliable.len().checked_add(count);
+        let next_class = state.reliable_owned_bytes.checked_add(incoming_bytes);
+        let next_total = state
+            .reliable_owned_bytes
+            .checked_add(state.discrete_owned_bytes)
+            .and_then(|bytes| bytes.checked_add(incoming_bytes));
+        if next_count.is_none_or(|count| count > self.limits.max_reliable) {
+            state.priority_overflows = state.priority_overflows.saturating_add(1);
+            return Err(EngineError::new(
+                EngineErrorCode::QueueCountLimit,
+                "reliable output reservation exceeds the queue count limit",
+            ));
+        }
+        if next_class.is_none_or(|bytes| bytes > self.limits.max_reliable_owned_bytes)
+            || next_total.is_none_or(|bytes| bytes > self.limits.max_total_owned_bytes)
+        {
+            state.priority_overflows = state.priority_overflows.saturating_add(1);
+            return Err(EngineError::new(
+                EngineErrorCode::QueueByteLimit,
+                "reliable output reservation exceeds the queue byte limit",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Wait on the authority thread until its next complete reply fits. No
+    /// authoritative state is touched, and the caller retains the exact command.
+    /// Replaceable output can be evicted by the subsequent reliable publication.
+    /// Returns whether a wait occurred so a step can take a fresh command cutoff.
+    pub(crate) fn wait_reliable_capacity(&self, bytes: usize) -> Result<bool, EngineError> {
+        self.validate_event_size(bytes)?;
+        if bytes > self.limits.max_reliable_owned_bytes || bytes > self.limits.max_total_owned_bytes
+        {
+            return Err(EngineError::new(
+                EngineErrorCode::QueueByteLimit,
+                "reliable response cannot fit even an empty output queue",
+            ));
+        }
+        let mut state = lock_recover(&self.state);
+        let mut waited = false;
+        loop {
+            ensure_output_open(&state)?;
+            let class_bytes = state.reliable_owned_bytes.checked_add(bytes);
+            let total_bytes =
+                class_bytes.and_then(|value| value.checked_add(state.discrete_owned_bytes));
+            if state.reliable.len() < self.limits.max_reliable
+                && class_bytes.is_some_and(|value| value <= self.limits.max_reliable_owned_bytes)
+                && total_bytes.is_some_and(|value| value <= self.limits.max_total_owned_bytes)
+            {
+                return Ok(waited);
+            }
+            if state.capacity_wait_cancelled {
+                return Err(EngineError::new(
+                    EngineErrorCode::QueueCountLimit,
+                    "shutdown interrupted an output-capacity wait before authority mutation",
+                ));
+            }
+            state.capacity_waits = state.capacity_waits.saturating_add(1);
+            waited = true;
+            state = wait_recover(&self.capacity_ready, state);
+        }
+    }
+
+    /// Wake a blocked authority so stop/join cannot depend on a future Node drain.
+    pub(crate) fn cancel_capacity_wait(&self) {
+        lock_recover(&self.state).capacity_wait_cancelled = true;
+        self.capacity_ready.notify_all();
     }
 
     /// Enqueue one non-replaceable discrete event or return an observable overflow.
@@ -831,12 +1030,20 @@ impl OutputQueue {
         state
             .reliable
             .retain(|event| !matches!(event, ReliableEvent::Stopped));
-        state.reserved_fault = Some(fault);
+        if state.authority_reply_reserved {
+            state.deferred_fault = Some(fault);
+        } else {
+            state.reserved_fault = Some(fault);
+        }
+        self.capacity_ready.notify_all();
         true
     }
 
     /// Signal a fault already retained outside normal output capacity.
     pub(crate) fn signal_retained_fault(&self) {
+        if lock_recover(&self.state).deferred_fault.is_some() {
+            return;
+        }
         // The retained fault and health state remain observable even when the
         // external wake mechanism is already closing or broken.
         let _ = self.signal_change();
@@ -883,6 +1090,9 @@ impl OutputQueue {
             }
         }
 
+        if !events.is_empty() {
+            self.capacity_ready.notify_one();
+        }
         let mut more_work = !self.is_empty();
         if !more_work {
             self.notified.store(false, Ordering::Release);
@@ -905,6 +1115,7 @@ impl OutputQueue {
     pub fn metrics(&self) -> OutputMetrics {
         let state = lock_recover(&self.state);
         OutputMetrics {
+            capacity_waits: state.capacity_waits,
             reliable: state.reliable.len(),
             reliable_owned_bytes: state.reliable_owned_bytes,
             discrete: state.discrete.len(),
@@ -1022,13 +1233,16 @@ pub struct DrainResult {
 }
 
 fn reliable_owned_bytes(event: &ReliableEvent) -> usize {
-    match event {
-        ReliableEvent::ProbeResult { payload, .. } => payload.capacity(),
-        ReliableEvent::Started | ReliableEvent::Stopped => 0,
-    }
+    event.owned_bytes()
 }
 
 fn ensure_output_open(state: &OutputState) -> Result<(), EngineError> {
+    if state.authority_reply_reserved {
+        return Err(EngineError::new(
+            EngineErrorCode::InvalidLifecycle,
+            "an admitted authority operation owns the next reliable reply",
+        ));
+    }
     if state.terminal == OutputTerminalState::Open {
         Ok(())
     } else {
@@ -1550,6 +1764,109 @@ mod tests {
         assert_eq!(metrics.reliable, 1);
         assert!(metrics.has_reserved_fault);
         assert_eq!(metrics.priority_overflows, 1);
+    }
+
+    #[test]
+    fn reliable_preflight_rejects_count_and_bytes_without_enqueuing() {
+        let count_queue = OutputQueue::new(
+            OutputLimits {
+                max_reliable: 1,
+                ..output_limits()
+            },
+            Arc::new(NoopWakeSink),
+        );
+        count_queue
+            .push_reliable(ReliableEvent::Started)
+            .assert_ok();
+        let before_count = count_queue.metrics();
+        assert_eq!(
+            count_queue
+                .preflight_reliable_reservation(&[0])
+                .expect_err("full reliable count must reject the reservation")
+                .code,
+            EngineErrorCode::QueueCountLimit
+        );
+        let after_count = count_queue.metrics();
+        assert_eq!(after_count.reliable, before_count.reliable);
+        assert_eq!(
+            after_count.total_owned_bytes,
+            before_count.total_owned_bytes
+        );
+
+        let byte_queue = OutputQueue::new(output_limits(), Arc::new(NoopWakeSink));
+        byte_queue
+            .push_reliable(ReliableEvent::ProbeResult {
+                sequence: 1,
+                correlation_id: 1,
+                payload: vec![0; 8],
+            })
+            .assert_ok();
+        let before_bytes = byte_queue.metrics();
+        assert_eq!(
+            byte_queue
+                .preflight_reliable_reservation(&[5])
+                .expect_err("reliable byte total must reject the reservation")
+                .code,
+            EngineErrorCode::QueueByteLimit
+        );
+        let after_bytes = byte_queue.metrics();
+        assert_eq!(after_bytes.reliable, before_bytes.reliable);
+        assert_eq!(
+            after_bytes.total_owned_bytes,
+            before_bytes.total_owned_bytes
+        );
+        assert_eq!(
+            byte_queue
+                .preflight_reliable_reservation(&[])
+                .expect_err("empty reservation is not a command response")
+                .code,
+            EngineErrorCode::InvalidCommand
+        );
+    }
+
+    #[test]
+    fn authority_reply_reservation_orders_completion_before_racing_fault_visibility() {
+        let queue = OutputQueue::new(output_limits(), Arc::new(NoopWakeSink));
+        let reservation = queue.reserve_authority_reply(8).assert_ok();
+        assert!(queue.push_reliable(ReliableEvent::Started).is_err());
+        assert!(queue.publish_orderly_stopped().is_err());
+        queue.publish_reserved_fault(EngineFault::new(
+            EngineErrorCode::WakeDelivery,
+            "racing fault",
+        ));
+        assert!(queue.drain(8, 1024).events.is_empty());
+        reservation
+            .publish(ReliableEvent::ProbeResult {
+                sequence: 1,
+                correlation_id: 1,
+                payload: vec![0; 8],
+            })
+            .assert_ok();
+        let events = queue.drain(8, 1024).events;
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], CompletedEvent::Fault(_)));
+        assert!(matches!(
+            &events[1],
+            CompletedEvent::Reliable(ReliableEvent::ProbeResult { sequence: 1, .. })
+        ));
+        assert!(queue.reserve_authority_reply(8).is_err());
+        assert_eq!(queue.metrics().total_owned_bytes, 0);
+    }
+
+    #[test]
+    fn dropping_an_unused_authority_reservation_releases_a_deferred_fault() {
+        let queue = OutputQueue::new(output_limits(), Arc::new(NoopWakeSink));
+        let reservation = queue.reserve_authority_reply(8).assert_ok();
+        queue.publish_reserved_fault(EngineFault::new(
+            EngineErrorCode::Faulted,
+            "cancelled operation",
+        ));
+        assert!(queue.drain(8, 1024).events.is_empty());
+        drop(reservation);
+        let events = queue.drain(8, 1024).events;
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], CompletedEvent::Fault(_)));
+        assert!(queue.reserve_authority_reply(8).is_err());
     }
 
     #[test]

@@ -137,13 +137,19 @@ impl CheckpointOperationId {
                 "operation ID must be exactly 32 lowercase hexadecimal digits",
             ));
         }
-        Ok(Self(value))
+        Ok(Self(value.into_boxed_str().into_string()))
     }
 
     /// Borrow the exact validated operation token.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Heap bytes retained by this owned correlation token.
+    #[must_use]
+    pub(crate) fn owned_bytes(&self) -> usize {
+        self.0.capacity()
     }
 }
 
@@ -298,6 +304,73 @@ pub struct CheckpointDescriptor {
 }
 
 impl CheckpointDescriptor {
+    /// Exact string-storage bound for a Rust-published compact descriptor.
+    /// Twelve u64 words, two digests, the managed-root/filename labels and the
+    /// fixed operation token have invariant lengths. Publication removes spare
+    /// string capacity so this bound also covers actual retained heap bytes.
+    pub(crate) fn publication_owned_byte_bound(run_id: &str) -> Option<usize> {
+        run_id.len().checked_add(
+            12 * 16 + 2 * 64 + "checkpoint-v3".len() + 64 + ".checkpoint-v3".len() + 32,
+        )
+    }
+
+    /// Remove spare string capacity before the descriptor crosses a bounded queue.
+    fn compact_storage(mut self) -> Self {
+        for value in [
+            &mut self.managed_root,
+            &mut self.operation_id.0,
+            &mut self.transition_epoch_hex,
+            &mut self.run_id,
+            &mut self.generation_hex,
+            &mut self.completed_step_hex,
+            &mut self.checkpoint_format_version_hex,
+            &mut self.state_version_hex,
+            &mut self.graph_layout_version_hex,
+            &mut self.logical_root_sha256,
+            &mut self.relative_filename,
+            &mut self.stored_byte_count_hex,
+            &mut self.decoded_byte_count_hex,
+            &mut self.population_count_hex,
+            &mut self.role_count_hex,
+            &mut self.weight_count_hex,
+            &mut self.recurrent_state_count_hex,
+            &mut self.graph_layout_sha256,
+        ] {
+            *value = std::mem::take(value).into_boxed_str().into_string();
+        }
+        self
+    }
+
+    /// Heap bytes retained by the bounded descriptor strings.
+    ///
+    /// This is queue-accounting metadata only. It deliberately excludes the
+    /// fixed-size enum and integer fields stored inline with the event.
+    #[must_use]
+    pub(crate) fn owned_bytes(&self) -> usize {
+        [
+            self.managed_root.capacity(),
+            self.operation_id.owned_bytes(),
+            self.transition_epoch_hex.capacity(),
+            self.run_id.capacity(),
+            self.generation_hex.capacity(),
+            self.completed_step_hex.capacity(),
+            self.checkpoint_format_version_hex.capacity(),
+            self.state_version_hex.capacity(),
+            self.graph_layout_version_hex.capacity(),
+            self.logical_root_sha256.capacity(),
+            self.relative_filename.capacity(),
+            self.stored_byte_count_hex.capacity(),
+            self.decoded_byte_count_hex.capacity(),
+            self.population_count_hex.capacity(),
+            self.role_count_hex.capacity(),
+            self.weight_count_hex.capacity(),
+            self.recurrent_state_count_hex.capacity(),
+            self.graph_layout_sha256.capacity(),
+        ]
+        .into_iter()
+        .fold(0usize, usize::saturating_add)
+    }
+
     /// Return the first identity-bearing field that differs from a committed echo.
     ///
     /// The final structural equality check covers every remaining bounded
@@ -4201,6 +4274,7 @@ fn publication_descriptor(
         graph_layout_sha256: content.graph_layout_sha256,
         write_validation_policy: content.write_validation_policy,
     }
+    .compact_storage()
 }
 
 /// Accept an existing digest-derived file only after a complete strict restore and state comparison.

@@ -43,7 +43,7 @@ is actually needed.
 | 3 | Rust foundation established | Rust state/graph/RNG contracts, coarse bridge, managed checkpoint-v3 codec/metadata worker and Rust→SQLite publication handoff exist. Detailed retained artifacts are under `docs/todo/evidence/stage3/`. |
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
-| 6 | In progress, late pre-6A | Rust can retain a background running authority and resume a durable generation transition through persistence acknowledgement, controller reassignment and one authority swap. Production background-queue routing, normal addon/server startup, continuous frame/output delivery and real browser/RL wiring remain before the Stage 6A vertical-slice gate. |
+| 6 | In progress, late pre-6A | The bounded background runtime carries generation checkpoint publication, persistence acknowledgement, controller reassignment/results and one authority swap. Normal addon/server startup, continuous frame/output delivery and real browser/RL wiring remain before the Stage 6A vertical-slice gate. |
 | 7–8 | Not yet accepted | Performance/durability acceptance and production cutover remain future gates. |
 
 ## Milestone index
@@ -147,8 +147,14 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   `c60ea71`, `2e133f2`). These are stabilization of the same boundary rather
   than a new migration stage.
 
-The next material Stage 6 objective is to carry the already-proved generation
-handoff and running loop through the production bounded background queue and
-normal addon/server startup, then connect continuous frame/controller/RL
-traffic. Stage 6A is reached only by the plan's actual browser/LAN/Protocol 2
-vertical-slice evidence gate.
+- 2026-09-07 Stage 6 background generation queue checkpoint: complete replies
+  reserve bounded output before checkpoint publication, acknowledgement,
+  assignment preparation or authority retirement. Queue drainage resumes retained
+  commands once; stale generation receipts leave ordinary-step observations
+  intact. Rust queue/runtime regressions and the real addon-to-SQLite handoff
+  exercise these boundaries. Review corrections order in-flight admission
+  against terminal faults and release blocked authority on runtime drop.
+
+The next dependency is to connect the production addon's durable fresh-run
+session to the background runtime, then route continuous frame/controller/RL
+traffic through the server.

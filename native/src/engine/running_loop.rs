@@ -357,6 +357,12 @@ impl RunningAuthorityLoop {
         self.coordinator.pending_generation_transition()
     }
 
+    /// Borrow only the retained source controller records for queue admission.
+    /// These remain private Rust data and cannot be supplied by a bridge caller.
+    pub(crate) fn generation_source_controller_leases(&self) -> &[super::state::ControllerLease] {
+        &self.authority.state().world.controller_leases
+    }
+
     /// Publish or exactly retry the immutable checkpoint and return only its
     /// bounded descriptor plus the Rust-admitted scalar commit record.
     ///

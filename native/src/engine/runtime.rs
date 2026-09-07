@@ -165,6 +165,17 @@ impl EngineRuntime {
         if let Err(error) = init.validate() {
             return Err(RunningAuthorityRuntimeCreationError::new(running, error));
         }
+        if init.output.max_event_owned_bytes
+            < std::mem::size_of::<super::contract::RunningAuthorityEvent>()
+        {
+            return Err(RunningAuthorityRuntimeCreationError::new(
+                running,
+                EngineError::new(
+                    EngineErrorCode::InvalidConfiguration,
+                    "running authority output must fit one scalar generation event",
+                ),
+            ));
+        }
         if let Err(error) = running.validate_background_start() {
             return Err(RunningAuthorityRuntimeCreationError::new(
                 running,
@@ -322,6 +333,25 @@ impl EngineRuntime {
     /// Enqueue one validated batch atomically and without waiting for capacity.
     pub fn try_submit(&self, batch: CommandBatch) -> Result<(), EngineError> {
         batch.validate_output_shape(&self.init.output)?;
+        let authority_controls = batch
+            .commands
+            .iter()
+            .filter(|command| command.command.is_running_authority_control())
+            .count();
+        if authority_controls != 0 {
+            if !matches!(&self.mode, RuntimeMode::RunningAuthority { .. }) {
+                return Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "running-authority control requires the retained authority runtime mode",
+                ));
+            }
+            if authority_controls != 1 || batch.commands.len() != 1 {
+                return Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "one running-authority control must occupy its own command batch",
+                ));
+            }
+        }
         match self.coordinator.lifecycle() {
             LifecycleState::Running => self.inbound.try_push(batch),
             LifecycleState::Faulted => Err(EngineError::new(
@@ -352,6 +382,7 @@ impl EngineRuntime {
         });
         if transition.is_ok() {
             self.inbound.request_stop();
+            self.output.cancel_capacity_wait();
         }
     }
 
@@ -504,6 +535,7 @@ impl Drop for EngineRuntime {
         // it never waits for coordinator completion or joins the thread. Dropping the
         // JoinHandle detaches, and its Arc-owned state remains valid until it exits.
         self.inbound.request_stop();
+        self.output.cancel_capacity_wait();
     }
 }
 
@@ -517,7 +549,8 @@ fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::super::contract::{
-        EngineCommand, InboundLimits, OutputLimits, SequencedCommand, ENGINE_CONTRACT_VERSION,
+        EngineCommand, InboundLimits, OutputLimits, RunningAuthorityCommand, SequencedCommand,
+        ENGINE_CONTRACT_VERSION,
     };
     use super::super::queues::NoopWakeSink;
     use super::*;
@@ -592,6 +625,29 @@ mod tests {
         let events = runtime.drain_all_for_test();
         assert!(events.iter().any(|event| matches!(event, CompletedEvent::Reliable(super::super::contract::ReliableEvent::ProbeResult { sequence: 1, correlation_id: 101, payload }) if payload == &[7])));
         assert!(runtime.try_submit(probe(2, 8)).is_err());
+    }
+
+    #[test]
+    fn probe_runtime_rejects_running_authority_control_before_queueing() {
+        let runtime =
+            EngineRuntime::new_experimental_probe(init(), Arc::new(NoopWakeSink)).assert_ok();
+        runtime.start().assert_ok();
+        let error = runtime
+            .try_submit(CommandBatch {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                commands: vec![SequencedCommand {
+                    sequence: 1,
+                    command: EngineCommand::RunningAuthority(
+                        RunningAuthorityCommand::PrepareGenerationReassignments,
+                    ),
+                }]
+                .into_boxed_slice(),
+            })
+            .expect_err("probe mode must reject authority control");
+        assert_eq!(error.code, EngineErrorCode::InvalidCommand);
+        assert_eq!(runtime.health().inbound.commands, 0);
+        runtime.request_stop();
+        runtime.join().assert_ok();
     }
 
     #[test]
@@ -756,6 +812,49 @@ mod tests {
             Some("first")
         );
         assert!(runtime.drain_outputs(8, 1024).assert_ok().events.is_empty());
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    #[test]
+    fn drop_wakes_output_capacity_wait_and_releases_retained_authority() {
+        use crate::engine::generation_handoff_fixture::{
+            background_generation_handoff_fixture, background_generation_handoff_runtime_init,
+        };
+        let running = background_generation_handoff_fixture().unwrap().running;
+        let mut config = background_generation_handoff_runtime_init();
+        config.output.max_reliable = 2;
+        let runtime = EngineRuntime::new_running_authority(config, running, Arc::new(NoopWakeSink))
+            .map_err(|failure| failure.error().clone())
+            .unwrap();
+        let RuntimeMode::RunningAuthority { loop_slot, .. } = &runtime.mode else {
+            panic!("expected retained running authority");
+        };
+        let authority = Arc::downgrade(loop_slot);
+        let output = Arc::downgrade(&runtime.output);
+        runtime.start().unwrap();
+        wait_until(&runtime, |health| health.output.reliable == 2);
+        runtime
+            .try_submit(CommandBatch {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                commands: vec![SequencedCommand {
+                    sequence: 1,
+                    command: EngineCommand::RunningAuthority(
+                        RunningAuthorityCommand::PrepareGenerationReassignments,
+                    ),
+                }]
+                .into_boxed_slice(),
+            })
+            .unwrap();
+        wait_until(&runtime, |health| health.output.capacity_waits > 0);
+        drop(runtime);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if authority.strong_count() == 0 && output.strong_count() == 0 {
+                return;
+            }
+            std::thread::yield_now();
+        }
+        panic!("dropped runtime retained a blocked authority thread");
     }
 
     trait AssertOk<T> {

@@ -648,11 +648,11 @@ mod tests {
             },
             output: OutputLimits {
                 max_reliable: 8,
-                max_reliable_owned_bytes: 64,
+                max_reliable_owned_bytes: 4096,
                 max_discrete: 4,
-                max_discrete_owned_bytes: 64,
-                max_total_owned_bytes: 128,
-                max_event_owned_bytes: 64,
+                max_discrete_owned_bytes: 1024,
+                max_total_owned_bytes: 8192,
+                max_event_owned_bytes: 1024,
                 max_frame_connections: 4,
             },
         }

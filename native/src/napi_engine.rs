@@ -43,12 +43,20 @@ use crate::engine::LifecycleState;
 #[cfg(feature = "engine-test-hooks")]
 use crate::engine::{
     checkpoint_fixture::publish_stage3_fixture,
+    contract::{
+        ExternalDeliveryReceipt, GenerationAssignmentReceiptState, RunningAuthorityCommand,
+        RunningAuthorityEvent,
+    },
     generation::GenerationCommitRecord,
     generation_handoff_fixture::{
-        GenerationHandoffAssignment, GenerationHandoffFixtureSession, GenerationHandoffSnapshot,
-        PublishedGenerationHandoff,
+        background_generation_handoff_fixture, background_generation_handoff_runtime_init,
+        GenerationHandoffAssignment, GenerationHandoffFixtureSession,
+        GenerationHandoffRunStartFixture, GenerationHandoffSnapshot, PublishedGenerationHandoff,
     },
+    physics::PhysicsStepKey,
     run_start_handoff_fixture::{RunStartHandoffFixtureSession, RunStartHandoffSnapshot},
+    state::ControllerKind,
+    GenerationTransitionReason,
 };
 
 /// The one-slot, weak, nonblocking wake notification used by the bridge.
@@ -281,6 +289,136 @@ pub struct Stage6GenerationStartPublication {
     pub completed_step: String,
     pub population_epoch: String,
     pub external_assignments: u32,
+}
+
+/// Exact retained fixed-step identity emitted by the background authority path.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6BackgroundStepKey {
+    pub world_epoch: String,
+    pub generation: String,
+    pub source_completed_step: String,
+    pub population_epoch: String,
+    pub config_revision: String,
+    pub config_sha256: String,
+    pub operation_epoch: String,
+}
+
+/// One background generation-transition announcement.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6BackgroundGenerationTransition {
+    pub ticket_sequence: String,
+    pub source_key: Stage6BackgroundStepKey,
+    pub reason: String,
+    pub successor_generation: String,
+    pub successor_completed_step: String,
+}
+
+/// One exact Rust-owned reassignment emitted from the retained successor.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6BackgroundGenerationAssignment {
+    pub operation_epoch: String,
+    pub event_sequence: String,
+    pub connection_id: String,
+    pub lease_id: String,
+    pub controller_kind: String,
+    pub snake_id: String,
+    pub frame_v1_id: String,
+    pub resume_token: String,
+}
+
+/// Prepared successor reassignment batch.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6BackgroundGenerationReassignments {
+    pub ready: bool,
+    pub assignments: Vec<Stage6BackgroundGenerationAssignment>,
+}
+
+/// Exact accounting after applying one local assignment receipt command.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6BackgroundGenerationReceiptResolution {
+    pub matched_acceptances: String,
+    pub matched_failures: String,
+    pub ignored_receipts: String,
+    pub state: String,
+    pub remaining: Option<String>,
+    pub source_key: Option<Stage6BackgroundStepKey>,
+    pub successor_generation: Option<String>,
+    pub successor_completed_step: Option<String>,
+}
+
+/// Token-scoped unavailable controller result preserved after the old world retires.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6BackgroundUnavailableController {
+    pub source_lease_id: String,
+    pub source_snake_id: String,
+    pub controller_kind: String,
+    pub scope: String,
+    pub resume_token: String,
+    pub disconnected_at_ms: Option<String>,
+    pub grace_expires_at_ms: Option<String>,
+    pub reason: String,
+}
+
+/// Final background authority publication with no population-sized data.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6BackgroundGenerationStart {
+    pub ticket_sequence: String,
+    pub due_steps: String,
+    pub source_key: Stage6BackgroundStepKey,
+    pub publication: Stage6GenerationStartPublication,
+    pub unavailable_controllers: Vec<Stage6BackgroundUnavailableController>,
+}
+
+/// One typed output drained from the real background runtime.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6BackgroundGenerationEvent {
+    pub kind: String,
+    pub command_sequence: Option<String>,
+    pub transition: Option<Stage6BackgroundGenerationTransition>,
+    pub checkpoint: Option<Stage6GenerationCheckpointPublication>,
+    pub acknowledged_operation_id: Option<String>,
+    pub reassignments: Option<Stage6BackgroundGenerationReassignments>,
+    pub receipt_resolution: Option<Stage6BackgroundGenerationReceiptResolution>,
+    pub generation_start: Option<Stage6BackgroundGenerationStart>,
+    pub rejection_code: Option<String>,
+    pub rejection_detail: Option<String>,
+    pub fault_code: Option<String>,
+    pub fault_detail: Option<String>,
+}
+
+/// Bounded output drain from the background generation fixture.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6BackgroundGenerationDrain {
+    pub events: Vec<Stage6BackgroundGenerationEvent>,
+    pub more_work: bool,
+    pub generation: String,
+}
+
+/// Small scalar health snapshot from the background Rust authority thread.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct Stage6BackgroundGenerationHealth {
+    pub lifecycle: String,
+    pub loop_state: String,
+    pub world_epoch: String,
+    pub generation: String,
+    pub completed_step: String,
+    pub generation_checkpoint_published: bool,
+    pub generation_persistence_acknowledged: bool,
+    pub pending_external_deliveries: String,
+    pub scheduler_completed_steps: String,
+    pub processed_commands: String,
+    pub fault_code: Option<String>,
+    pub fault_detail: Option<String>,
 }
 
 /// Scalar proof of the fixture's staged or activated fresh run.
@@ -1226,6 +1364,295 @@ impl Stage6GenerationHandoffFixtureSession {
     }
 }
 
+/// Feature-gated adapter that drives the retained generation barrier through
+/// the real background command/output queues and Rust-owned monotonic clock.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(js_name = "Stage6BackgroundGenerationHandoffFixtureSession")]
+pub struct Stage6BackgroundGenerationHandoffFixtureSession {
+    runtime: Arc<EngineRuntime>,
+    run_start: Arc<Mutex<GenerationHandoffRunStartFixture>>,
+    drain_active: AtomicBool,
+    join_scheduled: Arc<AtomicBool>,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+#[napi]
+impl Stage6BackgroundGenerationHandoffFixtureSession {
+    /// Construct one unstarted real authority thread and its same-run step-zero publisher.
+    #[napi(constructor, catch_unwind)]
+    pub fn new(wake_callback: Function<'_, (), ()>) -> Result<Self> {
+        let fixture = background_generation_handoff_fixture()
+            .map_err(|detail| Error::new(Status::GenericFailure, detail))?;
+        let wake_tsfn = wake_callback
+            .build_threadsafe_function::<()>()
+            .callee_handled::<false>()
+            .weak::<true>()
+            .max_queue_size::<1>()
+            .build_callback(|_context| Ok(()))?;
+        let wake_sink = Arc::new(NapiWakeSink::new(wake_tsfn));
+        let runtime = Arc::new(
+            EngineRuntime::new_running_authority(
+                background_generation_handoff_runtime_init(),
+                fixture.running,
+                Arc::clone(&wake_sink) as Arc<dyn WakeSink>,
+            )
+            .map_err(|failure| engine_error_to_napi(failure.error().clone()))?,
+        );
+        wake_sink.attach(&runtime);
+        Ok(Self {
+            runtime,
+            run_start: Arc::new(Mutex::new(fixture.run_start)),
+            drain_active: AtomicBool::new(false),
+            join_scheduled: Arc::new(AtomicBool::new(false)),
+        })
+    }
+
+    /// Publish the same-run run-start checkpoint on libuv's worker pool.
+    #[napi(catch_unwind)]
+    pub fn publish_run_start_checkpoint(
+        &self,
+        options: Stage3CheckpointFixtureOptions,
+    ) -> Result<AsyncTask<PublishBackgroundGenerationRunStartTask>> {
+        let managed_directory = parse_managed_path(options.managed_directory)?;
+        let operation_id = parse_checkpoint_operation_id(options.operation_id)?;
+        let transition_epoch = parse_test_hook_epoch(&options.transition_epoch)?;
+        Ok(AsyncTask::new(PublishBackgroundGenerationRunStartTask {
+            run_start: Arc::clone(&self.run_start),
+            managed_directory,
+            operation_id,
+            transition_epoch,
+        }))
+    }
+
+    /// Start the real Rust-owned background authority exactly once.
+    #[napi(catch_unwind)]
+    pub fn start(&self) -> Result<()> {
+        self.run_faulting_root(|| self.runtime.start())
+    }
+
+    /// Queue one immutable generation checkpoint publication request.
+    #[napi(catch_unwind)]
+    pub fn submit_generation_checkpoint(
+        &self,
+        sequence_hex: JsString<'_>,
+        options: ManagedCheckpointPublicationOptions,
+    ) -> Result<()> {
+        let sequence = parse_background_sequence(sequence_hex)?;
+        let managed_directory = options.managed_directory;
+        let _validated_path = parse_managed_path(managed_directory.clone())?;
+        let operation_id = parse_checkpoint_operation_id(options.operation_id)?;
+        self.submit_control(
+            sequence,
+            RunningAuthorityCommand::PublishGenerationCheckpoint {
+                managed_directory,
+                operation_id,
+            },
+        )
+    }
+
+    /// Queue the persistence worker's complete committed descriptor.
+    #[napi(catch_unwind)]
+    pub fn submit_generation_persistence_acknowledgement(
+        &self,
+        sequence_hex: JsString<'_>,
+        descriptor: Object<'_>,
+    ) -> Result<()> {
+        let sequence = parse_background_sequence(sequence_hex)?;
+        let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+        self.submit_control(
+            sequence,
+            RunningAuthorityCommand::AcknowledgeGenerationPersistence {
+                descriptor: Box::new(descriptor),
+            },
+        )
+    }
+
+    /// Queue deterministic successor reassignment preparation.
+    #[napi(catch_unwind)]
+    pub fn submit_prepare_generation_reassignments(
+        &self,
+        sequence_hex: JsString<'_>,
+    ) -> Result<()> {
+        let sequence = parse_background_sequence(sequence_hex)?;
+        self.submit_control(
+            sequence,
+            RunningAuthorityCommand::PrepareGenerationReassignments,
+        )
+    }
+
+    /// Queue one exact local-send receipt for the retained fixture assignment.
+    #[napi(catch_unwind)]
+    pub fn submit_generation_assignment_receipt(
+        &self,
+        sequence_hex: JsString<'_>,
+        result: Stage6GenerationAssignmentResult,
+    ) -> Result<()> {
+        let sequence = parse_background_sequence(sequence_hex)?;
+        let receipt = ExternalDeliveryReceipt {
+            operation_epoch: parse_u64_hex(&result.operation_epoch, "operationEpoch", false)?,
+            event_sequence: parse_u64_hex(&result.event_sequence, "eventSequence", false)?,
+            connection_id: parse_u64_hex(&result.connection_id, "connectionId", false)?,
+            lease_id: parse_u64_hex(&result.lease_id, "leaseId", false)?,
+            accepted: result.accepted,
+        };
+        self.submit_control(
+            sequence,
+            RunningAuthorityCommand::SubmitGenerationAssignmentReceipts {
+                receipts: vec![receipt].into_boxed_slice(),
+            },
+        )
+    }
+
+    /// Queue the separately gated final authority swap.
+    #[napi(catch_unwind)]
+    pub fn submit_publish_generation_start(&self, sequence_hex: JsString<'_>) -> Result<()> {
+        let sequence = parse_background_sequence(sequence_hex)?;
+        self.submit_control(
+            sequence,
+            RunningAuthorityCommand::PublishAcknowledgedGenerationStart,
+        )
+    }
+
+    /// Drain only typed bounded events from the background authority queue.
+    #[napi(catch_unwind)]
+    pub fn drain_outputs(
+        &self,
+        max_events: f64,
+        max_owned_bytes: f64,
+    ) -> Result<Stage6BackgroundGenerationDrain> {
+        self.run_faulting_root(|| {
+            let max_events = positive_usize(max_events, "maxEvents")?;
+            let max_owned_bytes = positive_usize(max_owned_bytes, "maxOwnedBytes")?;
+            let _guard = DrainConsumerGuard::acquire(&self.drain_active)?;
+            let drained = self.runtime.drain_outputs(max_events, max_owned_bytes)?;
+            let events = drained
+                .events
+                .into_iter()
+                .map(background_generation_event_to_napi)
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(Stage6BackgroundGenerationDrain {
+                events,
+                more_work: drained.more_work,
+                generation: u64_hex(drained.generation),
+            })
+        })
+    }
+
+    /// Return only bounded authority/lifecycle scalars.
+    #[napi(catch_unwind)]
+    pub fn health(&self) -> Result<Stage6BackgroundGenerationHealth> {
+        self.run_faulting_root(|| background_generation_health_to_napi(self.runtime.health()))
+    }
+
+    /// Request an orderly stop without waiting on Node's event loop.
+    #[napi(catch_unwind)]
+    pub fn request_stop(&self) -> Result<()> {
+        self.run_faulting_root(|| {
+            self.runtime.request_stop();
+            Ok(())
+        })
+    }
+
+    /// Join the real coordinator only on libuv's worker pool.
+    #[napi(catch_unwind)]
+    pub fn join(&self) -> Result<AsyncTask<JoinEngineTask>> {
+        self.run_faulting_root(|| {
+            if self.join_scheduled.swap(true, Ordering::AcqRel) {
+                return Err(EngineError::new(
+                    EngineErrorCode::InvalidLifecycle,
+                    "a background generation fixture join is already scheduled",
+                ));
+            }
+            Ok(AsyncTask::new(JoinEngineTask {
+                runtime: Arc::clone(&self.runtime),
+                join_scheduled: Arc::clone(&self.join_scheduled),
+            }))
+        })
+    }
+}
+
+#[cfg(feature = "engine-test-hooks")]
+impl Stage6BackgroundGenerationHandoffFixtureSession {
+    fn submit_control(&self, sequence: u64, command: RunningAuthorityCommand) -> Result<()> {
+        self.run_faulting_root(|| {
+            self.runtime.try_submit(CommandBatch {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                commands: vec![SequencedCommand {
+                    sequence,
+                    command: EngineCommand::RunningAuthority(command),
+                }]
+                .into_boxed_slice(),
+            })
+        })
+    }
+
+    fn run_faulting_root<T>(
+        &self,
+        operation: impl FnOnce() -> std::result::Result<T, EngineError>,
+    ) -> Result<T> {
+        match catch_unwind(AssertUnwindSafe(operation)) {
+            Ok(result) => result.map_err(engine_error_to_napi),
+            Err(payload) => {
+                let detail = panic_detail(payload.as_ref());
+                self.runtime.report_bridge_fault(EngineError::new(
+                    EngineErrorCode::Faulted,
+                    format!("panic at background generation N-API root: {detail}"),
+                ));
+                Err(Error::new(
+                    Status::GenericFailure,
+                    format!("Faulted: panic at background generation N-API root: {detail}"),
+                ))
+            }
+        }
+    }
+}
+
+#[cfg(feature = "engine-test-hooks")]
+impl Drop for Stage6BackgroundGenerationHandoffFixtureSession {
+    fn drop(&mut self) {
+        self.runtime.request_stop();
+    }
+}
+
+/// Worker task for the independent same-run run-start managed file.
+#[cfg(feature = "engine-test-hooks")]
+pub struct PublishBackgroundGenerationRunStartTask {
+    run_start: Arc<Mutex<GenerationHandoffRunStartFixture>>,
+    managed_directory: PathBuf,
+    operation_id: CheckpointOperationId,
+    transition_epoch: u64,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+impl Task for PublishBackgroundGenerationRunStartTask {
+    type Output = CheckpointDescriptor;
+    type JsValue = ManagedCheckpointDescriptor;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            lock_recover(&self.run_start).publish_checkpoint(
+                &self.managed_directory,
+                self.operation_id.clone(),
+                self.transition_epoch,
+            )
+        })) {
+            Ok(Ok(descriptor)) => Ok(descriptor),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(Error::new(
+                Status::GenericFailure,
+                format!(
+                    "background generation run-start publication panicked: {}",
+                    panic_detail(payload.as_ref())
+                ),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(checkpoint_descriptor_to_napi(output))
+    }
+}
+
 /// Async same-run run-start publication task for the retained session.
 #[cfg(feature = "engine-test-hooks")]
 pub struct PublishStage6RunStartTask {
@@ -2059,6 +2486,13 @@ fn u64_hex(value: u64) -> String {
     format!("{value:016x}")
 }
 
+/// Parse one canonical positive command sequence for the background fixture.
+#[cfg(feature = "engine-test-hooks")]
+fn parse_background_sequence(value: JsString<'_>) -> Result<u64> {
+    let value = bounded_js_string(value, "sequenceHex", 16, false)?;
+    parse_u64_hex(&value, "sequenceHex", false)
+}
+
 /// Convert the Rust-owned compact generation record without numeric narrowing.
 #[cfg(feature = "engine-test-hooks")]
 fn generation_commit_to_napi(record: GenerationCommitRecord) -> Stage6GenerationCommitRecord {
@@ -2083,6 +2517,343 @@ fn generation_commit_to_napi(record: GenerationCommitRecord) -> Stage6Generation
             successor_population_slot: u64_hex(record.hall_of_fame.successor_population_slot),
             successor_genome_id: u64_hex(record.hall_of_fame.successor_genome_id),
         },
+    }
+}
+
+#[cfg(feature = "engine-test-hooks")]
+fn background_generation_event_to_napi(
+    event: CompletedEvent,
+) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
+    let mut output = empty_background_generation_event();
+    match event {
+        CompletedEvent::Fault(fault) => {
+            output.kind = "fault".to_owned();
+            output.fault_code = Some(error_code_name(fault.code()).to_owned());
+            output.fault_detail = Some(fault.detail().to_owned());
+        }
+        CompletedEvent::Reliable(ReliableEvent::Started) => {
+            output.kind = "started".to_owned();
+        }
+        CompletedEvent::Reliable(ReliableEvent::Stopped) => {
+            output.kind = "stopped".to_owned();
+        }
+        CompletedEvent::Reliable(ReliableEvent::RunningAuthority(event)) => {
+            return running_authority_event_to_napi(*event);
+        }
+        CompletedEvent::Reliable(ReliableEvent::ProbeResult { .. })
+        | CompletedEvent::Discrete(_)
+        | CompletedEvent::Stats(_)
+        | CompletedEvent::Frame(_) => {
+            return Err(EngineError::new(
+                EngineErrorCode::Faulted,
+                "background generation fixture received an unrelated output event",
+            ));
+        }
+    }
+    Ok(output)
+}
+
+#[cfg(feature = "engine-test-hooks")]
+fn running_authority_event_to_napi(
+    event: RunningAuthorityEvent,
+) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
+    let mut output = empty_background_generation_event();
+    match event {
+        RunningAuthorityEvent::GenerationTransitionPending {
+            ticket_sequence,
+            source_key,
+            reason,
+            successor_generation,
+            successor_completed_step,
+        } => {
+            output.kind = "generationTransitionPending".to_owned();
+            output.transition = Some(Stage6BackgroundGenerationTransition {
+                ticket_sequence: u64_hex(ticket_sequence),
+                source_key: background_step_key_to_napi(source_key),
+                reason: generation_transition_reason_name(reason).to_owned(),
+                successor_generation: u64_hex(successor_generation),
+                successor_completed_step: u64_hex(successor_completed_step),
+            });
+        }
+        RunningAuthorityEvent::GenerationCheckpointPublished {
+            command_sequence,
+            descriptor,
+            commit_record,
+        } => {
+            output.kind = "generationCheckpointPublished".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.checkpoint = Some(Stage6GenerationCheckpointPublication {
+                descriptor: checkpoint_descriptor_to_napi(*descriptor),
+                generation_commit: generation_commit_to_napi(commit_record),
+            });
+        }
+        RunningAuthorityEvent::GenerationPersistenceAcknowledged {
+            command_sequence,
+            operation_id,
+        } => {
+            output.kind = "generationPersistenceAcknowledged".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.acknowledged_operation_id = Some(operation_id.as_str().to_owned());
+        }
+        RunningAuthorityEvent::GenerationReassignmentsPrepared {
+            command_sequence,
+            ready,
+            assignments,
+        } => {
+            output.kind = "generationReassignmentsPrepared".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.reassignments = Some(Stage6BackgroundGenerationReassignments {
+                ready,
+                assignments: assignments
+                    .into_vec()
+                    .into_iter()
+                    .map(|assignment| Stage6BackgroundGenerationAssignment {
+                        operation_epoch: u64_hex(assignment.operation_epoch),
+                        event_sequence: u64_hex(assignment.event_sequence),
+                        connection_id: u64_hex(assignment.connection_id),
+                        lease_id: u64_hex(assignment.lease_id),
+                        controller_kind: controller_kind_name(assignment.controller_kind)
+                            .to_owned(),
+                        snake_id: u64_hex(assignment.snake_id),
+                        frame_v1_id: u64_hex(u64::from(assignment.frame_v1_id)),
+                        resume_token: assignment.resume_token.into_string(),
+                    })
+                    .collect(),
+            });
+        }
+        RunningAuthorityEvent::GenerationAssignmentReceiptsApplied {
+            command_sequence,
+            matched_acceptances,
+            matched_failures,
+            ignored_receipts,
+            state,
+        } => {
+            output.kind = "generationAssignmentReceiptsApplied".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            let (state_name, remaining, source_key, successor_generation, successor_completed_step) =
+                match state {
+                    GenerationAssignmentReceiptState::Pending { remaining } => (
+                        "pending",
+                        Some(usize_hex(remaining, "pending generation assignment count")?),
+                        None,
+                        None,
+                        None,
+                    ),
+                    GenerationAssignmentReceiptState::Ready {
+                        source_key,
+                        successor_generation,
+                        successor_completed_step,
+                    } => (
+                        "ready",
+                        None,
+                        Some(background_step_key_to_napi(source_key)),
+                        Some(u64_hex(successor_generation)),
+                        Some(u64_hex(successor_completed_step)),
+                    ),
+                };
+            output.receipt_resolution = Some(Stage6BackgroundGenerationReceiptResolution {
+                matched_acceptances: usize_hex(
+                    matched_acceptances,
+                    "matched generation assignment acceptances",
+                )?,
+                matched_failures: usize_hex(
+                    matched_failures,
+                    "matched generation assignment failures",
+                )?,
+                ignored_receipts: usize_hex(
+                    ignored_receipts,
+                    "ignored generation assignment receipts",
+                )?,
+                state: state_name.to_owned(),
+                remaining,
+                source_key,
+                successor_generation,
+                successor_completed_step,
+            });
+        }
+        RunningAuthorityEvent::GenerationStartPublished {
+            command_sequence,
+            resolution,
+        } => {
+            output.kind = "generationStartPublished".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            let publication = resolution.publication;
+            let external_assignments =
+                u32::try_from(publication.external_assignments).map_err(|_| {
+                    EngineError::new(
+                        EngineErrorCode::Faulted,
+                        "generation external assignment count exceeds the N-API field",
+                    )
+                })?;
+            let unavailable_controllers = publication
+                .unavailable_controller_reservations
+                .into_iter()
+                .map(|reservation| Stage6BackgroundUnavailableController {
+                    source_lease_id: u64_hex(reservation.source_lease_id),
+                    source_snake_id: u64_hex(reservation.source_snake_id),
+                    controller_kind: controller_kind_name(reservation.controller_kind).to_owned(),
+                    scope: reservation.scope,
+                    resume_token: reservation.resume_token,
+                    disconnected_at_ms: reservation.disconnected_at_ms.map(u64_hex),
+                    grace_expires_at_ms: reservation.grace_expires_at_ms.map(u64_hex),
+                    reason: unavailable_controller_reason_name(reservation.reason).to_owned(),
+                })
+                .collect();
+            output.generation_start = Some(Stage6BackgroundGenerationStart {
+                ticket_sequence: u64_hex(resolution.ticket_sequence),
+                due_steps: usize_hex(resolution.due_steps, "generation transition due steps")?,
+                source_key: background_step_key_to_napi(publication.source_key),
+                publication: Stage6GenerationStartPublication {
+                    world_epoch: u64_hex(publication.world_epoch),
+                    generation: u64_hex(publication.generation),
+                    completed_step: u64_hex(publication.completed_step),
+                    population_epoch: u64_hex(publication.population_epoch),
+                    external_assignments,
+                },
+                unavailable_controllers,
+            });
+        }
+        RunningAuthorityEvent::CommandRejected {
+            command_sequence,
+            code,
+            detail,
+        } => {
+            output.kind = "commandRejected".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.rejection_code = Some(error_code_name(code).to_owned());
+            output.rejection_detail = Some(detail);
+        }
+    }
+    Ok(output)
+}
+
+#[cfg(feature = "engine-test-hooks")]
+fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
+    Stage6BackgroundGenerationEvent {
+        kind: String::new(),
+        command_sequence: None,
+        transition: None,
+        checkpoint: None,
+        acknowledged_operation_id: None,
+        reassignments: None,
+        receipt_resolution: None,
+        generation_start: None,
+        rejection_code: None,
+        rejection_detail: None,
+        fault_code: None,
+        fault_detail: None,
+    }
+}
+
+#[cfg(feature = "engine-test-hooks")]
+fn background_step_key_to_napi(key: PhysicsStepKey) -> Stage6BackgroundStepKey {
+    Stage6BackgroundStepKey {
+        world_epoch: u64_hex(key.world_epoch()),
+        generation: u64_hex(key.generation()),
+        source_completed_step: u64_hex(key.source_completed_step()),
+        population_epoch: u64_hex(key.population_epoch()),
+        config_revision: u64_hex(key.config_revision()),
+        config_sha256: sha256_hex(key.config_hash()),
+        operation_epoch: u64_hex(key.operation_epoch()),
+    }
+}
+
+#[cfg(feature = "engine-test-hooks")]
+fn background_generation_health_to_napi(
+    health: EngineHealth,
+) -> std::result::Result<Stage6BackgroundGenerationHealth, EngineError> {
+    let running = health.running_authority.ok_or_else(|| {
+        EngineError::new(
+            EngineErrorCode::Faulted,
+            "background generation fixture lost its running-authority health",
+        )
+    })?;
+    Ok(Stage6BackgroundGenerationHealth {
+        lifecycle: lifecycle_name(health.lifecycle).to_owned(),
+        loop_state: running_loop_state_name(running.loop_state).to_owned(),
+        world_epoch: u64_hex(running.world_epoch),
+        generation: u64_hex(running.generation),
+        completed_step: u64_hex(running.completed_step),
+        generation_checkpoint_published: running.generation_checkpoint_published,
+        generation_persistence_acknowledged: running.generation_persistence_acknowledged,
+        pending_external_deliveries: usize_hex(
+            running.pending_external_deliveries,
+            "pending external delivery count",
+        )?,
+        scheduler_completed_steps: u64_hex(running.scheduler_completed_steps),
+        processed_commands: u64_hex(health.processed_commands),
+        fault_code: health
+            .fault
+            .as_ref()
+            .map(|fault| error_code_name(fault.code()).to_owned()),
+        fault_detail: health.fault.map(|fault| fault.detail().to_owned()),
+    })
+}
+
+#[cfg(feature = "engine-test-hooks")]
+fn usize_hex(value: usize, field: &str) -> std::result::Result<String, EngineError> {
+    u64::try_from(value).map(u64_hex).map_err(|_| {
+        EngineError::new(
+            EngineErrorCode::Faulted,
+            format!("{field} exceeds the exact N-API u64 field"),
+        )
+    })
+}
+
+#[cfg(feature = "engine-test-hooks")]
+fn sha256_hex(bytes: [u8; 32]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(64);
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output
+}
+
+#[cfg(feature = "engine-test-hooks")]
+const fn generation_transition_reason_name(reason: GenerationTransitionReason) -> &'static str {
+    match reason {
+        GenerationTransitionReason::Duration => "duration",
+        GenerationTransitionReason::EarlyAliveCount => "earlyAliveCount",
+    }
+}
+
+#[cfg(feature = "engine-test-hooks")]
+const fn controller_kind_name(kind: ControllerKind) -> &'static str {
+    match kind {
+        ControllerKind::Player => "player",
+        ControllerKind::ReinforcementLearning => "reinforcementLearning",
+    }
+}
+
+#[cfg(feature = "engine-test-hooks")]
+const fn unavailable_controller_reason_name(
+    reason: crate::engine::external_replacement::UnavailableControllerReason,
+) -> &'static str {
+    match reason {
+        crate::engine::external_replacement::UnavailableControllerReason::SnakeUnavailable => {
+            "snakeUnavailable"
+        }
+        crate::engine::external_replacement::UnavailableControllerReason::GraceExpired => {
+            "graceExpired"
+        }
+    }
+}
+
+#[cfg(feature = "engine-test-hooks")]
+const fn running_loop_state_name(
+    state: crate::engine::running_loop::RunningAuthorityLoopState,
+) -> &'static str {
+    match state {
+        crate::engine::running_loop::RunningAuthorityLoopState::Ready => "ready",
+        crate::engine::running_loop::RunningAuthorityLoopState::ExternalDeliveryPending => {
+            "externalDeliveryPending"
+        }
+        crate::engine::running_loop::RunningAuthorityLoopState::GenerationTransitionPending => {
+            "generationTransitionPending"
+        }
+        crate::engine::running_loop::RunningAuthorityLoopState::Faulted => "faulted",
     }
 }
 
@@ -3059,6 +3830,13 @@ fn event_to_napi(event: CompletedEvent) -> ExperimentalEngineEvent {
             output.sequence = Some(BigInt::from(sequence));
             output.correlation_id = Some(BigInt::from(correlation_id));
             output.payload = Some(Uint8Array::from(payload));
+        }
+        CompletedEvent::Reliable(ReliableEvent::RunningAuthority(_)) => {
+            // The public experimental probe constructor cannot create the
+            // retained-authority runtime mode. A dedicated typed adapter owns
+            // these events; keep this generic converter exhaustive without
+            // flattening authority metadata into the probe payload surface.
+            output.kind = "runningAuthority".to_owned();
         }
         CompletedEvent::Discrete(event) => {
             output.kind = "discrete".to_owned();

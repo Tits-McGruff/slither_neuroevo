@@ -103,6 +103,10 @@ interface Stage3CheckpointHookBinding {
   Stage6GenerationHandoffFixtureSession: new () => Stage6GenerationHandoffSession;
   /** Construct one retained real Rust run-start persistence/activation session. */
   Stage6RunStartHandoffFixtureSession: new () => Stage6RunStartHandoffSession;
+  /** Construct one real background-thread generation handoff fixture. */
+  Stage6BackgroundGenerationHandoffFixtureSession: new (
+    wakeCallback: () => void
+  ) => Stage6BackgroundGenerationHandoffSession;
 }
 
 /** Scalar-only surface of the retained feature-gated fresh run-start session. */
@@ -214,6 +218,121 @@ interface Stage6GenerationStartPublication {
   externalAssignments: number;
 }
 
+/** Exact Rust-owned assignment from the background authority output queue. */
+interface Stage6BackgroundGenerationAssignment extends Stage6GenerationAssignment {
+  /** Browser player or Protocol 2 controller kind. */
+  controllerKind: 'player' | 'reinforcementLearning';
+  /** Exact frame-v1 identity without Number narrowing. */
+  frameV1Id: string;
+}
+
+/** One typed output from the background generation fixture. */
+interface Stage6BackgroundGenerationEvent {
+  /** Stable output discriminator. */
+  kind: string;
+  /** Exact originating command sequence when this is a command response. */
+  commandSequence?: string;
+  /** Rust-owned pending-transition scalars. */
+  transition?: {
+    ticketSequence: string;
+    successorGeneration: string;
+    successorCompletedStep: string;
+  };
+  /** Immutable descriptor and exact compact Rust generation record. */
+  checkpoint?: unknown;
+  /** Exact operation accepted by Rust's descriptor barrier. */
+  acknowledgedOperationId?: string;
+  /** Deterministic successor assignments retained by Rust. */
+  reassignments?: {
+    ready: boolean;
+    assignments: Stage6BackgroundGenerationAssignment[];
+  };
+  /** Exact receipt accounting and retained readiness state. */
+  receiptResolution?: {
+    matchedAcceptances: string;
+    matchedFailures: string;
+    ignoredReceipts: string;
+    state: 'pending' | 'ready';
+    remaining?: string;
+    successorGeneration?: string;
+    successorCompletedStep?: string;
+  };
+  /** Final Rust authority publication. */
+  generationStart?: {
+    ticketSequence: string;
+    dueSteps: string;
+    publication: Stage6GenerationStartPublication;
+    unavailableControllers: unknown[];
+  };
+  /** Stable recoverable rejection category. */
+  rejectionCode?: string;
+  /** Bounded recoverable rejection detail. */
+  rejectionDetail?: string;
+  /** Stable terminal fault category. */
+  faultCode?: string;
+  /** Bounded terminal fault detail. */
+  faultDetail?: string;
+}
+
+/** Scalar-only background authority health. */
+interface Stage6BackgroundGenerationHealth {
+  lifecycle: 'created' | 'running' | 'stopRequested' | 'faulted' | 'stopped';
+  loopState: 'ready' | 'externalDeliveryPending' | 'generationTransitionPending' | 'faulted';
+  worldEpoch: string;
+  generation: string;
+  completedStep: string;
+  generationCheckpointPublished: boolean;
+  generationPersistenceAcknowledged: boolean;
+  pendingExternalDeliveries: string;
+  schedulerCompletedSteps: string;
+  processedCommands: string;
+  faultCode?: string;
+  faultDetail?: string;
+}
+
+/** Feature-gated real background runtime surface used only by isolated evidence. */
+interface Stage6BackgroundGenerationHandoffSession {
+  /** Publish the independent same-run generation-one step-zero file. */
+  publishRunStartCheckpoint(options: {
+    managedDirectory: string;
+    operationId: string;
+    transitionEpoch: string;
+  }): Promise<unknown>;
+  /** Start the Rust authority thread exactly once. */
+  start(): void;
+  /** Queue immutable generation file publication. */
+  submitGenerationCheckpoint(sequenceHex: string, options: {
+    managedDirectory: string;
+    operationId: string;
+  }): void;
+  /** Queue the worker's complete descriptor echo. */
+  submitGenerationPersistenceAcknowledgement(
+    sequenceHex: string,
+    descriptor: ManagedCheckpointDescriptor
+  ): void;
+  /** Queue deterministic connected-controller reassignment staging. */
+  submitPrepareGenerationReassignments(sequenceHex: string): void;
+  /** Queue one exact local socket-send receipt. */
+  submitGenerationAssignmentReceipt(
+    sequenceHex: string,
+    result: Omit<Stage6GenerationAssignment, 'snakeId' | 'resumeToken'> & { accepted: boolean }
+  ): void;
+  /** Queue the separately gated final authority swap. */
+  submitPublishGenerationStart(sequenceHex: string): void;
+  /** Drain typed bounded output. */
+  drainOutputs(maxEvents: number, maxOwnedBytes: number): {
+    events: Stage6BackgroundGenerationEvent[];
+    moreWork: boolean;
+    generation: string;
+  };
+  /** Read bounded scalar state. */
+  health(): Stage6BackgroundGenerationHealth;
+  /** Request orderly stop. */
+  requestStop(): void;
+  /** Join on libuv's worker pool. */
+  join(): Promise<void>;
+}
+
 /** Paths belonging to one disposable cross-language handoff fixture. */
 interface FixturePaths {
   /** Root removed after the worker exits. */
@@ -275,6 +394,11 @@ function loadTestHookBinding(): Stage3CheckpointHookBinding {
   if (typeof exports['Stage6RunStartHandoffFixtureSession'] !== 'function') {
     throw new TypeError(
       'Stage 6 test-hooks addon is missing Stage6RunStartHandoffFixtureSession'
+    );
+  }
+  if (typeof exports['Stage6BackgroundGenerationHandoffFixtureSession'] !== 'function') {
+    throw new TypeError(
+      'Stage 6 test-hooks addon is missing Stage6BackgroundGenerationHandoffFixtureSession'
     );
   }
   const binding = exports as unknown as Stage3CheckpointHookBinding;
@@ -404,6 +528,42 @@ function parseGenerationPublication(value: unknown): {
   return { descriptor, generationCommit };
 }
 
+/** Drain until one expected background event arrives or surface a retained fault immediately. */
+async function waitForBackgroundEvent(
+  session: Stage6BackgroundGenerationHandoffSession,
+  predicate: (event: Stage6BackgroundGenerationEvent) => boolean
+): Promise<Stage6BackgroundGenerationEvent> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const drained = session.drainOutputs(64, 2 * 1024 * 1024);
+    for (const event of drained.events) {
+      if (event.kind === 'fault') {
+        throw new Error(`background Rust authority faulted: ${event.faultCode ?? 'unknown'}: ${event.faultDetail ?? ''}`);
+      }
+      if (predicate(event)) return event;
+    }
+    await new Promise<void>(resolveImmediate => setImmediate(resolveImmediate));
+  }
+  throw new Error(`background Rust authority event timed out: ${JSON.stringify(session.health())}`);
+}
+
+/** Wait for one bounded background-health condition without reading authority arrays. */
+async function waitForBackgroundHealth(
+  session: Stage6BackgroundGenerationHandoffSession,
+  predicate: (health: Stage6BackgroundGenerationHealth) => boolean
+): Promise<Stage6BackgroundGenerationHealth> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const health = session.health();
+    if (health.faultCode || health.lifecycle === 'faulted') {
+      throw new Error(`background Rust authority faulted: ${health.faultCode ?? 'unknown'}: ${health.faultDetail ?? ''}`);
+    }
+    if (predicate(health)) return health;
+    await new Promise<void>(resolveImmediate => setImmediate(resolveImmediate));
+  }
+  throw new Error(`background Rust authority health timed out: ${JSON.stringify(session.health())}`);
+}
+
 /** Stop a client once and remove it from the shared cleanup list. */
 async function closeClient(client: CheckpointPersistenceClient): Promise<void> {
   await client.close();
@@ -423,6 +583,7 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
     expect(production['publishStage3CheckpointFixture']).toBeUndefined();
     expect(production['Stage6GenerationHandoffFixtureSession']).toBeUndefined();
     expect(production['Stage6RunStartHandoffFixtureSession']).toBeUndefined();
+    expect(production['Stage6BackgroundGenerationHandoffFixtureSession']).toBeUndefined();
   });
 
   const hookIt = TEST_HOOK_ADDON ? it : it.skip;
@@ -855,6 +1016,320 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
       expect(records.hallOfFame).toEqual(
         encodeExpectedHallOfFame(firstPublication.generationCommit)
       );
+    }
+  );
+
+  hookIt(
+    'routes the real background Rust generation barrier through the worker and exact queued acknowledgement',
+    async () => {
+      const binding = loadTestHookBinding();
+      const paths = createFixturePaths();
+      let wakeCount = 0;
+      const wakeCallback = (): void => {
+        wakeCount += 1;
+      };
+      const session = new binding.Stage6BackgroundGenerationHandoffFixtureSession(wakeCallback);
+      let joined = false;
+      try {
+        const runStart = parseManagedCheckpointDescriptor(
+          await session.publishRunStartCheckpoint({
+            managedDirectory: paths.managedRoot,
+            operationId: '61616161616161616161616161616161',
+            transitionEpoch: '0000000000000001'
+          })
+        );
+        const client = createClient(paths);
+        await expect(client.commit(runStart)).resolves.toMatchObject({ descriptor: runStart });
+
+        const created = session.health();
+        expect(created).toMatchObject({
+          lifecycle: 'created',
+          loopState: 'ready',
+          generation: '0000000000000001',
+          completedStep: '0000000000000000',
+          generationCheckpointPublished: false,
+          generationPersistenceAcknowledged: false,
+          processedCommands: '0000000000000000'
+        });
+        const sourceWorldEpoch = created.worldEpoch;
+        session.start();
+
+        const transition = await waitForBackgroundEvent(
+          session,
+          event => event.kind === 'generationTransitionPending'
+        );
+        expect(transition.transition).toMatchObject({
+          successorGeneration: '0000000000000002',
+          successorCompletedStep: '0000000000000001'
+        });
+        expect(session.health()).toMatchObject({
+          loopState: 'generationTransitionPending',
+          worldEpoch: sourceWorldEpoch,
+          generation: '0000000000000001',
+          completedStep: '0000000000000000'
+        });
+
+        session.submitGenerationPersistenceAcknowledgement(
+          '0000000000000001',
+          runStart
+        );
+        const prematureAcknowledgement = await waitForBackgroundEvent(
+          session,
+          event => event.kind === 'commandRejected' && event.commandSequence === '0000000000000001'
+        );
+        expect(prematureAcknowledgement.rejectionDetail).toMatch(/checkpoint publication/i);
+        expect(session.health()).toMatchObject({
+          worldEpoch: sourceWorldEpoch,
+          generationPersistenceAcknowledged: false
+        });
+
+        const generationOperationId = '71717171717171717171717171717171';
+        session.submitGenerationCheckpoint('0000000000000002', {
+          managedDirectory: paths.managedRoot,
+          operationId: generationOperationId
+        });
+        const checkpointEvent = await waitForBackgroundEvent(
+          session,
+          event => event.kind === 'generationCheckpointPublished' &&
+            event.commandSequence === '0000000000000002'
+        );
+        const firstPublication = parseGenerationPublication(checkpointEvent.checkpoint);
+        expect(firstPublication.descriptor).toMatchObject({
+          operationId: generationOperationId,
+          boundaryKind: 'generation',
+          generation: '0000000000000002',
+          completedStep: '0000000000000001'
+        });
+        expect(firstPublication.generationCommit.hallOfFame.successorGenomeId).not.toBe(
+          '0000000000000000'
+        );
+
+        session.submitGenerationCheckpoint('0000000000000003', {
+          managedDirectory: paths.managedRoot,
+          operationId: generationOperationId
+        });
+        const retryEvent = await waitForBackgroundEvent(
+          session,
+          event => event.kind === 'generationCheckpointPublished' &&
+            event.commandSequence === '0000000000000003'
+        );
+        expect(parseGenerationPublication(retryEvent.checkpoint)).toEqual(firstPublication);
+        expect(session.health()).toMatchObject({
+          worldEpoch: sourceWorldEpoch,
+          generationCheckpointPublished: true,
+          generationPersistenceAcknowledged: false
+        });
+
+        const mismatchedRoot = firstPublication.descriptor.logicalRootSha256.endsWith('0')
+          ? `${firstPublication.descriptor.logicalRootSha256.slice(0, -1)}1`
+          : `${firstPublication.descriptor.logicalRootSha256.slice(0, -1)}0`;
+        session.submitGenerationPersistenceAcknowledgement('0000000000000004', {
+          ...firstPublication.descriptor,
+          logicalRootSha256: mismatchedRoot,
+          relativeFilename: `${mismatchedRoot}.checkpoint-v3`
+        });
+        const mismatchedAcknowledgement = await waitForBackgroundEvent(
+          session,
+          event => event.kind === 'commandRejected' && event.commandSequence === '0000000000000004'
+        );
+        expect(mismatchedAcknowledgement.rejectionDetail).toMatch(/logical root/i);
+        expect(session.health()).toMatchObject({
+          worldEpoch: sourceWorldEpoch,
+          generationPersistenceAcknowledged: false
+        });
+
+        const wrongManagedRoot = join(paths.root, 'background-wrong-managed-root');
+        mkdirSync(wrongManagedRoot);
+        const failedClient = new CheckpointPersistenceClient({
+          databasePath: paths.databasePath,
+          managedRootPath: wrongManagedRoot
+        });
+        clients.push(failedClient);
+        await expect(failedClient.commit(
+          firstPublication.descriptor,
+          firstPublication.generationCommit
+        )).rejects.toThrow(/ENOENT|no such file|missing/i);
+        await closeClient(failedClient);
+        expect(session.health()).toMatchObject({
+          worldEpoch: sourceWorldEpoch,
+          generation: '0000000000000001',
+          completedStep: '0000000000000000',
+          generationPersistenceAcknowledged: false
+        });
+        expect(countMetadataRows(paths.databasePath)).toBe(1);
+
+        const committed = await client.commit(
+          firstPublication.descriptor,
+          firstPublication.generationCommit
+        );
+        expect(committed.descriptor).toEqual(firstPublication.descriptor);
+        session.submitGenerationPersistenceAcknowledgement(
+          '0000000000000005',
+          committed.descriptor
+        );
+        const acknowledged = await waitForBackgroundEvent(
+          session,
+          event => event.kind === 'generationPersistenceAcknowledged' &&
+            event.commandSequence === '0000000000000005'
+        );
+        expect(acknowledged.acknowledgedOperationId).toBe(generationOperationId);
+        expect(session.health()).toMatchObject({
+          worldEpoch: sourceWorldEpoch,
+          generationPersistenceAcknowledged: true
+        });
+
+        session.submitPublishGenerationStart('0000000000000006');
+        await expect(waitForBackgroundEvent(
+          session,
+          event => event.kind === 'commandRejected' && event.commandSequence === '0000000000000006'
+        )).resolves.toMatchObject({ kind: 'commandRejected' });
+        expect(session.health().worldEpoch).toBe(sourceWorldEpoch);
+
+        session.submitPrepareGenerationReassignments('0000000000000007');
+        const assignmentEvent = await waitForBackgroundEvent(
+          session,
+          event => event.kind === 'generationReassignmentsPrepared' &&
+            event.commandSequence === '0000000000000007'
+        );
+        expect(assignmentEvent.reassignments?.ready).toBe(false);
+        expect(assignmentEvent.reassignments?.assignments).toHaveLength(1);
+        const assignment = assignmentEvent.reassignments?.assignments[0];
+        if (!assignment) throw new Error('background Rust assignment was missing');
+        expect(assignment).toMatchObject({
+          controllerKind: 'player',
+          operationEpoch: firstPublication.descriptor.transitionEpoch
+        });
+        expect(assignment.resumeToken.length).toBeGreaterThan(0);
+
+        const wrongLeaseId = (BigInt(`0x${assignment.leaseId}`) + 1n)
+          .toString(16)
+          .padStart(16, '0');
+        session.submitGenerationAssignmentReceipt('0000000000000008', {
+          operationEpoch: assignment.operationEpoch,
+          eventSequence: assignment.eventSequence,
+          connectionId: assignment.connectionId,
+          leaseId: wrongLeaseId,
+          accepted: true
+        });
+        const ignoredReceipt = await waitForBackgroundEvent(
+          session,
+          event => event.kind === 'generationAssignmentReceiptsApplied' &&
+            event.commandSequence === '0000000000000008'
+        );
+        expect(ignoredReceipt.receiptResolution).toMatchObject({
+          matchedAcceptances: '0000000000000000',
+          ignoredReceipts: '0000000000000001',
+          state: 'pending',
+          remaining: '0000000000000001'
+        });
+        expect(session.health().worldEpoch).toBe(sourceWorldEpoch);
+
+        session.submitPublishGenerationStart('0000000000000009');
+        await expect(waitForBackgroundEvent(
+          session,
+          event => event.kind === 'commandRejected' && event.commandSequence === '0000000000000009'
+        )).resolves.toMatchObject({ kind: 'commandRejected' });
+        expect(session.health().worldEpoch).toBe(sourceWorldEpoch);
+
+        session.submitGenerationAssignmentReceipt('000000000000000a', {
+          operationEpoch: assignment.operationEpoch,
+          eventSequence: assignment.eventSequence,
+          connectionId: assignment.connectionId,
+          leaseId: assignment.leaseId,
+          accepted: true
+        });
+        const exactReceipt = await waitForBackgroundEvent(
+          session,
+          event => event.kind === 'generationAssignmentReceiptsApplied' &&
+            event.commandSequence === '000000000000000a'
+        );
+        expect(exactReceipt.receiptResolution).toMatchObject({
+          matchedAcceptances: '0000000000000001',
+          matchedFailures: '0000000000000000',
+          ignoredReceipts: '0000000000000000',
+          state: 'ready',
+          successorGeneration: '0000000000000002',
+          successorCompletedStep: '0000000000000001'
+        });
+        expect(session.health().worldEpoch).toBe(sourceWorldEpoch);
+
+        session.submitPublishGenerationStart('000000000000000b');
+        const finalEvent = await waitForBackgroundEvent(
+          session,
+          event => event.kind === 'generationStartPublished' &&
+            event.commandSequence === '000000000000000b'
+        );
+        expect(finalEvent.generationStart).toMatchObject({
+          publication: {
+            generation: '0000000000000002',
+            completedStep: '0000000000000001',
+            populationEpoch: '0000000000000002',
+            externalAssignments: 1
+          },
+          unavailableControllers: []
+        });
+        const successorWorldEpoch = finalEvent.generationStart?.publication.worldEpoch;
+        expect(successorWorldEpoch).toBeDefined();
+        expect(successorWorldEpoch).not.toBe(sourceWorldEpoch);
+        await waitForBackgroundHealth(
+          session,
+          health => health.generation === '0000000000000002' &&
+            health.worldEpoch === successorWorldEpoch
+        );
+
+        session.submitPublishGenerationStart('000000000000000c');
+        await expect(waitForBackgroundEvent(
+          session,
+          event => event.kind === 'commandRejected' && event.commandSequence === '000000000000000c'
+        )).resolves.toMatchObject({ kind: 'commandRejected' });
+        // Output can be drained immediately before the coordinator increments
+        // its processed counter; wait for that separately published health fact.
+        const completedCommands = await waitForBackgroundHealth(
+          session,
+          health => health.processedCommands === '000000000000000c'
+        );
+        expect(completedCommands).toMatchObject({
+          worldEpoch: successorWorldEpoch,
+          generation: '0000000000000002',
+          completedStep: '0000000000000001',
+          processedCommands: '000000000000000c'
+        });
+
+        await closeClient(client);
+        expect(readCurrentPointer(paths.databasePath, runStart.runId)).toEqual({
+          checkpoint_id: firstPublication.descriptor.logicalRootSha256,
+          transition_epoch: firstPublication.descriptor.transitionEpoch,
+          operation_id: firstPublication.descriptor.operationId
+        });
+        expect(countMetadataRows(paths.databasePath)).toBe(2);
+        expect(readdirSync(paths.managedRoot).sort()).toEqual([
+          firstPublication.descriptor.relativeFilename,
+          runStart.relativeFilename
+        ].sort());
+        const records = readGenerationRecords(
+          paths.databasePath,
+          firstPublication.descriptor.logicalRootSha256
+        );
+        expect(records.summary).toEqual(encodeExpectedSummary(firstPublication.generationCommit));
+        expect(records.hallOfFame).toEqual(
+          encodeExpectedHallOfFame(firstPublication.generationCommit)
+        );
+        expect(wakeCount).toBeGreaterThan(0);
+
+        session.requestStop();
+        await session.join();
+        joined = true;
+        expect(session.health()).toMatchObject({ lifecycle: 'stopped' });
+      } finally {
+        if (!joined) {
+          try {
+            session.requestStop();
+            await session.join();
+          } catch {
+            // Preserve the original assertion or native failure.
+          }
+        }
+      }
     }
   );
 });

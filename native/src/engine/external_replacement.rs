@@ -43,7 +43,7 @@ const EXTERNAL_SNAKE_SKIN: u32 = 0;
 /// Bytes of operating-system entropy used by one replacement resume token.
 const RESUME_TOKEN_BYTES: usize = 24;
 /// Unpadded base64url characters produced from exactly 24 bytes.
-const RESUME_TOKEN_LENGTH: usize = 32;
+pub(crate) const RESUME_TOKEN_LENGTH: usize = 32;
 /// Bounded attempts to avoid the vanishingly unlikely live-token collision.
 const TOKEN_ATTEMPTS: usize = 8;
 /// Base64url alphabet shared with Node's current `randomBytes(...).toString('base64url')`.
