@@ -48,7 +48,8 @@ function runInventory(databasePath: string, outputPath: string): ReturnType<type
   });
 }
 
-describe('Stage 2 database inventory', () => {
+// Each case creates a real SQLite fixture and launches the inventory CLI.
+describe('Stage 2 database inventory', { timeout: 30_000 }, () => {
   it('inspects the pre-format-column legacy schema without migrating it', () => {
     const root = createTemporaryRoot();
     const databasePath = path.join(root, 'legacy.db');

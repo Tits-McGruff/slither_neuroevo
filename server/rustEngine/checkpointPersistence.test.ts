@@ -272,7 +272,8 @@ afterEach(async () => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe(SUITE, () => {
+// Allow worker startup, durable I/O and joined shutdown on shared runners.
+describe(SUITE, { timeout: 30_000 }, () => {
   it('uses boundary identity rather than resettable Rust operation epochs to advance current', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);
