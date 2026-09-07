@@ -151,7 +151,8 @@ afterEach(async () => {
   resetCFGToDefaults();
 });
 
-describe(SUITE, () => {
+// Include durable fixture writes and real server startup in the test deadline.
+describe(SUITE, { timeout: 30_000 }, () => {
   it('PER-003 resumes the evolved population, generation, seed, run, and committed step', async () => {
     const dbPath = createDatabasePath();
     const seeded = seedEvolvedCheckpoint(dbPath, 'phase7-resume-run', 0x11223344);

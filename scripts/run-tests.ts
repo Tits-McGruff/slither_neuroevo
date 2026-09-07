@@ -19,7 +19,10 @@ const vitestBin = resolve('node_modules', 'vitest', 'vitest.mjs');
 /** Additional Vitest arguments forwarded after the category name. */
 const forwardedArgs = process.argv.slice(3);
 
-const result = spawnSync(process.execPath, [vitestBin, 'run', ...files, ...forwardedArgs], {
+/** Keep real-server timing diagnostics isolated from other suites' durable disk workloads. */
+const isolationArgs = category === 'integration' ? ['--maxWorkers=1'] : [];
+
+const result = spawnSync(process.execPath, [vitestBin, 'run', ...files, ...isolationArgs, ...forwardedArgs], {
   stdio: 'inherit'
 });
 if (result.error) {
