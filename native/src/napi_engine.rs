@@ -29,35 +29,36 @@ use crate::engine::checkpoint::{
     CheckpointWriteValidationPolicy, NumericEncoding, CHECKPOINT_DESCRIPTOR_VERSION,
 };
 use crate::engine::contract::{
-    CommandBatch, CompletedEvent, EngineCommand, EngineInit, InboundLimits, OutputLimits,
-    ReliableEvent, SequencedCommand, ENGINE_CONTRACT_VERSION,
+    CommandBatch, CompletedEvent, EngineCommand, EngineInit, GenerationAssignmentReceiptState,
+    InboundLimits, OutputLimits, ReliableEvent, RunningAuthorityEvent, SequencedCommand,
+    ENGINE_CONTRACT_VERSION,
 };
 use crate::engine::error::{truncate_utf8, EngineError, EngineErrorCode, MAX_ERROR_DETAIL_BYTES};
 use crate::engine::frame_v1::FrameV1Metadata;
 use crate::engine::fresh_run::{prepare_stage6a_p0_fresh_run, Stage6aP0FreshRunRequest};
+use crate::engine::generation::GenerationCommitRecord;
+use crate::engine::physics::PhysicsStepKey;
 use crate::engine::queues::WakeSink;
 use crate::engine::run_start::PendingRunStartTransition;
+use crate::engine::running_loop::RunningAuthorityLoop;
 use crate::engine::runtime::{EngineHealth, EngineRuntime};
+use crate::engine::scheduler::FixedStepSchedulerPolicy;
+use crate::engine::state::ControllerKind;
 use crate::engine::state::RunStartPublication;
+use crate::engine::GenerationTransitionReason;
 use crate::engine::LifecycleState;
 #[cfg(feature = "engine-test-hooks")]
 use crate::engine::{
     checkpoint_fixture::publish_stage3_fixture,
-    contract::{
-        ExternalDeliveryReceipt, GenerationAssignmentReceiptState, RunningAuthorityCommand,
-        RunningAuthorityEvent,
-    },
-    generation::GenerationCommitRecord,
+    contract::{ExternalDeliveryReceipt, RunningAuthorityCommand},
     generation_handoff_fixture::{
         background_generation_handoff_fixture, background_generation_handoff_runtime_init,
         GenerationHandoffAssignment, GenerationHandoffFixtureSession,
         GenerationHandoffRunStartFixture, GenerationHandoffSnapshot, PublishedGenerationHandoff,
     },
-    physics::PhysicsStepKey,
     run_start_handoff_fixture::{RunStartHandoffFixtureSession, RunStartHandoffSnapshot},
-    state::ControllerKind,
-    GenerationTransitionReason,
 };
+use crate::napi_running_engine::ExperimentalRunningAuthority;
 
 /// The one-slot, weak, nonblocking wake notification used by the bridge.
 type WakeThreadsafeFunction = ThreadsafeFunction<(), (), (), Status, false, true, 1>;
@@ -99,6 +100,8 @@ const FRESH_OPERATION_ACKNOWLEDGE: u8 = 4;
 const FRESH_OPERATION_INITIAL_FRAME: u8 = 5;
 /// One complete scheduled step and its resulting frame are being published.
 const FRESH_OPERATION_FIRST_SCHEDULED_FRAME: u8 = 6;
+/// The durable step-zero authority is being transferred to its background owner.
+const FRESH_OPERATION_BACKGROUND: u8 = 7;
 /// Exact enumerable string keys admitted by a persistence acknowledgement.
 const CHECKPOINT_DESCRIPTOR_INPUT_KEYS: [&str; 23] = [
     "protocolVersion",
@@ -200,7 +203,6 @@ pub struct ManagedCheckpointPublicationOptions {
 }
 
 /// Exact Rust-owned eight-field generation summary wire record.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6GenerationSummaryRecord {
     pub completed_generation: String,
@@ -214,7 +216,6 @@ pub struct Stage6GenerationSummaryRecord {
 }
 
 /// Exact Rust-owned Hall-of-Fame successor reference wire record.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6HallOfFameRecord {
     pub completed_generation: String,
@@ -228,7 +229,6 @@ pub struct Stage6HallOfFameRecord {
 }
 
 /// Complete scalar-only generation commit assembled by Rust admission.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6GenerationCommitRecord {
     pub summary: Stage6GenerationSummaryRecord,
@@ -236,7 +236,6 @@ pub struct Stage6GenerationCommitRecord {
 }
 
 /// Real retained generation publication returned to the persistence client.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6GenerationCheckpointPublication {
     pub descriptor: ManagedCheckpointDescriptor,
@@ -281,7 +280,6 @@ pub struct Stage6GenerationAssignmentResult {
 }
 
 /// Scalar result of the one final old-to-new authority swap.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6GenerationStartPublication {
     pub world_epoch: String,
@@ -292,7 +290,6 @@ pub struct Stage6GenerationStartPublication {
 }
 
 /// Exact retained fixed-step identity emitted by the background authority path.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6BackgroundStepKey {
     pub world_epoch: String,
@@ -305,7 +302,6 @@ pub struct Stage6BackgroundStepKey {
 }
 
 /// One background generation-transition announcement.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6BackgroundGenerationTransition {
     pub ticket_sequence: String,
@@ -316,7 +312,6 @@ pub struct Stage6BackgroundGenerationTransition {
 }
 
 /// One exact Rust-owned reassignment emitted from the retained successor.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6BackgroundGenerationAssignment {
     pub operation_epoch: String,
@@ -330,7 +325,6 @@ pub struct Stage6BackgroundGenerationAssignment {
 }
 
 /// Prepared successor reassignment batch.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6BackgroundGenerationReassignments {
     pub ready: bool,
@@ -338,7 +332,6 @@ pub struct Stage6BackgroundGenerationReassignments {
 }
 
 /// Exact accounting after applying one local assignment receipt command.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6BackgroundGenerationReceiptResolution {
     pub matched_acceptances: String,
@@ -352,7 +345,6 @@ pub struct Stage6BackgroundGenerationReceiptResolution {
 }
 
 /// Token-scoped unavailable controller result preserved after the old world retires.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6BackgroundUnavailableController {
     pub source_lease_id: String,
@@ -366,7 +358,6 @@ pub struct Stage6BackgroundUnavailableController {
 }
 
 /// Final background authority publication with no population-sized data.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6BackgroundGenerationStart {
     pub ticket_sequence: String,
@@ -377,7 +368,6 @@ pub struct Stage6BackgroundGenerationStart {
 }
 
 /// One typed output drained from the real background runtime.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6BackgroundGenerationEvent {
     pub kind: String,
@@ -395,7 +385,6 @@ pub struct Stage6BackgroundGenerationEvent {
 }
 
 /// Bounded output drain from the background generation fixture.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6BackgroundGenerationDrain {
     pub events: Vec<Stage6BackgroundGenerationEvent>,
@@ -404,7 +393,6 @@ pub struct Stage6BackgroundGenerationDrain {
 }
 
 /// Small scalar health snapshot from the background Rust authority thread.
-#[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
 pub struct Stage6BackgroundGenerationHealth {
     pub lifecycle: String,
@@ -529,6 +517,8 @@ pub struct FreshRunScalarSnapshot {
 #[derive(Default)]
 struct ExperimentalFreshRunInner {
     transition: Option<PendingRunStartTransition>,
+    background_retry_loop: Option<RunningAuthorityLoop>,
+    background_transferred: bool,
     initial_frame_published: bool,
     first_scheduled_frame_published: bool,
     fault_detail: Option<String>,
@@ -728,6 +718,114 @@ impl ExperimentalStage6aFreshRunSession {
                 fresh_run_snapshot_to_napi(busy_fresh_run_snapshot(active_operation)?)
             }
         }
+    }
+
+    /// Transfer the activated step-zero authority to an unstarted background
+    /// runtime off the Node loop. The one-shot scheduler becomes inaccessible.
+    #[napi(catch_unwind)]
+    pub fn create_background_runtime(
+        &self,
+        options: ExperimentalEngineOptions,
+        wake_callback: Function<'_, (), ()>,
+    ) -> Result<AsyncTask<CreateExperimentalBackgroundTask>> {
+        let init = options_to_init(options).map_err(engine_error_to_napi)?;
+        if init.output.max_event_owned_bytes < std::mem::size_of::<RunningAuthorityEvent>() {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "background output must fit one authority event",
+            ));
+        }
+        let wake = wake_callback
+            .build_threadsafe_function::<()>()
+            .callee_handled::<false>()
+            .weak::<true>()
+            .max_queue_size::<1>()
+            .build_callback(|_context| Ok(()))?;
+        self.begin_operation(FRESH_OPERATION_BACKGROUND)?;
+        Ok(AsyncTask::new(CreateExperimentalBackgroundTask {
+            inner: Arc::clone(&self.inner),
+            active_operation: Arc::clone(&self.active_operation),
+            init,
+            wake: Arc::new(NapiWakeSink::new(wake)),
+        }))
+    }
+}
+
+/// Worker-owned exclusive transfer of the existing fresh-run authority.
+pub struct CreateExperimentalBackgroundTask {
+    inner: Arc<Mutex<ExperimentalFreshRunInner>>,
+    active_operation: Arc<AtomicU8>,
+    init: EngineInit,
+    wake: Arc<NapiWakeSink>,
+}
+
+impl Task for CreateExperimentalBackgroundTask {
+    type Output = Arc<EngineRuntime>;
+    type JsValue = ExperimentalRunningAuthority;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            let mut inner = lock_recover(&self.inner);
+            reject_faulted_fresh_inner(&inner)?;
+            if inner.background_transferred {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    "authority already transferred to the background runtime",
+                ));
+            }
+            let running = if let Some(running) = inner.background_retry_loop.take() {
+                running
+            } else {
+                let transition = inner.transition.take().ok_or_else(|| {
+                    Error::new(
+                        Status::GenericFailure,
+                        "experimental fresh run has not been initialized",
+                    )
+                })?;
+                match transition
+                    .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+                {
+                    Ok(running) => running,
+                    Err(failure) => {
+                        let (transition, error) = failure.into_parts();
+                        inner.transition = Some(transition);
+                        return Err(Error::new(Status::GenericFailure, error.to_string()));
+                    }
+                }
+            };
+            let runtime = match EngineRuntime::new_running_authority(
+                self.init,
+                running,
+                Arc::clone(&self.wake) as Arc<dyn WakeSink>,
+            ) {
+                Ok(runtime) => Arc::new(runtime),
+                Err(failure) => {
+                    let error = failure.error().clone();
+                    inner.background_retry_loop = Some(failure.into_running_loop());
+                    return Err(engine_error_to_napi(error));
+                }
+            };
+            self.wake.attach(&runtime);
+            inner.background_transferred = true;
+            Ok(runtime)
+        })) {
+            Ok(result) => result,
+            Err(payload) => Err(fault_experimental_fresh_run(
+                &self.inner,
+                "experimental background transfer panicked",
+                payload.as_ref(),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, runtime: Self::Output) -> Result<Self::JsValue> {
+        Ok(ExperimentalRunningAuthority::from_runtime(runtime))
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.active_operation
+            .store(FRESH_OPERATION_IDLE, Ordering::Release);
+        Ok(())
     }
 }
 
@@ -1748,7 +1846,7 @@ fn parse_checkpoint_operation_id(value: String) -> Result<CheckpointOperationId>
 }
 
 /// Read controlled publication options without allocating unbounded JS strings.
-fn parse_managed_checkpoint_publication_options(
+pub(crate) fn parse_managed_checkpoint_publication_options(
     options: &Object<'_>,
 ) -> Result<(PathBuf, CheckpointOperationId)> {
     let managed_directory = options
@@ -1915,7 +2013,10 @@ fn bounded_fresh_run_panic_detail(context: &str, payload: &(dyn std::any::Any + 
 fn ensure_fresh_transition_absent(inner: &Mutex<ExperimentalFreshRunInner>) -> Result<()> {
     let inner = try_lock_fresh_inner(inner)?;
     reject_faulted_fresh_inner(&inner)?;
-    if inner.transition.is_some() {
+    if inner.transition.is_some()
+        || inner.background_retry_loop.is_some()
+        || inner.background_transferred
+    {
         return Err(Error::new(
             Status::GenericFailure,
             "experimental fresh run is already initialized",
@@ -1946,6 +2047,7 @@ const fn fresh_operation_phase(operation: u8) -> Option<&'static str> {
         FRESH_OPERATION_ACKNOWLEDGE => Some("acknowledgingPersistence"),
         FRESH_OPERATION_INITIAL_FRAME => Some("publishingInitialFrame"),
         FRESH_OPERATION_FIRST_SCHEDULED_FRAME => Some("publishingFirstScheduledFrame"),
+        FRESH_OPERATION_BACKGROUND => Some("preparingBackground"),
         _ => None,
     }
 }
@@ -1997,6 +2099,8 @@ fn fresh_run_scalar_snapshot(
     }
     let phase = if active_operation == FRESH_OPERATION_IDLE {
         match inner.transition.as_ref() {
+            None if inner.background_transferred => "background",
+            None if inner.background_retry_loop.is_some() => "preparingBackground",
             None => "created",
             Some(transition) if transition.authority_published() => "running",
             Some(transition) if transition.persistence_acknowledged() => "durableBoundary",
@@ -2150,7 +2254,7 @@ fn parse_test_hook_epoch(value: &str) -> Result<u64> {
 }
 
 /// Parse one canonical u64 wire value without JavaScript Number narrowing.
-fn parse_u64_hex(value: &str, field: &str, allow_zero: bool) -> Result<u64> {
+pub(crate) fn parse_u64_hex(value: &str, field: &str, allow_zero: bool) -> Result<u64> {
     if value.len() != 16
         || !value
             .bytes()
@@ -2206,7 +2310,9 @@ fn checkpoint_descriptor_to_napi(descriptor: CheckpointDescriptor) -> ManagedChe
 }
 
 /// Parse a persistence acknowledgement before napi-rs can allocate its strings.
-fn checkpoint_descriptor_from_napi_object(descriptor: &Object<'_>) -> Result<CheckpointDescriptor> {
+pub(crate) fn checkpoint_descriptor_from_napi_object(
+    descriptor: &Object<'_>,
+) -> Result<CheckpointDescriptor> {
     require_exact_checkpoint_descriptor_keys(descriptor)?;
     let protocol_version = descriptor.get::<f64>("protocolVersion")?.ok_or_else(|| {
         Error::new(
@@ -2297,7 +2403,7 @@ fn require_exact_checkpoint_descriptor_keys(descriptor: &Object<'_>) -> Result<(
 }
 
 /// Read one required bounded string property through a raw JavaScript handle.
-fn bounded_object_string(
+pub(crate) fn bounded_object_string(
     object: &Object<'_>,
     field: &str,
     max_utf8_bytes: usize,
@@ -2482,19 +2588,17 @@ fn parse_numeric_encoding(value: &str) -> Result<NumericEncoding> {
 }
 
 /// Convert one exact u64 or Float64-bit word to canonical wire hexadecimal.
-fn u64_hex(value: u64) -> String {
+pub(crate) fn u64_hex(value: u64) -> String {
     format!("{value:016x}")
 }
 
 /// Parse one canonical positive command sequence for the background fixture.
-#[cfg(feature = "engine-test-hooks")]
-fn parse_background_sequence(value: JsString<'_>) -> Result<u64> {
+pub(crate) fn parse_background_sequence(value: JsString<'_>) -> Result<u64> {
     let value = bounded_js_string(value, "sequenceHex", 16, false)?;
     parse_u64_hex(&value, "sequenceHex", false)
 }
 
 /// Convert the Rust-owned compact generation record without numeric narrowing.
-#[cfg(feature = "engine-test-hooks")]
 fn generation_commit_to_napi(record: GenerationCommitRecord) -> Stage6GenerationCommitRecord {
     Stage6GenerationCommitRecord {
         summary: Stage6GenerationSummaryRecord {
@@ -2520,8 +2624,7 @@ fn generation_commit_to_napi(record: GenerationCommitRecord) -> Stage6Generation
     }
 }
 
-#[cfg(feature = "engine-test-hooks")]
-fn background_generation_event_to_napi(
+pub(crate) fn background_generation_event_to_napi(
     event: CompletedEvent,
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
     let mut output = empty_background_generation_event();
@@ -2553,7 +2656,6 @@ fn background_generation_event_to_napi(
     Ok(output)
 }
 
-#[cfg(feature = "engine-test-hooks")]
 fn running_authority_event_to_napi(
     event: RunningAuthorityEvent,
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
@@ -2727,7 +2829,6 @@ fn running_authority_event_to_napi(
     Ok(output)
 }
 
-#[cfg(feature = "engine-test-hooks")]
 fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
     Stage6BackgroundGenerationEvent {
         kind: String::new(),
@@ -2745,7 +2846,6 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
     }
 }
 
-#[cfg(feature = "engine-test-hooks")]
 fn background_step_key_to_napi(key: PhysicsStepKey) -> Stage6BackgroundStepKey {
     Stage6BackgroundStepKey {
         world_epoch: u64_hex(key.world_epoch()),
@@ -2758,8 +2858,7 @@ fn background_step_key_to_napi(key: PhysicsStepKey) -> Stage6BackgroundStepKey {
     }
 }
 
-#[cfg(feature = "engine-test-hooks")]
-fn background_generation_health_to_napi(
+pub(crate) fn background_generation_health_to_napi(
     health: EngineHealth,
 ) -> std::result::Result<Stage6BackgroundGenerationHealth, EngineError> {
     let running = health.running_authority.ok_or_else(|| {
@@ -2790,7 +2889,6 @@ fn background_generation_health_to_napi(
     })
 }
 
-#[cfg(feature = "engine-test-hooks")]
 fn usize_hex(value: usize, field: &str) -> std::result::Result<String, EngineError> {
     u64::try_from(value).map(u64_hex).map_err(|_| {
         EngineError::new(
@@ -2800,7 +2898,6 @@ fn usize_hex(value: usize, field: &str) -> std::result::Result<String, EngineErr
     })
 }
 
-#[cfg(feature = "engine-test-hooks")]
 fn sha256_hex(bytes: [u8; 32]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(64);
@@ -2811,7 +2908,6 @@ fn sha256_hex(bytes: [u8; 32]) -> String {
     output
 }
 
-#[cfg(feature = "engine-test-hooks")]
 const fn generation_transition_reason_name(reason: GenerationTransitionReason) -> &'static str {
     match reason {
         GenerationTransitionReason::Duration => "duration",
@@ -2819,7 +2915,6 @@ const fn generation_transition_reason_name(reason: GenerationTransitionReason) -
     }
 }
 
-#[cfg(feature = "engine-test-hooks")]
 const fn controller_kind_name(kind: ControllerKind) -> &'static str {
     match kind {
         ControllerKind::Player => "player",
@@ -2827,7 +2922,6 @@ const fn controller_kind_name(kind: ControllerKind) -> &'static str {
     }
 }
 
-#[cfg(feature = "engine-test-hooks")]
 const fn unavailable_controller_reason_name(
     reason: crate::engine::external_replacement::UnavailableControllerReason,
 ) -> &'static str {
@@ -2841,7 +2935,6 @@ const fn unavailable_controller_reason_name(
     }
 }
 
-#[cfg(feature = "engine-test-hooks")]
 const fn running_loop_state_name(
     state: crate::engine::running_loop::RunningAuthorityLoopState,
 ) -> &'static str {
@@ -3337,6 +3430,15 @@ pub struct JoinEngineTask {
     join_scheduled: Arc<AtomicBool>,
 }
 
+impl JoinEngineTask {
+    pub(crate) fn new(runtime: Arc<EngineRuntime>, join_scheduled: Arc<AtomicBool>) -> Self {
+        Self {
+            runtime,
+            join_scheduled,
+        }
+    }
+}
+
 impl Task for JoinEngineTask {
     type Output = ();
     type JsValue = ();
@@ -3731,7 +3833,7 @@ fn positive_u32(value: f64, field: &str) -> std::result::Result<u32, EngineError
     Ok(value as u32)
 }
 
-fn positive_usize(value: f64, field: &str) -> std::result::Result<usize, EngineError> {
+pub(crate) fn positive_usize(value: f64, field: &str) -> std::result::Result<usize, EngineError> {
     if !value.is_finite() || value.fract() != 0.0 || value < 1.0 || value > f64::from(u32::MAX) {
         return Err(EngineError::new(
             EngineErrorCode::InvalidConfiguration,
@@ -3969,7 +4071,7 @@ fn error_code_name(code: EngineErrorCode) -> &'static str {
     }
 }
 
-fn engine_error_to_napi(error: EngineError) -> Error {
+pub(crate) fn engine_error_to_napi(error: EngineError) -> Error {
     Error::new(
         Status::GenericFailure,
         format!("{}: {}", error_code_name(error.code), error.detail),

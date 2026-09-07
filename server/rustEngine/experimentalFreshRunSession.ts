@@ -8,8 +8,10 @@
 
 import {
   validateExperimentalEngineBinding,
-  type ExperimentalEngineNativeBinding
+  type ExperimentalEngineNativeBinding,
+  type ExperimentalEngineInit
 } from './experimentalNativeBridge.ts';
+import { validateBackgroundRuntime, type ExperimentalRunningAuthorityNativeHandle } from './backgroundRuntime.ts';
 import { computeNativeSourceIdentity, type NativeSourceIdentity } from './nativeSourceIdentity.ts';
 import type { ManagedCheckpointCommitResult } from './checkpointPersistenceClient.ts';
 import type {
@@ -37,6 +39,7 @@ const REQUIRED_FRESH_RUN_METHODS = [
   'acknowledgeRunStartPersistence',
   'activateRunningAuthority',
   'constructor',
+  'createBackgroundRuntime',
   'initialize',
   'publishFirstScheduledFrameV1',
   'publishInitialFrameV1',
@@ -47,6 +50,7 @@ const REQUIRED_FRESH_RUN_METHODS = [
 const REQUIRED_FRESH_RUN_HANDLE_METHODS = [
   'acknowledgeRunStartPersistence',
   'activateRunningAuthority',
+  'createBackgroundRuntime',
   'initialize',
   'publishFirstScheduledFrameV1',
   'publishInitialFrameV1',
@@ -66,6 +70,8 @@ export type ExperimentalFreshRunPhase =
   | 'activating'
   | 'publishingInitialFrame'
   | 'publishingFirstScheduledFrame'
+  | 'preparingBackground'
+  | 'background'
   | 'running'
   | 'faulted';
 
@@ -143,6 +149,8 @@ export interface ExperimentalFreshRunNativeHandle extends RustRunStartPersistenc
   publishInitialFrameV1(): Promise<unknown>;
   /** Execute one Rust-scheduled step and pack its resulting frame. */
   publishFirstScheduledFrameV1(): Promise<unknown>;
+  /** Transfer the activated step-zero authority to one unstarted background owner. */
+  createBackgroundRuntime(options: ExperimentalEngineInit, wakeCallback: () => void): Promise<unknown>;
   /** Read bounded scalar state without copying a world or population. */
   snapshot(): unknown;
 }
@@ -337,6 +345,14 @@ export class ExperimentalFreshRunSession {
   public snapshot(): ExperimentalFreshRunSnapshot {
     return parseFreshRunSnapshot(this.native.snapshot());
   }
+
+  /** Transfer exclusive authority after durability; the one-shot session retires. */
+  public async createBackgroundRuntime(
+    options: ExperimentalEngineInit,
+    wakeCallback: () => void
+  ): Promise<ExperimentalRunningAuthorityNativeHandle> {
+    return validateBackgroundRuntime(await this.native.createBackgroundRuntime(options, wakeCallback));
+  }
 }
 
 /** Validate the native instance exposes exactly the required coarse operations. */
@@ -488,7 +504,7 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
     'created', 'initializing', 'pendingDurability', 'publishingCheckpoint',
     'acknowledgingPersistence', 'awaitingPersistence', 'durableBoundary',
     'activating', 'publishingInitialFrame', 'publishingFirstScheduledFrame',
-    'running', 'faulted'
+    'preparingBackground', 'background', 'running', 'faulted'
   ];
   if (typeof raw['phase'] !== 'string' ||
     !phases.includes(raw['phase'] as ExperimentalFreshRunPhase)) {
@@ -556,7 +572,7 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
     ![
       'created', 'initializing', 'publishingCheckpoint',
       'acknowledgingPersistence', 'activating', 'publishingInitialFrame',
-      'publishingFirstScheduledFrame', 'faulted'
+      'publishingFirstScheduledFrame', 'preparingBackground', 'background', 'faulted'
     ]
       .includes(snapshot.phase)) {
     throw new TypeError('experimental fresh-run stable phase omits retained transition metadata');

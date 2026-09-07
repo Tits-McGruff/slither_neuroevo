@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
+import type { ExperimentalEngineInit } from './experimentalNativeBridge.ts';
 import { FRAME_HEADER_FLOATS, readFrameHeader } from '../../src/protocol/frame.ts';
 import {
   CheckpointPersistenceClient,
@@ -27,6 +29,22 @@ const NATIVE_LOADER = resolve(NATIVE_DIRECTORY, 'index.js');
 const P0_MEMORY_CEILING = 4n * 1024n * 1024n * 1024n;
 /** CommonJS loader scoped to this ESM integration test. */
 const require = createRequire(import.meta.url);
+/** Bounded queues for the real production-addon background owner. */
+const BACKGROUND_INIT: ExperimentalEngineInit = {
+  contractVersion: 1,
+  maxInboundBatches: 16,
+  maxInboundCommands: 16,
+  maxInboundOwnedBytes: 2 * 1024 * 1024,
+  maxBatchCommands: 1,
+  maxBatchOwnedBytes: 1024 * 1024,
+  maxOutputReliable: 32,
+  maxOutputReliableOwnedBytes: 16 * 1024 * 1024,
+  maxOutputDiscrete: 4,
+  maxOutputDiscreteOwnedBytes: 1024 * 1024,
+  maxOutputTotalOwnedBytes: 32 * 1024 * 1024,
+  maxOutputEventOwnedBytes: 1024 * 1024,
+  maxOutputFrameConnections: 4
+};
 /** Disposable fixture roots removed after their workers stop. */
 const fixtureRoots: string[] = [];
 /** Persistence workers closed before their databases are removed. */
@@ -172,6 +190,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
         'acknowledgeRunStartPersistence',
         'activateRunningAuthority',
         'constructor',
+        'createBackgroundRuntime',
         'initialize',
         'publishFirstScheduledFrameV1',
         'publishInitialFrameV1',
@@ -415,6 +434,9 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       pelletCount: '0000000000000da7'
     });
     await expect(session.publishFirstScheduledFrameV1()).rejects.toThrow(/already.*published/i);
+    await expect(session.createBackgroundRuntime(BACKGROUND_INIT, () => {})).rejects.toThrow(
+      /experimental one-shot|scheduler|already.*authority/i
+    );
     expect(session.snapshot()).toMatchObject({
       completedStep: '0000000000000001',
       firstScheduledFramePublished: true
@@ -443,5 +465,81 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
     expect(session.snapshot()).toEqual({ phase: 'created' });
     await expect(session.initialize()).rejects.toThrow(/memory|ceiling|admission/i);
     expect(session.snapshot()).toEqual({ phase: 'created' });
+  }, 30_000);
+
+  it('transfers the durable production authority once and services background commands without Node stepping', async () => {
+    const paths = createFixturePaths('background');
+    const client = new CheckpointPersistenceClient({
+      databasePath: paths.databasePath,
+      managedRootPath: paths.managedRoot
+    });
+    clients.push(client);
+    const session = await loadExperimentalFreshRunSession({
+      nativeManifestDirectory: NATIVE_DIRECTORY,
+      loadBinding,
+      runId: 'background-production-lineage',
+      seed: 42,
+      memoryCeilingBytes: P0_MEMORY_CEILING,
+      managedDirectory: paths.managedRoot,
+      persistence: client
+    });
+    let wakes = 0;
+    /** Retained callback keeps native notifications observable for the test. */
+    const wake = (): void => { wakes += 1; };
+    await session.initialize();
+    await expect(session.createBackgroundRuntime(BACKGROUND_INIT, wake)).rejects.toThrow(
+      /running authority|publication/i
+    );
+    expect(session.snapshot().phase).toBe('pendingDurability');
+    const committed = await session.commitPendingRunStart('34343434343434343434343434343434');
+    await session.activateRunningAuthority();
+    await expect(session.createBackgroundRuntime({
+      ...BACKGROUND_INIT, maxOutputEventOwnedBytes: 1
+    }, wake)).rejects.toThrow(/fit one authority event/i);
+    expect(session.snapshot()).toMatchObject({ phase: 'running', completedStep: '0000000000000000' });
+    const creating = session.createBackgroundRuntime(BACKGROUND_INIT, wake);
+    await expect(session.createBackgroundRuntime(BACKGROUND_INIT, wake)).rejects.toThrow(/already in flight/i);
+    const runtime = await creating;
+    try {
+      expect(session.snapshot().phase).toBe('background');
+      expect(runtime.health()).toMatchObject({
+        lifecycle: 'created', worldEpoch: committed.transitionEpoch,
+        generation: '0000000000000001', completedStep: '0000000000000000'
+      });
+      await expect(session.createBackgroundRuntime(BACKGROUND_INIT, wake)).rejects.toThrow(/already transferred/i);
+      await expect(session.initialize()).rejects.toThrow(/already initialized/i);
+      await expect(session.publishFirstScheduledFrameV1()).rejects.toThrow(/not been initialized/i);
+      expect(() => runtime.drainOutputs(-1, BACKGROUND_INIT.maxOutputEventOwnedBytes)).toThrow(/positive/i);
+      runtime.start();
+      expect(() => runtime.start()).toThrow(/cannot start/i);
+      const deadline = performance.now() + 10_000;
+      const events: RustBackgroundEvent[] = [];
+      while (BigInt(`0x${runtime.health().completedStep}`) < 2n && performance.now() < deadline) {
+        events.push(...runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes).events);
+        await new Promise<void>(resolveImmediate => setImmediate(resolveImmediate));
+      }
+      expect(BigInt(`0x${runtime.health().completedStep}`)).toBeGreaterThanOrEqual(2n);
+      // A wrong-phase control must return through the production queue without faulting the game.
+      runtime.submitPrepareGenerationReassignments('0000000000000001');
+      while (!events.some(event => event.commandSequence === '0000000000000001') && performance.now() < deadline) {
+        events.push(...runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes).events);
+        await new Promise<void>(resolveImmediate => setImmediate(resolveImmediate));
+      }
+      expect(events).toContainEqual(expect.objectContaining({
+        kind: 'commandRejected', commandSequence: '0000000000000001', rejectionCode: 'InvalidCommand'
+      }));
+      expect(events.filter(event => event.kind === 'started')).toHaveLength(1);
+      expect(runtime.health().faultCode).toBeUndefined();
+      expect(wakes).toBeGreaterThan(0);
+    } finally {
+      runtime.requestStop();
+      await runtime.join();
+    }
+    expect(runtime.health().lifecycle).toBe('stopped');
+    expect(runtime.health().faultCode).toBeUndefined();
+    await closeClient(client);
+    expect(countManagedFiles(paths.managedRoot)).toBe(1);
+    expect(readCurrentPointer(paths.databasePath, 'background-production-lineage')?.checkpoint_id)
+      .toBe(committed.checkpointId);
   }, 30_000);
 });

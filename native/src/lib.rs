@@ -6,6 +6,7 @@ compile_error!("the authoritative native addon requires panic=unwind");
 /// Rust-owned authoritative engine components under staged migration.
 pub mod engine;
 mod napi_engine;
+mod napi_running_engine;
 mod simd_kernels;
 
 use napi_derive::napi;

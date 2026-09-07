@@ -122,6 +122,10 @@ interface FakeEvidence {
 
 /** Minimal fake native owner with the exact production class surface. */
 class FakeFreshRunSession implements ExperimentalFreshRunNativeHandle {
+  /** This one-shot fake does not own a transferable Rust authority. */
+  public async createBackgroundRuntime(): Promise<unknown> {
+    throw new Error('background transfer requires the native integration fixture');
+  }
   /** Current bounded scalar state. */
   private current = snapshot('pendingDurability');
   /** Shared test evidence sink. */

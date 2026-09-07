@@ -248,6 +248,7 @@ describe('experimental native bridge real-addon integration', () => {
       'acknowledgeRunStartPersistence',
       'activateRunningAuthority',
       'constructor',
+      'createBackgroundRuntime',
       'initialize',
       'publishFirstScheduledFrameV1',
       'publishInitialFrameV1',
