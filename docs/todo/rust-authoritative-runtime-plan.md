@@ -851,10 +851,13 @@ checkpoint metadata object.
 Current-source rows refer to the audited source tree reported by the earlier
 checkout as revision `46c2f63`. The ZIP itself had no Git history or numerical
 artifacts. Rows labelled Git-history evidence are not current-ZIP proofs;
-Stages 1–2 must preserve the exact command/output/commit/file evidence. Prior
-planning measurements are likewise provisional until their named fixtures,
-scripts, raw outputs, and environments are retained. This index makes those
-boundaries explicit before implementation relies on them.
+Stages 1–2 preserve the historical command/output/commit/file evidence needed
+to settle those original disputed claims. Prior planning measurements are
+likewise provisional until their named fixtures, scripts, raw outputs and
+environments are retained. This classification is primarily an audit rule for
+those early findings; later implementation work should use it only when
+provenance is genuinely relevant rather than reproducing the classification as
+boilerplate in every evidence entry.
 
 | Finding | Evidence kind | Source paths, symbols, or commits |
 |---|---|---|
@@ -3318,17 +3321,60 @@ source responsibility requires a named destination and tests before cutover.
 | Remaining `src/main.ts` | UI, reconnect, settings | remains browser TypeScript |
 | `src/render.ts` | Frame consumption and drawing | remains browser TypeScript |
 
-For each row that moves, the implementation record must name:
-
-- source functions and lines reviewed;
-- intended behavior;
-- known bug intentionally corrected;
-- fixture/test proving the Rust result;
-- any numeric tolerance;
-- measured allocation/performance result;
-- whether the TypeScript runtime call site is still production-active.
+For each row that moves, preserve enough information to recover the porting
+intent without turning the implementation log into a second source listing.
+The source-to-Rust map above, code review, tests and fixtures are the canonical
+behavior evidence. The factual implementation log normally needs only the
+moved responsibility/module, the important behavior or correction, the test or
+fixture that proves it, and any tolerance/performance result that materially
+affects a gate. Record exact source lines, exhaustive call-site inventories or
+repeated measurements only when they resolve a real ambiguity.
 
 ## Verification strategy
+
+### Evidence and validation economy
+
+The correctness, compatibility, durability and performance gates in this plan
+remain requirements. They do not require a prose dossier for every small
+implementation slice. Evidence may be an automated test/fixture, CI result,
+benchmark artifact, source inspection, a concise implementation-log entry, or
+a dedicated report when the information genuinely needs one.
+
+During active development, prefer focused tests that exercise the changed
+invariant. Run broad local suites at cohesive checkpoints, before a meaningful
+push, after changes with plausible wide impact, and at named stage gates. Let
+CI provide the normal Windows/Linux and Node-version full-matrix confirmation
+for pushed checkpoints. Do not repeatedly run every Rust/Node/addon/lint/build
+suite simply to restate the same evidence after each helper or micro-slice.
+
+Use Oxygen/Debian when target-platform behavior matters, for Linux-specific
+changes, for the performance measurements explicitly assigned to the target
+VM, and for Stage 6A/6B/7/8 acceptance work. A Windows-side micro-slice does not
+need a disposable Oxygen clone and full-suite rerun unless it can plausibly
+change Linux behavior or a named gate requires the result.
+
+High-risk work still receives independent review, but one cohesive feature or
+checkpoint receives one review. Persistence/concurrency/authority work should
+not be reviewed separately after each intermediate primitive when those edits
+are all part of the same still-unfinished transaction. Reviewers normally
+inspect the diff and focused tests; they do not duplicate an already-fresh
+full validation matrix unless they identify a reason.
+
+The evidence-class definitions in this plan remain available when provenance
+is genuinely ambiguous. Later implementation entries do not need boilerplate
+sections saying that every ordinary claim is current-source proof, that no
+prior measurement was used, or that fixture arithmetic is not a benchmark.
+State provenance only when the distinction affects the conclusion.
+
+Resolved shell, sandbox, path, missing-build-artifact and permission failures
+are transient work logs. Keep them out of durable evidence unless they expose
+a real platform/product defect or materially change the implementation. The
+same applies to temporary-directory names, cleanup confirmations, canonical
+source-byte counts and reviewer bookkeeping already enforced by automation.
+
+Existing verbose evidence documents are retained as historical records. They
+are not templates for future Stage 6/7 work and do not need to be extended for
+format consistency.
 
 ### Rule 1: Characterize before deleting
 
@@ -3678,8 +3724,12 @@ After Stage 2 baseline and Stage 7 target-VM data:
 
 All checkboxes were intentionally open when Draft 4 was approved. Approval
 authorizes implementation, but it does not complete any checkbox. A checkbox
-may be completed only when its listed evidence exists. Passing unit tests or
-finishing code is not, by itself, an exit gate.
+may be completed only when its listed evidence exists. The evidence may live in
+source, automated tests/fixtures, CI, retained benchmark artifacts or a concise
+implementation-log entry; a separate Markdown evidence report is not required
+unless the gate calls for information that those sources cannot preserve.
+Passing a narrow unit test or merely finishing code is not, by itself, an exit
+gate.
 
 The critical path is intentionally short:
 

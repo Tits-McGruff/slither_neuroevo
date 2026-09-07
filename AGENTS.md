@@ -325,6 +325,41 @@ builds native once in each job, verifies the addon identity, runs the native/MT
 overlay and every primary JavaScript layer, then runs Vite, TypeScript, and
 ESLint. A separate Rust job enforces rustfmt and Clippy.
 
+### Verification cadence and usage efficiency
+
+Use the cheapest validation that can disprove the current change, then widen
+validation at meaningful checkpoints. Correctness gates remain mandatory; this
+section controls how often expensive evidence is reproduced.
+
+- During implementation, run focused tests for the files, invariants and known
+  regressions affected by the current edit. Add a broader component/integration
+  set only when the change crosses those boundaries.
+- Do not run the complete Rust suite, complete JavaScript test matrix, full
+  lint/type/build matrix, isolated checkpoint handoff and source-identity suite
+  after every small edit. Run the broad local matrix before a cohesive feature
+  checkpoint or push, after a change that can plausibly affect many subsystems,
+  or when a formal stage gate requires it. CI is the normal cross-platform
+  full-matrix confirmation for pushed checkpoints.
+- A passing broad suite does not need to be rerun merely to give a reviewer an
+  independent copy of the same result. Reviewers normally inspect the diff and
+  run only focused tests needed to verify a concern they identify.
+- Use Oxygen/Debian for target-platform behavior, Linux-specific changes,
+  performance measurements and named stage/acceptance gates. Do not repeat a
+  disposable Oxygen clone and full validation for an ordinary Windows-side
+  micro-slice that has no Linux-specific behavior.
+- Reuse fresh evidence from the immediately preceding checkpoint when the
+  current change cannot invalidate it. State the dependency instead of
+  reproducing the same benchmark or compatibility run.
+- Tooling, sandbox, shell, path, missing-build-artifact and permission failures
+  are transient task notes once resolved. Preserve them in durable project
+  documentation only when they reveal a real portability/product defect or
+  change the implementation.
+- Source/build identity checks should stay automated. Durable prose normally
+  records the commit or source identity only when it is needed to identify the
+  tested code; do not narrate canonical byte counts, path-byte counts, temp
+  directory names or other bookkeeping that the automated check already
+  proves.
+
 ## Coding and documentation rules
 
 - Preserve hot-path typed arrays and avoid per-frame allocation unless a
@@ -339,6 +374,14 @@ ESLint. A separate Rust job enforces rustfmt and Clippy.
   `src/protocol/settingDefinitions.ts`. Do not document removed v2 sensor or
   frame-delta controls.
 - Use ordinary CommonMark with blank lines around lists and fenced blocks.
+- Keep migration documentation compact. Prefer source comments, automated
+  tests/fixtures, CI artifacts and the factual implementation log over a new
+  prose evidence dossier for each implementation slice. Create a standalone
+  evidence document only when it preserves information that is genuinely
+  awkward to encode in tests or CI, such as a benchmark report, compatibility
+  inventory, owner-data audit or a non-obvious cross-platform investigation.
+- Existing verbose evidence files are historical records, not templates for
+  future work. Do not expand or imitate them solely for consistency.
 - Never commit `data/slither.db`, generated native binaries, PID/log files, or
   `server/config.toml`.
 - Preserve `bestPointsThisGen` initialization before the first sensor pass.
@@ -394,9 +437,10 @@ Never fill the available concurrency slots merely because they are available.
 Subagents must not recursively create more subagents unless the user explicitly
 requests a multi-level investigation.
 
-### Required independent review
+### Independent review cadence
 
-Use one independent reviewer after implementation for changes involving:
+Use one independent reviewer for a cohesive completed high-risk feature or
+checkpoint involving:
 
 * persistence, imports, exports, retention, migration, or possible data loss;
 * concurrency, threading, scheduling, or authority transitions;
@@ -406,12 +450,22 @@ Use one independent reviewer after implementation for changes involving:
 * destructive operations;
 * performance claims used to justify a design or cutover.
 
-The reviewer should inspect the completed diff and relevant tests. Do not start
-several reviewers before there is a concrete implementation to review unless
-independent design analysis is genuinely required.
+Review at the feature/checkpoint boundary, not after every intermediate helper,
+fixture, queue primitive or small continuation of the same feature. Several
+adjacent edits that implement one generation handoff, runtime queue path,
+persistence transaction or similar invariant normally receive one review once
+the concrete diff is ready.
 
-Ordinary localized changes do not require a subagent reviewer when direct tests
-and inspection are sufficient.
+The reviewer should inspect the completed diff and relevant focused tests. It
+should rerun a broad/full suite only when it finds a defect that could have
+wider impact, when the main-agent result is inconsistent or stale, or when the
+review itself is the named formal gate. Reuse the same reviewer for one focused
+recheck after material review-driven corrections; do not create a second
+reviewer to duplicate a clean review.
+
+Ordinary localized changes, test-only fixes, documentation changes and
+intermediate implementation steps do not require an independent reviewer when
+direct tests and inspection are sufficient.
 
 ### Avoid duplicated work
 
@@ -486,12 +540,12 @@ persistence meaning, gameplay rules, or acceptance gates.
 
 ### Usage reporting
 
-When subagents are used, the main agent's progress update must briefly state:
-
-* how many were used;
-* their distinct purposes;
-* which findings materially affected the work;
-* whether any turns were blocked or wasted.
+When subagents are used, keep usage reporting to the task conversation rather
+than durable engineering evidence. Briefly state their distinct purposes and
+any finding that materially changed the work. Mention a blocked or wasted turn
+only when it affected the result, schedule or next action; do not preserve
+routine reviewer bookkeeping such as "changed no files" or "no turns were
+wasted" in migration evidence.
 
 Do not claim delegation saved time or improved correctness unless the returned
 evidence demonstrates it.
