@@ -90,6 +90,7 @@ describe('Stage 2 isolated compact-history SQLite measurement', () => {
     );
   });
 
+  // The 480 FULL-synchronous commits verify accounting, not shared-runner disk speed.
   it('reports exact logical bytes and all required growth samples', () => {
     const result = runHistoryStorageMeasurement({ generations: 480 }) as unknown as HistoryMeasurementResult;
     const sampleByRecordCount = new Map(
@@ -124,7 +125,7 @@ describe('Stage 2 isolated compact-history SQLite measurement', () => {
         }
       }
     }
-  });
+  }, 30_000);
 
   it('rejects history fixture counts outside its bounded safe range', () => {
     expect(() => runHistoryStorageMeasurement({ generations: 0 })).toThrow(/history generations/);
