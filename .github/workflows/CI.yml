@@ -52,7 +52,8 @@ jobs:
       - name: Build checkpoint handoff test addon
         run: cargo build --manifest-path native/Cargo.toml --features engine-test-hooks
       - name: Expose isolated checkpoint handoff test addon
-        run: node -e "const fs = require('node:fs'); const lib = process.platform === 'win32' ? 'slither_native.dll' : 'libslither_native.so'; fs.copyFileSync('native/target/debug/' + lib, 'native/target/ci-handoff-hooks.node')"
+        run: >-
+          node -e "const fs = require('node:fs'); const lib = process.platform === 'win32' ? 'slither_native.dll' : 'libslither_native.so'; fs.copyFileSync('native/target/debug/' + lib, 'native/target/ci-handoff-hooks.node')"
       - name: Rust background generation and SQLite handoff
         env:
           SLITHER_STAGE3_CHECKPOINT_TEST_ADDON: native/target/ci-handoff-hooks.node
