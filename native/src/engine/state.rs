@@ -1552,6 +1552,51 @@ impl AuthoritativeState {
         super::controllers::commit_latest_action(lease, proposal).map_err(|error| error.to_string())
     }
 
+    /// Resolve one exact close only while the loop owns an unprepared source.
+    pub(crate) fn disconnect_controller(
+        &mut self,
+        lease_id: u64,
+        connection_id: u64,
+        disconnected_at_ms: u64,
+        boundary_at_ms: u64,
+    ) -> Result<bool, String> {
+        if self.candidate.phase != AuthorityPhase::Running {
+            return Err("disconnect requires running authority".to_owned());
+        }
+        let timing = super::controllers::ControllerTiming::from_config(&self.candidate.config)
+            .map_err(|error| error.to_string())?;
+        let world = &mut self.candidate.world;
+        let Some(lease) = world
+            .controller_leases
+            .iter_mut()
+            .find(|lease| lease.id == lease_id)
+        else {
+            return Ok(false);
+        };
+        if lease.connection_id != Some(connection_id)
+            || lease.status != ControllerLeaseStatus::Connected
+        {
+            return Ok(false);
+        }
+        let snake = world
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == lease.snake_id)
+            .ok_or_else(|| "controller disconnect lost its assigned snake".to_owned())?;
+        let proposal = super::controllers::prepare_queued_disconnect(
+            lease,
+            snake,
+            connection_id,
+            disconnected_at_ms,
+            boundary_at_ms,
+            timing,
+        )
+        .map_err(|error| error.to_string())?;
+        super::controllers::commit_disconnect(lease, snake, proposal)
+            .map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+
     /// Publish one fully staged running fixed step with one reversible swap.
     ///
     /// All fallible key checks happen before the swap. Complete mutable-state

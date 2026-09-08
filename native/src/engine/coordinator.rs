@@ -647,6 +647,12 @@ fn execute_running_authority_command(
             ));
         }
         match command {
+        RunningAuthorityCommand::DisconnectController(close) => running
+            .disconnect_controller(&close, wall_now_ms)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|applied| RunningAuthorityEvent::ControllerDisconnected {
+                command_sequence, lease_id: close.lease_id, completed_step: running.completed_step(), applied,
+            }),
         RunningAuthorityCommand::SubmitControllerAction(action) => running
             .apply_controller_action(command_sequence, &action, wall_now_ms)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
@@ -803,7 +809,8 @@ fn running_response_owned_byte_bound(
         }
         RunningAuthorityCommand::SubmitGenerationAssignmentReceipts { .. }
         | RunningAuthorityCommand::SubmitControllerDeliveryReceipts { .. }
-        | RunningAuthorityCommand::SubmitControllerAction(_) => 0,
+        | RunningAuthorityCommand::SubmitControllerAction(_)
+        | RunningAuthorityCommand::DisconnectController(_) => 0,
         RunningAuthorityCommand::PublishAcknowledgedGenerationStart => {
             // Every unavailable record is a unique old-controller outcome and
             // retains exactly that source controller's scope and known token.
@@ -1178,6 +1185,66 @@ mod tests {
         );
         assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
         running
+    }
+
+    #[test]
+    fn disconnect_output_capacity_preserves_lease_and_original_close_time() {
+        let mut running = ordinary_controller_loop();
+        let origin = Instant::now();
+        running.set_background_clock(origin);
+        let before = running.generation_source_controller_leases()[0].clone();
+        let close = super::super::contract::ControllerDisconnectRequest {
+            lease_id: before.id,
+            connection_id: before.connection_id.unwrap(),
+            received_at: origin + Duration::from_millis(1250),
+        };
+        let batch = CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: vec![SequencedCommand {
+                sequence: 100,
+                command: EngineCommand::RunningAuthority(
+                    RunningAuthorityCommand::DisconnectController(close),
+                ),
+            }]
+            .into_boxed_slice(),
+        };
+        let output = output_with_cap(1024 * 1024);
+        for sequence in 0..background_generation_handoff_runtime_init()
+            .output
+            .max_reliable
+        {
+            output
+                .push_reliable(ReliableEvent::ProbeResult {
+                    sequence: sequence as u64,
+                    correlation_id: 0,
+                    payload: Vec::new(),
+                })
+                .unwrap();
+        }
+        let metrics = RunningAuthorityMetrics::new(&running);
+        let state = CoordinatorState::new();
+        assert!(process_running_command_batch(
+            batch.clone(),
+            &output,
+            &state,
+            &mut running,
+            &metrics,
+            1500
+        )
+        .is_err());
+        assert_eq!(running.generation_source_controller_leases()[0], before);
+        output.drain(usize::MAX, usize::MAX);
+        process_running_command_batch(batch.clone(), &output, &state, &mut running, &metrics, 1500)
+            .unwrap();
+        let after = running.generation_source_controller_leases()[0].clone();
+        assert_eq!(after.connection_id, None);
+        assert_eq!(after.disconnected_at_ms, Some(1250));
+        assert_eq!(after.grace_expires_at_ms, Some(31_250));
+        assert_eq!(after.last_observed_at_ms, 1500);
+        process_running_command_batch(batch, &output, &state, &mut running, &metrics, 1700)
+            .unwrap();
+        assert_eq!(running.generation_source_controller_leases()[0], after);
+        assert_eq!(running.completed_step(), 1);
     }
 
     #[test]

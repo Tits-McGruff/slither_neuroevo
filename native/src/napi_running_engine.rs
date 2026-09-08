@@ -188,6 +188,19 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Queue a socket close for the next eligible pre-step boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_disconnect(
+        &self,
+        sequence: JsString<'_>,
+        close: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::DisconnectController(parse_controller_disconnect(&close)?),
+        )
+    }
+
     /// Queue steering for the next eligible pre-step boundary.
     #[napi(catch_unwind)]
     pub fn submit_controller_action(
@@ -409,6 +422,27 @@ impl Drop for DrainGuard<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
     }
+}
+
+/// Correlate a close to the exact socket/assignment and stamp it inside Rust.
+pub(crate) fn parse_controller_disconnect(
+    close: &Object<'_>,
+) -> Result<crate::engine::contract::ControllerDisconnectRequest> {
+    let lease_id = parse_u64_hex(
+        &bounded_object_string(close, "leaseId", 16)?,
+        "leaseId",
+        false,
+    )?;
+    let connection_id = parse_u64_hex(
+        &bounded_object_string(close, "connectionId", 16)?,
+        "connectionId",
+        false,
+    )?;
+    Ok(crate::engine::contract::ControllerDisconnectRequest {
+        lease_id,
+        connection_id,
+        received_at: std::time::Instant::now(),
+    })
 }
 
 /// Validate wire values before recording the action's Rust-owned receipt time.

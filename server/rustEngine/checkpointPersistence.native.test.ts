@@ -5,9 +5,10 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { RustBackgroundControllerAction, RustBackgroundControllerMessage, RustControllerReceiptResolution, RustGenerationAssignmentReceipt } from '../../src/protocol/rustBackground.ts';
+import type { RustBackgroundControllerAction, RustBackgroundControllerDisconnect, RustBackgroundControllerMessage, RustControllerReceiptResolution, RustGenerationAssignmentReceipt } from '../../src/protocol/rustBackground.ts';
 import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
 import { ControllerDeliveryRouter } from './controllerDelivery.ts';
+import { BackgroundCommandAdmission } from './commandAdmission.ts';
 import { GenerationPersistenceHandoff } from './generationPersistenceHandoff.ts';
 import { RunStartPersistenceHandoff } from './runStartPersistenceHandoff.ts';
 import {
@@ -331,6 +332,8 @@ interface Stage6BackgroundGenerationHandoffSession {
   submitControllerDeliveryReceipt(sequenceHex: string, receipt: RustGenerationAssignmentReceipt): void;
   /** Queue one latest action behind the current retained ordinary step. */
   submitControllerAction(sequenceHex: string, action: RustBackgroundControllerAction): void;
+  /** Close the exact retained assignment at the next eligible boundary. */
+  submitControllerDisconnect(sequenceHex: string, close: RustBackgroundControllerDisconnect): void;
   /** Drain typed bounded output. */
   drainOutputs(maxEvents: number, maxOwnedBytes: number): {
     events: Stage6BackgroundGenerationEvent[];
@@ -1343,15 +1346,19 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
           turn: 0.75, boost: false, clientTick: '000000000000002a'
         };
         expect(() => session.submitControllerAction('000000000000000f', { ...action, turn: NaN })).toThrow();
-        session.submitControllerAction('000000000000000f', action);
         let admitReceipt = false;
+        const admission = new BackgroundCommandAdmission({
+          submitControllerDeliveryReceipt(sequence, completion) {
+            if (!admitReceipt) throw new Error('QueueCountLimit: injected transport receipt backpressure');
+            session.submitControllerDeliveryReceipt(sequence, completion);
+          }
+        }, 15n);
+        expect(admission.trySubmitControl(sequence => session.submitControllerAction(sequence, action))).toBe(true);
         const router = new ControllerDeliveryRouter(1, {
           send(connectionId, message) { sent.push({ connectionId, message }); return true; },
-          nextSequence() { return '0000000000000010'; },
+          nextSequence() { return admission.nextSequence(); },
           trySubmitReceipt(sequence, completion) {
-            if (!admitReceipt) return false;
-            session.submitControllerDeliveryReceipt(sequence, completion);
-            return true;
+            return admission.trySubmitReceipt(sequence, completion);
           }
         });
         expect(router.deliver(messages!)).toBe(true);
@@ -1371,6 +1378,25 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000f'))
           .resolves.toMatchObject({ kind: 'controllerActionApplied', controllerActionCompletedStep: '0000000000000002' });
         await waitForBackgroundHealth(session, health => health.completedStep === '0000000000000002');
+
+        const nextOrdinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages');
+        const nextObservation = nextOrdinary.controllerMessages![0]!;
+        expect(nextObservation.sourceCompletedStep).toBe('0000000000000002');
+        const close = { leaseId: nextObservation.leaseId, connectionId: nextObservation.connectionId };
+        expect(admission.trySubmitControl(sequence => session.submitControllerDisconnect(sequence, close))).toBe(true);
+        expect(session.health().completedStep).toBe('0000000000000002');
+        expect(admission.trySubmitReceipt(admission.nextSequence(), {
+          operationEpoch: nextObservation.operationEpoch, eventSequence: nextObservation.eventSequence,
+          ...close, accepted: true
+        })).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '0000000000000011'))
+          .resolves.toMatchObject({ kind: 'controllerDisconnected', controllerDisconnect: {
+            leaseId: close.leaseId, completedStep: '0000000000000003', applied: true
+          } });
+        expect(admission.trySubmitControl(sequence => session.submitControllerDisconnect(sequence, close))).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '0000000000000013'))
+          .resolves.toMatchObject({ kind: 'controllerDisconnected', controllerDisconnect: { applied: false } });
+        await waitForBackgroundHealth(session, health => BigInt(`0x${health.completedStep}`) >= 3n);
 
         await closeClient(client);
         expect(readCurrentPointer(paths.databasePath, runStart.runId)).toEqual({

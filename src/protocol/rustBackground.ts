@@ -76,6 +76,14 @@ export interface RustBackgroundControllerAction {
   clientTick: RustBackgroundIdentity;
 }
 
+/** Socket close routed with exact assignment identity and a Rust-owned receipt clock. */
+export interface RustBackgroundControllerDisconnect {
+  /** Rust assignment epoch. */
+  leaseId: RustBackgroundIdentity;
+  /** Live transport epoch being closed. */
+  connectionId: RustBackgroundIdentity;
+}
+
 /** Exact local-send result for a Rust-issued generation assignment. */
 export interface RustGenerationAssignmentReceipt {
   /** Rust operation epoch. */
@@ -164,6 +172,15 @@ export interface RustBackgroundEvent {
   controllerActionLeaseId?: RustBackgroundIdentity;
   /** Completed-step boundary before the accepted action can affect physics. */
   controllerActionCompletedStep?: RustBackgroundIdentity;
+  /** Exact close result; false means stale or already disconnected. */
+  controllerDisconnect?: {
+    /** Requested assignment epoch. */
+    leaseId: RustBackgroundIdentity;
+    /** Source boundary at close application. */
+    completedStep: RustBackgroundIdentity;
+    /** Whether this result changed the connected lease. */
+    applied: boolean;
+  };
   /** Recoverable command rejection category. */
   rejectionCode?: string;
   /** Bounded rejection detail. */

@@ -191,5 +191,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   mutation, and delayed actions retain their original hold deadline. Focused
   queue and real addon regressions cover deferred application and exact retry.
 
-The next dependency is controller join/disconnect/reclaim integration and the
-shared ordered Node command pump, then experimental server startup.
+- 2026-09-09 Explicit socket closes use the same deferred source boundary and
+  preserve their original hold/grace deadlines. Stale or duplicate closes do
+  not modify a newer lease. The thin Node admission adapter keeps receipt
+  retries on one sequence while allowing a required receipt past an unadmitted
+  action. Rust capacity/timing tests and the real addon handoff cover both paths.
+
+The next dependency is controller join/reclaim integration, then experimental
+server startup using the shared Node command admission and transport adapters.

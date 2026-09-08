@@ -367,6 +367,14 @@ pub struct Stage6BackgroundGenerationStart {
     pub unavailable_controllers: Vec<Stage6BackgroundUnavailableController>,
 }
 
+/// Result of applying one correlated close at a fresh source boundary.
+#[napi(object)]
+pub struct BackgroundControllerDisconnect {
+    pub lease_id: String,
+    pub completed_step: String,
+    pub applied: bool,
+}
+
 /// One typed output drained from the real background runtime.
 #[napi(object)]
 pub struct BackgroundControllerMessage {
@@ -412,6 +420,7 @@ pub struct Stage6BackgroundGenerationEvent {
     pub controller_receipt_resolution: Option<BackgroundControllerReceiptResolution>,
     pub controller_action_lease_id: Option<String>,
     pub controller_action_completed_step: Option<String>,
+    pub controller_disconnect: Option<BackgroundControllerDisconnect>,
     pub rejection_code: Option<String>,
     pub rejection_detail: Option<String>,
     pub fault_code: Option<String>,
@@ -1635,6 +1644,21 @@ impl Stage6BackgroundGenerationHandoffFixtureSession {
         )
     }
 
+    /// Queue a socket close without invalidating a retained ordinary step.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_disconnect(
+        &self,
+        sequence_hex: JsString<'_>,
+        close: Object<'_>,
+    ) -> Result<()> {
+        self.submit_control(
+            parse_background_sequence(sequence_hex)?,
+            RunningAuthorityCommand::DisconnectController(
+                crate::napi_running_engine::parse_controller_disconnect(&close)?,
+            ),
+        )
+    }
+
     /// Queue steering for the next eligible pre-step boundary.
     #[napi(catch_unwind)]
     pub fn submit_controller_action(
@@ -2732,6 +2756,20 @@ fn running_authority_event_to_napi(
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
     let mut output = empty_background_generation_event();
     match event {
+        RunningAuthorityEvent::ControllerDisconnected {
+            command_sequence,
+            lease_id,
+            completed_step,
+            applied,
+        } => {
+            output.kind = "controllerDisconnected".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.controller_disconnect = Some(BackgroundControllerDisconnect {
+                lease_id: u64_hex(lease_id),
+                completed_step: u64_hex(completed_step),
+                applied,
+            });
+        }
         RunningAuthorityEvent::ControllerActionApplied {
             command_sequence,
             lease_id,
@@ -2979,6 +3017,7 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         controller_receipt_resolution: None,
         controller_action_lease_id: None,
         controller_action_completed_step: None,
+        controller_disconnect: None,
         rejection_code: None,
         rejection_detail: None,
         fault_code: None,

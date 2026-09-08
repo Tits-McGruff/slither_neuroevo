@@ -228,6 +228,7 @@ pub struct DisconnectProposal {
     expected: LeaseSnapshot,
     expected_snake: SnakeControlSnapshot,
     disconnected_at_ms: u64,
+    boundary_at_ms: u64,
     input_hold_expires_at_ms: u64,
     grace_expires_at_ms: u64,
     next_status: ControllerLeaseStatus,
@@ -333,6 +334,26 @@ pub fn prepare_disconnect(
     disconnected_at_ms: u64,
     timing: ControllerTiming,
 ) -> Result<DisconnectProposal, ControllerError> {
+    prepare_queued_disconnect(
+        lease,
+        snake,
+        connection_id,
+        disconnected_at_ms,
+        disconnected_at_ms,
+        timing,
+    )
+}
+
+/// Preserve the actual close time when its command waited behind a retained step.
+/// Applying later never extends the hold or exclusive reclaim grace deadlines.
+pub fn prepare_queued_disconnect(
+    lease: &ControllerLease,
+    snake: &SnakeState,
+    connection_id: u64,
+    disconnected_at_ms: u64,
+    boundary_at_ms: u64,
+    timing: ControllerTiming,
+) -> Result<DisconnectProposal, ControllerError> {
     validate_pair(lease, snake)?;
     if lease.status != ControllerLeaseStatus::Connected {
         return Err(ControllerError::LeaseNotConnected(lease.status));
@@ -349,10 +370,10 @@ pub fn prepare_disconnect(
             current_ms: disconnected_at_ms,
         });
     }
-    if disconnected_at_ms < lease.last_observed_at_ms {
+    if boundary_at_ms < lease.last_observed_at_ms || boundary_at_ms < disconnected_at_ms {
         return Err(ControllerError::WallClockRegressed {
-            previous_ms: lease.last_observed_at_ms,
-            current_ms: disconnected_at_ms,
+            previous_ms: lease.last_observed_at_ms.max(disconnected_at_ms),
+            current_ms: boundary_at_ms,
         });
     }
     let input_hold_expires_at_ms = checked_deadline(
@@ -365,7 +386,7 @@ pub fn prepare_disconnect(
         timing.disconnect_grace_ms,
         "controller disconnect grace",
     )?;
-    let (next_status, source) = if disconnected_at_ms < input_hold_expires_at_ms {
+    let (next_status, source) = if boundary_at_ms < input_hold_expires_at_ms {
         (
             ControllerLeaseStatus::HoldingLastInput,
             ExternalControlSource::HeldAction {
@@ -383,6 +404,7 @@ pub fn prepare_disconnect(
         expected: LeaseSnapshot::capture(lease),
         expected_snake: SnakeControlSnapshot::capture(snake),
         disconnected_at_ms,
+        boundary_at_ms,
         input_hold_expires_at_ms,
         grace_expires_at_ms,
         next_status,
@@ -438,7 +460,7 @@ pub(super) fn commit_disconnect_prevalidated(
     lease.input_hold_expires_at_ms = Some(proposal.input_hold_expires_at_ms);
     lease.grace_expires_at_ms = Some(proposal.grace_expires_at_ms);
     lease.takeover_committed_at_ms = None;
-    lease.last_observed_at_ms = proposal.disconnected_at_ms;
+    lease.last_observed_at_ms = proposal.boundary_at_ms;
     apply_external_source(snake, proposal.source);
 }
 
@@ -918,6 +940,34 @@ mod tests {
             arrival_sequence,
             accepted_at_ms,
         }
+    }
+
+    #[test]
+    fn delayed_disconnect_keeps_original_grace_and_does_not_revive_held_boost() {
+        let mut lease = lease();
+        let mut snake = snake();
+        lease.last_observed_at_ms = 1_700;
+        assert!(prepare_disconnect(&lease, &snake, 11, 1_200, TIMING).is_err());
+        assert!(prepare_queued_disconnect(&lease, &snake, 10, 1_200, 1_800, TIMING).is_err());
+        let proposal = prepare_queued_disconnect(&lease, &snake, 11, 1_200, 1_800, TIMING).unwrap();
+        commit_disconnect(&mut lease, &mut snake, proposal).unwrap();
+        assert_eq!(lease.disconnected_at_ms, Some(1_200));
+        assert_eq!(lease.grace_expires_at_ms, Some(31_200));
+        assert_eq!(lease.last_observed_at_ms, 1_800);
+        assert_eq!(lease.status, ControllerLeaseStatus::ReservedNeutral);
+        assert!(!snake.input_boost);
+        assert_eq!(
+            prepare_controller_boundary(&lease, &snake, 31_199, TIMING)
+                .unwrap()
+                .source(),
+            ExternalControlSource::ReservedNeutral
+        );
+        assert_eq!(
+            prepare_controller_boundary(&lease, &snake, 31_200, TIMING)
+                .unwrap()
+                .source(),
+            ExternalControlSource::NeuralTakeover
+        );
     }
 
     #[test]

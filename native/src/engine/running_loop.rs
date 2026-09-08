@@ -311,15 +311,7 @@ impl RunningAuthorityLoop {
         if self.state != RunningAuthorityLoopState::Ready {
             return Err("controller action requires an unprepared step boundary".to_owned());
         }
-        let origin = self
-            .background_clock
-            .ok_or_else(|| "background clock is missing".to_owned())?;
-        let received = action
-            .received_at
-            .checked_duration_since(origin)
-            .unwrap_or_default();
-        let accepted_at_ms = u64::try_from(received.as_millis())
-            .map_err(|_| "controller clock overflow".to_owned())?;
+        let accepted_at_ms = self.controller_receipt_ms(action.received_at)?;
         self.authority.apply_controller_action(
             super::controllers::LatestActionInput {
                 lease_id: action.lease_id,
@@ -330,6 +322,38 @@ impl RunningAuthorityLoop {
                 arrival_sequence: sequence,
                 accepted_at_ms,
             },
+            wall_now_ms,
+        )
+    }
+
+    /// Convert a transport receipt to the scheduler's one elapsed-time domain.
+    fn controller_receipt_ms(&self, received_at: std::time::Instant) -> Result<u64, String> {
+        let origin = self
+            .background_clock
+            .ok_or_else(|| "background clock is missing".to_owned())?;
+        u64::try_from(
+            received_at
+                .checked_duration_since(origin)
+                .unwrap_or_default()
+                .as_millis(),
+        )
+        .map_err(|_| "controller clock overflow".to_owned())
+    }
+
+    /// Preserve the staged step and apply a correlated close only after it retires.
+    pub(crate) fn disconnect_controller(
+        &mut self,
+        close: &super::contract::ControllerDisconnectRequest,
+        wall_now_ms: u64,
+    ) -> Result<bool, String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("controller disconnect requires an unprepared step boundary".to_owned());
+        }
+        let disconnected_at_ms = self.controller_receipt_ms(close.received_at)?;
+        self.authority.disconnect_controller(
+            close.lease_id,
+            close.connection_id,
+            disconnected_at_ms,
             wall_now_ms,
         )
     }
