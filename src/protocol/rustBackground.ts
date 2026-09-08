@@ -1,6 +1,39 @@
 /** Exact fixed-width unsigned identity emitted by the Rust background bridge. */
 export type RustBackgroundIdentity = string;
 
+/** Cached stats from the same committed boundary as the Rust-packed frame. */
+export interface RustBackgroundDisplay {
+  /** Monotonic display publication, independent of command sequences. */
+  sequence: RustBackgroundIdentity;
+  /** Published authority incarnation. */
+  worldEpoch: RustBackgroundIdentity;
+  /** Completed fixed-step chronology. */
+  completedStep: RustBackgroundIdentity;
+  /** Published generation. */
+  generation: RustBackgroundIdentity;
+  /** Elapsed simulation seconds within this generation. */
+  generationTime: number;
+  /** Alive evolving population members. */
+  alivePopulation: number;
+  /** Alive built-in baseline bots. */
+  baselineBotsAlive: number;
+  /** Configured built-in baseline slots. */
+  baselineBotsTotal: number;
+  /** All snake records, including dead snakes omitted from the frame. */
+  totalSnakes: number;
+  /** Alive snakes packed into the frame. */
+  aliveSnakes: number;
+  /** Packed pellet count. */
+  pellets: number;
+  /** Cached byte length; welcome refresh never serializes the world. */
+  frameByteLength: number;
+}
+
+/** Every unsuccessful copy leaves both destination and latest cached frame intact. */
+export type RustBackgroundFrameCopy =
+  | { status: 'busy' | 'unchanged'; display?: never }
+  | { status: 'tooSmall' | 'copied'; display: RustBackgroundDisplay };
+
 /** Small operational snapshot; no authoritative game arrays cross this boundary. */
 export interface RustBackgroundHealth {
   /** Coordinator lifecycle, including orderly and faulted shutdown. */
@@ -61,6 +94,8 @@ export interface RustBackgroundEvent {
   receiptResolution?: unknown;
   /** Published successor and unavailable controller reservations. */
   generationStart?: unknown;
+  /** Replaceable basic stats and cached frame metadata, after priority events. */
+  display?: RustBackgroundDisplay;
   /** Recoverable command rejection category. */
   rejectionCode?: string;
   /** Bounded rejection detail. */
@@ -73,7 +108,7 @@ export interface RustBackgroundEvent {
 
 /** One bounded native output drain and its coalesced wake metadata. */
 export interface RustBackgroundDrain {
-  /** Prepared reliable events in queue priority order. */
+  /** Prepared events in queue priority order, ending with replaceable display stats. */
   events: RustBackgroundEvent[];
   /** Whether Node should schedule another bounded drain before sleeping. */
   moreWork: boolean;

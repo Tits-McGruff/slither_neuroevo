@@ -10,7 +10,31 @@ use super::contract::{
     CommandBatch, CompletedEvent, DiscreteEvent, EngineFault, FrameEvent, InboundLimits,
     OutputLimits, ReliableEvent, StatsEvent,
 };
+use super::display::RunningDisplayStatus;
 use super::error::{EngineError, EngineErrorCode};
+
+/// Probe payloads and real authority metadata share one replaceable status slot.
+#[derive(Debug)]
+enum ReplaceableStats {
+    Probe(StatsEvent),
+    Running(RunningDisplayStatus),
+}
+
+impl ReplaceableStats {
+    fn sequence(&self) -> u64 {
+        match self {
+            Self::Probe(event) => event.sequence,
+            Self::Running(event) => event.sequence,
+        }
+    }
+
+    fn owned_bytes(&self) -> usize {
+        match self {
+            Self::Probe(event) => event.payload.capacity(),
+            Self::Running(_) => std::mem::size_of::<RunningDisplayStatus>(),
+        }
+    }
+}
 
 /// Sink for one coalesced, payload-free notification to the future Node adapter.
 pub trait WakeSink: Send + Sync + 'static {
@@ -446,7 +470,7 @@ struct OutputState {
     reliable_owned_bytes: usize,
     discrete: VecDeque<DiscreteEvent>,
     discrete_owned_bytes: usize,
-    stats: Option<StatsEvent>,
+    stats: Option<ReplaceableStats>,
     frames: BTreeMap<u64, FrameEvent>,
     last_drained_frame_connection: Option<u64>,
     total_owned_bytes: usize,
@@ -931,19 +955,43 @@ impl OutputQueue {
 
     /// Retain only the newest stats item.
     pub fn replace_stats(&self, event: StatsEvent) -> Result<ReplaceResult, EngineError> {
-        let bytes = event.payload.capacity();
+        self.replace_status(ReplaceableStats::Probe(event))
+    }
+
+    /// Coalesce fixed-size display metadata behind every reliable/discrete result.
+    pub(crate) fn replace_running_display(
+        &self,
+        event: RunningDisplayStatus,
+    ) -> Result<ReplaceResult, EngineError> {
+        self.replace_status(ReplaceableStats::Running(event))
+    }
+
+    /// Display copies yield to already queued priority output and authority work.
+    pub(crate) fn display_copy_blocked(&self) -> bool {
+        let state = lock_recover(&self.state);
+        state.authority_reply_reserved
+            || state.terminal != OutputTerminalState::Open
+            || !state.reliable.is_empty()
+            || !state.discrete.is_empty()
+    }
+
+    fn replace_status(&self, event: ReplaceableStats) -> Result<ReplaceResult, EngineError> {
+        let bytes = event.owned_bytes();
         self.validate_event_size(bytes)?;
         let mut state = lock_recover(&self.state);
         ensure_output_open(&state)?;
         if state
             .stats
             .as_ref()
-            .is_some_and(|retained| event.sequence <= retained.sequence)
+            .is_some_and(|retained| event.sequence() <= retained.sequence())
         {
             state.stale_stats = state.stale_stats.saturating_add(1);
             return Ok(ReplaceResult::Stale);
         }
-        let old_bytes = state.stats.as_ref().map_or(0, |old| old.payload.capacity());
+        let old_bytes = state
+            .stats
+            .as_ref()
+            .map_or(0, ReplaceableStats::owned_bytes);
         let base = state.total_owned_bytes.saturating_sub(old_bytes);
         let Some(next_total) = base.checked_add(bytes) else {
             state.stats_rejections = state.stats_rejections.saturating_add(1);
@@ -1222,7 +1270,7 @@ pub struct WakeMetrics {
 }
 
 /// One bounded output drain result.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DrainResult {
     /// Events in strict priority order.
     pub events: Vec<CompletedEvent>,
@@ -1262,9 +1310,7 @@ fn evict_replaceable_for(state: &mut OutputState, incoming: usize, limit: usize)
         return;
     }
     if let Some(stats) = state.stats.take() {
-        state.total_owned_bytes = state
-            .total_owned_bytes
-            .saturating_sub(stats.payload.capacity());
+        state.total_owned_bytes = state.total_owned_bytes.saturating_sub(stats.owned_bytes());
         state.stats_evictions = state.stats_evictions.saturating_add(1);
     }
     if state
@@ -1309,10 +1355,11 @@ fn pop_next(state: &mut OutputState) -> Option<CompletedEvent> {
         return Some(CompletedEvent::Discrete(event));
     }
     if let Some(event) = state.stats.take() {
-        state.total_owned_bytes = state
-            .total_owned_bytes
-            .saturating_sub(event.payload.capacity());
-        return Some(CompletedEvent::Stats(event));
+        state.total_owned_bytes = state.total_owned_bytes.saturating_sub(event.owned_bytes());
+        return Some(match event {
+            ReplaceableStats::Probe(event) => CompletedEvent::Stats(event),
+            ReplaceableStats::Running(event) => CompletedEvent::RunningDisplay(event),
+        });
     }
     let oldest_sequence = state.frames.values().map(|frame| frame.sequence).min()?;
     let after_cursor = state.last_drained_frame_connection.and_then(|cursor| {
@@ -1358,7 +1405,13 @@ fn restore_front(state: &mut OutputState, event: CompletedEvent) {
             state.total_owned_bytes = state
                 .total_owned_bytes
                 .saturating_add(event.payload.capacity());
-            state.stats = Some(event);
+            state.stats = Some(ReplaceableStats::Probe(event));
+        }
+        CompletedEvent::RunningDisplay(event) => {
+            state.total_owned_bytes = state
+                .total_owned_bytes
+                .saturating_add(std::mem::size_of::<RunningDisplayStatus>());
+            state.stats = Some(ReplaceableStats::Running(event));
         }
         CompletedEvent::Frame(event) => {
             state.total_owned_bytes = state

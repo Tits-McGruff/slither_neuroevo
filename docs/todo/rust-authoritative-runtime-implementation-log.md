@@ -163,5 +163,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   durability, autonomous fixed steps, queued rejection/wake delivery and joined
   shutdown. The coarse Node handle exposes the retained generation queue path.
 
-The next dependency is continuous Rust frame/stats and ordinary controller
-delivery, then experimental server startup and browser/Protocol 2 routing.
+- 2026-09-08 The production background runtime continuously caches committed
+  frame-v1 bytes and coalesced basic stats. One admitted Rust buffer and two
+  bounded Node send buffers preserve in-flight bytes while newer frames replace
+  unsent visuals. Cached welcome metadata requires no additional serialization.
+  Regression tests cover queue priority, undersized-copy retry, shared-memory
+  rejection and send-buffer reuse through the real addon. Frame selection pins
+  the cache before checking lifecycle priority, closing a reviewed copy race.
+
+The next dependency is ordinary controller command/delivery integration, then
+experimental server startup and browser/Protocol 2 routing.

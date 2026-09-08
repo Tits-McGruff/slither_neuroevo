@@ -13,6 +13,7 @@ use super::coordinator::{
     fault_and_stop, panic_error, run_coordinator, run_running_coordinator, CoordinatorState,
     LifecycleState, RunningAuthorityMetrics,
 };
+use super::display::{FrameCopyResult, RunningDisplayCache, RunningDisplayStatus};
 use super::error::{EngineError, EngineErrorCode};
 use super::queues::{
     DrainResult, InboundMetrics, InboundQueue, OutputMetrics, OutputQueue, WakeMetrics, WakeSink,
@@ -110,6 +111,7 @@ enum RuntimeMode {
         loop_slot: Arc<Mutex<Option<RunningAuthorityLoop>>>,
         metrics: Arc<RunningAuthorityMetrics>,
         memory_bytes: usize,
+        display: Option<Arc<RunningDisplayCache>>,
     },
     /// Exercise only the coarse bridge; no game state exists in this mode.
     ExperimentalProbe,
@@ -162,6 +164,24 @@ impl EngineRuntime {
         running: RunningAuthorityLoop,
         wake_sink: Arc<dyn WakeSink>,
     ) -> Result<Self, RunningAuthorityRuntimeCreationError> {
+        Self::create_running_authority(init, running, wake_sink, false)
+    }
+
+    /// Production handoff with one reusable display allocation charged to state admission.
+    pub fn new_running_authority_with_display(
+        init: EngineInit,
+        running: RunningAuthorityLoop,
+        wake_sink: Arc<dyn WakeSink>,
+    ) -> Result<Self, RunningAuthorityRuntimeCreationError> {
+        Self::create_running_authority(init, running, wake_sink, true)
+    }
+
+    fn create_running_authority(
+        init: EngineInit,
+        running: RunningAuthorityLoop,
+        wake_sink: Arc<dyn WakeSink>,
+        enable_display: bool,
+    ) -> Result<Self, RunningAuthorityRuntimeCreationError> {
         if let Err(error) = init.validate() {
             return Err(RunningAuthorityRuntimeCreationError::new(running, error));
         }
@@ -186,6 +206,25 @@ impl EngineRuntime {
             ));
         }
         let memory_bytes = running.authoritative_memory_bytes();
+        let display = if enable_display {
+            if init.output.max_event_owned_bytes < std::mem::size_of::<RunningDisplayStatus>() {
+                return Err(RunningAuthorityRuntimeCreationError::new(
+                    running,
+                    EngineError::new(
+                        EngineErrorCode::InvalidConfiguration,
+                        "running authority output must fit display metadata",
+                    ),
+                ));
+            }
+            match RunningDisplayCache::new(running.admitted_frame_bytes()) {
+                Ok(cache) => Some(Arc::new(cache)),
+                Err(error) => {
+                    return Err(RunningAuthorityRuntimeCreationError::new(running, error))
+                }
+            }
+        } else {
+            None
+        };
         let metrics = Arc::new(RunningAuthorityMetrics::new(&running));
         Ok(Self::new_with_validated_mode(
             init,
@@ -193,6 +232,7 @@ impl EngineRuntime {
                 loop_slot: Arc::new(Mutex::new(Some(running))),
                 metrics,
                 memory_bytes,
+                display,
             },
             wake_sink,
         ))
@@ -248,6 +288,34 @@ impl EngineRuntime {
         }
     }
 
+    /// Cached welcome/frame metadata; never locks or traverses the live world.
+    pub fn latest_display(&self) -> Result<Option<RunningDisplayStatus>, EngineError> {
+        match &self.mode {
+            RuntimeMode::RunningAuthority {
+                display: Some(display),
+                ..
+            } => display.latest(),
+            _ => Ok(None),
+        }
+    }
+
+    /// Synchronously copy into caller-owned storage, yielding to priority output.
+    pub fn copy_latest_frame(
+        &self,
+        destination: &mut [u8],
+        after_sequence: u64,
+    ) -> Result<FrameCopyResult, EngineError> {
+        match &self.mode {
+            RuntimeMode::RunningAuthority {
+                display: Some(display),
+                ..
+            } => display.copy_latest(destination, after_sequence, || {
+                !self.output.display_copy_blocked()
+            }),
+            _ => Ok(FrameCopyResult::Unchanged),
+        }
+    }
+
     /// Borrow the retained state only for internal Rust tests; it is never an N-API surface.
     #[cfg(test)]
     pub(crate) fn authoritative_state_for_test(
@@ -286,15 +354,25 @@ impl EngineRuntime {
         let coordinator = self.coordinator.clone();
         let running_work = match &self.mode {
             RuntimeMode::RunningAuthority {
-                loop_slot, metrics, ..
-            } => Some((Arc::clone(loop_slot), Arc::clone(metrics))),
+                loop_slot,
+                metrics,
+                display,
+                ..
+            } => Some((Arc::clone(loop_slot), Arc::clone(metrics), display.clone())),
             RuntimeMode::Authoritative(_) | RuntimeMode::ExperimentalProbe => None,
         };
         let spawn = Builder::new()
             .name("slither-engine-coordinator".to_owned())
             .spawn(move || {
-                if let Some((loop_slot, metrics)) = running_work {
-                    run_running_thread_root(&inbound, &output, &coordinator, &loop_slot, &metrics);
+                if let Some((loop_slot, metrics, display)) = running_work {
+                    run_running_thread_root(
+                        &inbound,
+                        &output,
+                        &coordinator,
+                        &loop_slot,
+                        &metrics,
+                        display.as_deref(),
+                    );
                 } else {
                     let result = catch_unwind(AssertUnwindSafe(|| {
                         run_coordinator(&inbound, &output, &coordinator);
@@ -487,6 +565,7 @@ fn run_running_thread_root(
     coordinator: &Arc<CoordinatorState>,
     loop_slot: &Arc<Mutex<Option<RunningAuthorityLoop>>>,
     metrics: &Arc<RunningAuthorityMetrics>,
+    display: Option<&RunningDisplayCache>,
 ) {
     let Some(mut running) = lock_recover(loop_slot).take() else {
         fault_and_stop(
@@ -502,7 +581,7 @@ fn run_running_thread_root(
     };
 
     let result = catch_unwind(AssertUnwindSafe(|| {
-        run_running_coordinator(inbound, output, coordinator, &mut running, metrics)
+        run_running_coordinator(inbound, output, coordinator, &mut running, metrics, display)
     }));
     metrics.observe(&running);
     let prior = lock_recover(loop_slot).replace(running);

@@ -7,6 +7,7 @@
 //! and reusable frame storage.
 
 use super::checkpoint::{CheckpointDescriptor, CheckpointLimits, CheckpointOperationId};
+use super::display::RunningDisplayStatus;
 use super::frame_v1::{
     pack_authoritative_frame_v1_into, FrameV1Error, FrameV1Metadata, FrameV1ViewDescriptor,
 };
@@ -321,6 +322,39 @@ impl RunningAuthorityLoop {
     #[must_use]
     pub fn admitted_frame_bytes(&self) -> usize {
         self.authority.memory_estimate().frame_bytes
+    }
+
+    /// Read only the published authority and never grow the admitted display buffer.
+    pub(crate) fn pack_display_into(
+        &self,
+        sequence: u64,
+        output: &mut Vec<u8>,
+    ) -> Result<RunningDisplayStatus, FrameV1Error> {
+        let frame = super::frame_v1::pack_authoritative_frame_v1_bounded_into(
+            &self.authority,
+            FrameV1ViewDescriptor::default(),
+            output,
+            output.capacity(),
+        )?;
+        let state = self.authority.state();
+        let mut alive_population = 0;
+        let mut baseline_bots_alive = 0;
+        for snake in &state.world.snakes {
+            if snake.alive {
+                alive_population += usize::from(snake.population_slot.is_some());
+                baseline_bots_alive += usize::from(snake.baseline_slot.is_some());
+            }
+        }
+        Ok(RunningDisplayStatus {
+            sequence,
+            world_epoch: self.world_epoch(),
+            completed_step: self.completed_step(),
+            generation_time: state.generation.elapsed_seconds,
+            alive_population,
+            baseline_bots_alive,
+            baseline_bots_total: state.config.baseline_count,
+            frame,
+        })
     }
 
     /// Total admitted authoritative-state bytes as bounded runtime metadata.

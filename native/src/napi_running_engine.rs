@@ -5,22 +5,64 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use napi::bindgen_prelude::{AsyncTask, Object};
-use napi::{Error, JsString, Result, Status};
+use napi::{Env, Error, JsString, JsValue, Result, Status};
 use napi_derive::napi;
 
 use crate::engine::contract::{
     CommandBatch, EngineCommand, ExternalDeliveryReceipt, RunningAuthorityCommand,
     SequencedCommand, ENGINE_CONTRACT_VERSION,
 };
+use crate::engine::display::{FrameCopyResult, RunningDisplayStatus};
 use crate::engine::error::{EngineError, EngineErrorCode};
 use crate::engine::runtime::EngineRuntime;
 use crate::napi_engine::{
-    background_generation_event_to_napi, background_generation_health_to_napi,
+    background_generation_event_to_napi, background_generation_health_to_napi, bounded_js_string,
     bounded_object_string, checkpoint_descriptor_from_napi_object, engine_error_to_napi,
     parse_background_sequence, parse_managed_checkpoint_publication_options, parse_u64_hex,
     positive_usize, u64_hex, JoinEngineTask, Stage6BackgroundGenerationDrain,
     Stage6BackgroundGenerationHealth,
 };
+
+/// Cached frame chronology and basic stats; no population or world objects.
+#[napi(object)]
+pub struct BackgroundDisplayStatus {
+    pub sequence: String,
+    pub world_epoch: String,
+    pub completed_step: String,
+    pub generation: String,
+    pub generation_time: f64,
+    pub alive_population: u32,
+    pub baseline_bots_alive: u32,
+    pub baseline_bots_total: u32,
+    pub total_snakes: u32,
+    pub alive_snakes: u32,
+    pub pellets: u32,
+    pub frame_byte_length: f64,
+}
+
+pub(crate) fn display_status_to_napi(status: RunningDisplayStatus) -> BackgroundDisplayStatus {
+    BackgroundDisplayStatus {
+        sequence: u64_hex(status.sequence),
+        world_epoch: u64_hex(status.world_epoch),
+        completed_step: u64_hex(status.completed_step),
+        generation: u64_hex(status.frame.generation),
+        generation_time: status.generation_time,
+        alive_population: status.alive_population as u32,
+        baseline_bots_alive: status.baseline_bots_alive as u32,
+        baseline_bots_total: status.baseline_bots_total as u32,
+        total_snakes: status.frame.total_snakes as u32,
+        alive_snakes: status.frame.alive_snakes as u32,
+        pellets: status.frame.pellets as u32,
+        frame_byte_length: status.frame.byte_length as f64,
+    }
+}
+
+/// A caller can retry busy/too-small copies without consuming the retained frame.
+#[napi(object)]
+pub struct BackgroundFrameCopy {
+    pub status: String,
+    pub display: Option<BackgroundDisplayStatus>,
+}
 
 /// The fresh-run session can create this handle only by transferring its sole
 /// activated authority. JavaScript cannot construct it or supply a world.
@@ -225,6 +267,106 @@ impl ExperimentalRunningAuthority {
         self.root(|| {
             background_generation_health_to_napi(self.runtime.health())
                 .map_err(engine_error_to_napi)
+        })
+    }
+
+    /// Read cached welcome metadata without repacking or waiting on the authority.
+    #[napi(catch_unwind)]
+    pub fn latest_display(&self) -> Result<Option<BackgroundDisplayStatus>> {
+        self.root(|| {
+            self.runtime
+                .latest_display()
+                .map(|status| status.map(display_status_to_napi))
+                .map_err(engine_error_to_napi)
+        })
+    }
+
+    /// Copy into a non-shared Uint8Array owned by Node until socket sends complete.
+    /// No JS callback runs while its mutable byte slice exists, and Rust retains none.
+    #[napi(catch_unwind)]
+    pub fn copy_latest_frame(
+        &self,
+        env: Env,
+        destination: Object<'_>,
+        after_sequence: JsString<'_>,
+    ) -> Result<BackgroundFrameCopy> {
+        let after_sequence = parse_u64_hex(
+            &bounded_js_string(after_sequence, "afterSequence", 16, false)?,
+            "afterSequence",
+            true,
+        )?;
+        self.root(|| {
+            let mut typed = false;
+            // SAFETY: env and destination are live values on this N-API call's JS thread.
+            napi::check_status!(unsafe {
+                napi::sys::napi_is_typedarray(env.raw(), destination.raw(), &mut typed)
+            })?;
+            if !typed {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "destination must be a non-shared Uint8Array",
+                ));
+            }
+            let mut kind = 0;
+            let mut length = 0;
+            let mut data = std::ptr::null_mut();
+            let mut backing = std::ptr::null_mut();
+            // SAFETY: the intrinsic typed-array query bypasses user properties. Returned
+            // backing and data remain rooted by destination throughout this synchronous call.
+            napi::check_status!(unsafe {
+                napi::sys::napi_get_typedarray_info(
+                    env.raw(),
+                    destination.raw(),
+                    &mut kind,
+                    &mut length,
+                    &mut data,
+                    &mut backing,
+                    std::ptr::null_mut(),
+                )
+            })?;
+            let mut ordinary_buffer = false;
+            // SAFETY: backing is the live intrinsic buffer returned above. SharedArrayBuffer
+            // is not an ArrayBuffer, and must be rejected before constructing a Rust slice.
+            napi::check_status!(unsafe {
+                napi::sys::napi_is_arraybuffer(env.raw(), backing, &mut ordinary_buffer)
+            })?;
+            if kind != napi::sys::TypedarrayType::uint8_array
+                || !ordinary_buffer
+                || (length > 0 && data.is_null())
+                || length > isize::MAX as usize
+            {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "destination must be a non-shared Uint8Array",
+                ));
+            }
+            let destination = if length == 0 {
+                &mut []
+            } else {
+                // SAFETY: the Uint8Array owns length initialized bytes starting at data,
+                // including its byte offset. Its non-shared backing cannot be concurrently
+                // resized/written; no JS callbacks occur until this borrow ends. The source
+                // is private Rust cache storage and cannot alias this destination.
+                unsafe { std::slice::from_raw_parts_mut(data.cast::<u8>(), length) }
+            };
+            let result = self
+                .runtime
+                .copy_latest_frame(destination, after_sequence)
+                .map_err(engine_error_to_napi)?;
+            let (status, display) = match result {
+                FrameCopyResult::Busy => ("busy", None),
+                FrameCopyResult::Unchanged => ("unchanged", None),
+                FrameCopyResult::TooSmall(display) => {
+                    ("tooSmall", Some(display_status_to_napi(display)))
+                }
+                FrameCopyResult::Copied(display) => {
+                    ("copied", Some(display_status_to_napi(display)))
+                }
+            };
+            Ok(BackgroundFrameCopy {
+                status: status.to_owned(),
+                display,
+            })
         })
     }
 

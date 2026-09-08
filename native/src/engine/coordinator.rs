@@ -325,6 +325,7 @@ pub(crate) fn run_running_coordinator(
     state: &Arc<CoordinatorState>,
     running: &mut RunningAuthorityLoop,
     metrics: &RunningAuthorityMetrics,
+    display: Option<&super::display::RunningDisplayCache>,
 ) -> Result<(), EngineError> {
     running.validate_background_start().map_err(|error| {
         EngineError::new(
@@ -339,6 +340,11 @@ pub(crate) fn run_running_coordinator(
     let mut batches = Vec::new();
     let mut announced_generation_source = None;
     loop {
+        if let Some(display) = display {
+            // The preceding command/service reservation has left scope. This
+            // sample cannot precede its reliable result or describe staged work.
+            display.publish_if_due(running, monotonic_elapsed_ms(wall_origin)?, output)?;
+        }
         match wait {
             RunningWait::Immediate => {}
             RunningWait::Timed(timeout) => {

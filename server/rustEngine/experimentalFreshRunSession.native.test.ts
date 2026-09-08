@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
+import type { RustBackgroundEvent, RustBackgroundFrameCopy } from '../../src/protocol/rustBackground.ts';
 import type { ExperimentalEngineInit } from './experimentalNativeBridge.ts';
 import { FRAME_HEADER_FLOATS, readFrameHeader } from '../../src/protocol/frame.ts';
 import {
@@ -506,6 +506,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
         lifecycle: 'created', worldEpoch: committed.transitionEpoch,
         generation: '0000000000000001', completedStep: '0000000000000000'
       });
+      expect(runtime.latestDisplay()).toBeNull();
       await expect(session.createBackgroundRuntime(BACKGROUND_INIT, wake)).rejects.toThrow(/already transferred/i);
       await expect(session.initialize()).rejects.toThrow(/already initialized/i);
       await expect(session.publishFirstScheduledFrameV1()).rejects.toThrow(/not been initialized/i);
@@ -519,6 +520,43 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
         await new Promise<void>(resolveImmediate => setImmediate(resolveImmediate));
       }
       expect(BigInt(`0x${runtime.health().completedStep}`)).toBeGreaterThanOrEqual(2n);
+      /** Drain priority output before trying the non-blocking cached frame copy. */
+      const copyFrame = async (destination: Uint8Array, afterSequence: string): Promise<RustBackgroundFrameCopy> => {
+        while (performance.now() < deadline) {
+          events.push(...runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes).events);
+          const result = runtime.copyLatestFrame(destination, afterSequence);
+          if (result.status === 'copied' || result.status === 'tooSmall') return result;
+          await new Promise<void>(resolveImmediate => setImmediate(resolveImmediate));
+        }
+        throw new Error('background display did not become available');
+      };
+      const short = new Uint8Array(7).fill(0xa5);
+      const rejectedCopy = await copyFrame(short, '0000000000000000');
+      expect(rejectedCopy.status).toBe('tooSmall');
+      expect([...short]).toEqual(Array(7).fill(0xa5));
+      expect(() => runtime.copyLatestFrame(short, 'x'.repeat(1_000))).toThrow(/afterSequence/i);
+      expect(() => runtime.copyLatestFrame(new Uint8Array(new SharedArrayBuffer(32)), '0000000000000000')).toThrow(/non-shared/i);
+      expect(() => runtime.copyLatestFrame(new Float32Array(8) as unknown as Uint8Array, '0000000000000000')).toThrow(/Uint8Array/i);
+      const backing = new Uint8Array(1024 * 1024 + 16).fill(0xa5);
+      const destination = backing.subarray(8, -8);
+      Object.defineProperty(destination, 'buffer', { get: () => { throw new Error('must use intrinsic storage'); } });
+      const first = await copyFrame(destination, '0000000000000000');
+      if (first.status !== 'copied') throw new Error('admitted Node buffer must fit the P0 frame');
+      const retained = backing.slice(8, 8 + first.display.frameByteLength);
+      expect(readFrameHeader(new Float32Array(retained.buffer))).toMatchObject({
+        generation: Number(BigInt(`0x${first.display.generation}`)),
+        totalSnakes: first.display.totalSnakes, aliveCount: first.display.aliveSnakes
+      });
+      expect([...backing.subarray(0, 8)]).toEqual(Array(8).fill(0xa5));
+      expect([...backing.subarray(-8)]).toEqual(Array(8).fill(0xa5));
+      expect(backing.subarray(8 + first.display.frameByteLength).every(byte => byte === 0xa5)).toBe(true);
+      const nextDestination = new Uint8Array(1024 * 1024);
+      const next = await copyFrame(nextDestination, first.display.sequence);
+      if (next.status !== 'copied') throw new Error('next complete frame must become available');
+      expect(BigInt(`0x${next.display.completedStep}`)).toBeGreaterThan(BigInt(`0x${first.display.completedStep}`));
+      expect(next.display.generationTime).toBeGreaterThan(first.display.generationTime);
+      expect(backing.subarray(8, 8 + first.display.frameByteLength)).toEqual(retained);
+      expect(events.some(event => event.kind === 'display' && event.display?.frameByteLength)).toBe(true);
       // A wrong-phase control must return through the production queue without faulting the game.
       runtime.submitPrepareGenerationReassignments('0000000000000001');
       while (!events.some(event => event.commandSequence === '0000000000000001') && performance.now() < deadline) {

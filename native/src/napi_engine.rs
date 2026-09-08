@@ -378,6 +378,7 @@ pub struct Stage6BackgroundGenerationEvent {
     pub reassignments: Option<Stage6BackgroundGenerationReassignments>,
     pub receipt_resolution: Option<Stage6BackgroundGenerationReceiptResolution>,
     pub generation_start: Option<Stage6BackgroundGenerationStart>,
+    pub display: Option<crate::napi_running_engine::BackgroundDisplayStatus>,
     pub rejection_code: Option<String>,
     pub rejection_detail: Option<String>,
     pub fault_code: Option<String>,
@@ -793,7 +794,7 @@ impl Task for CreateExperimentalBackgroundTask {
                     }
                 }
             };
-            let runtime = match EngineRuntime::new_running_authority(
+            let runtime = match EngineRuntime::new_running_authority_with_display(
                 self.init,
                 running,
                 Arc::clone(&self.wake) as Arc<dyn WakeSink>,
@@ -1873,7 +1874,7 @@ pub(crate) fn parse_managed_checkpoint_publication_options(
 }
 
 /// Copy one JavaScript string only after bounded well-formed UTF-16 validation.
-fn bounded_js_string(
+pub(crate) fn bounded_js_string(
     value: JsString<'_>,
     field: &str,
     max_utf8_bytes: usize,
@@ -2643,6 +2644,10 @@ pub(crate) fn background_generation_event_to_napi(
         CompletedEvent::Reliable(ReliableEvent::RunningAuthority(event)) => {
             return running_authority_event_to_napi(*event);
         }
+        CompletedEvent::RunningDisplay(status) => {
+            output.kind = "display".to_owned();
+            output.display = Some(crate::napi_running_engine::display_status_to_napi(status));
+        }
         CompletedEvent::Reliable(ReliableEvent::ProbeResult { .. })
         | CompletedEvent::Discrete(_)
         | CompletedEvent::Stats(_)
@@ -2839,6 +2844,7 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         reassignments: None,
         receipt_resolution: None,
         generation_start: None,
+        display: None,
         rejection_code: None,
         rejection_detail: None,
         fault_code: None,
@@ -3939,6 +3945,9 @@ fn event_to_napi(event: CompletedEvent) -> ExperimentalEngineEvent {
             // these events; keep this generic converter exhaustive without
             // flattening authority metadata into the probe payload surface.
             output.kind = "runningAuthority".to_owned();
+        }
+        CompletedEvent::RunningDisplay(_) => {
+            output.kind = "runningDisplay".to_owned();
         }
         CompletedEvent::Discrete(event) => {
             output.kind = "discrete".to_owned();

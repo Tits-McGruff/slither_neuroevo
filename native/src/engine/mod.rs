@@ -30,6 +30,8 @@ pub mod control_phase;
 pub mod controllers;
 /// Background coordinator implementation; only its lifecycle is public.
 mod coordinator;
+/// Reusable committed frame storage and replaceable basic display stats.
+pub mod display;
 /// Deterministic boost/corpse pellet realization and isolated RNG continuation.
 pub mod effects;
 /// Bounded engine faults and stable error codes.

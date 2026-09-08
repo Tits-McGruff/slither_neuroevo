@@ -1,6 +1,7 @@
 //! Versioned, N-API-independent contracts for the Rust engine spine.
 
 use super::checkpoint::{CheckpointDescriptor, CheckpointOperationId};
+use super::display::RunningDisplayStatus;
 use super::error::{truncate_utf8, MAX_ERROR_DETAIL_BYTES};
 use super::error::{EngineError, EngineErrorCode};
 use super::external_replacement::UnavailableControllerReservation;
@@ -674,7 +675,7 @@ impl From<EngineError> for EngineFault {
 }
 
 /// Drained output in priority order.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CompletedEvent {
     /// Reserved fault publication, always ahead of normal traffic.
     Fault(EngineFault),
@@ -684,6 +685,8 @@ pub enum CompletedEvent {
     Discrete(DiscreteEvent),
     /// Latest status output.
     Stats(StatsEvent),
+    /// Latest committed frame metadata and basic authoritative stats.
+    RunningDisplay(RunningDisplayStatus),
     /// Latest display frame for a connection.
     Frame(FrameEvent),
 }
@@ -696,6 +699,7 @@ impl CompletedEvent {
             Self::Reliable(event) => event.owned_bytes(),
             Self::Discrete(event) => event.payload.capacity(),
             Self::Stats(event) => event.payload.capacity(),
+            Self::RunningDisplay(_) => size_of::<RunningDisplayStatus>(),
             Self::Frame(event) => event.payload.capacity(),
         }
     }

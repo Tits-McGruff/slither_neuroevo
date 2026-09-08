@@ -1,5 +1,7 @@
 import type {
   RustBackgroundDrain,
+  RustBackgroundDisplay,
+  RustBackgroundFrameCopy,
   RustBackgroundHealth,
   RustGenerationAssignmentReceipt
 } from '../../src/protocol/rustBackground.ts';
@@ -24,6 +26,10 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   drainOutputs(maxEvents: number, maxOwnedBytes: number): RustBackgroundDrain;
   /** Read only bounded atomic health scalars. */
   health(): RustBackgroundHealth;
+  /** Read cached metadata without serializing or waiting on the live world. */
+  latestDisplay(): RustBackgroundDisplay | null;
+  /** Copy a newer complete frame into a non-shared caller-owned Uint8Array. */
+  copyLatestFrame(destination: Uint8Array, afterSequence: U64Hex): RustBackgroundFrameCopy;
   /** Signal shutdown without waiting for authoritative work. */
   requestStop(): void;
   /** Join on a native worker, leaving the Node event loop responsive. */
@@ -34,7 +40,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'start', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'submitPrepareGenerationReassignments', 'submitGenerationAssignmentReceipt',
-  'submitPublishGenerationStart', 'drainOutputs', 'health', 'requestStop', 'join'
+  'submitPublishGenerationStart', 'drainOutputs', 'health', 'latestDisplay',
+  'copyLatestFrame', 'requestStop', 'join'
 ];
 
 /** Validate the handoff result before a Node router can use it. */

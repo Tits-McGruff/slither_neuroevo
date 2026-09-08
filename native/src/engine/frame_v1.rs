@@ -144,13 +144,28 @@ pub fn pack_authoritative_frame_v1_into(
     view: FrameV1ViewDescriptor,
     output: &mut Vec<u8>,
 ) -> Result<FrameV1Metadata, FrameV1Error> {
+    pack_authoritative_frame_v1_bounded_into(
+        authority,
+        view,
+        output,
+        authority.memory_estimate().frame_bytes,
+    )
+}
+
+/// Pack with an additional caller-owned storage ceiling, checked before any write.
+pub(crate) fn pack_authoritative_frame_v1_bounded_into(
+    authority: &AuthoritativeState,
+    view: FrameV1ViewDescriptor,
+    output: &mut Vec<u8>,
+    maximum_bytes: usize,
+) -> Result<FrameV1Metadata, FrameV1Error> {
     let state = authority.state();
     pack_frame_v1_source_into(
         state.generation.generation,
         state.config.world_radius,
         &state.world,
         view,
-        authority.memory_estimate().frame_bytes,
+        authority.memory_estimate().frame_bytes.min(maximum_bytes),
         output,
     )
 }
