@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RustBackgroundControllerMessage, RustControllerReceiptResolution, RustGenerationAssignmentReceipt } from '../../src/protocol/rustBackground.ts';
 import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
+import { ControllerDeliveryRouter } from './controllerDelivery.ts';
 import { GenerationPersistenceHandoff } from './generationPersistenceHandoff.ts';
 import { RunStartPersistenceHandoff } from './runStartPersistenceHandoff.ts';
 import {
@@ -1332,7 +1333,27 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
             matchedAcceptances: '0000000000000000', ignoredReceipts: '0000000000000001', remaining: '0000000000000001'
           } });
         expect(session.health().completedStep).toBe('0000000000000001');
-        session.submitControllerDeliveryReceipt('000000000000000f', receipt);
+        const sent: unknown[] = [];
+        let admitReceipt = false;
+        const router = new ControllerDeliveryRouter(1, {
+          send(connectionId, message) { sent.push({ connectionId, message }); return true; },
+          nextSequence() { return '000000000000000f'; },
+          trySubmitReceipt(sequence, completion) {
+            if (!admitReceipt) return false;
+            session.submitControllerDeliveryReceipt(sequence, completion);
+            return true;
+          }
+        });
+        expect(router.deliver(messages!)).toBe(true);
+        expect(router.blocked).toBe(true);
+        expect(router.flushReceipts()).toBe(false);
+        expect(session.health().completedStep).toBe('0000000000000001');
+        admitReceipt = true;
+        expect(router.flushReceipts()).toBe(true);
+        expect(sent).toEqual([{ connectionId: observation.connectionId, message: {
+          type: 'sensors', tick: 1, snakeId: observation.snakeId, sensors: observation.sensors,
+          meta: { x: observation.x, y: observation.y, dir: observation.direction }
+        } }]);
         await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000f'))
           .resolves.toMatchObject({ controllerReceiptResolution: {
             matchedAcceptances: '0000000000000001', remaining: '0000000000000000', publishedCompletedStep: '0000000000000002'

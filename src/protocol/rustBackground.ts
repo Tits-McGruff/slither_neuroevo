@@ -75,6 +75,7 @@ export interface RustGenerationAssignmentReceipt {
   /** Acceptance by the local transport; not remote acknowledgement. */
   accepted: boolean;
 }
+
 /** Ordinary reliable observation or death-replacement assignment prepared by Rust. */
 export interface RustBackgroundControllerMessage {
   /** Exact retained operation epoch. */
@@ -86,7 +87,7 @@ export interface RustBackgroundControllerMessage {
   /** Controller assignment epoch. */
   leaseId: RustBackgroundIdentity;
   /** Player browser or Protocol 2 bot. */
-  controllerKind: string;
+  controllerKind: 'player' | 'reinforcementLearning';
   /** Internal authority identity, never substituted for the wire snake ID. */
   internalSnakeId: RustBackgroundIdentity;
   /** Exact frame-v1/Protocol 2 snake identity. */

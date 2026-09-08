@@ -15,6 +15,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'server/authoritativeWorldDigest.test.ts',
     'server/hash.test.ts',
     'server/rustEngine/backgroundFrames.test.ts',
+    'server/rustEngine/controllerDelivery.test.ts',
     'server/rustEngine/experimentalNativeBridge.test.ts',
     'server/rustEngine/experimentalFreshRunSession.test.ts',
     'server/rustEngine/generationPersistenceHandoff.test.ts',

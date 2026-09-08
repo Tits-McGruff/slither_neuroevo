@@ -178,5 +178,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   messages and prevent duplicate publication; the real addon/SQLite handoff
   continues through the first ordinary observation in the successor generation.
 
+- 2026-09-08 The thin ordinary-controller transport adapter maps Rust messages
+  to existing Protocol 2 sensors/assignments and retains bounded local-send
+  receipts under input backpressure without resending packets. Unit and real
+  addon handoff tests cover partial admission, failed sends and exact public IDs.
+  The shared command pump must preserve receipt sequence order while blocked.
+
 The next dependency is incoming controller join/action/disconnect/reclaim
 integration, then experimental server startup and browser/Protocol 2 routing.
