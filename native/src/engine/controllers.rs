@@ -200,6 +200,7 @@ pub struct LatestActionProposal {
     expected: LeaseSnapshot,
     connection_id: u64,
     action: LatestControllerAction,
+    boundary_at_ms: u64,
 }
 
 /// One already wire-validated latest-value action delivered by the thin bridge.
@@ -242,6 +243,16 @@ pub fn prepare_latest_action(
     lease: &ControllerLease,
     input: LatestActionInput,
 ) -> Result<LatestActionProposal, ControllerError> {
+    prepare_queued_latest_action(lease, input, input.accepted_at_ms)
+}
+
+/// Admit an action received while an earlier step was awaiting delivery. Its
+/// hold window starts at receipt, never at this later application boundary.
+pub fn prepare_queued_latest_action(
+    lease: &ControllerLease,
+    input: LatestActionInput,
+    boundary_at_ms: u64,
+) -> Result<LatestActionProposal, ControllerError> {
     validate_lease_identity(lease)?;
     if lease.id != input.lease_id {
         return Err(ControllerError::StaleLease {
@@ -267,10 +278,10 @@ pub fn prepare_latest_action(
             current_ms: input.accepted_at_ms,
         });
     }
-    if input.accepted_at_ms < lease.last_observed_at_ms {
+    if boundary_at_ms < lease.last_observed_at_ms || boundary_at_ms < input.accepted_at_ms {
         return Err(ControllerError::WallClockRegressed {
-            previous_ms: lease.last_observed_at_ms,
-            current_ms: input.accepted_at_ms,
+            previous_ms: lease.last_observed_at_ms.max(input.accepted_at_ms),
+            current_ms: boundary_at_ms,
         });
     }
     if input.arrival_sequence == 0 || input.arrival_sequence <= lease.latest_action.arrival_sequence
@@ -283,6 +294,7 @@ pub fn prepare_latest_action(
     Ok(LatestActionProposal {
         expected: LeaseSnapshot::capture(lease),
         connection_id: input.connection_id,
+        boundary_at_ms,
         action: LatestControllerAction {
             turn: input.turn,
             boost: input.boost,
@@ -309,7 +321,7 @@ pub fn commit_latest_action(
         return Err(ControllerError::StaleProposal { lease_id: lease.id });
     }
     lease.latest_action = proposal.action;
-    lease.last_observed_at_ms = proposal.action.accepted_at_ms;
+    lease.last_observed_at_ms = proposal.boundary_at_ms;
     Ok(())
 }
 
@@ -906,6 +918,38 @@ mod tests {
             arrival_sequence,
             accepted_at_ms,
         }
+    }
+
+    #[test]
+    fn queued_action_keeps_receive_time_and_cannot_refresh_expired_input() {
+        let mut lease = lease();
+        lease.last_observed_at_ms = 1_600;
+        let input = action(0.8, true, 2, 2, 1_100);
+        assert!(prepare_latest_action(&lease, input).is_err());
+        assert!(prepare_queued_latest_action(&lease, input, 1_599).is_err());
+        let proposal = prepare_queued_latest_action(&lease, input, 1_700).unwrap();
+        commit_latest_action(&mut lease, proposal).unwrap();
+        assert_eq!(lease.latest_action.accepted_at_ms, 1_100);
+        assert_eq!(lease.last_observed_at_ms, 1_700);
+        assert_eq!(
+            prepare_controller_boundary(&lease, &snake(), 1_700, TIMING)
+                .unwrap()
+                .source(),
+            ExternalControlSource::ReservedNeutral
+        );
+        assert!(prepare_queued_latest_action(&lease, input, 1_700).is_err());
+        let release = action(-0.2, false, 3, 3, 1_650);
+        let proposal = prepare_queued_latest_action(&lease, release, 1_700).unwrap();
+        commit_latest_action(&mut lease, proposal).unwrap();
+        assert_eq!(
+            prepare_controller_boundary(&lease, &snake(), 1_700, TIMING)
+                .unwrap()
+                .source(),
+            ExternalControlSource::HeldAction {
+                turn: -0.2,
+                boost: false
+            }
+        );
     }
 
     #[test]

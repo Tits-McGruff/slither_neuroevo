@@ -410,6 +410,8 @@ pub struct Stage6BackgroundGenerationEvent {
     pub display: Option<crate::napi_running_engine::BackgroundDisplayStatus>,
     pub controller_messages: Option<Vec<BackgroundControllerMessage>>,
     pub controller_receipt_resolution: Option<BackgroundControllerReceiptResolution>,
+    pub controller_action_lease_id: Option<String>,
+    pub controller_action_completed_step: Option<String>,
     pub rejection_code: Option<String>,
     pub rejection_detail: Option<String>,
     pub fault_code: Option<String>,
@@ -1633,6 +1635,21 @@ impl Stage6BackgroundGenerationHandoffFixtureSession {
         )
     }
 
+    /// Queue steering for the next eligible pre-step boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_action(
+        &self,
+        sequence_hex: JsString<'_>,
+        action: Object<'_>,
+    ) -> Result<()> {
+        self.submit_control(
+            parse_background_sequence(sequence_hex)?,
+            RunningAuthorityCommand::SubmitControllerAction(
+                crate::napi_running_engine::parse_controller_action(&action)?,
+            ),
+        )
+    }
+
     /// Queue an ordinary controller send result against its retained step.
     #[napi(catch_unwind)]
     pub fn submit_controller_delivery_receipt(
@@ -2715,6 +2732,16 @@ fn running_authority_event_to_napi(
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
     let mut output = empty_background_generation_event();
     match event {
+        RunningAuthorityEvent::ControllerActionApplied {
+            command_sequence,
+            lease_id,
+            completed_step,
+        } => {
+            output.kind = "controllerActionApplied".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.controller_action_lease_id = Some(u64_hex(lease_id));
+            output.controller_action_completed_step = Some(u64_hex(completed_step));
+        }
         RunningAuthorityEvent::ControllerMessages { messages, .. } => {
             output.kind = "controllerMessages".to_owned();
             output.controller_messages = Some(
@@ -2950,6 +2977,8 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         display: None,
         controller_messages: None,
         controller_receipt_resolution: None,
+        controller_action_lease_id: None,
+        controller_action_completed_step: None,
         rejection_code: None,
         rejection_detail: None,
         fault_code: None,

@@ -5,7 +5,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { RustBackgroundControllerMessage, RustControllerReceiptResolution, RustGenerationAssignmentReceipt } from '../../src/protocol/rustBackground.ts';
+import type { RustBackgroundControllerAction, RustBackgroundControllerMessage, RustControllerReceiptResolution, RustGenerationAssignmentReceipt } from '../../src/protocol/rustBackground.ts';
 import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
 import { ControllerDeliveryRouter } from './controllerDelivery.ts';
 import { GenerationPersistenceHandoff } from './generationPersistenceHandoff.ts';
@@ -238,6 +238,8 @@ interface Stage6BackgroundGenerationEvent {
   controllerMessages?: RustBackgroundControllerMessage[];
   /** Exact ordinary-step receipt completion. */
   controllerReceiptResolution?: RustControllerReceiptResolution;
+  /** Boundary at which a deferred action entered the current lease. */
+  controllerActionCompletedStep?: string;
   /** Rust-owned pending-transition scalars. */
   transition?: {
     ticketSequence: string;
@@ -327,6 +329,8 @@ interface Stage6BackgroundGenerationHandoffSession {
   submitPublishGenerationStart(sequenceHex: string): void;
   /** Resolve only an ordinary-step transport barrier. */
   submitControllerDeliveryReceipt(sequenceHex: string, receipt: RustGenerationAssignmentReceipt): void;
+  /** Queue one latest action behind the current retained ordinary step. */
+  submitControllerAction(sequenceHex: string, action: RustBackgroundControllerAction): void;
   /** Drain typed bounded output. */
   drainOutputs(maxEvents: number, maxOwnedBytes: number): {
     events: Stage6BackgroundGenerationEvent[];
@@ -1334,10 +1338,16 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
           } });
         expect(session.health().completedStep).toBe('0000000000000001');
         const sent: unknown[] = [];
+        const action: RustBackgroundControllerAction = {
+          leaseId: observation.leaseId, connectionId: observation.connectionId,
+          turn: 0.75, boost: false, clientTick: '000000000000002a'
+        };
+        expect(() => session.submitControllerAction('000000000000000f', { ...action, turn: NaN })).toThrow();
+        session.submitControllerAction('000000000000000f', action);
         let admitReceipt = false;
         const router = new ControllerDeliveryRouter(1, {
           send(connectionId, message) { sent.push({ connectionId, message }); return true; },
-          nextSequence() { return '000000000000000f'; },
+          nextSequence() { return '0000000000000010'; },
           trySubmitReceipt(sequence, completion) {
             if (!admitReceipt) return false;
             session.submitControllerDeliveryReceipt(sequence, completion);
@@ -1354,10 +1364,12 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
           type: 'sensors', tick: 1, snakeId: observation.snakeId, sensors: observation.sensors,
           meta: { x: observation.x, y: observation.y, dir: observation.direction }
         } }]);
-        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000f'))
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '0000000000000010'))
           .resolves.toMatchObject({ controllerReceiptResolution: {
             matchedAcceptances: '0000000000000001', remaining: '0000000000000000', publishedCompletedStep: '0000000000000002'
           } });
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000f'))
+          .resolves.toMatchObject({ kind: 'controllerActionApplied', controllerActionCompletedStep: '0000000000000002' });
         await waitForBackgroundHealth(session, health => health.completedStep === '0000000000000002');
 
         await closeClient(client);

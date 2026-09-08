@@ -1529,6 +1529,29 @@ impl AuthoritativeState {
         Ok(key)
     }
 
+    /// Called only by the retained loop at an unprepared pre-step boundary.
+    /// The checked proposal changes one lease without copying population state.
+    pub(crate) fn apply_controller_action(
+        &mut self,
+        input: super::controllers::LatestActionInput,
+        boundary_at_ms: u64,
+    ) -> Result<(), String> {
+        if self.candidate.phase != AuthorityPhase::Running {
+            return Err("controller action requires running authority".to_owned());
+        }
+        let lease = self
+            .candidate
+            .world
+            .controller_leases
+            .iter_mut()
+            .find(|lease| lease.id == input.lease_id)
+            .ok_or_else(|| "controller action names an unavailable lease".to_owned())?;
+        let proposal =
+            super::controllers::prepare_queued_latest_action(lease, input, boundary_at_ms)
+                .map_err(|error| error.to_string())?;
+        super::controllers::commit_latest_action(lease, proposal).map_err(|error| error.to_string())
+    }
+
     /// Publish one fully staged running fixed step with one reversible swap.
     ///
     /// All fallible key checks happen before the swap. Complete mutable-state

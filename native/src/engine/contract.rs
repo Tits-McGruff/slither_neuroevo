@@ -124,7 +124,7 @@ impl EngineInit {
 }
 
 /// One command with its exact internal 64-bit arrival sequence.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SequencedCommand {
     /// Strictly increasing sequence assigned at the bridge boundary.
     pub sequence: u64,
@@ -133,7 +133,7 @@ pub struct SequencedCommand {
 }
 
 /// Commands understood by the minimum Stage 3 coordinator.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum EngineCommand {
     /// Bounded correlated payload used to exercise the coarse bridge.
     Probe {
@@ -192,6 +192,14 @@ impl EngineCommand {
         matches!(self, Self::RunningAuthority(_))
     }
 
+    /// Actions cannot alter the source of an already prepared ordinary step.
+    pub(crate) fn requires_ready_boundary(&self) -> bool {
+        matches!(
+            self,
+            Self::RunningAuthority(RunningAuthorityCommand::SubmitControllerAction(_))
+        )
+    }
+
     /// Conservative reliable-output bytes reserved before this command may
     /// mutate retained authority state.
     fn response_reserved_owned_bytes(&self, limits: &OutputLimits) -> usize {
@@ -221,9 +229,22 @@ pub struct ExternalDeliveryReceipt {
     pub accepted: bool,
 }
 
-/// Typed commands that can resume a blocked retained generation transition.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// Validated steering received by Rust, with no JavaScript-controlled clock.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ControllerActionRequest {
+    pub lease_id: u64,
+    pub connection_id: u64,
+    pub turn: f32,
+    pub boost: bool,
+    pub client_tick: u64,
+    pub received_at: std::time::Instant,
+}
+
+/// Typed controls and retained generation-transition commands.
+#[derive(Clone, Debug, PartialEq)]
 pub enum RunningAuthorityCommand {
+    /// Apply only at a fresh pre-step boundary, after any retained step resolves.
+    SubmitControllerAction(ControllerActionRequest),
     /// Publish or exactly retry the Rust-admitted immutable generation file.
     PublishGenerationCheckpoint {
         /// Server-controlled managed directory encoded as one bounded UTF-8 path.
@@ -254,6 +275,10 @@ pub enum RunningAuthorityCommand {
 impl RunningAuthorityCommand {
     fn validate(&self) -> Result<(), EngineError> {
         match self {
+            Self::SubmitControllerAction(action) if action.lease_id == 0 || action.connection_id == 0
+                || !action.turn.is_finite() || !(-1.0..=1.0).contains(&action.turn) => {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid controller action identity or steering"))
+            }
             Self::PublishGenerationCheckpoint {
                 managed_directory, ..
             } if managed_directory.is_empty()
@@ -278,6 +303,7 @@ impl RunningAuthorityCommand {
 
     fn owned_bytes(&self) -> Result<usize, EngineError> {
         match self {
+            Self::SubmitControllerAction(_) => Ok(0),
             Self::PublishGenerationCheckpoint {
                 managed_directory,
                 operation_id,
@@ -374,6 +400,12 @@ pub enum GenerationAssignmentReceiptState {
 /// Reliable events emitted by the background Rust authority path.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunningAuthorityEvent {
+    /// Latest steering admitted at a fresh source boundary, before its next step.
+    ControllerActionApplied {
+        command_sequence: u64,
+        lease_id: u64,
+        completed_step: u64,
+    },
     /// The entire ordinary-step delivery batch, admitted before step preparation.
     ControllerMessages {
         ticket_sequence: u64,
@@ -468,7 +500,8 @@ impl RunningAuthorityEvent {
                 .saturating_add(messages.iter().fold(0usize, |bytes, message| {
                     bytes.saturating_add(message.payload_owned_bytes())
                 })),
-            Self::ControllerDeliveryReceiptsApplied { .. } => 0,
+            Self::ControllerDeliveryReceiptsApplied { .. }
+            | Self::ControllerActionApplied { .. } => 0,
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
             Self::GenerationCheckpointPublished { descriptor, .. } => {
@@ -506,7 +539,7 @@ fn generation_start_owned_bytes(
 }
 
 /// One all-or-nothing inbound command batch.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CommandBatch {
     /// Must equal [`ENGINE_CONTRACT_VERSION`].
     pub contract_version: u32,

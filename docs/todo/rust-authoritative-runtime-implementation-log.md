@@ -184,5 +184,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   addon handoff tests cover partial admission, failed sends and exact public IDs.
   The shared command pump must preserve receipt sequence order while blocked.
 
-The next dependency is incoming controller join/action/disconnect/reclaim
-integration, then experimental server startup and browser/Protocol 2 routing.
+- 2026-09-09 Incoming steering uses Rust receipt timestamps and applies only at
+  an unprepared pre-step boundary. Actions retained during a delivery or
+  generation barrier leave input capacity for its completion; receipt processing
+  drains deferred actions before the next step. Output admission precedes lease
+  mutation, and delayed actions retain their original hold deadline. Focused
+  queue and real addon regressions cover deferred application and exact retry.
+
+The next dependency is controller join/disconnect/reclaim integration and the
+shared ordered Node command pump, then experimental server startup.

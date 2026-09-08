@@ -335,6 +335,7 @@ pub(crate) fn run_running_coordinator(
     output.push_reliable(ReliableEvent::Started)?;
 
     let wall_origin = Instant::now();
+    running.set_background_clock(wall_origin);
     let mut wait = RunningWait::Immediate;
     let mut batches = Vec::new();
     let mut announced_generation_source = None;
@@ -358,7 +359,7 @@ pub(crate) fn run_running_coordinator(
             }
             RunningWait::Blocked => {
                 metrics.record_wait(true);
-                let result = inbound.wait_until_ready(None);
+                let result = inbound.wait_until_eligible(None, false);
                 metrics.record_wake(result);
                 if result == InboundWaitResult::Stopped {
                     publish_orderly_stopped(inbound, output)?;
@@ -367,7 +368,12 @@ pub(crate) fn run_running_coordinator(
             }
         }
 
-        let stop_requested = inbound.drain_step_boundary(&mut batches);
+        let was_ready = running.state() == RunningAuthorityLoopState::Ready;
+        let stop_requested = if was_ready {
+            inbound.drain_step_boundary(&mut batches)
+        } else {
+            inbound.drain_eligible_boundary(&mut batches, false)
+        };
         for batch in batches.drain(..) {
             if let [super::contract::SequencedCommand {
                 command: EngineCommand::RunningAuthority(command),
@@ -390,6 +396,13 @@ pub(crate) fn run_running_coordinator(
         if stop_requested {
             publish_orderly_stopped(inbound, output)?;
             return Ok(());
+        }
+
+        if !was_ready && running.state() == RunningAuthorityLoopState::Ready {
+            // A receipt just retired the blocker. Deferred actions belong to
+            // the next step, so take their cutoff before servicing it.
+            wait = RunningWait::Immediate;
+            continue;
         }
 
         let service_reply_bytes = super::controller_output::service_reply_bound(running)?;
@@ -634,6 +647,12 @@ fn execute_running_authority_command(
             ));
         }
         match command {
+        RunningAuthorityCommand::SubmitControllerAction(action) => running
+            .apply_controller_action(command_sequence, &action, wall_now_ms)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|()| RunningAuthorityEvent::ControllerActionApplied {
+                command_sequence, lease_id: action.lease_id, completed_step: running.completed_step(),
+            }),
         RunningAuthorityCommand::PublishGenerationCheckpoint {
             managed_directory,
             operation_id,
@@ -783,7 +802,8 @@ fn running_response_owned_byte_bound(
                 .ok_or_else(overflow)?
         }
         RunningAuthorityCommand::SubmitGenerationAssignmentReceipts { .. }
-        | RunningAuthorityCommand::SubmitControllerDeliveryReceipts { .. } => 0,
+        | RunningAuthorityCommand::SubmitControllerDeliveryReceipts { .. }
+        | RunningAuthorityCommand::SubmitControllerAction(_) => 0,
         RunningAuthorityCommand::PublishAcknowledgedGenerationStart => {
             // Every unavailable record is a unique old-controller outcome and
             // retains exactly that source controller's scope and known token.
@@ -1158,6 +1178,65 @@ mod tests {
         );
         assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
         running
+    }
+
+    #[test]
+    fn action_output_capacity_precedes_lease_mutation_and_exact_retry() {
+        let mut running = ordinary_controller_loop();
+        let origin = Instant::now();
+        running.set_background_clock(origin);
+        let before = running.generation_source_controller_leases()[0].clone();
+        let action = super::super::contract::ControllerActionRequest {
+            lease_id: before.id,
+            connection_id: before.connection_id.unwrap(),
+            turn: 0.75,
+            boost: false,
+            client_tick: 42,
+            received_at: origin + Duration::from_millis(1200),
+        };
+        let batch = CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: vec![SequencedCommand {
+                sequence: 100,
+                command: EngineCommand::RunningAuthority(
+                    RunningAuthorityCommand::SubmitControllerAction(action),
+                ),
+            }]
+            .into_boxed_slice(),
+        };
+        let output = output_with_cap(1024 * 1024);
+        for sequence in 0..background_generation_handoff_runtime_init()
+            .output
+            .max_reliable
+        {
+            output
+                .push_reliable(ReliableEvent::ProbeResult {
+                    sequence: sequence as u64,
+                    correlation_id: 0,
+                    payload: Vec::new(),
+                })
+                .unwrap();
+        }
+        let metrics = RunningAuthorityMetrics::new(&running);
+        let state = CoordinatorState::new();
+        assert!(process_running_command_batch(
+            batch.clone(),
+            &output,
+            &state,
+            &mut running,
+            &metrics,
+            1200
+        )
+        .is_err());
+        assert_eq!(running.generation_source_controller_leases()[0], before);
+        output.drain(usize::MAX, usize::MAX);
+        process_running_command_batch(batch, &output, &state, &mut running, &metrics, 1200)
+            .unwrap();
+        let after = &running.generation_source_controller_leases()[0];
+        assert_eq!(after.latest_action.turn, 0.75);
+        assert_eq!(after.latest_action.arrival_sequence, 100);
+        assert_eq!(after.latest_action.accepted_at_ms, 1200);
+        assert_eq!(running.completed_step(), 1);
     }
 
     #[test]

@@ -62,6 +62,20 @@ export interface RustBackgroundHealth {
   faultDetail?: string;
 }
 
+/** Latest steering routed to Rust; receipt time is stamped inside the addon. */
+export interface RustBackgroundControllerAction {
+  /** Rust assignment epoch. */
+  leaseId: RustBackgroundIdentity;
+  /** Live socket epoch. */
+  connectionId: RustBackgroundIdentity;
+  /** Finite normalized steering in [-1, 1]. */
+  turn: number;
+  /** Latest boost request. */
+  boost: boolean;
+  /** Exact diagnostic client tick, not an authority clock. */
+  clientTick: RustBackgroundIdentity;
+}
+
 /** Exact local-send result for a Rust-issued generation assignment. */
 export interface RustGenerationAssignmentReceipt {
   /** Rust operation epoch. */
@@ -146,6 +160,10 @@ export interface RustBackgroundEvent {
   controllerMessages?: RustBackgroundControllerMessage[];
   /** Exact ordinary receipt result, separate from generation assignments. */
   controllerReceiptResolution?: RustControllerReceiptResolution;
+  /** Lease whose action was applied at a fresh pre-step boundary. */
+  controllerActionLeaseId?: RustBackgroundIdentity;
+  /** Completed-step boundary before the accepted action can affect physics. */
+  controllerActionCompletedStep?: RustBackgroundIdentity;
   /** Recoverable command rejection category. */
   rejectionCode?: string;
   /** Bounded rejection detail. */

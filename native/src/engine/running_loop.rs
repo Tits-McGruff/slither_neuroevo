@@ -199,6 +199,7 @@ pub struct RunningAuthorityLoop {
     pending_step: Option<ScheduledStep>,
     pending_due_steps: Option<usize>,
     state: RunningAuthorityLoopState,
+    background_clock: Option<std::time::Instant>,
 }
 
 /// Fallible scheduler/coordinator construction completed before authority moves.
@@ -251,6 +252,7 @@ impl RunningAuthorityLoop {
             pending_step: None,
             pending_due_steps: None,
             state: RunningAuthorityLoopState::Ready,
+            background_clock: None,
         }
     }
 
@@ -292,6 +294,44 @@ impl RunningAuthorityLoop {
     #[must_use]
     pub const fn state(&self) -> RunningAuthorityLoopState {
         self.state
+    }
+
+    /// Bind command receipt timestamps to the same clock as background scheduling.
+    pub(crate) fn set_background_clock(&mut self, origin: std::time::Instant) {
+        self.background_clock = Some(origin);
+    }
+
+    /// Output reservation and the fresh-boundary gate precede this lease write.
+    pub(crate) fn apply_controller_action(
+        &mut self,
+        sequence: u64,
+        action: &super::contract::ControllerActionRequest,
+        wall_now_ms: u64,
+    ) -> Result<(), String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("controller action requires an unprepared step boundary".to_owned());
+        }
+        let origin = self
+            .background_clock
+            .ok_or_else(|| "background clock is missing".to_owned())?;
+        let received = action
+            .received_at
+            .checked_duration_since(origin)
+            .unwrap_or_default();
+        let accepted_at_ms = u64::try_from(received.as_millis())
+            .map_err(|_| "controller clock overflow".to_owned())?;
+        self.authority.apply_controller_action(
+            super::controllers::LatestActionInput {
+                lease_id: action.lease_id,
+                connection_id: action.connection_id,
+                turn: action.turn,
+                boost: action.boost,
+                client_tick: action.client_tick,
+                arrival_sequence: sequence,
+                accepted_at_ms,
+            },
+            wall_now_ms,
+        )
     }
 
     /// Current authoritative generation.

@@ -3,6 +3,7 @@ import type {
   RustBackgroundDisplay,
   RustBackgroundFrameCopy,
   RustBackgroundHealth,
+  RustBackgroundControllerAction,
   RustGenerationAssignmentReceipt
 } from '../../src/protocol/rustBackground.ts';
 import type { ManagedCheckpointDescriptor, U64Hex } from './checkpointPersistenceProtocol.ts';
@@ -12,6 +13,8 @@ import type { RustRunStartCheckpointPublishOptions } from './runStartPersistence
 export interface ExperimentalRunningAuthorityNativeHandle {
   /** Start only after attaching the Node output router. */
   start(): void;
+  /** Queue steering for the next eligible step without altering a pending step. */
+  submitControllerAction(sequence: U64Hex, action: RustBackgroundControllerAction): void;
   /** Publish or exactly retry the retained generation's immutable managed file. */
   submitGenerationCheckpoint(sequence: U64Hex, options: RustRunStartCheckpointPublishOptions): void;
   /** Return the complete descriptor committed by the dedicated SQLite worker. */
@@ -40,7 +43,7 @@ export interface ExperimentalRunningAuthorityNativeHandle {
 
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
-  'start', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
+  'start', 'submitControllerAction', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'submitPrepareGenerationReassignments', 'submitGenerationAssignmentReceipt',
   'submitControllerDeliveryReceipt',
   'submitPublishGenerationStart', 'drainOutputs', 'health', 'latestDisplay',

@@ -219,6 +219,31 @@ impl InboundQueue {
             ));
         }
 
+        // Deferred actions must leave one complete control batch available to
+        // resolve the delivery barrier that prevents those actions executing.
+        if batch
+            .commands
+            .iter()
+            .any(|item| item.command.requires_ready_boundary())
+            && (state.queue.len() >= self.limits.max_batches.saturating_sub(1)
+                || next_commands
+                    > self
+                        .limits
+                        .max_commands
+                        .saturating_sub(self.limits.max_batch_commands)
+                || next_bytes
+                    > self
+                        .limits
+                        .max_owned_bytes
+                        .saturating_sub(self.limits.max_batch_owned_bytes))
+        {
+            state.rejections = state.rejections.saturating_add(1);
+            return Err(EngineError::new(
+                EngineErrorCode::QueueCountLimit,
+                "deferred actions must leave capacity for a delivery completion",
+            ));
+        }
+
         state.commands = next_commands;
         state.owned_bytes = next_bytes;
         state.last_accepted_sequence = Some(shape.last_sequence);
@@ -266,18 +291,37 @@ impl InboundQueue {
     /// `CommandsReady` or `TimedOut` result with [`Self::drain_step_boundary`],
     /// whose mutex release linearizes the command/action cutoff for one step.
     pub(crate) fn wait_until_ready(&self, timeout: Option<Duration>) -> InboundWaitResult {
+        self.wait_until_eligible(timeout, true)
+    }
+
+    /// A retained step ignores deferred actions without spinning on their queue entries.
+    pub(crate) fn wait_until_eligible(
+        &self,
+        timeout: Option<Duration>,
+        allow_actions: bool,
+    ) -> InboundWaitResult {
+        let eligible = |current: &InboundState| {
+            current.queue.iter().any(|queued| {
+                allow_actions
+                    || !queued
+                        .batch
+                        .commands
+                        .iter()
+                        .any(|item| item.command.requires_ready_boundary())
+            })
+        };
         let state = lock_recover(&self.state);
         let state = match timeout {
             Some(timeout) => {
                 let (state, _) =
                     wait_timeout_while_recover(&self.ready, state, timeout, |current| {
-                        current.queue.is_empty() && !self.stop_requested.load(Ordering::Acquire)
+                        !eligible(current) && !self.stop_requested.load(Ordering::Acquire)
                     });
                 state
             }
             None => {
                 let mut state = state;
-                while state.queue.is_empty() && !self.stop_requested.load(Ordering::Acquire) {
+                while !eligible(&state) && !self.stop_requested.load(Ordering::Acquire) {
                     state = wait_recover(&self.ready, state);
                 }
                 state
@@ -286,7 +330,7 @@ impl InboundQueue {
 
         if state.fault_stop_requested {
             InboundWaitResult::Stopped
-        } else if !state.queue.is_empty() {
+        } else if eligible(&state) {
             InboundWaitResult::CommandsReady
         } else if self.stop_requested.load(Ordering::Acquire) {
             InboundWaitResult::Stopped
@@ -300,13 +344,35 @@ impl InboundQueue {
     /// The caller owns and reuses `output`. Commands accepted after this
     /// method releases the queue mutex belong to the following boundary.
     pub(crate) fn drain_step_boundary(&self, output: &mut Vec<CommandBatch>) -> bool {
+        self.drain_eligible_boundary(output, true)
+    }
+
+    /// Retain actions, including their original receive times and byte charges,
+    /// while allowing exact delivery/persistence receipts to unblock authority.
+    pub(crate) fn drain_eligible_boundary(
+        &self,
+        output: &mut Vec<CommandBatch>,
+        allow_actions: bool,
+    ) -> bool {
         output.clear();
         let mut state = lock_recover(&self.state);
         if state.fault_stop_requested {
             return true;
         }
         output.reserve(state.queue.len());
-        while let Some(queued) = state.queue.pop_front() {
+        let mut index = 0;
+        while index < state.queue.len() {
+            if !allow_actions
+                && state.queue[index]
+                    .batch
+                    .commands
+                    .iter()
+                    .any(|item| item.command.requires_ready_boundary())
+            {
+                index += 1;
+                continue;
+            }
+            let queued = state.queue.remove(index).expect("checked queue index");
             state.commands = state.commands.saturating_sub(queued.command_count);
             state.owned_bytes = state.owned_bytes.saturating_sub(queued.owned_bytes);
             output.push(queued.batch);
@@ -1492,6 +1558,57 @@ mod tests {
             contract_version: ENGINE_CONTRACT_VERSION,
             commands: commands.into_boxed_slice(),
         }
+    }
+
+    #[test]
+    fn deferred_actions_leave_receipt_capacity_and_do_not_wake_a_blocked_step() {
+        use super::super::contract::{ControllerActionRequest, RunningAuthorityCommand};
+        let queue = InboundQueue::new(InboundLimits {
+            max_batches: 3,
+            max_commands: 3,
+            max_owned_bytes: 16_384,
+            max_batch_commands: 1,
+            max_batch_owned_bytes: 4096,
+        });
+        let action = |sequence| {
+            batch(vec![SequencedCommand {
+                sequence,
+                command: EngineCommand::RunningAuthority(
+                    RunningAuthorityCommand::SubmitControllerAction(ControllerActionRequest {
+                        lease_id: 1,
+                        connection_id: 2,
+                        turn: 0.5,
+                        boost: false,
+                        client_tick: 0,
+                        received_at: std::time::Instant::now(),
+                    }),
+                ),
+            }])
+        };
+        queue.try_push(action(1)).unwrap();
+        queue.try_push(action(2)).unwrap();
+        assert!(queue.try_push(action(3)).is_err());
+        let before = queue.metrics();
+        assert_eq!(
+            queue.wait_until_eligible(Some(Duration::from_millis(1)), false),
+            InboundWaitResult::TimedOut
+        );
+        queue.try_push(batch(vec![probe(3, 0)])).unwrap();
+        let mut drained = Vec::new();
+        assert!(!queue.drain_eligible_boundary(&mut drained, false));
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].commands[0].sequence, 3);
+        assert_eq!(queue.metrics().owned_bytes, before.owned_bytes);
+        assert_eq!(queue.metrics().commands, 2);
+        assert!(!queue.drain_step_boundary(&mut drained));
+        assert_eq!(
+            drained
+                .iter()
+                .map(|item| item.commands[0].sequence)
+                .collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert_eq!(queue.metrics().owned_bytes, 0);
     }
 
     #[test]

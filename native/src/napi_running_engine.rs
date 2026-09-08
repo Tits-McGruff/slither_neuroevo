@@ -188,6 +188,19 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Queue steering for the next eligible pre-step boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_action(
+        &self,
+        sequence: JsString<'_>,
+        action: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SubmitControllerAction(parse_controller_action(&action)?),
+        )
+    }
+
     /// Resolve an ordinary observation/death-assignment send without touching a generation barrier.
     #[napi(catch_unwind)]
     pub fn submit_controller_delivery_receipt(
@@ -396,6 +409,47 @@ impl Drop for DrainGuard<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
     }
+}
+
+/// Validate wire values before recording the action's Rust-owned receipt time.
+pub(crate) fn parse_controller_action(
+    action: &Object<'_>,
+) -> Result<crate::engine::contract::ControllerActionRequest> {
+    let lease_id = parse_u64_hex(
+        &bounded_object_string(action, "leaseId", 16)?,
+        "leaseId",
+        false,
+    )?;
+    let connection_id = parse_u64_hex(
+        &bounded_object_string(action, "connectionId", 16)?,
+        "connectionId",
+        false,
+    )?;
+    let client_tick = parse_u64_hex(
+        &bounded_object_string(action, "clientTick", 16)?,
+        "clientTick",
+        true,
+    )?;
+    let turn = action
+        .get::<f64>("turn")?
+        .ok_or_else(|| Error::new(Status::InvalidArg, "action omits turn"))?;
+    if !turn.is_finite() || !(-1.0..=1.0).contains(&turn) {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "action turn must be finite in [-1, 1]",
+        ));
+    }
+    let boost = action
+        .get::<bool>("boost")?
+        .ok_or_else(|| Error::new(Status::InvalidArg, "action omits boost"))?;
+    Ok(crate::engine::contract::ControllerActionRequest {
+        lease_id,
+        connection_id,
+        turn: turn as f32,
+        boost,
+        client_tick,
+        received_at: std::time::Instant::now(),
+    })
 }
 
 /// Parse bounded correlation fields before admitting one ordinary send result.
