@@ -206,6 +206,17 @@ impl EngineRuntime {
             ));
         }
         let memory_bytes = running.authoritative_memory_bytes();
+        if !super::controller_output::service_reply_bound(&running)
+            .is_ok_and(|bytes| bytes <= init.output.max_event_owned_bytes)
+        {
+            return Err(RunningAuthorityRuntimeCreationError::new(
+                running,
+                EngineError::new(
+                    EngineErrorCode::InvalidConfiguration,
+                    "output must fit one complete ordinary controller batch",
+                ),
+            ));
+        }
         let display = if enable_display {
             if init.output.max_event_owned_bytes < std::mem::size_of::<RunningDisplayStatus>() {
                 return Err(RunningAuthorityRuntimeCreationError::new(

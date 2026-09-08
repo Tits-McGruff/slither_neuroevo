@@ -20,6 +20,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitPrepareGenerationReassignments(sequence: U64Hex): void;
   /** Return the exact local transport result for a Rust-issued assignment. */
   submitGenerationAssignmentReceipt(sequence: U64Hex, receipt: RustGenerationAssignmentReceipt): void;
+  /** Return an ordinary observation/replacement send result to its retained step. */
+  submitControllerDeliveryReceipt(sequence: U64Hex, receipt: RustGenerationAssignmentReceipt): void;
   /** Commit the successor only after both retained barriers resolve. */
   submitPublishGenerationStart(sequence: U64Hex): void;
   /** Drain prepared output without inspecting or reconstructing the world. */
@@ -40,6 +42,7 @@ export interface ExperimentalRunningAuthorityNativeHandle {
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'start', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'submitPrepareGenerationReassignments', 'submitGenerationAssignmentReceipt',
+  'submitControllerDeliveryReceipt',
   'submitPublishGenerationStart', 'drainOutputs', 'health', 'latestDisplay',
   'copyLatestFrame', 'requestStop', 'join'
 ];

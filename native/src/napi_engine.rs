@@ -369,6 +369,35 @@ pub struct Stage6BackgroundGenerationStart {
 
 /// One typed output drained from the real background runtime.
 #[napi(object)]
+pub struct BackgroundControllerMessage {
+    pub operation_epoch: String,
+    pub event_sequence: String,
+    pub connection_id: String,
+    pub lease_id: String,
+    pub controller_kind: String,
+    pub internal_snake_id: String,
+    pub snake_id: u32,
+    pub source_completed_step: String,
+    pub kind: String,
+    pub sensors: Option<Vec<f64>>,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub direction: Option<f64>,
+    pub resume_token: Option<String>,
+}
+
+/// Exact ordinary-step transport completion, separate from generation receipts.
+#[napi(object)]
+pub struct BackgroundControllerReceiptResolution {
+    pub matched_acceptances: String,
+    pub matched_failures: String,
+    pub ignored_receipts: String,
+    pub remaining: String,
+    pub published_completed_step: Option<String>,
+}
+
+/// One typed output drained from the real background runtime.
+#[napi(object)]
 pub struct Stage6BackgroundGenerationEvent {
     pub kind: String,
     pub command_sequence: Option<String>,
@@ -379,6 +408,8 @@ pub struct Stage6BackgroundGenerationEvent {
     pub receipt_resolution: Option<Stage6BackgroundGenerationReceiptResolution>,
     pub generation_start: Option<Stage6BackgroundGenerationStart>,
     pub display: Option<crate::napi_running_engine::BackgroundDisplayStatus>,
+    pub controller_messages: Option<Vec<BackgroundControllerMessage>>,
+    pub controller_receipt_resolution: Option<BackgroundControllerReceiptResolution>,
     pub rejection_code: Option<String>,
     pub rejection_detail: Option<String>,
     pub fault_code: Option<String>,
@@ -1602,6 +1633,24 @@ impl Stage6BackgroundGenerationHandoffFixtureSession {
         )
     }
 
+    /// Queue an ordinary controller send result against its retained step.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_delivery_receipt(
+        &self,
+        sequence_hex: JsString<'_>,
+        receipt: Object<'_>,
+    ) -> Result<()> {
+        self.submit_control(
+            parse_background_sequence(sequence_hex)?,
+            RunningAuthorityCommand::SubmitControllerDeliveryReceipts {
+                receipts: vec![crate::napi_running_engine::parse_controller_receipt(
+                    &receipt,
+                )?]
+                .into_boxed_slice(),
+            },
+        )
+    }
+
     /// Queue the separately gated final authority swap.
     #[napi(catch_unwind)]
     pub fn submit_publish_generation_start(&self, sequence_hex: JsString<'_>) -> Result<()> {
@@ -2666,6 +2715,60 @@ fn running_authority_event_to_napi(
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
     let mut output = empty_background_generation_event();
     match event {
+        RunningAuthorityEvent::ControllerMessages { messages, .. } => {
+            output.kind = "controllerMessages".to_owned();
+            output.controller_messages = Some(
+                messages
+                    .into_vec()
+                    .into_iter()
+                    .map(|message| {
+                        let event = message.event;
+                        let observation = event.delivery_kind
+                            == crate::engine::ExternalDeliveryEventKind::Observation;
+                        BackgroundControllerMessage {
+                            operation_epoch: u64_hex(event.step_key.operation_epoch()),
+                            event_sequence: u64_hex(event.event_sequence),
+                            connection_id: u64_hex(event.connection_id),
+                            lease_id: u64_hex(event.lease_id),
+                            controller_kind: controller_kind_name(event.controller_kind).to_owned(),
+                            internal_snake_id: u64_hex(event.snake_id),
+                            snake_id: message.frame_v1_id,
+                            source_completed_step: u64_hex(event.step_key.source_completed_step()),
+                            kind: if observation {
+                                "observation"
+                            } else {
+                                "replacementAssignment"
+                            }
+                            .to_owned(),
+                            sensors: observation
+                                .then(|| message.sensors.iter().copied().map(f64::from).collect()),
+                            x: observation.then_some(event.position.x),
+                            y: observation.then_some(event.position.y),
+                            direction: observation.then_some(event.direction),
+                            resume_token: message.resume_token.map(|token| token.into_string()),
+                        }
+                    })
+                    .collect(),
+            );
+        }
+        RunningAuthorityEvent::ControllerDeliveryReceiptsApplied {
+            command_sequence,
+            matched_acceptances,
+            matched_failures,
+            ignored_receipts,
+            remaining,
+            published_completed_step,
+        } => {
+            output.kind = "controllerDeliveryReceiptsApplied".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.controller_receipt_resolution = Some(BackgroundControllerReceiptResolution {
+                matched_acceptances: usize_hex(matched_acceptances, "controller acceptances")?,
+                matched_failures: usize_hex(matched_failures, "controller failures")?,
+                ignored_receipts: usize_hex(ignored_receipts, "ignored controller receipts")?,
+                remaining: usize_hex(remaining, "pending controller receipts")?,
+                published_completed_step: published_completed_step.map(u64_hex),
+            });
+        }
         RunningAuthorityEvent::GenerationTransitionPending {
             ticket_sequence,
             source_key,
@@ -2845,6 +2948,8 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         receipt_resolution: None,
         generation_start: None,
         display: None,
+        controller_messages: None,
+        controller_receipt_resolution: None,
         rejection_code: None,
         rejection_detail: None,
         fault_code: None,

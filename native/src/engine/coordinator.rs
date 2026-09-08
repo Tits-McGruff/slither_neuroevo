@@ -18,8 +18,7 @@ use super::running_loop::{
     RunningAuthorityLoopState,
 };
 use super::running_step::{
-    ExternalDeliveryEventKind, ExternalDeliveryResult, ExternalObservationBatch,
-    GenerationReassignmentProgress,
+    ExternalDeliveryEventKind, ExternalObservationBatch, GenerationReassignmentProgress,
 };
 use super::scheduler::SchedulerServiceMode;
 use super::world_step::ExternalDeliveryStatus;
@@ -339,6 +338,7 @@ pub(crate) fn run_running_coordinator(
     let mut wait = RunningWait::Immediate;
     let mut batches = Vec::new();
     let mut announced_generation_source = None;
+    let mut announced_delivery_ticket = None;
     loop {
         if let Some(display) = display {
             // The preceding command/service reservation has left scope. This
@@ -392,8 +392,9 @@ pub(crate) fn run_running_coordinator(
             return Ok(());
         }
 
+        let service_reply_bytes = super::controller_output::service_reply_bound(running)?;
         if running.state() == RunningAuthorityLoopState::Ready
-            && output.wait_reliable_capacity(size_of::<RunningAuthorityEvent>())?
+            && output.wait_reliable_capacity(service_reply_bytes)?
         {
             // Input accepted while display/control output blocked belongs to
             // the next eligible step, so take a fresh cutoff before servicing it.
@@ -401,7 +402,7 @@ pub(crate) fn run_running_coordinator(
             continue;
         }
         let service_reservation = if running.state() == RunningAuthorityLoopState::Ready {
-            Some(output.reserve_authority_reply(size_of::<RunningAuthorityEvent>())?)
+            Some(output.reserve_authority_reply(service_reply_bytes)?)
         } else {
             None
         };
@@ -430,9 +431,30 @@ pub(crate) fn run_running_coordinator(
             }
             RunningAuthorityLoopProgress::Published { .. } => {
                 announced_generation_source = None;
+                announced_delivery_ticket = None;
                 RunningWait::Immediate
             }
-            RunningAuthorityLoopProgress::ExternalDeliveryPending { .. } => RunningWait::Blocked,
+            RunningAuthorityLoopProgress::ExternalDeliveryPending {
+                ticket_sequence, ..
+            } => {
+                if announced_delivery_ticket != Some(ticket_sequence) {
+                    let reservation = service_reservation.ok_or_else(|| {
+                        EngineError::new(
+                            EngineErrorCode::Faulted,
+                            "ordinary controller messages lost their admitted reply",
+                        )
+                    })?;
+                    let messages = super::controller_output::own_pending_messages(running)?;
+                    reservation.publish(ReliableEvent::RunningAuthority(Box::new(
+                        RunningAuthorityEvent::ControllerMessages {
+                            ticket_sequence,
+                            messages,
+                        },
+                    )))?;
+                    announced_delivery_ticket = Some(ticket_sequence);
+                }
+                RunningWait::Blocked
+            }
             RunningAuthorityLoopProgress::GenerationTransitionPending {
                 ticket_sequence,
                 source_key,
@@ -474,7 +496,9 @@ fn service_running_with_output_capacity(
     wall_now_ms: u64,
 ) -> Result<RunningAuthorityLoopProgress, EngineError> {
     if running.state() == RunningAuthorityLoopState::Ready {
-        output.preflight_reliable_reservation(&[size_of::<RunningAuthorityEvent>()])?;
+        output.preflight_reliable_reservation(&[super::controller_output::service_reply_bound(
+            running,
+        )?])?;
     }
     running
         .service_after_command_drain(wall_now_ms, SchedulerServiceMode::Background, None)
@@ -657,6 +681,9 @@ fn execute_running_authority_command(
         RunningAuthorityCommand::SubmitGenerationAssignmentReceipts { receipts } => {
             submit_generation_assignment_receipts(command_sequence, &receipts, running)
         }
+        RunningAuthorityCommand::SubmitControllerDeliveryReceipts { receipts } => {
+            super::controller_output::submit_receipts(command_sequence, &receipts, running)
+        }
         RunningAuthorityCommand::PublishAcknowledgedGenerationStart => running
             .publish_acknowledged_generation_start(wall_now_ms, None)
             .map_err(running_control_error)
@@ -755,7 +782,8 @@ fn running_response_owned_byte_bound(
                 )
                 .ok_or_else(overflow)?
         }
-        RunningAuthorityCommand::SubmitGenerationAssignmentReceipts { .. } => 0,
+        RunningAuthorityCommand::SubmitGenerationAssignmentReceipts { .. }
+        | RunningAuthorityCommand::SubmitControllerDeliveryReceipts { .. } => 0,
         RunningAuthorityCommand::PublishAcknowledgedGenerationStart => {
             // Every unavailable record is a unique old-controller outcome and
             // retains exactly that source controller's scope and known token.
@@ -855,39 +883,8 @@ fn submit_generation_assignment_receipts(
             "generation assignment receipts require a prepared retained assignment batch",
         ));
     };
-    let mut exact_results = Vec::new();
-    exact_results
-        .try_reserve_exact(receipts.len())
-        .map_err(|error| {
-            EngineError::new(
-                EngineErrorCode::QueueCountLimit,
-                format!("failed to reserve generation assignment receipts: {error}"),
-            )
-        })?;
-    let mut bridge_ignored = 0usize;
-    for receipt in receipts {
-        let event = batch
-            .events()
-            .binary_search_by_key(&receipt.event_sequence, |event| event.event_sequence)
-            .ok()
-            .and_then(|index| batch.events().get(index))
-            .filter(|event| {
-                event.step_key.operation_epoch() == receipt.operation_epoch
-                    && event.connection_id == receipt.connection_id
-                    && event.lease_id == receipt.lease_id
-            });
-        if let Some(event) = event {
-            exact_results.push(ExternalDeliveryResult {
-                step_key: event.step_key,
-                event_sequence: receipt.event_sequence,
-                connection_id: receipt.connection_id,
-                lease_id: receipt.lease_id,
-                accepted: receipt.accepted,
-            });
-        } else {
-            bridge_ignored = bridge_ignored.saturating_add(1);
-        }
-    }
+    let (exact_results, bridge_ignored) =
+        super::controller_output::correlate_receipts(batch, receipts)?;
     let resolution = running
         .submit_external_delivery_results(&exact_results, None)
         .map_err(running_control_error)?;
@@ -1110,6 +1107,209 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// Resume the existing connected-controller fixture into a normal generation.
+    fn ordinary_controller_loop() -> RunningAuthorityLoop {
+        let managed = TestDirectory::create();
+        let mut running = background_generation_handoff_fixture().unwrap().running;
+        advance_to_transition(&mut running);
+        publish_and_acknowledge(&mut running, &managed);
+        let assignments = match command_reply(
+            &mut running,
+            RunningAuthorityCommand::PrepareGenerationReassignments,
+            1024 * 1024,
+        ) {
+            RunningAuthorityEvent::GenerationReassignmentsPrepared { assignments, .. } => {
+                assignments
+            }
+            other => panic!("missing assignments: {other:?}"),
+        };
+        let receipts = assignments
+            .iter()
+            .map(|assignment| ExternalDeliveryReceipt {
+                operation_epoch: assignment.operation_epoch,
+                event_sequence: assignment.event_sequence,
+                connection_id: assignment.connection_id,
+                lease_id: assignment.lease_id,
+                accepted: true,
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        assert!(matches!(
+            command_reply(
+                &mut running,
+                RunningAuthorityCommand::SubmitControllerDeliveryReceipts {
+                    receipts: receipts.clone()
+                },
+                1024 * 1024
+            ),
+            RunningAuthorityEvent::CommandRejected { .. }
+        ));
+        command_reply(
+            &mut running,
+            RunningAuthorityCommand::SubmitGenerationAssignmentReceipts { receipts },
+            1024 * 1024,
+        );
+        command_reply(
+            &mut running,
+            RunningAuthorityCommand::PublishAcknowledgedGenerationStart,
+            1024 * 1024,
+        );
+        assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
+        running
+    }
+
+    #[test]
+    fn ordinary_controller_capacity_rejects_before_preparation_and_retries_once() {
+        let mut running = ordinary_controller_loop();
+        let before = RunningAuthorityMetrics::new(&running).snapshot();
+        let bound = super::super::controller_output::service_reply_bound(&running).unwrap();
+        let small = output_with_cap(bound - 1);
+        assert_eq!(
+            service_running_with_output_capacity(&mut running, &small, 1200)
+                .unwrap_err()
+                .code,
+            EngineErrorCode::QueueByteLimit
+        );
+        assert_eq!(RunningAuthorityMetrics::new(&running).snapshot(), before);
+        assert!(running.pending_external_delivery().is_none());
+        let output = output_with_cap(bound);
+        assert!(matches!(
+            service_running_with_output_capacity(&mut running, &output, 1200).unwrap(),
+            RunningAuthorityLoopProgress::ExternalDeliveryPending { .. }
+        ));
+        let messages = super::super::controller_output::own_pending_messages(&running).unwrap();
+        assert!(!messages.is_empty());
+        let event = RunningAuthorityEvent::ControllerMessages {
+            ticket_sequence: 2,
+            messages: messages.clone(),
+        };
+        assert!(size_of::<RunningAuthorityEvent>() + event.owned_bytes() <= bound);
+        let receipts: Vec<_> = messages
+            .iter()
+            .map(|message| ExternalDeliveryReceipt {
+                operation_epoch: message.event.step_key.operation_epoch(),
+                event_sequence: message.event.event_sequence,
+                connection_id: message.event.connection_id,
+                lease_id: message.event.lease_id,
+                accepted: true,
+            })
+            .collect();
+        let stale = ExternalDeliveryReceipt {
+            connection_id: u64::MAX,
+            ..receipts[0]
+        };
+        assert!(matches!(
+            command_reply(
+                &mut running,
+                RunningAuthorityCommand::SubmitControllerDeliveryReceipts {
+                    receipts: vec![stale].into_boxed_slice()
+                },
+                1024 * 1024
+            ),
+            RunningAuthorityEvent::ControllerDeliveryReceiptsApplied {
+                matched_acceptances: 0,
+                ignored_receipts: 1,
+                published_completed_step: None,
+                ..
+            }
+        ));
+        assert_eq!(
+            super::super::controller_output::own_pending_messages(&running).unwrap(),
+            messages
+        );
+        let mut duplicate_receipts = receipts;
+        duplicate_receipts.push(duplicate_receipts[0]);
+        let command = RunningAuthorityCommand::SubmitControllerDeliveryReceipts {
+            receipts: duplicate_receipts.into_boxed_slice(),
+        };
+        let batch = CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: vec![SequencedCommand {
+                sequence: 1,
+                command: EngineCommand::RunningAuthority(command.clone()),
+            }]
+            .into_boxed_slice(),
+        };
+        let state = CoordinatorState::new();
+        let metrics = RunningAuthorityMetrics::new(&running);
+        let mut byte_limits = background_generation_handoff_runtime_init().output;
+        byte_limits.max_event_owned_bytes = bound;
+        byte_limits.max_reliable_owned_bytes = bound;
+        let byte_full = OutputQueue::new(byte_limits, Arc::new(NoopWakeSink));
+        byte_full
+            .push_reliable(ReliableEvent::ProbeResult {
+                sequence: 0,
+                correlation_id: 0,
+                payload: vec![0; bound],
+            })
+            .unwrap();
+        assert_eq!(
+            process_running_command_batch(
+                batch.clone(),
+                &byte_full,
+                &state,
+                &mut running,
+                &metrics,
+                1200
+            )
+            .unwrap_err()
+            .code,
+            EngineErrorCode::QueueByteLimit
+        );
+        assert_eq!(running.completed_step(), before.completed_step);
+        assert_eq!(
+            super::super::controller_output::own_pending_messages(&running).unwrap(),
+            messages
+        );
+
+        // A full queue retains the exact completion for retry before publication.
+        let output = output_with_cap(1024 * 1024);
+        for sequence in 0..background_generation_handoff_runtime_init()
+            .output
+            .max_reliable
+        {
+            output
+                .push_reliable(ReliableEvent::ProbeResult {
+                    sequence: sequence as u64,
+                    correlation_id: 0,
+                    payload: Vec::new(),
+                })
+                .unwrap();
+        }
+        assert_eq!(
+            process_running_command_batch(
+                batch.clone(),
+                &output,
+                &state,
+                &mut running,
+                &metrics,
+                1200
+            )
+            .unwrap_err()
+            .code,
+            EngineErrorCode::QueueCountLimit
+        );
+        assert_eq!(running.completed_step(), before.completed_step);
+        assert_eq!(
+            super::super::controller_output::own_pending_messages(&running).unwrap(),
+            messages
+        );
+        output.drain(usize::MAX, usize::MAX);
+        process_running_command_batch(batch, &output, &state, &mut running, &metrics, 1200)
+            .unwrap();
+        let result = output.drain(usize::MAX, usize::MAX).events.pop().unwrap();
+        assert!(
+            matches!(result, CompletedEvent::Reliable(ReliableEvent::RunningAuthority(event)) if matches!(*event, RunningAuthorityEvent::ControllerDeliveryReceiptsApplied { matched_acceptances, ignored_receipts: 1, remaining: 0, published_completed_step: Some(_), .. } if matched_acceptances == messages.len()))
+        );
+        assert_eq!(running.completed_step(), before.completed_step + 1);
+        assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
+        assert!(matches!(
+            command_reply(&mut running, command, 1024 * 1024),
+            RunningAuthorityEvent::CommandRejected { .. }
+        ));
+        assert_eq!(running.completed_step(), before.completed_step + 1);
     }
 
     fn publish_and_acknowledge(

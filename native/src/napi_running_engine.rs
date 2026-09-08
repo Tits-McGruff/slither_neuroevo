@@ -179,35 +179,26 @@ impl ExperimentalRunningAuthority {
         receipt: Object<'_>,
     ) -> Result<()> {
         let sequence = parse_background_sequence(sequence)?;
-        let receipt = ExternalDeliveryReceipt {
-            operation_epoch: parse_u64_hex(
-                &bounded_object_string(&receipt, "operationEpoch", 16)?,
-                "operationEpoch",
-                false,
-            )?,
-            event_sequence: parse_u64_hex(
-                &bounded_object_string(&receipt, "eventSequence", 16)?,
-                "eventSequence",
-                false,
-            )?,
-            connection_id: parse_u64_hex(
-                &bounded_object_string(&receipt, "connectionId", 16)?,
-                "connectionId",
-                false,
-            )?,
-            lease_id: parse_u64_hex(
-                &bounded_object_string(&receipt, "leaseId", 16)?,
-                "leaseId",
-                false,
-            )?,
-            accepted: receipt
-                .get::<bool>("accepted")?
-                .ok_or_else(|| Error::new(Status::InvalidArg, "receipt omits accepted"))?,
-        };
+        let receipt = parse_controller_receipt(&receipt)?;
         self.submit(
             sequence,
             RunningAuthorityCommand::SubmitGenerationAssignmentReceipts {
                 receipts: vec![receipt].into_boxed_slice(),
+            },
+        )
+    }
+
+    /// Resolve an ordinary observation/death-assignment send without touching a generation barrier.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_delivery_receipt(
+        &self,
+        sequence: JsString<'_>,
+        receipt: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SubmitControllerDeliveryReceipts {
+                receipts: vec![parse_controller_receipt(&receipt)?].into_boxed_slice(),
             },
         )
     }
@@ -405,4 +396,33 @@ impl Drop for DrainGuard<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
     }
+}
+
+/// Parse bounded correlation fields before admitting one ordinary send result.
+pub(crate) fn parse_controller_receipt(receipt: &Object<'_>) -> Result<ExternalDeliveryReceipt> {
+    Ok(ExternalDeliveryReceipt {
+        operation_epoch: parse_u64_hex(
+            &bounded_object_string(receipt, "operationEpoch", 16)?,
+            "operationEpoch",
+            false,
+        )?,
+        event_sequence: parse_u64_hex(
+            &bounded_object_string(receipt, "eventSequence", 16)?,
+            "eventSequence",
+            false,
+        )?,
+        connection_id: parse_u64_hex(
+            &bounded_object_string(receipt, "connectionId", 16)?,
+            "connectionId",
+            false,
+        )?,
+        lease_id: parse_u64_hex(
+            &bounded_object_string(receipt, "leaseId", 16)?,
+            "leaseId",
+            false,
+        )?,
+        accepted: receipt
+            .get::<bool>("accepted")?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "receipt omits accepted"))?,
+    })
 }

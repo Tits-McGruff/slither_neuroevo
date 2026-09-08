@@ -75,6 +75,51 @@ export interface RustGenerationAssignmentReceipt {
   /** Acceptance by the local transport; not remote acknowledgement. */
   accepted: boolean;
 }
+/** Ordinary reliable observation or death-replacement assignment prepared by Rust. */
+export interface RustBackgroundControllerMessage {
+  /** Exact retained operation epoch. */
+  operationEpoch: RustBackgroundIdentity;
+  /** Exact retained event sequence. */
+  eventSequence: RustBackgroundIdentity;
+  /** Live socket epoch. */
+  connectionId: RustBackgroundIdentity;
+  /** Controller assignment epoch. */
+  leaseId: RustBackgroundIdentity;
+  /** Player browser or Protocol 2 bot. */
+  controllerKind: string;
+  /** Internal authority identity, never substituted for the wire snake ID. */
+  internalSnakeId: RustBackgroundIdentity;
+  /** Exact frame-v1/Protocol 2 snake identity. */
+  snakeId: number;
+  /** Completed-step boundary at which the observation was sampled. */
+  sourceCompletedStep: RustBackgroundIdentity;
+  /** Reliable event discriminator. */
+  kind: 'observation' | 'replacementAssignment';
+  /** Rust-delivered sensor-v3 vector for observations. */
+  sensors?: number[];
+  /** Pre-movement pose, present on observations. */
+  x?: number;
+  /** Pre-movement pose, present on observations. */
+  y?: number;
+  /** Pre-movement heading, present on observations. */
+  direction?: number;
+  /** Rust-issued reclaim token on a replacement assignment. */
+  resumeToken?: string;
+}
+
+/** Ordinary-step publication after applying exact local transport results. */
+export interface RustControllerReceiptResolution {
+  /** Newly accepted messages. */
+  matchedAcceptances: RustBackgroundIdentity;
+  /** Newly failed local sends. */
+  matchedFailures: RustBackgroundIdentity;
+  /** Stale, duplicate, or mismatched receipts. */
+  ignoredReceipts: RustBackgroundIdentity;
+  /** Unresolved messages retained by Rust. */
+  remaining: RustBackgroundIdentity;
+  /** Newly published step, absent while any delivery remains pending. */
+  publishedCompletedStep?: RustBackgroundIdentity;
+}
 
 /** Coarse event envelope; consumers validate the payload for the selected kind. */
 export interface RustBackgroundEvent {
@@ -96,6 +141,10 @@ export interface RustBackgroundEvent {
   generationStart?: unknown;
   /** Replaceable basic stats and cached frame metadata, after priority events. */
   display?: RustBackgroundDisplay;
+  /** Full reliable ordinary-step batch, delivered before its step is published. */
+  controllerMessages?: RustBackgroundControllerMessage[];
+  /** Exact ordinary receipt result, separate from generation assignments. */
+  controllerReceiptResolution?: RustControllerReceiptResolution;
   /** Recoverable command rejection category. */
   rejectionCode?: string;
   /** Bounded rejection detail. */

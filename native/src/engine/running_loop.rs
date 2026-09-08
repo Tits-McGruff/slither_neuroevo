@@ -397,6 +397,17 @@ impl RunningAuthorityLoop {
         &self.authority.state().world.controller_leases
     }
 
+    /// Resolve an observed internal ID using the still-current source authority.
+    pub(crate) fn controller_frame_v1_id(&self, snake_id: u64) -> Option<u32> {
+        self.authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == snake_id)
+            .map(|snake| snake.frame_v1_id)
+    }
+
     /// Publish or exactly retry the immutable checkpoint and return only its
     /// bounded descriptor plus the Rust-admitted scalar commit record.
     ///

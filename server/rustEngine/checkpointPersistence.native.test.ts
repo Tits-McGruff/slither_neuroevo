@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { RustBackgroundControllerMessage, RustControllerReceiptResolution, RustGenerationAssignmentReceipt } from '../../src/protocol/rustBackground.ts';
 import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
 import { GenerationPersistenceHandoff } from './generationPersistenceHandoff.ts';
 import { RunStartPersistenceHandoff } from './runStartPersistenceHandoff.ts';
@@ -232,6 +233,10 @@ interface Stage6BackgroundGenerationEvent {
   kind: string;
   /** Exact originating command sequence when this is a command response. */
   commandSequence?: string;
+  /** Ordinary reliable messages preserved across command-result waits. */
+  controllerMessages?: RustBackgroundControllerMessage[];
+  /** Exact ordinary-step receipt completion. */
+  controllerReceiptResolution?: RustControllerReceiptResolution;
   /** Rust-owned pending-transition scalars. */
   transition?: {
     ticketSequence: string;
@@ -319,6 +324,8 @@ interface Stage6BackgroundGenerationHandoffSession {
   ): void;
   /** Queue the separately gated final authority swap. */
   submitPublishGenerationStart(sequenceHex: string): void;
+  /** Resolve only an ordinary-step transport barrier. */
+  submitControllerDeliveryReceipt(sequenceHex: string, receipt: RustGenerationAssignmentReceipt): void;
   /** Drain typed bounded output. */
   drainOutputs(maxEvents: number, maxOwnedBytes: number): {
     events: Stage6BackgroundGenerationEvent[];
@@ -528,20 +535,27 @@ function parseGenerationPublication(value: unknown): {
   return { descriptor, generationCommit };
 }
 
-/** Drain until one expected background event arrives or surface a retained fault immediately. */
+/** Reliable events retained between predicate-based waits for each fixture session. */
+const pendingBackgroundEvents = new WeakMap<Stage6BackgroundGenerationHandoffSession, Stage6BackgroundGenerationEvent[]>();
+
+/** Preserve unrelated reliable events for later waits, including ordinary controller batches. */
 async function waitForBackgroundEvent(
   session: Stage6BackgroundGenerationHandoffSession,
   predicate: (event: Stage6BackgroundGenerationEvent) => boolean
 ): Promise<Stage6BackgroundGenerationEvent> {
   const deadline = Date.now() + 5_000;
+  const pending = pendingBackgroundEvents.get(session) ?? [];
+  pendingBackgroundEvents.set(session, pending);
   while (Date.now() < deadline) {
     const drained = session.drainOutputs(64, 2 * 1024 * 1024);
+    pending.push(...drained.events);
     for (const event of drained.events) {
       if (event.kind === 'fault') {
         throw new Error(`background Rust authority faulted: ${event.faultCode ?? 'unknown'}: ${event.faultDetail ?? ''}`);
       }
-      if (predicate(event)) return event;
     }
+    const index = pending.findIndex(predicate);
+    if (index >= 0) return pending.splice(index, 1)[0]!;
     await new Promise<void>(resolveImmediate => setImmediate(resolveImmediate));
   }
   throw new Error(`background Rust authority event timed out: ${JSON.stringify(session.health())}`);
@@ -1294,6 +1308,36 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
           completedStep: '0000000000000001',
           processedCommands: '000000000000000c'
         });
+
+        const ordinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages');
+        const messages = ordinary.controllerMessages;
+        expect(messages).toHaveLength(1);
+        const observation = messages![0]!;
+        expect(observation).toMatchObject({ kind: 'observation', snakeId: Number(BigInt(`0x${assignment.frameV1Id}`)) });
+        expect(observation.sensors).toHaveLength(83);
+        expect(observation.sensors!.every(Number.isFinite)).toBe(true);
+        expect(observation.sourceCompletedStep).toBe('0000000000000001');
+        expect(session.health().completedStep).toBe('0000000000000001');
+        const receipt: RustGenerationAssignmentReceipt = {
+          operationEpoch: observation.operationEpoch, eventSequence: observation.eventSequence,
+          connectionId: observation.connectionId, leaseId: observation.leaseId, accepted: true
+        };
+        // Wrong-phase generation receipts must not consume this ordinary observation.
+        session.submitGenerationAssignmentReceipt('000000000000000d', receipt);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000d'))
+          .resolves.toMatchObject({ kind: 'commandRejected' });
+        session.submitControllerDeliveryReceipt('000000000000000e', { ...receipt, connectionId: 'ffffffffffffffff' });
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000e'))
+          .resolves.toMatchObject({ controllerReceiptResolution: {
+            matchedAcceptances: '0000000000000000', ignoredReceipts: '0000000000000001', remaining: '0000000000000001'
+          } });
+        expect(session.health().completedStep).toBe('0000000000000001');
+        session.submitControllerDeliveryReceipt('000000000000000f', receipt);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000f'))
+          .resolves.toMatchObject({ controllerReceiptResolution: {
+            matchedAcceptances: '0000000000000001', remaining: '0000000000000000', publishedCompletedStep: '0000000000000002'
+          } });
+        await waitForBackgroundHealth(session, health => health.completedStep === '0000000000000002');
 
         await closeClient(client);
         expect(readCurrentPointer(paths.databasePath, runStart.runId)).toEqual({

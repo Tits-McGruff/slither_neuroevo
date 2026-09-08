@@ -171,5 +171,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   rejection and send-buffer reuse through the real addon. Frame selection pins
   the cache before checking lifecycle priority, closing a reviewed copy race.
 
-The next dependency is ordinary controller command/delivery integration, then
-experimental server startup and browser/Protocol 2 routing.
+- 2026-09-08 Ordinary controller observations and death assignments now leave
+  the background runtime as complete bounded reliable batches. Capacity is
+  reserved before step preparation and before delivery receipts can publish a
+  step. Exact retry and stale/duplicate receipt regressions preserve pending
+  messages and prevent duplicate publication; the real addon/SQLite handoff
+  continues through the first ordinary observation in the successor generation.
+
+The next dependency is incoming controller join/action/disconnect/reclaim
+integration, then experimental server startup and browser/Protocol 2 routing.

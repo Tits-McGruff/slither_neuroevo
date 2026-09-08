@@ -8,6 +8,7 @@ use super::external_replacement::UnavailableControllerReservation;
 use super::generation::GenerationCommitRecord;
 use super::physics::PhysicsStepKey;
 use super::running_loop::RunningGenerationStartResolution;
+use super::running_step::ExternalObservationEvent;
 use super::running_step::GenerationTransitionReason;
 use super::state::ControllerKind;
 use std::mem::size_of;
@@ -242,6 +243,10 @@ pub enum RunningAuthorityCommand {
         /// Bounded receipts correlated to the retained Rust events.
         receipts: Box<[ExternalDeliveryReceipt]>,
     },
+    /// Resolve only the ordinary-step observation/replacement barrier.
+    SubmitControllerDeliveryReceipts {
+        receipts: Box<[ExternalDeliveryReceipt]>,
+    },
     /// Perform the final swap only after persistence and delivery barriers pass.
     PublishAcknowledgedGenerationStart,
 }
@@ -260,10 +265,11 @@ impl RunningAuthorityCommand {
                     "managed checkpoint directory must be nonempty, NUL-free, and at most 32768 UTF-8 bytes",
                 ))
             }
-            Self::SubmitGenerationAssignmentReceipts { receipts } if receipts.is_empty() => {
+            Self::SubmitGenerationAssignmentReceipts { receipts }
+            | Self::SubmitControllerDeliveryReceipts { receipts } if receipts.is_empty() => {
                 Err(EngineError::new(
                     EngineErrorCode::InvalidCommand,
-                    "generation assignment receipt batch must not be empty",
+                    "controller delivery receipt batch must not be empty",
                 ))
             }
             _ => Ok(()),
@@ -290,7 +296,8 @@ impl RunningAuthorityCommand {
             Self::PrepareGenerationReassignments | Self::PublishAcknowledgedGenerationStart => {
                 Ok(0)
             }
-            Self::SubmitGenerationAssignmentReceipts { receipts } => receipts
+            Self::SubmitGenerationAssignmentReceipts { receipts }
+            | Self::SubmitControllerDeliveryReceipts { receipts } => receipts
                 .len()
                 .checked_mul(size_of::<ExternalDeliveryReceipt>())
                 .ok_or_else(|| {
@@ -300,6 +307,26 @@ impl RunningAuthorityCommand {
                     )
                 }),
         }
+    }
+}
+
+/// Owned reliable projection of a retained Rust observation or death assignment.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RunningControllerMessage {
+    pub event: ExternalObservationEvent,
+    /// Browser/Protocol 2 identity, distinct from the internal snake ID.
+    pub frame_v1_id: u32,
+    pub sensors: Box<[f32]>,
+    pub resume_token: Option<Box<str>>,
+}
+
+impl RunningControllerMessage {
+    /// Heap payload owned in addition to the fixed message record.
+    pub fn payload_owned_bytes(&self) -> usize {
+        self.sensors
+            .len()
+            .saturating_mul(size_of::<f32>())
+            .saturating_add(self.resume_token.as_ref().map_or(0, |token| token.len()))
     }
 }
 
@@ -345,8 +372,22 @@ pub enum GenerationAssignmentReceiptState {
 }
 
 /// Reliable events emitted by the background Rust authority path.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RunningAuthorityEvent {
+    /// The entire ordinary-step delivery batch, admitted before step preparation.
+    ControllerMessages {
+        ticket_sequence: u64,
+        messages: Box<[RunningControllerMessage]>,
+    },
+    /// Ordinary receipts cannot resolve or retire a generation transition.
+    ControllerDeliveryReceiptsApplied {
+        command_sequence: u64,
+        matched_acceptances: usize,
+        matched_failures: usize,
+        ignored_receipts: usize,
+        remaining: usize,
+        published_completed_step: Option<u64>,
+    },
     /// The retained terminal step is waiting for its generation handoff.
     GenerationTransitionPending {
         /// Retained scheduler ticket identity.
@@ -421,6 +462,13 @@ impl RunningAuthorityEvent {
     #[must_use]
     pub fn owned_bytes(&self) -> usize {
         match self {
+            Self::ControllerMessages { messages, .. } => messages
+                .len()
+                .saturating_mul(size_of::<RunningControllerMessage>())
+                .saturating_add(messages.iter().fold(0usize, |bytes, message| {
+                    bytes.saturating_add(message.payload_owned_bytes())
+                })),
+            Self::ControllerDeliveryReceiptsApplied { .. } => 0,
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
             Self::GenerationCheckpointPublished { descriptor, .. } => {
@@ -575,7 +623,7 @@ pub struct BatchShape {
 }
 
 /// Reliable coordinator output.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ReliableEvent {
     /// Coordinator accepted its one-shot start.
     Started,
