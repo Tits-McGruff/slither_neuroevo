@@ -5,6 +5,9 @@ import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createExperimentalServerRuntime } from './experimentalStartup.ts';
+import { BackgroundOutputPump } from './backgroundOutput.ts';
+import { ExternalControllerRouting } from './externalRouting.ts';
+import { createRustWelcome } from './browserMetadata.ts';
 import type { RustBackgroundEvent, RustBackgroundFrameCopy } from '../../src/protocol/rustBackground.ts';
 import type { ExperimentalEngineInit } from './experimentalNativeBridge.ts';
 import { FRAME_HEADER_FLOATS, readFrameHeader } from '../../src/protocol/frame.ts';
@@ -182,12 +185,65 @@ afterEach(async () => {
 });
 
 describe('experimental server startup composition', () => {
+  it('routes a real fresh controller through assignment, observation, and shared action admission', async () => {
+    const paths = createFixturePaths('server-output');
+    const owner = await createExperimentalServerRuntime({ databasePath: paths.databasePath,
+      managedDirectory: paths.managedRoot, seed: 42, onWake() {} });
+    const events: RustBackgroundEvent[] = [];
+    const packets: Array<{ type: string }> = [];
+    let frameCount = 0;
+    let routing!: ExternalControllerRouting;
+    const pump = new BackgroundOutputPump({
+      owner, maxControllers: 4, hasFrameRecipients: () => true,
+      send(_connection, message) { packets.push(message); return true; },
+      event(event) { events.push(event); routing.event(event); },
+      frame(lease) { frameCount++; lease.release(); }
+    });
+    routing = new ExternalControllerRouting({ native: owner.runtime, admission: pump.admission,
+      maxControllers: 4, maxActionsPerSecond: 120, maxActionsPerTick: 1,
+      send(_connection, message) { packets.push(message); return true; } });
+    try {
+      owner.runtime.start();
+      routing.join(1, { type: 'join', mode: 'player', name: 'output-bot' }, 'bot');
+      const deadline = performance.now() + 10_000;
+      while (!packets.some(packet => packet.type === 'sensors') && performance.now() < deadline) {
+        const draining = pump.drain();
+        expect(pump.drain()).toBe(draining);
+        await draining;
+        await new Promise<void>(done => setImmediate(done));
+      }
+      expect(packets.filter(packet => packet.type === 'assign'), JSON.stringify(events.filter(event => event.kind === 'commandRejected'))).toHaveLength(1);
+      expect(packets.some(packet => packet.type === 'sensors')).toBe(true);
+      const assignment = events.find(event => event.controllerJoinAssignment)?.controllerJoinAssignment;
+      if (!assignment) throw new Error('missing fresh assignment');
+      routing.action(1, { type: 'action', snakeId: assignment.snakeId, turn: 0.5, boost: 0, tick: 0 });
+      while (!events.some(event => event.kind === 'controllerActionApplied') && performance.now() < deadline) {
+        await pump.drain();
+        await new Promise<void>(done => setImmediate(done));
+      }
+      expect(events.some(event => event.kind === 'controllerActionApplied')).toBe(true);
+      routing.disconnect(1);
+      routing.join(2, { type: 'join', mode: 'player', name: 'output-bot', resumeToken: assignment.resumeToken }, 'bot');
+      while (!events.some(event => event.controllerReclaimResolution?.accepted) && performance.now() < deadline) {
+        await pump.drain();
+        await new Promise<void>(done => setImmediate(done));
+      }
+      expect(events.some(event => event.controllerReclaimResolution?.accepted)).toBe(true);
+      const reclaimed = events.find(event => event.controllerReclaimAssignment)?.controllerReclaimAssignment;
+      expect(reclaimed?.snakeId).toBe(assignment.snakeId);
+      expect(reclaimed?.resumeToken).not.toBe(assignment.resumeToken);
+      expect(frameCount).toBeGreaterThan(0);
+      expect(owner.runtime.health().faultCode).toBeUndefined();
+    } finally { await owner.close(); }
+  }, 30_000);
   it('durably creates one unstarted owner and refuses to replace its database', async () => {
     const paths = createFixturePaths('server-startup');
     const options = { databasePath: paths.databasePath, managedDirectory: paths.managedRoot, seed: 42, onWake: () => {} };
     const owner = await createExperimentalServerRuntime(options);
     try {
       expect(owner.metadata.seed).toBe(42);
+      expect(createRustWelcome(owner.metadata)).toMatchObject({ worldSeed: 42, sensorSpec: { sensorCount: 83 },
+        settings: { core: { snakeCount: 55, simSpeed: 1 } }, inferenceMode: { activeBackend: 'native' } });
       expect(owner.runtime.health()).toMatchObject({ lifecycle: 'created', completedStep: '0000000000000000' });
       expect(readCurrentPointer(paths.databasePath, owner.metadata.runId)?.checkpoint_id).toBe(owner.runStart.checkpointId);
       await expect(createExperimentalServerRuntime(options)).rejects.toMatchObject({ code: 'EEXIST' });

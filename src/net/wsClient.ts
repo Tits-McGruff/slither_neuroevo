@@ -55,7 +55,7 @@ export interface StatsMsg {
   baselineBotsAlive: number;
   baselineBotsTotal: number;
   fps: number;
-  collisionGrid: SpatialHashDiagnostics;
+  collisionGrid?: SpatialHashDiagnostics;
   fitnessData?: FitnessData;
   fitnessHistory?: FitnessHistoryEntry[];
   viz?: VizData;

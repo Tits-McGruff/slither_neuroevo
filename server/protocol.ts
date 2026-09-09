@@ -241,7 +241,7 @@ export interface StatsMsg {
   /** Latest server pump rate. */
   fps: number;
   /** Operational collision-index load and capacity diagnostics. */
-  collisionGrid: SpatialHashDiagnostics;
+  collisionGrid?: SpatialHashDiagnostics;
   /** Optional current generation fitness summary. */
   fitnessData?: FitnessData;
   /** Optional bounded fitness history. */

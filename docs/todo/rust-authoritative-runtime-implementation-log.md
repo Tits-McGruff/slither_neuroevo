@@ -224,5 +224,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   retaining acknowledgements and send results under backpressure; focused
   tests cover single commit, phase isolation, public IDs, and resume ordering.
 
-The next dependency is attaching these startup and transport adapters to the
-experimental HTTP/WebSocket entry point, followed by latest-boundary restart.
+- 2026-09-10 `npm run server:rust -- --fresh --db-path PATH` now starts the
+  native P0 authority through real HTTP/WebSocket routing and serves the built
+  browser. Bounded socket tags and newest unsent player input share admission
+  with generation and ordinary receipts. Real socket tests cover frames/stats,
+  RL assignment/sensors/actions, disconnect/token reclaim, and explicit command
+  errors. A local full default round reached generation two in 239.6 seconds
+  with continued delivery and a durable current checkpoint. Normalized native
+  settings supply welcome metadata; unavailable collision diagnostics are absent.
+
+The next dependency is restart from the latest retained managed boundary.

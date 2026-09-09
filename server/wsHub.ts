@@ -72,6 +72,8 @@ export interface WsOutboundDiagnostics {
 
 /** Optional hub configuration overrides. */
 export interface WsHubOptions {
+  /** Optional connection cap for a bounded experimental transport. */
+  maxConnections?: number;
   maxMessageBytes?: number;
   maxBufferedAmount?: number;
 }
@@ -109,6 +111,8 @@ export class WsHub {
   private maxMessageBytes: number;
   /** Maximum buffered outbound bytes per socket. */
   private maxBufferedAmount: number;
+  /** Maximum live sockets admitted by this hub. */
+  private readonly maxConnections: number;
   /** Registered event handlers for hub callbacks. */
   private handlers: WsHubHandlers | null;
 
@@ -127,6 +131,7 @@ export class WsHub {
   ) {
     this.maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
     this.maxBufferedAmount = options.maxBufferedAmount ?? DEFAULT_MAX_BUFFERED_BYTES;
+    this.maxConnections = options.maxConnections ?? Infinity;
     this.wss = new WebSocketServer({
       server: httpServer,
       maxPayload: this.maxMessageBytes
@@ -134,7 +139,10 @@ export class WsHub {
     this.welcome = welcome;
     this.welcomeJson = JSON.stringify(welcome);
     this.handlers = handlers ?? null;
-    this.wss.on('connection', (socket) => this.handleConnection(socket));
+    this.wss.on('connection', (socket) => {
+      if (this.connections.size >= this.maxConnections) { socket.close(1013, 'connection capacity reached'); return; }
+      this.handleConnection(socket);
+    });
   }
 
   /**

@@ -25,6 +25,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
     "server": "tsx server/index.ts",
+    "server:rust": "tsx server/experimentalRustServer.ts",
     "server:dev": "tsx watch server/index.ts",
     "postinstall": ".\\\\scripts\\\\postinstall.cmd || ./scripts/postinstall",
     "build:docs": "typedoc"

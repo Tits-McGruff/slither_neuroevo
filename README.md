@@ -50,6 +50,26 @@ Open the local URL printed by Vite (usually `http://localhost:5173`).
 
 Note: This project uses ES modules, so opening `index.html` directly in a file browser will not work.
 
+### Experimental Rust server
+
+The migration branch also exposes a fresh-only native P0 server:
+
+```powershell
+npm --prefix native run build
+npm run build:client
+npm run server:rust -- --fresh --db-path ./data/rust-experiment.sqlite
+```
+
+Use a new database path for each experiment. The server prints a browser URL
+and supports the existing Protocol 2 player/bot connections, frames, sensors,
+steering, disconnect and reclaim. Add `--host 0.0.0.0` for trusted home-LAN
+access. Checkpoints are retained beside the database in its `.checkpoints`
+directory, with free-disk admission before each generation save.
+
+This entry uses the fixed default graph and settings. Latest-checkpoint restart
+and secondary commands, including settings/reset and archive endpoints, are
+still being connected. `npm run server` remains the separate reference runtime.
+
 ### Architecture
 
 This application uses a pure client/server model. The browser renders binary
