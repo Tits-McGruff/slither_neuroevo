@@ -8,8 +8,8 @@
 //! authoritative population data.
 
 use super::checkpoint::{
-    publish_checkpoint, CheckpointDescriptor, CheckpointError, CheckpointLimits,
-    CheckpointOperationId,
+    publish_checkpoint, restore_committed_checkpoint, CheckpointDescriptor, CheckpointError,
+    CheckpointLimits, CheckpointOperationId,
 };
 use super::frame_v1::{
     pack_authoritative_frame_v1_into, FrameV1Error, FrameV1Metadata, FrameV1ViewDescriptor,
@@ -41,18 +41,24 @@ pub const RUN_START_TRANSITION_VERSION: u32 = 1;
 pub(crate) struct RunStartPersistenceProof {
     source_address: usize,
     world_epoch: u64,
+    restored_checkpoint: bool,
 }
 
 impl RunStartPersistenceProof {
-    fn new(authority: &AuthoritativeState) -> Self {
+    fn new(authority: &AuthoritativeState, restored_checkpoint: bool) -> Self {
         Self {
             source_address: std::ptr::from_ref(authority.state()).addr(),
             world_epoch: authority.world_epoch(),
+            restored_checkpoint,
         }
     }
 
     pub(crate) fn matches(&self, source_address: usize, world_epoch: u64) -> bool {
         self.source_address == source_address && self.world_epoch == world_epoch
+    }
+
+    pub(crate) const fn restores_checkpoint(&self) -> bool {
+        self.restored_checkpoint
     }
 }
 
@@ -70,6 +76,7 @@ pub struct PendingRunStartTransition {
     authority_published: bool,
     first_scheduled_step_attempted: bool,
     first_scheduled_frame_published: bool,
+    restored_checkpoint: bool,
 }
 
 impl PendingRunStartTransition {
@@ -103,6 +110,41 @@ impl PendingRunStartTransition {
             authority_published: false,
             first_scheduled_step_attempted: false,
             first_scheduled_frame_published: false,
+            restored_checkpoint: false,
+        })
+    }
+
+    /// Retain the exact file selected by the metadata worker without evolving,
+    /// publishing a new checkpoint, or exposing running authority. The same
+    /// staged generation construction and rollback path handles initial spawn.
+    pub fn restore_committed(
+        managed_directory: &Path,
+        descriptor: &CheckpointDescriptor,
+        admission_policy: StateAdmissionPolicy,
+        checkpoint_limits: CheckpointLimits,
+        graph_limits: GraphLimits,
+        work_limits: RunningStepWorkLimits,
+    ) -> Result<Self, RunStartTransitionError> {
+        let restored = restore_committed_checkpoint(
+            managed_directory,
+            descriptor,
+            &checkpoint_limits,
+            &graph_limits,
+            &admission_policy,
+        )?;
+        Ok(Self {
+            authority: restored.state,
+            admission_policy,
+            checkpoint_limits,
+            graph_limits,
+            work_limits,
+            generation_start: GenerationStartWorkspace::new(),
+            checkpoint_descriptor: Some(descriptor.clone()),
+            persistence_acknowledged: true,
+            authority_published: false,
+            first_scheduled_step_attempted: false,
+            first_scheduled_frame_published: false,
+            restored_checkpoint: true,
         })
     }
 
@@ -181,7 +223,8 @@ impl PendingRunStartTransition {
                 .generation_start
                 .prepare(self.authority.state(), config)?;
         }
-        let persistence_proof = RunStartPersistenceProof::new(&self.authority);
+        let persistence_proof =
+            RunStartPersistenceProof::new(&self.authority, self.restored_checkpoint);
         let publication = self.generation_start.publish_initial_run_start(
             &mut self.authority,
             config,

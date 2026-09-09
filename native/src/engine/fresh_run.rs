@@ -79,6 +79,27 @@ pub fn prepare_stage6a_p0_fresh_run(
     .map_err(FreshRunError::from)
 }
 
+/// Restore one worker-selected P0 checkpoint using the loaded build's admission
+/// policy. No fresh population, seed, or allocator state is constructed.
+pub fn prepare_stage6a_p0_checkpoint_restore(
+    managed_directory: &std::path::Path,
+    descriptor: &super::checkpoint::CheckpointDescriptor,
+    memory_ceiling_bytes: usize,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let settings =
+        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
+    let schema = normalized_settings_schema_hash(&settings)?;
+    PendingRunStartTransition::restore_committed(
+        managed_directory,
+        descriptor,
+        current_build_policy(memory_ceiling_bytes, schema),
+        stage6a_p0_checkpoint_limits(),
+        stage6a_p0_graph_limits(),
+        RunningStepWorkLimits::provisional_defaults(),
+    )
+    .map_err(FreshRunError::from)
+}
+
 /// Complete owned inputs immediately before the run-start durability wrapper.
 struct PreparedStage6aP0Boundary {
     candidate: StateCandidate,
@@ -539,7 +560,7 @@ mod tests {
     };
     use crate::engine::runtime::EngineRuntime;
     use crate::engine::scheduler::{FixedStepSchedulerPolicy, SchedulerServiceMode};
-    use crate::engine::state::NormalizedSettingValue;
+    use crate::engine::state::{AuthoritativeState, NormalizedSettingValue};
     use crate::engine::{
         ExternalDeliveryResult, GenerationReassignmentProgress, LifecycleState, RunningStepError,
     };
@@ -1393,6 +1414,69 @@ mod tests {
         let pending = handoff.into_transition();
         assert_eq!(pending.completed_step(), 1);
         assert!(pending.first_scheduled_frame_published());
+    }
+
+    #[test]
+    fn restored_generation_activates_without_resetting_its_chronology() {
+        let managed = TestDirectory::create("restored-generation");
+        let mut prepared = prepare_stage6a_p0_boundary(request(42)).unwrap();
+        prepared.candidate.phase =
+            AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::Generation);
+        prepared.candidate.generation.generation = 2;
+        prepared.candidate.generation.completed_step = 60;
+        prepared.candidate.generation.population_epoch = 2;
+        for genome in &mut prepared.candidate.population {
+            genome.brain.epoch = 2;
+        }
+        for brain in &mut prepared.candidate.brains {
+            brain.handle.epoch = 2;
+        }
+        let state = AuthoritativeState::validate_and_own(
+            prepared.candidate,
+            prepared.graph,
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        let descriptor = crate::engine::checkpoint::publish_checkpoint(
+            managed.path(),
+            CheckpointOperationId::parse("41414141414141414141414141414141").unwrap(),
+            state.world_epoch(),
+            state.checkpoint_boundary().unwrap(),
+            &prepared.checkpoint_limits,
+            &prepared.graph_limits,
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        let mut restored = PendingRunStartTransition::restore_committed(
+            managed.path(),
+            &descriptor,
+            prepared.admission_policy,
+            prepared.checkpoint_limits,
+            prepared.graph_limits,
+            prepared.work_limits,
+        )
+        .unwrap();
+        assert_eq!(restored.generation(), 2);
+        assert_eq!(restored.completed_step(), 60);
+        assert_eq!(restored.snake_count(), 0);
+        assert!(!restored.authority_published());
+        assert_ne!(restored.transition_epoch(), state.world_epoch());
+        let publication = restored.publish_running_authority().unwrap();
+        assert_eq!(publication.generation, 2);
+        assert_eq!(publication.completed_step, 60);
+        assert_eq!(publication.population_epoch, 2);
+        assert!(restored.publish_running_authority().is_err());
+        let mut running = restored
+            .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+            .unwrap();
+        let progress = running
+            .service_after_command_drain(17, SchedulerServiceMode::Background, None)
+            .unwrap();
+        assert!(matches!(
+            progress,
+            RunningAuthorityLoopProgress::Published { .. }
+        ));
+        assert_eq!(running.completed_step(), 61);
     }
 
     #[test]

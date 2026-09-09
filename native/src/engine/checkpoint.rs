@@ -1087,6 +1087,45 @@ pub fn publish_checkpoint(
     ))
 }
 
+/// Restore only the immutable content selected by the metadata worker. Historical
+/// publication tokens remain correlation facts; the restored authority receives
+/// its own process-local world epoch. Nothing is published or rewritten here.
+pub fn restore_committed_checkpoint(
+    managed_directory: &Path,
+    expected: &CheckpointDescriptor,
+    limits: &CheckpointLimits,
+    graph_limits: &GraphLimits,
+    admission_policy: &StateAdmissionPolicy,
+) -> Result<RestoredCheckpoint, CheckpointError> {
+    parse_digest(&expected.logical_root_sha256, "expected logical root")?;
+    let epoch = parse_u64_hex(&expected.transition_epoch_hex, "publication epoch")?;
+    if epoch == 0
+        || expected.managed_root != "checkpoint-v3"
+        || expected.relative_filename != format!("{}.checkpoint-v3", expected.logical_root_sha256)
+    {
+        return Err(CheckpointError::format(
+            "RESTORE_DESCRIPTOR",
+            "expected checkpoint has invalid publication identity or managed filename",
+        ));
+    }
+    let path = managed_directory
+        .canonicalize()?
+        .join(&expected.relative_filename);
+    let restored = restore_checkpoint(&path, limits, graph_limits, admission_policy)?;
+    let actual = publication_descriptor(
+        restored.content.clone(),
+        expected.operation_id.clone(),
+        epoch,
+    );
+    if let Some(field) = expected.first_mismatch(&actual) {
+        return Err(CheckpointError::format(
+            "RESTORE_DESCRIPTOR",
+            format!("restored checkpoint differs from committed {field}"),
+        ));
+    }
+    Ok(restored)
+}
+
 /// Strictly decode, verify, compile, and admit one managed checkpoint.
 pub fn restore_checkpoint(
     path: &Path,
@@ -4948,6 +4987,46 @@ mod tests {
             }
         ));
         assert_eq!(fs::read_dir(&directory.path).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn committed_restore_binds_all_content_to_the_selected_metadata() {
+        let directory = TestDirectory::new("committed-restore");
+        let (state, _graph, policy) = admitted_state(2, false);
+        let (_path, descriptor) = publish_fixture(
+            &directory,
+            &state,
+            &policy,
+            "00000000000000000000000000000027",
+        );
+        let restore = |expected: &CheckpointDescriptor| {
+            restore_committed_checkpoint(
+                &directory.path,
+                expected,
+                &checkpoint_limits(),
+                &graph_limits(),
+                &policy,
+            )
+        };
+        let restored = restore(&descriptor).unwrap();
+        assert_eq!(restored.state.state().identity, state.state().identity);
+        for field in 0..4 {
+            let mut wrong = descriptor.clone();
+            match field {
+                0 => wrong.generation_hex = "0000000000000002".into(),
+                1 => wrong.stored_byte_count_hex = "0000000000000001".into(),
+                2 => wrong.graph_layout_sha256 = "0".repeat(64),
+                _ => wrong.relative_filename = "../outside.checkpoint-v3".into(),
+            }
+            assert!(matches!(
+                restore(&wrong),
+                Err(CheckpointError::Format {
+                    code: "RESTORE_DESCRIPTOR",
+                    ..
+                })
+            ));
+        }
+        assert!(restore(&descriptor).is_ok());
     }
 
     /// A 55-slot multi-block population selects compression only when measured smaller.

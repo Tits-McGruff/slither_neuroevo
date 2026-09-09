@@ -274,6 +274,50 @@ afterEach(async () => {
 
 // Allow worker startup, durable I/O and joined shutdown on shared runners.
 describe(SUITE, { timeout: 30_000 }, () => {
+  it('selects one current descriptor after reopening without changing publication identity', async () => {
+    const fixture = createFixture();
+    await expect(fixture.client.selectCurrent()).resolves.toBeNull();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(descriptor);
+    await fixture.client.close();
+    const reopened = new CheckpointPersistenceClient({ databasePath: fixture.databasePath, managedRootPath: fixture.managedRoot });
+    clients.push(reopened);
+    const selecting = reopened.selectCurrent();
+    await expect(reopened.selectCurrent()).rejects.toThrow('busy');
+    await expect(selecting).resolves.toEqual(descriptor);
+    await expect(reopened.selectCurrent('missing-run')).resolves.toBeNull();
+    const finalRead = reopened.selectCurrent(descriptor.runId);
+    const closing = reopened.close();
+    await expect(finalRead).resolves.toEqual(descriptor);
+    await closing;
+    expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toEqual({
+      checkpoint_id: descriptor.logicalRootSha256, transition_epoch: descriptor.transitionEpoch, operation_id: descriptor.operationId
+    });
+  });
+
+  it('rejects ambiguous run selection while retaining explicit per-run reads', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { runId: 'another-run', operationId: 'c'.repeat(32) });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second);
+    await expect(fixture.client.selectCurrent()).rejects.toThrow('multiple current runs');
+    await expect(fixture.client.selectCurrent(first.runId)).resolves.toEqual(first);
+    await expect(fixture.client.selectCurrent(second.runId)).resolves.toEqual(second);
+  });
+
+  it('rejects oversized stored metadata without materializing it or rewriting the source', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(descriptor);
+    const database = new Database(fixture.databasePath);
+    try {
+      database.prepare('UPDATE rust_checkpoint_v3_metadata SET descriptor_json = ? WHERE checkpoint_id = ?')
+        .run(' '.repeat(32 * 1024), descriptor.logicalRootSha256);
+      await expect(fixture.client.selectCurrent()).rejects.toThrow('missing immutable metadata');
+      expect(database.prepare('SELECT length(descriptor_json) AS length FROM rust_checkpoint_v3_metadata').get()).toEqual({ length: 32 * 1024 });
+    } finally { database.close(); }
+  });
   it('uses boundary identity rather than resettable Rust operation epochs to advance current', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);

@@ -35,7 +35,9 @@ use crate::engine::contract::{
 };
 use crate::engine::error::{truncate_utf8, EngineError, EngineErrorCode, MAX_ERROR_DETAIL_BYTES};
 use crate::engine::frame_v1::FrameV1Metadata;
-use crate::engine::fresh_run::{prepare_stage6a_p0_fresh_run, Stage6aP0FreshRunRequest};
+use crate::engine::fresh_run::{
+    prepare_stage6a_p0_checkpoint_restore, prepare_stage6a_p0_fresh_run, Stage6aP0FreshRunRequest,
+};
 use crate::engine::generation::GenerationCommitRecord;
 use crate::engine::physics::PhysicsStepKey;
 use crate::engine::queues::WakeSink;
@@ -661,6 +663,48 @@ impl ExperimentalStage6aFreshRunSession {
         }
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
             request: self.request.clone(),
+            restore: None,
+            inner: Arc::clone(&self.inner),
+            active_operation: Arc::clone(&self.active_operation),
+        }))
+    }
+
+    /// Stream a worker-selected immutable checkpoint off-loop before activation.
+    #[napi(catch_unwind)]
+    pub fn initialize_from_checkpoint(
+        &self,
+        managed_directory: JsString<'_>,
+        descriptor: Object<'_>,
+    ) -> Result<AsyncTask<InitializeExperimentalFreshRunTask>> {
+        self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
+        let parsed = (|| {
+            let directory = parse_managed_path(bounded_js_string(
+                managed_directory,
+                "managedDirectory",
+                32_768,
+                false,
+            )?)?;
+            let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+            if descriptor.run_id != self.request.run_id {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "selected checkpoint run differs from session run",
+                ));
+            }
+            ensure_fresh_transition_absent(&self.inner)?;
+            Ok((directory, descriptor))
+        })();
+        let restore = match parsed {
+            Ok(restore) => restore,
+            Err(error) => {
+                self.active_operation
+                    .store(FRESH_OPERATION_IDLE, Ordering::Release);
+                return Err(error);
+            }
+        };
+        Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            request: self.request.clone(),
+            restore: Some(restore),
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
         }))
@@ -959,6 +1003,7 @@ impl ExperimentalStage6aFreshRunSession {
 /// Async complete fixed-profile construction for one experimental lineage.
 pub struct InitializeExperimentalFreshRunTask {
     request: Stage6aP0FreshRunRequest,
+    restore: Option<(PathBuf, CheckpointDescriptor)>,
     inner: Arc<Mutex<ExperimentalFreshRunInner>>,
     active_operation: Arc<AtomicU8>,
 }
@@ -969,8 +1014,15 @@ impl Task for InitializeExperimentalFreshRunTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         match catch_unwind(AssertUnwindSafe(|| {
-            let transition = prepare_stage6a_p0_fresh_run(self.request.clone())
-                .map_err(|error| error.to_string())?;
+            let transition = match &self.restore {
+                Some((directory, descriptor)) => prepare_stage6a_p0_checkpoint_restore(
+                    directory,
+                    descriptor,
+                    self.request.memory_ceiling_bytes,
+                ),
+                None => prepare_stage6a_p0_fresh_run(self.request.clone()),
+            }
+            .map_err(|error| error.to_string())?;
             let mut inner = lock_recover(&self.inner);
             if let Some(detail) = inner.fault_detail.as_deref() {
                 return Err(format!(

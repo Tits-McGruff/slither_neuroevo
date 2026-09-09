@@ -261,6 +261,52 @@ describe('experimental server startup composition', () => {
 });
 
 describe('experimental fixed-P0 production-addon fresh-run session', () => {
+  it('reopens a worker-selected checkpoint and transfers restored authority without republishing', async () => {
+    const paths = createFixturePaths('restore');
+    const first = await createExperimentalServerRuntime({
+      databasePath: paths.databasePath, managedDirectory: paths.managedRoot,
+      seed: 123456, onWake() {}
+    });
+    const metadata = first.metadata;
+    const committed = first.runStart.descriptor;
+    await first.close();
+    const persistence = new CheckpointPersistenceClient({
+      databasePath: paths.databasePath, managedRootPath: paths.managedRoot
+    });
+    clients.push(persistence);
+    const selected = await persistence.selectCurrent();
+    expect(selected).toEqual(committed);
+    if (!selected) throw new Error('missing retained checkpoint');
+    const session = await loadExperimentalFreshRunSession({
+      nativeManifestDirectory: NATIVE_DIRECTORY, loadBinding,
+      runId: selected.runId, seed: 0, memoryCeilingBytes: P0_MEMORY_CEILING,
+      persistence, managedDirectory: paths.managedRoot
+    });
+    await expect(session.initializeFromCheckpoint({ ...selected,
+      storedByteCount: '0000000000000001' })).rejects.toThrow(/descriptor|mismatch/i);
+    expect(session.snapshot().phase).toBe('created');
+    await expect(session.initializeFromCheckpoint(selected)).resolves.toMatchObject({
+      phase: 'durableBoundary', generation: selected.generation, completedStep: selected.completedStep,
+      authorityPublished: false, snakeCount: '0000000000000000'
+    });
+    expect(session.startupMetadata()).toEqual(metadata);
+    await session.activateRunningAuthority();
+    const runtime = await session.createBackgroundRuntime(BACKGROUND_INIT, () => {});
+    try {
+      expect(runtime.health()).toMatchObject({ lifecycle: 'created',
+        generation: selected.generation, completedStep: selected.completedStep });
+      runtime.start();
+      const deadline = performance.now() + 10_000;
+      while (BigInt(`0x${runtime.health().completedStep}`) < 2n && performance.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect(BigInt(`0x${runtime.health().completedStep}`)).toBeGreaterThanOrEqual(2n);
+      expect(runtime.health().faultCode).toBeUndefined();
+      expect(await persistence.selectCurrent()).toEqual(selected);
+      expect(countManagedFiles(paths.managedRoot)).toBe(1);
+    } finally { runtime.requestStop(); await runtime.join(); }
+  }, 30_000);
+
   it('keeps one real Rust boundary through file publication, SQLite retry, exact ack, and activation', async () => {
     const binding = loadBinding();
     expect(binding.nativeAddonBuildClass()).toBe('production');
@@ -272,6 +318,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
         'constructor',
         'createBackgroundRuntime',
         'initialize',
+        'initializeFromCheckpoint',
         'publishFirstScheduledFrameV1',
         'publishInitialFrameV1',
         'publishRunStartCheckpoint',

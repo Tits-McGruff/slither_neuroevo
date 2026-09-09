@@ -193,7 +193,28 @@ export interface CheckpointPersistenceShutdownRequest {
 /** Requests accepted by the isolated persistence worker. */
 export type CheckpointPersistenceWorkerRequest =
   | CommitManagedCheckpointRequest
+  | SelectManagedCheckpointRequest
   | CheckpointPersistenceShutdownRequest;
+
+/** Bounded current-pointer selection; population bytes stay in managed files. */
+export interface SelectManagedCheckpointRequest {
+  /** Request discriminator. */
+  type: 'selectManagedCheckpoint';
+  /** Read correlation, distinct from the checkpoint's original publication token. */
+  operationId: CheckpointOperationId;
+  /** Exact run, or null when the dedicated database must contain only one current run. */
+  runId: string | null;
+}
+
+/** One validated metadata selection, without opening or decoding population payloads. */
+export interface ManagedCheckpointSelectedResponse {
+  /** Response discriminator. */
+  type: 'managedCheckpointSelected';
+  /** Exact read correlation. */
+  operationId: CheckpointOperationId;
+  /** Exact stored publication descriptor, or null when no current checkpoint exists. */
+  descriptor: ManagedCheckpointDescriptor | null;
+}
 
 /** Successful matching acknowledgement from the persistence worker. */
 export interface ManagedCheckpointCommittedResponse {
@@ -224,6 +245,7 @@ export interface ManagedCheckpointRejectedResponse {
 /** Worker responses understood by the client. */
 export type CheckpointPersistenceWorkerResponse =
   | ManagedCheckpointCommittedResponse
+  | ManagedCheckpointSelectedResponse
   | ManagedCheckpointRejectedResponse;
 
 /** Strict lowercase SHA-256 digest pattern. */

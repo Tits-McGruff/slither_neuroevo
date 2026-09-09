@@ -1,3 +1,4 @@
+import { parseManagedCheckpointDescriptor } from './checkpointPersistenceProtocol.ts';
 import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import { parseRustStartupMetadata } from './startupMetadata.ts';
 /**
@@ -43,6 +44,7 @@ const REQUIRED_FRESH_RUN_METHODS = [
   'constructor',
   'createBackgroundRuntime',
   'initialize',
+  'initializeFromCheckpoint',
   'publishFirstScheduledFrameV1',
   'publishInitialFrameV1',
   'publishRunStartCheckpoint',
@@ -55,6 +57,7 @@ const REQUIRED_FRESH_RUN_HANDLE_METHODS = [
   'activateRunningAuthority',
   'createBackgroundRuntime',
   'initialize',
+  'initializeFromCheckpoint',
   'publishFirstScheduledFrameV1',
   'publishInitialFrameV1',
   'publishRunStartCheckpoint',
@@ -149,6 +152,8 @@ export interface ExperimentalFreshRunNativeHandle extends RustRunStartPersistenc
   acknowledgeRunStartPersistence(descriptor: ManagedCheckpointDescriptor): void;
   /** Construct and admit the complete fixed P0 boundary off the Node loop. */
   initialize(): Promise<unknown>;
+  /** Stream and validate the worker-selected immutable boundary off-loop. */
+  initializeFromCheckpoint(managedDirectory: string, descriptor: ManagedCheckpointDescriptor): Promise<unknown>;
   /** Construct and publish the running world off the Node loop. */
   activateRunningAuthority(): Promise<unknown>;
   /** Pack the one neutral-view startup frame directly from Rust authority. */
@@ -283,6 +288,10 @@ export async function loadExperimentalFreshRunSession(
 export class ExperimentalFreshRunSession {
   /** Native owner retaining the only fresh-run transition and authority. */
   private readonly native: ExperimentalFreshRunNativeHandle;
+  /** Controlled root used for both publication and restore. */
+  private readonly managedDirectory: string;
+  /** Selected retained chronology, populated only after native restore succeeds. */
+  private restoredBoundary: ManagedCheckpointDescriptor | undefined;
   /** Exact Rust-to-worker-to-Rust durability handoff. */
   private readonly persistenceHandoff: RunStartPersistenceHandoff;
 
@@ -302,6 +311,7 @@ export class ExperimentalFreshRunSession {
       'memoryCeilingBytes'
     );
     const managedDirectory = validateManagedDirectory(options.managedDirectory);
+    this.managedDirectory = managedDirectory;
     this.native = validateFreshRunHandle(new binding.ExperimentalStage6aFreshRunSession(
       runId,
       seedHex,
@@ -319,6 +329,14 @@ export class ExperimentalFreshRunSession {
     return parseFreshRunSnapshot(await this.native.initialize());
   }
 
+  /** Restore exactly the committed descriptor selected by the persistence worker. */
+  public async initializeFromCheckpoint(descriptor: ManagedCheckpointDescriptor): Promise<ExperimentalFreshRunSnapshot> {
+    const selected = parseManagedCheckpointDescriptor(descriptor);
+    const result = await this.native.initializeFromCheckpoint(this.managedDirectory, selected);
+    this.restoredBoundary = selected;
+    return parseFreshRunSnapshot(result, selected);
+  }
+
   /** Commit and acknowledge only Rust's exact pending run-start descriptor. */
   public commitPendingRunStart(
     operationId: CheckpointOperationId
@@ -328,11 +346,12 @@ export class ExperimentalFreshRunSession {
 
   /** Activate the retained Rust authority only after exact durability. */
   public async activateRunningAuthority(): Promise<ExperimentalFreshRunPublication> {
-    return parseFreshRunPublication(await this.native.activateRunningAuthority());
+    return parseFreshRunPublication(await this.native.activateRunningAuthority(), this.restoredBoundary);
   }
 
   /** Pack the one neutral-view startup frame directly from retained Rust authority. */
   public async publishInitialFrameV1(): Promise<ExperimentalFreshRunFrameV1> {
+    if (this.restoredBoundary) throw new Error('restored authority requires background frame publication');
     return parseFreshRunFrameV1(
       await this.native.publishInitialFrameV1(),
       '0000000000000000'
@@ -341,6 +360,7 @@ export class ExperimentalFreshRunSession {
 
   /** Execute exactly one Rust-scheduled step and pack its resulting frame. */
   public async publishFirstScheduledFrameV1(): Promise<ExperimentalFreshRunFrameV1> {
+    if (this.restoredBoundary) throw new Error('restored authority requires background frame publication');
     return parseFreshRunFrameV1(
       await this.native.publishFirstScheduledFrameV1(),
       '0000000000000001'
@@ -354,7 +374,7 @@ export class ExperimentalFreshRunSession {
 
   /** Read only the native session's bounded scalar proof. */
   public snapshot(): ExperimentalFreshRunSnapshot {
-    return parseFreshRunSnapshot(this.native.snapshot());
+    return parseFreshRunSnapshot(this.native.snapshot(), this.restoredBoundary);
   }
 
   /** Transfer exclusive authority after durability; the one-shot session retires. */
@@ -495,7 +515,7 @@ function parseOptionalFaultDetail(value: unknown): string | undefined {
 }
 
 /** Validate the scalar-only native session snapshot and its absence invariants. */
-function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
+function parseFreshRunSnapshot(value: unknown, boundary?: ManagedCheckpointDescriptor): ExperimentalFreshRunSnapshot {
   const raw = asRecord(value, 'experimental fresh-run snapshot');
   requireOnlyKeys(raw, [
     'phase',
@@ -564,13 +584,9 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
   if (snapshot.transitionEpoch === '0000000000000000') {
     throw new TypeError('experimental fresh-run snapshot has a zero transition epoch');
   }
-  if (snapshot.transitionEpoch !== undefined && snapshot.generation !== '0000000000000001') {
-    throw new TypeError('experimental fresh-run snapshot is not generation one');
-  }
   if (snapshot.transitionEpoch !== undefined &&
-    snapshot.completedStep !== '0000000000000000' &&
-    snapshot.completedStep !== '0000000000000001') {
-    throw new TypeError('experimental fresh-run snapshot has an unsupported completed step');
+    snapshot.generation !== (boundary?.generation ?? '0000000000000001')) {
+    throw new TypeError('experimental session snapshot generation differs from selected boundary');
   }
   if (snapshot.phase === 'faulted') {
     if (snapshot.faultDetail === undefined || snapshot.transitionEpoch !== undefined) {
@@ -600,9 +616,8 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
     throw new TypeError('experimental fresh-run scheduled frame lacks its authority prerequisites');
   }
   if (snapshot.transitionEpoch !== undefined) {
-    const expectedCompletedStep = snapshot.firstScheduledFramePublished === true
-      ? '0000000000000001'
-      : '0000000000000000';
+    const expectedCompletedStep = (BigInt(`0x${boundary?.completedStep ?? '0000000000000000'}`) +
+      (snapshot.firstScheduledFramePublished === true ? 1n : 0n)).toString(16).padStart(16, '0');
     if (snapshot.completedStep !== expectedCompletedStep) {
       throw new TypeError('experimental fresh-run scheduled-frame state mismatches completed step');
     }
@@ -611,7 +626,7 @@ function parseFreshRunSnapshot(value: unknown): ExperimentalFreshRunSnapshot {
 }
 
 /** Validate one scalar-only native activation result. */
-function parseFreshRunPublication(value: unknown): ExperimentalFreshRunPublication {
+function parseFreshRunPublication(value: unknown, boundary?: ManagedCheckpointDescriptor): ExperimentalFreshRunPublication {
   const raw = asRecord(value, 'experimental fresh-run publication');
   requireOnlyKeys(raw, ['worldEpoch', 'generation', 'completedStep', 'populationEpoch']);
   const publication: ExperimentalFreshRunPublication = {
@@ -620,12 +635,13 @@ function parseFreshRunPublication(value: unknown): ExperimentalFreshRunPublicati
     completedStep: parseU64Hex(raw['completedStep'], 'completedStep'),
     populationEpoch: parseU64Hex(raw['populationEpoch'], 'populationEpoch')
   };
-  if (publication.generation !== '0000000000000001' ||
-    publication.completedStep !== '0000000000000000') {
-    throw new TypeError('experimental fresh-run publication is not generation one at step zero');
+  if (publication.generation !== (boundary?.generation ?? '0000000000000001') ||
+    publication.completedStep !== (boundary?.completedStep ?? '0000000000000000')) {
+    throw new TypeError('experimental fresh-run publication differs from selected boundary');
   }
   if (publication.worldEpoch === '0000000000000000' ||
-    publication.populationEpoch !== '0000000000000001') {
+    publication.populationEpoch === '0000000000000000' ||
+    (boundary === undefined && publication.populationEpoch !== '0000000000000001')) {
     throw new TypeError('experimental fresh-run publication has invalid authority epochs');
   }
   return publication;

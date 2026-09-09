@@ -250,6 +250,7 @@ describe('experimental native bridge real-addon integration', () => {
       'constructor',
       'createBackgroundRuntime',
       'initialize',
+      'initializeFromCheckpoint',
       'publishFirstScheduledFrameV1',
       'publishInitialFrameV1',
       'publishRunStartCheckpoint',

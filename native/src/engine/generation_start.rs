@@ -422,6 +422,7 @@ impl GenerationStartWorkspace {
         config.project(authority.state())?;
         if authority.state().phase
             != AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart)
+            && !persistence_proof.restores_checkpoint()
         {
             return Err(GenerationStartError::InvalidSource {
                 reason: "initial activation requires a run-start boundary",

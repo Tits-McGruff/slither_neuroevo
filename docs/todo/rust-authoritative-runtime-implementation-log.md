@@ -233,4 +233,14 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   with continued delivery and a durable current checkpoint. Normalized native
   settings supply welcome metadata; unavailable collision diagnostics are absent.
 
-The next dependency is restart from the latest retained managed boundary.
+- 2026-09-10 The persistence worker can select a bounded current descriptor
+  without changing source records. Rust streams and validates the complete
+  selected descriptor before retaining a durable boundary, then reuses staged
+  activation with its original generation, step, population epoch, RNG and seed.
+  Rust generation-two and real addon/SQLite reopen tests cover exact retry after
+  a descriptor mismatch, background advancement, and no duplicate publication.
+  This primitive rejects ambiguous run selection; automatic recovery is not yet
+  wired to server startup.
+
+The next dependency is startup selection and recovery branching for the latest
+retained managed boundary, including explicit health-only failure.

@@ -1,4 +1,5 @@
 import { Worker } from 'node:worker_threads';
+import { randomBytes } from 'node:crypto';
 import {
   DEFAULT_MANAGED_CHECKPOINT_DESCRIPTOR_LIMITS,
   managedCheckpointDescriptorsEqual,
@@ -80,6 +81,13 @@ export class CheckpointPersistenceClient {
   private readonly worker: Worker;
   /** Pending commits indexed by exact nonnumeric operation token. */
   private readonly pending = new Map<CheckpointOperationId, PendingCommit>();
+  /** At most one bounded startup selection may be in flight. */
+  private selection: {
+    operationId: CheckpointOperationId;
+    runId: string | null;
+    resolve(value: ManagedCheckpointDescriptor | null): void;
+    reject(error: Error): void;
+  } | undefined;
   /** Terminal lifecycle failure, if the worker violates protocol or exits unexpectedly. */
   private failure: Error | null = null;
   /** Whether orderly shutdown has been requested. */
@@ -170,6 +178,21 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Read one current descriptor on the worker, preserving every source row and file. */
+  selectCurrent(runId: string | null = null): Promise<ManagedCheckpointDescriptor | null> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.selection) return Promise.reject(new Error('checkpoint selection is busy or stopping'));
+    if (runId !== null && (typeof runId !== 'string' || !runId || Buffer.byteLength(runId) > 256 || runId.includes('\0'))) {
+      return Promise.reject(new TypeError('invalid checkpoint selection run ID'));
+    }
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.selection = { operationId, runId, resolve, reject };
+      try { this.worker.postMessage({ type: 'selectManagedCheckpoint', operationId, runId }); }
+      catch (error) { this.selection = undefined; reject(asError(error)); }
+    });
+  }
+
   /**
    * Stop the client-owned worker after it has completed all preceding synchronous messages.
    * @returns Promise resolved after the worker exits cleanly.
@@ -213,9 +236,25 @@ export class CheckpointPersistenceClient {
   private onMessage(value: unknown): void {
     try {
       const response = parseWorkerResponse(value);
+      if (response.type === 'managedCheckpointSelected') {
+        const selection = this.selection;
+        if (!selection || response.operationId !== selection.operationId ||
+            (selection.runId !== null && response.descriptor !== null && response.descriptor.runId !== selection.runId)) {
+          throw new Error('persistence worker returned a mismatched checkpoint selection');
+        }
+        this.selection = undefined;
+        selection.resolve(response.descriptor);
+        return;
+      }
       if (response.type === 'managedCheckpointRejected') {
         if (!response.operationId) {
           throw new Error(`persistence worker rejected an uncorrelated request: ${response.reason}`);
+        }
+        if (response.operationId === this.selection?.operationId) {
+          const selection = this.selection;
+          this.selection = undefined;
+          selection.reject(new Error(response.reason));
+          return;
         }
         const pending = this.pending.get(response.operationId);
         if (!pending) {
@@ -260,6 +299,8 @@ export class CheckpointPersistenceClient {
     this.stopping = true;
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+    this.selection?.reject(error);
+    this.selection = undefined;
     void this.terminateForFailure();
   }
 
@@ -291,7 +332,7 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0) {
+    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection) {
       this.resolveStopped?.();
       this.resolveStopped = null;
       this.rejectStopped = null;
@@ -329,6 +370,12 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     throw new TypeError('checkpoint persistence worker sent a non-object response');
   }
   const response = value as Record<string, unknown>;
+  if (response['type'] === 'managedCheckpointSelected') {
+    requireExactKeys(response, ['type', 'operationId', 'descriptor']);
+    if (!isOperationId(response['operationId'])) throw new TypeError('invalid checkpoint selection correlation');
+    return { type: 'managedCheckpointSelected', operationId: response['operationId'],
+      descriptor: response['descriptor'] === null ? null : parseManagedCheckpointDescriptor(response['descriptor']) };
+  }
   if (response['type'] === 'managedCheckpointCommitted') {
     requireExactKeys(response, [
       'type',

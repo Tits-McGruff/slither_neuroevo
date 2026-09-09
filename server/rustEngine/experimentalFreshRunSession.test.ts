@@ -144,6 +144,15 @@ class FakeFreshRunSession implements ExperimentalFreshRunNativeHandle {
     return this.current;
   }
 
+  /** Retain a selected scalar boundary without constructing a fresh population. */
+  public async initializeFromCheckpoint(_directory: string, selected: ManagedCheckpointDescriptor): Promise<unknown> {
+    this.current = snapshot('durableBoundary', {
+      generation: selected.generation, completedStep: selected.completedStep,
+      checkpointPublished: true, persistenceAcknowledged: true
+    });
+    return this.current;
+  }
+
   /** Return Rust's exact descriptor for the supplied operation token. */
   public async publishRunStartCheckpoint(options: {
     managedDirectory: string;
@@ -166,6 +175,7 @@ class FakeFreshRunSession implements ExperimentalFreshRunNativeHandle {
   /** Return the one successful scalar activation. */
   public async activateRunningAuthority(): Promise<unknown> {
     this.current = snapshot('running', {
+      generation: this.current.generation, completedStep: this.current.completedStep,
       checkpointPublished: true,
       persistenceAcknowledged: true,
       authorityPublished: true,
@@ -174,8 +184,8 @@ class FakeFreshRunSession implements ExperimentalFreshRunNativeHandle {
     });
     return {
       worldEpoch: '0000000000000007',
-      generation: '0000000000000001',
-      completedStep: '0000000000000000',
+      generation: this.current.generation,
+      completedStep: this.current.completedStep,
       populationEpoch: '0000000000000001'
     };
   }
@@ -243,6 +253,29 @@ function createEvidence(): FakeEvidence {
 }
 
 describe('experimental fixed-P0 fresh-run session', () => {
+  it('retains selected generation chronology and prevents fresh-only frame operations after restore', async () => {
+    const evidence = createEvidence();
+    const session = createExperimentalFreshRunSession({
+      binding: fakeBinding(evidence), sourceIdentity: SOURCE_IDENTITY,
+      runId: 'fake-lineage', seed: 0, memoryCeilingBytes: 4n * 1024n * 1024n * 1024n,
+      managedDirectory: 'checkpoint-v3',
+      persistence: { async commit() { throw new Error('restore must not recommit'); } }
+    });
+    const selected = { ...descriptor(), boundaryKind: 'generation' as const,
+      generation: '0000000000000002', completedStep: '000000000000003c' };
+    await expect(session.initializeFromCheckpoint(selected)).resolves.toMatchObject({
+      phase: 'durableBoundary', generation: selected.generation, completedStep: selected.completedStep
+    });
+    await expect(session.activateRunningAuthority()).resolves.toMatchObject({
+      generation: selected.generation, completedStep: selected.completedStep
+    });
+    expect(session.snapshot().completedStep).toBe(selected.completedStep);
+    await expect(session.publishInitialFrameV1()).rejects.toThrow(/background frame/);
+    await expect(session.publishFirstScheduledFrameV1()).rejects.toThrow(/background frame/);
+    expect(evidence.published).toEqual([]);
+    expect(evidence.acknowledged).toEqual([]);
+  });
+
   it('sends only exact identity inputs and composes Rust descriptor authority unchanged', async () => {
     const evidence = createEvidence();
     const committed: ManagedCheckpointDescriptor[] = [];

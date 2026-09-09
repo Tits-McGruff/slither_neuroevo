@@ -368,16 +368,17 @@ function encodeHallOfFameReference(reference: ManagedHallOfFameReference): Buffe
 function readCurrentPointer(runId: string): CurrentPointerRow | undefined {
   return db.prepare(`
     SELECT
-      current.run_id AS pointer_run_id,
-      current.checkpoint_id AS pointer_checkpoint_id,
-      current.transition_epoch AS pointer_transition_epoch,
-      current.operation_id AS pointer_operation_id,
-      metadata.run_id AS metadata_run_id,
-      metadata.transition_epoch AS metadata_transition_epoch,
-      metadata.operation_id AS metadata_operation_id,
-      metadata.generation_hex,
-      metadata.completed_step_hex,
-      metadata.descriptor_json
+      CASE WHEN length(CAST(current.run_id AS BLOB)) <= 256 THEN current.run_id END AS pointer_run_id,
+      CASE WHEN length(CAST(current.checkpoint_id AS BLOB)) <= 64 THEN current.checkpoint_id END AS pointer_checkpoint_id,
+      CASE WHEN length(CAST(current.transition_epoch AS BLOB)) <= 16 THEN current.transition_epoch END AS pointer_transition_epoch,
+      CASE WHEN length(CAST(current.operation_id AS BLOB)) <= 32 THEN current.operation_id END AS pointer_operation_id,
+      CASE WHEN length(CAST(metadata.run_id AS BLOB)) <= 256 THEN metadata.run_id END AS metadata_run_id,
+      CASE WHEN length(CAST(metadata.transition_epoch AS BLOB)) <= 16 THEN metadata.transition_epoch END AS metadata_transition_epoch,
+      CASE WHEN length(CAST(metadata.operation_id AS BLOB)) <= 32 THEN metadata.operation_id END AS metadata_operation_id,
+      CASE WHEN length(CAST(metadata.generation_hex AS BLOB)) <= 16 THEN metadata.generation_hex END AS generation_hex,
+      CASE WHEN length(CAST(metadata.completed_step_hex AS BLOB)) <= 16 THEN metadata.completed_step_hex END AS completed_step_hex,
+      CASE WHEN length(CAST(metadata.descriptor_json AS BLOB)) <= 16384
+        THEN metadata.descriptor_json ELSE NULL END AS descriptor_json
     FROM rust_checkpoint_v3_current AS current
     LEFT JOIN rust_checkpoint_v3_metadata AS metadata
       ON metadata.checkpoint_id = current.checkpoint_id
@@ -425,6 +426,26 @@ function validateCurrentPointerIdentity(
     throw new Error('current checkpoint pointer identity does not match immutable metadata');
   }
   return stored;
+}
+
+/** Read one exact current target without choosing arbitrarily among multiple runs. */
+function selectManagedCheckpoint(runId: string | null): ManagedCheckpointDescriptor | null {
+  return db.transaction(() => {
+    let selectedRun = runId;
+    if (selectedRun === null) {
+      const rows = db.prepare(`SELECT CASE WHEN length(CAST(run_id AS BLOB)) <= 256
+        THEN run_id ELSE NULL END AS run_id FROM rust_checkpoint_v3_current LIMIT 2`).all() as Array<{ run_id: string | null }>;
+      if (rows.length === 0) return null;
+      if (rows.length !== 1) throw new Error('multiple current runs require an explicit run selection');
+      selectedRun = rows[0]!.run_id;
+      if (!selectedRun) throw new Error('current checkpoint has an invalid run identity');
+    }
+    const current = readCurrentPointer(selectedRun);
+    if (!current) return null;
+    const descriptor = validateCurrentPointerIdentity(selectedRun, current);
+    assertDescriptorBounds(descriptor);
+    return descriptor;
+  }).deferred();
 }
 
 /**
@@ -627,6 +648,11 @@ function rejectionReason(error: unknown): string {
  */
 function extractOperationId(value: unknown): CheckpointOperationId | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const request = value as Record<string, unknown>;
+  if (request['type'] === 'selectManagedCheckpoint') {
+    const operationId = request['operationId'];
+    return typeof operationId === 'string' && /^[0-9a-f]{32}$/u.test(operationId) ? operationId : null;
+  }
   const descriptor = (value as Record<string, unknown>)['descriptor'];
   if (descriptor === null || typeof descriptor !== 'object' || Array.isArray(descriptor)) return null;
   const operationId = (descriptor as Record<string, unknown>)['operationId'];
@@ -657,6 +683,15 @@ port.on('message', (message: unknown) => {
       throw new TypeError('worker request must be an object');
     }
     const request = message as Record<string, unknown>;
+    if (request['type'] === 'selectManagedCheckpoint') {
+      const runId = request['runId'];
+      if (!operationId || Object.keys(request).length !== 3 || !Object.hasOwn(request, 'runId') ||
+          (runId !== null && (typeof runId !== 'string' || !runId || Buffer.byteLength(runId) > 256 || runId.includes('\0')))) {
+        throw new TypeError('invalid checkpoint selection request');
+      }
+      post({ type: 'managedCheckpointSelected', operationId, descriptor: selectManagedCheckpoint(runId as string | null) });
+      return;
+    }
     if (request['type'] !== 'commitManagedCheckpoint' || Object.keys(request).length !== 3 ||
       !Object.hasOwn(request, 'descriptor') || !Object.hasOwn(request, 'generationCommit')) {
       throw new TypeError('worker request has an unsupported type or unknown fields');

@@ -1470,17 +1470,21 @@ impl AuthoritativeState {
         &mut self,
         replacement: &mut InitialRunStartReplacement<'_>,
     ) -> Result<RunStartPublication, StateError> {
-        if self.candidate.phase
-            != AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart)
+        let restoring = replacement.persistence_proof.restores_checkpoint();
+        if !matches!(self.candidate.phase, AuthorityPhase::GenerationBoundary(_))
+            || (!restoring
+                && self.candidate.phase
+                    != AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart))
         {
             return invalid(
                 "run_start.phase",
                 "initial activation requires the durable run-start boundary",
             );
         }
-        if self.candidate.generation.generation != 1
-            || self.candidate.generation.completed_step != 0
-            || self.candidate.generation.population_epoch != 1
+        if (!restoring
+            && (self.candidate.generation.generation != 1
+                || self.candidate.generation.completed_step != 0
+                || self.candidate.generation.population_epoch != 1))
             || self.candidate.generation.elapsed_seconds.to_bits() != 0.0_f64.to_bits()
             || self.candidate.generation.wall_accumulator_seconds.to_bits() != 0.0_f64.to_bits()
         {
