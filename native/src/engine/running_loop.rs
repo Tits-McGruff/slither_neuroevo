@@ -37,6 +37,8 @@ pub const RUNNING_AUTHORITY_LOOP_VERSION: u32 = 1;
 pub enum RunningAuthorityLoopState {
     /// The next drained command boundary may service the scheduler.
     Ready,
+    /// A fresh assignment awaits delivery before its snake can become current.
+    ControllerJoinPending,
     /// A same-snake reconnect assignment awaits its exact local-send result.
     ControllerReclaimPending,
     /// One complete staged step awaits exact reliable-delivery results.
@@ -66,6 +68,8 @@ impl<'buffer> RunningFramePublication<'buffer> {
 /// Owned scalar result of one post-command-drain service opportunity.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RunningAuthorityLoopProgress {
+    /// No scheduler ticket exists while a fresh assignment is unresolved.
+    ControllerJoinPending,
     /// No scheduler ticket exists while a reconnect assignment is unresolved.
     ControllerReclaimPending,
     /// No complete fixed delta is due yet.
@@ -205,10 +209,13 @@ pub struct RunningAuthorityLoop {
     state: RunningAuthorityLoopState,
     background_clock: Option<std::time::Instant>,
     pending_reclaim: Option<(u64, super::state::PreparedControllerReclaim)>,
+    pending_join: Option<(u64, super::state::PreparedControllerJoin)>,
+    work_limits: RunningStepWorkLimits,
 }
 
 /// Fallible scheduler/coordinator construction completed before authority moves.
 pub(crate) struct PreparedRunningAuthorityLoop {
+    work_limits: RunningStepWorkLimits,
     scheduler: FixedStepScheduler,
     coordinator: RunningStepCoordinator,
     checkpoint_limits: CheckpointLimits,
@@ -234,6 +241,7 @@ impl RunningAuthorityLoop {
         let mut scheduler = FixedStepScheduler::try_new(authority, policy)?;
         scheduler.reset_wall_clock(authority, wall_origin_ms)?;
         Ok(PreparedRunningAuthorityLoop {
+            work_limits,
             scheduler,
             coordinator,
             checkpoint_limits: checkpoint_limits.clone(),
@@ -259,6 +267,8 @@ impl RunningAuthorityLoop {
             state: RunningAuthorityLoopState::Ready,
             background_clock: None,
             pending_reclaim: None,
+            pending_join: None,
+            work_limits: prepared.work_limits,
         }
     }
 
@@ -275,6 +285,9 @@ impl RunningAuthorityLoop {
         frame: Option<RunningFramePublication<'_>>,
     ) -> Result<RunningAuthorityLoopProgress, RunningAuthorityLoopError> {
         match self.state {
+            RunningAuthorityLoopState::ControllerJoinPending => {
+                return Ok(RunningAuthorityLoopProgress::ControllerJoinPending);
+            }
             RunningAuthorityLoopState::ControllerReclaimPending => {
                 return Ok(RunningAuthorityLoopProgress::ControllerReclaimPending);
             }
@@ -333,6 +346,72 @@ impl RunningAuthorityLoop {
             },
             wall_now_ms,
         )
+    }
+
+    /// Prepare one fresh assignment only after the full reliable output fits.
+    pub(crate) fn prepare_controller_join(
+        &mut self,
+        request_sequence: u64,
+        request: &super::contract::ControllerJoinRequest,
+        wall_now_ms: u64,
+    ) -> Result<super::contract::RunningAuthorityEvent, String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("join requires an unprepared source boundary".into());
+        }
+        let token = super::external_replacement::fresh_resume_token(
+            &self.authority.state().world.controller_leases,
+        )
+        .map_err(|error| error.to_string())?;
+        let input = super::state::ControllerJoinInput {
+            kind: request.kind,
+            identity_key: request.identity_key.clone(),
+            resume_token: token,
+            connection_id: request.connection_id,
+            arrival_sequence: request_sequence,
+            received_at_ms: self.controller_receipt_ms(request.received_at)?,
+            boundary_at_ms: wall_now_ms,
+        };
+        let prepared = self
+            .authority
+            .prepare_controller_join(input, self.work_limits)?;
+        let event = super::contract::RunningAuthorityEvent::ControllerJoinAssignment {
+            request_sequence,
+            controller_kind: request.kind,
+            connection_id: prepared.connection_id(),
+            lease_id: prepared.lease_id(),
+            frame_v1_id: prepared.frame_v1_id(),
+            completed_step: self.completed_step(),
+            resume_token: prepared.resume_token().into(),
+        };
+        self.pending_join = Some((request_sequence, prepared));
+        self.state = RunningAuthorityLoopState::ControllerJoinPending;
+        Ok(event)
+    }
+
+    /// Failed sends discard only detached buffers; stale receipts touch no barrier.
+    pub(crate) fn resolve_controller_join(
+        &mut self,
+        receipt: &super::contract::ControllerReclaimReceipt,
+    ) -> Result<bool, String> {
+        let Some((sequence, prepared)) = self.pending_join.as_ref() else {
+            return Ok(false);
+        };
+        if self.state != RunningAuthorityLoopState::ControllerJoinPending
+            || *sequence != receipt.request_sequence
+            || prepared.connection_id() != receipt.connection_id
+            || prepared.lease_id() != receipt.lease_id
+        {
+            return Ok(false);
+        }
+        if receipt.accepted {
+            self.authority.validate_controller_join(prepared)?;
+        }
+        let (_, prepared) = self.pending_join.take().expect("matched join candidate");
+        if receipt.accepted {
+            self.authority.commit_controller_join(prepared)?;
+        }
+        self.state = RunningAuthorityLoopState::Ready;
+        Ok(true)
     }
 
     /// Stage one same-snake assignment only after the complete output reservation.
@@ -639,6 +718,7 @@ impl RunningAuthorityLoop {
         }
         if blocked_state == RunningAuthorityLoopState::Ready
             || blocked_state == RunningAuthorityLoopState::ControllerReclaimPending
+            || blocked_state == RunningAuthorityLoopState::ControllerJoinPending
             || (blocked_state == RunningAuthorityLoopState::GenerationTransitionPending
                 && self.coordinator.pending_external_delivery().is_none())
         {
@@ -696,6 +776,7 @@ impl RunningAuthorityLoop {
                 }
                 RunningAuthorityLoopState::Ready
                 | RunningAuthorityLoopState::ControllerReclaimPending
+                | RunningAuthorityLoopState::ControllerJoinPending
                 | RunningAuthorityLoopState::Faulted => {
                     unreachable!("blocked state was checked before delivery submission")
                 }
@@ -898,7 +979,8 @@ impl RunningAuthorityLoop {
             action,
             required: match required {
                 RunningAuthorityLoopState::Ready => "ready state",
-                RunningAuthorityLoopState::ControllerReclaimPending => {
+                RunningAuthorityLoopState::ControllerReclaimPending
+                | RunningAuthorityLoopState::ControllerJoinPending => {
                     "controller-reclaim-pending state"
                 }
                 RunningAuthorityLoopState::ExternalDeliveryPending => {
@@ -1028,6 +1110,7 @@ impl RunningAuthorityLoop {
             }
             RunningAuthorityLoopState::Ready
             | RunningAuthorityLoopState::ControllerReclaimPending
+            | RunningAuthorityLoopState::ControllerJoinPending
             | RunningAuthorityLoopState::Faulted => {
                 Err(RunningAuthorityLoopError::RetainedStateMismatch {
                     field: "blocked loop state",

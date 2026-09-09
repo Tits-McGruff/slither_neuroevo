@@ -161,7 +161,7 @@ export class ReclaimDeliveryRouter {
   private busy = false;
 
   /** Bind the existing socket transport and shared queue admission adapter. */
-  constructor(private readonly ports: ReclaimDeliveryPorts) {}
+  constructor(private readonly ports: ReclaimDeliveryPorts, private readonly reclaimed = true) {}
 
   /** The event pump must retain its next delivery while this is true. */
   get blocked(): boolean { return this.busy || this.pending !== undefined; }
@@ -181,11 +181,11 @@ export class ReclaimDeliveryRouter {
     }
     const result: ReclaimResultMsg = { type: 'reclaimResult', reclaimed: true, reason: 'reclaimed', snakeId: assignment.snakeId };
     const assign: AssignMsg = { type: 'assign', snakeId: assignment.snakeId,
-      controller: assignment.controllerKind === 'player' ? 'player' : 'bot', resumeToken: assignment.resumeToken, reclaimed: true };
+      controller: assignment.controllerKind === 'player' ? 'player' : 'bot', resumeToken: assignment.resumeToken, reclaimed: this.reclaimed };
     this.pending = { receipt };
     this.busy = true;
     try {
-      receipt.accepted = this.ports.send(receipt.connectionId, result) && this.ports.send(receipt.connectionId, assign);
+      receipt.accepted = (!this.reclaimed || this.ports.send(receipt.connectionId, result)) && this.ports.send(receipt.connectionId, assign);
     } catch { receipt.accepted = false; }
     finally { this.busy = false; }
     this.flushReceipts();
@@ -205,4 +205,10 @@ export class ReclaimDeliveryRouter {
       return true;
     } finally { this.busy = false; }
   }
+}
+
+/** Deliver one fresh assignment without a reconnect-result packet. */
+export class JoinDeliveryRouter extends ReclaimDeliveryRouter {
+  /** Bind the separate fresh-receipt port to the shared transport behavior. */
+  constructor(ports: ReclaimDeliveryPorts) { super(ports, false); }
 }

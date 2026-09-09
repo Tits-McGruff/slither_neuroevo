@@ -188,6 +188,32 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Stage an fresh controller join at an eligible source boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_join(
+        &self,
+        sequence: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::JoinController(Box::new(parse_controller_join(&request)?)),
+        )
+    }
+
+    /// Resolve the retained fresh join assignment without touching ordinary receipts.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_join_receipt(
+        &self,
+        sequence: JsString<'_>,
+        receipt: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SubmitControllerJoinReceipt(parse_reclaim_receipt(&receipt)?),
+        )
+    }
+
     /// Stage an explicit token reclaim at an eligible source boundary.
     #[napi(catch_unwind)]
     pub fn submit_controller_reclaim(
@@ -460,6 +486,27 @@ fn optional_reclaim_identity(request: &Object<'_>, field: &str, maximum: usize) 
         Some(value) => bounded_js_string(value, field, maximum, false),
         None => Ok(String::new()),
     }
+}
+
+/// Validate a fresh legacy identity and stamp its native receipt time.
+pub(crate) fn parse_controller_join(
+    request: &Object<'_>,
+) -> Result<crate::engine::contract::ControllerJoinRequest> {
+    let kind = match bounded_object_string(request, "controllerKind", 32)?.as_str() {
+        "player" => crate::engine::state::ControllerKind::Player,
+        "reinforcementLearning" => crate::engine::state::ControllerKind::ReinforcementLearning,
+        _ => return Err(Error::new(Status::InvalidArg, "invalid controllerKind")),
+    };
+    Ok(crate::engine::contract::ControllerJoinRequest {
+        connection_id: parse_u64_hex(
+            &bounded_object_string(request, "connectionId", 16)?,
+            "connectionId",
+            false,
+        )?,
+        kind,
+        identity_key: bounded_object_string(request, "identityKey", 128)?,
+        received_at: std::time::Instant::now(),
+    })
 }
 
 /// Correlate a token or legacy identity and stamp its native receipt time.

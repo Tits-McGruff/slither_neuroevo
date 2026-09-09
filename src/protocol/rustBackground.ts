@@ -84,6 +84,12 @@ export interface RustBackgroundControllerDisconnect {
   connectionId: RustBackgroundIdentity;
 }
 
+/** Fresh controller request after the reconnect path found no reservation. */
+export interface RustBackgroundJoinRequest extends Omit<RustBackgroundReclaimRequest, 'resumeToken' | 'identityKey'> {
+  /** Bounded run-scoped legacy identity retained for later reconnect. */
+  identityKey: string;
+}
+
 /** Token reconnect to the same live Rust-owned snake. */
 export interface RustBackgroundReclaimRequest {
   /** New live socket identity. */
@@ -184,6 +190,17 @@ export interface RustControllerReceiptResolution {
 
 /** Coarse event envelope; consumers validate the payload for the selected kind. */
 export interface RustBackgroundEvent {
+  /** Retained fresh assignment awaiting exact local-send completion. */
+  controllerJoinAssignment?: RustBackgroundReclaimAssignment;
+  /** Fresh receipts cannot resolve another controller barrier. */
+  controllerJoinResolution?: {
+    /** Original fresh-join command. */
+    requestSequence: RustBackgroundIdentity;
+    /** Receipt matched the pending fresh assignment. */
+    matched: boolean;
+    /** Matching delivery succeeded and the snake became current. */
+    accepted: boolean;
+  };
   /** Same-snake reconnect awaiting exact local delivery. */
   controllerReclaimAssignment?: RustBackgroundReclaimAssignment;
   /** Receipt correlation outcome; unmatched receipts change nothing. */

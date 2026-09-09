@@ -1,3 +1,4 @@
+import type { RustBackgroundJoinRequest } from '../../src/protocol/rustBackground.ts';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, truncateSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -7,7 +8,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RustBackgroundControllerAction, RustBackgroundControllerDisconnect, RustBackgroundControllerMessage, RustControllerReceiptResolution, RustGenerationAssignmentReceipt, RustBackgroundReclaimAssignment, RustBackgroundReclaimRequest, RustBackgroundReclaimReceipt } from '../../src/protocol/rustBackground.ts';
 import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
-import { ControllerDeliveryRouter, ReclaimDeliveryRouter } from './controllerDelivery.ts';
+import { ControllerDeliveryRouter, ReclaimDeliveryRouter, JoinDeliveryRouter } from './controllerDelivery.ts';
 import { BackgroundCommandAdmission } from './commandAdmission.ts';
 import { GenerationPersistenceHandoff } from './generationPersistenceHandoff.ts';
 import { RunStartPersistenceHandoff } from './runStartPersistenceHandoff.ts';
@@ -233,6 +234,8 @@ interface Stage6BackgroundGenerationAssignment extends Stage6GenerationAssignmen
 interface Stage6BackgroundGenerationEvent {
   /** Same-snake reconnect staged by the actual background runtime. */
   controllerReclaimAssignment?: RustBackgroundReclaimAssignment;
+  /** Fresh assignment prepared before its snake is published. */
+  controllerJoinAssignment?: RustBackgroundReclaimAssignment;
   /** Stable output discriminator. */
   kind: string;
   /** Exact originating command sequence when this is a command response. */
@@ -338,6 +341,10 @@ interface Stage6BackgroundGenerationHandoffSession {
   submitControllerDisconnect(sequenceHex: string, close: RustBackgroundControllerDisconnect): void;
   /** Reclaim the same Rust-owned snake using its previous token. */
   submitControllerReclaim(sequenceHex: string, request: RustBackgroundReclaimRequest): void;
+  /** Queue a fresh controller behind the current delivery boundary. */
+  submitControllerJoin(sequenceHex: string, request: RustBackgroundJoinRequest): void;
+  /** Resolve only the retained fresh assignment. */
+  submitControllerJoinReceipt(sequenceHex: string, receipt: RustBackgroundReclaimReceipt): void;
   /** Submit an exact local-send result for the retained reclaim assignment. */
   submitControllerReclaimReceipt(sequenceHex: string, receipt: RustBackgroundReclaimReceipt): void;
   /** Drain typed bounded output. */
@@ -1354,6 +1361,10 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         expect(() => session.submitControllerAction('000000000000000f', { ...action, turn: NaN })).toThrow();
         let admitReceipt = false;
         const admission = new BackgroundCommandAdmission({
+          submitControllerJoinReceipt(sequence, completion) {
+            if (!admitReceipt) throw new Error('QueueCountLimit: injected join receipt backpressure');
+            session.submitControllerJoinReceipt(sequence, completion);
+          },
           submitControllerReclaimReceipt(sequence, completion) {
             if (!admitReceipt) throw new Error('QueueCountLimit: injected reclaim receipt backpressure');
             session.submitControllerReclaimReceipt(sequence, completion);
@@ -1473,6 +1484,52 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         expect(reclaimRouter.deliver(legacy)).toBe(true);
         await expect(waitForBackgroundEvent(session, event => event.kind === 'controllerReclaimResolved'))
           .resolves.toMatchObject({ controllerReclaimResolution: { requestSequence: legacySequence, matched: true, accepted: true } });
+
+        const beforeJoin = (await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages')).controllerMessages!;
+        const joinSequence = admission.nextSequence();
+        expect(admission.trySubmitControl(sequence => session.submitControllerJoin(sequence, {
+          connectionId: '000000000000009b', controllerKind: 'reinforcementLearning', identityKey: 'bot:new-owner'
+        }))).toBe(true);
+        expect(router.deliver(beforeJoin)).toBe(true);
+        const joinEvent = await waitForBackgroundEvent(session, event => event.commandSequence === joinSequence);
+        expect(joinEvent.kind).toBe('controllerJoinAssignment');
+        const fresh = joinEvent.controllerJoinAssignment!;
+        expect(fresh.snakeId).not.toBe(legacy.snakeId);
+        expect(fresh.leaseId).not.toBe(legacy.leaseId);
+        const freshSent: unknown[] = [];
+        const joinRouter = new JoinDeliveryRouter({
+          send(_connection, message) { freshSent.push(message); return true; },
+          nextSequence() { return admission.nextSequence(); },
+          trySubmitReceipt(sequence, receipt) { return admission.trySubmitJoinReceipt(sequence, receipt); }
+        });
+        admitReceipt = false;
+        expect(joinRouter.deliver(fresh)).toBe(true);
+        expect(joinRouter.blocked).toBe(true);
+        expect(joinRouter.flushReceipts()).toBe(false);
+        expect(freshSent).toEqual([{ type: 'assign', snakeId: fresh.snakeId, controller: 'bot',
+          resumeToken: fresh.resumeToken, reclaimed: false }]);
+        admitReceipt = true;
+        expect(joinRouter.flushReceipts()).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.kind === 'controllerJoinResolved'))
+          .resolves.toMatchObject({ controllerJoinResolution: { requestSequence: joinSequence, matched: true, accepted: true } });
+        const freshMessages = (await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages')).controllerMessages!;
+        expect(freshMessages.some(message => message.leaseId === fresh.leaseId && message.snakeId === fresh.snakeId)).toBe(true);
+        expect(admission.trySubmitControl(sequence => session.submitControllerJoinReceipt(sequence, {
+          requestSequence: fresh.requestSequence, connectionId: fresh.connectionId, leaseId: fresh.leaseId, accepted: true
+        }))).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.kind === 'controllerJoinResolved'))
+          .resolves.toMatchObject({ controllerJoinResolution: { matched: false, accepted: false } });
+        const joinedActionSequence = admission.nextSequence();
+        expect(admission.trySubmitControl(sequence => session.submitControllerAction(sequence, {
+          leaseId: fresh.leaseId, connectionId: fresh.connectionId, turn: 0.25, boost: false, clientTick: fresh.completedStep
+        }))).toBe(true);
+        const joinedRouter = new ControllerDeliveryRouter(2, {
+          send() { return true; }, nextSequence() { return admission.nextSequence(); },
+          trySubmitReceipt(sequence, receipt) { return admission.trySubmitReceipt(sequence, receipt); }
+        });
+        expect(joinedRouter.deliver(freshMessages)).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === joinedActionSequence))
+          .resolves.toMatchObject({ kind: 'controllerActionApplied' });
 
         await closeClient(client);
         expect(readCurrentPointer(paths.databasePath, runStart.runId)).toEqual({

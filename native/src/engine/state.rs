@@ -7,6 +7,8 @@
 //! validated against its compiled graph and caller-supplied memory ceiling.
 
 use super::baseline::{BaselineLifecycleState, BaselineSlotRuntime};
+#[path = "controller_join.rs"]
+mod controller_join;
 use super::contract::ENGINE_CONTRACT_VERSION;
 use super::external_replacement::{
     ExternalReplacementAuthorityProof, UnavailableControllerReason,
@@ -25,6 +27,7 @@ use super::step_config::{
     project_evolution_config, project_running_step_config, RunningStepConfigProjection,
     RunningStepWorkLimits, StepConfigError,
 };
+pub use controller_join::{ControllerJoinInput, PreparedControllerJoin};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -5738,6 +5741,86 @@ mod tests {
             .allocators
             .next_controller_lease_id
             .max(lease_id + 1);
+    }
+
+    #[test]
+    fn fresh_join_preserves_source_until_delivery_and_rejects_duplicate_commit() {
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let input = || ControllerJoinInput {
+            kind: ControllerKind::Player,
+            identity_key: "player:new-owner".into(),
+            resume_token: "A".repeat(32),
+            connection_id: 12,
+            arrival_sequence: 2,
+            received_at_ms: 200,
+            boundary_at_ms: 300,
+        };
+        let before = authority.state().clone();
+        let prepared = authority
+            .prepare_controller_join(input(), RunningStepWorkLimits::provisional_defaults())
+            .unwrap();
+        let duplicate = authority
+            .prepare_controller_join(input(), RunningStepWorkLimits::provisional_defaults())
+            .unwrap();
+        assert_eq!(prepared.frame_v1_id(), duplicate.frame_v1_id());
+        assert_eq!(prepared.lease_id(), duplicate.lease_id());
+        assert_eq!(authority.state(), &before);
+        authority.commit_controller_join(prepared).unwrap();
+        let after = authority.state().clone();
+        assert_eq!(after.world.snakes.len(), before.world.snakes.len() + 1);
+        assert_eq!(after.population, before.population);
+        assert_eq!(after.rng.world, before.rng.world);
+        assert_eq!(after.rng.evolution, before.rng.evolution);
+        assert_eq!(after.rng.baselines, before.rng.baselines);
+        assert_eq!(
+            after
+                .world
+                .controller_leases
+                .last()
+                .unwrap()
+                .latest_action
+                .accepted_at_ms,
+            200
+        );
+        assert_eq!(
+            authority.memory_estimate(),
+            estimate_state_memory(authority.state(), &graph).unwrap()
+        );
+        assert!(authority.commit_controller_join(duplicate).is_err());
+        assert_eq!(authority.state(), &after);
+    }
+
+    #[test]
+    fn fresh_join_budget_failure_and_changed_source_preserve_authority() {
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let input = || ControllerJoinInput {
+            kind: ControllerKind::Player,
+            identity_key: "player:new-owner".into(),
+            resume_token: "A".repeat(32),
+            connection_id: 12,
+            arrival_sequence: 2,
+            received_at_ms: 200,
+            boundary_at_ms: 300,
+        };
+        let before = authority.state().clone();
+        let ceiling = authority.memory_ceiling_bytes;
+        authority.memory_ceiling_bytes = authority.memory.total_bytes;
+        assert!(authority
+            .prepare_controller_join(input(), RunningStepWorkLimits::provisional_defaults())
+            .is_err());
+        assert_eq!(authority.state(), &before);
+        authority.memory_ceiling_bytes = ceiling;
+        let prepared = authority
+            .prepare_controller_join(input(), RunningStepWorkLimits::provisional_defaults())
+            .unwrap();
+        authority.candidate.world.snakes[0].points += 1.0;
+        let changed = authority.state().clone();
+        assert!(authority.commit_controller_join(prepared).is_err());
+        assert_eq!(authority.state(), &changed);
     }
 
     #[test]

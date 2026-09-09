@@ -210,5 +210,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   preserved by step/generation copies. The real addon handoff exercises legacy
   reconnect after token rotation and generation reassignment.
 
-The next dependency is fresh controller join, then experimental server startup
-using the shared command and transport adapters.
+- 2026-09-09 Fresh joins stage one collision-safe external snake with isolated
+  RNG/IDs and charged memory. A separate background delivery barrier publishes
+  it only after the exact successful assignment receipt; failed sends and output
+  backpressure preserve the source. Queue regressions and the real addon handoff
+  cover retry, phase isolation, first observations, and subsequent steering.
+
+The next dependency is experimental server startup using the shared command and
+transport adapters, followed by restart from the latest managed boundary.

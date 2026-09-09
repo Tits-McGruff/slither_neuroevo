@@ -32,10 +32,12 @@ export class BackgroundCommandAdmission {
   private pendingReceipt: RustGenerationAssignmentReceipt | RustBackgroundReclaimReceipt | undefined;
   /** Guard synchronous native callbacks against reentrant submissions. */
   private busy = false;
+  /** Distinguish same-shaped fresh and reclaim receipt identities. */
+  private pendingKind: 'ordinary' | 'reclaim' | 'join' | undefined;
 
   /** Start at one, or immediately after commands already submitted during startup. */
   constructor(
-    private readonly native: Pick<ExperimentalRunningAuthorityNativeHandle, 'submitControllerDeliveryReceipt' | 'submitControllerReclaimReceipt'>,
+    private readonly native: Pick<ExperimentalRunningAuthorityNativeHandle, 'submitControllerDeliveryReceipt' | 'submitControllerReclaimReceipt' | 'submitControllerJoinReceipt'>,
     firstSequence = 1n
   ) {
     if (typeof firstSequence !== 'bigint' || firstSequence <= 0n || firstSequence > MAX_SEQUENCE) {
@@ -61,25 +63,31 @@ export class BackgroundCommandAdmission {
 
   /** Adapt directly to ControllerDeliveryRouter's retained receipt port. */
   trySubmitReceipt(sequence: RustBackgroundIdentity, receipt: RustGenerationAssignmentReceipt): boolean {
-    return this.trySubmitRetained(sequence, receipt, current => this.native.submitControllerDeliveryReceipt(current, receipt));
+    return this.trySubmitRetained('ordinary', sequence, receipt, current => this.native.submitControllerDeliveryReceipt(current, receipt));
   }
 
   /** Preserve the separate reclaim receipt identity on the same command stream. */
   trySubmitReclaimReceipt(sequence: RustBackgroundIdentity, receipt: RustBackgroundReclaimReceipt): boolean {
-    return this.trySubmitRetained(sequence, receipt, current => this.native.submitControllerReclaimReceipt(current, receipt));
+    return this.trySubmitRetained('reclaim', sequence, receipt, current => this.native.submitControllerReclaimReceipt(current, receipt));
+  }
+
+  /** Pin fresh assignment completion on the same global command stream. */
+  trySubmitJoinReceipt(sequence: RustBackgroundIdentity, receipt: RustBackgroundReclaimReceipt): boolean {
+    return this.trySubmitRetained('join', sequence, receipt, current => this.native.submitControllerJoinReceipt(current, receipt));
   }
 
   /** Hold one exact receipt, including its barrier kind, until native admission. */
-  private trySubmitRetained(sequence: RustBackgroundIdentity, receipt: RustGenerationAssignmentReceipt | RustBackgroundReclaimReceipt,
+  private trySubmitRetained(kind: 'ordinary' | 'reclaim' | 'join', sequence: RustBackgroundIdentity, receipt: RustGenerationAssignmentReceipt | RustBackgroundReclaimReceipt,
     submit: (sequence: RustBackgroundIdentity) => void): boolean {
     if (this.busy) return false;
     if (sequence !== this.nextSequence()) throw new Error('receipt command sequence is stale or out of order');
-    if (this.pendingReceipt && !sameReceipt(this.pendingReceipt, receipt)) {
+    if (this.pendingReceipt && (this.pendingKind !== kind || !sameReceipt(this.pendingReceipt, receipt))) {
       throw new Error('another receipt owns the pending command sequence');
     }
     this.pendingReceipt ??= { ...receipt };
+    this.pendingKind = kind;
     const accepted = this.attempt(submit);
-    if (accepted) this.pendingReceipt = undefined;
+    if (accepted) { this.pendingReceipt = undefined; this.pendingKind = undefined; }
     return accepted;
   }
 

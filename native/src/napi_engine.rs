@@ -441,6 +441,8 @@ pub struct Stage6BackgroundGenerationEvent {
     pub controller_action_lease_id: Option<String>,
     pub controller_action_completed_step: Option<String>,
     pub controller_disconnect: Option<BackgroundControllerDisconnect>,
+    pub controller_join_assignment: Option<BackgroundControllerReclaimAssignment>,
+    pub controller_join_resolution: Option<BackgroundControllerReclaimResolution>,
     pub controller_reclaim_assignment: Option<BackgroundControllerReclaimAssignment>,
     pub controller_reclaim_resolution: Option<BackgroundControllerReclaimResolution>,
     pub rejection_code: Option<String>,
@@ -1666,6 +1668,36 @@ impl Stage6BackgroundGenerationHandoffFixtureSession {
         )
     }
 
+    /// Stage an fresh controller join at an eligible source boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_join(
+        &self,
+        sequence: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        self.submit_control(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::JoinController(Box::new(
+                crate::napi_running_engine::parse_controller_join(&request)?,
+            )),
+        )
+    }
+
+    /// Resolve only the retained fresh join assignment named by this receipt.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_join_receipt(
+        &self,
+        sequence: JsString<'_>,
+        receipt: Object<'_>,
+    ) -> Result<()> {
+        self.submit_control(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SubmitControllerJoinReceipt(
+                crate::napi_running_engine::parse_reclaim_receipt(&receipt)?,
+            ),
+        )
+    }
+
     /// Stage an explicit token reclaim at an eligible source boundary.
     #[napi(catch_unwind)]
     pub fn submit_controller_reclaim(
@@ -2808,6 +2840,41 @@ fn running_authority_event_to_napi(
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
     let mut output = empty_background_generation_event();
     match event {
+        RunningAuthorityEvent::ControllerJoinAssignment {
+            request_sequence,
+            controller_kind,
+            connection_id,
+            lease_id,
+            frame_v1_id,
+            completed_step,
+            resume_token,
+        } => {
+            output.kind = "controllerJoinAssignment".into();
+            output.command_sequence = Some(u64_hex(request_sequence));
+            output.controller_join_assignment = Some(BackgroundControllerReclaimAssignment {
+                request_sequence: u64_hex(request_sequence),
+                controller_kind: controller_kind_name(controller_kind).into(),
+                connection_id: u64_hex(connection_id),
+                lease_id: u64_hex(lease_id),
+                snake_id: frame_v1_id,
+                completed_step: u64_hex(completed_step),
+                resume_token: resume_token.into_string(),
+            });
+        }
+        RunningAuthorityEvent::ControllerJoinResolved {
+            command_sequence,
+            request_sequence,
+            matched,
+            accepted,
+        } => {
+            output.kind = "controllerJoinResolved".into();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.controller_join_resolution = Some(BackgroundControllerReclaimResolution {
+                request_sequence: u64_hex(request_sequence),
+                matched,
+                accepted,
+            });
+        }
         RunningAuthorityEvent::ControllerReclaimAssignment {
             request_sequence,
             controller_kind,
@@ -3105,6 +3172,8 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         controller_action_lease_id: None,
         controller_action_completed_step: None,
         controller_disconnect: None,
+        controller_join_assignment: None,
+        controller_join_resolution: None,
         controller_reclaim_assignment: None,
         controller_reclaim_resolution: None,
         rejection_code: None,
@@ -3207,6 +3276,9 @@ const fn running_loop_state_name(
     state: crate::engine::running_loop::RunningAuthorityLoopState,
 ) -> &'static str {
     match state {
+        crate::engine::running_loop::RunningAuthorityLoopState::ControllerJoinPending => {
+            "controllerJoinPending"
+        }
         crate::engine::running_loop::RunningAuthorityLoopState::ControllerReclaimPending => {
             "controllerReclaimPending"
         }

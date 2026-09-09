@@ -49,6 +49,193 @@ const TOKEN_ATTEMPTS: usize = 8;
 /// Base64url alphabet shared with Node's current `randomBytes(...).toString('base64url')`.
 const BASE64URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
+/// Borrowed admitted boundary for one new external snake. No source field is
+/// changed while a join assignment is being prepared or delivered.
+pub struct FreshExternalSource<'a> {
+    pub world: &'a WorldState,
+    pub brains: &'a [BrainRuntimeState],
+    pub rng: &'a RngStateBundle,
+    pub allocators: &'a AllocatorState,
+    pub graph: &'a CompiledGraph,
+    pub brain_epoch: u64,
+}
+
+/// Detached gameplay portion of a fresh join. The enclosing authority must
+/// correlate the source boundary and successful delivery before appending it.
+#[derive(Debug)]
+pub struct PreparedFreshExternal {
+    pub snake: SnakeState,
+    pub body: Vec<WorldPoint>,
+    pub brain: BrainRuntimeState,
+    pub lease_id: u64,
+    pub next_allocators: AllocatorState,
+    pub next_external_rng: super::rng::SerializedRngState,
+}
+
+/// Prepare only one bounded new snake, using the same genome, placement, and
+/// initial controls as death replacement. Failure and retry consume no source
+/// RNG or IDs and never copy the existing population or world.
+pub fn prepare_fresh_external(
+    source: FreshExternalSource<'_>,
+    config: ExternalReplacementConfig,
+) -> Result<PreparedFreshExternal, ExternalReplacementError> {
+    config.validate()?;
+    let required_snakes = source.world.snakes.len().saturating_add(1);
+    let required_brains = source.brains.len().saturating_add(1);
+    let required_body = source
+        .world
+        .body_points
+        .len()
+        .saturating_add(config.spawn.snake_start_len);
+    if required_snakes > config.maximum_snakes {
+        return Err(ExternalReplacementError::SnakeCapacityExceeded {
+            required: required_snakes,
+            maximum: config.maximum_snakes,
+        });
+    }
+    if required_brains > config.maximum_brains {
+        return Err(ExternalReplacementError::BrainCapacityExceeded {
+            required: required_brains,
+            maximum: config.maximum_brains,
+        });
+    }
+    if required_body > config.maximum_body_points {
+        return Err(ExternalReplacementError::BodyCapacityExceeded {
+            required: required_body,
+            maximum: config.maximum_body_points,
+        });
+    }
+    let mut next_allocators = source.allocators.clone();
+    let allocate = |error| ExternalReplacementError::Allocator(Box::new(error));
+    let snake_id = next_allocators
+        .reserve_external_ids(1)
+        .map_err(allocate)?
+        .ok_or(ExternalReplacementError::InternalShapeMismatch)?
+        .first;
+    let frame_v1_id = next_allocators
+        .reserve_frame_v1_ids(1)
+        .map_err(allocate)?
+        .ok_or(ExternalReplacementError::InternalShapeMismatch)?
+        .first;
+    let brain_handle = BrainHandle {
+        id: next_allocators
+            .reserve_brain_ids(1)
+            .map_err(allocate)?
+            .ok_or(ExternalReplacementError::InternalShapeMismatch)?
+            .first,
+        epoch: source.brain_epoch,
+    };
+    let lease_id = next_allocators
+        .reserve_controller_lease_ids(1)
+        .map_err(allocate)?
+        .ok_or(ExternalReplacementError::InternalShapeMismatch)?
+        .first;
+    let initialized =
+        initialize_random_genome(source.graph, &source.rng.external_controller, config.genome)
+            .map_err(|error| ExternalReplacementError::Genome(Box::new(error)))?;
+    let (weights, post_genome_rng) = initialized.into_parts();
+    let requests = [SpawnRequest {
+        key: SpawnKey {
+            domain: SpawnDomain::External,
+            slot: snake_id,
+        },
+    }];
+    let mut workspace = SpawnWorkspace::default();
+    let prepared = workspace
+        .prepare(
+            source.world,
+            &requests,
+            &post_genome_rng,
+            config.spawn,
+            config.spawn.snake_start_len,
+        )
+        .map_err(|error| ExternalReplacementError::Spawn(Box::new(error)))?;
+    let placement = prepared
+        .placements()
+        .first()
+        .ok_or(ExternalReplacementError::InternalShapeMismatch)?;
+    let points = prepared
+        .body_for(placement)
+        .ok_or(ExternalReplacementError::InternalShapeMismatch)?;
+    let mut body = Vec::new();
+    body.try_reserve_exact(points.len()).map_err(|_| {
+        ExternalReplacementError::AllocationFailed {
+            buffer: "fresh external body",
+            required: points.len(),
+        }
+    })?;
+    body.extend_from_slice(points);
+    let snake = initial_external_snake(
+        snake_id,
+        frame_v1_id,
+        brain_handle,
+        placement,
+        BodyRange {
+            start: source.world.body_points.len(),
+            len: body.len(),
+        },
+        config,
+    );
+    let brain = BrainRuntimeState {
+        handle: brain_handle,
+        owner: BrainOwner::Entity(snake_id),
+        non_population_weights: Some(weights.into_boxed_slice()),
+        recurrent: try_zero_f32_box(
+            source.graph.total_state_size,
+            "fresh external recurrent state",
+        )?,
+    };
+    Ok(PreparedFreshExternal {
+        snake,
+        body,
+        brain,
+        lease_id,
+        next_allocators,
+        next_external_rng: prepared.next_rng().clone(),
+    })
+}
+
+/// Shared neutral initial state for fresh joins and death replacements.
+fn initial_external_snake(
+    snake_id: u64,
+    frame_v1_id: u32,
+    brain_handle: BrainHandle,
+    placement: &super::spawn::SpawnPlacement,
+    body: BodyRange,
+    config: ExternalReplacementConfig,
+) -> SnakeState {
+    SnakeState {
+        id: snake_id,
+        frame_v1_id,
+        kind: SnakeKind::External,
+        alive: true,
+        population_slot: None,
+        brain: Some(brain_handle),
+        baseline_slot: None,
+        baseline_strategy: None,
+        position: placement.head,
+        previous_position: placement.head,
+        direction: placement.direction,
+        radius: config.spawn.snake_radius,
+        speed: config.snake_base_speed,
+        boost: false,
+        age_seconds: 0.0,
+        food: 0.0,
+        points: 0.0,
+        kills: 0,
+        target_length: config.spawn.snake_start_len as f64,
+        fitness: 0.0,
+        turn: 0.0,
+        previous_turn: 0.0,
+        input_boost: false,
+        previous_input_boost: false,
+        control_accumulator_seconds: 0.0,
+        delivered_observation_points: 0.0,
+        body,
+        skin: EXTERNAL_SNAKE_SKIN,
+    }
+}
+
 /// Complete admitted settings and ceilings for one replacement batch.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExternalReplacementConfig {
@@ -1458,39 +1645,17 @@ impl ExternalReplacementWorkspace {
         self.world
             .body_points
             .extend_from_slice(&self.replacement_body);
-        let new_snake = SnakeState {
-            id: snake_id,
+        let new_snake = initial_external_snake(
+            snake_id,
             frame_v1_id,
-            kind: SnakeKind::External,
-            alive: true,
-            population_slot: None,
-            brain: Some(brain_handle),
-            baseline_slot: None,
-            baseline_strategy: None,
-            position: placement.head,
-            previous_position: placement.head,
-            direction: placement.direction,
-            radius: config.spawn.snake_radius,
-            speed: config.snake_base_speed,
-            boost: false,
-            age_seconds: 0.0,
-            food: 0.0,
-            points: 0.0,
-            kills: 0,
-            target_length: config.spawn.snake_start_len as f64,
-            fitness: 0.0,
-            turn: 0.0,
-            previous_turn: 0.0,
-            input_boost: false,
-            previous_input_boost: false,
-            control_accumulator_seconds: 0.0,
-            delivered_observation_points: 0.0,
-            body: BodyRange {
+            brain_handle,
+            &placement,
+            BodyRange {
                 start: body_start,
                 len: self.replacement_body.len(),
             },
-            skin: EXTERNAL_SNAKE_SKIN,
-        };
+            config,
+        );
         self.world.snakes[old_snake_index] = new_snake;
 
         let new_brain = BrainRuntimeState {
@@ -1896,7 +2061,7 @@ impl ExternalReplacementWorkspace {
     }
 }
 
-fn authority_world_digest(world: &WorldState) -> [u8; 32] {
+pub(crate) fn authority_world_digest(world: &WorldState) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash.update(b"slither-external-replacement-world-v1\0");
     hash_usize(&mut hash, world.snakes.len());
@@ -2797,6 +2962,115 @@ mod tests {
             recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
         }];
         (world, brains)
+    }
+
+    #[test]
+    fn fresh_external_retry_preserves_source_and_isolates_rng_and_ids() {
+        let graph = graph();
+        let (world, brains) = generation_base(&graph);
+        let rng = rng();
+        let allocators = allocators();
+        let before = (
+            world.clone(),
+            brains.clone(),
+            rng.clone(),
+            allocators.clone(),
+        );
+        let prepare = || {
+            prepare_fresh_external(
+                FreshExternalSource {
+                    world: &world,
+                    brains: &brains,
+                    rng: &rng,
+                    allocators: &allocators,
+                    graph: &graph,
+                    brain_epoch: key().population_epoch(),
+                },
+                ExternalReplacementConfig::typescript_defaults(),
+            )
+            .unwrap()
+        };
+        let first = prepare();
+        let retry = prepare();
+        assert_eq!(first.snake, retry.snake);
+        assert_eq!(first.body, retry.body);
+        assert_eq!(first.brain, retry.brain);
+        assert_eq!(first.next_external_rng, retry.next_external_rng);
+        assert_eq!(first.next_allocators, retry.next_allocators);
+        assert_eq!(first.snake.id, allocators.next_external_id);
+        assert_eq!(first.snake.frame_v1_id, allocators.next_frame_v1_id);
+        assert_eq!(first.lease_id, allocators.next_controller_lease_id);
+        assert_eq!(first.snake.body.start, world.body_points.len());
+        assert_eq!(first.snake.body.len, first.body.len());
+        assert!(first.brain.recurrent.iter().all(|value| *value == 0.0));
+        assert_eq!(first.snake.delivered_observation_points, 0.0);
+        let mut expected_allocators = allocators.clone();
+        expected_allocators.next_external_id += 1;
+        expected_allocators.next_frame_v1_id += 1;
+        expected_allocators.next_brain_id += 1;
+        expected_allocators.next_controller_lease_id += 1;
+        assert_eq!(first.next_allocators, expected_allocators);
+        assert_ne!(first.next_external_rng, rng.external_controller);
+        assert_eq!((world, brains, rng, allocators), before);
+    }
+
+    #[test]
+    fn fresh_external_capacity_and_exhausted_ids_reject_before_publication() {
+        let graph = graph();
+        let (world, brains) = generation_base(&graph);
+        let rng = rng();
+        let mut allocators = allocators();
+        let config = ExternalReplacementConfig::typescript_defaults();
+        let prepare = |config, allocators: &AllocatorState| {
+            prepare_fresh_external(
+                FreshExternalSource {
+                    world: &world,
+                    brains: &brains,
+                    rng: &rng,
+                    allocators,
+                    graph: &graph,
+                    brain_epoch: key().population_epoch(),
+                },
+                config,
+            )
+        };
+        assert!(matches!(
+            prepare(
+                ExternalReplacementConfig {
+                    maximum_snakes: world.snakes.len(),
+                    ..config
+                },
+                &allocators
+            ),
+            Err(ExternalReplacementError::SnakeCapacityExceeded { .. })
+        ));
+        assert!(matches!(
+            prepare(
+                ExternalReplacementConfig {
+                    maximum_brains: brains.len(),
+                    ..config
+                },
+                &allocators
+            ),
+            Err(ExternalReplacementError::BrainCapacityExceeded { .. })
+        ));
+        assert!(matches!(
+            prepare(
+                ExternalReplacementConfig {
+                    maximum_body_points: world.body_points.len(),
+                    ..config
+                },
+                &allocators
+            ),
+            Err(ExternalReplacementError::BodyCapacityExceeded { .. })
+        ));
+        allocators.next_frame_v1_id = super::super::state::FRAME_V1_EXHAUSTED_ID;
+        let before = allocators.clone();
+        assert!(matches!(
+            prepare(config, &allocators),
+            Err(ExternalReplacementError::Allocator(_))
+        ));
+        assert_eq!(allocators, before);
     }
 
     fn generation_controller_source() -> WorldState {

@@ -9,9 +9,25 @@ const RECEIPT: RustGenerationAssignmentReceipt = {
 };
 
 describe('shared background command admission', () => {
+  it('does not let a same-shaped reclaim receipt replace a blocked fresh receipt', () => {
+    let available = false;
+    const admission = new BackgroundCommandAdmission({
+      submitControllerDeliveryReceipt() { throw new Error('wrong phase'); },
+      submitControllerReclaimReceipt() { throw new Error('wrong phase'); },
+      submitControllerJoinReceipt() { if (!available) throw new Error('QueueCountLimit: full'); }
+    });
+    const receipt = { requestSequence: RECEIPT.eventSequence, connectionId: RECEIPT.connectionId,
+      leaseId: RECEIPT.leaseId, accepted: true };
+    const sequence = admission.nextSequence();
+    expect(admission.trySubmitJoinReceipt(sequence, receipt)).toBe(false);
+    expect(() => admission.trySubmitReclaimReceipt(sequence, receipt)).toThrow('another receipt');
+    available = true;
+    expect(admission.trySubmitJoinReceipt(sequence, receipt)).toBe(true);
+  });
   it('pins reclaim receipts separately from ordinary step receipts', () => {
     let available = false;
     const admission = new BackgroundCommandAdmission({
+      submitControllerJoinReceipt() {},
       submitControllerDeliveryReceipt() { throw new Error('must not send another phase'); },
       submitControllerReclaimReceipt() { if (!available) throw new Error('QueueCountLimit: full'); }
     });
@@ -28,6 +44,7 @@ describe('shared background command admission', () => {
   it('lets a receipt bypass an unadmitted action without regressing command order', () => {
     const sequences: string[] = [];
     const admission = new BackgroundCommandAdmission({
+      submitControllerJoinReceipt() {},
       submitControllerReclaimReceipt() {},
       submitControllerDeliveryReceipt(sequence) { sequences.push(sequence); }
     });
@@ -41,6 +58,7 @@ describe('shared background command admission', () => {
     let capacity = false;
     const sequences: string[] = [];
     const admission = new BackgroundCommandAdmission({
+      submitControllerJoinReceipt() {},
       submitControllerReclaimReceipt() {},
       submitControllerDeliveryReceipt(sequence) {
         sequences.push(sequence);
@@ -60,7 +78,7 @@ describe('shared background command admission', () => {
   });
 
   it('propagates native faults and bounds identity exhaustion without reentrant admission', () => {
-    const native = { submitControllerDeliveryReceipt() {}, submitControllerReclaimReceipt() {} };
+    const native = { submitControllerDeliveryReceipt() {}, submitControllerReclaimReceipt() {}, submitControllerJoinReceipt() {} };
     expect(() => new BackgroundCommandAdmission(native, 0n)).toThrow();
     expect(() => new BackgroundCommandAdmission(native, 1 as unknown as bigint)).toThrow();
     const admission = new BackgroundCommandAdmission(native, (1n << 64n) - 1n);

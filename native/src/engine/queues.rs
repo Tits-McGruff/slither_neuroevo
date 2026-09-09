@@ -380,6 +380,7 @@ impl InboundQueue {
                     item.command,
                     super::contract::EngineCommand::RunningAuthority(
                         super::contract::RunningAuthorityCommand::ReclaimController(_)
+                            | super::contract::RunningAuthorityCommand::JoinController(_)
                     )
                 )
             });

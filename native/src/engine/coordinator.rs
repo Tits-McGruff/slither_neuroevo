@@ -127,7 +127,11 @@ impl RunningAuthorityMetrics {
         let generation_persistence_acknowledged =
             transition.is_some_and(|pending| pending.persistence_acknowledged());
         let pending_external_deliveries = running.pending_external_delivery().map_or(
-            usize::from(running.state() == RunningAuthorityLoopState::ControllerReclaimPending),
+            usize::from(matches!(
+                running.state(),
+                RunningAuthorityLoopState::ControllerReclaimPending
+                    | RunningAuthorityLoopState::ControllerJoinPending
+            )),
             |batch| batch.remaining(),
         );
         self.world_epoch
@@ -379,7 +383,10 @@ pub(crate) fn run_running_coordinator(
             batch.commands.iter().any(|item| {
                 matches!(
                     item.command,
-                    EngineCommand::RunningAuthority(RunningAuthorityCommand::ReclaimController(_))
+                    EngineCommand::RunningAuthority(
+                        RunningAuthorityCommand::ReclaimController(_)
+                            | RunningAuthorityCommand::JoinController(_)
+                    )
                 )
             })
         });
@@ -444,7 +451,8 @@ pub(crate) fn run_running_coordinator(
         };
         metrics.observe(running);
         wait = match progress {
-            RunningAuthorityLoopProgress::ControllerReclaimPending => RunningWait::Blocked,
+            RunningAuthorityLoopProgress::ControllerReclaimPending
+            | RunningAuthorityLoopProgress::ControllerJoinPending => RunningWait::Blocked,
             RunningAuthorityLoopProgress::Idle {
                 wall_seconds_until_step,
                 ..
@@ -657,6 +665,16 @@ fn execute_running_authority_command(
             ));
         }
         match command {
+        RunningAuthorityCommand::JoinController(request) => running
+            .prepare_controller_join(command_sequence, &request, wall_now_ms)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail)),
+        RunningAuthorityCommand::SubmitControllerJoinReceipt(receipt) => running
+            .resolve_controller_join(&receipt)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|matched| RunningAuthorityEvent::ControllerJoinResolved {
+                command_sequence, request_sequence: receipt.request_sequence, matched,
+                accepted: matched && receipt.accepted,
+            }),
         RunningAuthorityCommand::ReclaimController(request) => running
             .prepare_controller_reclaim(command_sequence, &request, wall_now_ms)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail)),
@@ -789,10 +807,12 @@ fn running_response_owned_byte_bound(
         )
     };
     let dynamic = match command {
-        RunningAuthorityCommand::ReclaimController(_) => {
+        RunningAuthorityCommand::ReclaimController(_)
+        | RunningAuthorityCommand::JoinController(_) => {
             super::external_replacement::RESUME_TOKEN_LENGTH
         }
-        RunningAuthorityCommand::SubmitControllerReclaimReceipt(_) => 0,
+        RunningAuthorityCommand::SubmitControllerReclaimReceipt(_)
+        | RunningAuthorityCommand::SubmitControllerJoinReceipt(_) => 0,
         RunningAuthorityCommand::PublishGenerationCheckpoint { .. } => {
             match running.pending_generation_transition() {
                 Some(pending) => {
@@ -1008,6 +1028,7 @@ fn loop_state_code(state: RunningAuthorityLoopState) -> u8 {
     match state {
         RunningAuthorityLoopState::Ready => 0,
         RunningAuthorityLoopState::ControllerReclaimPending => 4,
+        RunningAuthorityLoopState::ControllerJoinPending => 5,
         RunningAuthorityLoopState::ExternalDeliveryPending => 1,
         RunningAuthorityLoopState::GenerationTransitionPending => 2,
         RunningAuthorityLoopState::Faulted => 3,
@@ -1018,6 +1039,7 @@ fn loop_state_from_code(code: u8) -> RunningAuthorityLoopState {
     match code {
         0 => RunningAuthorityLoopState::Ready,
         4 => RunningAuthorityLoopState::ControllerReclaimPending,
+        5 => RunningAuthorityLoopState::ControllerJoinPending,
         1 => RunningAuthorityLoopState::ExternalDeliveryPending,
         2 => RunningAuthorityLoopState::GenerationTransitionPending,
         _ => RunningAuthorityLoopState::Faulted,
@@ -1211,6 +1233,96 @@ mod tests {
         );
         assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
         running
+    }
+
+    #[test]
+    fn fresh_join_capacity_and_receipts_preserve_source_and_retry_once() {
+        use crate::engine::contract::{ControllerJoinRequest, ControllerReclaimReceipt};
+        let mut running = ordinary_controller_loop();
+        let origin = Instant::now();
+        running.set_background_clock(origin);
+        let before = running.generation_source_controller_leases().to_vec();
+        let request = RunningAuthorityCommand::JoinController(Box::new(ControllerJoinRequest {
+            connection_id: 999,
+            kind: before[0].kind,
+            identity_key: "player:new-owner".into(),
+            received_at: origin + Duration::from_millis(1250),
+        }));
+        let bound = running_response_owned_byte_bound(&request, &running).unwrap();
+        assert!(matches!(
+            execute_running_authority_command(100, request.clone(), &mut running, 1500, bound - 1)
+                .unwrap(),
+            RunningAuthorityEvent::CommandRejected {
+                code: EngineErrorCode::QueueByteLimit,
+                ..
+            }
+        ));
+        assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
+        assert_eq!(running.generation_source_controller_leases(), before);
+        let assignment =
+            execute_running_authority_command(100, request.clone(), &mut running, 1500, bound)
+                .unwrap();
+        let RunningAuthorityEvent::ControllerJoinAssignment {
+            lease_id,
+            frame_v1_id,
+            ..
+        } = assignment
+        else {
+            panic!("fresh assignment expected: {assignment:?}");
+        };
+        assert_eq!(running.generation_source_controller_leases(), before);
+        let mut receipt = ControllerReclaimReceipt {
+            request_sequence: 100,
+            connection_id: 999,
+            lease_id,
+            accepted: false,
+        };
+        assert!(!running.resolve_controller_reclaim(&receipt).unwrap());
+        assert!(running.resolve_controller_join(&receipt).unwrap());
+        assert_eq!(running.generation_source_controller_leases(), before);
+        let retry =
+            execute_running_authority_command(101, request, &mut running, 1600, bound).unwrap();
+        assert!(
+            matches!(retry, RunningAuthorityEvent::ControllerJoinAssignment { lease_id: next, frame_v1_id: frame, .. }
+            if next == lease_id && frame == frame_v1_id)
+        );
+        receipt.request_sequence = 101;
+        receipt.accepted = true;
+        let completion = RunningAuthorityCommand::SubmitControllerJoinReceipt(receipt.clone());
+        let completion_bound = running_response_owned_byte_bound(&completion, &running).unwrap();
+        assert!(matches!(
+            execute_running_authority_command(
+                102,
+                completion.clone(),
+                &mut running,
+                1700,
+                completion_bound - 1
+            )
+            .unwrap(),
+            RunningAuthorityEvent::CommandRejected {
+                code: EngineErrorCode::QueueByteLimit,
+                ..
+            }
+        ));
+        assert_eq!(running.generation_source_controller_leases(), before);
+        assert_eq!(
+            running.state(),
+            RunningAuthorityLoopState::ControllerJoinPending
+        );
+        assert!(matches!(
+            running
+                .service_after_command_drain(1800, SchedulerServiceMode::Background, None)
+                .unwrap(),
+            RunningAuthorityLoopProgress::ControllerJoinPending
+        ));
+        execute_running_authority_command(102, completion, &mut running, 1800, completion_bound)
+            .unwrap();
+        let after = running.generation_source_controller_leases().to_vec();
+        assert_eq!(after.len(), before.len() + 1);
+        assert_eq!(&after[..before.len()], before);
+        assert_eq!(after.last().unwrap().latest_action.accepted_at_ms, 1250);
+        assert!(!running.resolve_controller_join(&receipt).unwrap());
+        assert_eq!(running.generation_source_controller_leases(), after);
     }
 
     #[test]

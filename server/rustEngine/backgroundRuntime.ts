@@ -1,3 +1,4 @@
+import type { RustBackgroundJoinRequest } from '../../src/protocol/rustBackground.ts';
 import type {
   RustBackgroundDrain,
   RustBackgroundDisplay,
@@ -14,6 +15,10 @@ import type { RustRunStartCheckpointPublishOptions } from './runStartPersistence
 
 /** Coarse production-addon handle created by transferring the durable fresh run. */
 export interface ExperimentalRunningAuthorityNativeHandle {
+  /** Prepare one fresh assignment without publishing its snake. */
+  submitControllerJoin(sequence: U64Hex, request: RustBackgroundJoinRequest): void;
+  /** Resolve the exact fresh assignment on its separate delivery barrier. */
+  submitControllerJoinReceipt(sequence: U64Hex, receipt: RustBackgroundReclaimReceipt): void;
   /** Stage an explicit reconnect without changing the prior lease. */
   submitControllerReclaim(sequence: U64Hex, request: RustBackgroundReclaimRequest): void;
   /** Commit only the exact delivered reclaim assignment. */
@@ -52,7 +57,7 @@ export interface ExperimentalRunningAuthorityNativeHandle {
 
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
-  'submitControllerReclaim', 'submitControllerReclaimReceipt',
+  'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
   'start', 'submitControllerAction', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'submitPrepareGenerationReassignments', 'submitGenerationAssignmentReceipt',
   'submitControllerDeliveryReceipt',
