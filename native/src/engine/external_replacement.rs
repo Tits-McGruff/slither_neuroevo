@@ -1954,6 +1954,7 @@ fn authority_world_digest(world: &WorldState) -> [u8; 32] {
         hash.update([controller_kind_tag(lease.kind)]);
         hash_option_u64(&mut hash, lease.connection_id);
         hash_string(&mut hash, &lease.scope);
+        hash_string(&mut hash, &lease.identity_key);
         hash_string(&mut hash, &lease.resume_token);
         hash.update([controller_status_tag(lease.status)]);
         hash.update(lease.latest_action.turn.to_bits().to_le_bytes());
@@ -2667,6 +2668,7 @@ mod tests {
         connection_id: u64,
     ) -> super::super::state::ControllerLease {
         super::super::state::ControllerLease {
+            identity_key: String::new(),
             id,
             snake_id,
             kind: ControllerKind::Player,

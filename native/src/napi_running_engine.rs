@@ -197,7 +197,9 @@ impl ExperimentalRunningAuthority {
     ) -> Result<()> {
         self.submit(
             parse_background_sequence(sequence)?,
-            RunningAuthorityCommand::ReclaimController(parse_controller_reclaim(&request)?),
+            RunningAuthorityCommand::ReclaimController(Box::new(parse_controller_reclaim(
+                &request,
+            )?)),
         )
     }
 
@@ -452,7 +454,15 @@ impl Drop for DrainGuard<'_> {
     }
 }
 
-/// Correlate a close to the exact socket/assignment and stamp it inside Rust.
+/// Parse one optional bounded identity without materializing an unbounded string.
+fn optional_reclaim_identity(request: &Object<'_>, field: &str, maximum: usize) -> Result<String> {
+    match request.get::<JsString<'_>>(field)? {
+        Some(value) => bounded_js_string(value, field, maximum, false),
+        None => Ok(String::new()),
+    }
+}
+
+/// Correlate a token or legacy identity and stamp its native receipt time.
 pub(crate) fn parse_controller_reclaim(
     request: &Object<'_>,
 ) -> Result<crate::engine::contract::ControllerReclaimRequest> {
@@ -468,7 +478,8 @@ pub(crate) fn parse_controller_reclaim(
             false,
         )?,
         kind,
-        resume_token: bounded_object_string(request, "resumeToken", 256)?,
+        resume_token: optional_reclaim_identity(request, "resumeToken", 256)?,
+        identity_key: optional_reclaim_identity(request, "identityKey", 128)?,
         received_at: std::time::Instant::now(),
     })
 }

@@ -331,6 +331,49 @@ Use the cheapest validation that can disprove the current change, then widen
 validation at meaningful checkpoints. Correctness gates remain mandatory; this
 section controls how often expensive evidence is reproduced.
 
+#### CI efficiency and checkpoint progression
+
+CI validates cohesive checkpoints asynchronously. Do not treat completion of
+the entire CI matrix as a blocking prerequisite for beginning the next local
+implementation slice unless the current change is a release/cutover gate or a
+failure could invalidate the architecture or correctness of the next work.
+
+After pushing a cohesive checkpoint:
+
+- Start or confirm the expected CI run, then continue useful local work while
+  CI runs. Do not idle on `gh run watch`, repeatedly poll job state, or spend
+  agent turns narrating normal CI progress.
+- Check CI at natural work boundaries or when a notification/result is
+  available. Do not repeatedly query unchanged running jobs.
+- A failure in a test directly exercising changed code must be investigated and
+  fixed before relying on that checkpoint.
+- A failure in an unrelated existing test may receive one focused investigation
+  to determine whether the checkpoint caused it.
+- If an unrelated failure is clearly an infrastructure, runner-load, timing, or
+  pre-existing test-flake problem, make at most one narrowly justified
+  test-hygiene correction when the correction is obvious and low risk.
+- Do not repeatedly restart the full CI matrix solely to chase unrelated
+  timing flakes, overloaded-runner deadlines, transient dependency failures, or
+  other infrastructure noise. Record the outstanding CI issue briefly and
+  continue the migration.
+- Do not widen timeouts merely to obtain a green run unless the original limit
+  is demonstrably incompatible with the test's intended work. Preserve all
+  correctness and liveness assertions.
+- When several unrelated timing failures appear only under the full CI matrix,
+  treat that as evidence of CI contention before treating each test as a new
+  product defect.
+- Prefer fixing CI scheduling once, such as serializing timing-sensitive
+  integration files, over individually increasing many unrelated deadlines.
+- Do not add durable evidence entries for ordinary CI progress, transient
+  runner delays, dependency installation time, or resolved infrastructure
+  flakes.
+- Before pushing the next checkpoint, inspect the previous checkpoint's CI
+  result. If it contains a plausible product regression, resolve that regression
+  first. Otherwise continue without reproducing the full matrix locally.
+
+The purpose of CI is to detect regressions, not to serialize development behind
+every slow or flaky matrix job.
+
 - During implementation, run focused tests for the files, invariants and known
   regressions affected by the current edit. Add a broader component/integration
   set only when the change crosses those boundaries.
@@ -387,165 +430,3 @@ section controls how often expensive evidence is reproduced.
 - Preserve `bestPointsThisGen` initialization before the first sensor pass.
 - Treat `populationSlot`, snake-array index, visible snake ID, baseline-bot
   slot, and external controller ID as different identities.
-
-## Subagent policy
-
-Subagents are a limited resource. Use them only when their expected value
-clearly exceeds the cost of another agent reading the task and repository.
-
-### Default
-
-The main agent works alone by default.
-
-Do not spawn subagents merely because slots are available, because a task is
-non-trivial, or to run commands the main agent can run directly.
-
-### When to use a subagent
-
-Use a subagent only for one of these reasons:
-
-1. Two genuinely independent tasks can proceed at the same time without
-   reading or editing the same files.
-2. A bounded repository investigation would otherwise produce large search
-   output or materially delay implementation.
-3. A completed change needs independent review because an error could cause
-   data loss, corrupt saves, alter gameplay, break compatibility, introduce a
-   race, or invalidate performance evidence.
-4. A platform-specific check can run independently on another operating system
-   or machine.
-5. Two sources of evidence conflict and an independent investigation is needed
-   to resolve them.
-
-"Another agent might find something" is not sufficient justification.
-
-### Limits
-
-Start with no more than one subagent.
-
-A second subagent may be added only when it has a separate named objective and
-will not duplicate the first agent's work.
-
-Use more than two subagents during one implementation slice only when:
-
-* there are at least three clearly independent workstreams;
-* each assignment has a concrete deliverable;
-* parallel execution is expected to save substantial elapsed time; and
-* the main agent records why each additional subagent is worth its usage.
-
-Never fill the available concurrency slots merely because they are available.
-
-Subagents must not recursively create more subagents unless the user explicitly
-requests a multi-level investigation.
-
-### Independent review cadence
-
-Use one independent reviewer for a cohesive completed high-risk feature or
-checkpoint involving:
-
-* persistence, imports, exports, retention, migration, or possible data loss;
-* concurrency, threading, scheduling, or authority transitions;
-* deterministic simulation behaviour or selection pressure;
-* architecture or protocol boundaries;
-* security-sensitive code;
-* destructive operations;
-* performance claims used to justify a design or cutover.
-
-Review at the feature/checkpoint boundary, not after every intermediate helper,
-fixture, queue primitive or small continuation of the same feature. Several
-adjacent edits that implement one generation handoff, runtime queue path,
-persistence transaction or similar invariant normally receive one review once
-the concrete diff is ready.
-
-The reviewer should inspect the completed diff and relevant focused tests. It
-should rerun a broad/full suite only when it finds a defect that could have
-wider impact, when the main-agent result is inconsistent or stale, or when the
-review itself is the named formal gate. Reuse the same reviewer for one focused
-recheck after material review-driven corrections; do not create a second
-reviewer to duplicate a clean review.
-
-Ordinary localized changes, test-only fixes, documentation changes and
-intermediate implementation steps do not require an independent reviewer when
-direct tests and inspection are sufficient.
-
-### Avoid duplicated work
-
-Do not ask multiple subagents to perform the same repository audit unless
-independent verification is intentional and the claim is high impact.
-
-Before spawning an agent, the main agent must state:
-
-* the exact question being delegated;
-* why it is independent from current work;
-* what evidence must be returned;
-* whether edits are allowed;
-* which files are exclusively owned;
-* what would make the assignment worth its usage.
-
-If those points cannot be stated clearly, do not delegate the task.
-
-### Editing
-
-Parallel editing is allowed only for clearly separate files or modules.
-
-One agent owns each file at a time. When changes overlap, the subagent remains
-read-only and returns recommendations for the main agent to integrate.
-
-The main agent reviews every subagent edit and remains responsible for the
-combined result.
-
-### Failures and retries
-
-If a subagent is blocked by permissions, unavailable tools, usage limits, or an
-incorrectly scoped assignment:
-
-* do not repeatedly recreate the same assignment;
-* retry once only when the blocking condition has actually been corrected;
-* otherwise perform the work in the main thread or defer it explicitly.
-
-A failed or empty subagent turn must be treated as consumed usage, not as a
-reason to spawn several replacements.
-
-### Returned evidence
-
-Require a short response containing:
-
-* files and symbols inspected;
-* commands and tests run;
-* defects or conclusions supported by direct evidence;
-* files changed, if any;
-* remaining uncertainty.
-
-Do not copy large logs into the main thread.
-
-### Model choice
-
-Use the least expensive model suitable for the assignment:
-
-* use a stronger reasoning model for persistence, concurrency, architecture,
-  data-loss risk, difficult debugging, or final high-impact review;
-* use a general coding model for bounded repository investigation, test
-  analysis, fixtures, and isolated implementation;
-* use a lightweight model only for mechanical searches and repetitive evidence
-  extraction.
-
-Do not use a lightweight agent as the sole reviewer of high-impact work.
-
-### Main-agent responsibility
-
-The main agent must reconcile subagent findings against the source code and
-tests. A subagent's conclusion is evidence, not authority.
-
-Subagents cannot redefine owner requirements, architecture, compatibility,
-persistence meaning, gameplay rules, or acceptance gates.
-
-### Usage reporting
-
-When subagents are used, keep usage reporting to the task conversation rather
-than durable engineering evidence. Briefly state their distinct purposes and
-any finding that materially changed the work. Mention a blocked or wasted turn
-only when it affected the result, schedule or next action; do not preserve
-routine reviewer bookkeeping such as "changed no files" or "no turns were
-wasted" in migration evidence.
-
-Do not claim delegation saved time or improved correctness unless the returned
-evidence demonstrates it.

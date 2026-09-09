@@ -258,6 +258,7 @@ pub struct ControllerReclaimRequest {
     pub connection_id: u64,
     pub kind: super::state::ControllerKind,
     pub resume_token: String,
+    pub identity_key: String,
     pub received_at: std::time::Instant,
 }
 
@@ -273,7 +274,7 @@ pub struct ControllerReclaimReceipt {
 /// Typed controls and retained generation-transition commands.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunningAuthorityCommand {
-    ReclaimController(ControllerReclaimRequest),
+    ReclaimController(Box<ControllerReclaimRequest>),
     SubmitControllerReclaimReceipt(ControllerReclaimReceipt),
     /// Apply only at a fresh pre-step boundary, after any retained step resolves.
     SubmitControllerAction(ControllerActionRequest),
@@ -309,8 +310,10 @@ pub enum RunningAuthorityCommand {
 impl RunningAuthorityCommand {
     fn validate(&self) -> Result<(), EngineError> {
         match self {
-            Self::ReclaimController(request) if request.connection_id == 0 || request.resume_token.is_empty()
-                || request.resume_token.len() > 256 || request.resume_token.contains('\0') => {
+            Self::ReclaimController(request) if request.connection_id == 0
+                || (request.resume_token.is_empty() && request.identity_key.is_empty())
+                || request.resume_token.len() > 256 || request.resume_token.contains('\0')
+                || request.identity_key.len() > 128 || request.identity_key.contains('\0') => {
                 Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid bounded controller reclaim"))
             }
             Self::SubmitControllerReclaimReceipt(receipt) if receipt.request_sequence == 0
@@ -348,7 +351,19 @@ impl RunningAuthorityCommand {
 
     fn owned_bytes(&self) -> Result<usize, EngineError> {
         match self {
-            Self::ReclaimController(request) => Ok(request.resume_token.capacity()),
+            Self::ReclaimController(request) => request
+                .resume_token
+                .capacity()
+                .checked_add(request.identity_key.capacity())
+                .and_then(|bytes| {
+                    bytes.checked_add(std::mem::size_of::<ControllerReclaimRequest>())
+                })
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "reclaim identity storage overflow",
+                    )
+                }),
             Self::SubmitControllerReclaimReceipt(_) => Ok(0),
             Self::SubmitControllerAction(_) | Self::DisconnectController(_) => Ok(0),
             Self::PublishGenerationCheckpoint {

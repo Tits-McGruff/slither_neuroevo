@@ -349,18 +349,23 @@ impl RunningAuthorityLoop {
         let token =
             super::external_replacement::fresh_resume_token(&source.world.controller_leases)
                 .map_err(|error| error.to_string())?;
-        let prepared =
+        let input = super::controllers::ReclaimInput {
+            kind: request.kind,
+            scope: &source.identity.run_id,
+            resume_token: &request.resume_token,
+            next_resume_token: token,
+            connection_id: request.connection_id,
+            arrival_sequence: request_sequence,
+            received_at_ms: self.controller_receipt_ms(request.received_at)?,
+            boundary_at_ms: wall_now_ms,
+        };
+        let prepared = if request.resume_token.is_empty() {
             self.authority
-                .prepare_controller_reclaim(super::controllers::ReclaimInput {
-                    kind: request.kind,
-                    scope: &source.identity.run_id,
-                    resume_token: &request.resume_token,
-                    next_resume_token: token,
-                    connection_id: request.connection_id,
-                    arrival_sequence: request_sequence,
-                    received_at_ms: self.controller_receipt_ms(request.received_at)?,
-                    boundary_at_ms: wall_now_ms,
-                })?;
+                .prepare_legacy_controller_reclaim(&request.identity_key, input)?
+                .ok_or_else(|| "no reserved legacy identity match".to_owned())?
+        } else {
+            self.authority.prepare_controller_reclaim(input)?
+        };
         let event = super::contract::RunningAuthorityEvent::ControllerReclaimAssignment {
             request_sequence,
             controller_kind: request.kind,

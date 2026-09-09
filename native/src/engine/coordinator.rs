@@ -1220,12 +1220,14 @@ mod tests {
         let origin = Instant::now();
         running.set_background_clock(origin);
         let before = running.generation_source_controller_leases()[0].clone();
-        let request = RunningAuthorityCommand::ReclaimController(ControllerReclaimRequest {
-            connection_id: 999,
-            kind: before.kind,
-            resume_token: before.resume_token.clone(),
-            received_at: origin + Duration::from_millis(1250),
-        });
+        let request =
+            RunningAuthorityCommand::ReclaimController(Box::new(ControllerReclaimRequest {
+                connection_id: 999,
+                kind: before.kind,
+                resume_token: before.resume_token.clone(),
+                identity_key: String::new(),
+                received_at: origin + Duration::from_millis(1250),
+            }));
         let bound = running_response_owned_byte_bound(&request, &running).unwrap();
         assert!(matches!(
             execute_running_authority_command(100, request.clone(), &mut running, 1500, bound - 1)

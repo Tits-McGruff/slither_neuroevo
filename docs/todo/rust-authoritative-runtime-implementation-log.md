@@ -204,5 +204,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Focused Rust tests and the real addon/SQLite handoff cover capacity retry,
   stale receipts during ordinary delivery, and the resumed controller stream.
 
-The next dependency is fresh controller join and legacy identity reclaim, then
-experimental server startup using the shared command and transport adapters.
+- 2026-09-09 Legacy reconnect matches exactly one live reserved identity within
+  the current run and controller kind. Ambiguous names and explicit invalid
+  tokens cannot claim another lease. Identity storage is bounded, charged, and
+  preserved by step/generation copies. The real addon handoff exercises legacy
+  reconnect after token rotation and generation reassignment.
+
+The next dependency is fresh controller join, then experimental server startup
+using the shared command and transport adapters.

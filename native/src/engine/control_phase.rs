@@ -2668,6 +2668,7 @@ mod tests {
         }];
         let controller_leases = vec![
             ControllerLease {
+                identity_key: String::new(),
                 id: 2,
                 snake_id: 40,
                 kind: ControllerKind::ReinforcementLearning,
@@ -2689,6 +2690,7 @@ mod tests {
                 takeover_committed_at_ms: None,
             },
             ControllerLease {
+                identity_key: String::new(),
                 id: 1,
                 snake_id: 30,
                 kind: ControllerKind::Player,
@@ -2710,6 +2712,7 @@ mod tests {
                 takeover_committed_at_ms: None,
             },
             ControllerLease {
+                identity_key: String::new(),
                 id: 3,
                 snake_id: 50,
                 kind: ControllerKind::Player,

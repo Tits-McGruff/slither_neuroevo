@@ -1104,6 +1104,13 @@ pub(crate) fn copy_controller_leases_reusing(
         let mut scope = String::new();
         reserve_string(&mut scope, lease.scope.len(), "controller scope")?;
         scope.push_str(&lease.scope);
+        let mut identity_key = String::new();
+        reserve_string(
+            &mut identity_key,
+            lease.identity_key.len(),
+            "controller legacy identity",
+        )?;
+        identity_key.push_str(&lease.identity_key);
         let mut resume_token = String::new();
         reserve_string(
             &mut resume_token,
@@ -1112,6 +1119,7 @@ pub(crate) fn copy_controller_leases_reusing(
         )?;
         resume_token.push_str(&lease.resume_token);
         target.push(ControllerLease {
+            identity_key,
             id: lease.id,
             snake_id: lease.snake_id,
             kind: lease.kind,
@@ -1136,6 +1144,11 @@ fn copy_lease_reusing(
 ) -> Result<(), FixedStepPrefixError> {
     reserve_string(&mut target.scope, source.scope.len(), "controller scope")?;
     reserve_string(
+        &mut target.identity_key,
+        source.identity_key.len(),
+        "controller legacy identity",
+    )?;
+    reserve_string(
         &mut target.resume_token,
         source.resume_token.len(),
         "controller resume token",
@@ -1146,6 +1159,8 @@ fn copy_lease_reusing(
     target.connection_id = source.connection_id;
     target.scope.clear();
     target.scope.push_str(&source.scope);
+    target.identity_key.clear();
+    target.identity_key.push_str(&source.identity_key);
     target.resume_token.clear();
     target.resume_token.push_str(&source.resume_token);
     target.status = source.status;
@@ -1290,6 +1305,7 @@ pub(crate) fn controller_text_capacity(leases: &[ControllerLease]) -> usize {
     leases.iter().fold(0usize, |total, lease| {
         total
             .saturating_add(lease.scope.capacity())
+            .saturating_add(lease.identity_key.capacity())
             .saturating_add(lease.resume_token.capacity())
     })
 }
@@ -2253,6 +2269,7 @@ mod tests {
         ]);
         source_world.snakes.push(external.clone());
         source_world.controller_leases.push(ControllerLease {
+            identity_key: "player:legacy-owner".to_owned(),
             id: 1,
             snake_id: external.id,
             kind: ControllerKind::Player,

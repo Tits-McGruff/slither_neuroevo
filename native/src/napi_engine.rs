@@ -1675,9 +1675,9 @@ impl Stage6BackgroundGenerationHandoffFixtureSession {
     ) -> Result<()> {
         self.submit_control(
             parse_background_sequence(sequence)?,
-            RunningAuthorityCommand::ReclaimController(
+            RunningAuthorityCommand::ReclaimController(Box::new(
                 crate::napi_running_engine::parse_controller_reclaim(&request)?,
-            ),
+            )),
         )
     }
 

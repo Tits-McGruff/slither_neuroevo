@@ -91,11 +91,15 @@ export interface RustBackgroundReclaimRequest {
   /** Kind must match the retained lease. */
   controllerKind: 'player' | 'reinforcementLearning';
   /** Previous server-issued ownership token. */
-  resumeToken: string;
+  resumeToken?: string;
+  /** Legacy fallback used only when no explicit token was supplied. */
+  identityKey?: string;
 }
 
 /** Retained same-snake assignment prepared before any ownership mutation. */
 export interface RustBackgroundReclaimAssignment extends RustBackgroundReclaimRequest {
+  /** Newly staged token, required on every successful assignment. */
+  resumeToken: string;
   /** Exact command that created this assignment. */
   requestSequence: RustBackgroundIdentity;
   /** Existing controller lease identity. */

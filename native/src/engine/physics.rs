@@ -1719,6 +1719,7 @@ mod tests {
 
     fn lease(snake_id: u64) -> ControllerLease {
         ControllerLease {
+            identity_key: String::new(),
             id: 1,
             snake_id,
             kind: ControllerKind::Player,

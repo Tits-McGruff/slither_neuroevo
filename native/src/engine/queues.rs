@@ -1646,12 +1646,13 @@ mod tests {
         queue
             .try_push(command(
                 1,
-                RunningAuthorityCommand::ReclaimController(ControllerReclaimRequest {
+                RunningAuthorityCommand::ReclaimController(Box::new(ControllerReclaimRequest {
                     connection_id: 12,
                     kind: crate::engine::state::ControllerKind::Player,
                     resume_token: "token".into(),
+                    identity_key: String::new(),
                     received_at: std::time::Instant::now(),
-                }),
+                })),
             ))
             .assert_ok();
         queue

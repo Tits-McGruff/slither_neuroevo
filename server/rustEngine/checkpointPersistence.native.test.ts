@@ -1447,7 +1447,32 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         await expect(waitForBackgroundEvent(session, event => event.kind === 'controllerReclaimResolved'))
           .resolves.toMatchObject({ controllerReclaimResolution: { matched: false, accepted: false } });
         expect(session.health().completedStep).toBe(reclaimedObservation.sourceCompletedStep);
+        expect(admission.trySubmitControl(sequence => session.submitControllerDisconnect(sequence, {
+          leaseId: reclaim.leaseId, connectionId: reclaim.connectionId
+        }))).toBe(true);
+        expect(() => session.submitControllerReclaim(admission.nextSequence(), {
+          connectionId: '000000000000009a', controllerKind: observation.controllerKind, identityKey: 'x'.repeat(129)
+        })).toThrow();
+        const invalidTokenSequence = admission.nextSequence();
+        expect(admission.trySubmitControl(sequence => session.submitControllerReclaim(sequence, {
+          connectionId: '000000000000009a', controllerKind: observation.controllerKind,
+          identityKey: 'player:background-fixture', resumeToken: 'invalid-explicit-token'
+        }))).toBe(true);
+        const legacySequence = admission.nextSequence();
+        expect(admission.trySubmitControl(sequence => session.submitControllerReclaim(sequence, {
+          connectionId: '000000000000009a', controllerKind: observation.controllerKind, identityKey: 'player:background-fixture'
+        }))).toBe(true);
         expect(router.deliver([reclaimedObservation])).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === invalidTokenSequence))
+          .resolves.toMatchObject({ kind: 'commandRejected' });
+        const legacyEvent = await waitForBackgroundEvent(session, event => event.commandSequence === legacySequence);
+        expect(legacyEvent.kind).toBe('controllerReclaimAssignment');
+        const legacy = legacyEvent.controllerReclaimAssignment!;
+        expect(legacy).toMatchObject({ leaseId: reclaim.leaseId, snakeId: reclaim.snakeId, connectionId: '000000000000009a' });
+        expect(legacy.resumeToken).not.toBe(reclaim.resumeToken);
+        expect(reclaimRouter.deliver(legacy)).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.kind === 'controllerReclaimResolved'))
+          .resolves.toMatchObject({ controllerReclaimResolution: { requestSequence: legacySequence, matched: true, accepted: true } });
 
         await closeClient(client);
         expect(readCurrentPointer(paths.databasePath, runStart.runId)).toEqual({

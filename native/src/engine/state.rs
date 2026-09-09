@@ -701,6 +701,9 @@ pub struct LatestControllerAction {
 /// Rust-owned wall-time controller lease.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ControllerLease {
+    /// Optional bounded trusted-LAN legacy identity, scoped by run and kind.
+    /// Empty means this lease cannot be reclaimed without its token.
+    pub identity_key: String,
     /// Stable monotonic lease identity.
     pub id: u64,
     /// Stable internal snake identity.
@@ -1636,6 +1639,44 @@ impl AuthoritativeState {
         super::controllers::commit_disconnect(lease, snake, proposal)
             .map_err(|error| error.to_string())?;
         Ok(true)
+    }
+
+    /// Resolve the bounded legacy name before using the same token transaction.
+    /// No match permits the enclosing join operation to stage a fresh snake;
+    /// ambiguity is an explicit error and never creates another reservation.
+    pub fn prepare_legacy_controller_reclaim(
+        &self,
+        identity_key: &str,
+        input: super::controllers::ReclaimInput<'_>,
+    ) -> Result<Option<PreparedControllerReclaim>, String> {
+        if !input.resume_token.is_empty() {
+            return Err("an explicit token must not fall back to legacy identity".into());
+        }
+        let timing = super::controllers::ControllerTiming::from_config(&self.candidate.config)
+            .map_err(|error| error.to_string())?;
+        let lease = super::controllers::select_legacy_reclaim(
+            &self.candidate.world,
+            input.kind,
+            input.scope,
+            identity_key,
+            input.boundary_at_ms,
+            timing,
+        )
+        .map_err(|error| error.to_string())?;
+        let Some(lease) = lease else {
+            return Ok(None);
+        };
+        self.prepare_controller_reclaim(super::controllers::ReclaimInput {
+            resume_token: &lease.resume_token,
+            kind: input.kind,
+            scope: input.scope,
+            next_resume_token: input.next_resume_token,
+            connection_id: input.connection_id,
+            arrival_sequence: input.arrival_sequence,
+            received_at_ms: input.received_at_ms,
+            boundary_at_ms: input.boundary_at_ms,
+        })
+        .map(Some)
     }
 
     /// Stage a token reclaim against the complete authority, including global
@@ -4371,6 +4412,12 @@ fn validate_lease(
         );
     }
     validate_text("controller_lease.scope", &lease.scope)?;
+    if lease.identity_key.len() > 128 || lease.identity_key.contains('\0') {
+        return invalid(
+            "controller_lease.identity_key",
+            "legacy identity exceeds 128 UTF-8 bytes or contains NUL",
+        );
+    }
     validate_text("controller_lease.resume_token", &lease.resume_token)?;
     if lease.scope != candidate.identity.run_id {
         return invalid(
@@ -4847,6 +4894,7 @@ fn add_candidate_text(
     }
     for lease in &candidate.world.controller_leases {
         add_text(estimate, &lease.scope)?;
+        add_text(estimate, &lease.identity_key)?;
         add_text(estimate, &lease.resume_token)?;
     }
     Ok(())
@@ -5628,6 +5676,7 @@ mod tests {
 
     fn connected_lease(id: u64, snake_id: u64, connection_id: u64, token: &str) -> ControllerLease {
         ControllerLease {
+            identity_key: String::new(),
             id,
             snake_id,
             kind: ControllerKind::Player,
@@ -7145,6 +7194,7 @@ mod tests {
         live.allocators.next_entity_id = 1;
         live.allocators.next_external_id = EXTERNAL_ENTITY_ID_START + 1;
         live.world.controller_leases.push(ControllerLease {
+            identity_key: String::new(),
             id: 1,
             snake_id: EXTERNAL_ENTITY_ID_START,
             kind: ControllerKind::ReinforcementLearning,

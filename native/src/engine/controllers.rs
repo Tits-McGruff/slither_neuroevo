@@ -283,6 +283,56 @@ impl ReclaimProposal {
     }
 }
 
+/// Match only one live reserved legacy identity. Connected, expired, dead, and
+/// other-run leases cannot be stolen; ambiguous names never pick by array order.
+pub fn select_legacy_reclaim<'a>(
+    world: &'a super::state::WorldState,
+    kind: super::state::ControllerKind,
+    scope: &str,
+    identity_key: &str,
+    boundary_at_ms: u64,
+    timing: ControllerTiming,
+) -> Result<Option<&'a ControllerLease>, ControllerError> {
+    if identity_key.is_empty() {
+        return Ok(None);
+    }
+    if identity_key.len() > 128 || identity_key.contains('\0') {
+        return Err(ControllerError::ReclaimRejected("invalid"));
+    }
+    let mut matched = None;
+    for lease in &world.controller_leases {
+        if lease.kind != kind
+            || lease.scope != scope
+            || lease.identity_key != identity_key
+            || !matches!(
+                lease.status,
+                ControllerLeaseStatus::HoldingLastInput | ControllerLeaseStatus::ReservedNeutral
+            )
+        {
+            continue;
+        }
+        let (_, _, grace) = validate_disconnected_deadlines(lease, timing)?;
+        if boundary_at_ms < lease.last_observed_at_ms {
+            return Err(ControllerError::WallClockRegressed {
+                previous_ms: lease.last_observed_at_ms,
+                current_ms: boundary_at_ms,
+            });
+        }
+        if boundary_at_ms >= grace
+            || !world.snakes.iter().any(|snake| {
+                snake.id == lease.snake_id && snake.alive && snake.kind == SnakeKind::External
+            })
+        {
+            continue;
+        }
+        if matched.is_some() {
+            return Err(ControllerError::ReclaimRejected("ambiguous"));
+        }
+        matched = Some(lease);
+    }
+    Ok(matched)
+}
+
 /// Stage token-based reclaim without changing controls, RNG, or recurrent state.
 pub fn prepare_reclaim(
     lease: &ControllerLease,
@@ -1053,6 +1103,7 @@ mod tests {
 
     fn lease() -> ControllerLease {
         ControllerLease {
+            identity_key: String::new(),
             id: 7,
             snake_id: 9,
             kind: ControllerKind::Player,
@@ -1104,6 +1155,64 @@ mod tests {
             received_at_ms: boundary_at_ms,
             boundary_at_ms,
         }
+    }
+
+    #[test]
+    fn legacy_reclaim_requires_one_live_reserved_name_in_the_same_scope_and_kind() {
+        let mut lease = lease();
+        lease.identity_key = "player:owner".into();
+        let mut snake = snake();
+        let close = prepare_disconnect(&lease, &snake, 11, 1_200, TIMING).unwrap();
+        commit_disconnect(&mut lease, &mut snake, close).unwrap();
+        let mut world = super::super::state::WorldState {
+            snakes: vec![snake],
+            controller_leases: vec![lease],
+            ..Default::default()
+        };
+        let select = |world: &super::super::state::WorldState, scope: &str, kind, at| {
+            select_legacy_reclaim(world, kind, scope, "player:owner", at, TIMING)
+                .map(|lease| lease.map(|lease| lease.id))
+        };
+        assert_eq!(
+            select(&world, "run", ControllerKind::Player, 1_300),
+            Ok(Some(7))
+        );
+        assert_eq!(
+            select(&world, "other-run", ControllerKind::Player, 1_300),
+            Ok(None)
+        );
+        assert_eq!(
+            select(&world, "run", ControllerKind::ReinforcementLearning, 1_300),
+            Ok(None)
+        );
+        assert_eq!(
+            select(&world, "run", ControllerKind::Player, 31_200),
+            Ok(None)
+        );
+        let mut duplicate = world.controller_leases[0].clone();
+        duplicate.id = 8;
+        duplicate.snake_id = 10;
+        let mut second_snake = world.snakes[0].clone();
+        second_snake.id = 10;
+        world.controller_leases.push(duplicate);
+        world.snakes.push(second_snake);
+        for _ in 0..2 {
+            assert_eq!(
+                select(&world, "run", ControllerKind::Player, 1_300),
+                Err(ControllerError::ReclaimRejected("ambiguous"))
+            );
+            world.controller_leases.reverse();
+        }
+        world.snakes[1].alive = false;
+        assert_eq!(
+            select(&world, "run", ControllerKind::Player, 1_300),
+            Ok(Some(7))
+        );
+        world.controller_leases[0].status = ControllerLeaseStatus::Connected;
+        assert_eq!(
+            select(&world, "run", ControllerKind::Player, 1_300),
+            Ok(None)
+        );
     }
 
     #[test]
