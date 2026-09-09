@@ -1,6 +1,39 @@
 /** Exact fixed-width unsigned identity emitted by the Rust background bridge. */
 export type RustBackgroundIdentity = string;
 
+/** Immutable Rust-owned facts used to construct the initial server welcome. */
+export interface RustStartupMetadata {
+  /** Exact admitted lineage. */
+  runId: string;
+  /** Normalized Uint32 seed. */
+  seed: number;
+  /** Exact accepted configuration revision. */
+  configRevision: RustBackgroundIdentity;
+  /** Native normalized configuration identity. */
+  configHash: string;
+  /** Fixed simulation delta, independent of display cadence. */
+  fixedStepSeconds: number;
+  /** Admitted maximum frame allocation for the send pool. */
+  maximumFrameBytes: number;
+  /** Native canonical graph identity. */
+  graphKey: string;
+  /** Parameters in each evolved genome. */
+  parameterCount: number;
+  /** Actual authoritative inference implementation. */
+  mathBackend: string;
+  /** Browser binary-frame version. */
+  serializerVersion: number;
+  /** External observation version. */
+  sensorVersion: number;
+  /** Complete scalar settings from the admitted authority, without game arrays. */
+  settings: Array<{
+    /** Canonical setting path. */
+    path: string;
+    /** Native normalized value. */
+    value: boolean | number | string;
+  }>;
+}
+
 /** Cached stats from the same committed boundary as the Rust-packed frame. */
 export interface RustBackgroundDisplay {
   /** Monotonic display publication, independent of command sequences. */
@@ -126,6 +159,18 @@ export interface RustBackgroundReclaimReceipt {
   leaseId: RustBackgroundIdentity;
   /** Both reliable Protocol 2 messages were accepted locally. */
   accepted: boolean;
+}
+
+/** Exact local-send result for a Rust-issued generation assignment. */
+export interface RustBackgroundGenerationAssignment extends Omit<RustGenerationAssignmentReceipt, 'accepted'> {
+  /** Rust controller category. */
+  controllerKind: 'player' | 'reinforcementLearning';
+  /** Internal snake identity, distinct from its public frame identity. */
+  snakeId: RustBackgroundIdentity;
+  /** Exact public frame-v1 integer encoded without narrowing. */
+  frameV1Id: RustBackgroundIdentity;
+  /** Newly issued ownership token. */
+  resumeToken: string;
 }
 
 /** Exact local-send result for a Rust-issued generation assignment. */

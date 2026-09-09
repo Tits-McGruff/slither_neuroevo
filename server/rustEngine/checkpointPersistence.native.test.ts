@@ -1361,6 +1361,7 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         expect(() => session.submitControllerAction('000000000000000f', { ...action, turn: NaN })).toThrow();
         let admitReceipt = false;
         const admission = new BackgroundCommandAdmission({
+          submitGenerationAssignmentReceipt: (sequence, receipt) => session.submitGenerationAssignmentReceipt(sequence, receipt),
           submitControllerJoinReceipt(sequence, completion) {
             if (!admitReceipt) throw new Error('QueueCountLimit: injected join receipt backpressure');
             session.submitControllerJoinReceipt(sequence, completion);

@@ -1,3 +1,5 @@
+import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
+import { parseRustStartupMetadata } from './startupMetadata.ts';
 /**
  * Explicit Stage 6A prerequisite for one real fixed-P0 Rust fresh run.
  *
@@ -44,7 +46,8 @@ const REQUIRED_FRESH_RUN_METHODS = [
   'publishFirstScheduledFrameV1',
   'publishInitialFrameV1',
   'publishRunStartCheckpoint',
-  'snapshot'
+  'snapshot',
+  'startupMetadata'
 ] as const;
 /** Instance methods required after native construction. */
 const REQUIRED_FRESH_RUN_HANDLE_METHODS = [
@@ -55,7 +58,8 @@ const REQUIRED_FRESH_RUN_HANDLE_METHODS = [
   'publishFirstScheduledFrameV1',
   'publishInitialFrameV1',
   'publishRunStartCheckpoint',
-  'snapshot'
+  'snapshot',
+  'startupMetadata'
 ] as const;
 
 /** Stable native lifecycle phases exposed without copying authority. */
@@ -137,6 +141,8 @@ export interface ExperimentalFreshRunFrameV1 {
 
 /** Native session handle admitted only after the production-addon handshake. */
 export interface ExperimentalFreshRunNativeHandle extends RustRunStartPersistencePort {
+  /** Read immutable welcome metadata before transferring authority. */
+  startupMetadata(): unknown;
   /** Publish the Rust-owned immutable checkpoint descriptor. */
   publishRunStartCheckpoint(options: RustRunStartCheckpointPublishOptions): Promise<unknown>;
   /** Apply only the worker's exact committed descriptor. */
@@ -339,6 +345,11 @@ export class ExperimentalFreshRunSession {
       await this.native.publishFirstScheduledFrameV1(),
       '0000000000000001'
     );
+  }
+
+  /** Capture authoritative welcome metadata without serializing any world. */
+  public startupMetadata(): RustStartupMetadata {
+    return parseRustStartupMetadata(this.native.startupMetadata());
   }
 
   /** Read only the native session's bounded scalar proof. */

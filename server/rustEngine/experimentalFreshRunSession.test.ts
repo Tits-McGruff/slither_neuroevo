@@ -122,6 +122,8 @@ interface FakeEvidence {
 
 /** Minimal fake native owner with the exact production class surface. */
 class FakeFreshRunSession implements ExperimentalFreshRunNativeHandle {
+  /** Metadata shape is exercised separately from this handoff fixture. */
+  public startupMetadata(): unknown { throw new Error('metadata fixture not configured'); }
   /** This one-shot fake does not own a transferable Rust authority. */
   public async createBackgroundRuntime(): Promise<unknown> {
     throw new Error('background transfer requires the native integration fixture');

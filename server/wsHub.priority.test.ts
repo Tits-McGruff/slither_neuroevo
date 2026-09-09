@@ -55,6 +55,7 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
     reliableQueueBytes: 0,
     pendingStats: null,
     pendingFrame: null,
+    pendingFrameRelease: null,
     sending: false,
     replacedFrames: 0,
     reliableFailures: 0
@@ -70,6 +71,55 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
 }
 
 describe('WsHub lifecycle priority', () => {
+  it('retains shared frame bytes until every send completes and releases replaced frames once', () => {
+    const { hub, socket } = buildFakeHub();
+    const slow = buildFakeHub();
+    slow.state.id = 2;
+    (hub as unknown as { connections: Map<number, ConnectionState> }).connections.set(2, slow.state);
+    const released: number[] = [];
+    hub.broadcastFrame(Uint8Array.of(1), () => { released.push(1); });
+    hub.broadcastFrame(Uint8Array.of(2), () => { released.push(2); });
+    hub.broadcastFrame(Uint8Array.of(3), () => { released.push(3); });
+    expect(released).toEqual([2]);
+    socket.sent[0]!.complete();
+    expect(released).toEqual([2]);
+    expect(socket.sent[1]!.payload).toEqual(Uint8Array.of(3));
+    socket.sent[1]!.complete();
+    expect(released).toEqual([2]);
+    slow.socket.sent[0]!.complete();
+    expect(released).toEqual([2, 1]);
+    slow.socket.sent[1]!.complete();
+    expect(released).toEqual([2, 1, 3]);
+  });
+
+  it('releases unused and cancelled leases while retaining an in-flight shutdown send', () => {
+    const { hub, state, socket } = buildFakeHub();
+    const released: number[] = [];
+    state.joined = false;
+    hub.broadcastFrame(Uint8Array.of(0), () => { released.push(0); });
+    expect(released).toEqual([0]);
+    state.joined = true;
+    hub.broadcastFrame(Uint8Array.of(1), () => { released.push(1); });
+    hub.broadcastFrame(Uint8Array.of(2), () => { released.push(2); });
+    (hub as unknown as { wss: { close(): void } }).wss = { close() {} };
+    hub.closeAll();
+    expect(released).toEqual([0, 2]);
+    socket.sent[0]!.complete();
+    expect(released).toEqual([0, 2, 1]);
+  });
+
+  it('releases a borrowed frame when the transport throws before accepting it', () => {
+    const { hub, socket } = buildFakeHub();
+    const release = vi.fn();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      socket.send = () => { throw new Error('closed transport'); };
+      hub.broadcastFrame(Uint8Array.of(1), release);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(socket.closes).toHaveLength(1);
+    } finally { errorSpy.mockRestore(); }
+  });
+
   it('drains assignment, reclaim, control, and error traffic before the newest frame', () => {
     const { hub, socket } = buildFakeHub();
     const frame1 = Uint8Array.of(1);

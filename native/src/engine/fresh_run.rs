@@ -938,6 +938,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn startup_metadata_preserves_the_unpublished_run_boundary() {
+        let transition = prepare_stage6a_p0_fresh_run(request(42)).unwrap();
+        let encoded = transition.startup_metadata_json().unwrap();
+        let metadata: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(metadata["seed"], 42);
+        assert_eq!(metadata["serializerVersion"], 1);
+        assert_eq!(metadata["sensorVersion"], 3);
+        assert_eq!(metadata["parameterCount"], STAGE6A_P0_PARAMETERS_PER_GENOME);
+        assert!(metadata["maximumFrameBytes"].as_u64().unwrap() > 0);
+        assert!(metadata["population"].is_null());
+        assert!(metadata["world"].is_null());
+        assert_eq!(transition.startup_metadata_json().unwrap(), encoded);
+        assert_eq!(transition.completed_step(), 0);
+        assert!(!transition.checkpoint_published());
+        assert!(!transition.authority_published());
+        assert_eq!(transition.snake_count(), 0);
+    }
+
     fn fixture() -> FreshRunFixture {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("fixtures")

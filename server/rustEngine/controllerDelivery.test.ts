@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RustBackgroundControllerMessage, RustGenerationAssignmentReceipt, RustBackgroundReclaimAssignment, RustBackgroundReclaimReceipt } from '../../src/protocol/rustBackground.ts';
-import { ControllerDeliveryRouter, ReclaimDeliveryRouter } from './controllerDelivery.ts';
+import { ControllerDeliveryRouter, ReclaimDeliveryRouter, GenerationDeliveryRouter } from './controllerDelivery.ts';
 
 /** Rust-owned fixture with distinct wire, snake, lease, connection, and event identities. */
 function observation(eventSequence = '0000000000000009'): RustBackgroundControllerMessage {
@@ -68,6 +68,37 @@ describe('Rust reclaim transport', () => {
       expect(sends).toBe(failureAt);
       expect(completion?.accepted).toBe(false);
     }
+  });
+});
+
+describe('Rust generation assignment transport', () => {
+  it('validates the whole batch, preserves public IDs, and retries receipts without resending', () => {
+    let capacity = false;
+    const sent: unknown[] = [];
+    const receipts: RustGenerationAssignmentReceipt[] = [];
+    const router = new GenerationDeliveryRouter(2, {
+      send(connectionId, message) { sent.push({ connectionId, message }); return true; },
+      nextSequence() { return '0000000000000001'; },
+      trySubmitReceipt(_sequence, receipt) { receipts.push({ ...receipt }); return capacity; }
+    });
+    const assignment = {
+      operationEpoch: '0000000000000002', eventSequence: '0000000000000003',
+      connectionId: '0000000000000004', leaseId: '0000000000000005',
+      snakeId: 'ffffffffffffffff', frameV1Id: '0000000000000006',
+      controllerKind: 'player' as const, resumeToken: 'a'.repeat(32)
+    };
+    expect(() => router.deliverAssignments([assignment, { ...assignment, frameV1Id: '0000000001000001' }])).toThrow();
+    expect(sent).toHaveLength(0);
+    expect(router.deliverAssignments([assignment])).toBe(true);
+    expect(router.deliverAssignments([assignment])).toBe(false);
+    capacity = true;
+    expect(router.flushReceipts()).toBe(true);
+    expect(sent).toEqual([{ connectionId: assignment.connectionId, message: {
+      type: 'assign', controller: 'player', snakeId: 6, resumeToken: assignment.resumeToken
+    } }]);
+    expect(receipts).toHaveLength(2);
+    expect(receipts[0]).toEqual(receipts[1]);
+    expect(receipts[0]).toMatchObject({ operationEpoch: assignment.operationEpoch, accepted: true });
   });
 });
 

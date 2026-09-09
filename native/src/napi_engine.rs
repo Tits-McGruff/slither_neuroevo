@@ -787,6 +787,32 @@ impl ExperimentalStage6aFreshRunSession {
         }
     }
 
+    /// Read bounded welcome metadata before transferring the authority.
+    #[napi(catch_unwind)]
+    pub fn startup_metadata(&self) -> Result<String> {
+        let inner = self
+            .inner
+            .try_lock()
+            .map_err(|_| Error::new(Status::GenericFailure, "fresh-run session is busy"))?;
+        if inner.fault_detail.is_some() {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "fresh-run session is faulted",
+            ));
+        }
+        inner
+            .transition
+            .as_ref()
+            .ok_or_else(|| {
+                Error::new(
+                    Status::GenericFailure,
+                    "startup metadata requires retained authority",
+                )
+            })?
+            .startup_metadata_json()
+            .map_err(|detail| Error::new(Status::GenericFailure, detail))
+    }
+
     /// Transfer the activated step-zero authority to an unstarted background
     /// runtime off the Node loop. The one-shot scheduler becomes inaccessible.
     #[napi(catch_unwind)]

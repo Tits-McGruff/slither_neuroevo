@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createExperimentalServerRuntime } from './experimentalStartup.ts';
 import type { RustBackgroundEvent, RustBackgroundFrameCopy } from '../../src/protocol/rustBackground.ts';
 import type { ExperimentalEngineInit } from './experimentalNativeBridge.ts';
 import { FRAME_HEADER_FLOATS, readFrameHeader } from '../../src/protocol/frame.ts';
@@ -180,6 +181,29 @@ afterEach(async () => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+describe('experimental server startup composition', () => {
+  it('durably creates one unstarted owner and refuses to replace its database', async () => {
+    const paths = createFixturePaths('server-startup');
+    const options = { databasePath: paths.databasePath, managedDirectory: paths.managedRoot, seed: 42, onWake: () => {} };
+    const owner = await createExperimentalServerRuntime(options);
+    try {
+      expect(owner.metadata.seed).toBe(42);
+      expect(owner.runtime.health()).toMatchObject({ lifecycle: 'created', completedStep: '0000000000000000' });
+      expect(readCurrentPointer(paths.databasePath, owner.metadata.runId)?.checkpoint_id).toBe(owner.runStart.checkpointId);
+      await expect(createExperimentalServerRuntime(options)).rejects.toMatchObject({ code: 'EEXIST' });
+      expect(owner.runtime.health().lifecycle).toBe('created');
+      expect(countManagedFiles(paths.managedRoot)).toBe(1);
+      await owner.admitCheckpoint();
+    } finally {
+      const closing = owner.close();
+      expect(owner.close()).toBe(closing);
+      await closing;
+    }
+    expect(owner.runtime.health().lifecycle).toBe('stopped');
+    expect(readCurrentPointer(paths.databasePath, owner.metadata.runId)?.checkpoint_id).toBe(owner.runStart.checkpointId);
+  }, 30_000);
+});
+
 describe('experimental fixed-P0 production-addon fresh-run session', () => {
   it('keeps one real Rust boundary through file publication, SQLite retry, exact ack, and activation', async () => {
     const binding = loadBinding();
@@ -195,7 +219,8 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
         'publishFirstScheduledFrameV1',
         'publishInitialFrameV1',
         'publishRunStartCheckpoint',
-        'snapshot'
+        'snapshot',
+        'startupMetadata'
       ]);
     expect((binding as unknown as Record<string, unknown>)['Stage6RunStartHandoffFixtureSession'])
       .toBeUndefined();
@@ -487,6 +512,10 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
     /** Retained callback keeps native notifications observable for the test. */
     const wake = (): void => { wakes += 1; };
     await session.initialize();
+    const startup = session.startupMetadata();
+    expect(startup).toMatchObject({ seed: 42, serializerVersion: 1, sensorVersion: 3 });
+    expect(startup.settings.find(setting => setting.path === 'snakeCount')?.value).toBe(55);
+    expect(session.startupMetadata()).toEqual(startup);
     await expect(session.createBackgroundRuntime(BACKGROUND_INIT, wake)).rejects.toThrow(
       /running authority|publication/i
     );

@@ -9,9 +9,30 @@ const RECEIPT: RustGenerationAssignmentReceipt = {
 };
 
 describe('shared background command admission', () => {
+  it('retains generation receipt identity without admitting an ordinary receipt in its place', () => {
+    let available = false;
+    const attempted: string[] = [];
+    const admission = new BackgroundCommandAdmission({
+      submitGenerationAssignmentReceipt(sequence) {
+        attempted.push(sequence);
+        if (!available) throw new Error('QueueByteLimit: full');
+      },
+      submitControllerDeliveryReceipt() { throw new Error('wrong phase'); },
+      submitControllerReclaimReceipt() {}, submitControllerJoinReceipt() {}
+    });
+    const sequence = admission.nextSequence();
+    expect(admission.trySubmitGenerationReceipt(sequence, RECEIPT)).toBe(false);
+    expect(() => admission.trySubmitReceipt(sequence, RECEIPT)).toThrow('another receipt');
+    expect(admission.trySubmitControl(() => { throw new Error('must wait'); })).toBe(false);
+    available = true;
+    expect(admission.trySubmitGenerationReceipt(sequence, { ...RECEIPT })).toBe(true);
+    expect(attempted).toEqual([sequence, sequence]);
+    expect(admission.nextSequence()).toBe('0000000000000002');
+  });
   it('does not let a same-shaped reclaim receipt replace a blocked fresh receipt', () => {
     let available = false;
     const admission = new BackgroundCommandAdmission({
+      submitGenerationAssignmentReceipt() {},
       submitControllerDeliveryReceipt() { throw new Error('wrong phase'); },
       submitControllerReclaimReceipt() { throw new Error('wrong phase'); },
       submitControllerJoinReceipt() { if (!available) throw new Error('QueueCountLimit: full'); }
@@ -27,6 +48,7 @@ describe('shared background command admission', () => {
   it('pins reclaim receipts separately from ordinary step receipts', () => {
     let available = false;
     const admission = new BackgroundCommandAdmission({
+      submitGenerationAssignmentReceipt() {},
       submitControllerJoinReceipt() {},
       submitControllerDeliveryReceipt() { throw new Error('must not send another phase'); },
       submitControllerReclaimReceipt() { if (!available) throw new Error('QueueCountLimit: full'); }
@@ -44,6 +66,7 @@ describe('shared background command admission', () => {
   it('lets a receipt bypass an unadmitted action without regressing command order', () => {
     const sequences: string[] = [];
     const admission = new BackgroundCommandAdmission({
+      submitGenerationAssignmentReceipt() {},
       submitControllerJoinReceipt() {},
       submitControllerReclaimReceipt() {},
       submitControllerDeliveryReceipt(sequence) { sequences.push(sequence); }
@@ -58,6 +81,7 @@ describe('shared background command admission', () => {
     let capacity = false;
     const sequences: string[] = [];
     const admission = new BackgroundCommandAdmission({
+      submitGenerationAssignmentReceipt() {},
       submitControllerJoinReceipt() {},
       submitControllerReclaimReceipt() {},
       submitControllerDeliveryReceipt(sequence) {
@@ -78,7 +102,7 @@ describe('shared background command admission', () => {
   });
 
   it('propagates native faults and bounds identity exhaustion without reentrant admission', () => {
-    const native = { submitControllerDeliveryReceipt() {}, submitControllerReclaimReceipt() {}, submitControllerJoinReceipt() {} };
+    const native = { submitGenerationAssignmentReceipt() {}, submitControllerDeliveryReceipt() {}, submitControllerReclaimReceipt() {}, submitControllerJoinReceipt() {} };
     expect(() => new BackgroundCommandAdmission(native, 0n)).toThrow();
     expect(() => new BackgroundCommandAdmission(native, 1 as unknown as bigint)).toThrow();
     const admission = new BackgroundCommandAdmission(native, (1n << 64n) - 1n);

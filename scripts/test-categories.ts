@@ -19,6 +19,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'server/rustEngine/commandAdmission.test.ts',
     'server/rustEngine/experimentalNativeBridge.test.ts',
     'server/rustEngine/experimentalFreshRunSession.test.ts',
+    'server/rustEngine/startupMetadata.test.ts',
     'server/rustEngine/generationPersistenceHandoff.test.ts',
     'server/rustEngine/runStartPersistenceHandoff.test.ts',
     'server/rustEngine/nativeSourceIdentity.test.ts',

@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { BackgroundGenerationRouter } from './backgroundGeneration.ts';
+import { BackgroundCommandAdmission } from './commandAdmission.ts';
+import type { ExperimentalRunningAuthorityNativeHandle } from './backgroundRuntime.ts';
 import type { ManagedCheckpointCommitResult } from './checkpointPersistenceClient.ts';
 import {
   GenerationPersistenceHandoff,
@@ -129,6 +132,52 @@ function createCommitResult(
 }
 
 describe('generation persistence handoff', () => {
+  it('routes the background barrier with one commit and retained queue retries', async () => {
+    let capacity = false;
+    let operationId = '';
+    let commits = 0;
+    const admitted: string[] = [];
+    /** Reject before accepting any side effect when the native queue is full. */
+    const submit = (kind: string, sequence: string): void => {
+      if (!capacity) throw new Error('QueueCountLimit: full');
+      admitted.push(`${kind}:${sequence}`);
+    };
+    const native = {
+      submitGenerationCheckpoint(sequence: string, options: { operationId: string }) {
+        submit('publish', sequence); operationId = options.operationId;
+      },
+      submitGenerationPersistenceAcknowledgement(sequence: string) { submit('ack', sequence); },
+      submitPrepareGenerationReassignments(sequence: string) { submit('prepare', sequence); },
+      submitPublishGenerationStart(sequence: string) { submit('resume', sequence); },
+      submitGenerationAssignmentReceipt() { throw new Error('no assignments'); },
+      submitControllerDeliveryReceipt() {}, submitControllerJoinReceipt() {}, submitControllerReclaimReceipt() {}
+    } as unknown as ExperimentalRunningAuthorityNativeHandle;
+    const router = new BackgroundGenerationRouter({
+      native, admission: new BackgroundCommandAdmission(native), managedDirectory: 'checkpoint-v3', maxAssignments: 4,
+      send() { throw new Error('no sends'); }, async admitCheckpoint() {},
+      persistence: { async commit(descriptor) { commits++; return createCommitResult(descriptor as ManagedCheckpointDescriptor); } }
+    });
+    expect(await router.handle({ kind: 'generationTransitionPending' })).toBe(true);
+    expect(router.flush()).toBe(false);
+    expect(admitted).toHaveLength(0);
+    capacity = true;
+    expect(router.flush()).toBe(true);
+    const publication = createPublication(createDescriptor(operationId));
+    capacity = false;
+    await router.handle({ kind: 'generationCheckpointPublished', commandSequence: '0000000000000001', checkpoint: publication });
+    expect(commits).toBe(1);
+    expect(router.flush()).toBe(false);
+    capacity = true;
+    expect(router.flush()).toBe(true);
+    expect(commits).toBe(1);
+    await router.handle({ kind: 'generationPersistenceAcknowledged', commandSequence: '0000000000000002', acknowledgedOperationId: operationId });
+    await router.handle({ kind: 'generationReassignmentsPrepared', commandSequence: '0000000000000003', reassignments: { ready: true, assignments: [] } });
+    expect(router.active).toBe(true);
+    await router.handle({ kind: 'generationStartPublished', commandSequence: '0000000000000004' });
+    expect(router.active).toBe(false);
+    expect(admitted).toEqual(['publish:0000000000000001', 'ack:0000000000000002', 'prepare:0000000000000003', 'resume:0000000000000004']);
+    expect(await router.handle({ kind: 'display' })).toBe(false);
+  });
   it('accepts only an operation token and forwards the direct Rust publication unchanged', async () => {
     const publication = createPublication();
     const publishOptions: RustGenerationCheckpointPublishOptions[] = [];

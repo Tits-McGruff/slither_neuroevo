@@ -216,5 +216,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   backpressure preserve the source. Queue regressions and the real addon handoff
   cover retry, phase isolation, first observations, and subsequent steering.
 
-The next dependency is experimental server startup using the shared command and
-transport adapters, followed by restart from the latest managed boundary.
+- 2026-09-10 Experimental startup now composes the real addon and dedicated
+  persistence worker, commits generation one before authority transfer, and
+  refuses existing databases. Rust supplies bounded startup metadata without
+  serializing game arrays. WebSocket frame leases survive queued replacement
+  and in-flight sends. Generation routing shares command admission while
+  retaining acknowledgements and send results under backpressure; focused
+  tests cover single commit, phase isolation, public IDs, and resume ordering.
+
+The next dependency is attaching these startup and transport adapters to the
+experimental HTTP/WebSocket entry point, followed by latest-boundary restart.

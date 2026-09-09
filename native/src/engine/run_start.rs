@@ -377,6 +377,79 @@ impl PendingRunStartTransition {
     pub fn pellet_count(&self) -> usize {
         self.authority.state().world.pellets.len()
     }
+
+    /// Bounded immutable welcome/configuration metadata, without touching game
+    /// arrays or packing a frame. Capture before transferring this authority.
+    pub fn startup_metadata_json(&self) -> Result<String, String> {
+        use super::state::NormalizedSettingValue;
+        let state = self.authority.state();
+        let strings = [
+            state.identity.run_id.as_str(),
+            state.identity.config_hash.as_str(),
+            state.config.graph_architecture_key.as_str(),
+            state.identity.math_backend.as_str(),
+        ];
+        let mut bound = Some(1024usize);
+        for value in strings {
+            bound = bound.and_then(|total| {
+                value
+                    .len()
+                    .checked_mul(6)
+                    .and_then(|bytes| total.checked_add(bytes))
+            });
+        }
+        for setting in &state.config.settings {
+            let text = match &setting.value {
+                NormalizedSettingValue::Text(value) => value.len(),
+                _ => 0,
+            };
+            bound = bound.and_then(|total| {
+                setting
+                    .path
+                    .len()
+                    .checked_add(text)
+                    .and_then(|bytes| bytes.checked_mul(6))
+                    .and_then(|bytes| bytes.checked_add(128))
+                    .and_then(|bytes| total.checked_add(bytes))
+            });
+        }
+        if bound.is_none_or(|bytes| bytes > 1024 * 1024) {
+            return Err("startup metadata exceeds one MiB".into());
+        }
+        let settings = state
+            .config
+            .settings
+            .iter()
+            .map(|setting| {
+                let value = match &setting.value {
+                    NormalizedSettingValue::Bool(value) => serde_json::json!(value),
+                    NormalizedSettingValue::Integer(value) => serde_json::json!(value),
+                    NormalizedSettingValue::Float(value) => serde_json::json!(value),
+                    NormalizedSettingValue::Text(value) => serde_json::json!(value),
+                };
+                serde_json::json!({ "path": setting.path, "value": value })
+            })
+            .collect::<Vec<_>>();
+        let metadata = serde_json::json!({
+            "runId": state.identity.run_id,
+            "seed": state.identity.seed,
+            "configRevision": format!("{:016x}", state.identity.config_revision),
+            "configHash": state.identity.config_hash,
+            "fixedStepSeconds": state.config.fixed_step_seconds,
+            "maximumFrameBytes": self.authority.memory_estimate().frame_bytes,
+            "graphKey": state.config.graph_architecture_key,
+            "parameterCount": self.authority.graph().total_parameters,
+            "mathBackend": state.identity.math_backend,
+            "serializerVersion": state.versions.serializer,
+            "sensorVersion": state.versions.sensor,
+            "settings": settings,
+        })
+        .to_string();
+        if metadata.len() > 1024 * 1024 {
+            return Err("startup metadata exceeds one MiB".into());
+        }
+        Ok(metadata)
+    }
 }
 
 /// Recoverable failure before run-start authority moves into the retained loop.

@@ -6,6 +6,7 @@ import type {
   RustBackgroundReclaimAssignment,
   RustBackgroundReclaimReceipt
 } from '../../src/protocol/rustBackground.ts';
+import type { RustBackgroundGenerationAssignment } from '../../src/protocol/rustBackground.ts';
 
 /** Transport and bounded command admission supplied by the background event router. */
 export interface ControllerDeliveryPorts {
@@ -95,7 +96,7 @@ export class ControllerDeliveryRouter {
   private busy = false;
 
   /** Bound the adapter by the maximum controller messages admitted for this runtime. */
-  constructor(private readonly maxMessages: number, private readonly ports: ControllerDeliveryPorts) {
+  constructor(protected readonly maxMessages: number, private readonly ports: ControllerDeliveryPorts) {
     if (!Number.isSafeInteger(maxMessages) || maxMessages <= 0) {
       throw new RangeError('controller batch capacity must be a positive safe integer');
     }
@@ -211,4 +212,26 @@ export class ReclaimDeliveryRouter {
 export class JoinDeliveryRouter extends ReclaimDeliveryRouter {
   /** Bind the separate fresh-receipt port to the shared transport behavior. */
   constructor(ports: ReclaimDeliveryPorts) { super(ports, false); }
+}
+
+/** Route successor assignments through the same bounded, send-once batch owner. */
+export class GenerationDeliveryRouter extends ControllerDeliveryRouter {
+  /** Validate every public identity before the complete batch can reach sockets. */
+  deliverAssignments(assignments: readonly RustBackgroundGenerationAssignment[]): boolean {
+    if (this.blocked) return false;
+    if (assignments.length === 0 || assignments.length > this.maxMessages) {
+      throw new RangeError('generation batch exceeds admitted message capacity');
+    }
+    const messages = assignments.map(assignment => {
+      const frameId = BigInt(`0x${identity(assignment.frameV1Id)}`);
+      if (frameId > 16_777_216n || !/^[A-Za-z0-9_-]{32}$/u.test(assignment.resumeToken)) {
+        throw new TypeError('invalid Rust generation assignment');
+      }
+      return {
+        ...assignment, internalSnakeId: identity(assignment.snakeId), snakeId: Number(frameId),
+        sourceCompletedStep: '0000000000000000', kind: 'replacementAssignment' as const
+      };
+    });
+    return this.deliver(messages);
+  }
 }

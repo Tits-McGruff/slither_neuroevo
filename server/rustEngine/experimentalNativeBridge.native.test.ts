@@ -253,7 +253,8 @@ describe('experimental native bridge real-addon integration', () => {
       'publishFirstScheduledFrameV1',
       'publishInitialFrameV1',
       'publishRunStartCheckpoint',
-      'snapshot'
+      'snapshot',
+      'startupMetadata'
     ]);
   });
 

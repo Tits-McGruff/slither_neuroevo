@@ -44,6 +44,8 @@ export interface ConnectionState {
   pendingStats: string | null;
   /** Latest replaceable binary display frame. */
   pendingFrame: ArrayBuffer | ArrayBufferView | null;
+  /** Release a borrowed frame only after replacement, cancellation, or send completion. */
+  pendingFrameRelease: (() => void) | null;
   /** Whether one payload is currently being written by `ws`. */
   sending: boolean;
   /** Display frames superseded before reaching the socket. */
@@ -214,6 +216,7 @@ export class WsHub {
    */
   closeAll(): void {
     for (const state of this.connections.values()) {
+      this.discardPendingFrame(state);
       state.socket.close();
     }
     this.connections.clear();
@@ -223,15 +226,36 @@ export class WsHub {
   /**
    * Broadcast a binary frame buffer to UI clients.
    * @param buffer - Serialized world frame buffer.
+   * @param release - Optional buffer lease returned after every recipient finishes.
    */
-  broadcastFrame(buffer: ArrayBuffer | ArrayBufferView): void {
+  broadcastFrame(buffer: ArrayBuffer | ArrayBufferView, release?: () => void): void {
+    let references = 1;
     for (const state of this.connections.values()) {
       if (state.clientType !== 'ui' || !state.joined) continue;
       if (state.socket.readyState !== WebSocket.OPEN) continue;
       if (state.pendingFrame !== null) state.replacedFrames++;
+      this.discardPendingFrame(state);
       state.pendingFrame = buffer;
+      if (release) {
+        references++;
+        let released = false;
+        state.pendingFrameRelease = () => {
+          if (released) return;
+          released = true;
+          if (--references === 0) release();
+        };
+      }
       this.pumpOutbound(state);
     }
+    if (--references === 0) release?.();
+  }
+
+  /** Drop only unsent bytes; in-flight leases belong to their send callback. */
+  private discardPendingFrame(state: ConnectionState): void {
+    const release = state.pendingFrameRelease;
+    state.pendingFrame = null;
+    state.pendingFrameRelease = null;
+    release?.();
   }
 
   /**
@@ -310,7 +334,7 @@ export class WsHub {
         queuedBytes: state.reliableQueueBytes,
         attemptedBytes: bytes
       });
-      state.pendingFrame = null;
+      this.discardPendingFrame(state);
       state.pendingStats = null;
       state.socket.close(1011, 'reliable outbound queue overflow');
       return false;
@@ -331,6 +355,7 @@ export class WsHub {
     let payload: string | ArrayBuffer | ArrayBufferView | null = null;
     let binary = false;
     let reliable = false;
+    let releaseFrame: (() => void) | null = null;
     const queuedReliable = state.reliableQueue.shift();
     if (queuedReliable !== undefined) {
       payload = queuedReliable;
@@ -345,6 +370,8 @@ export class WsHub {
     ) {
       payload = state.pendingFrame;
       state.pendingFrame = null;
+      releaseFrame = state.pendingFrameRelease;
+      state.pendingFrameRelease = null;
       binary = true;
     }
     if (payload === null) return;
@@ -352,6 +379,7 @@ export class WsHub {
     state.sending = true;
     try {
       state.socket.send(payload, { binary }, (error?: Error) => {
+        releaseFrame?.();
         state.sending = false;
         if (error) {
           if (reliable) state.reliableFailures++;
@@ -365,6 +393,7 @@ export class WsHub {
         this.pumpOutbound(state);
       });
     } catch (error) {
+      releaseFrame?.();
       state.sending = false;
       if (reliable) state.reliableFailures++;
       console.error(reliable ? '[ws.reliable_send_failed]' : '[ws.send_failed]', {
@@ -390,6 +419,7 @@ export class WsHub {
       reliableQueueBytes: 0,
       pendingStats: null,
       pendingFrame: null,
+      pendingFrameRelease: null,
       sending: false,
       replacedFrames: 0,
       reliableFailures: 0
@@ -400,7 +430,7 @@ export class WsHub {
       state.reliableQueue.length = 0;
       state.reliableQueueBytes = 0;
       state.pendingStats = null;
-      state.pendingFrame = null;
+      this.discardPendingFrame(state);
       this.connections.delete(state.id);
       this.handlers?.onDisconnect?.(state.id);
     });
