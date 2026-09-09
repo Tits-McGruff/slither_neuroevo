@@ -5,6 +5,8 @@ import type {
   RustBackgroundHealth,
   RustBackgroundControllerAction,
   RustBackgroundControllerDisconnect,
+  RustBackgroundReclaimRequest,
+  RustBackgroundReclaimReceipt,
   RustGenerationAssignmentReceipt
 } from '../../src/protocol/rustBackground.ts';
 import type { ManagedCheckpointDescriptor, U64Hex } from './checkpointPersistenceProtocol.ts';
@@ -12,6 +14,10 @@ import type { RustRunStartCheckpointPublishOptions } from './runStartPersistence
 
 /** Coarse production-addon handle created by transferring the durable fresh run. */
 export interface ExperimentalRunningAuthorityNativeHandle {
+  /** Stage an explicit reconnect without changing the prior lease. */
+  submitControllerReclaim(sequence: U64Hex, request: RustBackgroundReclaimRequest): void;
+  /** Commit only the exact delivered reclaim assignment. */
+  submitControllerReclaimReceipt(sequence: U64Hex, receipt: RustBackgroundReclaimReceipt): void;
   /** Start only after attaching the Node output router. */
   start(): void;
   /** Queue steering for the next eligible step without altering a pending step. */
@@ -46,6 +52,7 @@ export interface ExperimentalRunningAuthorityNativeHandle {
 
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
+  'submitControllerReclaim', 'submitControllerReclaimReceipt',
   'start', 'submitControllerAction', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'submitPrepareGenerationReassignments', 'submitGenerationAssignmentReceipt',
   'submitControllerDeliveryReceipt',

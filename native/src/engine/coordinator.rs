@@ -126,9 +126,10 @@ impl RunningAuthorityMetrics {
             .is_some();
         let generation_persistence_acknowledged =
             transition.is_some_and(|pending| pending.persistence_acknowledged());
-        let pending_external_deliveries = running
-            .pending_external_delivery()
-            .map_or(0, |batch| batch.remaining());
+        let pending_external_deliveries = running.pending_external_delivery().map_or(
+            usize::from(running.state() == RunningAuthorityLoopState::ControllerReclaimPending),
+            |batch| batch.remaining(),
+        );
         self.world_epoch
             .store(running.world_epoch(), Ordering::Release);
         self.generation
@@ -374,6 +375,14 @@ pub(crate) fn run_running_coordinator(
         } else {
             inbound.drain_eligible_boundary(&mut batches, false)
         };
+        let reclaim_cutoff = batches.iter().any(|batch| {
+            batch.commands.iter().any(|item| {
+                matches!(
+                    item.command,
+                    EngineCommand::RunningAuthority(RunningAuthorityCommand::ReclaimController(_))
+                )
+            })
+        });
         for batch in batches.drain(..) {
             if let [super::contract::SequencedCommand {
                 command: EngineCommand::RunningAuthority(command),
@@ -398,7 +407,7 @@ pub(crate) fn run_running_coordinator(
             return Ok(());
         }
 
-        if !was_ready && running.state() == RunningAuthorityLoopState::Ready {
+        if (!was_ready || reclaim_cutoff) && running.state() == RunningAuthorityLoopState::Ready {
             // A receipt just retired the blocker. Deferred actions belong to
             // the next step, so take their cutoff before servicing it.
             wait = RunningWait::Immediate;
@@ -435,6 +444,7 @@ pub(crate) fn run_running_coordinator(
         };
         metrics.observe(running);
         wait = match progress {
+            RunningAuthorityLoopProgress::ControllerReclaimPending => RunningWait::Blocked,
             RunningAuthorityLoopProgress::Idle {
                 wall_seconds_until_step,
                 ..
@@ -647,6 +657,16 @@ fn execute_running_authority_command(
             ));
         }
         match command {
+        RunningAuthorityCommand::ReclaimController(request) => running
+            .prepare_controller_reclaim(command_sequence, &request, wall_now_ms)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail)),
+        RunningAuthorityCommand::SubmitControllerReclaimReceipt(receipt) => running
+            .resolve_controller_reclaim(&receipt)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|matched| RunningAuthorityEvent::ControllerReclaimResolved {
+                command_sequence, request_sequence: receipt.request_sequence, matched,
+                accepted: matched && receipt.accepted,
+            }),
         RunningAuthorityCommand::DisconnectController(close) => running
             .disconnect_controller(&close, wall_now_ms)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
@@ -769,6 +789,10 @@ fn running_response_owned_byte_bound(
         )
     };
     let dynamic = match command {
+        RunningAuthorityCommand::ReclaimController(_) => {
+            super::external_replacement::RESUME_TOKEN_LENGTH
+        }
+        RunningAuthorityCommand::SubmitControllerReclaimReceipt(_) => 0,
         RunningAuthorityCommand::PublishGenerationCheckpoint { .. } => {
             match running.pending_generation_transition() {
                 Some(pending) => {
@@ -983,6 +1007,7 @@ fn positive_wait_duration(seconds: f64) -> Result<Duration, EngineError> {
 fn loop_state_code(state: RunningAuthorityLoopState) -> u8 {
     match state {
         RunningAuthorityLoopState::Ready => 0,
+        RunningAuthorityLoopState::ControllerReclaimPending => 4,
         RunningAuthorityLoopState::ExternalDeliveryPending => 1,
         RunningAuthorityLoopState::GenerationTransitionPending => 2,
         RunningAuthorityLoopState::Faulted => 3,
@@ -992,6 +1017,7 @@ fn loop_state_code(state: RunningAuthorityLoopState) -> u8 {
 fn loop_state_from_code(code: u8) -> RunningAuthorityLoopState {
     match code {
         0 => RunningAuthorityLoopState::Ready,
+        4 => RunningAuthorityLoopState::ControllerReclaimPending,
         1 => RunningAuthorityLoopState::ExternalDeliveryPending,
         2 => RunningAuthorityLoopState::GenerationTransitionPending,
         _ => RunningAuthorityLoopState::Faulted,
@@ -1185,6 +1211,150 @@ mod tests {
         );
         assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
         running
+    }
+
+    #[test]
+    fn reclaim_capacity_and_receipts_preserve_source_and_retry_once() {
+        use crate::engine::contract::{ControllerReclaimReceipt, ControllerReclaimRequest};
+        let mut running = ordinary_controller_loop();
+        let origin = Instant::now();
+        running.set_background_clock(origin);
+        let before = running.generation_source_controller_leases()[0].clone();
+        let request = RunningAuthorityCommand::ReclaimController(ControllerReclaimRequest {
+            connection_id: 999,
+            kind: before.kind,
+            resume_token: before.resume_token.clone(),
+            received_at: origin + Duration::from_millis(1250),
+        });
+        let bound = running_response_owned_byte_bound(&request, &running).unwrap();
+        assert!(matches!(
+            execute_running_authority_command(100, request.clone(), &mut running, 1500, bound - 1)
+                .unwrap(),
+            RunningAuthorityEvent::CommandRejected {
+                code: EngineErrorCode::QueueByteLimit,
+                ..
+            }
+        ));
+        assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
+        assert_eq!(running.generation_source_controller_leases()[0], before);
+        let output = output_with_cap(1024 * 1024);
+        let fill = || {
+            for sequence in 0..background_generation_handoff_runtime_init()
+                .output
+                .max_reliable
+            {
+                output
+                    .push_reliable(ReliableEvent::ProbeResult {
+                        sequence: sequence as u64,
+                        correlation_id: 0,
+                        payload: Vec::new(),
+                    })
+                    .unwrap();
+            }
+        };
+        let batch = |sequence, command| CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: vec![SequencedCommand {
+                sequence,
+                command: EngineCommand::RunningAuthority(command),
+            }]
+            .into_boxed_slice(),
+        };
+        let metrics = RunningAuthorityMetrics::new(&running);
+        let state = CoordinatorState::new();
+        fill();
+        assert!(process_running_command_batch(
+            batch(100, request.clone()),
+            &output,
+            &state,
+            &mut running,
+            &metrics,
+            1500
+        )
+        .is_err());
+        assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
+        output.drain(usize::MAX, usize::MAX);
+        process_running_command_batch(
+            batch(100, request.clone()),
+            &output,
+            &state,
+            &mut running,
+            &metrics,
+            1500,
+        )
+        .unwrap();
+        let event = output.drain(usize::MAX, usize::MAX).events.pop().unwrap();
+        assert!(
+            matches!(event, CompletedEvent::Reliable(ReliableEvent::RunningAuthority(event)) if matches!(*event,
+            RunningAuthorityEvent::ControllerReclaimAssignment { request_sequence: 100, connection_id: 999, .. }))
+        );
+        assert_eq!(running.generation_source_controller_leases()[0], before);
+        assert_eq!(
+            running.state(),
+            RunningAuthorityLoopState::ControllerReclaimPending
+        );
+        assert_eq!(metrics.snapshot().pending_external_deliveries, 1);
+        let mut receipt = ControllerReclaimReceipt {
+            request_sequence: 100,
+            connection_id: 998,
+            lease_id: before.id,
+            accepted: true,
+        };
+        assert!(!running.resolve_controller_reclaim(&receipt).unwrap());
+        assert!(matches!(
+            running
+                .service_after_command_drain(1800, SchedulerServiceMode::Background, None)
+                .unwrap(),
+            RunningAuthorityLoopProgress::ControllerReclaimPending
+        ));
+        receipt.connection_id = 999;
+        receipt.accepted = false;
+        assert!(running.resolve_controller_reclaim(&receipt).unwrap());
+        assert_eq!(running.generation_source_controller_leases()[0], before);
+        process_running_command_batch(
+            batch(101, request),
+            &output,
+            &state,
+            &mut running,
+            &metrics,
+            1800,
+        )
+        .unwrap();
+        output.drain(usize::MAX, usize::MAX);
+        receipt.request_sequence = 101;
+        receipt.accepted = true;
+        let completion = RunningAuthorityCommand::SubmitControllerReclaimReceipt(receipt.clone());
+        fill();
+        assert!(process_running_command_batch(
+            batch(102, completion.clone()),
+            &output,
+            &state,
+            &mut running,
+            &metrics,
+            1900
+        )
+        .is_err());
+        assert_eq!(running.generation_source_controller_leases()[0], before);
+        assert_eq!(
+            running.state(),
+            RunningAuthorityLoopState::ControllerReclaimPending
+        );
+        output.drain(usize::MAX, usize::MAX);
+        process_running_command_batch(
+            batch(102, completion),
+            &output,
+            &state,
+            &mut running,
+            &metrics,
+            1900,
+        )
+        .unwrap();
+        let after = running.generation_source_controller_leases()[0].clone();
+        assert_eq!(after.connection_id, Some(999));
+        assert_eq!(after.snake_id, before.snake_id);
+        assert_ne!(after.resume_token, before.resume_token);
+        assert!(!running.resolve_controller_reclaim(&receipt).unwrap());
+        assert_eq!(running.generation_source_controller_leases()[0], after);
     }
 
     #[test]

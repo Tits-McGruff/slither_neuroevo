@@ -188,6 +188,34 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Stage an explicit token reclaim at an eligible source boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_reclaim(
+        &self,
+        sequence: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::ReclaimController(parse_controller_reclaim(&request)?),
+        )
+    }
+
+    /// Resolve the retained reclaim assignment without touching ordinary receipts.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_reclaim_receipt(
+        &self,
+        sequence: JsString<'_>,
+        receipt: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SubmitControllerReclaimReceipt(parse_reclaim_receipt(
+                &receipt,
+            )?),
+        )
+    }
+
     /// Queue a socket close for the next eligible pre-step boundary.
     #[napi(catch_unwind)]
     pub fn submit_controller_disconnect(
@@ -425,6 +453,53 @@ impl Drop for DrainGuard<'_> {
 }
 
 /// Correlate a close to the exact socket/assignment and stamp it inside Rust.
+pub(crate) fn parse_controller_reclaim(
+    request: &Object<'_>,
+) -> Result<crate::engine::contract::ControllerReclaimRequest> {
+    let kind = match bounded_object_string(request, "controllerKind", 32)?.as_str() {
+        "player" => crate::engine::state::ControllerKind::Player,
+        "reinforcementLearning" => crate::engine::state::ControllerKind::ReinforcementLearning,
+        _ => return Err(Error::new(Status::InvalidArg, "invalid controllerKind")),
+    };
+    Ok(crate::engine::contract::ControllerReclaimRequest {
+        connection_id: parse_u64_hex(
+            &bounded_object_string(request, "connectionId", 16)?,
+            "connectionId",
+            false,
+        )?,
+        kind,
+        resume_token: bounded_object_string(request, "resumeToken", 256)?,
+        received_at: std::time::Instant::now(),
+    })
+}
+
+/// Validate exact reclaim receipt correlation before native queue admission.
+pub(crate) fn parse_reclaim_receipt(
+    receipt: &Object<'_>,
+) -> Result<crate::engine::contract::ControllerReclaimReceipt> {
+    Ok(crate::engine::contract::ControllerReclaimReceipt {
+        request_sequence: parse_u64_hex(
+            &bounded_object_string(receipt, "requestSequence", 16)?,
+            "requestSequence",
+            false,
+        )?,
+        connection_id: parse_u64_hex(
+            &bounded_object_string(receipt, "connectionId", 16)?,
+            "connectionId",
+            false,
+        )?,
+        lease_id: parse_u64_hex(
+            &bounded_object_string(receipt, "leaseId", 16)?,
+            "leaseId",
+            false,
+        )?,
+        accepted: receipt
+            .get::<bool>("accepted")?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "receipt omits accepted"))?,
+    })
+}
+
+/// Validate a bounded exact close before stamping its native receipt time.
 pub(crate) fn parse_controller_disconnect(
     close: &Object<'_>,
 ) -> Result<crate::engine::contract::ControllerDisconnectRequest> {

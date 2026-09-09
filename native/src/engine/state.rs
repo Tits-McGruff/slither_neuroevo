@@ -1095,6 +1095,47 @@ pub struct AuthoritativeState {
     world_validation: WorldValidationScratch,
 }
 
+/// One bounded reconnect transaction pinned to the unprepared source step.
+/// The runtime retains this until exact local assignment delivery resolves.
+#[derive(Clone, Debug)]
+pub struct PreparedControllerReclaim {
+    world_epoch: u64,
+    operation_epoch: u64,
+    completed_step: u64,
+    lease_index: usize,
+    snake_index: usize,
+    frame_v1_id: u32,
+    expected_memory: StateMemoryEstimate,
+    next_memory: StateMemoryEstimate,
+    proposal: super::controllers::ReclaimProposal,
+}
+
+impl PreparedControllerReclaim {
+    /// Exact existing lease returned in the pending assignment.
+    #[must_use]
+    pub fn lease_id(&self) -> u64 {
+        self.proposal.lease_id()
+    }
+
+    /// Exact destination connection, independent of the old socket.
+    #[must_use]
+    pub fn connection_id(&self) -> u64 {
+        self.proposal.connection_id()
+    }
+
+    /// Existing browser-visible snake identity; reclaim never creates a snake.
+    #[must_use]
+    pub const fn frame_v1_id(&self) -> u32 {
+        self.frame_v1_id
+    }
+
+    /// Newly staged token; a failed send leaves the previous token current.
+    #[must_use]
+    pub fn resume_token(&self) -> &str {
+        self.proposal.resume_token()
+    }
+}
+
 /// Fully admitted next-generation boundary retained beside the still-current world.
 ///
 /// Fields stay private so only the generation transaction can use the reduced
@@ -1595,6 +1636,116 @@ impl AuthoritativeState {
         super::controllers::commit_disconnect(lease, snake, proposal)
             .map_err(|error| error.to_string())?;
         Ok(true)
+    }
+
+    /// Stage a token reclaim against the complete authority, including global
+    /// connection/token uniqueness and the admitted memory ceiling. The caller
+    /// must reserve the complete reliable reply before invoking this method.
+    pub fn prepare_controller_reclaim(
+        &self,
+        mut input: super::controllers::ReclaimInput<'_>,
+    ) -> Result<PreparedControllerReclaim, String> {
+        if self.candidate.phase != AuthorityPhase::Running {
+            return Err("reclaim requires running authority".into());
+        }
+        let leases = &self.candidate.world.controller_leases;
+        let lease_index = leases
+            .iter()
+            .position(|lease| {
+                lease.resume_token == input.resume_token
+                    && lease.scope == input.scope
+                    && lease.kind == input.kind
+            })
+            .ok_or_else(|| "invalid".to_owned())?;
+        let lease = &leases[lease_index];
+        if leases.iter().enumerate().any(|(index, other)| {
+            other.resume_token == input.next_resume_token
+                || (index != lease_index && other.connection_id == Some(input.connection_id))
+        }) {
+            return Err("reclaim token or connection is already assigned".into());
+        }
+        let snake_index = self
+            .candidate
+            .world
+            .snakes
+            .iter()
+            .position(|snake| snake.id == lease.snake_id)
+            .ok_or_else(|| "snake-unavailable".to_owned())?;
+        let timing = super::controllers::ControllerTiming::from_config(&self.candidate.config)
+            .map_err(|error| error.to_string())?;
+        // Retained retry copies have this same exact token allocation, so the
+        // preflight memory estimate remains exact after receipt correlation.
+        input.next_resume_token = input.next_resume_token.into_boxed_str().into_string();
+        let next_text = self
+            .memory
+            .text_bytes
+            .checked_sub(lease.resume_token.capacity())
+            .and_then(|bytes| bytes.checked_add(input.next_resume_token.capacity()))
+            .ok_or_else(|| "reclaim token memory overflow".to_owned())?;
+        let mut next_memory = self.memory;
+        next_memory.text_bytes = next_text;
+        next_memory.total_bytes = self
+            .memory
+            .total_bytes
+            .checked_sub(self.memory.text_bytes)
+            .and_then(|bytes| bytes.checked_add(next_text))
+            .filter(|bytes| *bytes <= self.memory_ceiling_bytes)
+            .ok_or_else(|| "reclaim exceeds admitted authority memory".to_owned())?;
+        let snake = &self.candidate.world.snakes[snake_index];
+        let proposal = super::controllers::prepare_reclaim(lease, snake, input, timing)
+            .map_err(|error| error.to_string())?;
+        Ok(PreparedControllerReclaim {
+            world_epoch: self.world_epoch,
+            operation_epoch: self.latest_operation_epoch,
+            completed_step: self.candidate.generation.completed_step,
+            lease_index,
+            snake_index,
+            frame_v1_id: snake.frame_v1_id,
+            expected_memory: self.memory,
+            next_memory,
+            proposal,
+        })
+    }
+
+    /// Commit only after an exact successful delivery receipt. Rejection leaves
+    /// every authoritative field intact; failed sends simply drop preparation.
+    pub fn commit_controller_reclaim(
+        &mut self,
+        prepared: PreparedControllerReclaim,
+    ) -> Result<(), String> {
+        if self.candidate.phase != AuthorityPhase::Running
+            || self.world_epoch != prepared.world_epoch
+            || self.latest_operation_epoch != prepared.operation_epoch
+            || self.candidate.generation.completed_step != prepared.completed_step
+            || self.memory != prepared.expected_memory
+        {
+            return Err("reclaim source boundary changed".into());
+        }
+        let world = &mut self.candidate.world;
+        if world
+            .controller_leases
+            .iter()
+            .enumerate()
+            .any(|(index, lease)| {
+                lease.resume_token == prepared.resume_token()
+                    || (index != prepared.lease_index
+                        && lease.connection_id == Some(prepared.connection_id()))
+            })
+        {
+            return Err("reclaim token or connection changed before delivery".into());
+        }
+        let lease = world
+            .controller_leases
+            .get_mut(prepared.lease_index)
+            .ok_or_else(|| "reclaim lease disappeared".to_owned())?;
+        let snake = world
+            .snakes
+            .get_mut(prepared.snake_index)
+            .ok_or_else(|| "reclaim snake disappeared".to_owned())?;
+        super::controllers::commit_reclaim(lease, snake, prepared.proposal)
+            .map_err(|error| error.to_string())?;
+        self.memory = prepared.next_memory;
+        Ok(())
     }
 
     /// Publish one fully staged running fixed step with one reversible swap.
@@ -5538,6 +5689,105 @@ mod tests {
             .allocators
             .next_controller_lease_id
             .max(lease_id + 1);
+    }
+
+    #[test]
+    fn reclaim_transaction_preserves_authority_until_exact_commit() {
+        let graph = default_graph();
+        let mut source = complete_running_candidate(&graph);
+        push_connected_external_fixture(
+            &mut source,
+            &graph,
+            EXTERNAL_ENTITY_ID_START,
+            2,
+            1,
+            11,
+            WorldPoint { x: 200.0, y: 0.0 },
+        );
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        authority.disconnect_controller(1, 11, 200, 200).unwrap();
+        let before = authority.state().clone();
+        let input = super::super::controllers::ReclaimInput {
+            kind: ControllerKind::Player,
+            scope: "run-test",
+            resume_token: "external-delivery-1",
+            next_resume_token: "A".repeat(32),
+            connection_id: 12,
+            arrival_sequence: 2,
+            received_at_ms: 300,
+            boundary_at_ms: 300,
+        };
+        let prepared = authority.prepare_controller_reclaim(input).unwrap();
+        assert_eq!(prepared.lease_id(), 1);
+        assert_eq!(prepared.frame_v1_id(), 2);
+        assert_eq!(authority.state(), &before);
+        // A failed send drops only its candidate; a successful retry retains
+        // the same identity and does not reinitialize any gameplay storage.
+        drop(prepared.clone());
+        authority
+            .commit_controller_reclaim(prepared.clone())
+            .unwrap();
+        let after = authority.state().clone();
+        assert_eq!(after.rng, before.rng);
+        assert_eq!(after.allocators, before.allocators);
+        assert_eq!(after.brains, before.brains);
+        assert_eq!(after.population, before.population);
+        assert_eq!(after.world.body_points, before.world.body_points);
+        assert_eq!(after.world.controller_leases[0].connection_id, Some(12));
+        assert_eq!(
+            authority.memory_estimate(),
+            estimate_state_memory(authority.state(), &graph).unwrap()
+        );
+        assert!(authority.commit_controller_reclaim(prepared).is_err());
+        assert_eq!(authority.state(), &after);
+    }
+
+    #[test]
+    fn reclaim_rejects_collisions_budget_and_changed_source_before_any_write() {
+        let graph = default_graph();
+        let mut source = complete_running_candidate(&graph);
+        for (offset, connection) in [(0, 11), (1, 12)] {
+            push_connected_external_fixture(
+                &mut source,
+                &graph,
+                EXTERNAL_ENTITY_ID_START + offset,
+                2 + offset as u32,
+                1 + offset,
+                connection,
+                WorldPoint {
+                    x: 200.0 + offset as f64 * 100.0,
+                    y: 0.0,
+                },
+            );
+        }
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let input = || super::super::controllers::ReclaimInput {
+            kind: ControllerKind::Player,
+            scope: "run-test",
+            resume_token: "external-delivery-1",
+            next_resume_token: "A".repeat(32),
+            connection_id: 13,
+            arrival_sequence: 2,
+            received_at_ms: 300,
+            boundary_at_ms: 300,
+        };
+        let before = authority.state().clone();
+        let mut collision = input();
+        collision.connection_id = 12;
+        assert!(authority.prepare_controller_reclaim(collision).is_err());
+        let mut collision = input();
+        collision.next_resume_token = "external-delivery-2".into();
+        assert!(authority.prepare_controller_reclaim(collision).is_err());
+        let ceiling = authority.memory_ceiling_bytes;
+        authority.memory_ceiling_bytes = authority.memory.total_bytes;
+        assert!(authority.prepare_controller_reclaim(input()).is_err());
+        authority.memory_ceiling_bytes = ceiling;
+        assert_eq!(authority.state(), &before);
+        let prepared = authority.prepare_controller_reclaim(input()).unwrap();
+        authority.candidate.generation.completed_step += 1;
+        let changed = authority.state().clone();
+        assert!(authority.commit_controller_reclaim(prepared).is_err());
+        assert_eq!(authority.state(), &changed);
     }
 
     #[test]

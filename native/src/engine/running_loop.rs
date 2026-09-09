@@ -37,6 +37,8 @@ pub const RUNNING_AUTHORITY_LOOP_VERSION: u32 = 1;
 pub enum RunningAuthorityLoopState {
     /// The next drained command boundary may service the scheduler.
     Ready,
+    /// A same-snake reconnect assignment awaits its exact local-send result.
+    ControllerReclaimPending,
     /// One complete staged step awaits exact reliable-delivery results.
     ExternalDeliveryPending,
     /// One terminal step awaits checkpoint metadata and successor admission.
@@ -64,6 +66,8 @@ impl<'buffer> RunningFramePublication<'buffer> {
 /// Owned scalar result of one post-command-drain service opportunity.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RunningAuthorityLoopProgress {
+    /// No scheduler ticket exists while a reconnect assignment is unresolved.
+    ControllerReclaimPending,
     /// No complete fixed delta is due yet.
     Idle {
         /// Simulated seconds still needed for the next complete step.
@@ -200,6 +204,7 @@ pub struct RunningAuthorityLoop {
     pending_due_steps: Option<usize>,
     state: RunningAuthorityLoopState,
     background_clock: Option<std::time::Instant>,
+    pending_reclaim: Option<(u64, super::state::PreparedControllerReclaim)>,
 }
 
 /// Fallible scheduler/coordinator construction completed before authority moves.
@@ -253,6 +258,7 @@ impl RunningAuthorityLoop {
             pending_due_steps: None,
             state: RunningAuthorityLoopState::Ready,
             background_clock: None,
+            pending_reclaim: None,
         }
     }
 
@@ -269,6 +275,9 @@ impl RunningAuthorityLoop {
         frame: Option<RunningFramePublication<'_>>,
     ) -> Result<RunningAuthorityLoopProgress, RunningAuthorityLoopError> {
         match self.state {
+            RunningAuthorityLoopState::ControllerReclaimPending => {
+                return Ok(RunningAuthorityLoopProgress::ControllerReclaimPending);
+            }
             RunningAuthorityLoopState::Faulted => {
                 return Err(RunningAuthorityLoopError::AlreadyFaulted)
             }
@@ -324,6 +333,70 @@ impl RunningAuthorityLoop {
             },
             wall_now_ms,
         )
+    }
+
+    /// Stage one same-snake assignment only after the complete output reservation.
+    pub(crate) fn prepare_controller_reclaim(
+        &mut self,
+        request_sequence: u64,
+        request: &super::contract::ControllerReclaimRequest,
+        wall_now_ms: u64,
+    ) -> Result<super::contract::RunningAuthorityEvent, String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("reclaim requires an unprepared source boundary".into());
+        }
+        let source = self.authority.state();
+        let token =
+            super::external_replacement::fresh_resume_token(&source.world.controller_leases)
+                .map_err(|error| error.to_string())?;
+        let prepared =
+            self.authority
+                .prepare_controller_reclaim(super::controllers::ReclaimInput {
+                    kind: request.kind,
+                    scope: &source.identity.run_id,
+                    resume_token: &request.resume_token,
+                    next_resume_token: token,
+                    connection_id: request.connection_id,
+                    arrival_sequence: request_sequence,
+                    received_at_ms: self.controller_receipt_ms(request.received_at)?,
+                    boundary_at_ms: wall_now_ms,
+                })?;
+        let event = super::contract::RunningAuthorityEvent::ControllerReclaimAssignment {
+            request_sequence,
+            controller_kind: request.kind,
+            connection_id: prepared.connection_id(),
+            lease_id: prepared.lease_id(),
+            frame_v1_id: prepared.frame_v1_id(),
+            completed_step: self.completed_step(),
+            resume_token: prepared.resume_token().into(),
+        };
+        self.pending_reclaim = Some((request_sequence, prepared));
+        self.state = RunningAuthorityLoopState::ControllerReclaimPending;
+        Ok(event)
+    }
+
+    /// Ignore stale/cross-phase receipts; a failed local send preserves the old
+    /// token and lease. The caller reserves its result before any commit.
+    pub(crate) fn resolve_controller_reclaim(
+        &mut self,
+        receipt: &super::contract::ControllerReclaimReceipt,
+    ) -> Result<bool, String> {
+        let Some((sequence, prepared)) = self.pending_reclaim.as_ref() else {
+            return Ok(false);
+        };
+        if self.state != RunningAuthorityLoopState::ControllerReclaimPending
+            || *sequence != receipt.request_sequence
+            || prepared.connection_id() != receipt.connection_id
+            || prepared.lease_id() != receipt.lease_id
+        {
+            return Ok(false);
+        }
+        if receipt.accepted {
+            self.authority.commit_controller_reclaim(prepared.clone())?;
+        }
+        self.pending_reclaim = None;
+        self.state = RunningAuthorityLoopState::Ready;
+        Ok(true)
     }
 
     /// Convert a transport receipt to the scheduler's one elapsed-time domain.
@@ -560,6 +633,7 @@ impl RunningAuthorityLoop {
             return Err(RunningAuthorityLoopError::AlreadyFaulted);
         }
         if blocked_state == RunningAuthorityLoopState::Ready
+            || blocked_state == RunningAuthorityLoopState::ControllerReclaimPending
             || (blocked_state == RunningAuthorityLoopState::GenerationTransitionPending
                 && self.coordinator.pending_external_delivery().is_none())
         {
@@ -615,7 +689,9 @@ impl RunningAuthorityLoop {
                         remaining: batch.remaining(),
                     }
                 }
-                RunningAuthorityLoopState::Ready | RunningAuthorityLoopState::Faulted => {
+                RunningAuthorityLoopState::Ready
+                | RunningAuthorityLoopState::ControllerReclaimPending
+                | RunningAuthorityLoopState::Faulted => {
                     unreachable!("blocked state was checked before delivery submission")
                 }
             },
@@ -817,6 +893,9 @@ impl RunningAuthorityLoop {
             action,
             required: match required {
                 RunningAuthorityLoopState::Ready => "ready state",
+                RunningAuthorityLoopState::ControllerReclaimPending => {
+                    "controller-reclaim-pending state"
+                }
                 RunningAuthorityLoopState::ExternalDeliveryPending => {
                     "external-delivery-pending state"
                 }
@@ -942,7 +1021,9 @@ impl RunningAuthorityLoop {
                 )?;
                 Ok(generation_pending_progress(step, batch))
             }
-            RunningAuthorityLoopState::Ready | RunningAuthorityLoopState::Faulted => {
+            RunningAuthorityLoopState::Ready
+            | RunningAuthorityLoopState::ControllerReclaimPending
+            | RunningAuthorityLoopState::Faulted => {
                 Err(RunningAuthorityLoopError::RetainedStateMismatch {
                     field: "blocked loop state",
                 })

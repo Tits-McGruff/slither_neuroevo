@@ -5,9 +5,9 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { RustBackgroundControllerAction, RustBackgroundControllerDisconnect, RustBackgroundControllerMessage, RustControllerReceiptResolution, RustGenerationAssignmentReceipt } from '../../src/protocol/rustBackground.ts';
+import type { RustBackgroundControllerAction, RustBackgroundControllerDisconnect, RustBackgroundControllerMessage, RustControllerReceiptResolution, RustGenerationAssignmentReceipt, RustBackgroundReclaimAssignment, RustBackgroundReclaimRequest, RustBackgroundReclaimReceipt } from '../../src/protocol/rustBackground.ts';
 import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
-import { ControllerDeliveryRouter } from './controllerDelivery.ts';
+import { ControllerDeliveryRouter, ReclaimDeliveryRouter } from './controllerDelivery.ts';
 import { BackgroundCommandAdmission } from './commandAdmission.ts';
 import { GenerationPersistenceHandoff } from './generationPersistenceHandoff.ts';
 import { RunStartPersistenceHandoff } from './runStartPersistenceHandoff.ts';
@@ -231,6 +231,8 @@ interface Stage6BackgroundGenerationAssignment extends Stage6GenerationAssignmen
 
 /** One typed output from the background generation fixture. */
 interface Stage6BackgroundGenerationEvent {
+  /** Same-snake reconnect staged by the actual background runtime. */
+  controllerReclaimAssignment?: RustBackgroundReclaimAssignment;
   /** Stable output discriminator. */
   kind: string;
   /** Exact originating command sequence when this is a command response. */
@@ -334,6 +336,10 @@ interface Stage6BackgroundGenerationHandoffSession {
   submitControllerAction(sequenceHex: string, action: RustBackgroundControllerAction): void;
   /** Close the exact retained assignment at the next eligible boundary. */
   submitControllerDisconnect(sequenceHex: string, close: RustBackgroundControllerDisconnect): void;
+  /** Reclaim the same Rust-owned snake using its previous token. */
+  submitControllerReclaim(sequenceHex: string, request: RustBackgroundReclaimRequest): void;
+  /** Submit an exact local-send result for the retained reclaim assignment. */
+  submitControllerReclaimReceipt(sequenceHex: string, receipt: RustBackgroundReclaimReceipt): void;
   /** Drain typed bounded output. */
   drainOutputs(maxEvents: number, maxOwnedBytes: number): {
     events: Stage6BackgroundGenerationEvent[];
@@ -1348,6 +1354,10 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         expect(() => session.submitControllerAction('000000000000000f', { ...action, turn: NaN })).toThrow();
         let admitReceipt = false;
         const admission = new BackgroundCommandAdmission({
+          submitControllerReclaimReceipt(sequence, completion) {
+            if (!admitReceipt) throw new Error('QueueCountLimit: injected reclaim receipt backpressure');
+            session.submitControllerReclaimReceipt(sequence, completion);
+          },
           submitControllerDeliveryReceipt(sequence, completion) {
             if (!admitReceipt) throw new Error('QueueCountLimit: injected transport receipt backpressure');
             session.submitControllerDeliveryReceipt(sequence, completion);
@@ -1397,6 +1407,47 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         await expect(waitForBackgroundEvent(session, event => event.commandSequence === '0000000000000013'))
           .resolves.toMatchObject({ kind: 'controllerDisconnected', controllerDisconnect: { applied: false } });
         await waitForBackgroundHealth(session, health => BigInt(`0x${health.completedStep}`) >= 3n);
+
+        const reclaimSequence = admission.nextSequence();
+        expect(admission.trySubmitControl(sequence => session.submitControllerReclaim(sequence, {
+          connectionId: '0000000000000099', controllerKind: observation.controllerKind, resumeToken: assignment.resumeToken
+        }))).toBe(true);
+        const reclaim = (await waitForBackgroundEvent(session, event => event.kind === 'controllerReclaimAssignment')).controllerReclaimAssignment!;
+        expect(reclaim).toMatchObject({ requestSequence: reclaimSequence, leaseId: close.leaseId,
+          snakeId: observation.snakeId, connectionId: '0000000000000099' });
+        expect(reclaim.resumeToken).not.toBe(assignment.resumeToken);
+        const staleActionSequence = admission.nextSequence();
+        expect(admission.trySubmitControl(sequence => session.submitControllerAction(sequence, action))).toBe(true);
+        const freshActionSequence = admission.nextSequence();
+        expect(admission.trySubmitControl(sequence => session.submitControllerAction(sequence, { ...action, connectionId: reclaim.connectionId }))).toBe(true);
+        const reclaimSent: unknown[] = [];
+        const reclaimRouter = new ReclaimDeliveryRouter({
+          send(connectionId, message) { reclaimSent.push({ connectionId, message }); return true; },
+          nextSequence() { return admission.nextSequence(); },
+          trySubmitReceipt(sequence, completion) { return admission.trySubmitReclaimReceipt(sequence, completion); }
+        });
+        admitReceipt = false;
+        expect(reclaimRouter.deliver(reclaim)).toBe(true);
+        expect(reclaimRouter.flushReceipts()).toBe(false);
+        expect(session.health().loopState).toBe('controllerReclaimPending');
+        expect(session.health().completedStep).toBe(reclaim.completedStep);
+        admitReceipt = true;
+        expect(reclaimRouter.flushReceipts()).toBe(true);
+        expect(reclaimSent).toHaveLength(2);
+        await expect(waitForBackgroundEvent(session, event => event.kind === 'controllerReclaimResolved'))
+          .resolves.toMatchObject({ controllerReclaimResolution: { requestSequence: reclaimSequence, matched: true, accepted: true } });
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === staleActionSequence))
+          .resolves.toMatchObject({ kind: 'commandRejected' });
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === freshActionSequence))
+          .resolves.toMatchObject({ kind: 'controllerActionApplied', controllerActionCompletedStep: reclaim.completedStep });
+        const reclaimedObservation = (await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages')).controllerMessages![0]!;
+        expect(reclaimedObservation).toMatchObject({ connectionId: reclaim.connectionId, leaseId: reclaim.leaseId, snakeId: reclaim.snakeId });
+        expect(admission.trySubmitReclaimReceipt(admission.nextSequence(), { requestSequence: reclaimSequence,
+          connectionId: reclaim.connectionId, leaseId: reclaim.leaseId, accepted: true })).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.kind === 'controllerReclaimResolved'))
+          .resolves.toMatchObject({ controllerReclaimResolution: { matched: false, accepted: false } });
+        expect(session.health().completedStep).toBe(reclaimedObservation.sourceCompletedStep);
+        expect(router.deliver([reclaimedObservation])).toBe(true);
 
         await closeClient(client);
         expect(readCurrentPointer(paths.databasePath, runStart.runId)).toEqual({

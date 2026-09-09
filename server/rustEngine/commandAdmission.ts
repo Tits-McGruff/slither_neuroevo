@@ -1,4 +1,4 @@
-import type { RustBackgroundIdentity, RustGenerationAssignmentReceipt } from '../../src/protocol/rustBackground.ts';
+import type { RustBackgroundIdentity, RustGenerationAssignmentReceipt, RustBackgroundReclaimReceipt } from '../../src/protocol/rustBackground.ts';
 import type { ExperimentalRunningAuthorityNativeHandle } from './backgroundRuntime.ts';
 
 /** Maximum command identity admitted by the Rust queue. */
@@ -10,8 +10,11 @@ function isCapacityRejection(error: unknown): boolean {
 }
 
 /** Compare the complete retained transport result, including its success/failure bit. */
-function sameReceipt(a: RustGenerationAssignmentReceipt, b: RustGenerationAssignmentReceipt): boolean {
-  return a.operationEpoch === b.operationEpoch && a.eventSequence === b.eventSequence &&
+function sameReceipt(a: RustGenerationAssignmentReceipt | RustBackgroundReclaimReceipt, b: RustGenerationAssignmentReceipt | RustBackgroundReclaimReceipt): boolean {
+  const sameSource = 'operationEpoch' in a
+    ? 'operationEpoch' in b && a.operationEpoch === b.operationEpoch && a.eventSequence === b.eventSequence
+    : 'requestSequence' in b && a.requestSequence === b.requestSequence;
+  return sameSource &&
     a.connectionId === b.connectionId && a.leaseId === b.leaseId && a.accepted === b.accepted;
 }
 
@@ -26,13 +29,13 @@ export class BackgroundCommandAdmission {
   /** Next identity, consumed only when Rust accepts a command. */
   private next: bigint;
   /** One failed receipt admission whose identity must survive exact retry. */
-  private pendingReceipt: RustGenerationAssignmentReceipt | undefined;
+  private pendingReceipt: RustGenerationAssignmentReceipt | RustBackgroundReclaimReceipt | undefined;
   /** Guard synchronous native callbacks against reentrant submissions. */
   private busy = false;
 
   /** Start at one, or immediately after commands already submitted during startup. */
   constructor(
-    private readonly native: Pick<ExperimentalRunningAuthorityNativeHandle, 'submitControllerDeliveryReceipt'>,
+    private readonly native: Pick<ExperimentalRunningAuthorityNativeHandle, 'submitControllerDeliveryReceipt' | 'submitControllerReclaimReceipt'>,
     firstSequence = 1n
   ) {
     if (typeof firstSequence !== 'bigint' || firstSequence <= 0n || firstSequence > MAX_SEQUENCE) {
@@ -58,13 +61,24 @@ export class BackgroundCommandAdmission {
 
   /** Adapt directly to ControllerDeliveryRouter's retained receipt port. */
   trySubmitReceipt(sequence: RustBackgroundIdentity, receipt: RustGenerationAssignmentReceipt): boolean {
+    return this.trySubmitRetained(sequence, receipt, current => this.native.submitControllerDeliveryReceipt(current, receipt));
+  }
+
+  /** Preserve the separate reclaim receipt identity on the same command stream. */
+  trySubmitReclaimReceipt(sequence: RustBackgroundIdentity, receipt: RustBackgroundReclaimReceipt): boolean {
+    return this.trySubmitRetained(sequence, receipt, current => this.native.submitControllerReclaimReceipt(current, receipt));
+  }
+
+  /** Hold one exact receipt, including its barrier kind, until native admission. */
+  private trySubmitRetained(sequence: RustBackgroundIdentity, receipt: RustGenerationAssignmentReceipt | RustBackgroundReclaimReceipt,
+    submit: (sequence: RustBackgroundIdentity) => void): boolean {
     if (this.busy) return false;
     if (sequence !== this.nextSequence()) throw new Error('receipt command sequence is stale or out of order');
     if (this.pendingReceipt && !sameReceipt(this.pendingReceipt, receipt)) {
       throw new Error('another receipt owns the pending command sequence');
     }
     this.pendingReceipt ??= { ...receipt };
-    const accepted = this.attempt(current => this.native.submitControllerDeliveryReceipt(current, receipt));
+    const accepted = this.attempt(submit);
     if (accepted) this.pendingReceipt = undefined;
     return accepted;
   }

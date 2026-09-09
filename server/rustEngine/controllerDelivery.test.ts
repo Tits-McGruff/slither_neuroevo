@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { RustBackgroundControllerMessage, RustGenerationAssignmentReceipt } from '../../src/protocol/rustBackground.ts';
-import { ControllerDeliveryRouter } from './controllerDelivery.ts';
+import type { RustBackgroundControllerMessage, RustGenerationAssignmentReceipt, RustBackgroundReclaimAssignment, RustBackgroundReclaimReceipt } from '../../src/protocol/rustBackground.ts';
+import { ControllerDeliveryRouter, ReclaimDeliveryRouter } from './controllerDelivery.ts';
 
 /** Rust-owned fixture with distinct wire, snake, lease, connection, and event identities. */
 function observation(eventSequence = '0000000000000009'): RustBackgroundControllerMessage {
@@ -12,6 +12,64 @@ function observation(eventSequence = '0000000000000009'): RustBackgroundControll
     sensors: Array.from({ length: 83 }, (_, i) => i / 100), x: 5, y: 8, direction: 0.25
   };
 }
+
+/** Same-snake reconnect emitted by Rust; the new token is already staged. */
+const RECLAIM: RustBackgroundReclaimAssignment = {
+  requestSequence: '0000000000000001', connectionId: '0000000000000002', leaseId: '0000000000000003',
+  completedStep: '0000000000000000', snakeId: 4, controllerKind: 'player', resumeToken: 'A'.repeat(32)
+};
+
+describe('Rust reclaim transport', () => {
+  it('validates both packets before sends and retries only the retained completion', () => {
+    const sent: unknown[] = [];
+    const receipts: RustBackgroundReclaimReceipt[] = [];
+    let capacity = false;
+    const router = new ReclaimDeliveryRouter({
+      send(connectionId, message) { sent.push({ connectionId, message }); return true; },
+      nextSequence() { return '0000000000000009'; },
+      trySubmitReceipt(sequence, receipt) {
+        expect(sequence).toBe('0000000000000009');
+        receipts.push({ ...receipt });
+        return capacity;
+      }
+    });
+    expect(() => router.deliver({ ...RECLAIM, resumeToken: 'invalid' })).toThrow();
+    expect(sent).toHaveLength(0);
+    expect(router.deliver(RECLAIM)).toBe(true);
+    expect(router.deliver(RECLAIM)).toBe(false);
+    expect(router.flushReceipts()).toBe(false);
+    capacity = true;
+    expect(router.flushReceipts()).toBe(true);
+    expect(sent).toEqual([
+      { connectionId: RECLAIM.connectionId, message: { type: 'reclaimResult', reclaimed: true, reason: 'reclaimed', snakeId: 4 } },
+      { connectionId: RECLAIM.connectionId, message: { type: 'assign', controller: 'player', reclaimed: true, snakeId: 4, resumeToken: RECLAIM.resumeToken } }
+    ]);
+    expect(receipts).toHaveLength(3);
+    expect(receipts.every(receipt => receipt.accepted && receipt.requestSequence === RECLAIM.requestSequence)).toBe(true);
+  });
+
+  it('reports a failed first or second send once and guards recursive delivery', () => {
+    for (const failureAt of [1, 2]) {
+      let sends = 0;
+      let completion: RustBackgroundReclaimReceipt | undefined;
+      const router = new ReclaimDeliveryRouter({
+        send() {
+          sends++;
+          expect(router.deliver(RECLAIM)).toBe(false);
+          expect(router.flushReceipts()).toBe(false);
+          if (sends === failureAt) throw new Error('socket closed');
+          return true;
+        },
+        nextSequence() { return '0000000000000009'; },
+        trySubmitReceipt(_sequence, receipt) { completion = { ...receipt }; return true; }
+      });
+      expect(router.deliver(RECLAIM)).toBe(true);
+      expect(router.blocked).toBe(false);
+      expect(sends).toBe(failureAt);
+      expect(completion?.accepted).toBe(false);
+    }
+  });
+});
 
 describe('Rust ordinary controller transport', () => {
   it('retains exact receipts under partial input admission without repeating sends', () => {

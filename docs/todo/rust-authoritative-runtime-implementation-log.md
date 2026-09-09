@@ -197,5 +197,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   retries on one sequence while allowing a required receipt past an unadmitted
   action. Rust capacity/timing tests and the real addon handoff cover both paths.
 
-The next dependency is controller join/reclaim integration, then experimental
-server startup using the shared Node command admission and transport adapters.
+- 2026-09-09 Token reclaim now retains one same-snake assignment through the
+  background queue and exact local-send receipt. Output backpressure and failed
+  sends preserve the old lease/token; success rotates the token and rejects old
+  socket actions. Reclaim and following actions retain native receipt times.
+  Focused Rust tests and the real addon/SQLite handoff cover capacity retry,
+  stale receipts during ordinary delivery, and the resumed controller stream.
+
+The next dependency is fresh controller join and legacy identity reclaim, then
+experimental server startup using the shared command and transport adapters.

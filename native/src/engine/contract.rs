@@ -199,6 +199,7 @@ impl EngineCommand {
             Self::RunningAuthority(
                 RunningAuthorityCommand::SubmitControllerAction(_)
                     | RunningAuthorityCommand::DisconnectController(_)
+                    | RunningAuthorityCommand::ReclaimController(_)
             )
         )
     }
@@ -251,9 +252,29 @@ pub struct ControllerDisconnectRequest {
     pub received_at: std::time::Instant,
 }
 
+/// Bounded token reconnect; the current run scope is supplied by Rust.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ControllerReclaimRequest {
+    pub connection_id: u64,
+    pub kind: super::state::ControllerKind,
+    pub resume_token: String,
+    pub received_at: std::time::Instant,
+}
+
+/// Exact local-send completion for one retained reconnect assignment.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ControllerReclaimReceipt {
+    pub request_sequence: u64,
+    pub connection_id: u64,
+    pub lease_id: u64,
+    pub accepted: bool,
+}
+
 /// Typed controls and retained generation-transition commands.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunningAuthorityCommand {
+    ReclaimController(ControllerReclaimRequest),
+    SubmitControllerReclaimReceipt(ControllerReclaimReceipt),
     /// Apply only at a fresh pre-step boundary, after any retained step resolves.
     SubmitControllerAction(ControllerActionRequest),
     /// Close ownership at a fresh boundary without extending wall-time grace.
@@ -288,6 +309,14 @@ pub enum RunningAuthorityCommand {
 impl RunningAuthorityCommand {
     fn validate(&self) -> Result<(), EngineError> {
         match self {
+            Self::ReclaimController(request) if request.connection_id == 0 || request.resume_token.is_empty()
+                || request.resume_token.len() > 256 || request.resume_token.contains('\0') => {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid bounded controller reclaim"))
+            }
+            Self::SubmitControllerReclaimReceipt(receipt) if receipt.request_sequence == 0
+                || receipt.connection_id == 0 || receipt.lease_id == 0 => {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid controller reclaim receipt"))
+            }
             Self::DisconnectController(close) if close.lease_id == 0 || close.connection_id == 0 => {
                 Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid controller disconnect identity"))
             }
@@ -319,6 +348,8 @@ impl RunningAuthorityCommand {
 
     fn owned_bytes(&self) -> Result<usize, EngineError> {
         match self {
+            Self::ReclaimController(request) => Ok(request.resume_token.capacity()),
+            Self::SubmitControllerReclaimReceipt(_) => Ok(0),
             Self::SubmitControllerAction(_) | Self::DisconnectController(_) => Ok(0),
             Self::PublishGenerationCheckpoint {
                 managed_directory,
@@ -416,6 +447,23 @@ pub enum GenerationAssignmentReceiptState {
 /// Reliable events emitted by the background Rust authority path.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunningAuthorityEvent {
+    /// One retained same-snake assignment; controls remain unchanged until delivery.
+    ControllerReclaimAssignment {
+        request_sequence: u64,
+        controller_kind: super::state::ControllerKind,
+        connection_id: u64,
+        lease_id: u64,
+        frame_v1_id: u32,
+        completed_step: u64,
+        resume_token: Box<str>,
+    },
+    /// Mismatched and duplicate receipts leave every other barrier intact.
+    ControllerReclaimResolved {
+        command_sequence: u64,
+        request_sequence: u64,
+        matched: bool,
+        accepted: bool,
+    },
     /// Stale or already-resolved closes are ignored without changing a newer lease.
     ControllerDisconnected {
         command_sequence: u64,
@@ -517,6 +565,8 @@ impl RunningAuthorityEvent {
     #[must_use]
     pub fn owned_bytes(&self) -> usize {
         match self {
+            Self::ControllerReclaimAssignment { resume_token, .. } => resume_token.len(),
+            Self::ControllerReclaimResolved { .. } => 0,
             Self::ControllerMessages { messages, .. } => messages
                 .len()
                 .saturating_mul(size_of::<RunningControllerMessage>())

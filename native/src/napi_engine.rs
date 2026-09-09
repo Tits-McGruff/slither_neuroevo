@@ -375,6 +375,26 @@ pub struct BackgroundControllerDisconnect {
     pub applied: bool,
 }
 
+/// Retained token-reclaim assignment using only exact control identities.
+#[napi(object)]
+pub struct BackgroundControllerReclaimAssignment {
+    pub request_sequence: String,
+    pub controller_kind: String,
+    pub connection_id: String,
+    pub lease_id: String,
+    pub snake_id: u32,
+    pub completed_step: String,
+    pub resume_token: String,
+}
+
+/// Result of one exact local-send completion for reclaim.
+#[napi(object)]
+pub struct BackgroundControllerReclaimResolution {
+    pub request_sequence: String,
+    pub matched: bool,
+    pub accepted: bool,
+}
+
 /// One typed output drained from the real background runtime.
 #[napi(object)]
 pub struct BackgroundControllerMessage {
@@ -421,6 +441,8 @@ pub struct Stage6BackgroundGenerationEvent {
     pub controller_action_lease_id: Option<String>,
     pub controller_action_completed_step: Option<String>,
     pub controller_disconnect: Option<BackgroundControllerDisconnect>,
+    pub controller_reclaim_assignment: Option<BackgroundControllerReclaimAssignment>,
+    pub controller_reclaim_resolution: Option<BackgroundControllerReclaimResolution>,
     pub rejection_code: Option<String>,
     pub rejection_detail: Option<String>,
     pub fault_code: Option<String>,
@@ -1644,6 +1666,36 @@ impl Stage6BackgroundGenerationHandoffFixtureSession {
         )
     }
 
+    /// Stage an explicit token reclaim at an eligible source boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_reclaim(
+        &self,
+        sequence: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        self.submit_control(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::ReclaimController(
+                crate::napi_running_engine::parse_controller_reclaim(&request)?,
+            ),
+        )
+    }
+
+    /// Resolve only the retained reclaim assignment named by this receipt.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_reclaim_receipt(
+        &self,
+        sequence: JsString<'_>,
+        receipt: Object<'_>,
+    ) -> Result<()> {
+        self.submit_control(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SubmitControllerReclaimReceipt(
+                crate::napi_running_engine::parse_reclaim_receipt(&receipt)?,
+            ),
+        )
+    }
+
     /// Queue a socket close without invalidating a retained ordinary step.
     #[napi(catch_unwind)]
     pub fn submit_controller_disconnect(
@@ -2720,13 +2772,13 @@ pub(crate) fn background_generation_event_to_napi(
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
     let mut output = empty_background_generation_event();
     match event {
+        CompletedEvent::Reliable(ReliableEvent::Started) => {
+            output.kind = "started".to_owned();
+        }
         CompletedEvent::Fault(fault) => {
             output.kind = "fault".to_owned();
             output.fault_code = Some(error_code_name(fault.code()).to_owned());
             output.fault_detail = Some(fault.detail().to_owned());
-        }
-        CompletedEvent::Reliable(ReliableEvent::Started) => {
-            output.kind = "started".to_owned();
         }
         CompletedEvent::Reliable(ReliableEvent::Stopped) => {
             output.kind = "stopped".to_owned();
@@ -2756,6 +2808,41 @@ fn running_authority_event_to_napi(
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
     let mut output = empty_background_generation_event();
     match event {
+        RunningAuthorityEvent::ControllerReclaimAssignment {
+            request_sequence,
+            controller_kind,
+            connection_id,
+            lease_id,
+            frame_v1_id,
+            completed_step,
+            resume_token,
+        } => {
+            output.kind = "controllerReclaimAssignment".into();
+            output.command_sequence = Some(u64_hex(request_sequence));
+            output.controller_reclaim_assignment = Some(BackgroundControllerReclaimAssignment {
+                request_sequence: u64_hex(request_sequence),
+                controller_kind: controller_kind_name(controller_kind).into(),
+                connection_id: u64_hex(connection_id),
+                lease_id: u64_hex(lease_id),
+                snake_id: frame_v1_id,
+                completed_step: u64_hex(completed_step),
+                resume_token: resume_token.into_string(),
+            });
+        }
+        RunningAuthorityEvent::ControllerReclaimResolved {
+            command_sequence,
+            request_sequence,
+            matched,
+            accepted,
+        } => {
+            output.kind = "controllerReclaimResolved".into();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.controller_reclaim_resolution = Some(BackgroundControllerReclaimResolution {
+                request_sequence: u64_hex(request_sequence),
+                matched,
+                accepted,
+            });
+        }
         RunningAuthorityEvent::ControllerDisconnected {
             command_sequence,
             lease_id,
@@ -3018,6 +3105,8 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         controller_action_lease_id: None,
         controller_action_completed_step: None,
         controller_disconnect: None,
+        controller_reclaim_assignment: None,
+        controller_reclaim_resolution: None,
         rejection_code: None,
         rejection_detail: None,
         fault_code: None,
@@ -3118,6 +3207,9 @@ const fn running_loop_state_name(
     state: crate::engine::running_loop::RunningAuthorityLoopState,
 ) -> &'static str {
     match state {
+        crate::engine::running_loop::RunningAuthorityLoopState::ControllerReclaimPending => {
+            "controllerReclaimPending"
+        }
         crate::engine::running_loop::RunningAuthorityLoopState::Ready => "ready",
         crate::engine::running_loop::RunningAuthorityLoopState::ExternalDeliveryPending => {
             "externalDeliveryPending"

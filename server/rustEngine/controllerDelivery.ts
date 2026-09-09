@@ -1,8 +1,10 @@
-import type { AssignMsg, SensorsMsg } from '../protocol.ts';
+import type { AssignMsg, SensorsMsg, ReclaimResultMsg } from '../protocol.ts';
 import type {
   RustBackgroundControllerMessage,
   RustBackgroundIdentity,
-  RustGenerationAssignmentReceipt
+  RustGenerationAssignmentReceipt,
+  RustBackgroundReclaimAssignment,
+  RustBackgroundReclaimReceipt
 } from '../../src/protocol/rustBackground.ts';
 
 /** Transport and bounded command admission supplied by the background event router. */
@@ -136,6 +138,70 @@ export class ControllerDeliveryRouter {
       }
       this.pending = [];
       this.cursor = 0;
+      return true;
+    } finally { this.busy = false; }
+  }
+}
+
+/** Thin transport ports for one retained Rust reclaim assignment. */
+export interface ReclaimDeliveryPorts {
+  /** Exact socket send, preserving the existing Protocol 2 result/assign order. */
+  send(connectionId: RustBackgroundIdentity, message: AssignMsg | ReclaimResultMsg): boolean;
+  /** Allocate from the shared command admission stream. */
+  nextSequence(): RustBackgroundIdentity;
+  /** Retry only the exact local-send result when the bounded queue is full. */
+  trySubmitReceipt(sequence: RustBackgroundIdentity, receipt: RustBackgroundReclaimReceipt): boolean;
+}
+
+/** Deliver a reconnect once, retaining its completion until Rust admits it. */
+export class ReclaimDeliveryRouter {
+  /** One bounded completion; no control or world state is duplicated here. */
+  private pending: { receipt: RustBackgroundReclaimReceipt; sequence?: RustBackgroundIdentity } | undefined;
+  /** Protect the retained operation from synchronous send callbacks. */
+  private busy = false;
+
+  /** Bind the existing socket transport and shared queue admission adapter. */
+  constructor(private readonly ports: ReclaimDeliveryPorts) {}
+
+  /** The event pump must retain its next delivery while this is true. */
+  get blocked(): boolean { return this.busy || this.pending !== undefined; }
+
+  /** Validate the entire result/assignment pair before the first socket send. */
+  deliver(assignment: RustBackgroundReclaimAssignment): boolean {
+    if (this.blocked) return false;
+    const receipt: RustBackgroundReclaimReceipt = {
+      requestSequence: identity(assignment.requestSequence), connectionId: identity(assignment.connectionId),
+      leaseId: identity(assignment.leaseId), accepted: false
+    };
+    if (!Number.isInteger(assignment.snakeId) || assignment.snakeId <= 0 || assignment.snakeId > 16_777_216 ||
+      !/^[0-9a-f]{16}$/u.test(assignment.completedStep) ||
+      !/^[A-Za-z0-9_-]{32}$/u.test(assignment.resumeToken) ||
+      (assignment.controllerKind !== 'player' && assignment.controllerKind !== 'reinforcementLearning')) {
+      throw new TypeError('invalid Rust reclaim assignment');
+    }
+    const result: ReclaimResultMsg = { type: 'reclaimResult', reclaimed: true, reason: 'reclaimed', snakeId: assignment.snakeId };
+    const assign: AssignMsg = { type: 'assign', snakeId: assignment.snakeId,
+      controller: assignment.controllerKind === 'player' ? 'player' : 'bot', resumeToken: assignment.resumeToken, reclaimed: true };
+    this.pending = { receipt };
+    this.busy = true;
+    try {
+      receipt.accepted = this.ports.send(receipt.connectionId, result) && this.ports.send(receipt.connectionId, assign);
+    } catch { receipt.accepted = false; }
+    finally { this.busy = false; }
+    this.flushReceipts();
+    return true;
+  }
+
+  /** Retry queue admission without repeating either Protocol 2 message. */
+  flushReceipts(): boolean {
+    if (this.busy) return false;
+    const pending = this.pending;
+    if (!pending) return true;
+    this.busy = true;
+    try {
+      pending.sequence ??= identity(this.ports.nextSequence());
+      if (!this.ports.trySubmitReceipt(pending.sequence, pending.receipt)) return false;
+      this.pending = undefined;
       return true;
     } finally { this.busy = false; }
   }

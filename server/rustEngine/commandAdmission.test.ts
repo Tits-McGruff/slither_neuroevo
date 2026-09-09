@@ -9,9 +9,26 @@ const RECEIPT: RustGenerationAssignmentReceipt = {
 };
 
 describe('shared background command admission', () => {
+  it('pins reclaim receipts separately from ordinary step receipts', () => {
+    let available = false;
+    const admission = new BackgroundCommandAdmission({
+      submitControllerDeliveryReceipt() { throw new Error('must not send another phase'); },
+      submitControllerReclaimReceipt() { if (!available) throw new Error('QueueCountLimit: full'); }
+    });
+    const receipt = { requestSequence: RECEIPT.eventSequence, connectionId: RECEIPT.connectionId,
+      leaseId: RECEIPT.leaseId, accepted: false };
+    const sequence = admission.nextSequence();
+    expect(admission.trySubmitReclaimReceipt(sequence, receipt)).toBe(false);
+    expect(() => admission.trySubmitReceipt(sequence, RECEIPT)).toThrow('another receipt');
+    expect(admission.trySubmitControl(() => {})).toBe(false);
+    available = true;
+    expect(admission.trySubmitReclaimReceipt(sequence, receipt)).toBe(true);
+    expect(admission.blocked).toBe(false);
+  });
   it('lets a receipt bypass an unadmitted action without regressing command order', () => {
     const sequences: string[] = [];
     const admission = new BackgroundCommandAdmission({
+      submitControllerReclaimReceipt() {},
       submitControllerDeliveryReceipt(sequence) { sequences.push(sequence); }
     });
     expect(admission.trySubmitControl(() => { throw new Error('QueueCountLimit: reserved delivery slot'); })).toBe(false);
@@ -24,6 +41,7 @@ describe('shared background command admission', () => {
     let capacity = false;
     const sequences: string[] = [];
     const admission = new BackgroundCommandAdmission({
+      submitControllerReclaimReceipt() {},
       submitControllerDeliveryReceipt(sequence) {
         sequences.push(sequence);
         if (!capacity) throw new Error('QueueByteLimit: full');
@@ -42,9 +60,10 @@ describe('shared background command admission', () => {
   });
 
   it('propagates native faults and bounds identity exhaustion without reentrant admission', () => {
-    expect(() => new BackgroundCommandAdmission({ submitControllerDeliveryReceipt() {} }, 0n)).toThrow();
-    expect(() => new BackgroundCommandAdmission({ submitControllerDeliveryReceipt() {} }, 1 as unknown as bigint)).toThrow();
-    const admission = new BackgroundCommandAdmission({ submitControllerDeliveryReceipt() {} }, (1n << 64n) - 1n);
+    const native = { submitControllerDeliveryReceipt() {}, submitControllerReclaimReceipt() {} };
+    expect(() => new BackgroundCommandAdmission(native, 0n)).toThrow();
+    expect(() => new BackgroundCommandAdmission(native, 1 as unknown as bigint)).toThrow();
+    const admission = new BackgroundCommandAdmission(native, (1n << 64n) - 1n);
     expect(() => admission.trySubmitControl(() => { throw new Error('Faulted: failed engine'); })).toThrow('Faulted');
     expect(admission.trySubmitControl(sequence => {
       expect(sequence).toBe('ffffffffffffffff');

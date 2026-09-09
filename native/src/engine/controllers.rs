@@ -235,6 +235,152 @@ pub struct DisconnectProposal {
     source: ExternalControlSource,
 }
 
+/// Correlated reconnect identity; token generation and uniqueness belong to the
+/// enclosing assignment transaction, never to simulation RNG.
+pub struct ReclaimInput<'a> {
+    pub kind: super::state::ControllerKind,
+    pub scope: &'a str,
+    pub resume_token: &'a str,
+    /// Fresh, globally unique OS-entropy token checked before reliable delivery.
+    pub next_resume_token: String,
+    pub connection_id: u64,
+    pub arrival_sequence: u64,
+    /// Native receipt time, preserved when an earlier source step was pending.
+    pub received_at_ms: u64,
+    pub boundary_at_ms: u64,
+}
+
+/// A reconnect remains invisible until its reliable assignment is admitted and
+/// delivered. Dropping this proposal leaves the old token and ownership intact.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReclaimProposal {
+    expected: ControllerLease,
+    expected_snake: SnakeControlSnapshot,
+    connection_id: u64,
+    arrival_sequence: u64,
+    received_at_ms: u64,
+    boundary_at_ms: u64,
+    next_resume_token: String,
+}
+
+impl ReclaimProposal {
+    /// Assignment identity retained while its reliable send is unresolved.
+    #[must_use]
+    pub const fn lease_id(&self) -> u64 {
+        self.expected.id
+    }
+
+    /// Connection that may own the lease after successful delivery.
+    #[must_use]
+    pub const fn connection_id(&self) -> u64 {
+        self.connection_id
+    }
+
+    /// Already-validated token to include in the reliable assignment.
+    #[must_use]
+    pub fn resume_token(&self) -> &str {
+        &self.next_resume_token
+    }
+}
+
+/// Stage token-based reclaim without changing controls, RNG, or recurrent state.
+pub fn prepare_reclaim(
+    lease: &ControllerLease,
+    snake: &SnakeState,
+    input: ReclaimInput<'_>,
+    timing: ControllerTiming,
+) -> Result<ReclaimProposal, ControllerError> {
+    validate_pair(lease, snake)?;
+    if input.scope != lease.scope
+        || input.kind != lease.kind
+        || input.resume_token != lease.resume_token
+        || input.resume_token.is_empty()
+        || input.connection_id == 0
+    {
+        return Err(ControllerError::ReclaimRejected("invalid"));
+    }
+    if input.boundary_at_ms < lease.last_observed_at_ms
+        || input.boundary_at_ms < input.received_at_ms
+    {
+        return Err(ControllerError::WallClockRegressed {
+            previous_ms: lease.last_observed_at_ms.max(input.received_at_ms),
+            current_ms: input.boundary_at_ms,
+        });
+    }
+    if input.received_at_ms < lease.latest_action.accepted_at_ms {
+        return Err(ControllerError::WallClockRegressed {
+            previous_ms: lease.latest_action.accepted_at_ms,
+            current_ms: input.received_at_ms,
+        });
+    }
+    if lease.status != ControllerLeaseStatus::Connected {
+        let (_, _, grace) = validate_disconnected_deadlines(lease, timing)?;
+        if lease.status == ControllerLeaseStatus::NeuralTakeover || input.boundary_at_ms >= grace {
+            return Err(ControllerError::ReclaimRejected("expired"));
+        }
+    }
+    if !snake.alive {
+        return Err(ControllerError::ReclaimRejected("snake-unavailable"));
+    }
+    if input.arrival_sequence <= lease.latest_action.arrival_sequence {
+        return Err(ControllerError::ArrivalSequenceRegressed {
+            previous: lease.latest_action.arrival_sequence,
+            current: input.arrival_sequence,
+        });
+    }
+    if input.next_resume_token.len() != super::external_replacement::RESUME_TOKEN_LENGTH
+        || !input
+            .next_resume_token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        || input.next_resume_token == lease.resume_token
+    {
+        return Err(ControllerError::ReclaimRejected(
+            "invalid replacement token",
+        ));
+    }
+    Ok(ReclaimProposal {
+        expected: lease.clone(),
+        expected_snake: SnakeControlSnapshot::capture(snake),
+        connection_id: input.connection_id,
+        arrival_sequence: input.arrival_sequence,
+        received_at_ms: input.received_at_ms,
+        boundary_at_ms: input.boundary_at_ms,
+        next_resume_token: input.next_resume_token,
+    })
+}
+
+/// Commit after the enclosing transaction checks token uniqueness and receives
+/// the exact successful local-send receipt. A failed send must drop the proposal.
+pub fn commit_reclaim(
+    lease: &mut ControllerLease,
+    snake: &mut SnakeState,
+    proposal: ReclaimProposal,
+) -> Result<(), ControllerError> {
+    if *lease != proposal.expected || !proposal.expected_snake.matches(snake) {
+        return Err(ControllerError::StaleProposal {
+            lease_id: proposal.expected.id,
+        });
+    }
+    lease.connection_id = Some(proposal.connection_id);
+    lease.resume_token = proposal.next_resume_token;
+    lease.status = ControllerLeaseStatus::Connected;
+    lease.latest_action = LatestControllerAction {
+        turn: 0.0,
+        boost: false,
+        client_tick: 0,
+        arrival_sequence: proposal.arrival_sequence,
+        accepted_at_ms: proposal.received_at_ms,
+    };
+    lease.last_observed_at_ms = proposal.boundary_at_ms;
+    lease.disconnected_at_ms = None;
+    lease.input_hold_expires_at_ms = None;
+    lease.grace_expires_at_ms = None;
+    lease.takeover_committed_at_ms = None;
+    apply_external_source(snake, ExternalControlSource::ReservedNeutral);
+    Ok(())
+}
+
 /// Validate and stage a newest accepted action for a live lease.
 ///
 /// `lease_id` is the assignment epoch supplied by the thin bridge. Requiring
@@ -758,6 +904,8 @@ fn checked_deadline(
 /// Rejected action, lease transition, or stale staged proposal.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ControllerError {
+    /// Explicit token-reclaim outcome, without creating a fresh assignment.
+    ReclaimRejected(&'static str),
     /// Configured wall-time durations are nonsensical.
     InvalidTiming(&'static str),
     /// A supplied turn is non-finite or outside `[-1, 1]`.
@@ -794,6 +942,9 @@ pub enum ControllerError {
 impl Display for ControllerError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ReclaimRejected(reason) => {
+                write!(formatter, "controller reclaim rejected: {reason}")
+            }
             Self::InvalidTiming(reason) => write!(formatter, "invalid controller timing: {reason}"),
             Self::InvalidTurn(turn) => write!(formatter, "invalid controller turn {turn}"),
             Self::StaleLease { expected, actual } => write!(
@@ -940,6 +1091,120 @@ mod tests {
             arrival_sequence,
             accepted_at_ms,
         }
+    }
+
+    fn reclaim_input(boundary_at_ms: u64) -> ReclaimInput<'static> {
+        ReclaimInput {
+            kind: ControllerKind::Player,
+            scope: "run",
+            resume_token: "token",
+            next_resume_token: "A".repeat(32),
+            connection_id: 12,
+            arrival_sequence: 2,
+            received_at_ms: boundary_at_ms,
+            boundary_at_ms,
+        }
+    }
+
+    #[test]
+    fn delayed_reclaim_preserves_newer_queued_action_receive_time() {
+        let mut lease = lease();
+        let mut snake = snake();
+        lease.last_observed_at_ms = 1_500;
+        let mut input = reclaim_input(1_800);
+        input.received_at_ms = 1_200;
+        let prepared = prepare_reclaim(&lease, &snake, input, TIMING).unwrap();
+        commit_reclaim(&mut lease, &mut snake, prepared).unwrap();
+        assert_eq!(lease.latest_action.accepted_at_ms, 1_200);
+        let mut queued = action(0.5, false, 3, 3, 1_300);
+        queued.connection_id = 12;
+        let proposal = prepare_queued_latest_action(&lease, queued, 1_800).unwrap();
+        commit_latest_action(&mut lease, proposal).unwrap();
+        assert_eq!(lease.latest_action.accepted_at_ms, 1_300);
+        assert_eq!(
+            prepare_controller_boundary(&lease, &snake, 1_800, TIMING)
+                .unwrap()
+                .source(),
+            ExternalControlSource::ReservedNeutral
+        );
+    }
+
+    #[test]
+    fn reclaim_keeps_source_until_delivery_then_invalidates_old_connection() {
+        let mut lease = lease();
+        let mut snake = snake();
+        let disconnect = prepare_disconnect(&lease, &snake, 11, 1_200, TIMING).unwrap();
+        commit_disconnect(&mut lease, &mut snake, disconnect).unwrap();
+        let before_lease = lease.clone();
+        let before_snake = snake.clone();
+        let proposal = prepare_reclaim(&lease, &snake, reclaim_input(1_300), TIMING).unwrap();
+        assert_eq!(lease, before_lease);
+        assert_eq!(snake, before_snake);
+        let mut invalid = reclaim_input(1_300);
+        invalid.next_resume_token = "bad".into();
+        assert!(prepare_reclaim(&lease, &snake, invalid, TIMING).is_err());
+        assert_eq!(lease, before_lease);
+        assert_eq!(snake, before_snake);
+        commit_reclaim(&mut lease, &mut snake, proposal.clone()).unwrap();
+        assert_eq!(lease.connection_id, Some(12));
+        assert_eq!(lease.snake_id, before_lease.snake_id);
+        assert_eq!(snake.brain, before_snake.brain);
+        assert_eq!(
+            snake.delivered_observation_points,
+            before_snake.delivered_observation_points
+        );
+        assert_eq!(lease.status, ControllerLeaseStatus::Connected);
+        assert_eq!(lease.grace_expires_at_ms, None);
+        assert_eq!(snake.turn, 0.0);
+        assert!(!snake.input_boost);
+        let committed = lease.clone();
+        assert!(commit_reclaim(&mut lease, &mut snake, proposal).is_err());
+        assert_eq!(lease, committed);
+        assert!(prepare_latest_action(&lease, action(0.5, true, 2, 3, 1_400)).is_err());
+        let mut fresh_action = action(0.5, false, 2, 3, 1_400);
+        fresh_action.connection_id = 12;
+        commit_latest_action(
+            &mut lease,
+            prepare_latest_action(&committed, fresh_action).unwrap(),
+        )
+        .unwrap();
+        assert!(prepare_reclaim(&lease, &snake, reclaim_input(1_500), TIMING).is_err());
+    }
+
+    #[test]
+    fn reclaim_checks_scope_kind_expiry_and_stale_preparation_without_mutation() {
+        let mut lease = lease();
+        let mut snake = snake();
+        let mut input = reclaim_input(1_200);
+        input.scope = "another-run";
+        assert_eq!(
+            prepare_reclaim(&lease, &snake, input, TIMING),
+            Err(ControllerError::ReclaimRejected("invalid"))
+        );
+        let mut wrong_kind = reclaim_input(1_200);
+        wrong_kind.kind = ControllerKind::ReinforcementLearning;
+        assert_eq!(
+            prepare_reclaim(&lease, &snake, wrong_kind, TIMING),
+            Err(ControllerError::ReclaimRejected("invalid"))
+        );
+        let proposal = prepare_reclaim(&lease, &snake, reclaim_input(1_200), TIMING).unwrap();
+        lease.scope = "another-run".into();
+        let before = lease.clone();
+        assert!(commit_reclaim(&mut lease, &mut snake, proposal).is_err());
+        assert_eq!(lease, before);
+        lease.scope = "run".into();
+        let disconnect = prepare_disconnect(&lease, &snake, 11, 1_200, TIMING).unwrap();
+        commit_disconnect(&mut lease, &mut snake, disconnect).unwrap();
+        assert!(prepare_reclaim(&lease, &snake, reclaim_input(31_199), TIMING).is_ok());
+        assert_eq!(
+            prepare_reclaim(&lease, &snake, reclaim_input(31_200), TIMING),
+            Err(ControllerError::ReclaimRejected("expired"))
+        );
+        snake.alive = false;
+        assert_eq!(
+            prepare_reclaim(&lease, &snake, reclaim_input(1_300), TIMING),
+            Err(ControllerError::ReclaimRejected("snake-unavailable"))
+        );
     }
 
     #[test]

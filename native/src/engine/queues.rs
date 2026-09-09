@@ -373,9 +373,22 @@ impl InboundQueue {
                 continue;
             }
             let queued = state.queue.remove(index).expect("checked queue index");
+            // A reconnect can establish a new delivery barrier at this boundary.
+            // Later controls must remain charged and queued until it resolves.
+            let starts_barrier = queued.batch.commands.iter().any(|item| {
+                matches!(
+                    item.command,
+                    super::contract::EngineCommand::RunningAuthority(
+                        super::contract::RunningAuthorityCommand::ReclaimController(_)
+                    )
+                )
+            });
             state.commands = state.commands.saturating_sub(queued.command_count);
             state.owned_bytes = state.owned_bytes.saturating_sub(queued.owned_bytes);
             output.push(queued.batch);
+            if starts_barrier {
+                break;
+            }
         }
         self.stop_requested.load(Ordering::Acquire)
     }
@@ -1609,6 +1622,74 @@ mod tests {
             [1, 2]
         );
         assert_eq!(queue.metrics().owned_bytes, 0);
+    }
+
+    #[test]
+    fn reclaim_drain_retains_following_controls_until_its_receipt() {
+        use crate::engine::contract::{
+            ControllerActionRequest, ControllerReclaimReceipt, ControllerReclaimRequest,
+            RunningAuthorityCommand,
+        };
+        let queue = InboundQueue::new(InboundLimits {
+            max_batches: 8,
+            max_commands: 8,
+            max_owned_bytes: 4096,
+            max_batch_commands: 1,
+            max_batch_owned_bytes: 512,
+        });
+        let command = |sequence, command| {
+            batch(vec![SequencedCommand {
+                sequence,
+                command: EngineCommand::RunningAuthority(command),
+            }])
+        };
+        queue
+            .try_push(command(
+                1,
+                RunningAuthorityCommand::ReclaimController(ControllerReclaimRequest {
+                    connection_id: 12,
+                    kind: crate::engine::state::ControllerKind::Player,
+                    resume_token: "token".into(),
+                    received_at: std::time::Instant::now(),
+                }),
+            ))
+            .assert_ok();
+        queue
+            .try_push(command(
+                2,
+                RunningAuthorityCommand::SubmitControllerAction(ControllerActionRequest {
+                    lease_id: 7,
+                    connection_id: 12,
+                    turn: 0.5,
+                    boost: false,
+                    client_tick: 1,
+                    received_at: std::time::Instant::now(),
+                }),
+            ))
+            .assert_ok();
+        let mut drained = Vec::new();
+        queue.drain_step_boundary(&mut drained);
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].commands[0].sequence, 1);
+        assert_eq!(queue.metrics().commands, 1);
+        queue
+            .try_push(command(
+                3,
+                RunningAuthorityCommand::SubmitControllerReclaimReceipt(ControllerReclaimReceipt {
+                    request_sequence: 1,
+                    connection_id: 12,
+                    lease_id: 7,
+                    accepted: true,
+                }),
+            ))
+            .assert_ok();
+        queue.drain_eligible_boundary(&mut drained, false);
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].commands[0].sequence, 3);
+        assert_eq!(queue.metrics().commands, 1);
+        queue.drain_step_boundary(&mut drained);
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].commands[0].sequence, 2);
     }
 
     #[test]

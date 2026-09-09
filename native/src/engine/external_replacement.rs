@@ -2287,6 +2287,22 @@ fn compact_world_bodies(
     Ok(())
 }
 
+/// Reuse the same bounded OS-entropy token format for an explicit reconnect.
+pub(crate) fn fresh_resume_token(
+    leases: &[super::state::ControllerLease],
+) -> Result<String, ExternalReplacementError> {
+    let mut token = String::new();
+    for _ in 0..TOKEN_ATTEMPTS {
+        let mut bytes = [0u8; RESUME_TOKEN_BYTES];
+        getrandom::fill(&mut bytes).map_err(|_| ExternalReplacementError::EntropyUnavailable)?;
+        encode_base64url_24(&bytes, &mut token)?;
+        if !leases.iter().any(|lease| lease.resume_token == token) {
+            return Ok(token);
+        }
+    }
+    Err(ExternalReplacementError::TokenCollision)
+}
+
 fn encode_base64url_24(
     bytes: &[u8; RESUME_TOKEN_BYTES],
     output: &mut String,

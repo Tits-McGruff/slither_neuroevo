@@ -84,6 +84,40 @@ export interface RustBackgroundControllerDisconnect {
   connectionId: RustBackgroundIdentity;
 }
 
+/** Token reconnect to the same live Rust-owned snake. */
+export interface RustBackgroundReclaimRequest {
+  /** New live socket identity. */
+  connectionId: RustBackgroundIdentity;
+  /** Kind must match the retained lease. */
+  controllerKind: 'player' | 'reinforcementLearning';
+  /** Previous server-issued ownership token. */
+  resumeToken: string;
+}
+
+/** Retained same-snake assignment prepared before any ownership mutation. */
+export interface RustBackgroundReclaimAssignment extends RustBackgroundReclaimRequest {
+  /** Exact command that created this assignment. */
+  requestSequence: RustBackgroundIdentity;
+  /** Existing controller lease identity. */
+  leaseId: RustBackgroundIdentity;
+  /** Existing exact frame-v1 identity. */
+  snakeId: number;
+  /** Unchanged source step while delivery is pending. */
+  completedStep: RustBackgroundIdentity;
+}
+
+/** Exact local-send result, distinct from ordinary and generation receipts. */
+export interface RustBackgroundReclaimReceipt {
+  /** Command that prepared the retained reclaim. */
+  requestSequence: RustBackgroundIdentity;
+  /** Exact destination socket epoch. */
+  connectionId: RustBackgroundIdentity;
+  /** Existing lease being reclaimed. */
+  leaseId: RustBackgroundIdentity;
+  /** Both reliable Protocol 2 messages were accepted locally. */
+  accepted: boolean;
+}
+
 /** Exact local-send result for a Rust-issued generation assignment. */
 export interface RustGenerationAssignmentReceipt {
   /** Rust operation epoch. */
@@ -146,6 +180,17 @@ export interface RustControllerReceiptResolution {
 
 /** Coarse event envelope; consumers validate the payload for the selected kind. */
 export interface RustBackgroundEvent {
+  /** Same-snake reconnect awaiting exact local delivery. */
+  controllerReclaimAssignment?: RustBackgroundReclaimAssignment;
+  /** Receipt correlation outcome; unmatched receipts change nothing. */
+  controllerReclaimResolution?: {
+    /** Original reconnect command. */
+    requestSequence: RustBackgroundIdentity;
+    /** Receipt matched the retained assignment. */
+    matched: boolean;
+    /** Matched delivery succeeded and ownership committed. */
+    accepted: boolean;
+  };
   /** Stable Rust event discriminant. */
   kind: string;
   /** Inbound command correlation, absent on unsolicited lifecycle events. */

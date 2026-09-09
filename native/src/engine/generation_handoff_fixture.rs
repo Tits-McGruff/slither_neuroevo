@@ -1407,6 +1407,9 @@ mod tests {
                             .expect("external blocker must retain one batch")
                             .events()[0],
                     ),
+                    RunningAuthorityLoopProgress::ControllerReclaimPending => {
+                        panic!("no reclaim was requested in this fixture")
+                    }
                     RunningAuthorityLoopProgress::GenerationTransitionPending { .. } => {
                         panic!("generation two must not terminate during delivery-resume proof")
                     }
