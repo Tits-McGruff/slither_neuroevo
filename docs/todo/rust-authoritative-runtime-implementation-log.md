@@ -263,11 +263,18 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   now run through the real Rust server in integration: periodic and
   change-triggered latest actions apply steering and boost release without any
   sensor or frame callback producing them. Recovery is visibly marked with
-  exact provenance in the browser status. A built-browser smoke joined, steered,
-  and remained healthy across generation two; a no-controller run crossed the
-  same durable boundary. Focused native-server, browser-client, CLI, TypeScript,
-  lint, and build checks pass.
+  exact provenance in the browser status. A built-browser smoke also joined and
+  steered through the local server. Focused native-server, browser-client, CLI,
+  TypeScript, lint, and build checks pass.
 
-The next dependency is the Stage 6A real-browser/LAN and existing-trainer
-evidence gate, including independent player action transmission through the
-Rust server.
+- 2026-09-11 The experimental health boundary reports allocation-bounded Rust
+  full-step timing and process-local simulated/wall progress alongside Node
+  responsiveness, RSS, frame bytes, checkpoint-barrier, accepted-action, and
+  controller-lifecycle latency. Fixed histograms retain scalar evidence without
+  copying authoritative state or persisting an unbounded per-step series. The
+  first live probe exposed and fixed a nonterminal invariant that incorrectly
+  rejected legitimate external-controller RNG draws from boost/death effects;
+  the repeated workload continued through replacement and token reclaim.
+
+The next dependency is the Stage 6A full-generation trusted-LAN browser and
+unchanged owner-trainer evidence gate using the integrated telemetry boundary.

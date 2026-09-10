@@ -20,6 +20,8 @@ export interface BackgroundOutputOptions {
   hasFrameRecipients(): boolean;
   /** Bound connected external controllers independently of native input capacity. */
   maxControllers: number;
+  /** Observe one complete generation durability barrier. */
+  observeCheckpointBarrier?(durationMs: number): void;
 }
 
 /** One bounded output consumer shared by generation and ordinary delivery barriers. */
@@ -60,7 +62,8 @@ export class BackgroundOutputPump {
     this.generation = new BackgroundGenerationRouter({
       native: owner.runtime, admission: this.admission, persistence: owner.persistence,
       managedDirectory: owner.managedDirectory, maxAssignments: maxControllers, send,
-      admitCheckpoint: () => owner.admitCheckpoint()
+      admitCheckpoint: () => owner.admitCheckpoint(),
+      observeBarrier: durationMs => options.observeCheckpointBarrier?.(durationMs)
     });
     this.frames = new BackgroundFramePool(owner.runtime, owner.metadata.maximumFrameBytes);
   }

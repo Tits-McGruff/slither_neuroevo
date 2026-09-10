@@ -21,6 +21,10 @@ interface Route {
   snakeId?: number;
   /** Latest unsent steering; new input replaces it under backpressure. */
   action?: RustBackgroundControllerAction;
+  /** Monotonic receipt of the latest unsent steering value. */
+  actionReceivedAt?: number;
+  /** Monotonic start of the current join/reclaim lifecycle. */
+  lifecycleStartedAt: number;
   /** Socket already closed; pending native results must still be consumed. */
   closed: boolean;
   /** Transport abuse limit window. */
@@ -47,6 +51,10 @@ export interface ExternalRoutingOptions {
   maxActionsPerTick: number;
   /** Existing reliable WebSocket send. */
   send(connection: number, message: ServerMessage): boolean;
+  /** Observe accepted transport input through Rust application. */
+  observeActionLatency?(kind: RustBackgroundReclaimRequest['controllerKind'], durationMs: number): void;
+  /** Observe join/reclaim through a successful delivered assignment. */
+  observeLifecycleLatency?(durationMs: number): void;
 }
 
 /** Exact unsigned encoding for transport IDs and diagnostic ticks. */
@@ -59,6 +67,13 @@ function hex(value: number): RustBackgroundIdentity {
 export class ExternalControllerRouting {
   /** One route per active or unresolved socket. */
   private readonly routes = new Map<number, Route>();
+  /** Admitted action sequences awaiting their Rust application result. */
+  private readonly pendingActions = new Map<RustBackgroundIdentity, {
+    /** Monotonic transport receipt boundary. */
+    startedAt: number;
+    /** Distinguishes browser-player and observation-driven trainer latency. */
+    kind: RustBackgroundReclaimRequest['controllerKind'];
+  }>();
 
   /** Bind the existing socket hub to native ownership commands. */
   constructor(private readonly options: ExternalRoutingOptions) {
@@ -85,7 +100,9 @@ export class ExternalControllerRouting {
       identityKey: `${client === 'bot' ? 'bot' : 'player'}:${name}`,
       ...(message.resumeToken ? { resumeToken: message.resumeToken } : {})
     };
-    this.routes.set(connection, { connection, id, request, pending: 'reclaim', closed: false, secondStart: performance.now(), actions: 0, stepActions: 0 });
+    const now = performance.now();
+    this.routes.set(connection, { connection, id, request, pending: 'reclaim', closed: false,
+      lifecycleStartedAt: now, secondStart: now, actions: 0, stepActions: 0 });
     this.flush();
   }
 
@@ -101,6 +118,7 @@ export class ExternalControllerRouting {
     if (route.actionStep !== step) { route.actionStep = step; route.stepActions = 0; }
     if (++route.stepActions > this.options.maxActionsPerTick && route.request.controllerKind === 'reinforcementLearning') return;
     route.action = { connectionId: route.id, leaseId: route.lease, clientTick: hex(message.tick), turn: Math.max(-1, Math.min(1, message.turn)), boost: message.boost > 0 };
+    route.actionReceivedAt = now;
     this.flush();
   }
 
@@ -135,7 +153,10 @@ export class ExternalControllerRouting {
     if (route && resolution?.matched) {
       delete route.requestSequence;
       if (!resolution.accepted) this.routes.delete(route.connection);
-      else if (route.closed) route.pending = 'close';
+      else {
+        this.options.observeLifecycleLatency?.(performance.now() - route.lifecycleStartedAt);
+        if (route.closed) route.pending = 'close';
+      }
     } else if (route && event.kind === 'commandRejected') {
       delete route.requestSequence;
       if (!route.closed && !route.request.resumeToken && event.rejectionCode === 'InvalidCommand' &&
@@ -144,6 +165,16 @@ export class ExternalControllerRouting {
         this.routes.delete(route.connection);
         if (!route.closed) this.options.send(route.connection, { type: 'reclaimResult', reclaimed: false,
           reason: event.rejectionDetail?.includes('ambiguous') ? 'ambiguous' : 'invalid' });
+      }
+    }
+    if (event.commandSequence) {
+      const action = this.pendingActions.get(event.commandSequence);
+      if (action &&
+          (event.kind === 'controllerActionApplied' || event.kind === 'commandRejected')) {
+        this.pendingActions.delete(event.commandSequence);
+        if (event.kind === 'controllerActionApplied') {
+          this.options.observeActionLatency?.(action.kind, performance.now() - action.startedAt);
+        }
       }
     }
     this.flush();
@@ -176,8 +207,14 @@ export class ExternalControllerRouting {
     for (const route of this.routes.values()) {
       const action = route.action;
       if (!action || route.closed) continue;
-      if (!admission.trySubmitControl(sequence => native.submitControllerAction(sequence, action))) return;
+      if (this.pendingActions.size >= this.options.maxControllers * 4) return;
+      const receivedAt = route.actionReceivedAt ?? performance.now();
+      if (!admission.trySubmitControl(sequence => {
+        native.submitControllerAction(sequence, action);
+        this.pendingActions.set(sequence, { startedAt: receivedAt, kind: route.request.controllerKind });
+      })) return;
       delete route.action;
+      delete route.actionReceivedAt;
     }
   }
 }

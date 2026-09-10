@@ -76,7 +76,24 @@ player/bot connections, frames, sensors, steering, disconnect and reclaim. Add
 `--host 0.0.0.0` for trusted home-LAN access. Checkpoints are retained beside
 the database in its `.checkpoints` directory, with free-disk admission before
 each generation save. Recovery provenance is included in health and welcome
-messages.
+messages. `/api/health` also exposes bounded scalar runtime telemetry for
+full-step mean/p95/p99/max, simulated-to-wall time, frame bytes, checkpoint,
+separate browser-player/trainer action and controller-lifecycle latency, Node event-loop delay, and process
+memory. Percentiles are conservative fixed-histogram upper bounds; the server
+does not retain a per-step series or authoritative game arrays for reporting.
+
+With that server running, a short real-boundary diagnostic can exercise a
+spectator, an observation-driven Protocol 2 bot, disconnect/token reclaim, and
+the telemetry endpoint:
+
+```powershell
+npm run probe:stage6-runtime -- --ws-url ws://127.0.0.1:3000 --duration-seconds 30
+```
+
+Add `--require-generation-transition` and choose a duration long enough for a
+complete round when collecting the integrated generation gate. The probe is a
+wire-compatible diagnostic client; it does not replace the required unchanged
+owner trainer or a real browser on another trusted-LAN device.
 
 This entry uses the fixed default graph and settings. Secondary commands,
 including settings/reset and archive endpoints, are still being connected.

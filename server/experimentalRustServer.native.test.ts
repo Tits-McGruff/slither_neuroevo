@@ -145,7 +145,21 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       expect(nextAssignment['resumeToken']).not.toBe(assignment['resumeToken']);
       const health = await fetch(`http://127.0.0.1:${server.port}/api/health`);
       expect(health.status).toBe(200);
-      expect(await health.json()).toMatchObject({ ok: true, authority: 'rust', seed: 42 });
+      expect(await health.json()).toMatchObject({
+        ok: true,
+        authority: 'rust',
+        seed: 42,
+        telemetry: {
+          authoritativeSteps: expect.any(Number),
+          simulatedWallRatio: expect.any(Number),
+          step: { samples: expect.any(Number), p95Ms: expect.any(Number), p99Ms: expect.any(Number) },
+          process: { rssBytes: expect.any(Number), eventLoopDelayP95Ms: expect.any(Number) },
+          frame: { latestBytes: expect.any(Number), maximumObservedBytes: expect.any(Number) },
+          trainerAction: { samples: 1 },
+          playerAction: { samples: 0 },
+          controllerLifecycle: { samples: 2 }
+        }
+      });
       viewer.socket.send(JSON.stringify({ type: 'reset' }));
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'error'));
     } finally {
@@ -225,6 +239,10 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       expect(directionDelta(beforeRelease, frameDirection(latestFrame, snakeId)!)).toBeLessThan(-0.02);
       expect(actions.at(-1)).toEqual({ turn: -1, boost: 0 });
       expect(errors).toEqual([]);
+      const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        telemetry: { playerAction: { samples: number } };
+      };
+      expect(health.telemetry.playerAction.samples).toBeGreaterThan(0);
     } finally {
       pump?.stop();
       browser?.disconnect();

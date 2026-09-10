@@ -23,6 +23,8 @@ export interface BackgroundGenerationOptions {
   send: ControllerDeliveryPorts['send'];
   /** Free-disk admission before publishing this generation. */
   admitCheckpoint(): Promise<void>;
+  /** Observe the complete transition-to-running durability barrier. */
+  observeBarrier?(durationMs: number): void;
 }
 
 /**
@@ -39,6 +41,8 @@ export class BackgroundGenerationRouter {
   private expectedSequence: RustBackgroundIdentity | undefined;
   /** One operation token survives publication and durability. */
   private operationId: string | undefined;
+  /** Monotonic start of the active generation durability barrier. */
+  private barrierStartedAt: number | undefined;
   /** Bounded send-once assignments and exact generation receipts. */
   private readonly delivery: GenerationDeliveryRouter;
 
@@ -88,6 +92,7 @@ export class BackgroundGenerationRouter {
     switch (event.kind) {
       case 'generationTransitionPending': {
         if (this.active) throw new Error('overlapping background generation transition');
+        this.barrierStartedAt = performance.now();
         this.phase = 'disk';
         await this.options.admitCheckpoint();
         const operationId = randomBytes(16).toString('hex');
@@ -144,8 +149,12 @@ export class BackgroundGenerationRouter {
       }
       case 'generationStartPublished':
         this.expect(event, 'resume');
+        if (this.barrierStartedAt !== undefined) {
+          this.options.observeBarrier?.(performance.now() - this.barrierStartedAt);
+        }
         this.phase = 'idle';
         this.operationId = undefined;
+        this.barrierStartedAt = undefined;
         return true;
       case 'commandRejected':
         if (event.commandSequence === this.expectedSequence && this.expectedSequence) {

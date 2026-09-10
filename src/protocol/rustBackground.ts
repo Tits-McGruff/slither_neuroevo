@@ -89,6 +89,16 @@ export interface RustBackgroundHealth {
   schedulerCompletedSteps: RustBackgroundIdentity;
   /** Commands whose full replies have entered the output queue. */
   processedCommands: RustBackgroundIdentity;
+  /** Successful authoritative step computations represented by timing data. */
+  stepTimingSamples: RustBackgroundIdentity;
+  /** Saturating sum of sampled step computation in microseconds. */
+  stepTimingTotalMicros: RustBackgroundIdentity;
+  /** Largest sampled step computation in microseconds. */
+  stepTimingMaxMicros: RustBackgroundIdentity;
+  /** Conservative histogram ceiling containing the 95th percentile. */
+  stepTimingP95Micros: RustBackgroundIdentity;
+  /** Conservative histogram ceiling containing the 99th percentile. */
+  stepTimingP99Micros: RustBackgroundIdentity;
   /** First terminal fault category. */
   faultCode?: string;
   /** First bounded terminal fault detail. */

@@ -474,6 +474,11 @@ pub struct Stage6BackgroundGenerationHealth {
     pub pending_external_deliveries: String,
     pub scheduler_completed_steps: String,
     pub processed_commands: String,
+    pub step_timing_samples: String,
+    pub step_timing_total_micros: String,
+    pub step_timing_max_micros: String,
+    pub step_timing_p95_micros: String,
+    pub step_timing_p99_micros: String,
     pub fault_code: Option<String>,
     pub fault_detail: Option<String>,
 }
@@ -3400,6 +3405,11 @@ pub(crate) fn background_generation_health_to_napi(
         )?,
         scheduler_completed_steps: u64_hex(running.scheduler_completed_steps),
         processed_commands: u64_hex(health.processed_commands),
+        step_timing_samples: u64_hex(running.step_timing_samples),
+        step_timing_total_micros: u64_hex(running.step_timing_total_micros),
+        step_timing_max_micros: u64_hex(running.step_timing_max_micros),
+        step_timing_p95_micros: u64_hex(running.step_timing_p95_micros),
+        step_timing_p99_micros: u64_hex(running.step_timing_p99_micros),
         fault_code: health
             .fault
             .as_ref()

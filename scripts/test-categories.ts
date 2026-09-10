@@ -23,6 +23,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'server/rustEngine/startupMetadata.test.ts',
     'server/rustEngine/generationPersistenceHandoff.test.ts',
     'server/rustEngine/runStartPersistenceHandoff.test.ts',
+    'server/rustEngine/runtimeTelemetry.test.ts',
     'server/rustEngine/nativeSourceIdentity.test.ts',
     'server/stage1.controllerConfig.test.ts',
     'server/test/networkSuites.test.ts',

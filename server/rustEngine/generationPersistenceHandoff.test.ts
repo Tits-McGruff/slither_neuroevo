@@ -137,6 +137,7 @@ describe('generation persistence handoff', () => {
     let operationId = '';
     let commits = 0;
     const admitted: string[] = [];
+    const barrierDurations: number[] = [];
     /** Reject before accepting any side effect when the native queue is full. */
     const submit = (kind: string, sequence: string): void => {
       if (!capacity) throw new Error('QueueCountLimit: full');
@@ -155,6 +156,7 @@ describe('generation persistence handoff', () => {
     const router = new BackgroundGenerationRouter({
       native, admission: new BackgroundCommandAdmission(native), managedDirectory: 'checkpoint-v3', maxAssignments: 4,
       send() { throw new Error('no sends'); }, async admitCheckpoint() {},
+      observeBarrier(durationMs) { barrierDurations.push(durationMs); },
       persistence: { async commit(descriptor) { commits++; return createCommitResult(descriptor as ManagedCheckpointDescriptor); } }
     });
     expect(await router.handle({ kind: 'generationTransitionPending' })).toBe(true);
@@ -175,6 +177,8 @@ describe('generation persistence handoff', () => {
     expect(router.active).toBe(true);
     await router.handle({ kind: 'generationStartPublished', commandSequence: '0000000000000004' });
     expect(router.active).toBe(false);
+    expect(barrierDurations).toHaveLength(1);
+    expect(barrierDurations[0]).toBeGreaterThanOrEqual(0);
     expect(admitted).toEqual(['publish:0000000000000001', 'ack:0000000000000002', 'prepare:0000000000000003', 'resume:0000000000000004']);
     expect(await router.handle({ kind: 'display' })).toBe(false);
   });

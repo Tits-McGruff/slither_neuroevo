@@ -914,10 +914,11 @@ pub(crate) struct InitialRunStartReplacement<'buffers> {
 
 /// Exact identity-changing work performed by the private complete-step coordinator.
 ///
-/// A normal fixed step carries zeroes and therefore retains the strict historic
-/// RNG, allocator, brain-identity, and weight contract. Controlled-death
-/// replacement is the only current path that may advance the isolated external
-/// RNG and its dedicated identity domains during a nonterminal step.
+/// A normal fixed step carries no entity-mutation proof and therefore retains
+/// the strict allocator, brain-identity, and weight contract. Gameplay effects
+/// may advance their isolated owner RNG streams in ordinary physics. Controlled-
+/// death replacement is the only current path that may additionally advance
+/// external identity domains during a nonterminal step.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct RunningStepMutationContract<'proof> {
     proof: Option<&'proof ExternalReplacementAuthorityProof>,
@@ -2503,12 +2504,10 @@ fn validate_running_replacement_contract_with_counts(
     }
     if replacement.rng.version != candidate.rng.version
         || replacement.rng.evolution != candidate.rng.evolution
-        || (external_replacements == 0
-            && replacement.rng.external_controller != candidate.rng.external_controller)
     {
         return invalid(
             "fixed_step.rng",
-            "nonterminal steps cannot replace RNG identity or evolution, and only a controlled replacement may advance the external stream",
+            "nonterminal steps cannot replace RNG identity or advance evolution",
         );
     }
     validate_running_allocator_continuation(
@@ -6521,6 +6520,39 @@ mod tests {
 
         assert_eq!(authority.state(), &source);
         assert_eq!(authority.state().generation.completed_step, 0);
+    }
+
+    #[test]
+    fn running_step_accepts_external_gameplay_rng_continuation() {
+        let graph = default_graph();
+        let mut source = running_candidate(&graph);
+        push_external_snake(
+            &mut source,
+            &graph,
+            EXTERNAL_ENTITY_ID_START,
+            2,
+            WorldPoint { x: 30.0, y: 40.0 },
+        );
+        let source_external_rng = source.rng.external_controller.clone();
+        let mut authority =
+            own(source, graph, usize::MAX).expect("running source with external brain must admit");
+        let key = authority
+            .begin_running_step()
+            .expect("running step must begin");
+        let mut buffers = RunningStepBuffers::from_state(authority.state());
+        let mut external = StatefulRng::from_state(&buffers.rng.external_controller)
+            .expect("external gameplay stream must decode");
+        let _ = external.next_f64();
+        let _ = external.next_f64();
+        buffers.rng.external_controller = external.export_state();
+
+        authority
+            .publish_running_step(buffers.replacement(key))
+            .expect("ordinary external effects may advance their isolated gameplay stream");
+        assert_ne!(
+            authority.state().rng.external_controller,
+            source_external_rng
+        );
     }
 
     #[test]

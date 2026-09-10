@@ -300,6 +300,11 @@ interface Stage6BackgroundGenerationHealth {
   pendingExternalDeliveries: string;
   schedulerCompletedSteps: string;
   processedCommands: string;
+  stepTimingSamples: string;
+  stepTimingTotalMicros: string;
+  stepTimingMaxMicros: string;
+  stepTimingP95Micros: string;
+  stepTimingP99Micros: string;
   faultCode?: string;
   faultDetail?: string;
 }
@@ -1399,7 +1404,17 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
           } });
         await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000f'))
           .resolves.toMatchObject({ kind: 'controllerActionApplied', controllerActionCompletedStep: '0000000000000002' });
-        await waitForBackgroundHealth(session, health => health.completedStep === '0000000000000002');
+        const timedHealth = await waitForBackgroundHealth(
+          session,
+          health => health.completedStep === '0000000000000002'
+        );
+        expect(BigInt(`0x${timedHealth.stepTimingSamples}`)).toBeGreaterThanOrEqual(2n);
+        expect(BigInt(`0x${timedHealth.stepTimingTotalMicros}`)).toBeGreaterThanOrEqual(
+          BigInt(`0x${timedHealth.stepTimingMaxMicros}`)
+        );
+        expect(BigInt(`0x${timedHealth.stepTimingP99Micros}`)).toBeGreaterThanOrEqual(
+          BigInt(`0x${timedHealth.stepTimingP95Micros}`)
+        );
 
         const nextOrdinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages');
         const nextObservation = nextOrdinary.controllerMessages![0]!;

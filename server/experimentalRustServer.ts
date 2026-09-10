@@ -13,6 +13,7 @@ import { createExperimentalServerRuntime } from './rustEngine/experimentalStartu
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { createRustStats, createRustWelcome } from './rustEngine/browserMetadata.ts';
+import { ExperimentalRuntimeTelemetry } from './rustEngine/runtimeTelemetry.ts';
 
 /** Repository-owned built browser assets. */
 const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
@@ -84,6 +85,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   } catch (error) { return startFaultedServer(config, error); }
   const recovery = recoveryNotice(owner);
   if (recovery) console.warn('[rust.recovery]', recovery);
+  const telemetry = new ExperimentalRuntimeTelemetry(owner.runtime.health(), owner.metadata.fixedStepSeconds);
   let fault: string | undefined;
   let stopping = false;
   let scheduled: NodeJS.Immediate | undefined;
@@ -101,9 +103,11 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
     const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
     if (pathname === '/api/health' || pathname === '/health') {
+      const nativeHealth = owner.runtime.health();
       response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: owner.metadata.runId,
-        seed: owner.metadata.seed, startupCheckpointId: owner.runStart.checkpointId, ...owner.runtime.health(), ...(recovery ? { recovery } : {}), ...(fault ? { interfaceFault: fault } : {}) }));
+        seed: owner.metadata.seed, startupCheckpointId: owner.runStart.checkpointId, ...nativeHealth,
+        telemetry: telemetry.snapshot(nativeHealth), ...(recovery ? { recovery } : {}), ...(fault ? { interfaceFault: fault } : {}) }));
       return;
     }
     if (request.method !== 'GET' || pathname.startsWith('/api/')) {
@@ -134,7 +138,10 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       owner.runtime.requestStop();
       await draining?.catch(() => {});
       try { await owner.close(); }
-      finally { if (server.listening) await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done())); }
+      finally {
+        telemetry.close();
+        if (server.listening) await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));
+      }
     })();
     return closePromise;
   };
@@ -149,6 +156,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         routing.event(event);
         const now = performance.now();
         if (event.display) {
+          telemetry.observeDisplay(event.display);
           sockets.updateWelcome({ frameByteLength: event.display.frameByteLength });
           if (now - lastStats >= 1000 / config.uiFrameRateHz) {
             lastStats = now;
@@ -157,11 +165,14 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         }
       },
       hasFrameRecipients: () => sockets.hasFrameRecipients() && performance.now() - lastFrame >= 1000 / config.uiFrameRateHz,
-      frame(lease) { lastFrame = performance.now(); sockets.broadcastFrame(lease.bytes, lease.release); }
+      frame(lease) { lastFrame = performance.now(); sockets.broadcastFrame(lease.bytes, lease.release); },
+      observeCheckpointBarrier: durationMs => telemetry.observeCheckpointBarrier(durationMs)
     });
     routing = new ExternalControllerRouting({ native: owner.runtime, admission: output.admission,
       maxControllers: MAX_CONTROLLERS, maxActionsPerSecond: config.maxActionsPerSecond, maxActionsPerTick: config.maxActionsPerTick,
-      send: (connection, message) => sockets.sendJsonTo(connection, message) });
+      send: (connection, message) => sockets.sendJsonTo(connection, message),
+      observeActionLatency: (kind, durationMs) => telemetry.observeAction(kind, durationMs),
+      observeLifecycleLatency: durationMs => telemetry.observeControllerLifecycle(durationMs) });
     /** Keep health available after a terminal native/interface failure. */
     const fail = (error: unknown): void => {
       if (!fault) sockets.broadcastError(error instanceof Error ? error.message : String(error));

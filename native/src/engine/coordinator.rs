@@ -23,6 +23,39 @@ use super::running_step::{
 use super::scheduler::SchedulerServiceMode;
 use super::world_step::ExternalDeliveryStatus;
 
+/// Inclusive microsecond ceilings for the allocation-free production step histogram.
+///
+/// The final bucket is open-ended. Published p95/p99 values are therefore
+/// conservative bucket upper bounds, while maximum and mean use exact sampled
+/// microseconds. The denser sub-frame buckets preserve useful P0/P1 resolution
+/// without retaining one record per authoritative step.
+const STEP_TIMING_BUCKET_UPPER_MICROS: [u64; 24] = [
+    100,
+    200,
+    300,
+    400,
+    500,
+    750,
+    1_000,
+    1_500,
+    2_000,
+    3_000,
+    4_000,
+    6_000,
+    8_000,
+    12_000,
+    16_000,
+    24_000,
+    32_000,
+    48_000,
+    64_000,
+    96_000,
+    128_000,
+    192_000,
+    256_000,
+    u64::MAX,
+];
+
 /// Observable lifecycle of the one-shot engine coordinator.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LifecycleState {
@@ -76,6 +109,16 @@ pub struct RunningAuthorityHealth {
     pub timeout_wakes: u64,
     /// Waits woken by one or more inbound command batches.
     pub command_wakes: u64,
+    /// Successful authoritative step computations represented by timing data.
+    pub step_timing_samples: u64,
+    /// Saturating sum of sampled step-computation time in microseconds.
+    pub step_timing_total_micros: u64,
+    /// Largest sampled step-computation time in microseconds.
+    pub step_timing_max_micros: u64,
+    /// Conservative inclusive histogram ceiling containing the 95th percentile.
+    pub step_timing_p95_micros: u64,
+    /// Conservative inclusive histogram ceiling containing the 99th percentile.
+    pub step_timing_p99_micros: u64,
 }
 
 /// Atomics updated only by the authority thread and read by health callers.
@@ -94,6 +137,10 @@ pub(crate) struct RunningAuthorityMetrics {
     blocked_wait_calls: AtomicU64,
     timeout_wakes: AtomicU64,
     command_wakes: AtomicU64,
+    step_timing_samples: AtomicU64,
+    step_timing_total_micros: AtomicU64,
+    step_timing_max_micros: AtomicU64,
+    step_timing_buckets: [AtomicU64; STEP_TIMING_BUCKET_UPPER_MICROS.len()],
 }
 
 impl RunningAuthorityMetrics {
@@ -114,6 +161,10 @@ impl RunningAuthorityMetrics {
             blocked_wait_calls: AtomicU64::new(0),
             timeout_wakes: AtomicU64::new(0),
             command_wakes: AtomicU64::new(0),
+            step_timing_samples: AtomicU64::new(0),
+            step_timing_total_micros: AtomicU64::new(0),
+            step_timing_max_micros: AtomicU64::new(0),
+            step_timing_buckets: std::array::from_fn(|_| AtomicU64::new(0)),
         }
     }
 
@@ -171,8 +222,47 @@ impl RunningAuthorityMetrics {
         }
     }
 
+    /// Retain bounded production timing without allocating or crossing authority ownership.
+    fn record_step_duration(&self, duration: Duration) {
+        let micros = u64::try_from(duration.as_micros()).unwrap_or(u64::MAX);
+        saturating_increment(&self.step_timing_samples, 1);
+        saturating_increment(&self.step_timing_total_micros, micros);
+        let _ = self.step_timing_max_micros.fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |previous| Some(previous.max(micros)),
+        );
+        let bucket = STEP_TIMING_BUCKET_UPPER_MICROS
+            .partition_point(|upper| *upper < micros)
+            .min(STEP_TIMING_BUCKET_UPPER_MICROS.len() - 1);
+        saturating_increment(&self.step_timing_buckets[bucket], 1);
+    }
+
+    /// Return the conservative inclusive bucket ceiling for one percentile.
+    fn step_percentile_micros(&self, samples: u64, percentile: u64) -> u64 {
+        if samples == 0 {
+            return 0;
+        }
+        let rank = u64::try_from((u128::from(samples) * u128::from(percentile)).div_ceil(100))
+            .unwrap_or(u64::MAX);
+        let mut cumulative = 0u64;
+        for (index, bucket) in self.step_timing_buckets.iter().enumerate() {
+            cumulative = cumulative.saturating_add(bucket.load(Ordering::Relaxed));
+            if cumulative >= rank {
+                let upper = STEP_TIMING_BUCKET_UPPER_MICROS[index];
+                return if upper == u64::MAX {
+                    self.step_timing_max_micros.load(Ordering::Relaxed)
+                } else {
+                    upper
+                };
+            }
+        }
+        self.step_timing_max_micros.load(Ordering::Relaxed)
+    }
+
     /// Read a bounded, allocation-free operational snapshot.
     pub(crate) fn snapshot(&self) -> RunningAuthorityHealth {
+        let step_timing_samples = self.step_timing_samples.load(Ordering::Relaxed);
         RunningAuthorityHealth {
             loop_state: loop_state_from_code(self.loop_state.load(Ordering::Acquire)),
             world_epoch: self.world_epoch.load(Ordering::Acquire),
@@ -191,6 +281,11 @@ impl RunningAuthorityMetrics {
             blocked_wait_calls: self.blocked_wait_calls.load(Ordering::Relaxed),
             timeout_wakes: self.timeout_wakes.load(Ordering::Relaxed),
             command_wakes: self.command_wakes.load(Ordering::Relaxed),
+            step_timing_samples,
+            step_timing_total_micros: self.step_timing_total_micros.load(Ordering::Relaxed),
+            step_timing_max_micros: self.step_timing_max_micros.load(Ordering::Relaxed),
+            step_timing_p95_micros: self.step_percentile_micros(step_timing_samples, 95),
+            step_timing_p99_micros: self.step_percentile_micros(step_timing_samples, 99),
         }
     }
 }
@@ -435,6 +530,7 @@ pub(crate) fn run_running_coordinator(
         } else {
             None
         };
+        let service_started = Instant::now();
         let progress = match running.service_after_command_drain(
             monotonic_elapsed_ms(wall_origin)?,
             SchedulerServiceMode::Background,
@@ -449,6 +545,16 @@ pub(crate) fn run_running_coordinator(
                 ));
             }
         };
+        if was_ready
+            && matches!(
+                progress,
+                RunningAuthorityLoopProgress::Published { .. }
+                    | RunningAuthorityLoopProgress::ExternalDeliveryPending { .. }
+                    | RunningAuthorityLoopProgress::GenerationTransitionPending { .. }
+            )
+        {
+            metrics.record_step_duration(service_started.elapsed());
+        }
         metrics.observe(running);
         wait = match progress {
             RunningAuthorityLoopProgress::ControllerReclaimPending
@@ -1182,6 +1288,26 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn production_step_histogram_reports_bounded_conservative_percentiles() {
+        let running = background_generation_handoff_fixture().unwrap().running;
+        let metrics = RunningAuthorityMetrics::new(&running);
+        for _ in 0..95 {
+            metrics.record_step_duration(Duration::from_micros(150));
+        }
+        for _ in 0..4 {
+            metrics.record_step_duration(Duration::from_micros(900));
+        }
+        metrics.record_step_duration(Duration::from_micros(300_000));
+
+        let health = metrics.snapshot();
+        assert_eq!(health.step_timing_samples, 100);
+        assert_eq!(health.step_timing_total_micros, 317_850);
+        assert_eq!(health.step_timing_max_micros, 300_000);
+        assert_eq!(health.step_timing_p95_micros, 200);
+        assert_eq!(health.step_timing_p99_micros, 1_000);
     }
 
     /// Resume the existing connected-controller fixture into a normal generation.
