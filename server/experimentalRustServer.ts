@@ -107,7 +107,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: owner.metadata.runId,
         seed: owner.metadata.seed, startupCheckpointId: owner.runStart.checkpointId, ...nativeHealth,
-        telemetry: telemetry.snapshot(nativeHealth), ...(recovery ? { recovery } : {}), ...(fault ? { interfaceFault: fault } : {}) }));
+        telemetry: telemetry.snapshot(nativeHealth), outbound: hub?.getOutboundDiagnostics(),
+        ...(recovery ? { recovery } : {}), ...(fault ? { interfaceFault: fault } : {}) }));
       return;
     }
     if (request.method !== 'GET' || pathname.startsWith('/api/')) {

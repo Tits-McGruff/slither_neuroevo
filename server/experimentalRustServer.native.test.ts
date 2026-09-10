@@ -41,6 +41,22 @@ async function until(peer: Peer, predicate: () => boolean): Promise<void> {
   expect(predicate(), JSON.stringify(peer.packets)).toBe(true);
 }
 
+/** Poll one real health condition within the existing five-second integration bound. */
+async function healthUntil(
+  port: number,
+  predicate: (health: Record<string, unknown>) => boolean
+): Promise<Record<string, unknown>> {
+  const deadline = performance.now() + 5000;
+  let health: Record<string, unknown> = {};
+  while (performance.now() < deadline) {
+    health = await (await fetch(`http://127.0.0.1:${port}/api/health`)).json() as Record<string, unknown>;
+    if (predicate(health)) return health;
+    await new Promise<void>(done => setTimeout(done, 10));
+  }
+  expect(predicate(health), JSON.stringify(health)).toBe(true);
+  return health;
+}
+
 /** Read one assigned snake direction from the compact frame-v1 contract. */
 function frameDirection(bytes: Buffer | undefined, snakeId: number): number | undefined {
   if (!bytes || bytes.byteLength < 7 * Float32Array.BYTES_PER_ELEMENT) return undefined;
@@ -143,12 +159,19 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const nextAssignment = resumed.packets.find(packet => packet['type'] === 'assign')!;
       expect(nextAssignment).toMatchObject({ reclaimed: true, snakeId: assignment['snakeId'] });
       expect(nextAssignment['resumeToken']).not.toBe(assignment['resumeToken']);
-      const health = await fetch(`http://127.0.0.1:${server.port}/api/health`);
-      expect(health.status).toBe(200);
-      expect(await health.json()).toMatchObject({
+      const health = await healthUntil(server.port, value => {
+        const telemetry = value['telemetry'] as { trainerAction?: { samples?: number } } | undefined;
+        return (telemetry?.trainerAction?.samples ?? 0) > 0;
+      });
+      expect(health).toMatchObject({
         ok: true,
         authority: 'rust',
         seed: 42,
+        outbound: {
+          connections: 2,
+          replacedFrames: expect.any(Number),
+          reliableFailures: expect.any(Number)
+        },
         telemetry: {
           authoritativeSteps: expect.any(Number),
           simulatedWallRatio: expect.any(Number),

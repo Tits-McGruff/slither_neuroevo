@@ -53,6 +53,48 @@ interface ViewerCounters {
   errors: string[];
 }
 
+/** High-water outbound routing observations sampled from health. */
+interface OutboundMaxima {
+  /** Health samples included. */
+  samples: number;
+  /** Largest queued reliable-message count. */
+  reliableQueuedMessages: number;
+  /** Largest queued reliable-byte count. */
+  reliableQueuedBytes: number;
+  /** Largest simultaneous pending-frame count. */
+  pendingFrames: number;
+  /** Largest cumulative replacement count visible on connected sockets. */
+  replacedFrames: number;
+  /** Largest cumulative reliable-failure count visible on connected sockets. */
+  reliableFailures: number;
+}
+
+/** Scalar client-visible latency distribution. */
+interface LatencySummary {
+  /** Completed observations. */
+  samples: number;
+  /** Arithmetic mean duration. */
+  meanMs: number;
+  /** Conservative fixed-bucket p95 ceiling. */
+  p95Ms: number;
+  /** Largest exact duration. */
+  maxMs: number;
+}
+
+/** Bounded client-side timing owners for the live probe. */
+interface ClientTimingOwners {
+  /** Socket open to first assignment for fresh and reclaimed joins. */
+  controllerLifecycle: FixedLatencyHistogram;
+  /** Inter-arrival time between observations on one connection. */
+  sensorInterval: FixedLatencyHistogram;
+  /** Local observation callback through action send return. */
+  sensorToActionDispatch: FixedLatencyHistogram;
+  /** Sent action through the next observation on the same connection. */
+  actionToNextSensor: FixedLatencyHistogram;
+  /** Inter-arrival time between browser display frames. */
+  frameInterval: FixedLatencyHistogram;
+}
+
 /** Open controller plus its first assignment/observation boundary. */
 interface ControllerConnection {
   /** Real network socket. */
@@ -63,6 +105,61 @@ interface ControllerConnection {
 
 /** Default live duration for a fast diagnostic rather than the complete gate. */
 const DEFAULT_DURATION_SECONDS = 30;
+
+/** Inclusive millisecond ceilings for bounded probe-side latency histograms. */
+const LATENCY_BUCKETS_MS = [0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 125, 250,
+  500, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000, Infinity] as const;
+
+/** Fixed-memory client-side latency accumulator. */
+class FixedLatencyHistogram {
+  /** Counts by inclusive fixed ceiling. */
+  private readonly buckets = LATENCY_BUCKETS_MS.map(() => 0);
+  /** Completed finite observations. */
+  private samples = 0;
+  /** Sum used only for the scalar mean. */
+  private totalMs = 0;
+  /** Largest exact finite observation. */
+  private maxMs = 0;
+
+  /** Record one finite non-negative duration. */
+  public record(durationMs: number): void {
+    if (!Number.isFinite(durationMs) || durationMs < 0) return;
+    this.samples++;
+    this.totalMs += durationMs;
+    this.maxMs = Math.max(this.maxMs, durationMs);
+    const found = LATENCY_BUCKETS_MS.findIndex(upper => durationMs <= upper);
+    const index = found < 0 ? this.buckets.length - 1 : found;
+    this.buckets[index] = this.buckets[index]! + 1;
+  }
+
+  /** Project the retained scalars and conservative p95 ceiling. */
+  public snapshot(): LatencySummary {
+    if (this.samples === 0) return { samples: 0, meanMs: 0, p95Ms: 0, maxMs: 0 };
+    const rank = Math.ceil(this.samples * 0.95);
+    let cumulative = 0;
+    let p95Ms = this.maxMs;
+    for (let index = 0; index < this.buckets.length; index++) {
+      cumulative += this.buckets[index]!;
+      if (cumulative < rank) continue;
+      const upper = LATENCY_BUCKETS_MS[index]!;
+      p95Ms = Number.isFinite(upper) ? upper : this.maxMs;
+      break;
+    }
+    return { samples: this.samples, meanMs: this.totalMs / this.samples,
+      p95Ms, maxMs: this.maxMs };
+  }
+}
+
+/** Construct every bounded client-side timing owner. */
+function createClientTimings(): ClientTimingOwners {
+  return {
+    controllerLifecycle: new FixedLatencyHistogram(),
+    sensorInterval: new FixedLatencyHistogram(),
+    sensorToActionDispatch: new FixedLatencyHistogram(),
+    actionToNextSensor: new FixedLatencyHistogram(),
+    frameInterval: new FixedLatencyHistogram()
+  };
+}
 
 /** Convert one unknown JSON value into a record or fail at the boundary. */
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -130,6 +227,22 @@ function nativeCounter(value: unknown, field: string): bigint {
   return BigInt(`0x${value}`);
 }
 
+/** Fold one scalar outbound health snapshot into bounded maxima. */
+function observeOutbound(health: Record<string, unknown>, maxima: OutboundMaxima): void {
+  const outbound = record(health['outbound'], 'health outbound diagnostics');
+  maxima.samples++;
+  for (const field of [
+    'reliableQueuedMessages', 'reliableQueuedBytes', 'pendingFrames',
+    'replacedFrames', 'reliableFailures'
+  ] as const) {
+    const value = outbound[field];
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+      throw new TypeError(`health outbound ${field} must be a non-negative integer`);
+    }
+    maxima[field] = Math.max(maxima[field], value);
+  }
+}
+
 /** Parse one non-binary Protocol 2 message. */
 function parseMessage(data: RawData): Record<string, unknown> {
   const bytes = Array.isArray(data)
@@ -150,11 +263,16 @@ function rawByteLength(data: RawData): number {
 function createController(
   options: ProbeOptions,
   counters: ControllerCounters,
+  timings: ClientTimingOwners,
   resumeToken?: string
 ): ControllerConnection {
   const socket = new WebSocket(options.wsUrl);
+  const openedAt = performance.now();
   const startingSensors = counters.sensors;
   const startingAssignments = counters.assignments;
+  let assignmentTimed = false;
+  let lastSensorAt: number | undefined;
+  let lastActionAt: number | undefined;
   let settled = false;
   let resolveReady!: () => void;
   let rejectReady!: (error: Error) => void;
@@ -195,6 +313,10 @@ function createController(
         counters.assignments++;
         counters.snakeId = message['snakeId'];
         counters.resumeToken = message['resumeToken'];
+        if (!assignmentTimed) {
+          assignmentTimed = true;
+          timings.controllerLifecycle.record(performance.now() - openedAt);
+        }
         maybeReady();
       } else if (message['type'] === 'reclaimResult' && message['reclaimed'] === true) {
         counters.successfulReclaims++;
@@ -202,11 +324,21 @@ function createController(
         if (typeof message['tick'] !== 'number' || typeof message['snakeId'] !== 'number') {
           throw new TypeError('invalid sensor envelope');
         }
+        const sensorAt = performance.now();
+        if (lastSensorAt !== undefined) timings.sensorInterval.record(sensorAt - lastSensorAt);
+        lastSensorAt = sensorAt;
+        if (lastActionAt !== undefined) {
+          timings.actionToNextSensor.record(sensorAt - lastActionAt);
+          lastActionAt = undefined;
+        }
         counters.sensors++;
         counters.snakeId = message['snakeId'];
         const phase = counters.sensors;
+        const dispatchStarted = performance.now();
         socket.send(JSON.stringify({ type: 'action', tick: message['tick'], snakeId: message['snakeId'],
           turn: Math.sin(phase * 0.17), boost: phase % 20 < 5 ? 1 : 0 }));
+        lastActionAt = performance.now();
+        timings.sensorToActionDispatch.record(lastActionAt - dispatchStarted);
         counters.actions++;
         maybeReady();
       }
@@ -220,8 +352,13 @@ function createController(
 }
 
 /** Open one real full-frame spectator. */
-function createViewer(options: ProbeOptions, counters: ViewerCounters): WebSocket {
+function createViewer(
+  options: ProbeOptions,
+  counters: ViewerCounters,
+  timings: ClientTimingOwners
+): WebSocket {
   const socket = new WebSocket(options.wsUrl);
+  let lastFrameAt: number | undefined;
   socket.on('open', () => {
     socket.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
     socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
@@ -231,6 +368,9 @@ function createViewer(options: ProbeOptions, counters: ViewerCounters): WebSocke
   });
   socket.on('message', (data, binary) => {
     if (binary) {
+      const frameAt = performance.now();
+      if (lastFrameAt !== undefined) timings.frameInterval.record(frameAt - lastFrameAt);
+      lastFrameAt = frameAt;
       counters.frames++;
       counters.maximumFrameBytes = Math.max(counters.maximumFrameBytes, rawByteLength(data));
       return;
@@ -273,8 +413,12 @@ async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
   const controller: ControllerCounters = { assignments: 0, sensors: 0, actions: 0,
     successfulReclaims: 0, errors: [] };
   const viewer: ViewerCounters = { frames: 0, stats: 0, maximumFrameBytes: 0, errors: [] };
-  const viewerSocket = createViewer(options, viewer);
-  let active = createController(options, controller);
+  const timings = createClientTimings();
+  const outbound: OutboundMaxima = { samples: 0, reliableQueuedMessages: 0,
+    reliableQueuedBytes: 0, pendingFrames: 0, replacedFrames: 0, reliableFailures: 0 };
+  observeOutbound(initialHealth, outbound);
+  const viewerSocket = createViewer(options, viewer, timings);
+  let active = createController(options, controller, timings);
   try {
     await active.ready;
     await waitUntil(() => controller.sensors >= options.reconnectAfterSensors, deadline, 'pre-reclaim observations');
@@ -282,13 +426,18 @@ async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
     const firstSnake = controller.snakeId;
     if (!firstToken || firstSnake === undefined) throw new Error('initial assignment omitted reclaim identity');
     await closeSocket(active.socket);
-    active = createController(options, controller, firstToken);
+    active = createController(options, controller, timings, firstToken);
     await active.ready;
     if (controller.successfulReclaims < 1 || controller.snakeId !== firstSnake || controller.resumeToken === firstToken) {
       throw new Error('same-snake reclaim or token rotation was not observed');
     }
-    await waitUntil(() => performance.now() >= deadline, deadline + 100, 'probe duration');
+    while (performance.now() < deadline) {
+      observeOutbound(await fetchHealth(endpoint), outbound);
+      const remaining = Math.max(0, deadline - performance.now());
+      await new Promise<void>(resolvePromise => setTimeout(resolvePromise, Math.min(250, remaining)));
+    }
     const finalHealth = await fetchHealth(endpoint);
+    observeOutbound(finalHealth, outbound);
     const initialGeneration = nativeCounter(initialHealth['generation'], 'generation');
     const finalGeneration = nativeCounter(finalHealth['generation'], 'generation');
     if (controller.errors.length > 0 || viewer.errors.length > 0) {
@@ -311,6 +460,14 @@ async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
       generation: { before: initialGeneration.toString(), after: finalGeneration.toString() },
       controller,
       viewer,
+      outboundMaxima: outbound,
+      clientLatency: {
+        controllerLifecycle: timings.controllerLifecycle.snapshot(),
+        sensorInterval: timings.sensorInterval.snapshot(),
+        sensorToActionDispatch: timings.sensorToActionDispatch.snapshot(),
+        actionToNextSensor: timings.actionToNextSensor.snapshot(),
+        frameInterval: timings.frameInterval.snapshot()
+      },
       telemetry: record(finalHealth['telemetry'], 'health telemetry')
     };
   } finally {
