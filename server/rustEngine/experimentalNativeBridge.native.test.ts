@@ -247,6 +247,7 @@ describe('experimental native bridge real-addon integration', () => {
     ).sort()).toEqual([
       'acknowledgeRunStartPersistence',
       'activateRunningAuthority',
+      'adoptRecoveryBranch',
       'constructor',
       'createBackgroundRuntime',
       'initialize',

@@ -1,4 +1,4 @@
-import { parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
+import { parseRecoveryScanCursor, parseRecoveryScanResult, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
 import { Worker } from 'node:worker_threads';
 import { randomBytes } from 'node:crypto';
 import {
@@ -92,6 +92,8 @@ export class CheckpointPersistenceClient {
     resolve(value: ManagedCheckpointSelection): void;
     reject(error: Error): void;
   } | undefined;
+  /** One candidate read; a corrupt row advances only its stable scalar cursor. */
+  private scan: { operationId: string; cursor: RecoveryScanCursor | null; resolve(value: RecoveryScanResult): void; reject(error: Error): void } | undefined;
   /** One startup recovery transaction; retries use the same caller-owned operation token. */
   private recovery: { commit: RecoveryBranchCommit; resolve(value: RecoveryBranchResult): void; reject(error: Error): void } | undefined;
   /** Terminal lifecycle failure, if the worker violates protocol or exits unexpectedly. */
@@ -209,6 +211,19 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Read one descending candidate while pinning the failed source pointer. */
+  scanRecoveryCandidate(value: RecoveryScanCursor | null = null): Promise<RecoveryScanResult> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.scan) return Promise.reject(new Error('recovery scan is busy or stopping'));
+    const cursor = value === null ? null : parseRecoveryScanCursor(value);
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.scan = { operationId, cursor, resolve, reject };
+      try { this.worker.postMessage({ type: 'scanRecoveryCandidate', operationId, cursor }); }
+      catch (error) { this.scan = undefined; reject(asError(error)); }
+    });
+  }
+
   /** Commit a validated recovery branch before native activation, without copying population bytes. */
   commitRecoveryBranch(value: RecoveryBranchCommit): Promise<RecoveryBranchResult> {
     if (this.failure) return Promise.reject(this.failure);
@@ -264,6 +279,20 @@ export class CheckpointPersistenceClient {
   private onMessage(value: unknown): void {
     try {
       const response = parseWorkerResponse(value);
+      if (response.type === 'recoveryCandidate') {
+        const pending = this.scan;
+        const cursor = response.result.cursor;
+        const previous = pending?.cursor;
+        if (!pending || pending.operationId !== response.operationId || (previous &&
+            (previous.sourceRunId !== cursor.sourceRunId || previous.failedCheckpointId !== cursor.failedCheckpointId ||
+              (!response.result.exhausted && previous.generation !== null &&
+                (cursor.generation! > previous.generation || (cursor.generation === previous.generation && cursor.checkpointId! >= previous.checkpointId!)))))) {
+          throw new Error('recovery scan response does not advance the pinned source');
+        }
+        this.scan = undefined;
+        pending.resolve(response.result);
+        return;
+      }
       if (response.type === 'recoveryBranchCommitted') {
         const pending = this.recovery;
         const { abandonedThroughGeneration: _suffix, ...commit } = response.result;
@@ -287,6 +316,12 @@ export class CheckpointPersistenceClient {
       if (response.type === 'managedCheckpointRejected') {
         if (!response.operationId) {
           throw new Error(`persistence worker rejected an uncorrelated request: ${response.reason}`);
+        }
+        if (response.operationId === this.scan?.operationId) {
+          const pending = this.scan;
+          this.scan = undefined;
+          pending.reject(new Error(response.reason));
+          return;
         }
         if (response.operationId === this.recovery?.commit.operationId) {
           const pending = this.recovery;
@@ -343,6 +378,8 @@ export class CheckpointPersistenceClient {
     this.stopping = true;
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+    this.scan?.reject(error);
+    this.scan = undefined;
     this.recovery?.reject(error);
     this.recovery = undefined;
     this.selection?.reject(error);
@@ -378,7 +415,7 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery) {
+    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan) {
       this.resolveStopped?.();
       this.resolveStopped = null;
       this.rejectStopped = null;
@@ -416,6 +453,11 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     throw new TypeError('checkpoint persistence worker sent a non-object response');
   }
   const response = value as Record<string, unknown>;
+  if (response['type'] === 'recoveryCandidate') {
+    requireExactKeys(response, ['type', 'operationId', 'result']);
+    if (!isOperationId(response['operationId'])) throw new Error('invalid recovery scan correlation');
+    return { type: 'recoveryCandidate', operationId: response['operationId'], result: parseRecoveryScanResult(response['result']) };
+  }
   if (response['type'] === 'recoveryBranchCommitted') {
     requireExactKeys(response, ['type', 'result']);
     return { type: 'recoveryBranchCommitted', result: parseRecoveryBranchResult(response['result']) };

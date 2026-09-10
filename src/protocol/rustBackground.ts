@@ -311,3 +311,19 @@ export interface RustBackgroundDrain {
   /** Wake generation used by the native rearm protocol. */
   generation: RustBackgroundIdentity;
 }
+
+/** Compact recovery notice shared by health and Protocol 2 welcome messages. */
+export interface RustRecoveryNotice {
+  /** Failed effective lineage, preserved with its original suffix. */
+  failedRunId: string;
+  /** New durable active lineage. */
+  branchRunId: string;
+  /** Original failed current pointer. */
+  failedCheckpointId: string;
+  /** Immutable root selected for recovery. */
+  recoveredCheckpointId: string;
+  /** Pre-spawn generation resumed, as exact lowercase u64 hex. */
+  recoveredGeneration: string;
+  /** Completed generations lost relative to the newest retained boundary. */
+  lostCompletedGenerations: { from: string; through: string } | null;
+}

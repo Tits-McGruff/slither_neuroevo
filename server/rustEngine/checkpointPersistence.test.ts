@@ -274,6 +274,60 @@ afterEach(async () => {
 
 // Allow worker startup, durable I/O and joined shutdown on shared runners.
 describe(SUITE, { timeout: 30_000 }, () => {
+  it('scans corrupt retained metadata newest first with bounded records and exact cursor retry', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: '88'.repeat(16),
+      generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    const third = createDescriptor(fixture.managedRoot, { operationId: '99'.repeat(16),
+      generation: u64(3n), completedStep: u64(120n), boundaryKind: 'generation' });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await fixture.client.commit(third, createGenerationCommit(2n));
+    await fixture.client.close();
+    const failedCheckpointId = 'f'.repeat(64);
+    const db = new Database(fixture.databasePath);
+    try {
+      db.pragma('foreign_keys = OFF');
+      db.prepare('UPDATE rust_checkpoint_v3_current SET checkpoint_id = ?').run(failedCheckpointId);
+      db.prepare('UPDATE rust_checkpoint_v3_metadata SET descriptor_json = ? WHERE checkpoint_id = ?').run('x'.repeat(32_768), third.logicalRootSha256);
+      db.prepare('UPDATE rust_checkpoint_v3_metadata SET descriptor_json = ? WHERE checkpoint_id = ?').run('{broken', second.logicalRootSha256);
+    } finally { db.close(); }
+    const client = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(client);
+    const newest = await client.scanRecoveryCandidate();
+    expect(newest).toMatchObject({ exhausted: false, descriptor: null, issue: 'retained checkpoint metadata is invalid',
+      cursor: { generation: u64(3n), checkpointId: third.logicalRootSha256, failedCheckpointId } });
+    const middle = await client.scanRecoveryCandidate(newest.cursor);
+    expect(middle).toMatchObject({ descriptor: null, cursor: { generation: u64(2n) } });
+    expect(await client.scanRecoveryCandidate(newest.cursor)).toEqual(middle);
+    const oldest = await client.scanRecoveryCandidate(middle.cursor);
+    expect(oldest.descriptor).toEqual(first);
+    expect(await client.scanRecoveryCandidate(oldest.cursor)).toMatchObject({ exhausted: true, descriptor: null, issue: null });
+    await client.close();
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 3 });
+      expect(inspect.prepare('SELECT length(descriptor_json) AS size FROM rust_checkpoint_v3_metadata WHERE checkpoint_id = ?').get(third.logicalRootSha256))
+        .toEqual({ size: 32_768 });
+    } finally { inspect.close(); }
+  });
+
+  it('rejects a recovery cursor after the pinned source pointer advances', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(first);
+    const scanning = fixture.client.scanRecoveryCandidate();
+    await expect(fixture.client.scanRecoveryCandidate()).rejects.toThrow(/busy/);
+    const initial = await scanning;
+    const second = createDescriptor(fixture.managedRoot, { operationId: 'aa'.repeat(16),
+      generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await expect(fixture.client.scanRecoveryCandidate(initial.cursor)).rejects.toThrow(/source pointer changed/);
+    expect((await fixture.client.scanRecoveryCandidate()).descriptor).toEqual(second);
+  });
+
   it('branches from an older retained boundary without changing the failed suffix and advances independently', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);
@@ -307,6 +361,30 @@ describe(SUITE, { timeout: 30_000 }, () => {
       expect(db.prepare('SELECT count(*) AS count FROM rust_generation_history_v1 WHERE run_id = ?').get(first.runId)).toEqual({ count: 2 });
     } finally { db.close(); }
     expect(readFileSync(join(fixture.managedRoot, third.relativeFilename))).toEqual(originalFile);
+  });
+
+  it('recovers an already-branched lineage only through its inherited prefix', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: 'b1'.repeat(16), generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    const third = createDescriptor(fixture.managedRoot, { operationId: 'b2'.repeat(16), generation: u64(3n), completedStep: u64(120n), boundaryKind: 'generation' });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await fixture.client.commit(third, createGenerationCommit(2n));
+    await fixture.client.commitRecoveryBranch({ operationId: 'b3'.repeat(16), branchRunId: 'branch-one',
+      sourceRunId: first.runId, failedCheckpointId: third.logicalRootSha256, recoveredDescriptor: second });
+    const newest = await fixture.client.scanRecoveryCandidate();
+    expect(newest.descriptor).toEqual(second);
+    const older = await fixture.client.scanRecoveryCandidate(newest.cursor);
+    expect(older.descriptor).toEqual(first);
+    const recovery = { operationId: 'b4'.repeat(16), branchRunId: 'branch-two', sourceRunId: 'branch-one',
+      failedCheckpointId: second.logicalRootSha256, recoveredDescriptor: first };
+    await expect(fixture.client.commitRecoveryBranch({ ...recovery, recoveredDescriptor: third }))
+      .rejects.toThrow(/outside the inherited lineage prefix/);
+    await expect(fixture.client.commitRecoveryBranch(recovery)).resolves.toMatchObject({ abandonedThroughGeneration: u64(2n) });
+    const selected = await fixture.client.selectStartup();
+    expect(selected).toMatchObject({ runId: 'branch-two', descriptor: first, recovery });
+    expect((await fixture.client.scanRecoveryCandidate()).descriptor).toEqual(first);
   });
 
   it('rolls back recovery provenance when current-pointer publication fails', async () => {

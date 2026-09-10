@@ -1517,6 +1517,17 @@ mod tests {
             .unwrap()
         };
         let restored = restore();
+        let before_rejection = restored.startup_metadata_json().unwrap();
+        let mut wrong = descriptor.clone();
+        wrong.generation_hex = "0000000000000002".into();
+        assert!(restored
+            .validate_recovery_source(&wrong, "recovery-branch")
+            .is_err());
+        assert!(restored.validate_recovery_source(&descriptor, "").is_err());
+        assert_eq!(restored.startup_metadata_json().unwrap(), before_rejection);
+        restored
+            .validate_recovery_source(&descriptor, "recovery-branch")
+            .unwrap();
         let mut original_metadata: serde_json::Value =
             serde_json::from_str(&restored.startup_metadata_json().unwrap()).unwrap();
         let mut branch = restored
@@ -1531,6 +1542,9 @@ mod tests {
         assert!(!branch.authority_published());
         assert_eq!(branch.snake_count(), 0);
         branch.publish_running_authority().unwrap();
+        assert!(branch
+            .validate_recovery_source(&descriptor, "another")
+            .is_err());
         assert!(branch
             .into_committed_recovery_branch("another".into())
             .is_err());

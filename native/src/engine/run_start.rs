@@ -148,6 +148,33 @@ impl PendingRunStartTransition {
         })
     }
 
+    /// Verify the committed source before moving a private candidate to a branch.
+    pub fn validate_recovery_source(
+        &self,
+        descriptor: &CheckpointDescriptor,
+        branch_run_id: &str,
+    ) -> Result<(), RunStartTransitionError> {
+        if self.authority_published {
+            return Err(RunStartTransitionError::AuthorityAlreadyPublished);
+        }
+        if !self.restored_checkpoint
+            || branch_run_id.is_empty()
+            || branch_run_id.len() > 256
+            || branch_run_id.contains('\0')
+            || branch_run_id == self.authority.state().identity.run_id
+        {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        let retained = self
+            .checkpoint_descriptor
+            .as_ref()
+            .ok_or(RunStartTransitionError::CheckpointNotPublished)?;
+        if let Some(field) = retained.first_mismatch(descriptor) {
+            return Err(RunStartTransitionError::PersistenceAcknowledgementMismatch { field });
+        }
+        Ok(())
+    }
+
     /// Bind an already validated retained boundary to a committed recovery branch.
     /// The caller supplies this only after the worker's FULL provenance/current
     /// transaction. The immutable source descriptor stays unchanged by digest.

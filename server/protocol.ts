@@ -1,3 +1,4 @@
+import type { RustRecoveryNotice } from '../src/protocol/rustBackground.ts';
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../src/protocol/messages.ts';
 import type { SensorSpec as SensorSpecBase } from '../src/protocol/sensors.ts';
 import type { SpatialHashDiagnostics } from '../src/spatialHash.ts';
@@ -202,6 +203,8 @@ export interface WelcomeMsg {
   worldSeed: number;
   /** Active evolutionary-lineage id. */
   runId: string;
+  /** Durable recovery provenance when startup selected a retained branch. */
+  recovery?: RustRecoveryNotice;
   /** Monotonic accepted configuration revision. */
   configRevision: number;
   /** Versioned canonical configuration content hash. */

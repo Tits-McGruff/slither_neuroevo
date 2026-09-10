@@ -42,6 +42,7 @@ const MAX_FAULT_DETAIL_UTF8_BYTES = 512;
 const REQUIRED_FRESH_RUN_METHODS = [
   'acknowledgeRunStartPersistence',
   'activateRunningAuthority',
+  'adoptRecoveryBranch',
   'constructor',
   'createBackgroundRuntime',
   'initialize',
@@ -56,6 +57,7 @@ const REQUIRED_FRESH_RUN_METHODS = [
 const REQUIRED_FRESH_RUN_HANDLE_METHODS = [
   'acknowledgeRunStartPersistence',
   'activateRunningAuthority',
+  'adoptRecoveryBranch',
   'createBackgroundRuntime',
   'initialize',
   'initializeFromCheckpoint',
@@ -157,6 +159,8 @@ export interface ExperimentalFreshRunNativeHandle extends RustRunStartPersistenc
   initializeFromCheckpoint(managedDirectory: string, descriptor: ManagedCheckpointDescriptor, recoveryBranch?: boolean): Promise<unknown>;
   /** Construct and publish the running world off the Node loop. */
   activateRunningAuthority(): Promise<unknown>;
+  /** Adopt the exact durable branch on the retained private candidate off-loop. */
+  adoptRecoveryBranch(runId: string, descriptor: ManagedCheckpointDescriptor): Promise<unknown>;
   /** Pack the one neutral-view startup frame directly from Rust authority. */
   publishInitialFrameV1(): Promise<unknown>;
   /** Execute one Rust-scheduled step and pack its resulting frame. */
@@ -292,7 +296,7 @@ export class ExperimentalFreshRunSession {
   /** Controlled root used for both publication and restore. */
   private readonly managedDirectory: string;
   /** Exact effective lineage supplied to the native constructor. */
-  private readonly runId: string;
+  private runId: string;
   /** Selected retained chronology, populated only after native restore succeeds. */
   private restoredBoundary: ManagedCheckpointDescriptor | undefined;
   /** Exact Rust-to-worker-to-Rust durability handoff. */
@@ -344,6 +348,17 @@ export class ExperimentalFreshRunSession {
     const result = await this.native.initializeFromCheckpoint(this.managedDirectory, selected, provenance !== undefined);
     this.restoredBoundary = selected;
     return parseFreshRunSnapshot(result, selected);
+  }
+
+  /** Apply the worker's committed branch to the existing candidate without another decode. */
+  public async adoptRecoveryBranch(value: RecoveryBranchResult): Promise<ExperimentalFreshRunSnapshot> {
+    const recovery = parseRecoveryBranchResult(value);
+    if (!this.restoredBoundary || !managedCheckpointDescriptorsEqual(this.restoredBoundary, recovery.recoveredDescriptor)) {
+      throw new Error('recovery acknowledgement differs from retained source');
+    }
+    const snapshot = await this.native.adoptRecoveryBranch(recovery.branchRunId, recovery.recoveredDescriptor);
+    this.runId = recovery.branchRunId;
+    return parseFreshRunSnapshot(snapshot, this.restoredBoundary);
   }
 
   /** Commit and acknowledge only Rust's exact pending run-start descriptor. */

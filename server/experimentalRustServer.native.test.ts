@@ -1,9 +1,10 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { DEFAULT_CONFIG } from './config.ts';
+import Database from 'better-sqlite3';
+import { DEFAULT_CONFIG, normalizeConfig } from './config.ts';
 import { startExperimentalRustServer } from './experimentalRustServer.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 
@@ -37,6 +38,57 @@ async function until(peer: Peer, predicate: () => boolean): Promise<void> {
 }
 
 describeNetworkSuite('experimental Rust server real sockets', () => {
+  it('resumes exact managed IDs and exposes recovery or health-only failure over real HTTP/WebSocket', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-recovery-server-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    const config = { ...DEFAULT_CONFIG, port: 0, dbPath };
+    let server = await startExperimentalRustServer({ ...config, resume: 'fresh', seed: 42 });
+    const peers: Peer[] = [];
+    try {
+      const initial = await (await fetch(`http://127.0.0.1:${server.port}/health`)).json() as { runId: string; startupCheckpointId: string };
+      await server.close();
+      const exact = normalizeConfig({ ...config, resume: initial.startupCheckpointId });
+      expect(exact.resume).toBe(`sha256:${initial.startupCheckpointId}`);
+      server = await startExperimentalRustServer({ ...exact, port: 0 });
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/health`)).json()).toMatchObject({ ok: true, runId: initial.runId });
+      await server.close();
+      const db = new Database(dbPath);
+      try {
+        db.pragma('foreign_keys = OFF');
+        db.prepare('UPDATE rust_checkpoint_v3_current SET checkpoint_id = ?').run('f'.repeat(64));
+      } finally { db.close(); }
+      server = await startExperimentalRustServer({ ...config, resume: 'latest' });
+      const health = await (await fetch(`http://127.0.0.1:${server.port}/health`)).json() as { runId: string; recovery: unknown };
+      expect(health.runId).not.toBe(initial.runId);
+      expect(health.recovery).toMatchObject({ failedRunId: initial.runId, branchRunId: health.runId,
+        recoveredCheckpointId: initial.startupCheckpointId, lostCompletedGenerations: null });
+      const viewer = await connect(server.port, 'ui'); peers.push(viewer);
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
+      expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ recovery: health.recovery });
+      viewer.socket.terminate();
+      await server.close();
+      const files = await readdir(`${dbPath}.checkpoints`);
+      for (const file of files.filter(name => name.endsWith('.checkpoint-v3'))) await writeFile(join(`${dbPath}.checkpoints`, file), 'corrupt');
+      server = await startExperimentalRustServer({ ...config, resume: 'latest' });
+      expect(server.startupFault).toMatch(/no valid retained/);
+      const fault = await fetch(`http://127.0.0.1:${server.port}/api/health`);
+      expect(fault.status).toBe(503);
+      expect(await fault.json()).toMatchObject({ ok: false, lifecycle: 'startup-fault' });
+      const rejected = new WebSocket(`ws://127.0.0.1:${server.port}`);
+      await new Promise<void>((done, reject) => {
+        rejected.once('unexpected-response', (_request, response) => {
+          expect(response.statusCode).toBe(503); response.resume(); rejected.terminate(); done();
+        });
+        rejected.once('open', () => reject(new Error('faulted startup accepted a game socket')));
+        rejected.on('error', () => {});
+      });
+    } finally {
+      for (const peer of peers) peer.socket.terminate();
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it('serves native welcome, frames, controller observations and same-snake token reclaim', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-server-'));
     const peers: Peer[] = [];

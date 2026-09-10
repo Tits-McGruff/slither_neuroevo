@@ -1,4 +1,4 @@
-import { parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
+import { parseRecoveryScanCursor, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
 import { lstatSync, realpathSync, statSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
@@ -220,6 +220,39 @@ function readRecoveryBranch(runId: string): RecoveryBranchResult | undefined {
   return result;
 }
 
+/** One bounded ancestor and the inherited checkpoint prefix still eligible for recovery. */
+interface RecoveryLineage {
+  /** Run that physically owns immutable descriptor rows. */
+  runId: string;
+  /** Inclusive inherited boundary; null only for the failed active lineage. */
+  maximumGeneration: U64Hex | null;
+}
+
+/** Resolve inherited history with decreasing cutoffs and reject corrupt cycles. */
+function recoveryLineage(sourceRunId: string): RecoveryLineage[] {
+  const lineage: RecoveryLineage[] = [];
+  const seen = new Set<string>();
+  let runId = sourceRunId;
+  let maximumGeneration: U64Hex | null = null;
+  for (;;) {
+    if (seen.has(runId) || lineage.length === 64) throw new Error('recovery ancestry is cyclic or exceeds 64 retained branches');
+    seen.add(runId);
+    lineage.push({ runId, maximumGeneration });
+    const branch = readRecoveryBranch(runId);
+    if (!branch) return lineage;
+    const boundary = branch.recoveredDescriptor.generation;
+    const previous = lineage[lineage.length - 1]!.maximumGeneration;
+    maximumGeneration = previous === null || boundary < previous ? boundary : previous;
+    runId = branch.sourceRunId;
+  }
+}
+
+/** Build a parameterized bounded prefix filter; run names never become SQL text. */
+function recoveryLineageFilter(lineage: RecoveryLineage[]): { sql: string; parameters: Array<string | null> } {
+  return { sql: lineage.map(() => '(run_id = ? AND (? IS NULL OR generation_hex <= ?))').join(' OR '),
+    parameters: lineage.flatMap(item => [item.runId, item.maximumGeneration, item.maximumGeneration]) };
+}
+
 /** Commit lineage, source-history prefix reference, and active pointer in one FULL transaction. */
 function commitRecoveryBranch(value: RecoveryBranchCommit): RecoveryBranchResult {
   const commit = parseRecoveryBranchCommit(value);
@@ -251,10 +284,15 @@ function commitRecoveryBranch(value: RecoveryBranchCommit): RecoveryBranchResult
     }
     const active = db.prepare('SELECT 1 FROM rust_active_run_v1 WHERE singleton = 1 AND run_id != ?').get(commit.sourceRunId);
     if (active) throw new Error('recovery source is no longer active');
+    const lineage = recoveryLineage(commit.sourceRunId);
+    if (!lineage.some(item => item.runId === selected.runId &&
+        (item.maximumGeneration === null || selected.generation <= item.maximumGeneration))) {
+      throw new Error('recovered checkpoint is outside the inherited lineage prefix');
+    }
     const retained = db.prepare(`SELECT CASE WHEN length(CAST(descriptor_json AS BLOB)) <= 16384
       THEN descriptor_json END AS descriptor_json FROM rust_checkpoint_v3_metadata
       WHERE checkpoint_id = ? AND run_id = ? AND generation_hex = ? AND completed_step_hex = ?`)
-      .get(selected.logicalRootSha256, commit.sourceRunId, selected.generation, selected.completedStep) as { descriptor_json: string | null } | undefined;
+      .get(selected.logicalRootSha256, selected.runId, selected.generation, selected.completedStep) as { descriptor_json: string | null } | undefined;
     if (!retained?.descriptor_json || JSON.stringify(parseManagedCheckpointDescriptor(JSON.parse(retained.descriptor_json))) !== JSON.stringify(selected)) {
       throw new Error('recovered descriptor differs from retained source metadata');
     }
@@ -262,8 +300,11 @@ function commitRecoveryBranch(value: RecoveryBranchCommit): RecoveryBranchResult
       (length(generation_hex) != 16 OR generation_hex GLOB '*[^0-9a-f]*') LIMIT 1`).get(commit.sourceRunId);
     if (invalidChronology) throw new Error('failed lineage has invalid retained chronology');
     const newest = db.prepare('SELECT max(generation_hex) AS generation FROM rust_checkpoint_v3_metadata WHERE run_id = ?')
-      .get(commit.sourceRunId) as { generation: string };
-    const result = parseRecoveryBranchResult({ ...commit, abandonedThroughGeneration: newest.generation });
+      .get(commit.sourceRunId) as { generation: string | null };
+    const inherited = readRecoveryBranch(commit.sourceRunId)?.recoveredDescriptor.generation ?? null;
+    const abandonedThroughGeneration = newest.generation === null ? inherited :
+      inherited !== null && inherited > newest.generation ? inherited : newest.generation;
+    const result = parseRecoveryBranchResult({ ...commit, abandonedThroughGeneration });
     const historyThrough = (BigInt(`0x${selected.generation}`) - 1n).toString(16).padStart(16, '0');
     recheckManagedFile(file);
     db.prepare(`INSERT INTO rust_recovery_branches_v1 (branch_run_id, operation_id, source_run_id,
@@ -535,7 +576,7 @@ function validateCurrentPointerIdentity(
     throw new Error('current checkpoint pointer references invalid immutable descriptor metadata');
   }
   const branch = current.metadata_run_id !== expectedRunId ? readRecoveryBranch(expectedRunId) : undefined;
-  const aliased = branch !== undefined && branch.sourceRunId === current.metadata_run_id &&
+  const aliased = branch !== undefined && branch.recoveredDescriptor.runId === current.metadata_run_id &&
     branch.recoveredDescriptor.logicalRootSha256 === current.pointer_checkpoint_id &&
     branch.operationId === current.pointer_operation_id &&
     JSON.stringify(branch.recoveredDescriptor) === JSON.stringify(stored);
@@ -554,31 +595,83 @@ function validateCurrentPointerIdentity(
   return stored;
 }
 
+/** Resolve the active lineage without arbitrarily selecting among unrelated runs. */
+function resolveSelectedRun(runId: string | null): string | null {
+  let selectedRun = runId;
+  if (selectedRun === null) {
+    const active = db.prepare(`SELECT CASE WHEN length(CAST(run_id AS BLOB)) <= 256 THEN run_id END AS run_id
+    FROM rust_active_run_v1 WHERE singleton = 1`).get() as { run_id: string | null } | undefined;
+    if (active) {
+      if (!active.run_id) throw new Error('invalid active recovery run');
+      selectedRun = active.run_id;
+    }
+  }
+  if (selectedRun === null) {
+    const rows = db.prepare(`SELECT CASE WHEN length(CAST(run_id AS BLOB)) <= 256
+    THEN run_id ELSE NULL END AS run_id FROM rust_checkpoint_v3_current LIMIT 2`).all() as Array<{ run_id: string | null }>;
+    if (rows.length === 0) return null;
+    if (rows.length !== 1) throw new Error('multiple current runs require an explicit run selection');
+    selectedRun = rows[0]!.run_id;
+    if (!selectedRun) throw new Error('current checkpoint has an invalid run identity');
+  }
+  return selectedRun;
+}
+
 /** Read one exact current target without choosing arbitrarily among multiple runs. */
 function selectManagedCheckpoint(runId: string | null): ManagedCheckpointSelection {
   return db.transaction(() => {
-    let selectedRun = runId;
-    if (selectedRun === null) {
-      const active = db.prepare(`SELECT CASE WHEN length(CAST(run_id AS BLOB)) <= 256 THEN run_id END AS run_id
-        FROM rust_active_run_v1 WHERE singleton = 1`).get() as { run_id: string | null } | undefined;
-      if (active) {
-        if (!active.run_id) throw new Error('invalid active recovery run');
-        selectedRun = active.run_id;
-      }
-    }
-    if (selectedRun === null) {
-      const rows = db.prepare(`SELECT CASE WHEN length(CAST(run_id AS BLOB)) <= 256
-        THEN run_id ELSE NULL END AS run_id FROM rust_checkpoint_v3_current LIMIT 2`).all() as Array<{ run_id: string | null }>;
-      if (rows.length === 0) return { descriptor: null, runId: null, recovery: null };
-      if (rows.length !== 1) throw new Error('multiple current runs require an explicit run selection');
-      selectedRun = rows[0]!.run_id;
-      if (!selectedRun) throw new Error('current checkpoint has an invalid run identity');
-    }
+    const selectedRun = resolveSelectedRun(runId);
+    if (selectedRun === null) return { descriptor: null, runId: null, recovery: null };
     const current = readCurrentPointer(selectedRun);
     if (!current) return { descriptor: null, runId: null, recovery: null };
     const descriptor = validateCurrentPointerIdentity(selectedRun, current);
     assertDescriptorBounds(descriptor);
     return { descriptor, runId: selectedRun, recovery: readRecoveryBranch(selectedRun) ?? null };
+  }).deferred();
+}
+
+/** Visit one retained metadata record without materializing the retained population set. */
+function scanRecoveryCandidate(value: RecoveryScanCursor | null): RecoveryScanResult {
+  return db.transaction(() => {
+    const activeRun = resolveSelectedRun(null);
+    if (!activeRun) throw new Error('no active lineage available for recovery');
+    const source = readCurrentPointer(activeRun);
+    if (!source) throw new Error('active recovery source pointer is missing');
+    const cursor = value ?? parseRecoveryScanCursor({ sourceRunId: activeRun,
+      failedCheckpointId: source.pointer_checkpoint_id, generation: null, checkpointId: null });
+    if (cursor.sourceRunId !== activeRun || cursor.failedCheckpointId !== source.pointer_checkpoint_id) {
+      throw new Error('failed source pointer changed during recovery scan');
+    }
+    const filter = recoveryLineageFilter(recoveryLineage(activeRun));
+    const row = db.prepare(`SELECT run_id, generation_hex, checkpoint_id,
+      CASE WHEN length(CAST(descriptor_json AS BLOB)) <= 16384 THEN descriptor_json END AS descriptor_json,
+      CASE WHEN length(CAST(operation_id AS BLOB)) <= 32 THEN operation_id END AS operation_id,
+      CASE WHEN length(CAST(transition_epoch AS BLOB)) <= 16 THEN transition_epoch END AS transition_epoch,
+      CASE WHEN length(CAST(completed_step_hex AS BLOB)) <= 16 THEN completed_step_hex END AS completed_step_hex
+      FROM rust_checkpoint_v3_metadata WHERE (${filter.sql})
+        AND length(generation_hex) = 16 AND generation_hex NOT GLOB '*[^0-9a-f]*' AND generation_hex != '0000000000000000'
+        AND length(checkpoint_id) = 64 AND checkpoint_id NOT GLOB '*[^0-9a-f]*'
+        AND (? IS NULL OR generation_hex < ? OR (generation_hex = ? AND checkpoint_id < ?))
+      ORDER BY generation_hex DESC, checkpoint_id DESC LIMIT 1`)
+      .get(...filter.parameters, cursor.generation, cursor.generation, cursor.generation, cursor.checkpointId) as {
+        run_id: string; generation_hex: string; checkpoint_id: string; descriptor_json: string | null;
+        operation_id: string | null; transition_epoch: string | null; completed_step_hex: string | null;
+      } | undefined;
+    if (!row) return { cursor, descriptor: null, issue: null, exhausted: true };
+    const next = { ...cursor, generation: row.generation_hex, checkpointId: row.checkpoint_id };
+    try {
+      if (row.descriptor_json === null) throw new Error('oversized retained descriptor');
+      const descriptor = parseManagedCheckpointDescriptor(JSON.parse(row.descriptor_json));
+      if (descriptor.runId !== row.run_id || descriptor.generation !== row.generation_hex ||
+          descriptor.logicalRootSha256 !== row.checkpoint_id || descriptor.operationId !== row.operation_id ||
+          descriptor.transitionEpoch !== row.transition_epoch || descriptor.completedStep !== row.completed_step_hex) {
+        throw new Error('retained metadata identity mismatch');
+      }
+      assertDescriptorBounds(descriptor);
+      return { cursor: next, descriptor, issue: null, exhausted: false };
+    } catch {
+      return { cursor: next, descriptor: null, issue: 'retained checkpoint metadata is invalid', exhausted: false };
+    }
   }).deferred();
 }
 
@@ -789,7 +882,7 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
     const id = (commit as Record<string, unknown>)['operationId'];
     return typeof id === 'string' && /^[0-9a-f]{32}$/u.test(id) ? id : null;
   }
-  if (request['type'] === 'selectManagedCheckpoint') {
+  if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'scanRecoveryCandidate') {
     const operationId = request['operationId'];
     return typeof operationId === 'string' && /^[0-9a-f]{32}$/u.test(operationId) ? operationId : null;
   }
@@ -823,6 +916,12 @@ port.on('message', (message: unknown) => {
       throw new TypeError('worker request must be an object');
     }
     const request = message as Record<string, unknown>;
+    if (request['type'] === 'scanRecoveryCandidate') {
+      if (!operationId || Object.keys(request).length !== 3 || !Object.hasOwn(request, 'cursor')) throw new TypeError('invalid recovery scan request');
+      const cursor = request['cursor'] === null ? null : parseRecoveryScanCursor(request['cursor']);
+      post({ type: 'recoveryCandidate', operationId, result: scanRecoveryCandidate(cursor) });
+      return;
+    }
     if (request['type'] === 'commitRecoveryBranch') {
       if (Object.keys(request).length !== 2 || !Object.hasOwn(request, 'commit')) throw new TypeError('invalid recovery request');
       post({ type: 'recoveryBranchCommitted', result: commitRecoveryBranch(parseRecoveryBranchCommit(request['commit'])) });

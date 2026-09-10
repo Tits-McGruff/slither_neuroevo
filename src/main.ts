@@ -3516,6 +3516,7 @@ wsClient = createWsClient({
     reconnectDelayMs = 1000;
     serverCfgHash = info.configHash;
     serverConfigRevision = info.configRevision;
+    if (info.recovery) console.warn('[recovery]', info.recovery);
     serverWorldSeed = info.worldSeed;
     serverInferenceMode = info.inferenceMode;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);

@@ -761,6 +761,36 @@ impl ExperimentalStage6aFreshRunSession {
         }
     }
 
+    /// Move the retained validated candidate after its exact branch commit; no second restore.
+    #[napi(catch_unwind)]
+    pub fn adopt_recovery_branch(
+        &self,
+        branch_run_id: JsString<'_>,
+        descriptor: Object<'_>,
+    ) -> Result<AsyncTask<AdoptRecoveryBranchTask>> {
+        self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
+        let parsed = (|| {
+            let run_id = bounded_js_string(branch_run_id, "branchRunId", 256, false)?;
+            let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+            ensure_fresh_transition_present(&self.inner)?;
+            Ok((run_id, descriptor))
+        })();
+        let (run_id, descriptor) = match parsed {
+            Ok(value) => value,
+            Err(error) => {
+                self.active_operation
+                    .store(FRESH_OPERATION_IDLE, Ordering::Release);
+                return Err(error);
+            }
+        };
+        Ok(AsyncTask::new(AdoptRecoveryBranchTask {
+            run_id,
+            descriptor,
+            inner: Arc::clone(&self.inner),
+            active_operation: Arc::clone(&self.active_operation),
+        }))
+    }
+
     /// Construct and publish the running authority off-loop after durability.
     #[napi(catch_unwind)]
     pub fn activate_running_authority(
@@ -999,6 +1029,69 @@ impl ExperimentalStage6aFreshRunSession {
         Ok(FreshSynchronousOperation {
             active_operation: Arc::clone(&self.active_operation),
         })
+    }
+}
+
+/// Async identity-only adoption of a validated, durably branched checkpoint.
+pub struct AdoptRecoveryBranchTask {
+    run_id: String,
+    descriptor: CheckpointDescriptor,
+    inner: Arc<Mutex<ExperimentalFreshRunInner>>,
+    active_operation: Arc<AtomicU8>,
+}
+
+impl Task for AdoptRecoveryBranchTask {
+    type Output = FreshRunScalarSnapshot;
+    type JsValue = ExperimentalFreshRunSnapshot;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match catch_unwind(AssertUnwindSafe(|| {
+            let mut inner = lock_recover(&self.inner);
+            if let Some(detail) = &inner.fault_detail {
+                return Err(detail.clone());
+            }
+            let transition = inner
+                .transition
+                .as_ref()
+                .ok_or_else(|| "recovery requires a retained candidate".to_owned())?;
+            transition
+                .validate_recovery_source(&self.descriptor, &self.run_id)
+                .map_err(|error| error.to_string())?;
+            let transition = inner
+                .transition
+                .take()
+                .expect("validated transition remains present under lock");
+            match transition.into_committed_recovery_branch(self.run_id.clone()) {
+                Ok(branch) => inner.transition = Some(branch),
+                Err(error) => {
+                    return Err(retain_experimental_fresh_run_fault(
+                        &mut inner,
+                        "recovery branch admission failed",
+                        &error.to_string(),
+                    ));
+                }
+            }
+            fresh_run_scalar_snapshot(&inner, FRESH_OPERATION_IDLE)
+                .map_err(|error| error.to_string())
+        })) {
+            Ok(Ok(snapshot)) => Ok(snapshot),
+            Ok(Err(detail)) => Err(Error::new(Status::GenericFailure, detail)),
+            Err(payload) => Err(fault_experimental_fresh_run(
+                &self.inner,
+                "recovery branch adoption panicked",
+                payload.as_ref(),
+            )),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        fresh_run_snapshot_to_napi(output)
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.active_operation
+            .store(FRESH_OPERATION_IDLE, Ordering::Release);
+        Ok(())
     }
 }
 

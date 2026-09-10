@@ -6,7 +6,7 @@ import type { InferenceBackend } from '../src/brains/types.ts';
 /** Allowed log levels for server output. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 /** Explicit startup population-selection mode. */
-export type ResumeSelection = 'latest' | 'fresh' | number;
+export type ResumeSelection = 'latest' | 'fresh' | number | `sha256:${string}`;
 
 /** Server runtime configuration values derived from defaults, config, env, and CLI. */
 export interface ServerConfig {
@@ -124,6 +124,7 @@ function normalizeResumeSelection(
   if (value === undefined || value === null || value === '') return DEFAULT_CONFIG.resume;
   if (value === 'latest' || value === 'fresh') return value;
   const text = String(value).trim();
+  if (/^(?:sha256:)?[0-9a-f]{64}$/u.test(text)) return `sha256:${text.replace(/^sha256:/u, '')}`;
   const parsed = typeof value === 'number' ? value : Number.parseInt(text, 10);
   if (Number.isSafeInteger(parsed) && parsed > 0 && text === String(parsed)) return parsed;
   warn?.(`resume selector "${String(value)}" is invalid; using ${DEFAULT_CONFIG.resume}.`);
@@ -535,7 +536,7 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
     input.resume = 'fresh';
   } else if (hasResumeFlag) {
     if (!resumeRaw || resumeRaw.startsWith('--')) {
-      throw new Error('--resume requires "latest" or a positive snapshot id');
+      throw new Error('--resume requires "latest", a positive reference snapshot id, or a managed SHA-256 checkpoint id');
     }
     const selection = normalizeResumeSelection(resumeRaw);
     if (selection === DEFAULT_CONFIG.resume && resumeRaw !== 'latest') {

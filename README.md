@@ -52,23 +52,35 @@ Note: This project uses ES modules, so opening `index.html` directly in a file b
 
 ### Experimental Rust server
 
-The migration branch also exposes a fresh-only native P0 server:
+The migration branch exposes a native P0 server with durable fresh-run and
+managed-checkpoint restart paths:
 
 ```powershell
 npm --prefix native run build
 npm run build:client
 npm run server:rust -- --fresh --db-path ./data/rust-experiment.sqlite
+npm run server:rust -- --resume latest --db-path ./data/rust-experiment.sqlite
 ```
 
-Use a new database path for each experiment. The server prints a browser URL
-and supports the existing Protocol 2 player/bot connections, frames, sensors,
-steering, disconnect and reclaim. Add `--host 0.0.0.0` for trusted home-LAN
-access. Checkpoints are retained beside the database in its `.checkpoints`
-directory, with free-disk admission before each generation save.
+Use a dedicated database path rather than the normal reference-runtime
+database. Start it once with `--fresh`, then reuse that path with `--resume
+latest` or `--resume <checkpoint-sha256>`. Latest startup validates the current
+managed checkpoint and, if necessary, recovers from the newest valid retained
+boundary under a new provenance-labelled branch. An exact SHA-256 selector
+must validate and is never silently replaced. If latest startup finds no valid
+retained boundary, the process serves only a failing health endpoint and
+refuses game WebSockets instead of starting a new game.
 
-This entry uses the fixed default graph and settings. Latest-checkpoint restart
-and secondary commands, including settings/reset and archive endpoints, are
-still being connected. `npm run server` remains the separate reference runtime.
+The server prints a browser URL and supports the existing Protocol 2
+player/bot connections, frames, sensors, steering, disconnect and reclaim. Add
+`--host 0.0.0.0` for trusted home-LAN access. Checkpoints are retained beside
+the database in its `.checkpoints` directory, with free-disk admission before
+each generation save. Recovery provenance is included in health and welcome
+messages.
+
+This entry uses the fixed default graph and settings. Secondary commands,
+including settings/reset and archive endpoints, are still being connected.
+`npm run server` remains the separate reference runtime.
 
 ### Architecture
 

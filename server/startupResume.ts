@@ -6,7 +6,6 @@ import { validateGraph } from '../src/brains/graph/validate.ts';
 import type { LoadedResumeSnapshot, Persistence } from './persistence.ts';
 import { SnapshotLoadError } from './persistence.ts';
 import { applySettingsUpdates, coerceCoreSettings } from './simServer.ts';
-import type { ResumeSelection } from './config.ts';
 
 /** Fully prepared experiment state passed into SimServer construction. */
 export interface StartupResumeBootstrap {
@@ -62,7 +61,7 @@ function normalizeSavedCoreSettings(value: unknown, snapshotId: number): CoreSet
  */
 export function selectStartupSnapshot(
   persistence: Persistence,
-  selection: Exclude<ResumeSelection, 'fresh'>
+  selection: 'latest' | number
 ): LoadedResumeSnapshot | null {
   try {
     return persistence.loadResumeSnapshot(selection);

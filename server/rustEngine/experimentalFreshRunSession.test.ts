@@ -172,6 +172,9 @@ class FakeFreshRunSession implements ExperimentalFreshRunNativeHandle {
     });
   }
 
+  /** Recovery rebinding is exercised through the real native integration. */
+  public async adoptRecoveryBranch(): Promise<unknown> { throw new Error('requires native recovery fixture'); }
+
   /** Return the one successful scalar activation. */
   public async activateRunningAuthority(): Promise<unknown> {
     this.current = snapshot('running', {

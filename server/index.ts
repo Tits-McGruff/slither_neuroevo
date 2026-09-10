@@ -50,6 +50,10 @@ async function closeHttpServer(server: Server): Promise<void> {
  * @returns Running server handle with close method.
  */
 export async function startServer(config: ServerConfig, logger?: Logger): Promise<RunningServer> {
+  const resume = config.resume;
+  if (typeof resume === 'string' && resume !== 'fresh' && resume !== 'latest') {
+    throw new Error('managed checkpoint IDs require the Rust server');
+  }
   resetCFGToDefaults();
   const sessionId = createSessionId();
   await prepareInferenceBackend(config.inferenceBackend);
@@ -57,8 +61,8 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
   const persistence = createPersistence(db);
   let resumeBootstrap: StartupResumeBootstrap | null = null;
   try {
-    if (config.resume !== 'fresh') {
-      const selected = selectStartupSnapshot(persistence, config.resume);
+    if (resume !== 'fresh') {
+      const selected = selectStartupSnapshot(persistence, resume);
       if (selected) {
         if (config.seed !== undefined) {
           throw new Error('a configured seed conflicts with resume; use --fresh to start a new experiment');

@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { writeFileSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -22,7 +23,7 @@ import {
   type ExperimentalFreshRunNativeHandle
 } from './experimentalFreshRunSession.ts';
 import {
-  parseManagedCheckpointDescriptor
+  parseManagedCheckpointDescriptor, type ManagedCheckpointDescriptor, type ManagedGenerationCommit
 } from './checkpointPersistenceProtocol.ts';
 
 /** Native crate directory used for the independent source identity calculation. */
@@ -184,7 +185,54 @@ afterEach(async () => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+/** Deliberately invalid immutable payload with a valid small metadata transaction. */
+async function appendInvalidGeneration(client: CheckpointPersistenceClient, root: string,
+  source: ManagedCheckpointDescriptor, generation: number): Promise<ManagedCheckpointDescriptor> {
+  const bytes = Buffer.from(`corrupt generation ${generation}`);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const hex = (value: number): string => value.toString(16).padStart(16, '0');
+  const descriptor: ManagedCheckpointDescriptor = { ...source, operationId: hex(generation).repeat(2),
+    generation: hex(generation), completedStep: hex((generation - 1) * 60), boundaryKind: 'generation',
+    logicalRootSha256: digest, relativeFilename: `${digest}.checkpoint-v3`, storedByteCount: hex(bytes.length) };
+  writeFileSync(join(root, descriptor.relativeFilename), bytes);
+  const summary: ManagedGenerationCommit['summary'] = { completedGeneration: hex(generation - 1),
+    bestF64Hex: hex(0), averageF64Hex: hex(0), minimumF64Hex: hex(0), speciesCount: hex(1),
+    topSpeciesSize: hex(1), averageWeightF64Hex: hex(0), weightVarianceF64Hex: hex(0) };
+  await client.commit(descriptor, { summary, hallOfFame: { completedGeneration: summary.completedGeneration,
+    sourcePopulationSlot: hex(0), sourceSnakeId: hex(1), fitnessF64Hex: hex(0), pointsF64Hex: hex(0),
+    length: hex(1), successorPopulationSlot: hex(0), successorGenomeId: hex(1) } });
+  return descriptor;
+}
+
 describe('experimental server startup composition', () => {
+  it('automatically skips corrupt generations, commits a branch, and preserves exact-resume rejection', async () => {
+    const paths = createFixturePaths('automatic-recovery');
+    const options = { databasePath: paths.databasePath, managedDirectory: paths.managedRoot, onWake() {} };
+    const first = await createExperimentalServerRuntime({ ...options, seed: 321 });
+    const source = first.runStart.descriptor;
+    await first.close();
+    const client = new CheckpointPersistenceClient({ databasePath: paths.databasePath, managedRootPath: paths.managedRoot, existingOnly: true });
+    clients.push(client);
+    await appendInvalidGeneration(client, paths.managedRoot, source, 2);
+    const newest = await appendInvalidGeneration(client, paths.managedRoot, source, 3);
+    await client.close();
+    await expect(createExperimentalServerRuntime({ ...options, restoreCheckpointId: newest.logicalRootSha256 })).rejects.toThrow();
+    const recovered = await createExperimentalServerRuntime({ ...options, restoreLatest: true });
+    try {
+      expect(recovered.metadata.seed).toBe(321);
+      expect(recovered.metadata.runId).not.toBe(source.runId);
+      expect(recovered.recovery).toMatchObject({ sourceRunId: source.runId, branchRunId: recovered.metadata.runId,
+        failedCheckpointId: newest.logicalRootSha256, abandonedThroughGeneration: '0000000000000003', recoveredDescriptor: source });
+      expect(recovered.runtime.health()).toMatchObject({ lifecycle: 'created', generation: source.generation, completedStep: source.completedStep });
+      expect(readFileSync(join(paths.managedRoot, newest.relativeFilename)).toString()).toBe('corrupt generation 3');
+    } finally { await recovered.close(); }
+    const resumed = await createExperimentalServerRuntime({ ...options, restoreLatest: true });
+    try { expect(resumed.metadata.runId).toBe(recovered.metadata.runId); }
+    finally { await resumed.close(); }
+    writeFileSync(join(paths.managedRoot, source.relativeFilename), 'also corrupt');
+    await expect(createExperimentalServerRuntime({ ...options, restoreLatest: true })).rejects.toThrow(/no valid retained/);
+  }, 30_000);
+
   it('restarts a committed recovery branch after a bad source pointer without rewriting its file', async () => {
     const paths = createFixturePaths('recovery-restart');
     const options = { databasePath: paths.databasePath, managedDirectory: paths.managedRoot, onWake() {} };
@@ -380,6 +428,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       .toEqual([
         'acknowledgeRunStartPersistence',
         'activateRunningAuthority',
+        'adoptRecoveryBranch',
         'constructor',
         'createBackgroundRuntime',
         'initialize',

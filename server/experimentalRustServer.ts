@@ -1,3 +1,5 @@
+import type { RustRecoveryNotice } from '../src/protocol/rustBackground.ts';
+import type { ExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
@@ -23,23 +25,65 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = { '.html': 'text/html; c
 export interface ExperimentalRustServer {
   /** Actual bound port, including an OS-selected test port. */
   port: number;
+  /** Explicit health-only startup failure, without an active simulation. */
+  startupFault?: string;
   /** Stop sockets, join native execution, then close the metadata worker. */
   close(): Promise<void>;
 }
 
-/** Start the fixed native P0 profile with a dedicated new database and no fallback. */
+/** Keep bounded diagnostics reachable after failed restore without starting any game or socket authority. */
+async function startFaultedServer(config: ServerConfig, error: unknown): Promise<ExperimentalRustServer> {
+  const reason = (error instanceof Error ? error.message : String(error)).slice(0, 512);
+  const server = createServer((_request, response) => {
+    response.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    response.end(JSON.stringify({ ok: false, authority: 'rust', lifecycle: 'startup-fault', interfaceFault: reason }));
+  });
+  server.on('upgrade', (_request, socket) => { socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'); });
+  await new Promise<void>((done, reject) => { server.once('error', reject); server.listen(config.port, config.host, () => { server.off('error', reject); done(); }); });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('faulted server has no TCP address');
+  let closing: Promise<void> | undefined;
+  console.error('[rust.startup-fault]', reason);
+  return { port: address.port, startupFault: reason, close() {
+    closing ??= new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));
+    return closing;
+  } };
+}
+
+/** Project durable provenance without exposing native population or metadata-worker internals. */
+function recoveryNotice(owner: ExperimentalServerRuntime): RustRecoveryNotice | undefined {
+  const recovery = owner.recovery;
+  if (!recovery) return undefined;
+  const recovered = BigInt(`0x${recovery.recoveredDescriptor.generation}`);
+  const through = BigInt(`0x${recovery.abandonedThroughGeneration}`) - 1n;
+  return { failedRunId: recovery.sourceRunId, branchRunId: recovery.branchRunId,
+    failedCheckpointId: recovery.failedCheckpointId, recoveredCheckpointId: recovery.recoveredDescriptor.logicalRootSha256,
+    recoveredGeneration: recovery.recoveredDescriptor.generation,
+    lostCompletedGenerations: through >= recovered ? { from: recovery.recoveredDescriptor.generation,
+      through: through.toString(16).padStart(16, '0') } : null };
+}
+
+/** Start the fixed native P0 profile from fresh or retained managed authority. */
 export async function startExperimentalRustServer(config: ServerConfig): Promise<ExperimentalRustServer> {
-  if (config.resume !== 'fresh' || resolve(config.dbPath) === resolve(DEFAULT_CONFIG.dbPath)) {
-    throw new Error('experimental Rust startup requires --fresh and a new dedicated --db-path');
+  if (resolve(config.dbPath) === resolve(DEFAULT_CONFIG.dbPath)) {
+    throw new Error('experimental Rust startup requires a dedicated managed --db-path');
   }
   if (config.inferenceBackend !== 'native' || config.mtEnabled || config.controllerInputHoldMs !== 500 ||
       config.controllerDisconnectGraceMs !== 30_000 || config.checkpointEveryGenerations !== 1) {
     throw new Error('experimental Rust startup supports native scalar P0, default controller timing, and every-generation checkpoints');
   }
   let schedule = (): void => {};
-  const owner = await createExperimentalServerRuntime({ databasePath: config.dbPath,
-    managedDirectory: `${resolve(config.dbPath)}.checkpoints`,
-    ...(config.seed === undefined ? {} : { seed: config.seed }), onWake: () => schedule() });
+  let owner: ExperimentalServerRuntime;
+  try {
+    if (typeof config.resume === 'number') throw new Error('numeric reference snapshot IDs are not managed checkpoint IDs');
+    owner = await createExperimentalServerRuntime({ databasePath: config.dbPath,
+      managedDirectory: `${resolve(config.dbPath)}.checkpoints`,
+      ...(config.resume === 'latest' ? { restoreLatest: true } : {}),
+      ...(config.resume.startsWith('sha256:') ? { restoreCheckpointId: config.resume.slice(7) } : {}),
+      ...(config.seed === undefined ? {} : { seed: config.seed }), onWake: () => schedule() });
+  } catch (error) { return startFaultedServer(config, error); }
+  const recovery = recoveryNotice(owner);
+  if (recovery) console.warn('[rust.recovery]', recovery);
   let fault: string | undefined;
   let stopping = false;
   let scheduled: NodeJS.Immediate | undefined;
@@ -59,7 +103,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     if (pathname === '/api/health' || pathname === '/health') {
       response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: owner.metadata.runId,
-        seed: owner.metadata.seed, ...owner.runtime.health(), ...(fault ? { interfaceFault: fault } : {}) }));
+        seed: owner.metadata.seed, startupCheckpointId: owner.runStart.checkpointId, ...owner.runtime.health(), ...(recovery ? { recovery } : {}), ...(fault ? { interfaceFault: fault } : {}) }));
       return;
     }
     if (request.method !== 'GET' || pathname.startsWith('/api/')) {
@@ -95,7 +139,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     return closePromise;
   };
   try {
-    hub = new WsHub(server, createRustWelcome(owner.metadata), { maxConnections: 64 });
+    hub = new WsHub(server, { ...createRustWelcome(owner.metadata), ...(recovery ? { recovery } : {}) }, { maxConnections: 64 });
     const sockets = hub;
     let routing!: ExternalControllerRouting;
     const output = new BackgroundOutputPump({
@@ -167,7 +211,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     for (const host of new Set(hosts)) {
       const authorityHost = isIP(host) === 6 ? `[${host}]` : host;
       const ws = config.publicWsUrl || `ws://${authorityHost}:${server.port}`;
-      console.info(`Rust P0: http://${authorityHost}:${server.port}/?server=${encodeURIComponent(ws)} (WebSocket ${ws})`);
+      if (server.startupFault) console.error(`Rust startup fault: ${server.startupFault}. Health: http://${authorityHost}:${server.port}/api/health`);
+      else console.info(`Rust P0: http://${authorityHost}:${server.port}/?server=${encodeURIComponent(ws)} (WebSocket ${ws})`);
     }
     process.once('SIGINT', () => { void server.close(); });
     process.once('SIGTERM', () => { void server.close(); });

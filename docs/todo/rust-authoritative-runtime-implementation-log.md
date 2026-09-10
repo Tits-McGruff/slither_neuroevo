@@ -250,5 +250,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   storage. Transaction rollback/retry, colliding future generations, and real
   addon restart from committed branch provenance have focused coverage.
 
-The next dependency is automatic newest-valid candidate selection and explicit
-health-only startup failure, followed by normal server resume routing.
+- 2026-09-10 Normal experimental startup validates the current managed boundary,
+  scans inherited retained history newest-first, and commits a recovery branch
+  only after Rust privately validates the candidate. Exact managed checkpoint
+  IDs never substitute another boundary; exhausted recovery serves health-only
+  failure. Health and welcome expose bounded recovery provenance. Focused
+  persistence, real-addon startup, and real-socket regressions cover corrupt
+  metadata/files, inherited branches, exact rejection, and recovery restart;
+  the broad local checkpoint passed.
+
+The next dependency toward Stage 6A is normal server resume routing.

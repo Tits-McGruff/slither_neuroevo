@@ -1,4 +1,4 @@
-import type { RecoveryBranchCommit, RecoveryBranchResult } from './recoveryProtocol.ts';
+import type { RecoveryBranchCommit, RecoveryBranchResult, RecoveryScanCursor, RecoveryScanResult } from './recoveryProtocol.ts';
 /** Descriptor protocol for the isolated Stage 3 checkpoint metadata worker. */
 
 /** Protocol version understood by the checkpoint persistence worker. */
@@ -193,6 +193,7 @@ export interface CheckpointPersistenceShutdownRequest {
 
 /** Requests accepted by the isolated persistence worker. */
 export type CheckpointPersistenceWorkerRequest =
+  | { type: 'scanRecoveryCandidate'; operationId: string; cursor: RecoveryScanCursor | null }
   | { type: 'commitRecoveryBranch'; commit: RecoveryBranchCommit }
   | CommitManagedCheckpointRequest
   | SelectManagedCheckpointRequest
@@ -256,6 +257,7 @@ export interface ManagedCheckpointRejectedResponse {
 
 /** Worker responses understood by the client. */
 export type CheckpointPersistenceWorkerResponse =
+  | { type: 'recoveryCandidate'; operationId: string; result: RecoveryScanResult }
   | { type: 'recoveryBranchCommitted'; result: RecoveryBranchResult }
   | ManagedCheckpointCommittedResponse
   | ManagedCheckpointSelectedResponse
