@@ -291,5 +291,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   applied 143 new player actions, replaced 60 display frames, and recovered
   inbound delivery in 29 ms; this remains diagnostic rather than LAN signoff.
 
+- 2026-09-11 PyRL-trainer `ec62b05` now uses Protocol 2, omits the unsupported
+  bot `viz` request, and preserves/retries Rust reclaim tokens. That trainer
+  revision connected to the real Rust server, discovered 83 sensors, received
+  a death replacement, and produced hundreds of Rust-applied actions.
+
 The next dependency is the Stage 6A full-generation trusted-LAN browser and
-unchanged owner-trainer evidence gate using the integrated telemetry boundary.
+trainer evidence gate using PyRL-trainer `ec62b05` and the integrated telemetry
+boundary, including a real trainer reconnect/reclaim.
