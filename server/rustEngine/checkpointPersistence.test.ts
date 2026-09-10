@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -274,13 +274,97 @@ afterEach(async () => {
 
 // Allow worker startup, durable I/O and joined shutdown on shared runners.
 describe(SUITE, { timeout: 30_000 }, () => {
+  it('branches from an older retained boundary without changing the failed suffix and advances independently', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: '22'.repeat(16),
+      generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    const third = createDescriptor(fixture.managedRoot, { operationId: '33'.repeat(16),
+      generation: u64(3n), completedStep: u64(120n), boundaryKind: 'generation' });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await fixture.client.commit(third, createGenerationCommit(2n));
+    const originalFile = readFileSync(join(fixture.managedRoot, third.relativeFilename));
+    const request = { operationId: '44'.repeat(16), branchRunId: 'recovered-lineage',
+      sourceRunId: first.runId, failedCheckpointId: third.logicalRootSha256, recoveredDescriptor: second };
+    const result = await fixture.client.commitRecoveryBranch(request);
+    expect(result).toEqual({ ...request, abandonedThroughGeneration: u64(3n) });
+    expect(await fixture.client.commitRecoveryBranch(request)).toEqual(result);
+    await expect(fixture.client.selectCurrent(request.branchRunId)).rejects.toThrow(/provenance-aware/);
+    const successor = createDescriptor(fixture.managedRoot, { operationId: '55'.repeat(16),
+      runId: request.branchRunId, generation: u64(3n), completedStep: u64(121n), boundaryKind: 'generation' });
+    await fixture.client.commit(successor, createGenerationCommit(2n));
+    await expect(fixture.client.commitRecoveryBranch(request)).rejects.toThrow(/superseded/);
+    expect(await fixture.client.selectCurrent(request.branchRunId)).toEqual(successor);
+    expect(await fixture.client.selectCurrent(first.runId)).toEqual(third);
+    await fixture.client.close();
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(db.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 4 });
+      expect(db.prepare('SELECT run_id FROM rust_active_run_v1').get()).toEqual({ run_id: request.branchRunId });
+      expect(db.prepare('SELECT source_run_id, recovered_checkpoint_id, history_through_generation_hex FROM rust_recovery_branches_v1').get())
+        .toEqual({ source_run_id: first.runId, recovered_checkpoint_id: second.logicalRootSha256, history_through_generation_hex: u64(1n) });
+      expect(db.prepare('SELECT count(*) AS count FROM rust_generation_history_v1 WHERE run_id = ?').get(first.runId)).toEqual({ count: 2 });
+    } finally { db.close(); }
+    expect(readFileSync(join(fixture.managedRoot, third.relativeFilename))).toEqual(originalFile);
+  });
+
+  it('rolls back recovery provenance when current-pointer publication fails', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(first);
+    await fixture.client.close();
+    const db = new Database(fixture.databasePath);
+    db.exec("CREATE TRIGGER reject_recovery BEFORE INSERT ON rust_checkpoint_v3_current WHEN NEW.run_id = 'branch' BEGIN SELECT RAISE(ABORT, 'injected recovery failure'); END");
+    db.close();
+    const client = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(client);
+    const request = { operationId: '66'.repeat(16), branchRunId: 'branch', sourceRunId: first.runId,
+      failedCheckpointId: first.logicalRootSha256, recoveredDescriptor: first };
+    await expect(client.commitRecoveryBranch(request)).rejects.toThrow(/injected recovery failure/);
+    expect(await client.selectCurrent()).toEqual(first);
+    await client.close();
+    const inspect = new Database(fixture.databasePath);
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_recovery_branches_v1').get()).toEqual({ count: 0 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_active_run_v1').get()).toEqual({ count: 0 });
+      inspect.exec('DROP TRIGGER reject_recovery');
+    } finally { inspect.close(); }
+    const retry = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(retry);
+    await expect(retry.commitRecoveryBranch(request)).resolves.toMatchObject({ branchRunId: 'branch' });
+  });
+
+  it('refuses missing and unrelated resume databases without creating or changing them', async () => {
+    const fixture = createFixture();
+    await fixture.client.close();
+    const missing = join(fixture.root, 'missing.sqlite');
+    const unrelated = join(fixture.root, 'reference.sqlite');
+    const db = new Database(unrelated);
+    db.exec("CREATE TABLE snapshots (id INTEGER PRIMARY KEY, value TEXT); INSERT INTO snapshots VALUES (1, 'retained')");
+    db.close();
+    const before = readFileSync(unrelated);
+    for (const databasePath of [missing, unrelated]) {
+      const client = new CheckpointPersistenceClient({ databasePath,
+        managedRootPath: fixture.managedRoot, existingOnly: true });
+      clients.push(client);
+      await expect(client.selectCurrent()).rejects.toThrow();
+      await expect(client.close()).rejects.toThrow();
+    }
+    expect(existsSync(missing)).toBe(false);
+    expect(readFileSync(unrelated)).toEqual(before);
+    expect(existsSync(`${unrelated}-wal`)).toBe(false);
+  });
+
   it('selects one current descriptor after reopening without changing publication identity', async () => {
     const fixture = createFixture();
     await expect(fixture.client.selectCurrent()).resolves.toBeNull();
     const descriptor = createDescriptor(fixture.managedRoot);
     await fixture.client.commit(descriptor);
     await fixture.client.close();
-    const reopened = new CheckpointPersistenceClient({ databasePath: fixture.databasePath, managedRootPath: fixture.managedRoot });
+    const reopened = new CheckpointPersistenceClient({ databasePath: fixture.databasePath, managedRootPath: fixture.managedRoot, existingOnly: true });
     clients.push(reopened);
     const selecting = reopened.selectCurrent();
     await expect(reopened.selectCurrent()).rejects.toThrow('busy');

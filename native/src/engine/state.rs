@@ -1360,6 +1360,26 @@ impl AuthoritativeState {
         })
     }
 
+    /// Consume a private restored boundary into a distinct recovery lineage.
+    /// Re-admission moves the existing buffers and charges the new identity;
+    /// it neither copies population storage nor changes RNG or chronology.
+    pub(crate) fn into_recovery_branch(
+        mut self,
+        run_id: String,
+        policy: &StateAdmissionPolicy,
+    ) -> Result<Self, StateError> {
+        if !matches!(self.candidate.phase, AuthorityPhase::GenerationBoundary(_))
+            || run_id == self.candidate.identity.run_id
+        {
+            return invalid(
+                "recovery.run_id",
+                "recovery requires a distinct run at a retained boundary",
+            );
+        }
+        self.candidate.identity.run_id = run_id;
+        Self::validate_and_own(self.candidate, self.graph, policy)
+    }
+
     /// Read the immutable state contract.
     #[must_use]
     pub fn state(&self) -> &StateCandidate {

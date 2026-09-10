@@ -1,4 +1,5 @@
-import { parseManagedCheckpointDescriptor } from './checkpointPersistenceProtocol.ts';
+import { parseRecoveryBranchResult, type RecoveryBranchResult } from './recoveryProtocol.ts';
+import { managedCheckpointDescriptorsEqual, parseManagedCheckpointDescriptor } from './checkpointPersistenceProtocol.ts';
 import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import { parseRustStartupMetadata } from './startupMetadata.ts';
 /**
@@ -153,7 +154,7 @@ export interface ExperimentalFreshRunNativeHandle extends RustRunStartPersistenc
   /** Construct and admit the complete fixed P0 boundary off the Node loop. */
   initialize(): Promise<unknown>;
   /** Stream and validate the worker-selected immutable boundary off-loop. */
-  initializeFromCheckpoint(managedDirectory: string, descriptor: ManagedCheckpointDescriptor): Promise<unknown>;
+  initializeFromCheckpoint(managedDirectory: string, descriptor: ManagedCheckpointDescriptor, recoveryBranch?: boolean): Promise<unknown>;
   /** Construct and publish the running world off the Node loop. */
   activateRunningAuthority(): Promise<unknown>;
   /** Pack the one neutral-view startup frame directly from Rust authority. */
@@ -290,6 +291,8 @@ export class ExperimentalFreshRunSession {
   private readonly native: ExperimentalFreshRunNativeHandle;
   /** Controlled root used for both publication and restore. */
   private readonly managedDirectory: string;
+  /** Exact effective lineage supplied to the native constructor. */
+  private readonly runId: string;
   /** Selected retained chronology, populated only after native restore succeeds. */
   private restoredBoundary: ManagedCheckpointDescriptor | undefined;
   /** Exact Rust-to-worker-to-Rust durability handoff. */
@@ -305,6 +308,7 @@ export class ExperimentalFreshRunSession {
     options: Omit<CreateExperimentalFreshRunSessionOptions, 'binding' | 'sourceIdentity'>
   ) {
     const runId = validateRunId(options.runId);
+    this.runId = runId;
     const seedHex = encodeSeed(options.seed);
     const memoryCeilingBytesHex = encodePositiveU64(
       options.memoryCeilingBytes,
@@ -330,9 +334,14 @@ export class ExperimentalFreshRunSession {
   }
 
   /** Restore exactly the committed descriptor selected by the persistence worker. */
-  public async initializeFromCheckpoint(descriptor: ManagedCheckpointDescriptor): Promise<ExperimentalFreshRunSnapshot> {
+  public async initializeFromCheckpoint(descriptor: ManagedCheckpointDescriptor, recovery?: RecoveryBranchResult): Promise<ExperimentalFreshRunSnapshot> {
     const selected = parseManagedCheckpointDescriptor(descriptor);
-    const result = await this.native.initializeFromCheckpoint(this.managedDirectory, selected);
+    const provenance = recovery === undefined ? undefined : parseRecoveryBranchResult(recovery);
+    if (provenance && (provenance.branchRunId !== this.runId ||
+        !managedCheckpointDescriptorsEqual(provenance.recoveredDescriptor, selected))) {
+      throw new Error('recovery provenance differs from selected checkpoint or branch');
+    }
+    const result = await this.native.initializeFromCheckpoint(this.managedDirectory, selected, provenance !== undefined);
     this.restoredBoundary = selected;
     return parseFreshRunSnapshot(result, selected);
   }

@@ -1480,6 +1480,69 @@ mod tests {
     }
 
     #[test]
+    fn recovery_rebinding_preserves_every_state_field_and_moves_population_storage() {
+        let prepared = prepare_stage6a_p0_boundary(request(42)).unwrap();
+        let mut expected = prepared.candidate.clone();
+        let population = prepared.candidate.population.as_ptr();
+        let state = AuthoritativeState::validate_and_own(
+            prepared.candidate,
+            prepared.graph,
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        let branch = state
+            .into_recovery_branch("different-lineage".into(), &prepared.admission_policy)
+            .unwrap();
+        expected.identity.run_id = "different-lineage".into();
+        assert_eq!(branch.state(), &expected);
+        assert_eq!(branch.state().population.as_ptr(), population);
+    }
+
+    #[test]
+    fn recovery_branch_changes_only_lineage_before_activation() {
+        let managed = TestDirectory::create("recovery-lineage");
+        let mut source = prepare_stage6a_p0_fresh_run(request(42)).unwrap();
+        let descriptor = source
+            .publish_checkpoint(
+                managed.path(),
+                CheckpointOperationId::parse("42424242424242424242424242424242").unwrap(),
+            )
+            .unwrap();
+        let restore = || {
+            prepare_stage6a_p0_checkpoint_restore(
+                managed.path(),
+                &descriptor,
+                request(42).memory_ceiling_bytes,
+            )
+            .unwrap()
+        };
+        let restored = restore();
+        let mut original_metadata: serde_json::Value =
+            serde_json::from_str(&restored.startup_metadata_json().unwrap()).unwrap();
+        let mut branch = restored
+            .into_committed_recovery_branch("recovery-branch".into())
+            .unwrap();
+        let branch_metadata: serde_json::Value =
+            serde_json::from_str(&branch.startup_metadata_json().unwrap()).unwrap();
+        original_metadata["runId"] = serde_json::json!("recovery-branch");
+        assert_eq!(branch_metadata, original_metadata);
+        assert_eq!(branch.generation(), source.generation());
+        assert_eq!(branch.completed_step(), source.completed_step());
+        assert!(!branch.authority_published());
+        assert_eq!(branch.snake_count(), 0);
+        branch.publish_running_authority().unwrap();
+        assert!(branch
+            .into_committed_recovery_branch("another".into())
+            .is_err());
+        assert!(restore()
+            .into_committed_recovery_branch(descriptor.run_id.clone())
+            .is_err());
+        assert!(restore()
+            .into_committed_recovery_branch(String::new())
+            .is_err());
+    }
+
+    #[test]
     fn retained_loop_services_one_backlogged_step_per_boundary_and_faults_once() {
         let pending = activate_pending_run_start(
             prepare_stage6a_p0_fresh_run(request(0x1020_3040))

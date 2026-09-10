@@ -1,3 +1,4 @@
+import { parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
 import { Worker } from 'node:worker_threads';
 import { randomBytes } from 'node:crypto';
 import {
@@ -9,6 +10,7 @@ import {
   type CheckpointOperationId,
   type CheckpointPersistenceWorkerResponse,
   type ManagedCheckpointDescriptor,
+  type ManagedCheckpointSelection,
   type ManagedCheckpointDescriptorLimits,
   type ManagedGenerationCommit,
   type U64Hex
@@ -18,6 +20,8 @@ import {
 export interface CheckpointPersistenceClientOptions {
   /** Disposable/test SQLite database path supplied to the isolated worker. */
   databasePath: string;
+  /** Resume requires an existing managed-metadata schema and never initializes another database. */
+  existingOnly?: boolean;
   /** Existing controlled root containing final immutable checkpoint-v3 files. */
   managedRootPath: string;
   /** Explicit bounded descriptor limits, defaulting only to the provisional Stage 3 envelope. */
@@ -85,9 +89,11 @@ export class CheckpointPersistenceClient {
   private selection: {
     operationId: CheckpointOperationId;
     runId: string | null;
-    resolve(value: ManagedCheckpointDescriptor | null): void;
+    resolve(value: ManagedCheckpointSelection): void;
     reject(error: Error): void;
   } | undefined;
+  /** One startup recovery transaction; retries use the same caller-owned operation token. */
+  private recovery: { commit: RecoveryBranchCommit; resolve(value: RecoveryBranchResult): void; reject(error: Error): void } | undefined;
   /** Terminal lifecycle failure, if the worker violates protocol or exits unexpectedly. */
   private failure: Error | null = null;
   /** Whether orderly shutdown has been requested. */
@@ -128,6 +134,7 @@ export class CheckpointPersistenceClient {
         databasePath: options.databasePath,
         managedRootPath: options.managedRootPath,
         limits,
+        existingOnly: options.existingOnly ?? false,
         ...(options.workerUrlForTesting && options.workerResponseModeForTesting
           ? { checkpointPersistenceTestMode: options.workerResponseModeForTesting }
           : {})
@@ -179,7 +186,16 @@ export class CheckpointPersistenceClient {
   }
 
   /** Read one current descriptor on the worker, preserving every source row and file. */
-  selectCurrent(runId: string | null = null): Promise<ManagedCheckpointDescriptor | null> {
+  async selectCurrent(runId: string | null = null): Promise<ManagedCheckpointDescriptor | null> {
+    const selected = await this.selectStartup(runId);
+    if (selected.descriptor && selected.descriptor.runId !== selected.runId) {
+      throw new Error('recovery branch requires provenance-aware startup selection');
+    }
+    return selected.descriptor;
+  }
+
+  /** Read active lineage and immutable source together, including durable recovery provenance. */
+  selectStartup(runId: string | null = null): Promise<ManagedCheckpointSelection> {
     if (this.failure) return Promise.reject(this.failure);
     if (this.stopping || this.selection) return Promise.reject(new Error('checkpoint selection is busy or stopping'));
     if (runId !== null && (typeof runId !== 'string' || !runId || Buffer.byteLength(runId) > 256 || runId.includes('\0'))) {
@@ -190,6 +206,18 @@ export class CheckpointPersistenceClient {
       this.selection = { operationId, runId, resolve, reject };
       try { this.worker.postMessage({ type: 'selectManagedCheckpoint', operationId, runId }); }
       catch (error) { this.selection = undefined; reject(asError(error)); }
+    });
+  }
+
+  /** Commit a validated recovery branch before native activation, without copying population bytes. */
+  commitRecoveryBranch(value: RecoveryBranchCommit): Promise<RecoveryBranchResult> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.recovery) return Promise.reject(new Error('recovery commit is busy or stopping'));
+    const commit = parseRecoveryBranchCommit(value);
+    return new Promise((resolve, reject) => {
+      this.recovery = { commit, resolve, reject };
+      try { this.worker.postMessage({ type: 'commitRecoveryBranch', commit }); }
+      catch (error) { this.recovery = undefined; reject(asError(error)); }
     });
   }
 
@@ -236,19 +264,35 @@ export class CheckpointPersistenceClient {
   private onMessage(value: unknown): void {
     try {
       const response = parseWorkerResponse(value);
+      if (response.type === 'recoveryBranchCommitted') {
+        const pending = this.recovery;
+        const { abandonedThroughGeneration: _suffix, ...commit } = response.result;
+        if (!pending || JSON.stringify(commit) !== JSON.stringify(pending.commit)) {
+          throw new Error('persistence worker returned a mismatched recovery acknowledgement');
+        }
+        this.recovery = undefined;
+        pending.resolve(response.result);
+        return;
+      }
       if (response.type === 'managedCheckpointSelected') {
         const selection = this.selection;
         if (!selection || response.operationId !== selection.operationId ||
-            (selection.runId !== null && response.descriptor !== null && response.descriptor.runId !== selection.runId)) {
+            (selection.runId !== null && response.descriptor !== null && response.runId !== selection.runId)) {
           throw new Error('persistence worker returned a mismatched checkpoint selection');
         }
         this.selection = undefined;
-        selection.resolve(response.descriptor);
+        selection.resolve({ descriptor: response.descriptor, runId: response.runId, recovery: response.recovery });
         return;
       }
       if (response.type === 'managedCheckpointRejected') {
         if (!response.operationId) {
           throw new Error(`persistence worker rejected an uncorrelated request: ${response.reason}`);
+        }
+        if (response.operationId === this.recovery?.commit.operationId) {
+          const pending = this.recovery;
+          this.recovery = undefined;
+          pending.reject(new Error(response.reason));
+          return;
         }
         if (response.operationId === this.selection?.operationId) {
           const selection = this.selection;
@@ -299,6 +343,8 @@ export class CheckpointPersistenceClient {
     this.stopping = true;
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+    this.recovery?.reject(error);
+    this.recovery = undefined;
     this.selection?.reject(error);
     this.selection = undefined;
     void this.terminateForFailure();
@@ -332,7 +378,7 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection) {
+    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery) {
       this.resolveStopped?.();
       this.resolveStopped = null;
       this.rejectStopped = null;
@@ -370,11 +416,25 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     throw new TypeError('checkpoint persistence worker sent a non-object response');
   }
   const response = value as Record<string, unknown>;
+  if (response['type'] === 'recoveryBranchCommitted') {
+    requireExactKeys(response, ['type', 'result']);
+    return { type: 'recoveryBranchCommitted', result: parseRecoveryBranchResult(response['result']) };
+  }
   if (response['type'] === 'managedCheckpointSelected') {
-    requireExactKeys(response, ['type', 'operationId', 'descriptor']);
+    requireExactKeys(response, ['type', 'operationId', 'descriptor', 'runId', 'recovery']);
     if (!isOperationId(response['operationId'])) throw new TypeError('invalid checkpoint selection correlation');
-    return { type: 'managedCheckpointSelected', operationId: response['operationId'],
-      descriptor: response['descriptor'] === null ? null : parseManagedCheckpointDescriptor(response['descriptor']) };
+    const descriptor = response['descriptor'] === null ? null : parseManagedCheckpointDescriptor(response['descriptor']);
+    const recovery = response['recovery'] === null ? null : parseRecoveryBranchResult(response['recovery']);
+    const runId = response['runId'];
+    if (descriptor === null) {
+      if (runId !== null || recovery !== null) throw new Error('empty selection contains lineage');
+    } else if (typeof runId !== 'string' || !runId || Buffer.byteLength(runId) > 256 ||
+        (recovery && recovery.branchRunId !== runId) ||
+        (descriptor.runId !== runId && (!recovery || !managedCheckpointDescriptorsEqual(recovery.recoveredDescriptor, descriptor)))) {
+      throw new Error('selected checkpoint lacks matching recovery provenance');
+    }
+    return { type: 'managedCheckpointSelected', operationId: response['operationId'], descriptor,
+      runId: runId as string | null, recovery };
   }
   if (response['type'] === 'managedCheckpointCommitted') {
     requireExactKeys(response, [

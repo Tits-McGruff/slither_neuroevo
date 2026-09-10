@@ -1,3 +1,4 @@
+import type { RecoveryBranchResult } from './recoveryProtocol.ts';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, open, statfs } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -25,10 +26,12 @@ const NATIVE_DIRECTORY = fileURLToPath(new URL('../../native/', import.meta.url)
 /** CommonJS loader for the generated native addon. */
 const require = createRequire(import.meta.url);
 
-/** Explicit fresh-only storage and identity inputs for experimental startup. */
+/** Explicit storage and identity inputs for experimental startup composition. */
 export interface ExperimentalStartupOptions {
-  /** A new dedicated database; an existing path is never opened or overwritten. */
+  /** Dedicated managed-metadata database; fresh startup requires a new path. */
   databasePath: string;
+  /** Internal exact-current restart prerequisite; automatic latest recovery is separate. */
+  restoreCurrent?: boolean;
   /** Controlled immutable checkpoint directory. */
   managedDirectory: string;
   /** Optional normalized Uint32 seed; omission uses OS entropy. */
@@ -43,9 +46,11 @@ export interface ExperimentalServerRuntime {
   runtime: ExperimentalRunningAuthorityNativeHandle;
   /** Small immutable facts captured from Rust before authority transfer. */
   metadata: RustStartupMetadata;
+  /** Durable recovery provenance for health/welcome reporting. */
+  recovery: RecoveryBranchResult | null;
   /** Dedicated metadata worker reused for generation commits. */
   persistence: CheckpointPersistenceClient;
-  /** Exact committed generation-one checkpoint. */
+  /** Exact committed startup checkpoint, retained unchanged on restore. */
   runStart: ManagedCheckpointCommitResult;
   /** Controlled root for subsequent immutable generation files. */
   managedDirectory: string;
@@ -61,36 +66,49 @@ async function admitCheckpoint(directory: string): Promise<void> {
   if (space.bavail * space.bsize < MINIMUM_FREE_BYTES) throw new Error('insufficient free disk for experimental checkpoints');
 }
 
-/** Construct, durably checkpoint, and transfer one explicit fresh Rust authority. */
+/** Construct or restore a durable Rust boundary and transfer its sole running authority. */
 export async function createExperimentalServerRuntime(options: ExperimentalStartupOptions): Promise<ExperimentalServerRuntime> {
-  const seed = options.seed ?? randomBytes(4).readUInt32LE();
+  if (options.restoreCurrent && options.seed !== undefined) throw new Error('checkpoint restore cannot override its retained seed');
+  // The constructor seed is unused by native restore; welcome comes only from its metadata.
+  const seed = options.restoreCurrent ? 0 : (options.seed ?? randomBytes(4).readUInt32LE());
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffff_ffff) throw new RangeError('experimental seed must be a Uint32');
   const databasePath = resolve(options.databasePath);
   const managedDirectory = resolve(options.managedDirectory);
-  await mkdir(dirname(databasePath), { recursive: true });
-  await mkdir(managedDirectory, { recursive: true });
-  await admitCheckpoint(managedDirectory);
-  // Exclusive creation keeps the owner's reference/legacy databases out of this
-  // fresh-only route. Failed startup leaves its new files available for diagnosis.
-  const reservation = await open(databasePath, 'wx');
-  await reservation.close();
-  const persistence = new CheckpointPersistenceClient({ databasePath, managedRootPath: managedDirectory });
+  if (!options.restoreCurrent) {
+    await mkdir(dirname(databasePath), { recursive: true });
+    await mkdir(managedDirectory, { recursive: true });
+    await admitCheckpoint(managedDirectory);
+    // Exclusive creation keeps existing reference/legacy databases out of fresh startup.
+    const reservation = await open(databasePath, 'wx');
+    await reservation.close();
+  }
+  const persistence = new CheckpointPersistenceClient({ databasePath,
+    managedRootPath: managedDirectory, existingOnly: options.restoreCurrent ?? false });
   let runtime: ExperimentalRunningAuthorityNativeHandle | undefined;
   try {
+    const selection = options.restoreCurrent ? await persistence.selectStartup() : null;
+    const selected = selection?.descriptor ?? null;
+    if (options.restoreCurrent && !selected) throw new Error('no current managed checkpoint to restore');
     const session = await loadExperimentalFreshRunSession({
       nativeManifestDirectory: NATIVE_DIRECTORY, loadBinding: () => require(resolve(NATIVE_DIRECTORY, 'index.js')) as unknown,
-      runId: randomUUID(), seed, memoryCeilingBytes: 4n * 1024n * 1024n * 1024n,
+      runId: selection?.runId ?? randomUUID(), seed, memoryCeilingBytes: 4n * 1024n * 1024n * 1024n,
       persistence, managedDirectory
     });
-    await session.initialize();
+    if (selected) await session.initializeFromCheckpoint(selected,
+      selected.runId !== selection?.runId ? selection?.recovery ?? undefined : undefined);
+    else await session.initialize();
     const metadata = session.startupMetadata();
-    const runStart = await session.commitPendingRunStart(randomBytes(16).toString('hex'));
+    if (selected && metadata.runId !== selection?.runId) throw new Error('restored startup identity differs from selected checkpoint');
+    const runStart: ManagedCheckpointCommitResult = selected ? {
+      operationId: selected.operationId, transitionEpoch: selected.transitionEpoch,
+      runId: selected.runId, checkpointId: selected.logicalRootSha256, descriptor: selected
+    } : await session.commitPendingRunStart(randomBytes(16).toString('hex'));
     await session.activateRunningAuthority();
     runtime = await session.createBackgroundRuntime(BACKGROUND_INIT, options.onWake);
     const owner = runtime;
     let closing: Promise<void> | undefined;
     return {
-      runtime: owner, metadata, persistence, runStart, managedDirectory,
+      runtime: owner, metadata, recovery: selection?.recovery ?? null, persistence, runStart, managedDirectory,
       admitCheckpoint: () => admitCheckpoint(managedDirectory),
       close(): Promise<void> {
         closing ??= (async () => {

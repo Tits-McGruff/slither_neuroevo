@@ -1,3 +1,4 @@
+import type { RecoveryBranchCommit, RecoveryBranchResult } from './recoveryProtocol.ts';
 /** Descriptor protocol for the isolated Stage 3 checkpoint metadata worker. */
 
 /** Protocol version understood by the checkpoint persistence worker. */
@@ -192,6 +193,7 @@ export interface CheckpointPersistenceShutdownRequest {
 
 /** Requests accepted by the isolated persistence worker. */
 export type CheckpointPersistenceWorkerRequest =
+  | { type: 'commitRecoveryBranch'; commit: RecoveryBranchCommit }
   | CommitManagedCheckpointRequest
   | SelectManagedCheckpointRequest
   | CheckpointPersistenceShutdownRequest;
@@ -206,8 +208,18 @@ export interface SelectManagedCheckpointRequest {
   runId: string | null;
 }
 
+/** Selected source content and its durable effective lineage. */
+export interface ManagedCheckpointSelection {
+  /** Original immutable checkpoint descriptor, or null for an empty store. */
+  descriptor: ManagedCheckpointDescriptor | null;
+  /** Effective active run, which differs from source content only at a branch base. */
+  runId: string | null;
+  /** Durable provenance remains visible after the branch advances. */
+  recovery: RecoveryBranchResult | null;
+}
+
 /** One validated metadata selection, without opening or decoding population payloads. */
-export interface ManagedCheckpointSelectedResponse {
+export interface ManagedCheckpointSelectedResponse extends ManagedCheckpointSelection {
   /** Response discriminator. */
   type: 'managedCheckpointSelected';
   /** Exact read correlation. */
@@ -244,6 +256,7 @@ export interface ManagedCheckpointRejectedResponse {
 
 /** Worker responses understood by the client. */
 export type CheckpointPersistenceWorkerResponse =
+  | { type: 'recoveryBranchCommitted'; result: RecoveryBranchResult }
   | ManagedCheckpointCommittedResponse
   | ManagedCheckpointSelectedResponse
   | ManagedCheckpointRejectedResponse;

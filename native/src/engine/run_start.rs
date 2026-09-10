@@ -148,6 +148,25 @@ impl PendingRunStartTransition {
         })
     }
 
+    /// Bind an already validated retained boundary to a committed recovery branch.
+    /// The caller supplies this only after the worker's FULL provenance/current
+    /// transaction. The immutable source descriptor stays unchanged by digest.
+    pub fn into_committed_recovery_branch(
+        mut self,
+        branch_run_id: String,
+    ) -> Result<Self, RunStartTransitionError> {
+        if self.authority_published {
+            return Err(RunStartTransitionError::AuthorityAlreadyPublished);
+        }
+        if !self.restored_checkpoint {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        self.authority = self
+            .authority
+            .into_recovery_branch(branch_run_id, &self.admission_policy)?;
+        Ok(self)
+    }
+
     /// Publish or exactly retry the immutable run-start file.
     ///
     /// The transition epoch is the Rust-allocated process-local world

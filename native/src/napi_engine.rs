@@ -675,6 +675,7 @@ impl ExperimentalStage6aFreshRunSession {
         &self,
         managed_directory: JsString<'_>,
         descriptor: Object<'_>,
+        recovery_branch: Option<bool>,
     ) -> Result<AsyncTask<InitializeExperimentalFreshRunTask>> {
         self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
         let parsed = (|| {
@@ -685,14 +686,15 @@ impl ExperimentalStage6aFreshRunSession {
                 false,
             )?)?;
             let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
-            if descriptor.run_id != self.request.run_id {
+            let recovery = recovery_branch.unwrap_or(false);
+            if (descriptor.run_id != self.request.run_id) != recovery {
                 return Err(Error::new(
                     Status::InvalidArg,
                     "selected checkpoint run differs from session run",
                 ));
             }
             ensure_fresh_transition_absent(&self.inner)?;
-            Ok((directory, descriptor))
+            Ok((directory, descriptor, recovery))
         })();
         let restore = match parsed {
             Ok(restore) => restore,
@@ -1003,7 +1005,7 @@ impl ExperimentalStage6aFreshRunSession {
 /// Async complete fixed-profile construction for one experimental lineage.
 pub struct InitializeExperimentalFreshRunTask {
     request: Stage6aP0FreshRunRequest,
-    restore: Option<(PathBuf, CheckpointDescriptor)>,
+    restore: Option<(PathBuf, CheckpointDescriptor, bool)>,
     inner: Arc<Mutex<ExperimentalFreshRunInner>>,
     active_operation: Arc<AtomicU8>,
 }
@@ -1015,11 +1017,20 @@ impl Task for InitializeExperimentalFreshRunTask {
     fn compute(&mut self) -> Result<Self::Output> {
         match catch_unwind(AssertUnwindSafe(|| {
             let transition = match &self.restore {
-                Some((directory, descriptor)) => prepare_stage6a_p0_checkpoint_restore(
+                Some((directory, descriptor, recovery)) => prepare_stage6a_p0_checkpoint_restore(
                     directory,
                     descriptor,
                     self.request.memory_ceiling_bytes,
-                ),
+                )
+                .and_then(|transition| {
+                    if *recovery {
+                        transition
+                            .into_committed_recovery_branch(self.request.run_id.clone())
+                            .map_err(crate::engine::fresh_run::FreshRunError::from)
+                    } else {
+                        Ok(transition)
+                    }
+                }),
                 None => prepare_stage6a_p0_fresh_run(self.request.clone()),
             }
             .map_err(|error| error.to_string())?;

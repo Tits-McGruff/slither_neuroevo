@@ -242,5 +242,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   This primitive rejects ambiguous run selection; automatic recovery is not yet
   wired to server startup.
 
-The next dependency is startup selection and recovery branching for the latest
-retained managed boundary, including explicit health-only failure.
+- 2026-09-10 Restart composition admits only existing managed-metadata databases,
+  preserving unrelated reference databases. Recovery commits a distinct run,
+  bounded provenance, a source-history prefix reference, and the active pointer
+  in one FULL transaction while retaining the failed source suffix and files.
+  Rust rebinds only the private restored run identity without copying population
+  storage. Transaction rollback/retry, colliding future generations, and real
+  addon restart from committed branch provenance have focused coverage.
+
+The next dependency is automatic newest-valid candidate selection and explicit
+health-only startup failure, followed by normal server resume routing.

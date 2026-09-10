@@ -185,6 +185,71 @@ afterEach(async () => {
 });
 
 describe('experimental server startup composition', () => {
+  it('restarts a committed recovery branch after a bad source pointer without rewriting its file', async () => {
+    const paths = createFixturePaths('recovery-restart');
+    const options = { databasePath: paths.databasePath, managedDirectory: paths.managedRoot, onWake() {} };
+    const first = await createExperimentalServerRuntime({ ...options, seed: 987 });
+    const expected = first.metadata;
+    const descriptor = first.runStart.descriptor;
+    await first.close();
+    const failedCheckpointId = 'f'.repeat(64);
+    const db = new Database(paths.databasePath);
+    try {
+      db.pragma('foreign_keys = OFF'); // Deliberately model an already-corrupt on-disk pointer.
+      db.prepare('UPDATE rust_checkpoint_v3_current SET checkpoint_id = ? WHERE run_id = ?').run(failedCheckpointId, expected.runId);
+    } finally { db.close(); }
+    const persistence = new CheckpointPersistenceClient({ databasePath: paths.databasePath,
+      managedRootPath: paths.managedRoot, existingOnly: true });
+    clients.push(persistence);
+    await expect(persistence.selectStartup()).rejects.toThrow(/missing immutable metadata/);
+    const candidate = await loadExperimentalFreshRunSession({ nativeManifestDirectory: NATIVE_DIRECTORY,
+      loadBinding, runId: descriptor.runId, seed: 0, memoryCeilingBytes: P0_MEMORY_CEILING,
+      managedDirectory: paths.managedRoot, persistence });
+    await candidate.initializeFromCheckpoint(descriptor);
+    const recovery = await persistence.commitRecoveryBranch({ operationId: '77'.repeat(16),
+      branchRunId: 'durable-recovery', sourceRunId: expected.runId, failedCheckpointId, recoveredDescriptor: descriptor });
+    await persistence.close();
+    const restored = await createExperimentalServerRuntime({ ...options, restoreCurrent: true });
+    try {
+      expect(restored.metadata).toEqual({ ...expected, runId: recovery.branchRunId });
+      expect(restored.recovery).toEqual(recovery);
+      expect(countManagedFiles(paths.managedRoot)).toBe(1);
+      restored.runtime.start();
+      const deadline = performance.now() + 10_000;
+      while (BigInt(`0x${restored.runtime.health().completedStep}`) < 2n && performance.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect(BigInt(`0x${restored.runtime.health().completedStep}`)).toBeGreaterThanOrEqual(2n);
+      expect(restored.runtime.health().faultCode).toBeUndefined();
+    } finally { await restored.close(); }
+    const inspect = new Database(paths.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?').get(expected.runId))
+        .toEqual({ checkpoint_id: failedCheckpointId });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 1 });
+    } finally { inspect.close(); }
+  }, 30_000);
+
+  it('composes exact-current restart with preserved metadata and no extra checkpoint', async () => {
+    const paths = createFixturePaths('startup-restart');
+    const options = { databasePath: paths.databasePath, managedDirectory: paths.managedRoot, onWake() {} };
+    const first = await createExperimentalServerRuntime({ ...options, seed: 987 });
+    const expected = first.metadata;
+    const checkpoint = first.runStart;
+    await first.close();
+    const restored = await createExperimentalServerRuntime({ ...options, restoreCurrent: true });
+    try {
+      expect(restored.metadata).toEqual(expected);
+      expect(restored.runStart).toEqual(checkpoint);
+      expect(restored.runtime.health()).toMatchObject({ lifecycle: 'created',
+        generation: checkpoint.descriptor.generation, completedStep: checkpoint.descriptor.completedStep });
+      expect(await restored.persistence.selectCurrent()).toEqual(checkpoint.descriptor);
+      expect(countManagedFiles(paths.managedRoot)).toBe(1);
+    } finally { await restored.close(); }
+    await expect(createExperimentalServerRuntime({ ...options, restoreCurrent: true, seed: 0 }))
+      .rejects.toThrow(/retained seed/);
+  }, 30_000);
+
   it('routes a real fresh controller through assignment, observation, and shared action admission', async () => {
     const paths = createFixturePaths('server-output');
     const owner = await createExperimentalServerRuntime({ databasePath: paths.databasePath,
