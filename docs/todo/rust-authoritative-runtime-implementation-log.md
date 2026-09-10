@@ -43,7 +43,7 @@ is actually needed.
 | 3 | Rust foundation established | Rust state/graph/RNG contracts, coarse bridge, managed checkpoint-v3 codec/metadata worker and Rust→SQLite publication handoff exist. Detailed retained artifacts are under `docs/todo/evidence/stage3/`. |
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
-| 6 | In progress, late pre-6A | The bounded background runtime carries generation checkpoint publication, persistence acknowledgement, controller reassignment/results and one authority swap. The production addon can exclusively transfer its durable fresh run to this runtime. Server startup, continuous frame/output delivery and real browser/RL wiring remain before the Stage 6A vertical-slice gate. |
+| 6 | In progress, local 6A slice established | The dedicated experimental server owns durable fresh/latest/exact startup, continuous Rust frames/stats, current browser and Protocol 2 controller routing, generation persistence, and non-destructive recovery. The remaining 6A gate is the current browser and existing trainer over the trusted LAN with integrated timing/RSS evidence; secondary commands and archives remain Stage 6B work. |
 | 7–8 | Not yet accepted | Performance/durability acceptance and production cutover remain future gates. |
 
 ## Milestone index
@@ -259,4 +259,15 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   metadata/files, inherited branches, exact rejection, and recovery restart;
   the broad local checkpoint passed.
 
-The next dependency toward Stage 6A is normal server resume routing.
+- 2026-09-10 The built client and actual browser WebSocket/action-pump modules
+  now run through the real Rust server in integration: periodic and
+  change-triggered latest actions apply steering and boost release without any
+  sensor or frame callback producing them. Recovery is visibly marked with
+  exact provenance in the browser status. A built-browser smoke joined, steered,
+  and remained healthy across generation two; a no-controller run crossed the
+  same durable boundary. Focused native-server, browser-client, CLI, TypeScript,
+  lint, and build checks pass.
+
+The next dependency is the Stage 6A real-browser/LAN and existing-trainer
+evidence gate, including independent player action transmission through the
+Rust server.

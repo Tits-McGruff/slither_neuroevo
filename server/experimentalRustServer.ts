@@ -182,7 +182,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       });
     };
     /** Reject secondary commands explicitly until their planned migration slice. */
-    const unsupported = (connection: number): void => { sockets.sendJsonTo(connection, { type: 'error', message: fault ?? 'command unavailable in experimental P0; restart for a fresh run' }); };
+    const unsupported = (connection: number): void => { sockets.sendJsonTo(connection, { type: 'error', message: fault ?? 'command unavailable in experimental P0' }); };
     /** Convert unexpected admission failures into a terminal interface fault. */
     const route = (action: () => void): void => { try { action(); } catch (error) { fail(error); } schedule(); };
     sockets.setHandlers({

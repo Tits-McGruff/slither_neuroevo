@@ -489,6 +489,9 @@ describe(SUITE, () => {
       expect(parseConfig(['--config', latestConfig, '--resume', 'latest'], {})).toMatchObject({
         resume: 'latest'
       });
+      expect(parseConfig(['--config', latestConfig, '--resume', 'a'.repeat(64)], {})).toMatchObject({
+        resume: `sha256:${'a'.repeat(64)}`
+      });
       expect(parseConfig([
         '--config',
         freshConfig,

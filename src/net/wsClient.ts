@@ -233,6 +233,19 @@ export function formatServerRuntimeStatus(
 }
 
 /**
+ * Format complete recovery provenance for the browser status tooltip.
+ * @param recovery - Durable branch notice supplied by the Rust server.
+ * @returns Plain recovery identity and abandoned-generation description.
+ */
+export function formatRecoveryRuntimeStatus(recovery: RustRecoveryNotice): string {
+  const generation = BigInt(`0x${recovery.recoveredGeneration}`).toString(10);
+  const loss = recovery.lostCompletedGenerations
+    ? `abandoned completed generations ${BigInt(`0x${recovery.lostCompletedGenerations.from}`).toString(10)} through ${BigInt(`0x${recovery.lostCompletedGenerations.through}`).toString(10)}`
+    : 'no completed generations were lost';
+  return `Recovered checkpoint ${recovery.recoveredCheckpointId} at generation ${generation} from failed run ${recovery.failedRunId} into branch ${recovery.branchRunId}; failed checkpoint ${recovery.failedCheckpointId}; ${loss}.`;
+}
+
+/**
  * Format a host for URL usage, adding brackets for IPv6 literals.
  * @param host - Hostname or IP literal.
  * @returns Host string safe for URL assembly.

@@ -25,6 +25,7 @@ import { AdvancedCharts } from './chartUtils.ts';
 import { FRAME_HEADER_FLOATS, FRAME_HEADER_OFFSETS } from './protocol/frame.ts';
 import {
   createWsClient,
+  formatRecoveryRuntimeStatus,
   formatServerRuntimeStatus,
   resolveServerUrl,
   storeServerUrl,
@@ -41,6 +42,7 @@ import type { GraphSizeState } from './brains/graph/editor.ts';
 import { validateGraph } from './brains/graph/validate.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
 import type { FrameStats, GenomeJSON, HallOfFameEntry, VizData } from './protocol/messages.ts';
+import type { RustRecoveryNotice } from './protocol/rustBackground.ts';
 import { SETTINGS_PATHS, coerceSettingsUpdateValue } from './protocol/settings.ts';
 import type {
   CoreSettings,
@@ -128,6 +130,8 @@ let serverSimSpeed = 1;
 let serverWorldSeed: number | null = null;
 /** Inference mode advertised for the active server run. */
 let serverInferenceMode: WelcomeInferenceMode | null = null;
+/** Durable recovery provenance advertised for the active branch. */
+let serverRecovery: RustRecoveryNotice | null = null;
 /** Correlation id of the currently pending New Run request. */
 let pendingNewRunRequestId: string | null = null;
 /** Latest tick id observed from server stats. */
@@ -1227,14 +1231,23 @@ function setConnectionStatus(mode: ConnectionMode): void {
   connectionStatus.classList.remove('connecting', 'server');
   connectionStatus.classList.add(mode);
   if (mode === 'server' && serverWorldSeed !== null && serverInferenceMode) {
-    connectionStatus.textContent = formatServerRuntimeStatus(
+    const runtime = formatServerRuntimeStatus(
       serverWorldSeed,
       serverInferenceMode
     );
+    connectionStatus.textContent = serverRecovery
+      ? runtime.replace('Server ·', 'Server · recovered ·')
+      : runtime;
+    connectionStatus.setAttribute(
+      'title',
+      serverRecovery ? formatRecoveryRuntimeStatus(serverRecovery) : ''
+    );
   } else if (mode === 'server') {
     connectionStatus.textContent = 'Server';
+    connectionStatus.setAttribute('title', '');
   } else {
     connectionStatus.textContent = 'Connecting';
+    connectionStatus.setAttribute('title', '');
   }
 }
 
@@ -3516,7 +3529,8 @@ wsClient = createWsClient({
     reconnectDelayMs = 1000;
     serverCfgHash = info.configHash;
     serverConfigRevision = info.configRevision;
-    if (info.recovery) console.warn('[recovery]', info.recovery);
+    serverRecovery = info.recovery ?? null;
+    if (serverRecovery) console.warn('[recovery]', formatRecoveryRuntimeStatus(serverRecovery));
     serverWorldSeed = info.worldSeed;
     serverInferenceMode = info.inferenceMode;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
@@ -3566,6 +3580,7 @@ wsClient = createWsClient({
     serverSimSpeed = 1;
     serverWorldSeed = null;
     serverInferenceMode = null;
+    serverRecovery = null;
     pendingNewRunRequestId = null;
     btnNewRun.disabled = false;
     lastServerTick = 0;
@@ -3728,6 +3743,7 @@ wsClient = createWsClient({
     }
     if (Number.isFinite(msg.worldSeed)) {
       serverWorldSeed = msg.worldSeed!;
+      serverRecovery = null;
       setConnectionStatus('server');
     }
     selectedSnake = null;

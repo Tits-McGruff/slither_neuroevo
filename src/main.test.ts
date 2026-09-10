@@ -309,6 +309,28 @@ describe('main.ts startup smoke', () => {
       .toBe('Server · seed 99 · native MT×2');
   });
 
+  it('makes a recovered Rust lineage visible with exact provenance', async () => {
+    await import('./main.ts');
+    const socket = activeSocket;
+    if (!socket) throw new Error('missing browser WebSocket');
+    socket.onopen?.();
+    socket.onmessage?.({ data: JSON.stringify({
+      type: 'welcome', protocolVersion: 2, sessionId: 'recovery-session', tickRate: 60,
+      worldSeed: 42, runId: 'branch-run', configRevision: 0, configHash: 'cfg-recovery',
+      recovery: { failedRunId: 'source-run', branchRunId: 'branch-run',
+        failedCheckpointId: 'f'.repeat(64), recoveredCheckpointId: 'a'.repeat(64),
+        recoveredGeneration: '0000000000000002', lostCompletedGenerations: null },
+      settings: { core: { simSpeed: 1 }, updates: [] },
+      inferenceMode: { requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0 },
+      sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' },
+      serializerVersion: 1, frameByteLength: 28
+    }) });
+    expect(elements.get('connectionStatus')?.textContent)
+      .toBe('Server · recovered · seed 42 · native single-thread');
+    expect(elements.get('connectionStatus')?.getAttribute('title'))
+      .toContain('at generation 2 from failed run source-run into branch branch-run');
+  });
+
   it('sends canvas steering and boost release without another sensor or display frame', async () => {
     vi.useFakeTimers();
     await import('./main.ts');

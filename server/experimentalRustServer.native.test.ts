@@ -1,10 +1,12 @@
 import { mkdtemp, rm, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import Database from 'better-sqlite3';
 import { DEFAULT_CONFIG, normalizeConfig } from './config.ts';
+import { PlayerActionPump } from '../src/net/playerActionPump.ts';
+import { createWsClient, type AssignMsg, type SensorsMsg, type WelcomeMsg, type WsClient } from '../src/net/wsClient.ts';
 import { startExperimentalRustServer } from './experimentalRustServer.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 
@@ -16,13 +18,15 @@ interface Peer {
   packets: Array<Record<string, unknown>>;
   /** Number of binary frame-v1 messages received. */
   frames: number;
+  /** Newest copied display frame, retained only for bounded integration assertions. */
+  latestFrame?: Buffer;
 }
 
 /** Attach listeners before sending a hello so no ready message can be missed. */
 async function connect(port: number, clientType: 'ui' | 'bot'): Promise<Peer> {
   const peer: Peer = { socket: new WebSocket(`ws://127.0.0.1:${port}`), packets: [], frames: 0 };
   peer.socket.on('message', (data, binary) => {
-    if (binary) peer.frames++;
+    if (binary) { peer.frames++; peer.latestFrame = Buffer.from(data as Buffer); }
     else if (peer.packets.length < 256) peer.packets.push(JSON.parse(data.toString()) as Record<string, unknown>);
   });
   await new Promise<void>((done, reject) => { peer.socket.once('open', done); peer.socket.once('error', reject); });
@@ -35,6 +39,29 @@ async function until(peer: Peer, predicate: () => boolean): Promise<void> {
   const deadline = performance.now() + 5000;
   while (!predicate() && performance.now() < deadline) await new Promise<void>(done => setTimeout(done, 10));
   expect(predicate(), JSON.stringify(peer.packets)).toBe(true);
+}
+
+/** Read one assigned snake direction from the compact frame-v1 contract. */
+function frameDirection(bytes: Buffer | undefined, snakeId: number): number | undefined {
+  if (!bytes || bytes.byteLength < 7 * Float32Array.BYTES_PER_ELEMENT) return undefined;
+  const value = (index: number): number => bytes.readFloatLE(index * Float32Array.BYTES_PER_ELEMENT);
+  const alive = Math.trunc(value(2));
+  let offset = 7;
+  for (let index = 0; index < alive; index++) {
+    if ((offset + 8) * Float32Array.BYTES_PER_ELEMENT > bytes.byteLength) return undefined;
+    const id = value(offset);
+    const direction = value(offset + 5);
+    const points = Math.trunc(value(offset + 7));
+    if (id === snakeId) return direction;
+    if (points < 0) return undefined;
+    offset += 8 + points * 2;
+  }
+  return undefined;
+}
+
+/** Signed shortest angular change from one wrapped direction to another. */
+function directionDelta(from: number, to: number): number {
+  return Math.atan2(Math.sin(to - from), Math.cos(to - from));
 }
 
 describeNetworkSuite('experimental Rust server real sockets', () => {
@@ -123,6 +150,85 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'error'));
     } finally {
       for (const peer of peers) peer.socket.terminate();
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('serves the built browser and applies its independent latest-action pump through Rust', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-browser-action-'));
+    const server = await startExperimentalRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 73,
+      dbPath: join(root, 'experiment.sqlite') });
+    let pump: PlayerActionPump | undefined;
+    let browser: WsClient | undefined;
+    try {
+      const page = await fetch(`http://127.0.0.1:${server.port}/`);
+      expect(page.status).toBe(200);
+      expect(page.headers.get('content-type')).toMatch(/^text\/html/u);
+      expect(await page.text()).toContain('<canvas id="c"');
+
+      vi.stubGlobal('WebSocket', WebSocket);
+      let welcome: WelcomeMsg | undefined;
+      let assignment: AssignMsg | undefined;
+      let sample: SensorsMsg | undefined;
+      let latestFrame: Buffer | undefined;
+      const errors: string[] = [];
+      browser = createWsClient({
+        onConnected(info) { welcome = info; browser?.sendJoin('player', 'browser-pump'); },
+        onDisconnected() {},
+        onFrame(frame) { latestFrame = Buffer.from(frame); },
+        onStats() {},
+        onAssign(message) { assignment = message; },
+        // Incoming sensors update observation state only; they never produce an action.
+        onSensors(message) { sample = message; },
+        onError(message) { errors.push(message.message); }
+      });
+      browser.connect(`ws://127.0.0.1:${server.port}`);
+      const deadline = performance.now() + 5000;
+      while ((!welcome || !assignment || !sample) && performance.now() < deadline) await new Promise<void>(done => setTimeout(done, 10));
+      expect(welcome).toMatchObject({ protocolVersion: 2, worldSeed: 73, inferenceMode: { activeBackend: 'native' } });
+      expect(assignment).toBeDefined();
+      expect(sample).toBeDefined();
+      if (!assignment || !sample) throw new Error(`browser transport did not assign: ${errors.join('; ')}`);
+      const snakeId = assignment.snakeId;
+      const clientTick = sample.tick;
+      while (frameDirection(latestFrame, snakeId) === undefined && performance.now() < deadline) await new Promise<void>(done => setTimeout(done, 10));
+      const initialDirection = frameDirection(latestFrame, snakeId);
+      expect(initialDirection).toEqual(expect.any(Number));
+
+      let turn = 1;
+      let boost = 1;
+      const actions: Array<{ turn: number; boost: number }> = [];
+      pump = new PlayerActionPump({ cadenceHz: 60, isActive: () => browser?.isConnected() === true,
+        buildLatestAction: () => ({ tick: clientTick, snakeId, turn, boost }),
+        sendAction: action => { actions.push({ turn: action.turn, boost: action.boost });
+          browser?.sendAction(action.tick, action.snakeId, action.turn, action.boost); } });
+      // No sensor or frame callback invokes the pump: its own timer and change
+      // request are the only producers while incoming state is merely observed.
+      pump.start();
+      while (performance.now() < deadline) {
+        const direction = frameDirection(latestFrame, snakeId);
+        if (direction !== undefined && initialDirection !== undefined && directionDelta(initialDirection, direction) > 0.02) break;
+        await new Promise<void>(done => setTimeout(done, 10));
+      }
+      const beforeRelease = frameDirection(latestFrame, snakeId)!;
+      expect(directionDelta(initialDirection!, beforeRelease)).toBeGreaterThan(0.02);
+      turn = -1;
+      boost = 0;
+      pump.requestImmediate();
+      while (performance.now() < deadline) {
+        const direction = frameDirection(latestFrame, snakeId);
+        if (actions.some(action => action.turn === -1 && action.boost === 0) &&
+            direction !== undefined && directionDelta(beforeRelease, direction) < -0.02) break;
+        await new Promise<void>(done => setTimeout(done, 10));
+      }
+      expect(directionDelta(beforeRelease, frameDirection(latestFrame, snakeId)!)).toBeLessThan(-0.02);
+      expect(actions.at(-1)).toEqual({ turn: -1, boost: 0 });
+      expect(errors).toEqual([]);
+    } finally {
+      pump?.stop();
+      browser?.disconnect();
+      vi.unstubAllGlobals();
       await server.close();
       await rm(root, { recursive: true, force: true });
     }

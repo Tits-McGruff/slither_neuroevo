@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   createWsClient,
+  formatRecoveryRuntimeStatus,
   formatServerRuntimeStatus,
   getDefaultServerUrl,
   resolveServerUrl,
@@ -101,6 +102,15 @@ describe('wsClient', () => {
       requestedMt: true,
       activeWorkerCount: 4
     })).toBe('Server · seed 99 · native MT×4');
+  });
+
+  it('formats exact recovery provenance without narrowing hexadecimal generations', () => {
+    expect(formatRecoveryRuntimeStatus({
+      failedRunId: 'source-run', branchRunId: 'branch-run',
+      failedCheckpointId: 'f'.repeat(64), recoveredCheckpointId: 'a'.repeat(64),
+      recoveredGeneration: '0000000000000019',
+      lostCompletedGenerations: { from: '0000000000000019', through: '000000000000001b' }
+    })).toBe(`Recovered checkpoint ${'a'.repeat(64)} at generation 25 from failed run source-run into branch branch-run; failed checkpoint ${'f'.repeat(64)}; abandoned completed generations 25 through 27.`);
   });
 
   it('dispatches welcome and frame messages', () => {
