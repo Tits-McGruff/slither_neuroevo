@@ -58,6 +58,8 @@ jobs:
         env:
           SLITHER_STAGE3_CHECKPOINT_TEST_ADDON: native/target/ci-handoff-hooks.node
         run: node node_modules/vitest/vitest.mjs run server/rustEngine/checkpointPersistence.native.test.ts --reporter=dot
+      - name: Build browser client
+        run: npm run build:client
       - name: Required native and MT contracts
         run: npm run test:native-required -- --reporter=dot
       - name: Unit tests
@@ -77,8 +79,6 @@ jobs:
       - name: Performance measurements (informational)
         continue-on-error: true
         run: npm run test:performance -- --reporter=dot
-      - name: Build browser client
-        run: npm run build:client
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
