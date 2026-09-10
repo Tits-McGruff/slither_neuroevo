@@ -274,7 +274,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   copying authoritative state or persisting an unbounded per-step series. The
   first live probe exposed and fixed a nonterminal invariant that incorrectly
   rejected legitimate external-controller RNG draws from boost/death effects;
-  the repeated workload continued through replacement and token reclaim.
+  the repeated workload continued through replacement and token reclaim. A
+  270-second loopback diagnostic crossed generation two with 17,183 timed
+  steps, 16,173 trainer actions, 23 assignments, 6 ms step p95/p99, a 36.2 ms
+  checkpoint barrier, 0.9997 simulated/wall, and no protocol/routing failure;
+  this is not the remaining LAN-browser/owner-trainer signoff.
 
 The next dependency is the Stage 6A full-generation trusted-LAN browser and
 unchanged owner-trainer evidence gate using the integrated telemetry boundary.

@@ -93,6 +93,8 @@ interface ClientTimingOwners {
   actionToNextSensor: FixedLatencyHistogram;
   /** Inter-arrival time between browser display frames. */
   frameInterval: FixedLatencyHistogram;
+  /** Complete health request/JSON response latency through Node. */
+  healthRequest: FixedLatencyHistogram;
 }
 
 /** Open controller plus its first assignment/observation boundary. */
@@ -157,7 +159,8 @@ function createClientTimings(): ClientTimingOwners {
     sensorInterval: new FixedLatencyHistogram(),
     sensorToActionDispatch: new FixedLatencyHistogram(),
     actionToNextSensor: new FixedLatencyHistogram(),
-    frameInterval: new FixedLatencyHistogram()
+    frameInterval: new FixedLatencyHistogram(),
+    healthRequest: new FixedLatencyHistogram()
   };
 }
 
@@ -210,9 +213,14 @@ function healthUrl(wsUrl: string): string {
 }
 
 /** Fetch and validate one successful Rust-authoritative health response. */
-async function fetchHealth(url: string): Promise<Record<string, unknown>> {
+async function fetchHealth(
+  url: string,
+  timing?: FixedLatencyHistogram
+): Promise<Record<string, unknown>> {
+  const startedAt = performance.now();
   const response = await fetch(url);
   const body = record(await response.json(), 'health response');
+  timing?.record(performance.now() - startedAt);
   if (!response.ok || body['ok'] !== true || body['authority'] !== 'rust') {
     throw new Error(`experimental health failed (${String(response.status)}): ${JSON.stringify(body)}`);
   }
@@ -409,11 +417,11 @@ async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
   const startedAt = performance.now();
   const deadline = startedAt + options.durationMs;
   const endpoint = healthUrl(options.wsUrl);
-  const initialHealth = await fetchHealth(endpoint);
+  const timings = createClientTimings();
+  const initialHealth = await fetchHealth(endpoint, timings.healthRequest);
   const controller: ControllerCounters = { assignments: 0, sensors: 0, actions: 0,
     successfulReclaims: 0, errors: [] };
   const viewer: ViewerCounters = { frames: 0, stats: 0, maximumFrameBytes: 0, errors: [] };
-  const timings = createClientTimings();
   const outbound: OutboundMaxima = { samples: 0, reliableQueuedMessages: 0,
     reliableQueuedBytes: 0, pendingFrames: 0, replacedFrames: 0, reliableFailures: 0 };
   observeOutbound(initialHealth, outbound);
@@ -432,11 +440,11 @@ async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
       throw new Error('same-snake reclaim or token rotation was not observed');
     }
     while (performance.now() < deadline) {
-      observeOutbound(await fetchHealth(endpoint), outbound);
+      observeOutbound(await fetchHealth(endpoint, timings.healthRequest), outbound);
       const remaining = Math.max(0, deadline - performance.now());
       await new Promise<void>(resolvePromise => setTimeout(resolvePromise, Math.min(250, remaining)));
     }
-    const finalHealth = await fetchHealth(endpoint);
+    const finalHealth = await fetchHealth(endpoint, timings.healthRequest);
     observeOutbound(finalHealth, outbound);
     const initialGeneration = nativeCounter(initialHealth['generation'], 'generation');
     const finalGeneration = nativeCounter(finalHealth['generation'], 'generation');
@@ -466,7 +474,8 @@ async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
         sensorInterval: timings.sensorInterval.snapshot(),
         sensorToActionDispatch: timings.sensorToActionDispatch.snapshot(),
         actionToNextSensor: timings.actionToNextSensor.snapshot(),
-        frameInterval: timings.frameInterval.snapshot()
+        frameInterval: timings.frameInterval.snapshot(),
+        healthRequest: timings.healthRequest.snapshot()
       },
       telemetry: record(finalHealth['telemetry'], 'health telemetry')
     };
