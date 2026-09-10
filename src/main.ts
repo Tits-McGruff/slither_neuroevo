@@ -3533,6 +3533,7 @@ wsClient = createWsClient({
     if (serverRecovery) console.warn('[recovery]', formatRecoveryRuntimeStatus(serverRecovery));
     serverWorldSeed = info.worldSeed;
     serverInferenceMode = info.inferenceMode;
+    if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
     lastServerTick = 0;
     spectatorFollowSnakeId = null;
@@ -3570,6 +3571,7 @@ wsClient = createWsClient({
     }
   },
   onDisconnected: () => {
+    if (btnPinCheckpoint) btnPinCheckpoint.hidden = true;
     resumePlayerAfterReconnect =
       playerSnakeId !== null || joinPending || playerResumeToken.length > 0;
     playerActionPump.stop();
@@ -4218,6 +4220,23 @@ async function exportServerSnapshot(): Promise<void> {
 }
 
 // Persistence UI Wiring
+/** Button that permanently protects the Rust server's exact current checkpoint. */
+const btnPinCheckpoint = document.getElementById('btnPinCheckpoint') as HTMLButtonElement | null;
+if (btnPinCheckpoint) {
+  btnPinCheckpoint.addEventListener('click', () => {
+    const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+    if (!base || btnPinCheckpoint.disabled) return;
+    btnPinCheckpoint.disabled = true;
+    void fetch(`${base}/api/checkpoints/current/pin`, { method: 'POST' }).then(async response => {
+      const result = await response.json() as { ok?: boolean; checkpointId?: string; generation?: string; message?: string };
+      if (!response.ok || !result.ok) throw new Error(result.message ?? `pin failed (${response.status})`);
+      alert(`Pinned generation ${BigInt(`0x${result.generation ?? '0'}`).toString()} checkpoint ${result.checkpointId?.slice(0, 12) ?? ''}.`);
+    }).catch(error => {
+      console.error('Checkpoint pin failed', error);
+      alert(`Pin failed: ${(error as Error).message}`);
+    }).finally(() => { btnPinCheckpoint.disabled = false; });
+  });
+}
 /** Button that triggers exporting population and HoF data. */
 const btnExport = document.getElementById('btnExport') as HTMLButtonElement | null;
 if (btnExport) {

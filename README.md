@@ -83,7 +83,11 @@ memory, plus Rust-confirmed per-kind assignment, reclaim, action, and disconnect
 counts. Percentiles are conservative fixed-histogram upper bounds; the server
 does not retain a per-step series or authoritative game arrays for reporting.
 The same health response exposes current reliable-queue, pending-frame,
-frame-replacement, and send-failure counters for slow-client checks.
+frame-replacement, and send-failure counters for slow-client checks. It also
+reports checkpoint retention by latest, recent, milestone, prior-run-anchor,
+pinned, and planned-prune classes. The Settings panel's **Pin checkpoint**
+button permanently protects the exact current managed checkpoint; it does not
+also create or download an export.
 
 With that server running, a short real-boundary diagnostic exercises a
 spectator, an observation-driven Protocol 2 bot with disconnect/token reclaim,
@@ -105,7 +109,8 @@ the required unchanged owner trainer or a real browser on another trusted-LAN
 device.
 
 This entry uses the fixed default graph and settings. Secondary commands,
-including settings/reset and archive endpoints, are still being connected.
+including settings/reset and archive endpoints, are still being connected;
+pinning the current checkpoint is available now.
 `npm run server` remains the separate reference runtime.
 
 ### Architecture

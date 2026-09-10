@@ -4,6 +4,13 @@ import { dirname, resolve, sep } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import {
+  buildCheckpointRetentionInventory,
+  OWNER_CHECKPOINT_RETENTION_DEFAULTS,
+  selectManagedCheckpointRetention,
+  type CheckpointRetentionCandidate,
+  type CheckpointRetentionInventory
+} from './checkpointRetention.ts';
+import {
   parseManagedCheckpointDescriptor,
   parseManagedCheckpointDescriptorLimits,
   parseManagedGenerationCommit,
@@ -122,6 +129,7 @@ if (String(journalMode).toLowerCase() !== 'wal' || Number(synchronous) !== 2) {
 db.pragma('foreign_keys = ON');
 if (!bootstrap.existingOnly) initializeSchema(db);
 initializeRecoverySchema(db);
+initializeRetentionSchema(db);
 
 /**
  * Parse worker bootstrap data without accepting arbitrary nested values.
@@ -171,11 +179,12 @@ function validateExistingSchema(database: ReturnType<typeof Database>): void {
   const schema = database.prepare(`SELECT count(*) AS total,
     sum(name IN ('rust_checkpoint_v3_metadata', 'rust_checkpoint_v3_current',
       'rust_generation_history_v1', 'rust_hall_of_fame_v1',
-      'rust_recovery_branches_v1', 'rust_active_run_v1')) AS recognized
+      'rust_recovery_branches_v1', 'rust_active_run_v1',
+      'rust_checkpoint_retention_v1')) AS recognized
     FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).get() as {
       total: number; recognized: number | null;
     };
-  if (![4, 6].includes(schema.total) || schema.recognized !== schema.total) {
+  if (![4, 6, 7].includes(schema.total) || schema.recognized !== schema.total) {
     throw new Error('resume requires an existing managed checkpoint metadata database');
   }
   // Preparing these fixed reads also rejects incompatible columns without DDL.
@@ -184,6 +193,43 @@ function validateExistingSchema(database: ReturnType<typeof Database>): void {
   for (const table of ['rust_generation_history_v1', 'rust_hall_of_fame_v1']) {
     database.prepare(`SELECT run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms FROM ${table} LIMIT 0`).all();
   }
+}
+
+/** One bounded metadata row used only for scalar retention planning. */
+interface RetentionMetadataRow {
+  /** Physical immutable checkpoint identity. */
+  checkpoint_id: string;
+  /** Bounded original strict descriptor JSON. */
+  descriptor_json: string | null;
+  /** Automatic or owner-pinned classification. */
+  retention_kind: string;
+  /** Stable SQLite insertion order. */
+  created_ordinal: number;
+}
+
+/** One current pointer used to select prior-run anchors. */
+interface RetentionPointerRow {
+  /** Effective run identity. */
+  run_id: string;
+  /** Physical immutable checkpoint identity. */
+  checkpoint_id: string;
+}
+
+/** Add owner pin classification and backfill every Stage 3/6A file as automatic. */
+function initializeRetentionSchema(database: ReturnType<typeof Database>): void {
+  database.transaction(() => {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS rust_checkpoint_retention_v1 (
+        checkpoint_id TEXT PRIMARY KEY NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
+        retention_kind TEXT NOT NULL CHECK(retention_kind IN ('automatic', 'pinned')),
+        classified_at_ms INTEGER NOT NULL
+      );
+    `);
+    database.prepare(`INSERT OR IGNORE INTO rust_checkpoint_retention_v1 (
+      checkpoint_id, retention_kind, classified_at_ms
+    ) SELECT checkpoint_id, 'automatic', created_at_ms FROM rust_checkpoint_v3_metadata
+    `).run();
+  }).immediate();
 }
 
 /** Add bounded recovery provenance without rewriting any existing checkpoint/history rows. */
@@ -630,6 +676,85 @@ function selectManagedCheckpoint(runId: string | null): ManagedCheckpointSelecti
   }).deferred();
 }
 
+/** Inspect the owner-approved retention result without deleting files or metadata. */
+function inspectCheckpointRetention(): CheckpointRetentionInventory {
+  return db.transaction(() => {
+    const activeRunId = resolveSelectedRun(null);
+    if (activeRunId === null) throw new Error('retention inventory requires one active managed run');
+    const lineage = recoveryLineage(activeRunId);
+    const pointers = db.prepare(`SELECT
+      CASE WHEN length(CAST(run_id AS BLOB)) <= 256 THEN run_id END AS run_id,
+      CASE WHEN length(checkpoint_id) = 64 THEN checkpoint_id END AS checkpoint_id
+      FROM rust_checkpoint_v3_current`).all() as RetentionPointerRow[];
+    if (pointers.some(pointer => !pointer.run_id || !/^[0-9a-f]{64}$/u.test(pointer.checkpoint_id))) {
+      throw new Error('retention inventory found an invalid current pointer');
+    }
+    const priorRunByCheckpoint = new Map<string, string>();
+    for (const pointer of pointers) {
+      if (pointer.run_id === activeRunId) continue;
+      const previous = priorRunByCheckpoint.get(pointer.checkpoint_id);
+      if (!previous || pointer.run_id.localeCompare(previous) < 0) {
+        priorRunByCheckpoint.set(pointer.checkpoint_id, pointer.run_id);
+      }
+    }
+    const rows = db.prepare(`SELECT metadata.checkpoint_id,
+      CASE WHEN length(CAST(metadata.descriptor_json AS BLOB)) <= 16384
+        THEN metadata.descriptor_json END AS descriptor_json,
+      retention.retention_kind,
+      metadata.rowid AS created_ordinal
+      FROM rust_checkpoint_v3_metadata AS metadata
+      JOIN rust_checkpoint_retention_v1 AS retention USING(checkpoint_id)
+      ORDER BY metadata.rowid`).all() as RetentionMetadataRow[];
+    const candidates: CheckpointRetentionCandidate[] = rows.map(row => {
+      if (!Number.isSafeInteger(row.created_ordinal) || row.created_ordinal < 1 || row.descriptor_json === null ||
+          (row.retention_kind !== 'automatic' && row.retention_kind !== 'pinned')) {
+        throw new Error('retention inventory found invalid bounded metadata');
+      }
+      let descriptor: ManagedCheckpointDescriptor;
+      try { descriptor = parseManagedCheckpointDescriptor(JSON.parse(row.descriptor_json)); }
+      catch { throw new Error('retention inventory found invalid checkpoint descriptor metadata'); }
+      if (descriptor.logicalRootSha256 !== row.checkpoint_id) throw new Error('retention metadata identity mismatch');
+      const inherited = lineage.some(item => item.runId === descriptor.runId &&
+        (item.maximumGeneration === null || descriptor.generation <= item.maximumGeneration));
+      const priorRunId = inherited ? undefined : priorRunByCheckpoint.get(descriptor.logicalRootSha256);
+      return {
+        checkpointId: descriptor.logicalRootSha256,
+        runId: inherited ? activeRunId : (priorRunId ?? descriptor.runId),
+        generation: u64HexToBigInt(descriptor.generation),
+        storedBytes: u64HexToBigInt(descriptor.storedByteCount),
+        decodedBytes: u64HexToBigInt(descriptor.decodedByteCount),
+        createdOrdinal: BigInt(row.created_ordinal),
+        pinned: row.retention_kind === 'pinned',
+        priorRunAnchor: priorRunId !== undefined,
+        weightsEncoding: descriptor.weightsEncoding,
+        recurrentStateEncoding: descriptor.recurrentStateEncoding
+      };
+    });
+    const decision = selectManagedCheckpointRetention(
+      candidates,
+      activeRunId,
+      OWNER_CHECKPOINT_RETENTION_DEFAULTS
+    );
+    return buildCheckpointRetentionInventory(decision, activeRunId, OWNER_CHECKPOINT_RETENTION_DEFAULTS);
+  }).deferred();
+}
+
+/** Pin the exact current immutable file in one worker-owned transaction. */
+function pinCurrentCheckpoint(): { checkpointId: string; generation: U64Hex } {
+  return db.transaction(() => {
+    const activeRunId = resolveSelectedRun(null);
+    if (activeRunId === null) throw new Error('pin requires one active managed run');
+    const current = readCurrentPointer(activeRunId);
+    if (!current) throw new Error('pin requires a current managed checkpoint');
+    const descriptor = validateCurrentPointerIdentity(activeRunId, current);
+    const changed = db.prepare(`UPDATE rust_checkpoint_retention_v1 SET
+      retention_kind = 'pinned', classified_at_ms = ? WHERE checkpoint_id = ?`)
+      .run(Date.now(), descriptor.logicalRootSha256);
+    if (changed.changes !== 1) throw new Error('current checkpoint lacks retention metadata');
+    return { checkpointId: descriptor.logicalRootSha256, generation: descriptor.generation };
+  }).immediate();
+}
+
 /** Visit one retained metadata record without materializing the retained population set. */
 function scanRecoveryCandidate(value: RecoveryScanCursor | null): RecoveryScanResult {
   return db.transaction(() => {
@@ -806,6 +931,9 @@ function commitManagedCheckpoint(
         @writeValidationPolicy, @descriptorJson, @createdAtMs
       )
     `).run({ ...candidate, checkpointId: candidate.logicalRootSha256, descriptorJson, createdAtMs: Date.now() });
+    db.prepare(`INSERT INTO rust_checkpoint_retention_v1 (
+      checkpoint_id, retention_kind, classified_at_ms
+    ) VALUES (?, 'automatic', ?)`).run(candidate.logicalRootSha256, Date.now());
     if (generationCommit !== null && summaryRecord !== null && hallOfFameRecord !== null) {
       db.prepare(`
         INSERT INTO rust_generation_history_v1 (
@@ -882,7 +1010,8 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
     const id = (commit as Record<string, unknown>)['operationId'];
     return typeof id === 'string' && /^[0-9a-f]{32}$/u.test(id) ? id : null;
   }
-  if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'scanRecoveryCandidate') {
+  if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'scanRecoveryCandidate' ||
+      request['type'] === 'inspectCheckpointRetention' || request['type'] === 'pinCurrentCheckpoint') {
     const operationId = request['operationId'];
     return typeof operationId === 'string' && /^[0-9a-f]{32}$/u.test(operationId) ? operationId : null;
   }
@@ -916,6 +1045,16 @@ port.on('message', (message: unknown) => {
       throw new TypeError('worker request must be an object');
     }
     const request = message as Record<string, unknown>;
+    if (request['type'] === 'pinCurrentCheckpoint') {
+      if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid pin-current request');
+      post({ type: 'currentCheckpointPinned', operationId, ...pinCurrentCheckpoint() });
+      return;
+    }
+    if (request['type'] === 'inspectCheckpointRetention') {
+      if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid retention inventory request');
+      post({ type: 'checkpointRetentionInspected', operationId, inventory: inspectCheckpointRetention() });
+      return;
+    }
     if (request['type'] === 'scanRecoveryCandidate') {
       if (!operationId || Object.keys(request).length !== 3 || !Object.hasOwn(request, 'cursor')) throw new TypeError('invalid recovery scan request');
       const cursor = request['cursor'] === null ? null : parseRecoveryScanCursor(request['cursor']);

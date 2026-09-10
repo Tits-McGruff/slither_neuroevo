@@ -44,6 +44,13 @@ export interface WelcomeMsg {
   sensorSpec: SensorSpec;
   serializerVersion: number;
   frameByteLength: number;
+  /** Optional server features whose UI must stay hidden on older/reference runtimes. */
+  capabilities?: {
+    /** Whether the exact current managed checkpoint can be pinned. */
+    checkpointPinning: boolean;
+    /** Whether direct archive download is available. */
+    archiveExport: boolean;
+  };
 }
 
 /** Stats message payload from the server. */

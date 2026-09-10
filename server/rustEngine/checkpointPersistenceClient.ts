@@ -2,6 +2,10 @@ import { parseRecoveryScanCursor, parseRecoveryScanResult, type RecoveryScanCurs
 import { Worker } from 'node:worker_threads';
 import { randomBytes } from 'node:crypto';
 import {
+  parseCheckpointRetentionInventory,
+  type CheckpointRetentionInventory
+} from './checkpointRetention.ts';
+import {
   DEFAULT_MANAGED_CHECKPOINT_DESCRIPTOR_LIMITS,
   managedCheckpointDescriptorsEqual,
   parseManagedCheckpointDescriptor,
@@ -44,6 +48,14 @@ export interface ManagedCheckpointCommitResult {
   checkpointId: string;
   /** Complete descriptor echoed only after its exact transaction committed. */
   descriptor: ManagedCheckpointDescriptor;
+}
+
+/** Exact immutable boundary protected by an owner pin operation. */
+export interface PinnedCheckpointResult {
+  /** Content-addressed managed checkpoint identity. */
+  checkpointId: string;
+  /** Exact generation boundary. */
+  generation: U64Hex;
 }
 
 /**
@@ -96,6 +108,10 @@ export class CheckpointPersistenceClient {
   private scan: { operationId: string; cursor: RecoveryScanCursor | null; resolve(value: RecoveryScanResult): void; reject(error: Error): void } | undefined;
   /** One startup recovery transaction; retries use the same caller-owned operation token. */
   private recovery: { commit: RecoveryBranchCommit; resolve(value: RecoveryBranchResult): void; reject(error: Error): void } | undefined;
+  /** At most one bounded retention inventory read may be in flight. */
+  private retention: { operationId: CheckpointOperationId; resolve(value: CheckpointRetentionInventory): void; reject(error: Error): void } | undefined;
+  /** At most one owner pin transaction may be in flight. */
+  private pin: { operationId: CheckpointOperationId; resolve(value: PinnedCheckpointResult): void; reject(error: Error): void } | undefined;
   /** Terminal lifecycle failure, if the worker violates protocol or exits unexpectedly. */
   private failure: Error | null = null;
   /** Whether orderly shutdown has been requested. */
@@ -236,6 +252,30 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Read the current keep/prune accounting without deleting any managed file. */
+  inspectRetention(): Promise<CheckpointRetentionInventory> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.retention) return Promise.reject(new Error('checkpoint retention inspection is busy or stopping'));
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.retention = { operationId, resolve, reject };
+      try { this.worker.postMessage({ type: 'inspectCheckpointRetention', operationId }); }
+      catch (error) { this.retention = undefined; reject(asError(error)); }
+    });
+  }
+
+  /** Atomically pin the effective active run's exact current managed file. */
+  pinCurrentCheckpoint(): Promise<PinnedCheckpointResult> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.pin) return Promise.reject(new Error('checkpoint pin is busy or stopping'));
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.pin = { operationId, resolve, reject };
+      try { this.worker.postMessage({ type: 'pinCurrentCheckpoint', operationId }); }
+      catch (error) { this.pin = undefined; reject(asError(error)); }
+    });
+  }
+
   /**
    * Stop the client-owned worker after it has completed all preceding synchronous messages.
    * @returns Promise resolved after the worker exits cleanly.
@@ -279,6 +319,24 @@ export class CheckpointPersistenceClient {
   private onMessage(value: unknown): void {
     try {
       const response = parseWorkerResponse(value);
+      if (response.type === 'currentCheckpointPinned') {
+        const pending = this.pin;
+        if (!pending || pending.operationId !== response.operationId) {
+          throw new Error('persistence worker returned a mismatched checkpoint pin');
+        }
+        this.pin = undefined;
+        pending.resolve({ checkpointId: response.checkpointId, generation: response.generation });
+        return;
+      }
+      if (response.type === 'checkpointRetentionInspected') {
+        const pending = this.retention;
+        if (!pending || pending.operationId !== response.operationId) {
+          throw new Error('persistence worker returned a mismatched retention inventory');
+        }
+        this.retention = undefined;
+        pending.resolve(response.inventory);
+        return;
+      }
       if (response.type === 'recoveryCandidate') {
         const pending = this.scan;
         const cursor = response.result.cursor;
@@ -335,6 +393,18 @@ export class CheckpointPersistenceClient {
           selection.reject(new Error(response.reason));
           return;
         }
+        if (response.operationId === this.retention?.operationId) {
+          const pending = this.retention;
+          this.retention = undefined;
+          pending.reject(new Error(response.reason));
+          return;
+        }
+        if (response.operationId === this.pin?.operationId) {
+          const pending = this.pin;
+          this.pin = undefined;
+          pending.reject(new Error(response.reason));
+          return;
+        }
         const pending = this.pending.get(response.operationId);
         if (!pending) {
           throw new Error(`persistence worker rejected unknown operation ${response.operationId}`);
@@ -384,6 +454,10 @@ export class CheckpointPersistenceClient {
     this.recovery = undefined;
     this.selection?.reject(error);
     this.selection = undefined;
+    this.retention?.reject(error);
+    this.retention = undefined;
+    this.pin?.reject(error);
+    this.pin = undefined;
     void this.terminateForFailure();
   }
 
@@ -415,7 +489,7 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan) {
+    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin) {
       this.resolveStopped?.();
       this.resolveStopped = null;
       this.rejectStopped = null;
@@ -453,6 +527,26 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     throw new TypeError('checkpoint persistence worker sent a non-object response');
   }
   const response = value as Record<string, unknown>;
+  if (response['type'] === 'currentCheckpointPinned') {
+    requireExactKeys(response, ['type', 'operationId', 'checkpointId', 'generation']);
+    if (!isOperationId(response['operationId']) || typeof response['checkpointId'] !== 'string' ||
+        !/^[0-9a-f]{64}$/u.test(response['checkpointId']) || !isU64Hex(response['generation'])) {
+      throw new TypeError('invalid checkpoint pin acknowledgement');
+    }
+    return {
+      type: 'currentCheckpointPinned', operationId: response['operationId'],
+      checkpointId: response['checkpointId'], generation: response['generation']
+    };
+  }
+  if (response['type'] === 'checkpointRetentionInspected') {
+    requireExactKeys(response, ['type', 'operationId', 'inventory']);
+    if (!isOperationId(response['operationId'])) throw new TypeError('invalid retention inventory correlation');
+    return {
+      type: 'checkpointRetentionInspected',
+      operationId: response['operationId'],
+      inventory: parseCheckpointRetentionInventory(response['inventory'])
+    };
+  }
   if (response['type'] === 'recoveryCandidate') {
     requireExactKeys(response, ['type', 'operationId', 'result']);
     if (!isOperationId(response['operationId'])) throw new Error('invalid recovery scan correlation');

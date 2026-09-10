@@ -219,6 +219,13 @@ export interface WelcomeMsg {
   serializerVersion: number;
   /** Example serialized frame byte length. */
   frameByteLength: number;
+  /** Optional server features exposed by migration runtimes. */
+  capabilities?: {
+    /** Whether the exact current managed checkpoint can be pinned. */
+    checkpointPinning: boolean;
+    /** Whether direct archive download is available. */
+    archiveExport: boolean;
+  };
 }
 
 /** Periodic stats payload from the server. */

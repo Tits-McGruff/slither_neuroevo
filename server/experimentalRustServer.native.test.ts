@@ -187,8 +187,22 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
             trainer: { freshAssignments: 1, successfulReclaims: 1, appliedActions: 1,
               appliedDisconnects: expect.any(Number) }
           }
+        },
+        retention: {
+          schemaVersion: 1,
+          retained: { latest: { checkpointCount: 1 }, pinned: { checkpointCount: 0 } },
+          plannedPrune: { checkpointCount: 0 }
         }
       });
+      const pinResponse = await fetch(`http://127.0.0.1:${server.port}/api/checkpoints/current/pin`, { method: 'POST' });
+      expect(pinResponse.status).toBe(200);
+      const pinned = await pinResponse.json() as Record<string, unknown>;
+      expect(pinned).toMatchObject({ ok: true, checkpointId: expect.stringMatching(/^[0-9a-f]{64}$/u), generation: '0000000000000001' });
+      const pinnedHealth = await healthUntil(server.port, value => {
+        const retention = value['retention'] as { retained?: { pinned?: { checkpointCount?: number } } } | undefined;
+        return retention?.retained?.pinned?.checkpointCount === 1;
+      });
+      expect(pinnedHealth).toMatchObject({ retention: { retained: { pinned: { checkpointCount: 1 } } } });
       viewer.socket.send(JSON.stringify({ type: 'reset' }));
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'error'));
     } finally {

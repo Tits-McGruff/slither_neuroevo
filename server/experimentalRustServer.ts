@@ -14,6 +14,7 @@ import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { createRustStats, createRustWelcome } from './rustEngine/browserMetadata.ts';
 import { ExperimentalRuntimeTelemetry } from './rustEngine/runtimeTelemetry.ts';
+import type { CheckpointRetentionInventory } from './rustEngine/checkpointRetention.ts';
 
 /** Repository-owned built browser assets. */
 const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
@@ -85,6 +86,9 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   } catch (error) { return startFaultedServer(config, error); }
   const recovery = recoveryNotice(owner);
   if (recovery) console.warn('[rust.recovery]', recovery);
+  let retention: CheckpointRetentionInventory;
+  try { retention = await owner.persistence.inspectRetention(); }
+  catch (error) { await owner.close().catch(() => {}); return startFaultedServer(config, error); }
   const telemetry = new ExperimentalRuntimeTelemetry(owner.runtime.health(), owner.metadata.fixedStepSeconds);
   let fault: string | undefined;
   let stopping = false;
@@ -96,9 +100,10 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let pumpStart = performance.now();
   let pumps = 0;
   let pumpsPerSecond = 0;
+  let pinning: Promise<void> | undefined;
   const server = createServer((request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
     const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
@@ -108,7 +113,31 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: owner.metadata.runId,
         seed: owner.metadata.seed, startupCheckpointId: owner.runStart.checkpointId, ...nativeHealth,
         telemetry: telemetry.snapshot(nativeHealth), outbound: hub?.getOutboundDiagnostics(),
+        retention,
         ...(recovery ? { recovery } : {}), ...(fault ? { interfaceFault: fault } : {}) }));
+      return;
+    }
+    if (request.method === 'POST' && pathname === '/api/checkpoints/current/pin') {
+      if (fault || stopping) {
+        response.writeHead(503, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: fault ?? 'server is stopping' }));
+        return;
+      }
+      if (pinning) {
+        response.writeHead(409, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: 'checkpoint pin is already in progress' }));
+        return;
+      }
+      pinning = owner.persistence.pinCurrentCheckpoint().then(async pinned => {
+        retention = await owner.persistence.inspectRetention();
+        if (response.destroyed) return;
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: true, ...pinned }));
+      }).catch(error => {
+        if (response.destroyed) return;
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: error instanceof Error ? error.message : String(error) }));
+      }).finally(() => { pinning = undefined; });
       return;
     }
     if (request.method !== 'GET' || pathname.startsWith('/api/')) {
@@ -138,6 +167,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       hub?.closeAll();
       owner.runtime.requestStop();
       await draining?.catch(() => {});
+      await pinning?.catch(() => {});
       try { await owner.close(); }
       finally {
         telemetry.close();
@@ -167,7 +197,13 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       },
       hasFrameRecipients: () => sockets.hasFrameRecipients() && performance.now() - lastFrame >= 1000 / config.uiFrameRateHz,
       frame(lease) { lastFrame = performance.now(); sockets.broadcastFrame(lease.bytes, lease.release); },
-      observeCheckpointBarrier: durationMs => telemetry.observeCheckpointBarrier(durationMs)
+      observeCheckpointBarrier: durationMs => {
+        telemetry.observeCheckpointBarrier(durationMs);
+        void owner.persistence.inspectRetention().then(value => { retention = value; }).catch(error => {
+          fault ??= error instanceof Error ? error.message : String(error);
+          owner.runtime.requestStop();
+        });
+      }
     });
     routing = new ExternalControllerRouting({ native: owner.runtime, admission: output.admission,
       maxControllers: MAX_CONTROLLERS, maxActionsPerSecond: config.maxActionsPerSecond, maxActionsPerTick: config.maxActionsPerTick,

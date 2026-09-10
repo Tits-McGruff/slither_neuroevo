@@ -43,7 +43,7 @@ is actually needed.
 | 3 | Rust foundation established | Rust state/graph/RNG contracts, coarse bridge, managed checkpoint-v3 codec/metadata worker and Rust→SQLite publication handoff exist. Detailed retained artifacts are under `docs/todo/evidence/stage3/`. |
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
-| 6 | In progress, local 6A slice established | The dedicated experimental server owns durable fresh/latest/exact startup, continuous Rust frames/stats, current browser and Protocol 2 controller routing, generation persistence, and non-destructive recovery. The remaining 6A gate is the current browser and existing trainer over the trusted LAN with integrated timing/RSS evidence; secondary commands and archives remain Stage 6B work. |
+| 6 | 6A vertical slice exercised; 6B started | The dedicated experimental server owns durable startup/recovery, continuous Rust frames/stats, browser and Protocol 2 routing, and generation persistence. The real browser and PyRL trainer crossed a generation over the machine's trusted-LAN route with integrated telemetry. Stage 6B retention, commands, and archives are now in progress. |
 | 7–8 | Not yet accepted | Performance/durability acceptance and production cutover remain future gates. |
 
 ## Milestone index
@@ -296,6 +296,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   revision connected to the real Rust server, discovered 83 sensors, received
   a death replacement, and produced hundreds of Rust-applied actions.
 
-The next dependency is the Stage 6A full-generation trusted-LAN browser and
-trainer evidence gate using PyRL-trainer `ec62b05` and the integrated telemetry
-boundary, including a real trainer reconnect/reclaim.
+- 2026-09-11 The current browser and PyRL trainer `ec62b05` stayed connected
+  through a Rust generation transition over the host LAN address. The trainer
+  completed repeated death/reassignment cycles while the browser rendered and
+  steered; the integrated sample reported 6 ms step p99, a 35 ms checkpoint
+  barrier, approximately 1.0 simulated/wall, and 147 MiB peak RSS. Stage 6B
+  now has automatic checkpoint classification/backfill, bounded retention
+  inventory, and an exact-current Pin checkpoint command without deletion.
+
+The next dependency is verified automatic pruning of unpinned managed files,
+followed by direct adaptive archive export.

@@ -457,6 +457,64 @@ describe(SUITE, { timeout: 30_000 }, () => {
     });
   });
 
+  it('classifies old managed files and returns bounded owner-policy retention accounting', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, {
+      operationId: 'abababababababababababababababab',
+      transitionEpoch: u64(2n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    const initial = await fixture.client.inspectRetention();
+    expect(initial).toMatchObject({
+      schemaVersion: 1,
+      activeRunId: first.runId,
+      retained: {
+        latest: { checkpointCount: 1 },
+        recent: { checkpointCount: 1 },
+        milestone: { checkpointCount: 0 },
+        priorRunAnchor: { checkpointCount: 0 },
+        pinned: { checkpointCount: 0 }
+      },
+      plannedPrune: { checkpointCount: 0 }
+    });
+    expect(initial.retained.latest.encodings.rawWeights).toBe(1);
+    expect(initial.retained.recent.encodings.rawRecurrent).toBe(1);
+    await fixture.client.close();
+
+    const oldSchema = new Database(fixture.databasePath);
+    try { oldSchema.exec('DROP TABLE rust_checkpoint_retention_v1'); }
+    finally { oldSchema.close(); }
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    const backfilled = await reopened.inspectRetention();
+    expect(backfilled.automaticStoredByteCount).toBe(initial.automaticStoredByteCount);
+    expect(backfilled.retained.latest.checkpointCount + backfilled.retained.recent.checkpointCount).toBe(2);
+    await expect(reopened.pinCurrentCheckpoint()).resolves.toEqual({
+      checkpointId: second.logicalRootSha256,
+      generation: second.generation
+    });
+    const pinned = await reopened.inspectRetention();
+    expect(pinned.retained.pinned.checkpointCount).toBe(1);
+    expect(pinned.retained.latest.checkpointCount).toBe(1);
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare(`SELECT retention_kind, count(*) AS count
+        FROM rust_checkpoint_retention_v1 GROUP BY retention_kind ORDER BY retention_kind`).all()).toEqual([
+        { retention_kind: 'automatic', count: 1 },
+        { retention_kind: 'pinned', count: 1 }
+      ]);
+    } finally { inspect.close(); }
+  });
+
   it('rejects ambiguous run selection while retaining explicit per-run reads', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);
