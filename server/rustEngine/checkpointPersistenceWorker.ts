@@ -22,6 +22,7 @@ import {
   type ManagedCheckpointDescriptorLimits,
   type ManagedGenerationCommit,
   type ManagedGenerationSummary,
+  type ManagedHallOfFameWeightsDescriptor,
   type ManagedHallOfFameReference,
   type U64Hex
 } from './checkpointPersistenceProtocol.ts';
@@ -93,6 +94,22 @@ interface ExistingHallOfFameRow {
   record_version: number;
   /** Exact fixed-width reference bytes stored by the original transaction. */
   record_blob: Buffer;
+  /** Content-addressed winner-weight object linked by the original transaction. */
+  weights_sha256: string | null;
+}
+
+/** Existing immutable Hall-of-Fame weight object used for deduplicated replay checks. */
+interface ExistingHallOfFameWeightsRow {
+  /** Controlled direct-child filename. */
+  relative_filename: string;
+  /** Exact packed numeric encoding. */
+  encoding: string;
+  /** Exact stored file length. */
+  stored_byte_count_hex: string;
+  /** Exact decoded packed-f32 length. */
+  decoded_byte_count_hex: string;
+  /** Exact number of packed Float32 values. */
+  weight_count_hex: string;
 }
 
 /** Minimal final-file facts rechecked after SQLite has begun the short transaction. */
@@ -129,8 +146,11 @@ if (String(journalMode).toLowerCase() !== 'wal' || Number(synchronous) !== 2) {
 }
 db.pragma('foreign_keys = ON');
 if (!bootstrap.existingOnly) initializeSchema(db);
+initializeHallOfFameWeightsSchema(db);
 initializeRecoverySchema(db);
 initializeRetentionSchema(db);
+/** One exact in-process export reference; worker shutdown cancels it implicitly. */
+let activeExportLease: { operationId: CheckpointOperationId; checkpointId: string } | undefined;
 
 /**
  * Parse worker bootstrap data without accepting arbitrary nested values.
@@ -179,13 +199,13 @@ function resolveManagedRoot(candidate: string): string {
 function validateExistingSchema(database: ReturnType<typeof Database>): void {
   const schema = database.prepare(`SELECT count(*) AS total,
     sum(name IN ('rust_checkpoint_v3_metadata', 'rust_checkpoint_v3_current',
-      'rust_generation_history_v1', 'rust_hall_of_fame_v1',
+      'rust_generation_history_v1', 'rust_hall_of_fame_v1', 'rust_hall_of_fame_weights_v1',
       'rust_recovery_branches_v1', 'rust_active_run_v1',
       'rust_checkpoint_retention_v1')) AS recognized
     FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).get() as {
       total: number; recognized: number | null;
     };
-  if (![4, 6, 7].includes(schema.total) || schema.recognized !== schema.total) {
+  if (![4, 5, 6, 7, 8].includes(schema.total) || schema.recognized !== schema.total) {
     throw new Error('resume requires an existing managed checkpoint metadata database');
   }
   // Preparing these fixed reads also rejects incompatible columns without DDL.
@@ -427,16 +447,48 @@ function initializeSchema(database: ReturnType<typeof Database>): void {
       created_at_ms INTEGER NOT NULL,
       PRIMARY KEY (run_id, generation_hex)
     );
+    CREATE TABLE IF NOT EXISTS rust_hall_of_fame_weights_v1 (
+      logical_sha256 TEXT PRIMARY KEY NOT NULL,
+      relative_filename TEXT NOT NULL UNIQUE,
+      encoding TEXT NOT NULL,
+      stored_byte_count_hex TEXT NOT NULL,
+      decoded_byte_count_hex TEXT NOT NULL,
+      weight_count_hex TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS rust_hall_of_fame_v1 (
       run_id TEXT NOT NULL,
       generation_hex TEXT NOT NULL,
       checkpoint_id TEXT NOT NULL UNIQUE REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
       record_version INTEGER NOT NULL,
       record_blob BLOB NOT NULL CHECK(length(record_blob) = 56),
+      weights_sha256 TEXT REFERENCES rust_hall_of_fame_weights_v1(logical_sha256),
       created_at_ms INTEGER NOT NULL,
       PRIMARY KEY (run_id, generation_hex)
     );
   `);
+}
+
+/** Add the content-addressed winner-weight store without rewriting older Hall-of-Fame rows. */
+function initializeHallOfFameWeightsSchema(database: ReturnType<typeof Database>): void {
+  database.transaction(() => {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS rust_hall_of_fame_weights_v1 (
+        logical_sha256 TEXT PRIMARY KEY NOT NULL,
+        relative_filename TEXT NOT NULL UNIQUE,
+        encoding TEXT NOT NULL,
+        stored_byte_count_hex TEXT NOT NULL,
+        decoded_byte_count_hex TEXT NOT NULL,
+        weight_count_hex TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL
+      )
+    `);
+    const columns = database.prepare('PRAGMA table_info(rust_hall_of_fame_v1)').all() as Array<{ name: string }>;
+    if (!columns.some(column => column.name === 'weights_sha256')) {
+      database.exec(`ALTER TABLE rust_hall_of_fame_v1 ADD COLUMN weights_sha256 TEXT
+        REFERENCES rust_hall_of_fame_weights_v1(logical_sha256)`);
+    }
+  }).immediate();
 }
 
 /**
@@ -499,10 +551,11 @@ function assertDescriptorBounds(descriptor: ManagedCheckpointDescriptor): void {
  * Rust's single-pass publisher owns byte-to-logical-root validation, and Rust validates the
  * logical root again on restore/startup. This metadata worker intentionally checks only the
  * controlled path, final regular-file type, and exact stored length.
- * @param descriptor - Strict descriptor whose basename and byte length are checked.
+ * @param relativeFilename - Strict direct-child basename selected by Rust.
+ * @param expectedBytes - Exact final stored file length.
  */
-function verifyManagedFile(descriptor: ManagedCheckpointDescriptor): VerifiedManagedFile {
-  const candidate = resolve(managedRootPath, descriptor.relativeFilename);
+function verifyManagedDirectFile(relativeFilename: string, expectedBytes: bigint): VerifiedManagedFile {
+  const candidate = resolve(managedRootPath, relativeFilename);
   const rootPrefix = managedRootPath.endsWith(sep) ? managedRootPath : `${managedRootPath}${sep}`;
   if (!candidate.startsWith(rootPrefix) || dirname(candidate) !== managedRootPath) {
     throw new TypeError('managed checkpoint filename escapes the controlled root');
@@ -519,11 +572,28 @@ function verifyManagedFile(descriptor: ManagedCheckpointDescriptor): VerifiedMan
   if (dirname(realCandidate) !== managedRootPath) {
     throw new TypeError('managed checkpoint resolves outside the controlled root');
   }
-  const expectedBytes = u64HexToBigInt(descriptor.storedByteCount);
   if (statSync(candidate, { bigint: true }).size !== expectedBytes) {
-    throw new RangeError('managed checkpoint file size does not match storedByteCount');
+    throw new RangeError('managed file size does not match storedByteCount');
   }
   return { path: candidate, expectedBytes };
+}
+
+/** Validate one immutable checkpoint file against its strict descriptor. */
+function verifyManagedFile(descriptor: ManagedCheckpointDescriptor): VerifiedManagedFile {
+  return verifyManagedDirectFile(
+    descriptor.relativeFilename,
+    u64HexToBigInt(descriptor.storedByteCount)
+  );
+}
+
+/** Validate one immutable Hall-of-Fame weight file against its strict descriptor. */
+function verifyHallOfFameWeightsFile(
+  descriptor: ManagedHallOfFameWeightsDescriptor
+): VerifiedManagedFile {
+  return verifyManagedDirectFile(
+    descriptor.relativeFilename,
+    u64HexToBigInt(descriptor.storedByteCount)
+  );
 }
 
 /**
@@ -545,6 +615,20 @@ function recheckManagedFile(file: VerifiedManagedFile): void {
  */
 function serializeDescriptor(descriptor: ManagedCheckpointDescriptor): string {
   return JSON.stringify(descriptor);
+}
+
+/** Require SQLite's immutable content-object metadata to match one strict Rust descriptor. */
+function assertStoredHallOfFameWeights(descriptor: ManagedHallOfFameWeightsDescriptor): void {
+  const existing = db.prepare(`SELECT relative_filename, encoding, stored_byte_count_hex,
+    decoded_byte_count_hex, weight_count_hex FROM rust_hall_of_fame_weights_v1
+    WHERE logical_sha256 = ?`).get(descriptor.logicalSha256) as ExistingHallOfFameWeightsRow | undefined;
+  if (!existing || existing.relative_filename !== descriptor.relativeFilename ||
+      existing.encoding !== descriptor.encoding ||
+      existing.stored_byte_count_hex !== descriptor.storedByteCount ||
+      existing.decoded_byte_count_hex !== descriptor.decodedByteCount ||
+      existing.weight_count_hex !== descriptor.weightCount) {
+    throw new Error('Hall-of-Fame weight identity conflicts with different immutable content');
+  }
 }
 
 /**
@@ -777,6 +861,38 @@ function pinCurrentCheckpoint(): { checkpointId: string; generation: U64Hex } {
   }).immediate();
 }
 
+/** Protect the exact active current file until one direct export releases it. */
+function acquireCurrentExportLease(operationId: CheckpointOperationId): {
+  operationId: CheckpointOperationId;
+  runId: string;
+  descriptor: ManagedCheckpointDescriptor;
+} {
+  if (activeExportLease) throw new Error('another checkpoint export is already active');
+  return db.transaction(() => {
+    const runId = resolveSelectedRun(null);
+    if (runId === null) throw new Error('export requires one active managed run');
+    const current = readCurrentPointer(runId);
+    if (!current) throw new Error('export requires a current managed checkpoint');
+    const descriptor = validateCurrentPointerIdentity(runId, current);
+    const retained = db.prepare(`SELECT retention_kind FROM rust_checkpoint_retention_v1
+      WHERE checkpoint_id = ?`).get(descriptor.logicalRootSha256) as { retention_kind: string } | undefined;
+    if (!retained || (retained.retention_kind !== 'automatic' && retained.retention_kind !== 'pinned')) {
+      throw new Error('current checkpoint is not available for export');
+    }
+    verifyManagedFile(descriptor);
+    activeExportLease = { operationId, checkpointId: descriptor.logicalRootSha256 };
+    return { operationId, runId, descriptor };
+  }).deferred();
+}
+
+/** Release only the exact active export reference. */
+function releaseExportLease(operationId: CheckpointOperationId): void {
+  if (!activeExportLease || activeExportLease.operationId !== operationId) {
+    throw new Error('export lease is not active');
+  }
+  activeExportLease = undefined;
+}
+
 /** Apply one automatic retention decision while preserving all compact metadata. */
 function applyCheckpointRetention(): {
   deletedCheckpointCount: number;
@@ -784,15 +900,28 @@ function applyCheckpointRetention(): {
   inventory: CheckpointRetentionInventory;
 } {
   const descriptors = db.transaction(() => {
+    db.prepare(`UPDATE rust_checkpoint_retention_v1 SET retention_kind = 'automatic', classified_at_ms = ?
+      WHERE retention_kind = 'pruning' AND checkpoint_id IN (
+        SELECT checkpoint_id FROM rust_hall_of_fame_v1 WHERE weights_sha256 IS NULL
+      )`).run(Date.now());
     const { decision } = currentCheckpointRetentionDecision();
-    const targetBytes = new Map(decision.pruned.map(candidate => [candidate.checkpointId, candidate.storedBytes]));
+    const unbackedHallOfFame = new Set((db.prepare(
+      'SELECT checkpoint_id FROM rust_hall_of_fame_v1 WHERE weights_sha256 IS NULL'
+    ).all() as Array<{ checkpoint_id: string }>).map(row => row.checkpoint_id));
+    const planned = decision.pruned.filter(candidate =>
+      candidate.checkpointId !== activeExportLease?.checkpointId &&
+      !unbackedHallOfFame.has(candidate.checkpointId)
+    );
+    const targetBytes = new Map(planned.map(candidate => [candidate.checkpointId, candidate.storedBytes]));
     const pending = db.prepare(`SELECT metadata.checkpoint_id
       FROM rust_checkpoint_v3_metadata AS metadata
       JOIN rust_checkpoint_retention_v1 AS retention USING(checkpoint_id)
       WHERE retention.retention_kind = 'pruning'
         AND NOT EXISTS (SELECT 1 FROM rust_checkpoint_v3_current WHERE checkpoint_id = metadata.checkpoint_id)
+        AND NOT EXISTS (SELECT 1 FROM rust_hall_of_fame_v1
+          WHERE checkpoint_id = metadata.checkpoint_id AND weights_sha256 IS NULL)
       ORDER BY metadata.rowid`).all() as Array<{ checkpoint_id: string }>;
-    const checkpointIds = [...pending.map(row => row.checkpoint_id), ...decision.pruned.map(candidate => candidate.checkpointId)];
+    const checkpointIds = [...pending.map(row => row.checkpoint_id), ...planned.map(candidate => candidate.checkpointId)];
     const uniqueCheckpointIds = [...new Set(checkpointIds)];
     const selected = uniqueCheckpointIds.map(checkpointId => {
       const row = db.prepare(`SELECT
@@ -815,7 +944,7 @@ function applyCheckpointRetention(): {
       }
       return descriptor;
     });
-    for (const candidate of decision.pruned) {
+    for (const candidate of planned) {
       const changed = db.prepare(`UPDATE rust_checkpoint_retention_v1 SET
         retention_kind = 'pruning', classified_at_ms = ?
         WHERE checkpoint_id = ? AND retention_kind = 'automatic'
@@ -962,6 +1091,9 @@ function commitManagedCheckpoint(
     ? null
     : encodeHallOfFameReference(generationCommit.hallOfFame);
   const managedFile = verifyManagedFile(descriptor);
+  const hallOfFameWeightsFile = generationCommit === null
+    ? null
+    : verifyHallOfFameWeightsFile(generationCommit.hallOfFameWeights);
   const commit = db.transaction((candidate: ManagedCheckpointDescriptor) => {
     const existingOperation = db.prepare(
       'SELECT descriptor_json FROM rust_checkpoint_v3_metadata WHERE operation_id = ?'
@@ -984,7 +1116,7 @@ function commitManagedCheckpoint(
         throw new Error('operationId conflicts with different compact generation history');
       }
       const existingHallOfFame = db.prepare(
-        `SELECT run_id, generation_hex, record_version, record_blob
+        `SELECT run_id, generation_hex, record_version, record_blob, weights_sha256
          FROM rust_hall_of_fame_v1 WHERE checkpoint_id = ?`
       ).get(candidate.logicalRootSha256) as ExistingHallOfFameRow | undefined;
       if ((hallOfFameRecord === null && existingHallOfFame) ||
@@ -992,10 +1124,12 @@ function commitManagedCheckpoint(
           existingHallOfFame.run_id !== candidate.runId ||
           existingHallOfFame.generation_hex !== generationCommit?.hallOfFame.completedGeneration ||
           existingHallOfFame.record_version !== 1 ||
+          existingHallOfFame.weights_sha256 !== generationCommit?.hallOfFameWeights.logicalSha256 ||
           !Buffer.isBuffer(existingHallOfFame.record_blob) ||
           !existingHallOfFame.record_blob.equals(hallOfFameRecord)))) {
         throw new Error('operationId conflicts with a different Hall-of-Fame reference');
       }
+      if (generationCommit !== null) assertStoredHallOfFameWeights(generationCommit.hallOfFameWeights);
       const current = readCurrentPointer(candidate.runId);
       if (!current) {
         throw new Error('operationId replay is superseded and must not regress the current pointer');
@@ -1016,6 +1150,7 @@ function commitManagedCheckpoint(
     }
     assertChronologicalSuccessor(candidate, readCurrentPointer(candidate.runId));
     recheckManagedFile(managedFile);
+    if (hallOfFameWeightsFile) recheckManagedFile(hallOfFameWeightsFile);
     db.prepare(`
       INSERT INTO rust_checkpoint_v3_metadata (
         checkpoint_id, operation_id, run_id, transition_epoch, generation_hex, completed_step_hex,
@@ -1037,6 +1172,14 @@ function commitManagedCheckpoint(
       checkpoint_id, retention_kind, classified_at_ms
     ) VALUES (?, 'automatic', ?)`).run(candidate.logicalRootSha256, Date.now());
     if (generationCommit !== null && summaryRecord !== null && hallOfFameRecord !== null) {
+      const weights = generationCommit.hallOfFameWeights;
+      db.prepare(`INSERT OR IGNORE INTO rust_hall_of_fame_weights_v1 (
+        logical_sha256, relative_filename, encoding, stored_byte_count_hex,
+        decoded_byte_count_hex, weight_count_hex, created_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(weights.logicalSha256, weights.relativeFilename, weights.encoding,
+          weights.storedByteCount, weights.decodedByteCount, weights.weightCount, Date.now());
+      assertStoredHallOfFameWeights(weights);
       db.prepare(`
         INSERT INTO rust_generation_history_v1 (
           run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms
@@ -1052,15 +1195,16 @@ function commitManagedCheckpoint(
       });
       db.prepare(`
         INSERT INTO rust_hall_of_fame_v1 (
-          run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms
+          run_id, generation_hex, checkpoint_id, record_version, record_blob, weights_sha256, created_at_ms
         ) VALUES (
-          @runId, @completedGeneration, @checkpointId, 1, @hallOfFameRecord, @createdAtMs
+          @runId, @completedGeneration, @checkpointId, 1, @hallOfFameRecord, @weightsSha256, @createdAtMs
         )
       `).run({
         runId: candidate.runId,
         completedGeneration: generationCommit.hallOfFame.completedGeneration,
         checkpointId: candidate.logicalRootSha256,
         hallOfFameRecord,
+        weightsSha256: weights.logicalSha256,
         createdAtMs: Date.now()
       });
     }
@@ -1114,7 +1258,8 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
   }
   if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'scanRecoveryCandidate' ||
       request['type'] === 'inspectCheckpointRetention' || request['type'] === 'pinCurrentCheckpoint' ||
-      request['type'] === 'applyCheckpointRetention') {
+      request['type'] === 'applyCheckpointRetention' || request['type'] === 'acquireCurrentExportLease' ||
+      request['type'] === 'releaseExportLease') {
     const operationId = request['operationId'];
     return typeof operationId === 'string' && /^[0-9a-f]{32}$/u.test(operationId) ? operationId : null;
   }
@@ -1148,6 +1293,17 @@ port.on('message', (message: unknown) => {
       throw new TypeError('worker request must be an object');
     }
     const request = message as Record<string, unknown>;
+    if (request['type'] === 'releaseExportLease') {
+      if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid export lease release request');
+      releaseExportLease(operationId);
+      post({ type: 'exportLeaseReleased', operationId });
+      return;
+    }
+    if (request['type'] === 'acquireCurrentExportLease') {
+      if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid export lease request');
+      post({ type: 'currentExportLeaseAcquired', lease: acquireCurrentExportLease(operationId) });
+      return;
+    }
     if (request['type'] === 'applyCheckpointRetention') {
       if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid retention apply request');
       post({ type: 'checkpointRetentionApplied', operationId, result: applyCheckpointRetention() });

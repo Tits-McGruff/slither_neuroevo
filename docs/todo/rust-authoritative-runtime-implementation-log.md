@@ -310,4 +310,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   and each durable generation boundary apply the policy; interrupted cleanup,
   missing-file retry, pins, and the old two-class schema are covered.
 
-The next dependency is direct adaptive archive export.
+- 2026-09-11 Each Rust generation publication now writes the selected winner
+  as one validated, content-addressed raw or shuffled-Zstandard weight object.
+  SQLite links that object atomically with compact Hall-of-Fame metadata and
+  preserves older checkpoints whose legacy winner rows have not been migrated.
+  One exact export lease also keeps its selected checkpoint alive across later
+  generations and cleanup until the direct download releases it.
+
+The next dependency is Rust archive composition over the leased checkpoint and
+bounded history/Hall-of-Fame inventory.

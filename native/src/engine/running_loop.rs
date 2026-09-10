@@ -6,7 +6,9 @@
 //! monotonic clock, already-drained command boundary, presentation-only view,
 //! and reusable frame storage.
 
-use super::checkpoint::{CheckpointDescriptor, CheckpointLimits, CheckpointOperationId};
+use super::checkpoint::{
+    CheckpointDescriptor, CheckpointLimits, CheckpointOperationId, HallOfFameWeightsDescriptor,
+};
 use super::display::RunningDisplayStatus;
 use super::frame_v1::{
     pack_authoritative_frame_v1_into, FrameV1Error, FrameV1Metadata, FrameV1ViewDescriptor,
@@ -121,6 +123,8 @@ pub enum RunningAuthorityLoopProgress {
 pub struct RunningGenerationCheckpointPublication {
     /// Descriptor for the immutable managed checkpoint file.
     pub descriptor: CheckpointDescriptor,
+    /// Independently retained content-addressed elite weights.
+    pub hall_of_fame_weights: HallOfFameWeightsDescriptor,
     /// Exact compact history and Hall-of-Fame reference admitted by Rust.
     pub commit_record: GenerationCommitRecord,
 }
@@ -612,6 +616,13 @@ impl RunningAuthorityLoop {
         self.coordinator.pending_generation_transition()
     }
 
+    /// Reborrow the elite-object descriptor solely for exact output byte admission.
+    pub(crate) fn pending_hall_of_fame_weights_descriptor(
+        &self,
+    ) -> Option<&HallOfFameWeightsDescriptor> {
+        self.coordinator.pending_hall_of_fame_weights_descriptor()
+    }
+
     /// Borrow only the retained source controller records for queue admission.
     /// These remain private Rust data and cannot be supplied by a bridge caller.
     pub(crate) fn generation_source_controller_leases(&self) -> &[super::state::ControllerLease] {
@@ -647,9 +658,14 @@ impl RunningAuthorityLoop {
         let descriptor = self.coordinator.publish_pending_generation_checkpoint(
             &self.authority,
             managed_directory,
-            operation_id,
+            operation_id.clone(),
             &self.checkpoint_limits,
             &self.graph_limits,
+        )?;
+        let hall_of_fame_weights = self.coordinator.publish_pending_hall_of_fame_weights(
+            managed_directory,
+            &operation_id,
+            &self.checkpoint_limits,
         )?;
         let commit_record = self
             .coordinator
@@ -661,6 +677,7 @@ impl RunningAuthorityLoop {
             .to_owned();
         Ok(RunningGenerationCheckpointPublication {
             descriptor,
+            hall_of_fame_weights,
             commit_record,
         })
     }

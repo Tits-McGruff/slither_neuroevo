@@ -1,6 +1,6 @@
 //! Versioned, N-API-independent contracts for the Rust engine spine.
 
-use super::checkpoint::{CheckpointDescriptor, CheckpointOperationId};
+use super::checkpoint::{CheckpointDescriptor, CheckpointOperationId, HallOfFameWeightsDescriptor};
 use super::display::RunningDisplayStatus;
 use super::error::{truncate_utf8, MAX_ERROR_DETAIL_BYTES};
 use super::error::{EngineError, EngineErrorCode};
@@ -566,6 +566,8 @@ pub enum RunningAuthorityEvent {
         command_sequence: u64,
         /// Exact immutable descriptor and Rust-constructed commit record.
         descriptor: Box<CheckpointDescriptor>,
+        /// Deduplicated elite object needed after population checkpoint pruning.
+        hall_of_fame_weights: Box<HallOfFameWeightsDescriptor>,
         /// Exact compact history and Hall-of-Fame reference.
         commit_record: GenerationCommitRecord,
     },
@@ -635,9 +637,14 @@ impl RunningAuthorityEvent {
             | Self::ControllerDisconnected { .. } => 0,
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
-            Self::GenerationCheckpointPublished { descriptor, .. } => {
-                size_of::<CheckpointDescriptor>().saturating_add(descriptor.owned_bytes())
-            }
+            Self::GenerationCheckpointPublished {
+                descriptor,
+                hall_of_fame_weights,
+                ..
+            } => size_of::<CheckpointDescriptor>()
+                .saturating_add(descriptor.owned_bytes())
+                .saturating_add(size_of::<HallOfFameWeightsDescriptor>())
+                .saturating_add(hall_of_fame_weights.owned_bytes()),
             Self::GenerationPersistenceAcknowledged { operation_id, .. } => {
                 operation_id.owned_bytes()
             }

@@ -16,6 +16,7 @@ import {
   type CheckpointOperationId,
   type CheckpointPersistenceWorkerResponse,
   type ManagedCheckpointDescriptor,
+  type ManagedCheckpointExportLease,
   type ManagedCheckpointSelection,
   type ManagedCheckpointDescriptorLimits,
   type ManagedGenerationCommit,
@@ -87,6 +88,14 @@ interface PendingCommit {
   reject: (error: Error) => void;
 }
 
+/** Client-side lifecycle for the worker's one temporary export reference. */
+type ExportLeaseState =
+  | { phase: 'acquiring'; operationId: CheckpointOperationId;
+      resolve(value: ManagedCheckpointExportLease): void; reject(error: Error): void }
+  | { phase: 'active'; operationId: CheckpointOperationId }
+  | { phase: 'releasing'; operationId: CheckpointOperationId;
+      resolve(): void; reject(error: Error): void };
+
 /**
  * Client lifecycle wrapper around exactly one dedicated SQLite persistence worker.
  *
@@ -116,6 +125,8 @@ export class CheckpointPersistenceClient {
   private pin: { operationId: CheckpointOperationId; resolve(value: PinnedCheckpointResult): void; reject(error: Error): void } | undefined;
   /** At most one verified automatic pruning pass may be in flight. */
   private pruning: { operationId: CheckpointOperationId; resolve(value: CheckpointPruneResult): void; reject(error: Error): void } | undefined;
+  /** One temporary exact-checkpoint reference across preparation and download. */
+  private exportLease: ExportLeaseState | undefined;
   /** Terminal lifecycle failure, if the worker violates protocol or exits unexpectedly. */
   private failure: Error | null = null;
   /** Whether orderly shutdown has been requested. */
@@ -280,6 +291,32 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Acquire the active run's exact current checkpoint for one direct export. */
+  acquireCurrentExportLease(): Promise<ManagedCheckpointExportLease> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.exportLease) return Promise.reject(new Error('checkpoint export is busy or stopping'));
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.exportLease = { phase: 'acquiring', operationId, resolve, reject };
+      try { this.worker.postMessage({ type: 'acquireCurrentExportLease', operationId }); }
+      catch (error) { this.exportLease = undefined; reject(asError(error)); }
+    });
+  }
+
+  /** Release the exact export reference after preparation, transfer, failure, or cancellation. */
+  releaseExportLease(operationId: CheckpointOperationId): Promise<void> {
+    if (this.failure) return Promise.reject(this.failure);
+    const lease = this.exportLease;
+    if (this.stopping || !lease || lease.phase !== 'active' || lease.operationId !== operationId) {
+      return Promise.reject(new Error('checkpoint export lease is not active'));
+    }
+    return new Promise((resolve, reject) => {
+      this.exportLease = { phase: 'releasing', operationId, resolve, reject };
+      try { this.worker.postMessage({ type: 'releaseExportLease', operationId }); }
+      catch (error) { this.exportLease = { phase: 'active', operationId }; reject(asError(error)); }
+    });
+  }
+
   /** Apply the owner retention rule to verified unpinned managed files. */
   applyRetention(): Promise<CheckpointPruneResult> {
     if (this.failure) return Promise.reject(this.failure);
@@ -335,6 +372,24 @@ export class CheckpointPersistenceClient {
   private onMessage(value: unknown): void {
     try {
       const response = parseWorkerResponse(value);
+      if (response.type === 'exportLeaseReleased') {
+        const lease = this.exportLease;
+        if (!lease || lease.phase !== 'releasing' || lease.operationId !== response.operationId) {
+          throw new Error('persistence worker returned a mismatched export lease release');
+        }
+        this.exportLease = undefined;
+        lease.resolve();
+        return;
+      }
+      if (response.type === 'currentExportLeaseAcquired') {
+        const lease = this.exportLease;
+        if (!lease || lease.phase !== 'acquiring' || lease.operationId !== response.lease.operationId) {
+          throw new Error('persistence worker returned a mismatched export lease');
+        }
+        this.exportLease = { phase: 'active', operationId: lease.operationId };
+        lease.resolve(response.lease);
+        return;
+      }
       if (response.type === 'checkpointRetentionApplied') {
         const pending = this.pruning;
         if (!pending || pending.operationId !== response.operationId) {
@@ -436,6 +491,13 @@ export class CheckpointPersistenceClient {
           pending.reject(new Error(response.reason));
           return;
         }
+        if (response.operationId === this.exportLease?.operationId && this.exportLease.phase !== 'active') {
+          const lease = this.exportLease;
+          if (lease.phase === 'releasing') this.exportLease = { phase: 'active', operationId: lease.operationId };
+          else this.exportLease = undefined;
+          lease.reject(new Error(response.reason));
+          return;
+        }
         const pending = this.pending.get(response.operationId);
         if (!pending) {
           throw new Error(`persistence worker rejected unknown operation ${response.operationId}`);
@@ -491,6 +553,8 @@ export class CheckpointPersistenceClient {
     this.pin = undefined;
     this.pruning?.reject(error);
     this.pruning = undefined;
+    if (this.exportLease?.phase !== 'active') this.exportLease?.reject(error);
+    this.exportLease = undefined;
     void this.terminateForFailure();
   }
 
@@ -522,7 +586,8 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning) {
+    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning &&
+        (!this.exportLease || this.exportLease.phase === 'active')) {
       this.resolveStopped?.();
       this.resolveStopped = null;
       this.rejectStopped = null;
@@ -560,6 +625,30 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     throw new TypeError('checkpoint persistence worker sent a non-object response');
   }
   const response = value as Record<string, unknown>;
+  if (response['type'] === 'exportLeaseReleased') {
+    requireExactKeys(response, ['type', 'operationId']);
+    if (!isOperationId(response['operationId'])) throw new TypeError('invalid export lease release correlation');
+    return { type: 'exportLeaseReleased', operationId: response['operationId'] };
+  }
+  if (response['type'] === 'currentExportLeaseAcquired') {
+    requireExactKeys(response, ['type', 'lease']);
+    if (!response['lease'] || typeof response['lease'] !== 'object' || Array.isArray(response['lease'])) {
+      throw new TypeError('invalid checkpoint export lease');
+    }
+    const lease = response['lease'] as Record<string, unknown>;
+    requireExactKeys(lease, ['operationId', 'runId', 'descriptor']);
+    if (!isOperationId(lease['operationId']) || typeof lease['runId'] !== 'string' || !lease['runId'] ||
+        lease['runId'].includes('\0') || Buffer.byteLength(lease['runId']) > 256) {
+      throw new TypeError('invalid checkpoint export lease identity');
+    }
+    const descriptor = parseManagedCheckpointDescriptor(lease['descriptor']);
+    if (descriptor.runId !== lease['runId']) throw new TypeError('checkpoint export lease run identity mismatch');
+    return { type: 'currentExportLeaseAcquired', lease: {
+      operationId: lease['operationId'],
+      runId: lease['runId'],
+      descriptor
+    } };
+  }
   if (response['type'] === 'checkpointRetentionApplied') {
     requireExactKeys(response, ['type', 'operationId', 'result']);
     if (!isOperationId(response['operationId'])) throw new TypeError('invalid retention pruning correlation');

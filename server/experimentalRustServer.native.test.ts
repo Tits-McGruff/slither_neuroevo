@@ -160,10 +160,23 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const nextAssignment = resumed.packets.find(packet => packet['type'] === 'assign')!;
       expect(nextAssignment).toMatchObject({ reclaimed: true, snakeId: assignment['snakeId'] });
       expect(nextAssignment['resumeToken']).not.toBe(assignment['resumeToken']);
-      const health = await healthUntil(server.port, value => {
-        const telemetry = value['telemetry'] as { trainerAction?: { samples?: number } } | undefined;
-        return (telemetry?.trainerAction?.samples ?? 0) > 0;
-      });
+      /** Match the production latest-action pump so a runner-delayed sample cannot be the only attempt. */
+      const actionPump = setInterval(() => {
+        const latest = resumed.packets.findLast(packet => packet['type'] === 'sensors');
+        if (latest && resumed.socket.readyState === WebSocket.OPEN) {
+          resumed.socket.send(JSON.stringify({ type: 'action', snakeId: nextAssignment['snakeId'],
+            tick: latest['tick'], turn: 0.4, boost: 0 }));
+        }
+      }, 10);
+      let health: Record<string, unknown>;
+      try {
+        health = await healthUntil(server.port, value => {
+          const telemetry = value['telemetry'] as { trainerAction?: { samples?: number } } | undefined;
+          return (telemetry?.trainerAction?.samples ?? 0) > 0;
+        });
+      } finally {
+        clearInterval(actionPump);
+      }
       expect(health).toMatchObject({
         ok: true,
         authority: 'rust',

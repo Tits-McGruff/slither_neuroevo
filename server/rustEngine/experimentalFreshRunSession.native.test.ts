@@ -198,9 +198,22 @@ async function appendInvalidGeneration(client: CheckpointPersistenceClient, root
   const summary: ManagedGenerationCommit['summary'] = { completedGeneration: hex(generation - 1),
     bestF64Hex: hex(0), averageF64Hex: hex(0), minimumF64Hex: hex(0), speciesCount: hex(1),
     topSpeciesSize: hex(1), averageWeightF64Hex: hex(0), weightVarianceF64Hex: hex(0) };
+  const aggregateWeightCount = BigInt(`0x${descriptor.weightCount}`);
+  const populationCount = BigInt(`0x${descriptor.populationCount}`);
+  if (populationCount === 0n || aggregateWeightCount % populationCount !== 0n) {
+    throw new Error('fixture checkpoint has a nonuniform population weight count');
+  }
+  const winnerWeightCount = aggregateWeightCount / populationCount;
+  const winnerBytes = Buffer.alloc(Number(winnerWeightCount * 4n), generation & 0xff);
+  const winnerSha256 = createHash('sha256').update(winnerBytes).digest('hex');
+  writeFileSync(join(root, `${winnerSha256}.hof-weights-v1`), winnerBytes);
   await client.commit(descriptor, { summary, hallOfFame: { completedGeneration: summary.completedGeneration,
     sourcePopulationSlot: hex(0), sourceSnakeId: hex(1), fitnessF64Hex: hex(0), pointsF64Hex: hex(0),
-    length: hex(1), successorPopulationSlot: hex(0), successorGenomeId: hex(1) } });
+    length: hex(1), successorPopulationSlot: hex(0), successorGenomeId: hex(1) },
+    hallOfFameWeights: { version: 1, logicalSha256: winnerSha256,
+      relativeFilename: `${winnerSha256}.hof-weights-v1`, encoding: 'raw-f32le-v1',
+      storedByteCount: hex(winnerBytes.length), decodedByteCount: hex(winnerBytes.length),
+      weightCount: hex(Number(winnerWeightCount)) } });
   return descriptor;
 }
 

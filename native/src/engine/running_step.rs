@@ -10,7 +10,9 @@
 //! beside the unchanged source authority; it never performs old-generation
 //! controlled-death replacement first.
 
-use super::checkpoint::{CheckpointDescriptor, CheckpointLimits, CheckpointOperationId};
+use super::checkpoint::{
+    CheckpointDescriptor, CheckpointLimits, CheckpointOperationId, HallOfFameWeightsDescriptor,
+};
 use super::control::{NeuralControlError, NeuralControlPipeline};
 use super::control_phase::{
     ControlCommitWorkspace, ControlPhaseError, ControlPhaseInputs, ControlPhaseWorkspace,
@@ -466,6 +468,7 @@ struct PendingGenerationTransition {
     alive_evolved: usize,
     boundary: AdmittedGenerationBoundary,
     checkpoint_descriptor: Option<CheckpointDescriptor>,
+    hall_of_fame_weights_descriptor: Option<HallOfFameWeightsDescriptor>,
     persistence_acknowledged: bool,
     inputs: RunningStepInputs,
     running_fixed_step: Option<FixedStepContinuationState>,
@@ -747,6 +750,7 @@ impl RunningStepCoordinator {
                         alive_evolved,
                         boundary,
                         checkpoint_descriptor: None,
+                        hall_of_fame_weights_descriptor: None,
                         persistence_acknowledged: false,
                         inputs,
                         running_fixed_step: None,
@@ -1051,6 +1055,16 @@ impl RunningStepCoordinator {
             .map(PendingGenerationTransition::batch)
     }
 
+    /// Reborrow the independently retained elite descriptor for queue byte admission.
+    pub(crate) fn pending_hall_of_fame_weights_descriptor(
+        &self,
+    ) -> Option<&HallOfFameWeightsDescriptor> {
+        self.pending_generation
+            .as_ref()?
+            .hall_of_fame_weights_descriptor
+            .as_ref()
+    }
+
     /// Token-scoped old-controller outcomes that the lifecycle bridge must
     /// retain before publishing the replacement world.
     pub fn pending_unavailable_controller_reservations(
@@ -1098,6 +1112,29 @@ impl RunningStepCoordinator {
             graph_limits,
         )?;
         pending.checkpoint_descriptor = Some(descriptor.clone());
+        Ok(descriptor)
+    }
+
+    /// Publish or reborrow the independently retained elite object for the pending generation.
+    pub fn publish_pending_hall_of_fame_weights(
+        &mut self,
+        managed_directory: &Path,
+        operation_id: &CheckpointOperationId,
+        limits: &CheckpointLimits,
+    ) -> Result<HallOfFameWeightsDescriptor, RunningStepError> {
+        let pending = self
+            .pending_generation
+            .as_mut()
+            .ok_or(RunningStepError::GenerationTransitionNotPending)?;
+        if let Some(descriptor) = &pending.hall_of_fame_weights_descriptor {
+            return Ok(descriptor.clone());
+        }
+        let descriptor = pending.boundary.publish_hall_of_fame_weights(
+            managed_directory,
+            operation_id,
+            limits,
+        )?;
+        pending.hall_of_fame_weights_descriptor = Some(descriptor.clone());
         Ok(descriptor)
     }
 

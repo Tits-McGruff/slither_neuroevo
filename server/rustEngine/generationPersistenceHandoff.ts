@@ -93,13 +93,17 @@ function parseRustGenerationCheckpointPublication(
   }
   const publication = value as Record<string, unknown>;
   const keys = Object.keys(publication);
-  if (keys.length !== 2 || !Object.hasOwn(publication, 'descriptor') ||
-    !Object.hasOwn(publication, 'generationCommit')) {
+  if (keys.length !== 3 || !Object.hasOwn(publication, 'descriptor') ||
+    !Object.hasOwn(publication, 'generationCommit') ||
+    !Object.hasOwn(publication, 'hallOfFameWeights')) {
     throw new TypeError('Rust generation checkpoint publication has unknown or missing fields');
   }
   const descriptor = parseManagedCheckpointDescriptor(publication['descriptor']);
+  const rawCommit = publication['generationCommit'];
   const generationCommit = parseManagedGenerationCommit(
-    publication['generationCommit'],
+    rawCommit !== null && typeof rawCommit === 'object' && !Array.isArray(rawCommit)
+      ? { ...rawCommit, hallOfFameWeights: publication['hallOfFameWeights'] }
+      : rawCommit,
     descriptor
   );
   if (generationCommit === null) {

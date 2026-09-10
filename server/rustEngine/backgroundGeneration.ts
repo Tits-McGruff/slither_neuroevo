@@ -103,10 +103,17 @@ export class BackgroundGenerationRouter {
       }
       case 'generationCheckpointPublished': {
         this.expect(event, 'publication');
-        const publication = event.checkpoint as { descriptor?: unknown; generationCommit?: unknown } | undefined;
+        const publication = event.checkpoint as {
+          descriptor?: unknown;
+          generationCommit?: unknown;
+          hallOfFameWeights?: unknown;
+        } | undefined;
         const descriptor = parseManagedCheckpointDescriptor(publication?.descriptor);
         if (descriptor.operationId !== this.operationId) throw new Error('generation publication operation mismatch');
-        const record = parseManagedGenerationCommit(publication?.generationCommit, descriptor);
+        const rawRecord = publication?.generationCommit;
+        const record = parseManagedGenerationCommit(rawRecord && typeof rawRecord === 'object' && !Array.isArray(rawRecord)
+          ? { ...rawRecord, hallOfFameWeights: publication?.hallOfFameWeights }
+          : rawRecord, descriptor);
         if (!record) throw new Error('generation publication omitted history');
         this.phase = 'commit';
         const committed = await persistence.commit(descriptor, record);

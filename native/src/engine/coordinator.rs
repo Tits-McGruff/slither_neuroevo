@@ -816,6 +816,7 @@ fn execute_running_authority_command(
                 |publication| RunningAuthorityEvent::GenerationCheckpointPublished {
                     command_sequence,
                     descriptor: Box::new(publication.descriptor),
+                    hall_of_fame_weights: Box::new(publication.hall_of_fame_weights),
                     commit_record: publication.commit_record,
                 },
             ),
@@ -933,6 +934,17 @@ fn running_response_owned_byte_bound(
                     };
                     size_of::<super::checkpoint::CheckpointDescriptor>()
                         .checked_add(descriptor_bytes)
+                        .and_then(|bytes| {
+                            bytes.checked_add(size_of::<
+                                super::checkpoint::HallOfFameWeightsDescriptor,
+                            >())
+                        })
+                        .and_then(|bytes| {
+                            bytes.checked_add(running.pending_hall_of_fame_weights_descriptor().map_or(
+                                super::checkpoint::HallOfFameWeightsDescriptor::PUBLICATION_OWNED_BYTES,
+                                |descriptor| descriptor.owned_bytes(),
+                            ))
+                        })
                         .ok_or_else(overflow)?
                 }
                 None => 0, // Invalid-phase rejection cannot publish a descriptor.
@@ -1929,7 +1941,7 @@ mod tests {
             RunningAuthorityEvent::GenerationCheckpointPublished { descriptor: retry, commit_record, .. }
                 if *retry == descriptor && commit_record == record
         ));
-        assert_eq!(managed.file_count(), 1);
+        assert_eq!(managed.file_count(), 2);
         let ack = RunningAuthorityCommand::AcknowledgeGenerationPersistence {
             descriptor: Box::new(descriptor),
         };
@@ -2087,7 +2099,7 @@ mod tests {
             RunningAuthorityEvent::CommandRejected { .. }
         ));
         assert_eq!(running.world_epoch(), next_epoch);
-        assert_eq!(managed.file_count(), 1);
+        assert_eq!(managed.file_count(), 2);
     }
 
     #[test]
@@ -2222,7 +2234,7 @@ mod tests {
                 matches!(&events[0], CompletedEvent::Reliable(ReliableEvent::RunningAuthority(event))
                 if matches!(**event, RunningAuthorityEvent::GenerationCheckpointPublished { command_sequence: 2, .. }))
             );
-            assert_eq!(managed.file_count(), 1);
+            assert_eq!(managed.file_count(), 2);
             assert_eq!(
                 runtime.health().running_authority.unwrap().world_epoch,
                 before.world_epoch

@@ -26,7 +26,8 @@ use napi_derive::napi;
 
 use crate::engine::checkpoint::{
     CheckpointBoundaryKind, CheckpointDescriptor, CheckpointOperationId,
-    CheckpointWriteValidationPolicy, NumericEncoding, CHECKPOINT_DESCRIPTOR_VERSION,
+    CheckpointWriteValidationPolicy, HallOfFameWeightsDescriptor, NumericEncoding,
+    CHECKPOINT_DESCRIPTOR_VERSION,
 };
 use crate::engine::contract::{
     CommandBatch, CompletedEvent, EngineCommand, EngineInit, GenerationAssignmentReceiptState,
@@ -194,6 +195,18 @@ pub struct ManagedCheckpointDescriptor {
     pub write_validation_policy: String,
 }
 
+/// Scalar-only descriptor for one deduplicated Hall-of-Fame weight object.
+#[napi(object)]
+pub struct ManagedHallOfFameWeightsDescriptor {
+    pub version: u32,
+    pub logical_sha256: String,
+    pub relative_filename: String,
+    pub encoding: String,
+    pub stored_byte_count: String,
+    pub decoded_byte_count: String,
+    pub weight_count: String,
+}
+
 /// Controlled immutable-checkpoint publication request.
 #[cfg(feature = "engine-test-hooks")]
 #[napi(object)]
@@ -241,6 +254,7 @@ pub struct Stage6GenerationCommitRecord {
 #[napi(object)]
 pub struct Stage6GenerationCheckpointPublication {
     pub descriptor: ManagedCheckpointDescriptor,
+    pub hall_of_fame_weights: ManagedHallOfFameWeightsDescriptor,
     pub generation_commit: Stage6GenerationCommitRecord,
 }
 
@@ -2185,6 +2199,9 @@ impl Task for PublishStage6GenerationTask {
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
         Ok(Stage6GenerationCheckpointPublication {
             descriptor: checkpoint_descriptor_to_napi(output.descriptor),
+            hall_of_fame_weights: hall_of_fame_weights_descriptor_to_napi(
+                output.hall_of_fame_weights,
+            ),
             generation_commit: generation_commit_to_napi(output.commit_record),
         })
     }
@@ -2668,6 +2685,21 @@ fn checkpoint_descriptor_to_napi(descriptor: CheckpointDescriptor) -> ManagedChe
         recurrent_state_encoding: descriptor.recurrent_state_encoding.as_str().to_owned(),
         graph_layout_sha256: descriptor.graph_layout_sha256,
         write_validation_policy: descriptor.write_validation_policy.as_str().to_owned(),
+    }
+}
+
+/// Convert one elite-object descriptor without exposing its numeric body.
+fn hall_of_fame_weights_descriptor_to_napi(
+    descriptor: HallOfFameWeightsDescriptor,
+) -> ManagedHallOfFameWeightsDescriptor {
+    ManagedHallOfFameWeightsDescriptor {
+        version: descriptor.version,
+        logical_sha256: descriptor.logical_sha256,
+        relative_filename: descriptor.relative_filename,
+        encoding: descriptor.encoding.as_str().to_owned(),
+        stored_byte_count: descriptor.stored_byte_count_hex,
+        decoded_byte_count: descriptor.decoded_byte_count_hex,
+        weight_count: descriptor.weight_count_hex,
     }
 }
 
@@ -3194,12 +3226,16 @@ fn running_authority_event_to_napi(
         RunningAuthorityEvent::GenerationCheckpointPublished {
             command_sequence,
             descriptor,
+            hall_of_fame_weights,
             commit_record,
         } => {
             output.kind = "generationCheckpointPublished".to_owned();
             output.command_sequence = Some(u64_hex(command_sequence));
             output.checkpoint = Some(Stage6GenerationCheckpointPublication {
                 descriptor: checkpoint_descriptor_to_napi(*descriptor),
+                hall_of_fame_weights: hall_of_fame_weights_descriptor_to_napi(
+                    *hall_of_fame_weights,
+                ),
                 generation_commit: generation_commit_to_napi(commit_record),
             });
         }

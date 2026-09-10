@@ -540,7 +540,7 @@ function encodeExpectedHallOfFame(commit: ManagedGenerationCommit): Buffer {
   return record;
 }
 
-/** Strictly parse the two-field scalar result returned by the native session. */
+/** Strictly parse the scalar result returned by the native session. */
 function parseGenerationPublication(value: unknown): {
   descriptor: ManagedCheckpointDescriptor;
   generationCommit: ManagedGenerationCommit;
@@ -549,12 +549,19 @@ function parseGenerationPublication(value: unknown): {
     throw new TypeError('native generation publication must be an object');
   }
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).length !== 2 || !Object.hasOwn(record, 'descriptor') ||
-    !Object.hasOwn(record, 'generationCommit')) {
+  if (Object.keys(record).length !== 3 || !Object.hasOwn(record, 'descriptor') ||
+    !Object.hasOwn(record, 'generationCommit') ||
+    !Object.hasOwn(record, 'hallOfFameWeights')) {
     throw new TypeError('native generation publication has unknown or missing fields');
   }
   const descriptor = parseManagedCheckpointDescriptor(record['descriptor']);
-  const generationCommit = parseManagedGenerationCommit(record['generationCommit'], descriptor);
+  const rawCommit = record['generationCommit'];
+  const generationCommit = parseManagedGenerationCommit(
+    rawCommit !== null && typeof rawCommit === 'object' && !Array.isArray(rawCommit)
+      ? { ...rawCommit, hallOfFameWeights: record['hallOfFameWeights'] }
+      : rawCommit,
+    descriptor
+  );
   if (generationCommit === null) {
     throw new TypeError('native generation publication omitted generation metadata');
   }

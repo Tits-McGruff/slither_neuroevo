@@ -144,10 +144,11 @@ export interface ManagedGenerationSummary {
 }
 
 /**
- * Run-scoped Hall-of-Fame metadata referencing the elite copy inside the immutable checkpoint.
+ * Run-scoped Hall-of-Fame metadata identifying the elite selected for one immutable checkpoint.
  *
- * No genome weights are duplicated here. `successorPopulationSlot` and `successorGenomeId`
- * identify the bit-exact elite already stored in the checkpoint selected by the same commit.
+ * No genome weights are embedded here. `successorPopulationSlot` and `successorGenomeId`
+ * identify the bit-exact elite in the checkpoint, while the same transaction links its
+ * independently retained content-addressed weight object.
  */
 export interface ManagedHallOfFameReference {
   /** Completed generation that produced the selected genome. */
@@ -168,12 +169,32 @@ export interface ManagedHallOfFameReference {
   successorGenomeId: U64Hex;
 }
 
+/** Immutable adaptive binary object containing one Hall-of-Fame genome's weights. */
+export interface ManagedHallOfFameWeightsDescriptor {
+  /** Descriptor and file contract version. */
+  version: 1;
+  /** SHA-256 of decoded packed little-endian Float32 bits. */
+  logicalSha256: string;
+  /** Digest-derived direct child of the controlled checkpoint directory. */
+  relativeFilename: string;
+  /** Adaptive raw or shuffled-Zstandard encoding. */
+  encoding: ManagedCheckpointNumericEncoding;
+  /** Exact stored file bytes. */
+  storedByteCount: U64Hex;
+  /** Exact decoded packed bytes. */
+  decodedByteCount: U64Hex;
+  /** Exact Float32 parameter count. */
+  weightCount: U64Hex;
+}
+
 /** Complete small metadata that must commit with one generation checkpoint pointer. */
 export interface ManagedGenerationCommit {
   /** Compact eight-field chart/history record. */
   summary: ManagedGenerationSummary;
-  /** Run-scoped reference to the selected elite inside the same checkpoint. */
+  /** Run-scoped identity of the selected elite inside the same checkpoint. */
   hallOfFame: ManagedHallOfFameReference;
+  /** Independently retained winner weights produced by the same Rust transition. */
+  hallOfFameWeights: ManagedHallOfFameWeightsDescriptor;
 }
 
 /** Commit request sent from the Node client to its one persistence worker. */
@@ -199,6 +220,8 @@ export type CheckpointPersistenceWorkerRequest =
   | { type: 'inspectCheckpointRetention'; operationId: CheckpointOperationId }
   | { type: 'pinCurrentCheckpoint'; operationId: CheckpointOperationId }
   | { type: 'applyCheckpointRetention'; operationId: CheckpointOperationId }
+  | { type: 'acquireCurrentExportLease'; operationId: CheckpointOperationId }
+  | { type: 'releaseExportLease'; operationId: CheckpointOperationId }
   | CommitManagedCheckpointRequest
   | SelectManagedCheckpointRequest
   | CheckpointPersistenceShutdownRequest;
@@ -221,6 +244,16 @@ export interface ManagedCheckpointSelection {
   runId: string | null;
   /** Durable provenance remains visible after the branch advances. */
   recovery: RecoveryBranchResult | null;
+}
+
+/** Exact immutable checkpoint protected for one direct archive download. */
+export interface ManagedCheckpointExportLease {
+  /** Worker-owned lease token used for exact release. */
+  operationId: CheckpointOperationId;
+  /** Effective run identity at acquisition time. */
+  runId: string;
+  /** Original immutable checkpoint descriptor selected by the current pointer. */
+  descriptor: ManagedCheckpointDescriptor;
 }
 
 /** One validated metadata selection, without opening or decoding population payloads. */
@@ -266,6 +299,8 @@ export type CheckpointPersistenceWorkerResponse =
   | { type: 'checkpointRetentionInspected'; operationId: CheckpointOperationId; inventory: CheckpointRetentionInventory }
   | { type: 'currentCheckpointPinned'; operationId: CheckpointOperationId; checkpointId: string; generation: U64Hex }
   | { type: 'checkpointRetentionApplied'; operationId: CheckpointOperationId; result: CheckpointPruneResult }
+  | { type: 'currentExportLeaseAcquired'; lease: ManagedCheckpointExportLease }
+  | { type: 'exportLeaseReleased'; operationId: CheckpointOperationId }
   | ManagedCheckpointCommittedResponse
   | ManagedCheckpointSelectedResponse
   | ManagedCheckpointRejectedResponse;
@@ -623,6 +658,53 @@ function parseManagedHallOfFameReference(
   return parsed;
 }
 
+/** Validate one Rust-published deduplicated Hall-of-Fame weight object. */
+export function parseManagedHallOfFameWeightsDescriptor(
+  value: unknown,
+  checkpoint: ManagedCheckpointDescriptor
+): ManagedHallOfFameWeightsDescriptor {
+  const descriptor = asRecord(value, 'hallOfFameWeights');
+  requireOnlyKeys(descriptor, [
+    'version', 'logicalSha256', 'relativeFilename', 'encoding',
+    'storedByteCount', 'decodedByteCount', 'weightCount'
+  ]);
+  if (descriptor['version'] !== 1 || typeof descriptor['logicalSha256'] !== 'string' ||
+      !SHA256_HEX.test(descriptor['logicalSha256'])) {
+    reject('Hall-of-Fame weight descriptor has invalid version or logical SHA-256');
+  }
+  const logicalSha256 = descriptor['logicalSha256'];
+  if (descriptor['relativeFilename'] !== `${logicalSha256}.hof-weights-v1`) {
+    reject('Hall-of-Fame weight filename is not digest-derived');
+  }
+  if (descriptor['encoding'] !== 'raw-f32le-v1' &&
+      descriptor['encoding'] !== 'f32le-shuffle4-zstd-v1') {
+    reject('Hall-of-Fame weight descriptor has an unsupported encoding');
+  }
+  const storedByteCount = asU64Hex(descriptor['storedByteCount'], 'hallOfFameWeights.storedByteCount');
+  const decodedByteCount = asU64Hex(descriptor['decodedByteCount'], 'hallOfFameWeights.decodedByteCount');
+  const weightCount = asU64Hex(descriptor['weightCount'], 'hallOfFameWeights.weightCount');
+  const count = BigInt(`0x${weightCount}`);
+  const populationCount = BigInt(`0x${checkpoint.populationCount}`);
+  const aggregateWeightCount = BigInt(`0x${checkpoint.weightCount}`);
+  const storedBytes = BigInt(`0x${storedByteCount}`);
+  const decodedBytes = BigInt(`0x${decodedByteCount}`);
+  if (populationCount === 0n || aggregateWeightCount % populationCount !== 0n ||
+      count !== aggregateWeightCount / populationCount || count > 0x3fff_ffff_ffff_ffffn ||
+      decodedBytes !== count * 4n || (count > 0n && storedBytes === 0n) ||
+      (descriptor['encoding'] === 'raw-f32le-v1' && storedBytes !== decodedBytes)) {
+    reject('Hall-of-Fame weight descriptor has inconsistent counts');
+  }
+  return {
+    version: 1,
+    logicalSha256,
+    relativeFilename: descriptor['relativeFilename'] as string,
+    encoding: descriptor['encoding'],
+    storedByteCount,
+    decodedByteCount,
+    weightCount
+  };
+}
+
 /**
  * Validate all small metadata that must commit atomically with one checkpoint pointer.
  * @param value - Candidate generation commit, or null for run start.
@@ -638,12 +720,13 @@ export function parseManagedGenerationCommit(
     return null;
   }
   const commit = asRecord(value, 'generationCommit');
-  requireOnlyKeys(commit, ['summary', 'hallOfFame']);
+  requireOnlyKeys(commit, ['summary', 'hallOfFame', 'hallOfFameWeights']);
   const summary = parseManagedGenerationSummary(commit['summary'], descriptor);
   if (summary === null) reject('generation checkpoint is missing compact history');
   return {
     summary,
-    hallOfFame: parseManagedHallOfFameReference(commit['hallOfFame'], descriptor, summary)
+    hallOfFame: parseManagedHallOfFameReference(commit['hallOfFame'], descriptor, summary),
+    hallOfFameWeights: parseManagedHallOfFameWeightsDescriptor(commit['hallOfFameWeights'], descriptor)
   };
 }
 

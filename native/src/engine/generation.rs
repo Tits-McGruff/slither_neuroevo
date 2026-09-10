@@ -7,8 +7,8 @@
 //! file publication and the small metadata/current-pointer transaction succeed.
 
 use super::checkpoint::{
-    publish_checkpoint, CheckpointDescriptor, CheckpointError, CheckpointLimits,
-    CheckpointOperationId,
+    publish_checkpoint, publish_hall_of_fame_weights, CheckpointDescriptor, CheckpointError,
+    CheckpointLimits, CheckpointOperationId, HallOfFameWeightsDescriptor,
 };
 use super::evolution::{
     prepare_evolution, EvolutionError, GenerationSummary, HallOfFameCandidate, NextGenomeOrigin,
@@ -231,6 +231,31 @@ impl AdmittedGenerationBoundary {
             limits,
             graph_limits,
             self.successor.checkpoint_policy(),
+        )?)
+    }
+
+    /// Publish the selected elite as a deduplicated object independent of checkpoint retention.
+    pub fn publish_hall_of_fame_weights(
+        &self,
+        managed_directory: &Path,
+        operation_id: &CheckpointOperationId,
+        limits: &CheckpointLimits,
+    ) -> Result<HallOfFameWeightsDescriptor, GenerationTransitionError> {
+        let slot = usize::try_from(self.metadata.hall_of_fame_population_slot).map_err(|_| {
+            GenerationTransitionError::ArithmeticOverflow {
+                context: "Hall-of-Fame successor population slot",
+            }
+        })?;
+        let genome = self.candidate().population.get(slot).ok_or(
+            GenerationTransitionError::PopulationShape {
+                reason: "Hall-of-Fame successor population slot is out of bounds",
+            },
+        )?;
+        Ok(publish_hall_of_fame_weights(
+            managed_directory,
+            operation_id,
+            &genome.weights,
+            limits,
         )?)
     }
 }

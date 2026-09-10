@@ -11,7 +11,8 @@ import {
 } from './generationPersistenceHandoff.ts';
 import type {
   ManagedCheckpointDescriptor,
-  ManagedGenerationCommit
+  ManagedGenerationCommit,
+  ManagedHallOfFameWeightsDescriptor
 } from './checkpointPersistenceProtocol.ts';
 
 /** Promise controls used to hold one fake native publication in flight. */
@@ -98,6 +99,15 @@ function createGenerationCommit(): ManagedGenerationCommit {
       length: '0000000000000005',
       successorPopulationSlot: '0000000000000000',
       successorGenomeId: '0000000000000005'
+    },
+    hallOfFameWeights: {
+      version: 1,
+      logicalSha256: 'c'.repeat(64),
+      relativeFilename: `${'c'.repeat(64)}.hof-weights-v1`,
+      encoding: 'raw-f32le-v1',
+      storedByteCount: '0000000000000100',
+      decodedByteCount: '0000000000000100',
+      weightCount: '0000000000000040'
     }
   };
 }
@@ -109,9 +119,22 @@ function createGenerationCommit(): ManagedGenerationCommit {
  */
 function createPublication(descriptor = createDescriptor()): {
   descriptor: ManagedCheckpointDescriptor;
-  generationCommit: ManagedGenerationCommit;
+  generationCommit: Omit<ManagedGenerationCommit, 'hallOfFameWeights'>;
+  hallOfFameWeights: ManagedHallOfFameWeightsDescriptor;
 } {
-  return { descriptor, generationCommit: createGenerationCommit() };
+  const commit = createGenerationCommit();
+  return {
+    descriptor,
+    generationCommit: { summary: commit.summary, hallOfFame: commit.hallOfFame },
+    hallOfFameWeights: commit.hallOfFameWeights
+  };
+}
+
+/** Merge the native publication's sibling weight descriptor into the SQLite commit payload. */
+function completeGenerationCommit(
+  publication: ReturnType<typeof createPublication>
+): ManagedGenerationCommit {
+  return { ...publication.generationCommit, hallOfFameWeights: publication.hallOfFameWeights };
 }
 
 /**
@@ -219,7 +242,7 @@ describe('generation persistence handoff', () => {
       managedDirectory: 'C:\\controlled\\checkpoint-v3',
       operationId: publication.descriptor.operationId
     }]);
-    expect(committedValues).toEqual([[publication.descriptor, publication.generationCommit]]);
+    expect(committedValues).toEqual([[publication.descriptor, completeGenerationCommit(publication)]]);
     expect(result).toEqual(createCommitResult(publication.descriptor));
     expect(acknowledged).toEqual([publication.descriptor]);
   });

@@ -7,6 +7,7 @@
 
 use super::checkpoint::{
     publish_checkpoint, CheckpointDescriptor, CheckpointLimits, CheckpointOperationId,
+    HallOfFameWeightsDescriptor,
 };
 use super::contract::{EngineInit, InboundLimits, OutputLimits, ENGINE_CONTRACT_VERSION};
 use super::generation::GenerationCommitRecord;
@@ -58,6 +59,8 @@ const FIXTURE_RESUME_WALL_MS: u64 = 1_000;
 pub struct PublishedGenerationHandoff {
     /// Immutable checkpoint descriptor produced by the retained coordinator.
     pub descriptor: CheckpointDescriptor,
+    /// Independently retained elite object produced by the same Rust operation.
+    pub hall_of_fame_weights: HallOfFameWeightsDescriptor,
     /// Exact summary and elite reference derived during Rust admission.
     pub commit_record: GenerationCommitRecord,
 }
@@ -279,6 +282,7 @@ impl GenerationHandoffFixtureSession {
         }
         Ok(PublishedGenerationHandoff {
             descriptor: publication.descriptor,
+            hall_of_fame_weights: publication.hall_of_fame_weights,
             commit_record: publication.commit_record,
         })
     }
@@ -1271,7 +1275,7 @@ mod tests {
             std::fs::read_dir(managed.path())
                 .expect("managed directory must remain readable")
                 .count(),
-            2
+            3
         );
 
         runtime.request_stop();

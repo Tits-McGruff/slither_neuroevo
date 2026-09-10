@@ -8,6 +8,7 @@ import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
 import type {
   ManagedCheckpointDescriptor,
   ManagedGenerationCommit,
+  ManagedHallOfFameWeightsDescriptor,
   ManagedHallOfFameReference,
   ManagedGenerationSummary
 } from './checkpointPersistenceProtocol.ts';
@@ -93,6 +94,29 @@ function createHallOfFameReference(
   };
 }
 
+/** Write one small immutable winner-weight object into the current disposable managed root. */
+function createHallOfFameWeights(
+  completedGeneration: bigint,
+  overrides: Partial<ManagedHallOfFameWeightsDescriptor> = {}
+): ManagedHallOfFameWeightsDescriptor {
+  const root = fixtureRoots.at(-1);
+  if (!root) throw new Error('Hall-of-Fame weights require an active fixture');
+  const bytes = Buffer.alloc(16, Number(completedGeneration & 0xffn));
+  const logicalSha256 = createHash('sha256').update(bytes).digest('hex');
+  const descriptor: ManagedHallOfFameWeightsDescriptor = {
+    version: 1,
+    logicalSha256,
+    relativeFilename: `${logicalSha256}.hof-weights-v1`,
+    encoding: 'raw-f32le-v1',
+    storedByteCount: u64(BigInt(bytes.length)),
+    decodedByteCount: u64(BigInt(bytes.length)),
+    weightCount: u64(BigInt(bytes.length / 4)),
+    ...overrides
+  };
+  writeFileSync(join(root, 'managed-checkpoints', descriptor.relativeFilename), bytes);
+  return descriptor;
+}
+
 /**
  * Build the complete small metadata transaction payload for one finished generation.
  * @param completedGeneration - Generation whose round completed.
@@ -112,7 +136,8 @@ function createGenerationCommit(
       completedGeneration,
       summary.bestF64Hex,
       hallOfFameOverrides
-    )
+    ),
+    hallOfFameWeights: createHallOfFameWeights(completedGeneration)
   };
 }
 
@@ -488,6 +513,22 @@ describe(SUITE, { timeout: 30_000 }, () => {
 
     const oldSchema = new Database(fixture.databasePath);
     try { oldSchema.exec(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE rust_hall_of_fame_v1_old (
+        run_id TEXT NOT NULL,
+        generation_hex TEXT NOT NULL,
+        checkpoint_id TEXT NOT NULL UNIQUE REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
+        record_version INTEGER NOT NULL,
+        record_blob BLOB NOT NULL CHECK(length(record_blob) = 56),
+        created_at_ms INTEGER NOT NULL,
+        PRIMARY KEY (run_id, generation_hex)
+      );
+      INSERT INTO rust_hall_of_fame_v1_old
+        SELECT run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms
+        FROM rust_hall_of_fame_v1;
+      DROP TABLE rust_hall_of_fame_v1;
+      ALTER TABLE rust_hall_of_fame_v1_old RENAME TO rust_hall_of_fame_v1;
+      DROP TABLE rust_hall_of_fame_weights_v1;
       DROP TABLE rust_checkpoint_retention_v1;
       CREATE TABLE rust_checkpoint_retention_v1 (
         checkpoint_id TEXT PRIMARY KEY NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
@@ -507,6 +548,14 @@ describe(SUITE, { timeout: 30_000 }, () => {
     const backfilled = await reopened.inspectRetention();
     expect(backfilled.automaticStoredByteCount).toBe(initial.automaticStoredByteCount);
     expect(backfilled.retained.latest.checkpointCount + backfilled.retained.recent.checkpointCount).toBe(2);
+    const migrated = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(migrated.prepare('SELECT weights_sha256 FROM rust_hall_of_fame_v1').get()).toEqual({
+        weights_sha256: null
+      });
+      expect(migrated.prepare(`SELECT count(*) AS count FROM sqlite_schema
+        WHERE type = 'table' AND name = 'rust_hall_of_fame_weights_v1'`).get()).toEqual({ count: 1 });
+    } finally { migrated.close(); }
     await expect(reopened.pinCurrentCheckpoint()).resolves.toEqual({
       checkpointId: second.logicalRootSha256,
       generation: second.generation
@@ -578,6 +627,12 @@ describe(SUITE, { timeout: 30_000 }, () => {
       expect(inspect.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 11 });
       expect(inspect.prepare('SELECT count(*) AS count FROM rust_generation_history_v1').get()).toEqual({ count: 10 });
       expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_v1').get()).toEqual({ count: 10 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get()).toEqual({ count: 10 });
+      expect(inspect.prepare(`SELECT count(*) AS count FROM rust_hall_of_fame_v1
+        WHERE weights_sha256 IS NOT NULL`).get()).toEqual({ count: 10 });
+      const weightFiles = inspect.prepare(`SELECT relative_filename FROM rust_hall_of_fame_weights_v1`)
+        .all() as Array<{ relative_filename: string }>;
+      expect(weightFiles.every(row => existsSync(join(fixture.managedRoot, row.relative_filename)))).toBe(true);
       expect(inspect.prepare(`SELECT retention_kind, count(*) AS count
         FROM rust_checkpoint_retention_v1 GROUP BY retention_kind ORDER BY retention_kind`).all()).toEqual([
         { retention_kind: 'automatic', count: 8 },
@@ -585,6 +640,39 @@ describe(SUITE, { timeout: 30_000 }, () => {
         { retention_kind: 'pruned', count: 2 }
       ]);
     } finally { inspect.close(); }
+  });
+
+  it('keeps one exact export lease alive across later checkpoints and pruning', async () => {
+    const fixture = createFixture();
+    const descriptors = [createDescriptor(fixture.managedRoot)];
+    await fixture.client.commit(descriptors[0]!);
+    let lease: Awaited<ReturnType<CheckpointPersistenceClient['acquireCurrentExportLease']>> | undefined;
+    for (let generation = 2n; generation <= 11n; generation++) {
+      const descriptor = createDescriptor(fixture.managedRoot, {
+        operationId: (generation + 32n).toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation),
+        generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n),
+        boundaryKind: 'generation'
+      });
+      descriptors.push(descriptor);
+      await fixture.client.commit(descriptor, createGenerationCommit(generation - 1n));
+      if (generation === 2n) lease = await fixture.client.acquireCurrentExportLease();
+    }
+    expect(lease).toMatchObject({ runId: descriptors[1]!.runId, descriptor: descriptors[1] });
+    await expect(fixture.client.acquireCurrentExportLease()).rejects.toThrow(/busy/);
+
+    const protectedCleanup = await fixture.client.applyRetention();
+    expect(protectedCleanup.deletedCheckpointCount).toBe(2);
+    expect(protectedCleanup.inventory.plannedPrune.checkpointCount).toBe(1);
+    expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(true);
+    await fixture.client.releaseExportLease(lease!.operationId);
+
+    const releasedCleanup = await fixture.client.applyRetention();
+    expect(releasedCleanup.deletedCheckpointCount).toBe(1);
+    expect(releasedCleanup.inventory.plannedPrune.checkpointCount).toBe(0);
+    expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(false);
+    await expect(fixture.client.releaseExportLease(lease!.operationId)).rejects.toThrow(/not active/);
   });
 
   it('rejects ambiguous run selection while retaining explicit per-run reads', async () => {
@@ -990,7 +1078,8 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await fixture.client.commit(descriptor, generationCommit);
     await fixture.client.commit({ ...descriptor }, {
       summary: { ...generationCommit.summary },
-      hallOfFame: { ...generationCommit.hallOfFame }
+      hallOfFame: { ...generationCommit.hallOfFame },
+      hallOfFameWeights: { ...generationCommit.hallOfFameWeights }
     });
     await expect(fixture.client.commit(
       descriptor,

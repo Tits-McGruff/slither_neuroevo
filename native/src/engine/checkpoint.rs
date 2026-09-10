@@ -67,6 +67,8 @@ const WEIGHTS_ZSTD_PATH: &str = "population/weights.f32le.shuf4.zst";
 const RECURRENT_RAW_PATH: &str = "population/recurrent.f32le";
 /// Shuffled-Zstandard recurrent-state path.
 const RECURRENT_ZSTD_PATH: &str = "population/recurrent.f32le.shuf4.zst";
+/// Content-addressed suffix for one independently retained Hall-of-Fame genome.
+const HALL_OF_FAME_WEIGHTS_SUFFIX: &str = ".hof-weights-v1";
 /// Required final manifest path.
 const MANIFEST_PATH: &str = "manifest.json";
 /// State-role binary magic.
@@ -301,6 +303,56 @@ pub struct CheckpointDescriptor {
     pub graph_layout_sha256: String,
     /// Exact single-pass automatic-checkpoint write policy.
     pub write_validation_policy: CheckpointWriteValidationPolicy,
+}
+
+/// Small content-addressed descriptor for one independently retained elite genome.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HallOfFameWeightsDescriptor {
+    /// Version of this scalar descriptor and file contract.
+    pub version: u32,
+    /// Encoding-independent SHA-256 of packed little-endian Float32 bits.
+    pub logical_sha256: String,
+    /// Digest-derived direct child of the controlled managed directory.
+    pub relative_filename: String,
+    /// Selected adaptive numeric encoding.
+    pub encoding: NumericEncoding,
+    /// Complete stored file bytes as canonical `u64` hexadecimal.
+    pub stored_byte_count_hex: String,
+    /// Packed logical bytes as canonical `u64` hexadecimal.
+    pub decoded_byte_count_hex: String,
+    /// Exact Float32 parameter count as canonical `u64` hexadecimal.
+    pub weight_count_hex: String,
+}
+
+impl HallOfFameWeightsDescriptor {
+    /// Exact string-storage bytes retained after publication compacts spare capacity.
+    pub(crate) const PUBLICATION_OWNED_BYTES: usize =
+        64 + 64 + HALL_OF_FAME_WEIGHTS_SUFFIX.len() + 3 * 16;
+
+    /// Remove spare string capacity before the descriptor crosses a bounded queue.
+    fn compact_storage(mut self) -> Self {
+        for value in [
+            &mut self.logical_sha256,
+            &mut self.relative_filename,
+            &mut self.stored_byte_count_hex,
+            &mut self.decoded_byte_count_hex,
+            &mut self.weight_count_hex,
+        ] {
+            *value = std::mem::take(value).into_boxed_str().into_string();
+        }
+        self
+    }
+
+    /// Heap bytes retained by one reliable output event.
+    #[must_use]
+    pub(crate) fn owned_bytes(&self) -> usize {
+        self.logical_sha256
+            .capacity()
+            .saturating_add(self.relative_filename.capacity())
+            .saturating_add(self.stored_byte_count_hex.capacity())
+            .saturating_add(self.decoded_byte_count_hex.capacity())
+            .saturating_add(self.weight_count_hex.capacity())
+    }
 }
 
 impl CheckpointDescriptor {
@@ -1085,6 +1137,167 @@ pub fn publish_checkpoint(
         operation_id,
         transition_epoch,
     ))
+}
+
+/// Publish one elite genome independently of its population checkpoint.
+///
+/// The file is content-addressed by decoded Float32 bits, so repeated winners
+/// reuse one immutable object even when their source generation differs.
+pub fn publish_hall_of_fame_weights(
+    managed_directory: &Path,
+    operation_id: &CheckpointOperationId,
+    weights: &[f32],
+    limits: &CheckpointLimits,
+) -> Result<HallOfFameWeightsDescriptor, CheckpointError> {
+    validate_limits(limits)?;
+    fs::create_dir_all(managed_directory)?;
+    let managed_directory = managed_directory.canonicalize()?;
+    let source = FloatSource::new(
+        vec![weights],
+        limits.max_weight_floats,
+        "Hall-of-Fame weight",
+    )?;
+    let mut artifacts = TemporaryArtifacts::new();
+    let candidate = select_numeric_candidate(
+        &managed_directory,
+        operation_id.as_str(),
+        "hof-weights",
+        &source,
+        limits,
+        &mut artifacts,
+    )?;
+    let logical_sha256 = encode_digest(candidate.logical_sha256);
+    let relative_filename = format!("{logical_sha256}{HALL_OF_FAME_WEIGHTS_SUFFIX}");
+    let final_path = managed_directory.join(&relative_filename);
+    let descriptor = HallOfFameWeightsDescriptor {
+        version: 1,
+        logical_sha256,
+        relative_filename,
+        encoding: candidate.encoding,
+        stored_byte_count_hex: encode_u64_hex(candidate.stored_bytes),
+        decoded_byte_count_hex: encode_u64_hex(candidate.raw_bytes),
+        weight_count_hex: encode_u64_hex(usize_to_u64(
+            candidate.float_count,
+            "Hall-of-Fame weight count",
+        )?),
+    }
+    .compact_storage();
+    if final_path.exists() {
+        validate_existing_hall_of_fame_weights(&final_path, &descriptor)?;
+        return Ok(descriptor);
+    }
+
+    let partial_path = match candidate.encoding {
+        NumericEncoding::RawF32LeV1 => {
+            let path =
+                managed_directory.join(format!(".{}.hof-weights.partial", operation_id.as_str()));
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)?;
+            artifacts.track(path.clone());
+            let mut writer = BufWriter::new(file);
+            io::copy(&mut FloatByteReader::new(&source), &mut writer)?;
+            writer.flush()?;
+            let file = writer.into_inner().map_err(|error| error.into_error())?;
+            file.sync_all()?;
+            if file.metadata()?.len() != candidate.stored_bytes {
+                return Err(CheckpointError::format(
+                    "HOF_WEIGHTS_LENGTH",
+                    "raw Hall-of-Fame file length changed during publication",
+                ));
+            }
+            drop(file);
+            path
+        }
+        NumericEncoding::F32LeShuffle4ZstdV1 => {
+            let path = candidate.compressed_path.clone().ok_or_else(|| {
+                CheckpointError::format(
+                    "HOF_WEIGHTS_CODEC",
+                    "compressed Hall-of-Fame candidate is missing",
+                )
+            })?;
+            let file = OpenOptions::new().read(true).write(true).open(&path)?;
+            file.sync_all()?;
+            drop(file);
+            path
+        }
+    };
+    match rename_noreplace(&partial_path, &final_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists || final_path.exists() => {
+            sync_parent_directory(&managed_directory)?;
+            validate_existing_hall_of_fame_weights(&final_path, &descriptor)?;
+            return Ok(descriptor);
+        }
+        Err(error) => return Err(error.into()),
+    }
+    sync_parent_directory(&managed_directory)?;
+    validate_existing_hall_of_fame_weights(&final_path, &descriptor)?;
+    Ok(descriptor)
+}
+
+/// Fully verify an existing content-addressed elite object before reusing it.
+fn validate_existing_hall_of_fame_weights(
+    path: &Path,
+    descriptor: &HallOfFameWeightsDescriptor,
+) -> Result<(), CheckpointError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+        return Err(CheckpointError::format(
+            "HOF_WEIGHTS_TYPE",
+            "Hall-of-Fame object must be a regular file",
+        ));
+    }
+    let stored_bytes = parse_u64_hex(
+        &descriptor.stored_byte_count_hex,
+        "Hall-of-Fame stored bytes",
+    )?;
+    let weight_count = u64_to_usize(
+        parse_u64_hex(&descriptor.weight_count_hex, "Hall-of-Fame weight count")?,
+        "Hall-of-Fame weight count",
+    )?;
+    let logical_sha256 = parse_digest(&descriptor.logical_sha256, "Hall-of-Fame logical SHA-256")?;
+    let decoded_bytes = usize_to_u64(weight_count, "Hall-of-Fame weight count")?
+        .checked_mul(4)
+        .ok_or_else(|| {
+            CheckpointError::format("COUNT_OVERFLOW", "Hall-of-Fame decoded bytes overflow")
+        })?;
+    if metadata.len() != stored_bytes
+        || parse_u64_hex(
+            &descriptor.decoded_byte_count_hex,
+            "Hall-of-Fame decoded bytes",
+        )? != decoded_bytes
+    {
+        return Err(CheckpointError::format(
+            "HOF_WEIGHTS_LENGTH",
+            "Hall-of-Fame object length disagrees with its descriptor",
+        ));
+    }
+    let mut file = File::open(path)?;
+    let entry = ScannedEntry {
+        name: descriptor.relative_filename.clone(),
+        #[cfg(test)]
+        header_offset: 0,
+        data_offset: 0,
+        size: stored_bytes,
+    };
+    let decoded = decode_numeric_role(
+        &mut file,
+        &entry,
+        descriptor.encoding,
+        weight_count,
+        1,
+        weight_count,
+        logical_sha256,
+    )?;
+    if decoded.len() != 1 || decoded[0].len() != weight_count {
+        return Err(CheckpointError::format(
+            "HOF_WEIGHTS_COUNT",
+            "Hall-of-Fame object decoded to the wrong shape",
+        ));
+    }
+    Ok(())
 }
 
 /// Restore only the immutable content selected by the metadata worker. Historical
@@ -4962,6 +5175,60 @@ mod tests {
             "00000000000000000000000000000002"
         );
         assert_eq!(second.transition_epoch_hex, "000000000000000a");
+    }
+
+    /// Winner weights are deduplicated by decoded bits and corrupt reuse is rejected.
+    #[test]
+    fn hall_of_fame_weights_publish_once_and_validate_before_reuse() {
+        let directory = TestDirectory::new("hall-of-fame-weights");
+        let weights = [1.25_f32, -0.0, f32::from_bits(0x7fc0_0001), -8.5];
+        let first = publish_hall_of_fame_weights(
+            &directory.path,
+            &CheckpointOperationId::parse("00000000000000000000000000000071").unwrap(),
+            &weights,
+            &checkpoint_limits(),
+        )
+        .expect("first winner object must publish");
+        let second = publish_hall_of_fame_weights(
+            &directory.path,
+            &CheckpointOperationId::parse("00000000000000000000000000000072").unwrap(),
+            &weights,
+            &checkpoint_limits(),
+        )
+        .expect("equal decoded weights must reuse the immutable object");
+        assert_eq!(first, second);
+        assert_eq!(first.decoded_byte_count_hex, "0000000000000010");
+        assert_eq!(first.weight_count_hex, "0000000000000004");
+        assert_eq!(fs::read_dir(&directory.path).unwrap().count(), 1);
+
+        let empty = publish_hall_of_fame_weights(
+            &directory.path,
+            &CheckpointOperationId::parse("00000000000000000000000000000074").unwrap(),
+            &[],
+            &checkpoint_limits(),
+        )
+        .expect("a valid parameterless genome must publish an empty raw object");
+        assert_eq!(empty.logical_sha256, encode_digest(sha256(&[])));
+        assert_eq!(empty.stored_byte_count_hex, "0000000000000000");
+        assert_eq!(empty.weight_count_hex, "0000000000000000");
+        assert_eq!(
+            fs::metadata(directory.path.join(empty.relative_filename))
+                .unwrap()
+                .len(),
+            0
+        );
+
+        let path = directory.path.join(&first.relative_filename);
+        let mut corrupt = fs::read(&path).unwrap();
+        corrupt[0] ^= 0x80;
+        fs::write(&path, corrupt).unwrap();
+        assert!(publish_hall_of_fame_weights(
+            &directory.path,
+            &CheckpointOperationId::parse("00000000000000000000000000000073").unwrap(),
+            &weights,
+            &checkpoint_limits(),
+        )
+        .is_err());
     }
 
     /// An unusable zero transition epoch is rejected before any managed artifact exists.
