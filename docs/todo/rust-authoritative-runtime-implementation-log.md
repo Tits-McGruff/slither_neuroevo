@@ -270,7 +270,8 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
 - 2026-09-11 The experimental health boundary reports allocation-bounded Rust
   full-step timing and process-local simulated/wall progress alongside Node
   responsiveness, RSS, frame bytes, checkpoint-barrier, accepted-action, and
-  controller-lifecycle latency. Fixed histograms retain scalar evidence without
+  controller-lifecycle latency, plus Rust-confirmed player/trainer lifecycle
+  totals. Fixed histograms retain scalar evidence without
   copying authoritative state or persisting an unbounded per-step series. The
   first live probe exposed and fixed a nonterminal invariant that incorrectly
   rejected legitimate external-controller RNG draws from boost/death effects;

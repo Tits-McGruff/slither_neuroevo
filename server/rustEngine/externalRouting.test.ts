@@ -9,7 +9,8 @@ function fixture() {
   const commands: Array<{ kind: string; sequence: string; value: unknown }> = [];
   const packets: unknown[] = [];
   const actionLatencies: Array<{ kind: string; durationMs: number }> = [];
-  const lifecycleLatencies: number[] = [];
+  const lifecycleLatencies: Array<{ kind: string; operation: string; durationMs: number }> = [];
+  const disconnects: string[] = [];
   /** Match the native rule that a rejected admission consumes no command identity. */
   const submit = (kind: string, sequence: string, value: unknown): void => {
     if (!available) throw new Error('QueueCountLimit: full');
@@ -26,14 +27,17 @@ function fixture() {
   const routing = new ExternalControllerRouting({ native, admission: new BackgroundCommandAdmission(native), maxControllers: 1,
     maxActionsPerSecond: 120, maxActionsPerTick: 1, send(_connection, packet) { packets.push(packet); return true; },
     observeActionLatency(kind, durationMs) { actionLatencies.push({ kind, durationMs }); },
-    observeLifecycleLatency(durationMs) { lifecycleLatencies.push(durationMs); } });
-  return { routing, commands, packets, actionLatencies, lifecycleLatencies,
+    observeLifecycleLatency(kind, operation, durationMs) {
+      lifecycleLatencies.push({ kind, operation, durationMs });
+    },
+    observeDisconnect(kind) { disconnects.push(kind); } });
+  return { routing, commands, packets, actionLatencies, lifecycleLatencies, disconnects,
     capacity(value: boolean) { available = value; } };
 }
 
 describe('bounded external socket routing', () => {
   it('retains one fresh join, newest player input, and exact close under queue pressure', () => {
-    const { routing, commands, capacity, actionLatencies, lifecycleLatencies } = fixture();
+    const { routing, commands, capacity, actionLatencies, lifecycleLatencies, disconnects } = fixture();
     capacity(false);
     routing.join(1, { type: 'join', mode: 'player', name: 'player' }, 'ui');
     expect(commands).toHaveLength(0);
@@ -47,7 +51,9 @@ describe('bounded external socket routing', () => {
     } });
     routing.event({ kind: 'controllerJoinResolved', controllerJoinResolution: { requestSequence: '0000000000000002', matched: true, accepted: true } });
     expect(lifecycleLatencies).toHaveLength(1);
-    expect(lifecycleLatencies[0]).toBeGreaterThanOrEqual(0);
+    expect(lifecycleLatencies[0]).toMatchObject({ kind: 'player', operation: 'freshAssignment',
+      durationMs: expect.any(Number) });
+    expect(lifecycleLatencies[0]!.durationMs).toBeGreaterThanOrEqual(0);
     capacity(false);
     routing.action(1, { type: 'action', snakeId: 12, tick: 10, turn: 1, boost: 1 });
     routing.action(1, { type: 'action', snakeId: 12, tick: 11, turn: -0.5, boost: 0 });
@@ -65,6 +71,9 @@ describe('bounded external socket routing', () => {
     capacity(true); routing.flush(); routing.flush();
     expect(commands).toHaveLength(4);
     expect(commands[3]).toMatchObject({ kind: 'close', sequence: '0000000000000004', value: { leaseId: '0000000000000009' } });
+    routing.event({ kind: 'controllerDisconnected', commandSequence: '0000000000000004',
+      controllerDisconnect: { leaseId: '0000000000000009', completedStep: '0000000000000001', applied: true } });
+    expect(disconnects).toEqual(['player']);
   });
 
   it('bounds unresolved routes and never converts an explicit invalid token to a fresh join', () => {

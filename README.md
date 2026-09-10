@@ -79,7 +79,8 @@ each generation save. Recovery provenance is included in health and welcome
 messages. `/api/health` also exposes bounded scalar runtime telemetry for
 full-step mean/p95/p99/max, simulated-to-wall time, frame bytes, checkpoint,
 separate browser-player/trainer action and controller-lifecycle latency, Node event-loop delay, and process
-memory. Percentiles are conservative fixed-histogram upper bounds; the server
+memory, plus Rust-confirmed per-kind assignment, reclaim, action, and disconnect
+counts. Percentiles are conservative fixed-histogram upper bounds; the server
 does not retain a per-step series or authoritative game arrays for reporting.
 The same health response exposes current reliable-queue, pending-frame,
 frame-replacement, and send-failure counters for slow-client checks.

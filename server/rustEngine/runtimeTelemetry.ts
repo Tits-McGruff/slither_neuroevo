@@ -53,6 +53,18 @@ export interface ExperimentalLatencyTelemetry {
   maxMs: number;
 }
 
+/** Rust-confirmed external-controller activity for one Protocol 2 client kind. */
+export interface ExperimentalControllerActivityTelemetry {
+  /** Fresh assignments whose reliable transport receipt Rust accepted. */
+  freshAssignments: number;
+  /** Same-snake reclaims whose reliable transport receipt Rust accepted. */
+  successfulReclaims: number;
+  /** Received actions that reached a committed Rust pre-step boundary. */
+  appliedActions: number;
+  /** Disconnects that Rust applied to the current lease. */
+  appliedDisconnects: number;
+}
+
 /** Integrated scalar evidence available from the experimental health route. */
 export interface ExperimentalRuntimeTelemetrySnapshot {
   /** Wall duration since the native owner was attached. */
@@ -77,6 +89,13 @@ export interface ExperimentalRuntimeTelemetrySnapshot {
   trainerAction: ExperimentalLatencyTelemetry;
   /** Join/reclaim request to successful assignment timings. */
   controllerLifecycle: ExperimentalLatencyTelemetry;
+  /** Rust-confirmed lifecycle totals separated by browser player and trainer. */
+  controllerActivity: {
+    /** UI-class browser players. */
+    player: ExperimentalControllerActivityTelemetry;
+    /** Observation-driven Protocol 2 bots. */
+    trainer: ExperimentalControllerActivityTelemetry;
+  };
 }
 
 /** Allocation-once fixed histogram for low-rate interface measurements. */
@@ -158,6 +177,14 @@ export class ExperimentalRuntimeTelemetry {
   private readonly trainerActions = new LatencyHistogram();
   /** Successful assignment/reassignment lifecycle latency. */
   private readonly controllerLifecycles = new LatencyHistogram();
+  /** Rust-confirmed browser-player lifecycle totals. */
+  private readonly playerActivity: ExperimentalControllerActivityTelemetry = {
+    freshAssignments: 0, successfulReclaims: 0, appliedActions: 0, appliedDisconnects: 0
+  };
+  /** Rust-confirmed trainer lifecycle totals. */
+  private readonly trainerActivity: ExperimentalControllerActivityTelemetry = {
+    freshAssignments: 0, successfulReclaims: 0, appliedActions: 0, appliedDisconnects: 0
+  };
   /** Latest Rust-packed display byte length routed through Node. */
   private latestFrameBytes = 0;
   /** Largest Rust-packed display observed during this process. */
@@ -193,11 +220,31 @@ export class ExperimentalRuntimeTelemetry {
   /** Record one admitted external action through its Rust application result. */
   public observeAction(kind: 'player' | 'reinforcementLearning', durationMs: number): void {
     (kind === 'player' ? this.playerActions : this.trainerActions).record(durationMs);
+    this.activity(kind).appliedActions++;
   }
 
   /** Record one join or reclaim through its successful assignment receipt. */
-  public observeControllerLifecycle(durationMs: number): void {
+  public observeControllerLifecycle(
+    kind: 'player' | 'reinforcementLearning',
+    operation: 'freshAssignment' | 'reclaim',
+    durationMs: number
+  ): void {
     this.controllerLifecycles.record(durationMs);
+    const activity = this.activity(kind);
+    if (operation === 'freshAssignment') activity.freshAssignments++;
+    else activity.successfulReclaims++;
+  }
+
+  /** Record one current-lease disconnect after Rust confirms application. */
+  public observeControllerDisconnect(kind: 'player' | 'reinforcementLearning'): void {
+    this.activity(kind).appliedDisconnects++;
+  }
+
+  /** Select one bounded controller counter owner. */
+  private activity(
+    kind: 'player' | 'reinforcementLearning'
+  ): ExperimentalControllerActivityTelemetry {
+    return kind === 'player' ? this.playerActivity : this.trainerActivity;
   }
 
   /** Build one scalar-only health projection from the latest native counters. */
@@ -240,7 +287,11 @@ export class ExperimentalRuntimeTelemetry {
       checkpointBarrier: this.checkpointBarriers.snapshot(),
       playerAction: this.playerActions.snapshot(),
       trainerAction: this.trainerActions.snapshot(),
-      controllerLifecycle: this.controllerLifecycles.snapshot()
+      controllerLifecycle: this.controllerLifecycles.snapshot(),
+      controllerActivity: {
+        player: { ...this.playerActivity },
+        trainer: { ...this.trainerActivity }
+      }
     };
   }
 }

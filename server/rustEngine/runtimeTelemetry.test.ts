@@ -38,7 +38,9 @@ describe('experimental runtime telemetry', () => {
       telemetry.observeAction('player', 0.75);
       telemetry.observeAction('player', 9);
       telemetry.observeAction('reinforcementLearning', 4);
-      telemetry.observeControllerLifecycle(33);
+      telemetry.observeControllerLifecycle('player', 'freshAssignment', 33);
+      telemetry.observeControllerLifecycle('reinforcementLearning', 'reclaim', 8);
+      telemetry.observeControllerDisconnect('reinforcementLearning');
 
       const snapshot = telemetry.snapshot(health(70));
       expect(snapshot.authoritativeSteps).toBe(60);
@@ -50,7 +52,11 @@ describe('experimental runtime telemetry', () => {
       expect(snapshot.checkpointBarrier).toEqual({ samples: 2, meanMs: 46, p95Ms: 125, maxMs: 80 });
       expect(snapshot.playerAction).toEqual({ samples: 2, meanMs: 4.875, p95Ms: 16, maxMs: 9 });
       expect(snapshot.trainerAction).toEqual({ samples: 1, meanMs: 4, p95Ms: 4, maxMs: 4 });
-      expect(snapshot.controllerLifecycle).toEqual({ samples: 1, meanMs: 33, p95Ms: 64, maxMs: 33 });
+      expect(snapshot.controllerLifecycle).toEqual({ samples: 2, meanMs: 20.5, p95Ms: 64, maxMs: 33 });
+      expect(snapshot.controllerActivity).toEqual({
+        player: { freshAssignments: 1, successfulReclaims: 0, appliedActions: 2, appliedDisconnects: 0 },
+        trainer: { freshAssignments: 0, successfulReclaims: 1, appliedActions: 1, appliedDisconnects: 1 }
+      });
       expect(snapshot.process.rssBytes).toBeGreaterThan(0);
       expect(snapshot.process.eventLoopDelayP95Ms).toBeGreaterThanOrEqual(0);
     } finally {

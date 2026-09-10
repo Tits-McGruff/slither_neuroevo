@@ -181,7 +181,12 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
           frame: { latestBytes: expect.any(Number), maximumObservedBytes: expect.any(Number) },
           trainerAction: { samples: 1 },
           playerAction: { samples: 0 },
-          controllerLifecycle: { samples: 2 }
+          controllerLifecycle: { samples: 2 },
+          controllerActivity: {
+            player: { freshAssignments: 0, successfulReclaims: 0, appliedActions: 0, appliedDisconnects: 0 },
+            trainer: { freshAssignments: 1, successfulReclaims: 1, appliedActions: 1,
+              appliedDisconnects: expect.any(Number) }
+          }
         }
       });
       viewer.socket.send(JSON.stringify({ type: 'reset' }));

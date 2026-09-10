@@ -15,6 +15,8 @@ interface Route {
   pending?: 'reclaim' | 'join' | 'close';
   /** Correlation for the admitted join/reclaim request. */
   requestSequence?: RustBackgroundIdentity;
+  /** Lifecycle operation awaiting its Rust transport-receipt resolution. */
+  lifecycleOperation?: 'join' | 'reclaim';
   /** Last Rust-issued lease, used only to route actions and closes. */
   lease?: RustBackgroundIdentity;
   /** Public ID from the assignment envelope, never used as a lease ID. */
@@ -54,7 +56,13 @@ export interface ExternalRoutingOptions {
   /** Observe accepted transport input through Rust application. */
   observeActionLatency?(kind: RustBackgroundReclaimRequest['controllerKind'], durationMs: number): void;
   /** Observe join/reclaim through a successful delivered assignment. */
-  observeLifecycleLatency?(durationMs: number): void;
+  observeLifecycleLatency?(
+    kind: RustBackgroundReclaimRequest['controllerKind'],
+    operation: 'freshAssignment' | 'reclaim',
+    durationMs: number
+  ): void;
+  /** Observe a disconnect only after Rust applies it to the current lease. */
+  observeDisconnect?(kind: RustBackgroundReclaimRequest['controllerKind']): void;
 }
 
 /** Exact unsigned encoding for transport IDs and diagnostic ticks. */
@@ -74,6 +82,11 @@ export class ExternalControllerRouting {
     /** Distinguishes browser-player and observation-driven trainer latency. */
     kind: RustBackgroundReclaimRequest['controllerKind'];
   }>();
+  /** Admitted disconnect identities awaiting their authoritative Rust result. */
+  private readonly pendingDisconnects = new Map<
+    RustBackgroundIdentity,
+    RustBackgroundReclaimRequest['controllerKind']
+  >();
 
   /** Bind the existing socket hub to native ownership commands. */
   constructor(private readonly options: ExternalRoutingOptions) {
@@ -152,13 +165,19 @@ export class ExternalControllerRouting {
     }
     if (route && resolution?.matched) {
       delete route.requestSequence;
+      const operation = route.lifecycleOperation;
+      delete route.lifecycleOperation;
       if (!resolution.accepted) this.routes.delete(route.connection);
       else {
-        this.options.observeLifecycleLatency?.(performance.now() - route.lifecycleStartedAt);
+        if (!operation) throw new Error('successful controller lifecycle omitted its operation');
+        this.options.observeLifecycleLatency?.(route.request.controllerKind,
+          operation === 'join' ? 'freshAssignment' : 'reclaim',
+          performance.now() - route.lifecycleStartedAt);
         if (route.closed) route.pending = 'close';
       }
     } else if (route && event.kind === 'commandRejected') {
       delete route.requestSequence;
+      delete route.lifecycleOperation;
       if (!route.closed && !route.request.resumeToken && event.rejectionCode === 'InvalidCommand' &&
           event.rejectionDetail === 'InvalidCommand: no reserved legacy identity match') route.pending = 'join';
       else {
@@ -168,6 +187,14 @@ export class ExternalControllerRouting {
       }
     }
     if (event.commandSequence) {
+      const disconnectKind = this.pendingDisconnects.get(event.commandSequence);
+      if (disconnectKind &&
+          (event.kind === 'controllerDisconnected' || event.kind === 'commandRejected')) {
+        this.pendingDisconnects.delete(event.commandSequence);
+        if (event.kind === 'controllerDisconnected' && event.controllerDisconnect?.applied) {
+          this.options.observeDisconnect?.(disconnectKind);
+        }
+      }
       const action = this.pendingActions.get(event.commandSequence);
       if (action &&
           (event.kind === 'controllerActionApplied' || event.kind === 'commandRejected')) {
@@ -196,10 +223,16 @@ export class ExternalControllerRouting {
       const pending = route.pending;
       if (!pending) continue;
       if (!admission.trySubmitControl(sequence => {
-        if (pending === 'close') native.submitControllerDisconnect(sequence, { connectionId: route.id, leaseId: route.lease! });
+        if (pending === 'close') {
+          native.submitControllerDisconnect(sequence, { connectionId: route.id, leaseId: route.lease! });
+          this.pendingDisconnects.set(sequence, route.request.controllerKind);
+        }
         else if (pending === 'join') native.submitControllerJoin(sequence, { ...route.request, identityKey: route.request.identityKey! });
         else native.submitControllerReclaim(sequence, route.request);
-        if (pending !== 'close') route.requestSequence = sequence;
+        if (pending !== 'close') {
+          route.requestSequence = sequence;
+          route.lifecycleOperation = pending;
+        }
       })) return;
       delete route.pending;
       if (pending === 'close') this.routes.delete(route.connection);

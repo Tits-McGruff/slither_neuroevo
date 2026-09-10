@@ -173,7 +173,9 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       maxControllers: MAX_CONTROLLERS, maxActionsPerSecond: config.maxActionsPerSecond, maxActionsPerTick: config.maxActionsPerTick,
       send: (connection, message) => sockets.sendJsonTo(connection, message),
       observeActionLatency: (kind, durationMs) => telemetry.observeAction(kind, durationMs),
-      observeLifecycleLatency: durationMs => telemetry.observeControllerLifecycle(durationMs) });
+      observeLifecycleLatency: (kind, operation, durationMs) =>
+        telemetry.observeControllerLifecycle(kind, operation, durationMs),
+      observeDisconnect: kind => telemetry.observeControllerDisconnect(kind) });
     /** Keep health available after a terminal native/interface failure. */
     const fail = (error: unknown): void => {
       if (!fault) sockets.broadcastError(error instanceof Error ? error.message : String(error));
