@@ -85,9 +85,14 @@ does not retain a per-step series or authoritative game arrays for reporting.
 The same health response exposes current reliable-queue, pending-frame,
 frame-replacement, and send-failure counters for slow-client checks. It also
 reports checkpoint retention by latest, recent, milestone, prior-run-anchor,
-pinned, and planned-prune classes. The Settings panel's **Pin checkpoint**
-button permanently protects the exact current managed checkpoint; it does not
-also create or download an export.
+pinned, and planned-prune classes. Automatic cleanup runs at startup and after
+each durable generation save. It records the cleanup in SQLite before removing
+only unpinned managed files, keeps the latest eight checkpoints plus configured
+milestones and prior-run anchors, and never removes compact generation history
+or Hall-of-Fame records. Health includes the last cleanup's exact file and byte
+counts. The Settings panel's **Pin checkpoint** button
+permanently protects the exact current managed checkpoint; it does not also
+create or download an export.
 
 With that server running, a short real-boundary diagnostic exercises a
 spectator, an observation-driven Protocol 2 bot with disconnect/token reclaim,

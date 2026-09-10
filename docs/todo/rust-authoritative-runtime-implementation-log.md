@@ -300,9 +300,14 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   through a Rust generation transition over the host LAN address. The trainer
   completed repeated death/reassignment cycles while the browser rendered and
   steered; the integrated sample reported 6 ms step p99, a 35 ms checkpoint
-  barrier, approximately 1.0 simulated/wall, and 147 MiB peak RSS. Stage 6B
+  barrier, approximately 1.0 simulated/wall, and 140 MiB peak RSS. Stage 6B
   now has automatic checkpoint classification/backfill, bounded retention
   inventory, and an exact-current Pin checkpoint command without deletion.
 
-The next dependency is verified automatic pruning of unpinned managed files,
-followed by direct adaptive archive export.
+- 2026-09-11 Automatic retention now records a resumable SQLite cleanup intent,
+  verifies and removes only unpinned managed checkpoint files, then preserves
+  their compact history and Hall-of-Fame metadata as pruned records. Startup
+  and each durable generation boundary apply the policy; interrupted cleanup,
+  missing-file retry, pins, and the old two-class schema are covered.
+
+The next dependency is direct adaptive archive export.

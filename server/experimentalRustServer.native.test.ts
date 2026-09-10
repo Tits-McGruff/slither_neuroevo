@@ -192,7 +192,8 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
           schemaVersion: 1,
           retained: { latest: { checkpointCount: 1 }, pinned: { checkpointCount: 0 } },
           plannedPrune: { checkpointCount: 0 }
-        }
+        },
+        retentionCleanup: { deletedCheckpointCount: 0, deletedStoredByteCount: '0000000000000000' }
       });
       const pinResponse = await fetch(`http://127.0.0.1:${server.port}/api/checkpoints/current/pin`, { method: 'POST' });
       expect(pinResponse.status).toBe(200);

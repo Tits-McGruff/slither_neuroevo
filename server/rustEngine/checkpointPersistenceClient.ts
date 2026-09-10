@@ -2,7 +2,9 @@ import { parseRecoveryScanCursor, parseRecoveryScanResult, type RecoveryScanCurs
 import { Worker } from 'node:worker_threads';
 import { randomBytes } from 'node:crypto';
 import {
+  parseCheckpointPruneResult,
   parseCheckpointRetentionInventory,
+  type CheckpointPruneResult,
   type CheckpointRetentionInventory
 } from './checkpointRetention.ts';
 import {
@@ -112,6 +114,8 @@ export class CheckpointPersistenceClient {
   private retention: { operationId: CheckpointOperationId; resolve(value: CheckpointRetentionInventory): void; reject(error: Error): void } | undefined;
   /** At most one owner pin transaction may be in flight. */
   private pin: { operationId: CheckpointOperationId; resolve(value: PinnedCheckpointResult): void; reject(error: Error): void } | undefined;
+  /** At most one verified automatic pruning pass may be in flight. */
+  private pruning: { operationId: CheckpointOperationId; resolve(value: CheckpointPruneResult): void; reject(error: Error): void } | undefined;
   /** Terminal lifecycle failure, if the worker violates protocol or exits unexpectedly. */
   private failure: Error | null = null;
   /** Whether orderly shutdown has been requested. */
@@ -276,6 +280,18 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Apply the owner retention rule to verified unpinned managed files. */
+  applyRetention(): Promise<CheckpointPruneResult> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.pruning) return Promise.reject(new Error('checkpoint retention pruning is busy or stopping'));
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.pruning = { operationId, resolve, reject };
+      try { this.worker.postMessage({ type: 'applyCheckpointRetention', operationId }); }
+      catch (error) { this.pruning = undefined; reject(asError(error)); }
+    });
+  }
+
   /**
    * Stop the client-owned worker after it has completed all preceding synchronous messages.
    * @returns Promise resolved after the worker exits cleanly.
@@ -319,6 +335,15 @@ export class CheckpointPersistenceClient {
   private onMessage(value: unknown): void {
     try {
       const response = parseWorkerResponse(value);
+      if (response.type === 'checkpointRetentionApplied') {
+        const pending = this.pruning;
+        if (!pending || pending.operationId !== response.operationId) {
+          throw new Error('persistence worker returned a mismatched retention result');
+        }
+        this.pruning = undefined;
+        pending.resolve(response.result);
+        return;
+      }
       if (response.type === 'currentCheckpointPinned') {
         const pending = this.pin;
         if (!pending || pending.operationId !== response.operationId) {
@@ -405,6 +430,12 @@ export class CheckpointPersistenceClient {
           pending.reject(new Error(response.reason));
           return;
         }
+        if (response.operationId === this.pruning?.operationId) {
+          const pending = this.pruning;
+          this.pruning = undefined;
+          pending.reject(new Error(response.reason));
+          return;
+        }
         const pending = this.pending.get(response.operationId);
         if (!pending) {
           throw new Error(`persistence worker rejected unknown operation ${response.operationId}`);
@@ -458,6 +489,8 @@ export class CheckpointPersistenceClient {
     this.retention = undefined;
     this.pin?.reject(error);
     this.pin = undefined;
+    this.pruning?.reject(error);
+    this.pruning = undefined;
     void this.terminateForFailure();
   }
 
@@ -489,7 +522,7 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin) {
+    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning) {
       this.resolveStopped?.();
       this.resolveStopped = null;
       this.rejectStopped = null;
@@ -527,6 +560,15 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     throw new TypeError('checkpoint persistence worker sent a non-object response');
   }
   const response = value as Record<string, unknown>;
+  if (response['type'] === 'checkpointRetentionApplied') {
+    requireExactKeys(response, ['type', 'operationId', 'result']);
+    if (!isOperationId(response['operationId'])) throw new TypeError('invalid retention pruning correlation');
+    return {
+      type: 'checkpointRetentionApplied',
+      operationId: response['operationId'],
+      result: parseCheckpointPruneResult(response['result'])
+    };
+  }
   if (response['type'] === 'currentCheckpointPinned') {
     requireExactKeys(response, ['type', 'operationId', 'checkpointId', 'generation']);
     if (!isOperationId(response['operationId']) || typeof response['checkpointId'] !== 'string' ||

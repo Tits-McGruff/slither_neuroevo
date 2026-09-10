@@ -1,5 +1,5 @@
 import { parseRecoveryScanCursor, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
-import { lstatSync, realpathSync, statSync } from 'node:fs';
+import { lstatSync, realpathSync, statSync, unlinkSync } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
@@ -8,6 +8,7 @@ import {
   OWNER_CHECKPOINT_RETENTION_DEFAULTS,
   selectManagedCheckpointRetention,
   type CheckpointRetentionCandidate,
+  type CheckpointRetentionDecision,
   type CheckpointRetentionInventory
 } from './checkpointRetention.ts';
 import {
@@ -218,10 +219,24 @@ interface RetentionPointerRow {
 /** Add owner pin classification and backfill every Stage 3/6A file as automatic. */
 function initializeRetentionSchema(database: ReturnType<typeof Database>): void {
   database.transaction(() => {
+    const existing = database.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'table' AND name = 'rust_checkpoint_retention_v1'`).get() as { sql: string | null } | undefined;
+    if (existing && (!existing.sql?.includes("'pruning'") || !existing.sql.includes("'pruned'"))) {
+      database.exec(`
+        ALTER TABLE rust_checkpoint_retention_v1 RENAME TO rust_checkpoint_retention_v1_old;
+        CREATE TABLE rust_checkpoint_retention_v1 (
+          checkpoint_id TEXT PRIMARY KEY NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
+          retention_kind TEXT NOT NULL CHECK(retention_kind IN ('automatic', 'pinned', 'pruning', 'pruned')),
+          classified_at_ms INTEGER NOT NULL
+        );
+        INSERT INTO rust_checkpoint_retention_v1 SELECT * FROM rust_checkpoint_retention_v1_old;
+        DROP TABLE rust_checkpoint_retention_v1_old;
+      `);
+    }
     database.exec(`
       CREATE TABLE IF NOT EXISTS rust_checkpoint_retention_v1 (
         checkpoint_id TEXT PRIMARY KEY NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
-        retention_kind TEXT NOT NULL CHECK(retention_kind IN ('automatic', 'pinned')),
+        retention_kind TEXT NOT NULL CHECK(retention_kind IN ('automatic', 'pinned', 'pruning', 'pruned')),
         classified_at_ms INTEGER NOT NULL
       );
     `);
@@ -676,9 +691,11 @@ function selectManagedCheckpoint(runId: string | null): ManagedCheckpointSelecti
   }).deferred();
 }
 
-/** Inspect the owner-approved retention result without deleting files or metadata. */
-function inspectCheckpointRetention(): CheckpointRetentionInventory {
-  return db.transaction(() => {
+/** Build the current decision inside a caller-owned SQLite read or write transaction. */
+function currentCheckpointRetentionDecision(): {
+  activeRunId: string;
+  decision: CheckpointRetentionDecision;
+} {
     const activeRunId = resolveSelectedRun(null);
     if (activeRunId === null) throw new Error('retention inventory requires one active managed run');
     const lineage = recoveryLineage(activeRunId);
@@ -704,6 +721,7 @@ function inspectCheckpointRetention(): CheckpointRetentionInventory {
       metadata.rowid AS created_ordinal
       FROM rust_checkpoint_v3_metadata AS metadata
       JOIN rust_checkpoint_retention_v1 AS retention USING(checkpoint_id)
+      WHERE retention.retention_kind IN ('automatic', 'pinned')
       ORDER BY metadata.rowid`).all() as RetentionMetadataRow[];
     const candidates: CheckpointRetentionCandidate[] = rows.map(row => {
       if (!Number.isSafeInteger(row.created_ordinal) || row.created_ordinal < 1 || row.descriptor_json === null ||
@@ -730,11 +748,15 @@ function inspectCheckpointRetention(): CheckpointRetentionInventory {
         recurrentStateEncoding: descriptor.recurrentStateEncoding
       };
     });
-    const decision = selectManagedCheckpointRetention(
-      candidates,
-      activeRunId,
-      OWNER_CHECKPOINT_RETENTION_DEFAULTS
-    );
+    return { activeRunId, decision: selectManagedCheckpointRetention(
+      candidates, activeRunId, OWNER_CHECKPOINT_RETENTION_DEFAULTS
+    ) };
+}
+
+/** Inspect the owner-approved retention result without deleting files or metadata. */
+function inspectCheckpointRetention(): CheckpointRetentionInventory {
+  return db.transaction(() => {
+    const { activeRunId, decision } = currentCheckpointRetentionDecision();
     return buildCheckpointRetentionInventory(decision, activeRunId, OWNER_CHECKPOINT_RETENTION_DEFAULTS);
   }).deferred();
 }
@@ -755,6 +777,84 @@ function pinCurrentCheckpoint(): { checkpointId: string; generation: U64Hex } {
   }).immediate();
 }
 
+/** Apply one automatic retention decision while preserving all compact metadata. */
+function applyCheckpointRetention(): {
+  deletedCheckpointCount: number;
+  deletedStoredByteCount: U64Hex;
+  inventory: CheckpointRetentionInventory;
+} {
+  const descriptors = db.transaction(() => {
+    const { decision } = currentCheckpointRetentionDecision();
+    const targetBytes = new Map(decision.pruned.map(candidate => [candidate.checkpointId, candidate.storedBytes]));
+    const pending = db.prepare(`SELECT metadata.checkpoint_id
+      FROM rust_checkpoint_v3_metadata AS metadata
+      JOIN rust_checkpoint_retention_v1 AS retention USING(checkpoint_id)
+      WHERE retention.retention_kind = 'pruning'
+        AND NOT EXISTS (SELECT 1 FROM rust_checkpoint_v3_current WHERE checkpoint_id = metadata.checkpoint_id)
+      ORDER BY metadata.rowid`).all() as Array<{ checkpoint_id: string }>;
+    const checkpointIds = [...pending.map(row => row.checkpoint_id), ...decision.pruned.map(candidate => candidate.checkpointId)];
+    const uniqueCheckpointIds = [...new Set(checkpointIds)];
+    const selected = uniqueCheckpointIds.map(checkpointId => {
+      const row = db.prepare(`SELECT
+        CASE WHEN length(CAST(metadata.descriptor_json AS BLOB)) <= 16384
+          THEN metadata.descriptor_json END AS descriptor_json,
+        retention.retention_kind
+        FROM rust_checkpoint_v3_metadata AS metadata
+        JOIN rust_checkpoint_retention_v1 AS retention USING(checkpoint_id)
+        WHERE metadata.checkpoint_id = ?
+          AND NOT EXISTS (SELECT 1 FROM rust_checkpoint_v3_current WHERE checkpoint_id = metadata.checkpoint_id)`)
+        .get(checkpointId) as { descriptor_json: string | null; retention_kind: string } | undefined;
+      if (!row || (row.retention_kind !== 'automatic' && row.retention_kind !== 'pruning') || row.descriptor_json === null) {
+        throw new Error('retention decision selected a protected or invalid checkpoint');
+      }
+      const descriptor = parseManagedCheckpointDescriptor(JSON.parse(row.descriptor_json));
+      const expectedBytes = targetBytes.get(checkpointId);
+      if (descriptor.logicalRootSha256 !== checkpointId ||
+          (expectedBytes !== undefined && u64HexToBigInt(descriptor.storedByteCount) !== expectedBytes)) {
+        throw new Error('retention prune descriptor changed after selection');
+      }
+      return descriptor;
+    });
+    for (const candidate of decision.pruned) {
+      const changed = db.prepare(`UPDATE rust_checkpoint_retention_v1 SET
+        retention_kind = 'pruning', classified_at_ms = ?
+        WHERE checkpoint_id = ? AND retention_kind = 'automatic'
+          AND NOT EXISTS (SELECT 1 FROM rust_checkpoint_v3_current WHERE checkpoint_id = ?)`)
+        .run(Date.now(), candidate.checkpointId, candidate.checkpointId);
+      if (changed.changes !== 1) throw new Error('retention prune target became protected before intent commit');
+    }
+    return selected;
+  }).immediate();
+
+  let deletedStoredBytes = 0n;
+  for (const descriptor of descriptors) {
+    try {
+      const file = verifyManagedFile(descriptor);
+      unlinkSync(file.path);
+    } catch (error) {
+      if (!(error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
+    }
+    deletedStoredBytes += u64HexToBigInt(descriptor.storedByteCount);
+    if (deletedStoredBytes > 0xffff_ffff_ffff_ffffn) throw new RangeError('deleted checkpoint bytes exceed u64');
+  }
+
+  db.transaction(() => {
+    for (const descriptor of descriptors) {
+      const changed = db.prepare(`UPDATE rust_checkpoint_retention_v1 SET
+        retention_kind = 'pruned', classified_at_ms = ?
+        WHERE checkpoint_id = ? AND retention_kind = 'pruning'
+          AND NOT EXISTS (SELECT 1 FROM rust_checkpoint_v3_current WHERE checkpoint_id = ?)`)
+        .run(Date.now(), descriptor.logicalRootSha256, descriptor.logicalRootSha256);
+      if (changed.changes !== 1) throw new Error('retention prune target became protected before classification');
+    }
+  }).immediate();
+  return {
+    deletedCheckpointCount: descriptors.length,
+    deletedStoredByteCount: deletedStoredBytes.toString(16).padStart(16, '0'),
+    inventory: inspectCheckpointRetention()
+  };
+}
+
 /** Visit one retained metadata record without materializing the retained population set. */
 function scanRecoveryCandidate(value: RecoveryScanCursor | null): RecoveryScanResult {
   return db.transaction(() => {
@@ -773,7 +873,9 @@ function scanRecoveryCandidate(value: RecoveryScanCursor | null): RecoveryScanRe
       CASE WHEN length(CAST(operation_id AS BLOB)) <= 32 THEN operation_id END AS operation_id,
       CASE WHEN length(CAST(transition_epoch AS BLOB)) <= 16 THEN transition_epoch END AS transition_epoch,
       CASE WHEN length(CAST(completed_step_hex AS BLOB)) <= 16 THEN completed_step_hex END AS completed_step_hex
-      FROM rust_checkpoint_v3_metadata WHERE (${filter.sql})
+      FROM rust_checkpoint_v3_metadata AS metadata
+      JOIN rust_checkpoint_retention_v1 AS retention USING(checkpoint_id)
+      WHERE retention.retention_kind IN ('automatic', 'pinned') AND (${filter.sql})
         AND length(generation_hex) = 16 AND generation_hex NOT GLOB '*[^0-9a-f]*' AND generation_hex != '0000000000000000'
         AND length(checkpoint_id) = 64 AND checkpoint_id NOT GLOB '*[^0-9a-f]*'
         AND (? IS NULL OR generation_hex < ? OR (generation_hex = ? AND checkpoint_id < ?))
@@ -1011,7 +1113,8 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
     return typeof id === 'string' && /^[0-9a-f]{32}$/u.test(id) ? id : null;
   }
   if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'scanRecoveryCandidate' ||
-      request['type'] === 'inspectCheckpointRetention' || request['type'] === 'pinCurrentCheckpoint') {
+      request['type'] === 'inspectCheckpointRetention' || request['type'] === 'pinCurrentCheckpoint' ||
+      request['type'] === 'applyCheckpointRetention') {
     const operationId = request['operationId'];
     return typeof operationId === 'string' && /^[0-9a-f]{32}$/u.test(operationId) ? operationId : null;
   }
@@ -1045,6 +1148,11 @@ port.on('message', (message: unknown) => {
       throw new TypeError('worker request must be an object');
     }
     const request = message as Record<string, unknown>;
+    if (request['type'] === 'applyCheckpointRetention') {
+      if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid retention apply request');
+      post({ type: 'checkpointRetentionApplied', operationId, result: applyCheckpointRetention() });
+      return;
+    }
     if (request['type'] === 'pinCurrentCheckpoint') {
       if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid pin-current request');
       post({ type: 'currentCheckpointPinned', operationId, ...pinCurrentCheckpoint() });

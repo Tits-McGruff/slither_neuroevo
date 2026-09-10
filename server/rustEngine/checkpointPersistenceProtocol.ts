@@ -1,5 +1,5 @@
 import type { RecoveryBranchCommit, RecoveryBranchResult, RecoveryScanCursor, RecoveryScanResult } from './recoveryProtocol.ts';
-import type { CheckpointRetentionInventory } from './checkpointRetention.ts';
+import type { CheckpointPruneResult, CheckpointRetentionInventory } from './checkpointRetention.ts';
 /** Descriptor protocol for the isolated Stage 3 checkpoint metadata worker. */
 
 /** Protocol version understood by the checkpoint persistence worker. */
@@ -198,6 +198,7 @@ export type CheckpointPersistenceWorkerRequest =
   | { type: 'commitRecoveryBranch'; commit: RecoveryBranchCommit }
   | { type: 'inspectCheckpointRetention'; operationId: CheckpointOperationId }
   | { type: 'pinCurrentCheckpoint'; operationId: CheckpointOperationId }
+  | { type: 'applyCheckpointRetention'; operationId: CheckpointOperationId }
   | CommitManagedCheckpointRequest
   | SelectManagedCheckpointRequest
   | CheckpointPersistenceShutdownRequest;
@@ -264,6 +265,7 @@ export type CheckpointPersistenceWorkerResponse =
   | { type: 'recoveryBranchCommitted'; result: RecoveryBranchResult }
   | { type: 'checkpointRetentionInspected'; operationId: CheckpointOperationId; inventory: CheckpointRetentionInventory }
   | { type: 'currentCheckpointPinned'; operationId: CheckpointOperationId; checkpointId: string; generation: U64Hex }
+  | { type: 'checkpointRetentionApplied'; operationId: CheckpointOperationId; result: CheckpointPruneResult }
   | ManagedCheckpointCommittedResponse
   | ManagedCheckpointSelectedResponse
   | ManagedCheckpointRejectedResponse;

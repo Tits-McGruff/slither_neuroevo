@@ -122,6 +122,16 @@ export interface CheckpointRetentionInventory {
   plannedPrune: CheckpointRetentionBucket;
 }
 
+/** Result of one verified automatic pruning pass. */
+export interface CheckpointPruneResult {
+  /** Number of immutable files removed or confirmed already absent. */
+  deletedCheckpointCount: number;
+  /** Exact descriptor bytes represented by those files. */
+  deletedStoredByteCount: string;
+  /** Retention state after every deletion was durably classified. */
+  inventory: CheckpointRetentionInventory;
+}
+
 /** Owner-approved initial production defaults. */
 export const OWNER_CHECKPOINT_RETENTION_DEFAULTS: CheckpointRetentionSettings = {
   recentCount: 8,
@@ -399,5 +409,17 @@ export function parseCheckpointRetentionInventory(value: unknown): CheckpointRet
       pinned: parseBucket(retained['pinned'], 'pinned retention')
     },
     plannedPrune: parseBucket(record['plannedPrune'], 'planned prune')
+  };
+}
+
+/** Validate a complete automatic-prune result returned by the isolated worker. */
+export function parseCheckpointPruneResult(value: unknown): CheckpointPruneResult {
+  const record = exactRecord(value, [
+    'deletedCheckpointCount', 'deletedStoredByteCount', 'inventory'
+  ], 'checkpoint prune result');
+  return {
+    deletedCheckpointCount: count(record['deletedCheckpointCount'], 'deleted checkpoint count'),
+    deletedStoredByteCount: u64Wire(record['deletedStoredByteCount'], 'deleted stored bytes'),
+    inventory: parseCheckpointRetentionInventory(record['inventory'])
   };
 }

@@ -87,7 +87,13 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   const recovery = recoveryNotice(owner);
   if (recovery) console.warn('[rust.recovery]', recovery);
   let retention: CheckpointRetentionInventory;
-  try { retention = await owner.persistence.inspectRetention(); }
+  let retentionCleanup: { deletedCheckpointCount: number; deletedStoredByteCount: string };
+  try {
+    const initialCleanup = await owner.persistence.applyRetention();
+    retention = initialCleanup.inventory;
+    retentionCleanup = { deletedCheckpointCount: initialCleanup.deletedCheckpointCount,
+      deletedStoredByteCount: initialCleanup.deletedStoredByteCount };
+  }
   catch (error) { await owner.close().catch(() => {}); return startFaultedServer(config, error); }
   const telemetry = new ExperimentalRuntimeTelemetry(owner.runtime.health(), owner.metadata.fixedStepSeconds);
   let fault: string | undefined;
@@ -101,6 +107,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let pumps = 0;
   let pumpsPerSecond = 0;
   let pinning: Promise<void> | undefined;
+  let retentionMaintenance: Promise<void> | undefined;
   const server = createServer((request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
     response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -113,7 +120,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: owner.metadata.runId,
         seed: owner.metadata.seed, startupCheckpointId: owner.runStart.checkpointId, ...nativeHealth,
         telemetry: telemetry.snapshot(nativeHealth), outbound: hub?.getOutboundDiagnostics(),
-        retention,
+        retention, retentionCleanup,
         ...(recovery ? { recovery } : {}), ...(fault ? { interfaceFault: fault } : {}) }));
       return;
     }
@@ -168,6 +175,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       owner.runtime.requestStop();
       await draining?.catch(() => {});
       await pinning?.catch(() => {});
+      await retentionMaintenance?.catch(() => {});
       try { await owner.close(); }
       finally {
         telemetry.close();
@@ -199,10 +207,19 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       frame(lease) { lastFrame = performance.now(); sockets.broadcastFrame(lease.bytes, lease.release); },
       observeCheckpointBarrier: durationMs => {
         telemetry.observeCheckpointBarrier(durationMs);
-        void owner.persistence.inspectRetention().then(value => { retention = value; }).catch(error => {
+        if (retentionMaintenance) {
+          fault ??= 'checkpoint retention maintenance overlapped a durable generation';
+          owner.runtime.requestStop();
+          return;
+        }
+        retentionMaintenance = owner.persistence.applyRetention().then(result => {
+          retention = result.inventory;
+          retentionCleanup = { deletedCheckpointCount: result.deletedCheckpointCount,
+            deletedStoredByteCount: result.deletedStoredByteCount };
+        }).catch(error => {
           fault ??= error instanceof Error ? error.message : String(error);
           owner.runtime.requestStop();
-        });
+        }).finally(() => { retentionMaintenance = undefined; });
       }
     });
     routing = new ExternalControllerRouting({ native: owner.runtime, admission: output.admission,

@@ -487,7 +487,16 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await fixture.client.close();
 
     const oldSchema = new Database(fixture.databasePath);
-    try { oldSchema.exec('DROP TABLE rust_checkpoint_retention_v1'); }
+    try { oldSchema.exec(`
+      DROP TABLE rust_checkpoint_retention_v1;
+      CREATE TABLE rust_checkpoint_retention_v1 (
+        checkpoint_id TEXT PRIMARY KEY NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
+        retention_kind TEXT NOT NULL CHECK(retention_kind IN ('automatic', 'pinned')),
+        classified_at_ms INTEGER NOT NULL
+      );
+      INSERT INTO rust_checkpoint_retention_v1
+        SELECT checkpoint_id, 'automatic', 0 FROM rust_checkpoint_v3_metadata;
+    `); }
     finally { oldSchema.close(); }
     const reopened = new CheckpointPersistenceClient({
       databasePath: fixture.databasePath,
@@ -511,6 +520,69 @@ describe(SUITE, { timeout: 30_000 }, () => {
         FROM rust_checkpoint_retention_v1 GROUP BY retention_kind ORDER BY retention_kind`).all()).toEqual([
         { retention_kind: 'automatic', count: 1 },
         { retention_kind: 'pinned', count: 1 }
+      ]);
+    } finally { inspect.close(); }
+  });
+
+  it('resumes two-phase pruning, preserves pins, and keeps compact history', async () => {
+    const fixture = createFixture();
+    const descriptors = [createDescriptor(fixture.managedRoot)];
+    await fixture.client.commit(descriptors[0]!);
+    for (let generation = 2n; generation <= 11n; generation++) {
+      const descriptor = createDescriptor(fixture.managedRoot, {
+        operationId: generation.toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation),
+        generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n),
+        boundaryKind: 'generation'
+      });
+      descriptors.push(descriptor);
+      await fixture.client.commit(descriptor, createGenerationCommit(generation - 1n));
+      if (generation === 2n) await fixture.client.pinCurrentCheckpoint();
+    }
+    const before = await fixture.client.inspectRetention();
+    expect(before.retained.pinned.checkpointCount).toBe(1);
+    expect(before.plannedPrune.checkpointCount).toBe(2);
+
+    await fixture.client.close();
+    const interrupted = new Database(fixture.databasePath);
+    try {
+      interrupted.prepare(`UPDATE rust_checkpoint_retention_v1
+        SET retention_kind = 'pruning' WHERE checkpoint_id = ?`).run(descriptors[0]!.logicalRootSha256);
+    } finally { interrupted.close(); }
+    rmSync(join(fixture.managedRoot, descriptors[0]!.relativeFilename));
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    const result = await reopened.applyRetention();
+    expect(result.deletedCheckpointCount).toBe(2);
+    expect(result.inventory).toMatchObject({
+      retained: {
+        latest: { checkpointCount: 1 },
+        recent: { checkpointCount: 7 },
+        pinned: { checkpointCount: 1 }
+      },
+      plannedPrune: { checkpointCount: 0 }
+    });
+    expect(existsSync(join(fixture.managedRoot, descriptors[0]!.relativeFilename))).toBe(false);
+    expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(true);
+    expect(existsSync(join(fixture.managedRoot, descriptors[2]!.relativeFilename))).toBe(false);
+    expect(await reopened.selectCurrent()).toEqual(descriptors.at(-1));
+    await reopened.close();
+
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 11 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_generation_history_v1').get()).toEqual({ count: 10 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_v1').get()).toEqual({ count: 10 });
+      expect(inspect.prepare(`SELECT retention_kind, count(*) AS count
+        FROM rust_checkpoint_retention_v1 GROUP BY retention_kind ORDER BY retention_kind`).all()).toEqual([
+        { retention_kind: 'automatic', count: 8 },
+        { retention_kind: 'pinned', count: 1 },
+        { retention_kind: 'pruned', count: 2 }
       ]);
     } finally { inspect.close(); }
   });
