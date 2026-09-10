@@ -84,18 +84,24 @@ does not retain a per-step series or authoritative game arrays for reporting.
 The same health response exposes current reliable-queue, pending-frame,
 frame-replacement, and send-failure counters for slow-client checks.
 
-With that server running, a short real-boundary diagnostic can exercise a
-spectator, an observation-driven Protocol 2 bot, disconnect/token reclaim, and
-the telemetry endpoint:
+With that server running, a short real-boundary diagnostic exercises a
+spectator, an observation-driven Protocol 2 bot with disconnect/token reclaim,
+and a UI-class player driven by the production independent latest-action pump.
+The player pauses all inbound frame and sensor consumption for 1.5 seconds,
+sends a turn change and boost release during the pause, then requires inbound
+recovery while the telemetry endpoint confirms that Rust applied the actions:
 
 ```powershell
 npm run probe:stage6-runtime -- --ws-url ws://127.0.0.1:3000 --duration-seconds 30
 ```
 
-Add `--require-generation-transition` and choose a duration long enough for a
-complete round when collecting the integrated generation gate. The probe is a
-wire-compatible diagnostic client; it does not replace the required unchanged
-owner trainer or a real browser on another trusted-LAN device.
+Use `--player-suppression-seconds N` to change the receive pause. Add
+`--require-frame-replacement` on a deliberately constrained or remote link to
+require at least one server-side superseded display frame, and add
+`--require-generation-transition` with a duration long enough for a complete
+round. The probe is a wire-compatible diagnostic client; it does not replace
+the required unchanged owner trainer or a real browser on another trusted-LAN
+device.
 
 This entry uses the fixed default graph and settings. Secondary commands,
 including settings/reset and archive endpoints, are still being connected.

@@ -10,9 +10,10 @@ import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import WebSocket, { type RawData } from 'ws';
+import { PlayerActionPump } from '../../src/net/playerActionPump.ts';
 
 /** Validated command-line controls for one bounded probe. */
-interface ProbeOptions {
+export interface ProbeOptions {
   /** Experimental server WebSocket endpoint. */
   wsUrl: string;
   /** Total connected wall duration. */
@@ -21,6 +22,10 @@ interface ProbeOptions {
   reconnectAfterSensors: number;
   /** Require the native generation counter to advance. */
   requireGenerationTransition: boolean;
+  /** Duration for which the browser-player socket stops consuming inbound traffic. */
+  playerSuppressionMs: number;
+  /** Require the slow browser-player socket to cause observable frame replacement. */
+  requireFrameReplacement: boolean;
 }
 
 /** Small controller counters retained across the reconnect. */
@@ -49,6 +54,30 @@ interface ViewerCounters {
   stats: number;
   /** Largest observed frame byte length. */
   maximumFrameBytes: number;
+  /** Bounded protocol/server failures. */
+  errors: string[];
+}
+
+/** Browser-player traffic retained while exercising independent latest-value actions. */
+interface BrowserPlayerCounters {
+  /** Assignment envelopes received. */
+  assignments: number;
+  /** Sensor observations consumed outside the deliberate inbound pause. */
+  sensors: number;
+  /** Binary frames consumed outside the deliberate inbound pause. */
+  frames: number;
+  /** Latest-value player actions sent by the independent pump. */
+  actions: number;
+  /** Actions sent while all inbound socket consumption was paused. */
+  actionsDuringSuppression: number;
+  /** Messages unexpectedly delivered after the socket was paused and before resume. */
+  inboundDuringSuppression: number;
+  /** Largest browser-player frame observed. */
+  maximumFrameBytes: number;
+  /** Latest sent turn value. */
+  latestTurn: number;
+  /** Latest sent boost value. */
+  latestBoost: number;
   /** Bounded protocol/server failures. */
   errors: string[];
 }
@@ -95,6 +124,10 @@ interface ClientTimingOwners {
   frameInterval: FixedLatencyHistogram;
   /** Complete health request/JSON response latency through Node. */
   healthRequest: FixedLatencyHistogram;
+  /** Browser-player latest-action send interval. */
+  playerActionInterval: FixedLatencyHistogram;
+  /** Socket resume until both a new browser sensor and display frame are consumed. */
+  playerInboundRecovery: FixedLatencyHistogram;
 }
 
 /** Open controller plus its first assignment/observation boundary. */
@@ -105,8 +138,20 @@ interface ControllerConnection {
   ready: Promise<void>;
 }
 
+/** UI-class player connection driven by the production latest-action pump. */
+interface BrowserPlayerConnection extends ControllerConnection {
+  /** Pause inbound frames, sensors, and lifecycle traffic without stopping actions. */
+  beginSuppression(): void;
+  /** Resume inbound socket consumption. */
+  endSuppression(): void;
+  /** Stop timers and restore socket consumption for cleanup. */
+  stop(): void;
+}
+
 /** Default live duration for a fast diagnostic rather than the complete gate. */
 const DEFAULT_DURATION_SECONDS = 30;
+/** Default bounded receive pause used by the diagnostic browser player. */
+const DEFAULT_PLAYER_SUPPRESSION_SECONDS = 1.5;
 
 /** Inclusive millisecond ceilings for bounded probe-side latency histograms. */
 const LATENCY_BUCKETS_MS = [0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 125, 250,
@@ -160,7 +205,9 @@ function createClientTimings(): ClientTimingOwners {
     sensorToActionDispatch: new FixedLatencyHistogram(),
     actionToNextSensor: new FixedLatencyHistogram(),
     frameInterval: new FixedLatencyHistogram(),
-    healthRequest: new FixedLatencyHistogram()
+    healthRequest: new FixedLatencyHistogram(),
+    playerActionInterval: new FixedLatencyHistogram(),
+    playerInboundRecovery: new FixedLatencyHistogram()
   };
 }
 
@@ -185,11 +232,17 @@ function parseOptions(arguments_: readonly string[]): ProbeOptions {
   let durationMs = DEFAULT_DURATION_SECONDS * 1_000;
   let reconnectAfterSensors = 5;
   let requireGenerationTransition = false;
+  let playerSuppressionMs = DEFAULT_PLAYER_SUPPRESSION_SECONDS * 1_000;
+  let requireFrameReplacement = false;
   for (let index = 0; index < arguments_.length; index++) {
     const option = arguments_[index]!;
     if (option === '--require-generation-transition') requireGenerationTransition = true;
+    else if (option === '--require-frame-replacement') requireFrameReplacement = true;
     else if (option === '--ws-url') wsUrl = arguments_[++index] ?? '';
     else if (option === '--duration-seconds') durationMs = positiveNumber(arguments_[++index], option) * 1_000;
+    else if (option === '--player-suppression-seconds') {
+      playerSuppressionMs = positiveNumber(arguments_[++index], option) * 1_000;
+    }
     else if (option === '--reconnect-after-sensors') {
       reconnectAfterSensors = positiveNumber(arguments_[++index], option);
       if (!Number.isSafeInteger(reconnectAfterSensors)) throw new RangeError(`${option} must be an integer`);
@@ -199,7 +252,11 @@ function parseOptions(arguments_: readonly string[]): ProbeOptions {
   if ((parsedUrl.protocol !== 'ws:' && parsedUrl.protocol !== 'wss:') || !parsedUrl.host) {
     throw new TypeError('--ws-url must be an absolute ws:// or wss:// URL');
   }
-  return { wsUrl: parsedUrl.href, durationMs, reconnectAfterSensors, requireGenerationTransition };
+  if (durationMs < playerSuppressionMs + 1_000) {
+    throw new RangeError('--duration-seconds must leave at least one second after player suppression');
+  }
+  return { wsUrl: parsedUrl.href, durationMs, reconnectAfterSensors,
+    requireGenerationTransition, playerSuppressionMs, requireFrameReplacement };
 }
 
 /** Derive the experimental scalar health endpoint from the socket endpoint. */
@@ -249,6 +306,17 @@ function observeOutbound(health: Record<string, unknown>, maxima: OutboundMaxima
     }
     maxima[field] = Math.max(maxima[field], value);
   }
+}
+
+/** Read one exact Node-side telemetry sample count from health. */
+function telemetrySamples(health: Record<string, unknown>, field: string): number {
+  const telemetry = record(health['telemetry'], 'health telemetry');
+  const latency = record(telemetry[field], `health telemetry ${field}`);
+  const samples = latency['samples'];
+  if (typeof samples !== 'number' || !Number.isSafeInteger(samples) || samples < 0) {
+    throw new TypeError(`health telemetry ${field} samples must be a non-negative integer`);
+  }
+  return samples;
 }
 
 /** Parse one non-binary Protocol 2 message. */
@@ -359,6 +427,128 @@ function createController(
   return { socket, ready };
 }
 
+/** Open one UI-class player whose actions do not depend on inbound callbacks. */
+function createBrowserPlayer(
+  options: ProbeOptions,
+  counters: BrowserPlayerCounters,
+  timings: ClientTimingOwners
+): BrowserPlayerConnection {
+  const socket = new WebSocket(options.wsUrl);
+  const openedAt = performance.now();
+  let snakeId: number | undefined;
+  let latestTick: number | undefined;
+  let assigned = false;
+  let connected = false;
+  let suppressing = false;
+  let paused = false;
+  let turn = 1;
+  let boost = 1;
+  let lastActionAt: number | undefined;
+  let settled = false;
+  let resolveReady!: () => void;
+  let rejectReady!: (error: Error) => void;
+  const ready = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolveReady = resolvePromise;
+    rejectReady = rejectPromise;
+  });
+  const maybeReady = (): void => {
+    if (!settled && assigned && latestTick !== undefined && counters.frames > 0) {
+      settled = true;
+      resolveReady();
+    }
+  };
+  const fail = (error: Error): void => {
+    if (counters.errors.length < 16) counters.errors.push(error.message);
+    if (!settled) { settled = true; rejectReady(error); }
+  };
+  const pump = new PlayerActionPump({
+    cadenceHz: 60,
+    isActive: () => connected && assigned && socket.readyState === WebSocket.OPEN,
+    buildLatestAction: () => snakeId === undefined || latestTick === undefined
+      ? null
+      : { tick: latestTick + 1, snakeId, turn, boost },
+    sendAction: action => {
+      const sentAt = performance.now();
+      if (lastActionAt !== undefined) timings.playerActionInterval.record(sentAt - lastActionAt);
+      lastActionAt = sentAt;
+      socket.send(JSON.stringify({ type: 'action', ...action }));
+      counters.actions++;
+      if (suppressing) counters.actionsDuringSuppression++;
+      counters.latestTurn = action.turn;
+      counters.latestBoost = action.boost;
+    }
+  });
+  socket.on('open', () => {
+    connected = true;
+    socket.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
+    socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'stage6-browser-probe' }));
+    socket.send(JSON.stringify({ type: 'view', mode: 'follow', viewW: 1280, viewH: 720 }));
+  });
+  socket.on('error', error => fail(error));
+  socket.on('close', () => {
+    connected = false;
+    pump.stop();
+    if (!settled) fail(new Error('browser-player socket closed before assignment'));
+  });
+  socket.on('message', (data, binary) => {
+    if (suppressing) counters.inboundDuringSuppression++;
+    if (binary) {
+      counters.frames++;
+      counters.maximumFrameBytes = Math.max(counters.maximumFrameBytes, rawByteLength(data));
+      maybeReady();
+      return;
+    }
+    try {
+      const message = parseMessage(data);
+      if (message['type'] === 'error') {
+        fail(new Error(String(message['message'] ?? 'server error')));
+      } else if (message['type'] === 'assign') {
+        if (typeof message['snakeId'] !== 'number') throw new TypeError('invalid browser-player assignment');
+        counters.assignments++;
+        snakeId = message['snakeId'];
+        assigned = true;
+        timings.controllerLifecycle.record(performance.now() - openedAt);
+        pump.start();
+        maybeReady();
+      } else if (message['type'] === 'sensors') {
+        if (typeof message['tick'] !== 'number' || typeof message['snakeId'] !== 'number') {
+          throw new TypeError('invalid browser-player sensor envelope');
+        }
+        counters.sensors++;
+        latestTick = message['tick'];
+        snakeId = message['snakeId'];
+        maybeReady();
+      }
+    } catch (error) {
+      fail(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+  return {
+    socket,
+    ready,
+    beginSuppression() {
+      if (paused) throw new Error('browser-player inbound delivery is already paused');
+      socket.pause();
+      paused = true;
+      suppressing = true;
+      turn = -1;
+      boost = 0;
+      pump.requestImmediate();
+    },
+    endSuppression() {
+      suppressing = false;
+      if (paused) socket.resume();
+      paused = false;
+    },
+    stop() {
+      suppressing = false;
+      if (paused) socket.resume();
+      paused = false;
+      pump.stop();
+    }
+  };
+}
+
 /** Open one real full-frame spectator. */
 function createViewer(
   options: ProbeOptions,
@@ -413,7 +603,7 @@ async function closeSocket(socket: WebSocket): Promise<void> {
 }
 
 /** Run one scalar live integration probe and enforce its selected gates. */
-async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
+export async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
   const startedAt = performance.now();
   const deadline = startedAt + options.durationMs;
   const endpoint = healthUrl(options.wsUrl);
@@ -422,13 +612,17 @@ async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
   const controller: ControllerCounters = { assignments: 0, sensors: 0, actions: 0,
     successfulReclaims: 0, errors: [] };
   const viewer: ViewerCounters = { frames: 0, stats: 0, maximumFrameBytes: 0, errors: [] };
+  const browserPlayer: BrowserPlayerCounters = { assignments: 0, sensors: 0, frames: 0,
+    actions: 0, actionsDuringSuppression: 0, inboundDuringSuppression: 0,
+    maximumFrameBytes: 0, latestTurn: 0, latestBoost: 0, errors: [] };
   const outbound: OutboundMaxima = { samples: 0, reliableQueuedMessages: 0,
     reliableQueuedBytes: 0, pendingFrames: 0, replacedFrames: 0, reliableFailures: 0 };
   observeOutbound(initialHealth, outbound);
   const viewerSocket = createViewer(options, viewer, timings);
+  const player = createBrowserPlayer(options, browserPlayer, timings);
   let active = createController(options, controller, timings);
   try {
-    await active.ready;
+    await Promise.all([active.ready, player.ready]);
     await waitUntil(() => controller.sensors >= options.reconnectAfterSensors, deadline, 'pre-reclaim observations');
     const firstToken = controller.resumeToken;
     const firstSnake = controller.snakeId;
@@ -439,6 +633,42 @@ async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
     if (controller.successfulReclaims < 1 || controller.snakeId !== firstSnake || controller.resumeToken === firstToken) {
       throw new Error('same-snake reclaim or token rotation was not observed');
     }
+    const beforeSuppression = await fetchHealth(endpoint, timings.healthRequest);
+    observeOutbound(beforeSuppression, outbound);
+    const playerSamplesBefore = telemetrySamples(beforeSuppression, 'playerAction');
+    const replacedFramesBefore = outbound.replacedFrames;
+    const sensorsBeforeResume = browserPlayer.sensors;
+    const framesBeforeResume = browserPlayer.frames;
+    player.beginSuppression();
+    const suppressionStartedAt = performance.now();
+    const suppressionEndsAt = suppressionStartedAt + options.playerSuppressionMs;
+    let suppressedHealth = beforeSuppression;
+    while (performance.now() < suppressionEndsAt) {
+      suppressedHealth = await fetchHealth(endpoint, timings.healthRequest);
+      observeOutbound(suppressedHealth, outbound);
+      const remaining = Math.max(0, suppressionEndsAt - performance.now());
+      await new Promise<void>(resolvePromise => setTimeout(resolvePromise, Math.min(100, remaining)));
+    }
+    suppressedHealth = await fetchHealth(endpoint, timings.healthRequest);
+    observeOutbound(suppressedHealth, outbound);
+    const playerSamplesAfter = telemetrySamples(suppressedHealth, 'playerAction');
+    const suppressionActualMs = performance.now() - suppressionStartedAt;
+    player.endSuppression();
+    const resumedAt = performance.now();
+    await waitUntil(() => browserPlayer.sensors > sensorsBeforeResume && browserPlayer.frames > framesBeforeResume,
+      deadline, 'browser-player inbound recovery');
+    timings.playerInboundRecovery.record(performance.now() - resumedAt);
+    if (browserPlayer.actionsDuringSuppression === 0 || playerSamplesAfter <= playerSamplesBefore ||
+        browserPlayer.latestTurn !== -1 || browserPlayer.latestBoost !== 0) {
+      throw new Error('browser-player turn change and boost release did not apply during inbound suppression');
+    }
+    if (browserPlayer.inboundDuringSuppression !== 0) {
+      throw new Error('browser-player inbound traffic was consumed during the deliberate socket pause');
+    }
+    const replacedFramesDuringSuppression = outbound.replacedFrames - replacedFramesBefore;
+    if (options.requireFrameReplacement && replacedFramesDuringSuppression < 1) {
+      throw new Error('slow browser-player socket did not produce a server-side frame replacement');
+    }
     while (performance.now() < deadline) {
       observeOutbound(await fetchHealth(endpoint, timings.healthRequest), outbound);
       const remaining = Math.max(0, deadline - performance.now());
@@ -448,8 +678,9 @@ async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
     observeOutbound(finalHealth, outbound);
     const initialGeneration = nativeCounter(initialHealth['generation'], 'generation');
     const finalGeneration = nativeCounter(finalHealth['generation'], 'generation');
-    if (controller.errors.length > 0 || viewer.errors.length > 0) {
-      throw new Error(`protocol failures: ${JSON.stringify({ controller: controller.errors, viewer: viewer.errors })}`);
+    if (controller.errors.length > 0 || viewer.errors.length > 0 || browserPlayer.errors.length > 0) {
+      throw new Error(`protocol failures: ${JSON.stringify({ controller: controller.errors,
+        browserPlayer: browserPlayer.errors, viewer: viewer.errors })}`);
     }
     if (controller.sensors === 0 || controller.actions === 0 || viewer.frames === 0 || viewer.stats === 0) {
       throw new Error('required trainer or viewer traffic was not observed');
@@ -459,14 +690,25 @@ async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
     }
     return {
       schema: 'slither-stage6a-runtime-integration-probe',
-      version: 1,
+      version: 2,
       caveat: 'Protocol 2 wire-compatible diagnostic client; not the owner trainer or a browser on another LAN device.',
       capturedAt: new Date().toISOString(),
       wsUrl: options.wsUrl,
       measuredWallSeconds: (performance.now() - startedAt) / 1_000,
       requireGenerationTransition: options.requireGenerationTransition,
+      requireFrameReplacement: options.requireFrameReplacement,
       generation: { before: initialGeneration.toString(), after: finalGeneration.toString() },
       controller,
+      browserPlayer,
+      playerSuppression: {
+        requestedMs: options.playerSuppressionMs,
+        actualMs: suppressionActualMs,
+        serverPlayerActionSamplesBefore: playerSamplesBefore,
+        serverPlayerActionSamplesAfter: playerSamplesAfter,
+        replacedFrames: replacedFramesDuringSuppression,
+        recoveredSensors: browserPlayer.sensors - sensorsBeforeResume,
+        recoveredFrames: browserPlayer.frames - framesBeforeResume
+      },
       viewer,
       outboundMaxima: outbound,
       clientLatency: {
@@ -475,12 +717,16 @@ async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
         sensorToActionDispatch: timings.sensorToActionDispatch.snapshot(),
         actionToNextSensor: timings.actionToNextSensor.snapshot(),
         frameInterval: timings.frameInterval.snapshot(),
-        healthRequest: timings.healthRequest.snapshot()
+        healthRequest: timings.healthRequest.snapshot(),
+        playerActionInterval: timings.playerActionInterval.snapshot(),
+        playerInboundRecovery: timings.playerInboundRecovery.snapshot()
       },
       telemetry: record(finalHealth['telemetry'], 'health telemetry')
     };
   } finally {
+    player.stop();
     active.socket.terminate();
+    player.socket.terminate();
     viewerSocket.terminate();
   }
 }

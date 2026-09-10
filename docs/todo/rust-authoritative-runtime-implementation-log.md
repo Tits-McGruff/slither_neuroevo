@@ -280,5 +280,15 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   checkpoint barrier, 0.9997 simulated/wall, and no protocol/routing failure;
   this is not the remaining LAN-browser/owner-trainer signoff.
 
+- 2026-09-11 The live Stage 6A diagnostic now runs the production browser
+  latest-action pump beside the Protocol 2 trainer and spectator, pauses all
+  browser-player inbound frames/sensors, changes turn and releases boost, and
+  requires Rust action application plus inbound recovery. An optional strict
+  gate requires observable server-side frame replacement on the real LAN link;
+  focused native-server coverage passes without making network-buffer timing a
+  cross-platform unit-test assumption. A strict three-second loopback pause
+  applied 143 new player actions, replaced 60 display frames, and recovered
+  inbound delivery in 29 ms; this remains diagnostic rather than LAN signoff.
+
 The next dependency is the Stage 6A full-generation trusted-LAN browser and
 unchanged owner-trainer evidence gate using the integrated telemetry boundary.

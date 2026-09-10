@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { DEFAULT_CONFIG, normalizeConfig } from './config.ts';
 import { PlayerActionPump } from '../src/net/playerActionPump.ts';
 import { createWsClient, type AssignMsg, type SensorsMsg, type WelcomeMsg, type WsClient } from '../src/net/wsClient.ts';
+import { run as runStage6RuntimeProbe } from '../scripts/stage6/runtime-integration-probe.ts';
 import { startExperimentalRustServer } from './experimentalRustServer.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 
@@ -270,6 +271,44 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       pump?.stop();
       browser?.disconnect();
       vi.unstubAllGlobals();
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('applies browser-player input while inbound frames and sensors are paused', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-browser-suppression-'));
+    const server = await startExperimentalRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 74,
+      dbPath: join(root, 'experiment.sqlite') });
+    try {
+      const report = await runStage6RuntimeProbe({
+        wsUrl: `ws://127.0.0.1:${server.port}/`,
+        durationMs: 4_000,
+        reconnectAfterSensors: 2,
+        requireGenerationTransition: false,
+        playerSuppressionMs: 750,
+        requireFrameReplacement: false
+      });
+      const browserPlayer = report['browserPlayer'] as {
+        actionsDuringSuppression: number;
+        inboundDuringSuppression: number;
+        latestTurn: number;
+        latestBoost: number;
+      };
+      const suppression = report['playerSuppression'] as {
+        serverPlayerActionSamplesBefore: number;
+        serverPlayerActionSamplesAfter: number;
+        recoveredSensors: number;
+        recoveredFrames: number;
+      };
+      expect(browserPlayer.actionsDuringSuppression).toBeGreaterThan(0);
+      expect(browserPlayer.inboundDuringSuppression).toBe(0);
+      expect(browserPlayer).toMatchObject({ latestTurn: -1, latestBoost: 0 });
+      expect(suppression.serverPlayerActionSamplesAfter)
+        .toBeGreaterThan(suppression.serverPlayerActionSamplesBefore);
+      expect(suppression.recoveredSensors).toBeGreaterThan(0);
+      expect(suppression.recoveredFrames).toBeGreaterThan(0);
+    } finally {
       await server.close();
       await rm(root, { recursive: true, force: true });
     }
