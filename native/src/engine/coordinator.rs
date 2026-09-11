@@ -558,7 +558,8 @@ pub(crate) fn run_running_coordinator(
         metrics.observe(running);
         wait = match progress {
             RunningAuthorityLoopProgress::ControllerReclaimPending
-            | RunningAuthorityLoopProgress::ControllerJoinPending => RunningWait::Blocked,
+            | RunningAuthorityLoopProgress::ControllerJoinPending
+            | RunningAuthorityLoopProgress::ImportPending => RunningWait::Blocked,
             RunningAuthorityLoopProgress::Idle {
                 wall_seconds_until_step,
                 ..
@@ -873,6 +874,24 @@ fn execute_running_authority_command(
                     }
                 },
             ),
+        RunningAuthorityCommand::StagePreparedImport { slot } => running
+            .stage_prepared_import(&slot)
+            .map_err(running_control_error)
+            .map(|()| RunningAuthorityEvent::ImportStaged { command_sequence }),
+        RunningAuthorityCommand::PublishPreparedImport { slot, descriptor } => running
+            .publish_prepared_import(&slot, &descriptor, wall_now_ms)
+            .map_err(running_control_error)
+            .map(|publication| RunningAuthorityEvent::ImportPublished {
+                command_sequence,
+                world_epoch: publication.world_epoch,
+                generation: publication.generation,
+                completed_step: publication.completed_step,
+                population_epoch: publication.population_epoch,
+            }),
+        RunningAuthorityCommand::CancelPreparedImport { slot } => running
+            .cancel_prepared_import(&slot, wall_now_ms)
+            .map_err(running_control_error)
+            .map(|()| RunningAuthorityEvent::ImportCancelled { command_sequence }),
         }
     });
 
@@ -989,6 +1008,9 @@ fn running_response_owned_byte_bound(
                         .ok_or_else(overflow)
                 })?
         }
+        RunningAuthorityCommand::StagePreparedImport { .. }
+        | RunningAuthorityCommand::PublishPreparedImport { .. }
+        | RunningAuthorityCommand::CancelPreparedImport { .. } => 0,
     };
     size_of::<RunningAuthorityEvent>()
         .checked_add(dynamic)
@@ -1149,6 +1171,7 @@ fn loop_state_code(state: RunningAuthorityLoopState) -> u8 {
         RunningAuthorityLoopState::ControllerJoinPending => 5,
         RunningAuthorityLoopState::ExternalDeliveryPending => 1,
         RunningAuthorityLoopState::GenerationTransitionPending => 2,
+        RunningAuthorityLoopState::ImportPending => 6,
         RunningAuthorityLoopState::Faulted => 3,
     }
 }
@@ -1160,6 +1183,7 @@ fn loop_state_from_code(code: u8) -> RunningAuthorityLoopState {
         5 => RunningAuthorityLoopState::ControllerJoinPending,
         1 => RunningAuthorityLoopState::ExternalDeliveryPending,
         2 => RunningAuthorityLoopState::GenerationTransitionPending,
+        6 => RunningAuthorityLoopState::ImportPending,
         _ => RunningAuthorityLoopState::Faulted,
     }
 }

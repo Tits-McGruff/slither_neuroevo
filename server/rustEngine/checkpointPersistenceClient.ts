@@ -9,10 +9,12 @@ import {
 } from './checkpointRetention.ts';
 import {
   DEFAULT_MANAGED_CHECKPOINT_DESCRIPTOR_LIMITS,
+  managedCheckpointContentsEqual,
   managedCheckpointDescriptorsEqual,
   parseManagedCheckpointDescriptor,
   parseManagedCheckpointDescriptorLimits,
   parseManagedExportInventoryDescriptor,
+  parseManagedImportInventoryDescriptor,
   parseManagedGenerationCommit,
   type CheckpointOperationId,
   type CheckpointPersistenceWorkerResponse,
@@ -21,6 +23,7 @@ import {
   type ManagedCheckpointSelection,
   type ManagedCheckpointDescriptorLimits,
   type ManagedGenerationCommit,
+  type ManagedImportInventoryDescriptor,
   type U64Hex
 } from './checkpointPersistenceProtocol.ts';
 
@@ -83,6 +86,8 @@ export function managedCheckpointCommitResultMatchesDescriptor(
 interface PendingCommit {
   /** Original strictly validated descriptor. */
   descriptor: ManagedCheckpointDescriptor;
+  /** Import may idempotently reuse an older local publication token. */
+  import: boolean;
   /** Resolve callback for its matching acknowledgement. */
   resolve: (result: ManagedCheckpointCommitResult) => void;
   /** Reject callback for rejection, protocol fault, or worker exit. */
@@ -205,7 +210,7 @@ export class CheckpointPersistenceClient {
       return Promise.reject(new Error(`checkpoint operation ${descriptor.operationId} is already pending`));
     }
     return new Promise<ManagedCheckpointCommitResult>((resolve, reject) => {
-      this.pending.set(descriptor.operationId, { descriptor, resolve, reject });
+      this.pending.set(descriptor.operationId, { descriptor, import: false, resolve, reject });
       try {
         this.worker.postMessage({
           type: 'commitManagedCheckpoint',
@@ -265,6 +270,35 @@ export class CheckpointPersistenceClient {
       this.recovery = { commit, resolve, reject };
       try { this.worker.postMessage({ type: 'commitRecoveryBranch', commit }); }
       catch (error) { this.recovery = undefined; reject(asError(error)); }
+    });
+  }
+
+  /** Atomically import trusted compact metadata and make its exact boundary current. */
+  commitImport(
+    descriptorValue: unknown,
+    inventoryValue: unknown
+  ): Promise<ManagedCheckpointCommitResult> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping) return Promise.reject(new Error('checkpoint persistence client is stopping'));
+    let descriptor: ManagedCheckpointDescriptor;
+    let inventory: ManagedImportInventoryDescriptor;
+    try {
+      descriptor = parseManagedCheckpointDescriptor(descriptorValue);
+      inventory = parseManagedImportInventoryDescriptor(inventoryValue, descriptor.operationId);
+    } catch (error) {
+      return Promise.reject(asError(error));
+    }
+    if (this.pending.has(descriptor.operationId)) {
+      return Promise.reject(new Error(`checkpoint operation ${descriptor.operationId} is already pending`));
+    }
+    return new Promise<ManagedCheckpointCommitResult>((resolve, reject) => {
+      this.pending.set(descriptor.operationId, { descriptor, import: true, resolve, reject });
+      try {
+        this.worker.postMessage({ type: 'commitManagedImport', descriptor, inventory });
+      } catch (error) {
+        this.pending.delete(descriptor.operationId);
+        reject(asError(error));
+      }
     });
   }
 
@@ -511,12 +545,14 @@ export class CheckpointPersistenceClient {
       if (!pending) {
         throw new Error(`persistence worker acknowledged unknown operation ${response.operationId}`);
       }
-      if (
-        response.transitionEpoch !== pending.descriptor.transitionEpoch ||
-        response.runId !== pending.descriptor.runId ||
-        response.checkpointId !== pending.descriptor.logicalRootSha256 ||
-        !managedCheckpointDescriptorsEqual(response.descriptor, pending.descriptor)
-      ) {
+      const descriptorMatches = pending.import
+        ? managedCheckpointContentsEqual(response.descriptor, pending.descriptor)
+        : managedCheckpointDescriptorsEqual(response.descriptor, pending.descriptor);
+      if (response.runId !== pending.descriptor.runId ||
+        response.checkpointId !== pending.descriptor.logicalRootSha256 || !descriptorMatches ||
+        (!pending.import && response.transitionEpoch !== pending.descriptor.transitionEpoch) ||
+        (pending.import && response.type !== 'managedImportCommitted') ||
+        (!pending.import && response.type !== 'managedCheckpointCommitted')) {
         throw new Error(`persistence worker acknowledgement mismatched operation ${response.operationId}`);
       }
       this.pending.delete(response.operationId);
@@ -706,7 +742,7 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     return { type: 'managedCheckpointSelected', operationId: response['operationId'], descriptor,
       runId: runId as string | null, recovery };
   }
-  if (response['type'] === 'managedCheckpointCommitted') {
+  if (response['type'] === 'managedCheckpointCommitted' || response['type'] === 'managedImportCommitted') {
     requireExactKeys(response, [
       'type',
       'operationId',
@@ -720,14 +756,14 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
       throw new TypeError('checkpoint persistence worker sent an invalid commit acknowledgement');
     }
     const descriptor = parseManagedCheckpointDescriptor(response['descriptor']);
-    if (response['operationId'] !== descriptor.operationId ||
+    if ((response['type'] === 'managedCheckpointCommitted' && response['operationId'] !== descriptor.operationId) ||
       response['transitionEpoch'] !== descriptor.transitionEpoch ||
       response['runId'] !== descriptor.runId ||
       response['checkpointId'] !== descriptor.logicalRootSha256) {
       throw new TypeError('checkpoint persistence worker sent internally mismatched commit fields');
     }
     return {
-      type: 'managedCheckpointCommitted',
+      type: response['type'],
       operationId: response['operationId'],
       transitionEpoch: response['transitionEpoch'],
       runId: response['runId'],

@@ -225,6 +225,8 @@ export interface WelcomeMsg {
     checkpointPinning: boolean;
     /** Whether direct archive download is available. */
     archiveExport: boolean;
+    /** Whether the selected archive can be uploaded unchanged. */
+    archiveImport?: boolean;
   };
 }
 
@@ -374,6 +376,18 @@ export interface NewRunResultMsg {
   reason?: string;
 }
 
+/** Reliable notice that a complete authoritative run was atomically replaced. */
+export interface StateReplacedMsg {
+  /** Message discriminator. */
+  type: 'stateReplaced';
+  /** Replacement operation that completed. */
+  reason: 'import';
+  /** Exact imported checkpoint identity. */
+  checkpointId: string;
+  /** New complete handshake state used before a fresh join. */
+  welcome: WelcomeMsg;
+}
+
 /** Union of all server-to-client JSON message shapes. */
 export type ServerMessage =
   | WelcomeMsg
@@ -384,7 +398,8 @@ export type ServerMessage =
   | ErrorMsg
   | SettingsAppliedMsg
   | GodModeResultMsg
-  | NewRunResultMsg;
+  | NewRunResultMsg
+  | StateReplacedMsg;
 
 /**
  * Narrow a value to a plain record for message validation.

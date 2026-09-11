@@ -50,6 +50,8 @@ export interface WelcomeMsg {
     checkpointPinning: boolean;
     /** Whether direct archive download is available. */
     archiveExport: boolean;
+    /** Whether the selected archive can be uploaded unchanged. */
+    archiveImport?: boolean;
   };
 }
 
@@ -173,6 +175,18 @@ export interface NewRunResultMsg {
   reason?: string;
 }
 
+/** Reliable notice that the live socket now points at a different authority. */
+export interface StateReplacedMsg {
+  /** Message discriminator. */
+  type: 'stateReplaced';
+  /** Replacement operation that completed. */
+  reason: 'import';
+  /** Exact imported checkpoint identity. */
+  checkpointId: string;
+  /** Complete current server state used before sending a new join. */
+  welcome: WelcomeMsg;
+}
+
 /** Reset request payload sent to the server. */
 export interface ResetMsg {
   type: 'reset';
@@ -193,6 +207,7 @@ export interface WsClientCallbacks {
   onSettingsApplied?: (msg: SettingsAppliedMsg) => void;
   onGodModeResult?: (msg: GodModeResultMsg) => void;
   onNewRunResult?: (msg: NewRunResultMsg) => void;
+  onStateReplaced?: (msg: StateReplacedMsg) => void;
   onError?: (msg: ErrorMsg) => void;
 }
 
@@ -517,6 +532,9 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
         return;
       case 'newRunResult':
         callbacks.onNewRunResult?.(msg as unknown as NewRunResultMsg);
+        return;
+      case 'stateReplaced':
+        callbacks.onStateReplaced?.(msg as unknown as StateReplacedMsg);
         return;
       case 'error':
         callbacks.onError?.(msg as unknown as ErrorMsg);

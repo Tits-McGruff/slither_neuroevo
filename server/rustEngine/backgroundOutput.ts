@@ -5,6 +5,19 @@ import { BackgroundGenerationRouter } from './backgroundGeneration.ts';
 import { BackgroundCommandAdmission } from './commandAdmission.ts';
 import { ControllerDeliveryRouter, JoinDeliveryRouter, ReclaimDeliveryRouter } from './controllerDelivery.ts';
 import type { ExperimentalServerRuntime } from './experimentalStartup.ts';
+import type { ManagedCheckpointDescriptor, U64Hex } from './checkpointPersistenceProtocol.ts';
+
+/** Scalar result of the one complete imported-authority swap. */
+export interface RustImportPublication {
+  /** New process-local world identity. */
+  worldEpoch: U64Hex;
+  /** Imported generation boundary now running. */
+  generation: U64Hex;
+  /** Imported completed-step chronology. */
+  completedStep: U64Hex;
+  /** Imported population identity. */
+  populationEpoch: U64Hex;
+}
 
 /** Transport hooks for the sole background event consumer. */
 export interface BackgroundOutputOptions {
@@ -42,6 +55,14 @@ export class BackgroundOutputPump {
   private frameSequence: RustBackgroundIdentity = '0000000000000000';
   /** Coalesce concurrent wakeups while asynchronous persistence is pending. */
   private active: Promise<boolean> | undefined;
+  /** One import lifecycle command awaiting queue admission or its exact reply. */
+  private importCommand: {
+    kind: 'stage' | 'publish' | 'cancel';
+    submit(sequence: RustBackgroundIdentity): void;
+    expectedSequence?: RustBackgroundIdentity;
+    resolve(value: RustImportPublication | undefined): void;
+    reject(error: Error): void;
+  } | undefined;
 
   /** Attach every retained delivery adapter before starting native execution. */
   constructor(private readonly options: BackgroundOutputOptions) {
@@ -70,8 +91,91 @@ export class BackgroundOutputPump {
 
   /** Drain a bounded turn; callers reschedule when true and periodically retry input capacity. */
   drain(): Promise<boolean> {
-    this.active ??= Promise.resolve().then(() => this.drainOneTurn()).finally(() => { this.active = undefined; });
+    this.active ??= Promise.resolve().then(() => this.drainOneTurn()).catch(error => {
+      const command = this.importCommand;
+      if (command) {
+        this.importCommand = undefined;
+        command.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+      throw error;
+    }).finally(() => { this.active = undefined; });
     return this.active;
+  }
+
+  /** Pause stepping after Rust has prepared a complete private import. */
+  stagePreparedImport(): Promise<void> {
+    if (this.generation.active) return Promise.reject(new Error('generation persistence is busy'));
+    return this.issueImportCommand('stage', sequence =>
+      this.options.owner.runtime.submitStagePreparedImport(sequence)
+    ).then(() => undefined);
+  }
+
+  /** Swap only the exact descriptor returned by the committed SQLite import. */
+  publishPreparedImport(descriptor: ManagedCheckpointDescriptor): Promise<RustImportPublication> {
+    return this.issueImportCommand('publish', sequence =>
+      this.options.owner.runtime.submitImportPersistenceAcknowledgement(sequence, descriptor)
+    ).then(value => {
+      if (!value) throw new Error('import publication omitted its result');
+      return value;
+    });
+  }
+
+  /** Resume the old game after a failure before the import transaction commits. */
+  cancelPreparedImport(): Promise<void> {
+    return this.issueImportCommand('cancel', sequence =>
+      this.options.owner.runtime.submitCancelPreparedImport(sequence)
+    ).then(() => undefined);
+  }
+
+  /** Retain one import control until bounded queue capacity is available. */
+  private issueImportCommand(
+    kind: 'stage' | 'publish' | 'cancel',
+    submit: (sequence: RustBackgroundIdentity) => void
+  ): Promise<RustImportPublication | undefined> {
+    if (this.importCommand) return Promise.reject(new Error('another import command is pending'));
+    return new Promise((resolve, reject) => {
+      this.importCommand = { kind, submit, resolve, reject };
+      this.flushImportCommand();
+    });
+  }
+
+  /** Retry only admission; the exact command is never regenerated after acceptance. */
+  private flushImportCommand(): void {
+    const command = this.importCommand;
+    if (!command || command.expectedSequence) return;
+    this.admission.trySubmitControl(sequence => {
+      command.submit(sequence);
+      command.expectedSequence = sequence;
+    });
+  }
+
+  /** Resolve only the exact import reply; unrelated events remain normally routed. */
+  private handleImportEvent(event: RustBackgroundEvent): boolean {
+    const command = this.importCommand;
+    if (!command?.expectedSequence || event.commandSequence !== command.expectedSequence) return false;
+    const expectedKind = command.kind === 'stage' ? 'importStaged' :
+      command.kind === 'publish' ? 'importPublished' : 'importCancelled';
+    if (event.kind === 'commandRejected') {
+      this.importCommand = undefined;
+      command.reject(new Error(`import command rejected: ${event.rejectionCode}: ${event.rejectionDetail}`));
+      return true;
+    }
+    if (event.kind !== expectedKind) return false;
+    this.importCommand = undefined;
+    if (command.kind === 'publish') {
+      const value = event.importPublication as Partial<RustImportPublication> | undefined;
+      if (!value || !/^[0-9a-f]{16}$/u.test(value.worldEpoch ?? '') ||
+          !/^[0-9a-f]{16}$/u.test(value.generation ?? '') ||
+          !/^[0-9a-f]{16}$/u.test(value.completedStep ?? '') ||
+          !/^[0-9a-f]{16}$/u.test(value.populationEpoch ?? '')) {
+        command.reject(new TypeError('invalid imported-authority publication'));
+      } else {
+        command.resolve(value as RustImportPublication);
+      }
+    } else {
+      command.resolve(undefined);
+    }
+    return true;
   }
 
   /** Complete prepared reliable output before attempting any replaceable frame. */
@@ -82,10 +186,12 @@ export class BackgroundOutputPump {
       this.reclaim.flushReceipts();
       this.join.flushReceipts();
       this.generation.flush();
+      this.flushImportCommand();
       const drained = runtime.drainOutputs(1, 1024 * 1024);
       for (const event of drained.events) {
         if (event.kind === 'fault') throw new Error(`${event.faultCode}: ${event.faultDetail}`);
         this.options.event(event);
+        if (this.handleImportEvent(event)) continue;
         if (await this.generation.handle(event)) continue;
         if (event.controllerMessages && !this.ordinary.deliver(event.controllerMessages)) {
           throw new Error('overlapping ordinary controller output');

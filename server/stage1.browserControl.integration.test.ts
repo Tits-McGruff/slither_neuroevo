@@ -172,4 +172,14 @@ describe('Stage 1 browser-player transmission correction', () => {
     expect(directBranch).toContain('/api/export/latest');
     expect(directBranch).not.toMatch(/fetch\(|arrayBuffer\(|\.json\(|\.text\(|Blob\(/u);
   });
+
+  it('uploads Rust archives as the original File without reading population bytes', () => {
+    const source = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+    const upload = source.match(
+      /function uploadServerArchive\([\s\S]*?\): Promise<ServerArchiveImportResult> \{([\s\S]*?)\r?\n\}\r?\n\r?\n\/\*\*/u
+    )?.[1];
+    expect(upload).toContain('/api/import/archive');
+    expect(upload).toContain('request.send(file)');
+    expect(upload).not.toMatch(/FileReader|importFromFile|arrayBuffer\(|\.text\(|Blob\(|JSON\.stringify/u);
+  });
 });

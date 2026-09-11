@@ -16,6 +16,7 @@ use super::frame_v1::{
 use super::generation::GenerationCommitRecord;
 use super::graph::GraphLimits;
 use super::physics::PhysicsStepKey;
+use super::run_start::RunStartTransitionError;
 use super::running_step::{
     ExternalDeliveryResult, ExternalDeliveryState, ExternalObservationBatch,
     GenerationReassignmentProgress, GenerationTransitionBatch, GenerationTransitionReason,
@@ -47,6 +48,8 @@ pub enum RunningAuthorityLoopState {
     ExternalDeliveryPending,
     /// One terminal step awaits checkpoint metadata and successor admission.
     GenerationTransitionPending,
+    /// A fully prepared import pauses stepping before its database transaction.
+    ImportPending,
     /// A first unrecoverable loop error permanently ended this instance.
     Faulted,
 }
@@ -74,6 +77,8 @@ pub enum RunningAuthorityLoopProgress {
     ControllerJoinPending,
     /// No scheduler ticket exists while a reconnect assignment is unresolved.
     ControllerReclaimPending,
+    /// Import preparation is complete and stepping is paused for durability.
+    ImportPending,
     /// No complete fixed delta is due yet.
     Idle {
         /// Simulated seconds still needed for the next complete step.
@@ -294,6 +299,9 @@ impl RunningAuthorityLoop {
             }
             RunningAuthorityLoopState::ControllerReclaimPending => {
                 return Ok(RunningAuthorityLoopProgress::ControllerReclaimPending);
+            }
+            RunningAuthorityLoopState::ImportPending => {
+                return Ok(RunningAuthorityLoopProgress::ImportPending);
             }
             RunningAuthorityLoopState::Faulted => {
                 return Err(RunningAuthorityLoopError::AlreadyFaulted)
@@ -594,6 +602,89 @@ impl RunningAuthorityLoop {
         self.scheduler.diagnostics()
     }
 
+    /// Replace the complete loop only after SQLite has selected the exact
+    /// imported checkpoint. Any post-commit failure permanently faults the old
+    /// loop so restart must recover the already committed imported boundary.
+    pub(crate) fn publish_prepared_import(
+        &mut self,
+        slot: &super::contract::PreparedImportSlot,
+        committed: &CheckpointDescriptor,
+        wall_now_ms: u64,
+    ) -> Result<super::state::RunStartPublication, RunningAuthorityLoopError> {
+        self.require_action_state(
+            "publish a prepared import",
+            RunningAuthorityLoopState::ImportPending,
+        )?;
+        let mut transition =
+            slot.take()
+                .ok_or(RunningAuthorityLoopError::RetainedStateMismatch {
+                    field: "prepared import candidate",
+                })?;
+        let attempted = (|| {
+            transition.acknowledge_import_persistence(committed)?;
+            let publication = transition.publish_running_authority()?;
+            Ok::<_, RunStartTransitionError>(publication)
+        })();
+        let publication = match attempted {
+            Ok(publication) => publication,
+            Err(error) => {
+                let _ = slot.put(transition);
+                self.state = RunningAuthorityLoopState::Faulted;
+                return Err(RunningAuthorityLoopError::Import(Box::new(error)));
+            }
+        };
+        let clock = self.background_clock;
+        let mut replacement = match transition.into_running_loop(
+            FixedStepSchedulerPolicy::provisional_defaults(),
+            wall_now_ms,
+        ) {
+            Ok(replacement) => replacement,
+            Err(failure) => {
+                let (transition, error) = failure.into_parts();
+                let _ = slot.put(transition);
+                self.state = RunningAuthorityLoopState::Faulted;
+                return Err(RunningAuthorityLoopError::Import(Box::new(error)));
+            }
+        };
+        if let Some(clock) = clock {
+            replacement.set_background_clock(clock);
+        }
+        *self = replacement;
+        Ok(publication)
+    }
+
+    /// Pause new steps only after a complete private candidate exists.
+    pub(crate) fn stage_prepared_import(
+        &mut self,
+        slot: &super::contract::PreparedImportSlot,
+    ) -> Result<(), RunningAuthorityLoopError> {
+        self.require_action_state("stage a prepared import", RunningAuthorityLoopState::Ready)?;
+        if !slot.is_some() {
+            return Err(RunningAuthorityLoopError::RetainedStateMismatch {
+                field: "prepared import candidate",
+            });
+        }
+        self.state = RunningAuthorityLoopState::ImportPending;
+        Ok(())
+    }
+
+    /// Resume the unchanged authority after a pre-commit import failure.
+    pub(crate) fn cancel_prepared_import(
+        &mut self,
+        slot: &super::contract::PreparedImportSlot,
+        wall_now_ms: u64,
+    ) -> Result<(), RunningAuthorityLoopError> {
+        self.require_action_state(
+            "cancel a prepared import",
+            RunningAuthorityLoopState::ImportPending,
+        )?;
+        let _ = slot.take();
+        self.scheduler
+            .reset_wall_clock(&self.authority, wall_now_ms)?;
+        self.state = RunningAuthorityLoopState::Ready;
+        Ok(())
+    }
+
     /// Borrow the exact retained external batch for future reliable routing.
     #[must_use]
     pub fn pending_external_delivery(&self) -> Option<ExternalObservationBatch<'_>> {
@@ -794,6 +885,7 @@ impl RunningAuthorityLoop {
                 RunningAuthorityLoopState::Ready
                 | RunningAuthorityLoopState::ControllerReclaimPending
                 | RunningAuthorityLoopState::ControllerJoinPending
+                | RunningAuthorityLoopState::ImportPending
                 | RunningAuthorityLoopState::Faulted => {
                     unreachable!("blocked state was checked before delivery submission")
                 }
@@ -1006,6 +1098,7 @@ impl RunningAuthorityLoop {
                 RunningAuthorityLoopState::GenerationTransitionPending => {
                     "generation-transition-pending state"
                 }
+                RunningAuthorityLoopState::ImportPending => "import-pending state",
                 RunningAuthorityLoopState::Faulted => "faulted state",
             },
             actual: self.state,
@@ -1128,6 +1221,7 @@ impl RunningAuthorityLoop {
             RunningAuthorityLoopState::Ready
             | RunningAuthorityLoopState::ControllerReclaimPending
             | RunningAuthorityLoopState::ControllerJoinPending
+            | RunningAuthorityLoopState::ImportPending
             | RunningAuthorityLoopState::Faulted => {
                 Err(RunningAuthorityLoopError::RetainedStateMismatch {
                     field: "blocked loop state",
@@ -1172,6 +1266,8 @@ pub enum RunningAuthorityLoopError {
     RunningStep(Box<RunningStepError>),
     /// Optional post-publication frame packing failed.
     Frame(Box<FrameV1Error>),
+    /// Durable import activation failed after its database current-pointer commit.
+    Import(Box<RunStartTransitionError>),
 }
 
 impl Display for RunningAuthorityLoopError {
@@ -1203,6 +1299,7 @@ impl Display for RunningAuthorityLoopError {
             }
             Self::RunningStep(error) => write!(formatter, "running authority step failed: {error}"),
             Self::Frame(error) => write!(formatter, "running authority frame failed: {error}"),
+            Self::Import(error) => write!(formatter, "running authority import failed: {error}"),
         }
     }
 }
@@ -1213,6 +1310,7 @@ impl Error for RunningAuthorityLoopError {
             Self::Scheduler(error) => Some(error),
             Self::RunningStep(error) => Some(error),
             Self::Frame(error) => Some(error),
+            Self::Import(error) => Some(error),
             Self::AlreadyFaulted
             | Self::InvalidActionState { .. }
             | Self::RetainedStateMismatch { .. }

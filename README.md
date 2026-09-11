@@ -95,7 +95,11 @@ permanently protects the exact current managed checkpoint; it does not also
 create or download an export. **Export** starts one ordinary browser download
 of the exact current Rust checkpoint plus its complete compact history and
 run-scoped Hall of Fame. A second export receives `409` until the first
-download finishes or is cancelled.
+download finishes or is cancelled. **Import** uploads the selected
+`.slither-save` unchanged, shows upload progress, validates and commits the
+complete experiment, then switches the running Rust game at a safe boundary.
+Existing WebSocket connections stay open, discard their old assignments and
+join the imported run again without reusing stale controller tokens.
 
 With that server running, a short real-boundary diagnostic exercises a
 spectator, an observation-driven Protocol 2 bot with disconnect/token reclaim,
@@ -116,9 +120,9 @@ round. The probe is a wire-compatible diagnostic client; it does not replace
 the required unchanged owner trainer or a real browser on another trusted-LAN
 device.
 
-This entry uses the fixed default graph and settings. Secondary commands,
-including settings/reset and archive endpoints, are still being connected;
-pinning the current checkpoint is available now.
+This entry uses the fixed default graph and settings. Pin, direct archive
+export, and direct archive import are available; settings, Reset/New Run and
+the other secondary commands are still being connected.
 `npm run server` remains the separate reference runtime.
 
 ### Architecture
@@ -394,8 +398,13 @@ reads or rebuilds its population. Large population, recurrent-state, and Hall
 of Fame weight entries use whichever of raw or lossless compressed storage is
 smaller. The save retains the best 50 unique unpinned winner genomes plus any
 pinned winners while preserving the complete compact generation history.
-Direct `.slither-save` import validation exists internally, but the live
-replacement endpoint and browser upload control are not enabled yet.
+**Import** sends the original `.slither-save` directly as the request body;
+browser JavaScript never reads or reconstructs it. Rust privately validates
+and restores every role, SQLite commits the checkpoint, history, Hall of Fame
+and active-run pointer together, and only then does the running game switch.
+A rejected upload leaves the prior game current. Successful replacement keeps
+browser/trainer sockets connected but invalidates every old assignment and
+requires a fresh ordered join.
 
 The TypeScript reference runtime retains its compatibility JSON import/export
 path until Rust cutover. That older path still assembles population data in the

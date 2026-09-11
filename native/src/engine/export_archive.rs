@@ -6,10 +6,12 @@
 //! writes one ordinary USTAR download without copying population data through Node.
 
 use super::checkpoint::{
-    decode_adaptive_numeric_file, read_validated_hall_of_fame_weights, rename_noreplace,
+    decode_adaptive_numeric_file, publication_descriptor_for_restored,
+    publish_hall_of_fame_weights, read_validated_hall_of_fame_weights, rename_noreplace,
     restore_committed_checkpoint, select_adaptive_numeric_file, sync_parent_directory,
     validated_checkpoint_archive_layout, CheckpointDescriptor, CheckpointError, CheckpointLimits,
-    CheckpointManifest, HallOfFameWeightsDescriptor, NumericEncoding,
+    CheckpointManifest, CheckpointOperationId, HallOfFameWeightsDescriptor, NumericEncoding,
+    RestoredCheckpoint,
 };
 use super::graph::GraphLimits;
 use super::state::StateAdmissionPolicy;
@@ -70,6 +72,29 @@ pub struct ValidatedImportArchive {
     pub stored_byte_count_hex: String,
 }
 
+/// Fully admitted private candidate plus its newly published managed descriptor.
+/// Population and world state never cross the native boundary.
+#[derive(Debug)]
+pub struct PreparedImportArchive {
+    pub facts: ValidatedImportArchive,
+    pub descriptor: CheckpointDescriptor,
+    pub inventory: ImportInventoryDescriptor,
+    pub startup_metadata_json: String,
+    pub transition: super::run_start::PendingRunStartTransition,
+}
+
+/// Trusted fixed-width history and Hall-of-Fame inventory published by Rust
+/// after every archive record and weight segment validates.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportInventoryDescriptor {
+    pub version: u32,
+    pub relative_filename: String,
+    pub sha256: String,
+    pub stored_byte_count_hex: String,
+    pub history_count_hex: String,
+    pub hall_of_fame_count_hex: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SaveManifest {
@@ -112,6 +137,15 @@ struct ScannedImportArchive {
     entry_hashes: Vec<[u8; 32]>,
 }
 
+struct ValidatedImportCandidate {
+    facts: ValidatedImportArchive,
+    restored: RestoredCheckpoint,
+    checkpoint_path: PathBuf,
+    stage_directory: PathBuf,
+    cleanup: ScratchFiles,
+    inventory: Option<ImportInventoryDescriptor>,
+}
+
 /// Strictly validate an untrusted save upload without changing live or durable state.
 pub fn validate_import_archive(
     archive_path: &Path,
@@ -121,6 +155,96 @@ pub fn validate_import_archive(
     graph_limits: &GraphLimits,
     admission_policy: &StateAdmissionPolicy,
 ) -> Result<ValidatedImportArchive, CheckpointError> {
+    Ok(validate_import_candidate(
+        archive_path,
+        scratch_directory,
+        None,
+        operation_id,
+        checkpoint_limits,
+        graph_limits,
+        admission_policy,
+    )?
+    .facts)
+}
+
+/// Validate, retain, and publish one imported checkpoint without changing the
+/// live authority or SQLite current pointer.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_import_archive(
+    archive_path: &Path,
+    scratch_directory: &Path,
+    managed_directory: &Path,
+    operation_id: &str,
+    checkpoint_limits: &CheckpointLimits,
+    graph_limits: &GraphLimits,
+    admission_policy: &StateAdmissionPolicy,
+    memory_ceiling_bytes: usize,
+) -> Result<PreparedImportArchive, CheckpointError> {
+    let mut candidate = validate_import_candidate(
+        archive_path,
+        scratch_directory,
+        Some(managed_directory),
+        operation_id,
+        checkpoint_limits,
+        graph_limits,
+        admission_policy,
+    )?;
+    let operation_id = CheckpointOperationId::parse(operation_id.to_owned())?;
+    let descriptor = publication_descriptor_for_restored(&candidate.restored, operation_id);
+    let managed_directory = managed_directory.canonicalize()?;
+    let final_path = managed_directory.join(&descriptor.relative_filename);
+    if final_path.exists() {
+        let existing = super::checkpoint::restore_checkpoint(
+            &final_path,
+            checkpoint_limits,
+            graph_limits,
+            admission_policy,
+        )?;
+        if existing.content != candidate.restored.content
+            || existing.state.state() != candidate.restored.state.state()
+            || existing.state.graph_spec() != candidate.restored.state.graph_spec()
+        {
+            return Err(CheckpointError::format(
+                "IMPORT_CHECKPOINT_COLLISION",
+                "existing digest-derived checkpoint differs from the imported candidate",
+            ));
+        }
+        fs::remove_file(&candidate.checkpoint_path)?;
+    } else {
+        rename_noreplace(&candidate.checkpoint_path, &final_path)?;
+        sync_parent_directory(&managed_directory)?;
+    }
+    fs::remove_dir(&candidate.stage_directory)?;
+    let transition = super::fresh_run::prepare_stage6a_p0_validated_import(
+        candidate.restored,
+        descriptor.clone(),
+        memory_ceiling_bytes,
+    )
+    .map_err(|error| CheckpointError::format("IMPORT_CANDIDATE", error.to_string()))?;
+    let startup_metadata_json = transition
+        .startup_metadata_json()
+        .map_err(|error| CheckpointError::format("IMPORT_METADATA", error))?;
+    candidate.cleanup.paths.clear();
+    Ok(PreparedImportArchive {
+        facts: candidate.facts,
+        descriptor,
+        inventory: candidate.inventory.ok_or_else(|| {
+            CheckpointError::format("IMPORT_INVENTORY", "prepared import inventory is missing")
+        })?,
+        startup_metadata_json,
+        transition,
+    })
+}
+
+fn validate_import_candidate(
+    archive_path: &Path,
+    scratch_directory: &Path,
+    publication_directory: Option<&Path>,
+    operation_id: &str,
+    checkpoint_limits: &CheckpointLimits,
+    graph_limits: &GraphLimits,
+    admission_policy: &StateAdmissionPolicy,
+) -> Result<ValidatedImportCandidate, CheckpointError> {
     validate_operation_id(operation_id)?;
     let metadata = fs::symlink_metadata(archive_path)?;
     if metadata.file_type().is_symlink()
@@ -153,7 +277,21 @@ pub fn validate_import_archive(
     let mut cleanup = ScratchFiles::new();
     cleanup.track(stage_directory.clone());
     cleanup.track(checkpoint_path.clone());
-    extract_and_validate_import_roles(archive_path, &checkpoint_path, &manifest)?;
+    let inventory = extract_and_validate_import_roles(
+        archive_path,
+        &checkpoint_path,
+        &manifest,
+        publication_directory,
+        operation_id,
+        checkpoint_limits,
+    )?;
+    if let (Some(directory), Some(descriptor)) = (publication_directory, &inventory) {
+        cleanup.track(
+            directory
+                .canonicalize()?
+                .join(&descriptor.relative_filename),
+        );
+    }
     let restored = super::checkpoint::restore_checkpoint(
         &checkpoint_path,
         checkpoint_limits,
@@ -170,10 +308,7 @@ pub fn validate_import_archive(
             "embedded checkpoint disagrees with the save manifest",
         ));
     }
-    fs::remove_file(&checkpoint_path)?;
-    fs::remove_dir(&stage_directory)?;
-    cleanup.paths.clear();
-    Ok(ValidatedImportArchive {
+    let facts = ValidatedImportArchive {
         run_id: manifest.run_id,
         generation_hex: manifest.generation_hex,
         completed_step_hex: manifest.completed_step_hex,
@@ -182,6 +317,14 @@ pub fn validate_import_archive(
         history_count_hex: manifest.history_count_hex,
         hall_of_fame_count_hex: manifest.hall_of_fame_count_hex,
         stored_byte_count_hex: hex_u64(metadata.len()),
+    };
+    Ok(ValidatedImportCandidate {
+        facts,
+        restored,
+        checkpoint_path,
+        stage_directory,
+        cleanup,
+        inventory,
     })
 }
 
@@ -1040,7 +1183,10 @@ fn extract_and_validate_import_roles(
     archive_path: &Path,
     checkpoint_path: &Path,
     manifest: &SaveManifest,
-) -> Result<(), CheckpointError> {
+    publication_directory: Option<&Path>,
+    operation_id: &str,
+    checkpoint_limits: &CheckpointLimits,
+) -> Result<Option<ImportInventoryDescriptor>, CheckpointError> {
     let file = File::open(archive_path)?;
     let mut archive = TarArchive::new(BufReader::new(file));
     let mut entries = archive.entries()?;
@@ -1078,6 +1224,30 @@ fn extract_and_validate_import_roles(
     drop(checkpoint);
 
     let history_count = parse_hex_u64(&manifest.history_count_hex, "history count")?;
+    let hall_of_fame_count = parse_hex_u64(&manifest.hall_of_fame_count_hex, "Hall-of-Fame count")?;
+    let publication_directory = publication_directory.map(Path::canonicalize).transpose()?;
+    let stage_directory = checkpoint_path.parent().ok_or_else(|| {
+        CheckpointError::format("IMPORT_PATH", "checkpoint validation path has no parent")
+    })?;
+    let inventory_partial_path = stage_directory.join("import-inventory.partial");
+    let mut inventory_cleanup = ScratchFiles::new();
+    let mut inventory_writer = if publication_directory.is_some() {
+        inventory_cleanup.track(inventory_partial_path.clone());
+        let mut writer = BufWriter::new(
+            OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&inventory_partial_path)?,
+        );
+        let mut header = [0u8; INVENTORY_HEADER_BYTES as usize];
+        header[..13].copy_from_slice(INVENTORY_MAGIC);
+        header[16..24].copy_from_slice(&history_count.to_le_bytes());
+        header[24..32].copy_from_slice(&hall_of_fame_count.to_le_bytes());
+        writer.write_all(&header)?;
+        Some(writer)
+    } else {
+        None
+    };
     let mut history = entries
         .next()
         .transpose()?
@@ -1095,15 +1265,17 @@ fn extract_and_validate_import_roles(
                 "history records are non-contiguous or contain non-finite values",
             ));
         }
+        if let Some(writer) = &mut inventory_writer {
+            writer.write_all(&record)?;
+        }
     }
     drop(history);
 
-    let hall_of_fame_count = parse_hex_u64(&manifest.hall_of_fame_count_hex, "Hall-of-Fame count")?;
     let mut hall_of_fame = entries
         .next()
         .transpose()?
         .ok_or_else(|| CheckpointError::format("IMPORT_USTAR", "Hall-of-Fame index is missing"))?;
-    let mut weight_references: Vec<([u8; 32], u64)> = Vec::new();
+    let mut weight_references: Vec<([u8; HOF_RECORD_BYTES as usize], [u8; 32], u64)> = Vec::new();
     weight_references
         .try_reserve_exact(hall_of_fame_count as usize)
         .map_err(|_| {
@@ -1138,7 +1310,11 @@ fn extract_and_validate_import_roles(
             .ok_or_else(|| {
                 CheckpointError::format("COUNT_OVERFLOW", "Hall-of-Fame weight count overflowed")
             })?;
-        weight_references.push((hof_record[56..88].try_into().unwrap(), weight_count));
+        weight_references.push((
+            hof_record,
+            hof_record[56..88].try_into().unwrap(),
+            weight_count,
+        ));
     }
     drop(hall_of_fame);
     let declared_weight_count = parse_hex_u64(
@@ -1155,13 +1331,10 @@ fn extract_and_validate_import_roles(
     let mut weights_entry = entries.next().transpose()?.ok_or_else(|| {
         CheckpointError::format("IMPORT_USTAR", "Hall-of-Fame weights are missing")
     })?;
-    let stage_directory = checkpoint_path.parent().ok_or_else(|| {
-        CheckpointError::format("IMPORT_PATH", "checkpoint validation path has no parent")
-    })?;
     let encoded_path = stage_directory.join("hof-weights.encoded");
     let raw_path = stage_directory.join("hof-weights.raw");
-    let mut scratch = ScratchFiles::new();
-    scratch.track(encoded_path.clone());
+    let mut weight_scratch = ScratchFiles::new();
+    weight_scratch.track(encoded_path.clone());
     let mut encoded = OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -1169,7 +1342,7 @@ fn extract_and_validate_import_roles(
     io::copy(&mut weights_entry, &mut encoded)?;
     encoded.sync_all()?;
     drop(encoded);
-    scratch.track(raw_path.clone());
+    weight_scratch.track(raw_path.clone());
     let mut raw = OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -1187,23 +1360,83 @@ fn extract_and_validate_import_roles(
     drop(raw);
     let mut weights = BufReader::new(File::open(&raw_path)?);
     let mut bytes = [0u8; 4];
-    for (expected_sha256, count) in weight_references {
+    let parsed_operation_id = CheckpointOperationId::parse(operation_id.to_owned())?;
+    for (record, expected_sha256, count) in weight_references {
         let mut hasher = Sha256::new();
+        let mut decoded = if publication_directory.is_some() {
+            let count = usize::try_from(count).map_err(|_| {
+                CheckpointError::format(
+                    "IMPORT_HOF_WEIGHTS",
+                    "Hall-of-Fame genome is too large for this target",
+                )
+            })?;
+            let mut values = Vec::new();
+            values.try_reserve_exact(count).map_err(|_| {
+                CheckpointError::format(
+                    "ALLOCATION",
+                    "unable to reserve one imported Hall-of-Fame genome",
+                )
+            })?;
+            Some(values)
+        } else {
+            None
+        };
         for _ in 0..count {
             weights.read_exact(&mut bytes)?;
-            if !f32::from_bits(u32::from_le_bytes(bytes)).is_finite() {
+            let value = f32::from_bits(u32::from_le_bytes(bytes));
+            if !value.is_finite() {
                 return Err(CheckpointError::format(
                     "IMPORT_HOF_WEIGHTS",
                     "Hall-of-Fame weights contain a non-finite value",
                 ));
             }
             hasher.update(bytes);
+            if let Some(values) = &mut decoded {
+                values.push(value);
+            }
         }
         if <[u8; 32]>::from(hasher.finalize()) != expected_sha256 {
             return Err(CheckpointError::format(
                 "IMPORT_HOF_WEIGHTS",
                 "Hall-of-Fame weight segment failed its logical SHA-256",
             ));
+        }
+        if let (Some(directory), Some(values)) = (&publication_directory, decoded) {
+            let descriptor = publish_hall_of_fame_weights(
+                directory,
+                &parsed_operation_id,
+                &values,
+                checkpoint_limits,
+            )?;
+            let expected_encoding = match record[88] {
+                0 => NumericEncoding::RawF32LeV1,
+                1 => NumericEncoding::F32LeShuffle4ZstdV1,
+                _ => unreachable!("validated Hall-of-Fame encoding byte"),
+            };
+            if descriptor.logical_sha256 != hex_digest(expected_sha256)
+                || descriptor.encoding != expected_encoding
+                || parse_hex_u64(
+                    &descriptor.stored_byte_count_hex,
+                    "imported Hall-of-Fame stored bytes",
+                )? != read_u64(&record, 96)
+                || parse_hex_u64(
+                    &descriptor.decoded_byte_count_hex,
+                    "imported Hall-of-Fame decoded bytes",
+                )? != read_u64(&record, 104)
+                || parse_hex_u64(
+                    &descriptor.weight_count_hex,
+                    "imported Hall-of-Fame weight count",
+                )? != read_u64(&record, 112)
+            {
+                return Err(CheckpointError::format(
+                    "IMPORT_HOF_OBJECT",
+                    "rebuilt Hall-of-Fame object differs from its exact archive descriptor",
+                ));
+            }
+            inventory_writer
+                .as_mut()
+                .expect("publication creates an inventory writer")
+                .write_all(&record)?;
         }
     }
     if weights.read(&mut bytes[..1])? != 0 {
@@ -1215,8 +1448,47 @@ fn extract_and_validate_import_roles(
     drop(weights);
     fs::remove_file(&raw_path)?;
     fs::remove_file(&encoded_path)?;
-    scratch.paths.clear();
-    Ok(())
+    weight_scratch.paths.clear();
+
+    let inventory =
+        if let (Some(directory), Some(mut writer)) = (publication_directory, inventory_writer) {
+            writer.flush()?;
+            let file = writer.into_inner().map_err(|error| error.into_error())?;
+            file.sync_all()?;
+            let expected_bytes = INVENTORY_HEADER_BYTES
+                .checked_add(history_count.saturating_mul(HISTORY_RECORD_BYTES))
+                .and_then(|bytes| {
+                    bytes.checked_add(hall_of_fame_count.saturating_mul(HOF_RECORD_BYTES))
+                })
+                .ok_or_else(|| {
+                    CheckpointError::format("COUNT_OVERFLOW", "import inventory length overflowed")
+                })?;
+            if file.metadata()?.len() != expected_bytes {
+                return Err(CheckpointError::format(
+                    "IMPORT_INVENTORY",
+                    "trusted import inventory has an unexpected length",
+                ));
+            }
+            drop(file);
+            let relative_filename = format!(".{operation_id}.import-inventory-v1");
+            let final_path = directory.join(&relative_filename);
+            rename_noreplace(&inventory_partial_path, &final_path)?;
+            inventory_cleanup.track(final_path.clone());
+            sync_parent_directory(&directory)?;
+            let sha256 = hex_digest(hash_file_range(&final_path, 0, expected_bytes)?);
+            inventory_cleanup.paths.clear();
+            Some(ImportInventoryDescriptor {
+                version: 1,
+                relative_filename,
+                sha256,
+                stored_byte_count_hex: hex_u64(expected_bytes),
+                history_count_hex: hex_u64(history_count),
+                hall_of_fame_count_hex: hex_u64(hall_of_fame_count),
+            })
+        } else {
+            None
+        };
+    Ok(inventory)
 }
 
 fn direct_file(

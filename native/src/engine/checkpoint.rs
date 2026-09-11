@@ -459,6 +459,16 @@ impl CheckpointDescriptor {
         }
         None
     }
+
+    /// Compare only immutable content, permitting an idempotent import to reuse
+    /// the destination database's original publication token and epoch.
+    #[must_use]
+    pub fn first_content_mismatch(&self, actual: &Self) -> Option<&'static str> {
+        let mut normalized = actual.clone();
+        normalized.operation_id = self.operation_id.clone();
+        normalized.transition_epoch_hex = self.transition_epoch_hex.clone();
+        self.first_mismatch(&normalized)
+    }
 }
 
 /// Immutable content facts recovered from a checkpoint without publication correlation metadata.
@@ -4829,6 +4839,21 @@ fn publication_descriptor(
         write_validation_policy: content.write_validation_policy,
     }
     .compact_storage()
+}
+
+/// Bind one fully restored checkpoint's immutable content to a new local
+/// publication operation. Import uses this after the flattened save has been
+/// reconstructed and admitted, so it does not need to decode the population a
+/// second time merely to build the small SQLite descriptor.
+pub(crate) fn publication_descriptor_for_restored(
+    restored: &RestoredCheckpoint,
+    operation_id: CheckpointOperationId,
+) -> CheckpointDescriptor {
+    publication_descriptor(
+        restored.content.clone(),
+        operation_id,
+        restored.state.world_epoch(),
+    )
 }
 
 /// Accept an existing digest-derived file only after a complete strict restore and state comparison.

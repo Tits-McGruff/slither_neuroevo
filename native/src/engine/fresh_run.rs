@@ -100,6 +100,27 @@ pub fn prepare_stage6a_p0_checkpoint_restore(
     .map_err(FreshRunError::from)
 }
 
+/// Wrap one fully validated import candidate in the normal durability-gated
+/// run-start owner without reading its checkpoint file again.
+pub(crate) fn prepare_stage6a_p0_validated_import(
+    restored: super::checkpoint::RestoredCheckpoint,
+    descriptor: super::checkpoint::CheckpointDescriptor,
+    memory_ceiling_bytes: usize,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let settings =
+        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
+    let schema = normalized_settings_schema_hash(&settings)?;
+    PendingRunStartTransition::restore_validated_import(
+        restored,
+        descriptor,
+        current_build_policy(memory_ceiling_bytes, schema),
+        stage6a_p0_checkpoint_limits(),
+        stage6a_p0_graph_limits(),
+        RunningStepWorkLimits::provisional_defaults(),
+    )
+    .map_err(FreshRunError::from)
+}
+
 /// Complete owned inputs immediately before the run-start durability wrapper.
 struct PreparedStage6aP0Boundary {
     candidate: StateCandidate,

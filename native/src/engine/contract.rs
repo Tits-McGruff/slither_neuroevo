@@ -7,11 +7,13 @@ use super::error::{EngineError, EngineErrorCode};
 use super::external_replacement::UnavailableControllerReservation;
 use super::generation::GenerationCommitRecord;
 use super::physics::PhysicsStepKey;
+use super::run_start::PendingRunStartTransition;
 use super::running_loop::RunningGenerationStartResolution;
 use super::running_step::ExternalObservationEvent;
 use super::running_step::GenerationTransitionReason;
 use super::state::ControllerKind;
 use std::mem::size_of;
+use std::sync::{Arc, Mutex};
 
 /// First supported engine-spine contract version.
 pub const ENGINE_CONTRACT_VERSION: u32 = 1;
@@ -201,6 +203,7 @@ impl EngineCommand {
                     | RunningAuthorityCommand::DisconnectController(_)
                     | RunningAuthorityCommand::ReclaimController(_)
                     | RunningAuthorityCommand::JoinController(_)
+                    | RunningAuthorityCommand::StagePreparedImport { .. }
             )
         )
     }
@@ -281,6 +284,66 @@ pub struct ControllerReclaimReceipt {
     pub accepted: bool,
 }
 
+/// Process-local private import storage shared only by the native preparation
+/// task and the running authority command that consumes it.
+#[derive(Clone, Debug)]
+pub struct PreparedImportSlot(Arc<Mutex<Option<PendingRunStartTransition>>>);
+
+impl PreparedImportSlot {
+    /// Create one empty single-candidate slot.
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(None)))
+    }
+
+    /// Whether a complete private candidate is awaiting its durable decision.
+    #[must_use]
+    pub fn is_some(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_some()
+    }
+
+    /// Store one candidate only after validation and managed publication finish.
+    pub fn put(
+        &self,
+        candidate: PendingRunStartTransition,
+    ) -> Result<(), Box<PendingRunStartTransition>> {
+        let mut retained = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if retained.is_some() {
+            return Err(Box::new(candidate));
+        }
+        *retained = Some(candidate);
+        Ok(())
+    }
+
+    /// Remove and return the retained candidate.
+    pub fn take(&self) -> Option<PendingRunStartTransition> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+    }
+}
+
+impl Default for PreparedImportSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PartialEq for PreparedImportSlot {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for PreparedImportSlot {}
+
 /// Typed controls and retained generation-transition commands.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunningAuthorityCommand {
@@ -317,6 +380,19 @@ pub enum RunningAuthorityCommand {
     },
     /// Perform the final swap only after persistence and delivery barriers pass.
     PublishAcknowledgedGenerationStart,
+    /// Pause stepping before the imported metadata/current-pointer transaction.
+    StagePreparedImport {
+        slot: PreparedImportSlot,
+    },
+    /// Swap one already validated candidate only after its exact SQLite commit.
+    PublishPreparedImport {
+        slot: PreparedImportSlot,
+        descriptor: Box<CheckpointDescriptor>,
+    },
+    /// Drop a private candidate and resume unchanged authority before commit.
+    CancelPreparedImport {
+        slot: PreparedImportSlot,
+    },
 }
 
 impl RunningAuthorityCommand {
@@ -360,6 +436,16 @@ impl RunningAuthorityCommand {
                 Err(EngineError::new(
                     EngineErrorCode::InvalidCommand,
                     "controller delivery receipt batch must not be empty",
+                ))
+            }
+            Self::StagePreparedImport { slot }
+            | Self::PublishPreparedImport { slot, .. }
+            | Self::CancelPreparedImport { slot }
+                if !slot.is_some() =>
+            {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "prepared import slot is empty",
                 ))
             }
             _ => Ok(()),
@@ -407,6 +493,10 @@ impl RunningAuthorityCommand {
             }
             Self::PrepareGenerationReassignments | Self::PublishAcknowledgedGenerationStart => {
                 Ok(0)
+            }
+            Self::StagePreparedImport { .. } | Self::CancelPreparedImport { .. } => Ok(0),
+            Self::PublishPreparedImport { descriptor, .. } => {
+                Ok(size_of::<CheckpointDescriptor>().saturating_add(descriptor.owned_bytes()))
             }
             Self::SubmitGenerationAssignmentReceipts { receipts }
             | Self::SubmitControllerDeliveryReceipts { receipts } => receipts
@@ -607,6 +697,18 @@ pub enum RunningAuthorityEvent {
         /// Complete Rust publication and retired scheduler ticket.
         resolution: RunningGenerationStartResolution,
     },
+    /// The durably selected imported candidate became the sole authority.
+    ImportPublished {
+        command_sequence: u64,
+        world_epoch: u64,
+        generation: u64,
+        completed_step: u64,
+        population_epoch: u64,
+    },
+    /// Stepping is paused while the metadata transaction runs.
+    ImportStaged { command_sequence: u64 },
+    /// A pre-commit failure discarded the candidate and resumed the old game.
+    ImportCancelled { command_sequence: u64 },
     /// A recoverable premature, stale, or mismatched control changed no authority.
     CommandRejected {
         /// Inbound command sequence.
@@ -658,6 +760,9 @@ impl RunningAuthorityEvent {
                 let reservations = &resolution.publication.unavailable_controller_reservations;
                 generation_start_owned_bytes(reservations, reservations.capacity())
             }
+            Self::ImportPublished { .. }
+            | Self::ImportStaged { .. }
+            | Self::ImportCancelled { .. } => 0,
             Self::CommandRejected { detail, .. } => detail.capacity(),
         }
     }

@@ -1,5 +1,5 @@
 import { parseRecoveryScanCursor, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
-import { closeSync, fsyncSync, lstatSync, openSync, realpathSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, lstatSync, openSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, resolve, sep } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
@@ -13,10 +13,12 @@ import {
   type CheckpointRetentionInventory
 } from './checkpointRetention.ts';
 import {
+  managedCheckpointContentsEqual,
   parseManagedCheckpointDescriptor,
   parseManagedCheckpointDescriptorLimits,
   parseManagedHallOfFameWeightsDescriptor,
   parseManagedGenerationCommit,
+  parseManagedImportInventoryDescriptor,
   type CheckpointOperationId,
   type CheckpointPersistenceWorkerResponse,
   type ManagedCheckpointDescriptor,
@@ -27,6 +29,7 @@ import {
   type ManagedExportInventoryDescriptor,
   type ManagedHallOfFameWeightsDescriptor,
   type ManagedHallOfFameReference,
+  type ManagedImportInventoryDescriptor,
   type U64Hex
 } from './checkpointPersistenceProtocol.ts';
 
@@ -162,6 +165,7 @@ if (String(journalMode).toLowerCase() !== 'wal' || Number(synchronous) !== 2) {
 db.pragma('foreign_keys = ON');
 if (!bootstrap.existingOnly) initializeSchema(db);
 initializeHallOfFameWeightsSchema(db);
+initializeImportableHistorySchema(db);
 initializeRecoverySchema(db);
 initializeRetentionSchema(db);
 /** One exact in-process export reference; worker shutdown cancels it implicitly. */
@@ -461,7 +465,7 @@ function initializeSchema(database: ReturnType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS rust_generation_history_v1 (
       run_id TEXT NOT NULL,
       generation_hex TEXT NOT NULL,
-      checkpoint_id TEXT NOT NULL UNIQUE REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
+      checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
       record_version INTEGER NOT NULL,
       record_blob BLOB NOT NULL CHECK(length(record_blob) = 56),
       created_at_ms INTEGER NOT NULL,
@@ -479,7 +483,7 @@ function initializeSchema(database: ReturnType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS rust_hall_of_fame_v1 (
       run_id TEXT NOT NULL,
       generation_hex TEXT NOT NULL,
-      checkpoint_id TEXT NOT NULL UNIQUE REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
+      checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
       record_version INTEGER NOT NULL,
       record_blob BLOB NOT NULL CHECK(length(record_blob) = 56),
       weights_sha256 TEXT REFERENCES rust_hall_of_fame_weights_v1(logical_sha256),
@@ -561,6 +565,62 @@ function initializeHallOfFameWeightsSchema(database: ReturnType<typeof Database>
     const runs = database.prepare('SELECT DISTINCT run_id FROM rust_hall_of_fame_v1')
       .all() as Array<{ run_id: string }>;
     for (const run of runs) applyHallOfFameRetention(run.run_id);
+  }).immediate();
+}
+
+/** Permit imported history to retain its exact keys without inventing one
+ * managed checkpoint reference per historical generation. */
+function initializeImportableHistorySchema(database: ReturnType<typeof Database>): void {
+  database.transaction(() => {
+    const history = database.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'table' AND name = 'rust_generation_history_v1'`).get() as { sql: string };
+    if (/checkpoint_id\s+TEXT\s+NOT NULL\s+UNIQUE/iu.test(history.sql)) {
+      database.exec(`
+        ALTER TABLE rust_generation_history_v1 RENAME TO rust_generation_history_v1_old;
+        CREATE TABLE rust_generation_history_v1 (
+          run_id TEXT NOT NULL,
+          generation_hex TEXT NOT NULL,
+          checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
+          record_version INTEGER NOT NULL,
+          record_blob BLOB NOT NULL CHECK(length(record_blob) = 56),
+          created_at_ms INTEGER NOT NULL,
+          PRIMARY KEY (run_id, generation_hex)
+        );
+        INSERT INTO rust_generation_history_v1
+          (run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms)
+        SELECT run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms
+          FROM rust_generation_history_v1_old;
+        DROP TABLE rust_generation_history_v1_old;
+      `);
+    }
+    const hall = database.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'table' AND name = 'rust_hall_of_fame_v1'`).get() as { sql: string };
+    if (/checkpoint_id\s+TEXT\s+NOT NULL\s+UNIQUE/iu.test(hall.sql)) {
+      database.exec(`
+        ALTER TABLE rust_hall_of_fame_v1 RENAME TO rust_hall_of_fame_v1_old;
+        CREATE TABLE rust_hall_of_fame_v1 (
+          run_id TEXT NOT NULL,
+          generation_hex TEXT NOT NULL,
+          checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
+          record_version INTEGER NOT NULL,
+          record_blob BLOB NOT NULL CHECK(length(record_blob) = 56),
+          weights_sha256 TEXT REFERENCES rust_hall_of_fame_weights_v1(logical_sha256),
+          genome_sha256 TEXT,
+          fitness_value REAL NOT NULL,
+          pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0, 1)),
+          weight_state TEXT NOT NULL CHECK(weight_state IN ('selected', 'unselected', 'legacy')),
+          created_at_ms INTEGER NOT NULL,
+          PRIMARY KEY (run_id, generation_hex)
+        );
+        INSERT INTO rust_hall_of_fame_v1
+          (run_id, generation_hex, checkpoint_id, record_version, record_blob,
+           weights_sha256, genome_sha256, fitness_value, pinned, weight_state, created_at_ms)
+        SELECT run_id, generation_hex, checkpoint_id, record_version, record_blob,
+          weights_sha256, genome_sha256, fitness_value, pinned, weight_state, created_at_ms
+          FROM rust_hall_of_fame_v1_old;
+        DROP TABLE rust_hall_of_fame_v1_old;
+      `);
+    }
   }).immediate();
 }
 
@@ -817,7 +877,7 @@ function betterHallOfFameRow(left: HallOfFameRetentionRow, right: HallOfFameRete
   return left.generation_hex < right.generation_hex;
 }
 
-/** Keep packed weights only for the best 50 unique genomes plus pinned unique entries. */
+/** Keep packed weights for the best 50 unique genomes plus every pinned entry. */
 function applyHallOfFameRetention(runId: string): void {
   const rows = db.prepare(`SELECT generation_hex, fitness_value, genome_sha256, pinned, weight_state
     FROM rust_hall_of_fame_v1 WHERE run_id = ? ORDER BY generation_hex`).all(runId) as HallOfFameRetentionRow[];
@@ -839,7 +899,10 @@ function applyHallOfFameRetention(runId: string): void {
     if (left.fitness_value !== right.fitness_value) return right.fitness_value - left.fitness_value;
     return left.generation_hex.localeCompare(right.generation_hex);
   });
-  const selected = new Set(ranked.filter(row => row.pinned === 1).map(row => row.generation_hex));
+  // Pins apply to historical entries, not merely content identities. Duplicate
+  // pinned entries may safely share the same content-addressed weight object.
+  const selected = new Set(rows.filter(row => row.weight_state !== 'legacy' && row.pinned === 1)
+    .map(row => row.generation_hex));
   let unpinnedSelected = 0;
   for (const row of ranked) {
     if (row.pinned === 1 || unpinnedSelected >= MAX_UNPINNED_HALL_OF_FAME_GENOMES) continue;
@@ -850,7 +913,7 @@ function applyHallOfFameRetention(runId: string): void {
     WHERE run_id = ? AND weight_state != 'legacy'`).run(runId);
   const select = db.prepare(`UPDATE rust_hall_of_fame_v1 SET weights_sha256 = ?, weight_state = 'selected'
     WHERE run_id = ? AND generation_hex = ? AND weight_state = 'unselected'`);
-  for (const row of ranked) {
+  for (const row of rows) {
     if (!selected.has(row.generation_hex) || row.genome_sha256 === null) continue;
     if (select.run(row.genome_sha256, runId, row.generation_hex).changes !== 1) {
       throw new Error('Hall-of-Fame retention selection changed during its transaction');
@@ -1429,6 +1492,232 @@ function assertChronologicalSuccessor(
   }
 }
 
+/** Insert one new immutable checkpoint row and its automatic retention class. */
+function insertCheckpointMetadata(candidate: ManagedCheckpointDescriptor): void {
+  const descriptorJson = serializeDescriptor(candidate);
+  db.prepare(`
+    INSERT INTO rust_checkpoint_v3_metadata (
+      checkpoint_id, operation_id, run_id, transition_epoch, generation_hex, completed_step_hex,
+      boundary_kind, checkpoint_format_version_hex, state_version_hex, graph_layout_version_hex,
+      managed_root, relative_filename, logical_root_sha256, stored_byte_count_hex,
+      decoded_byte_count_hex, role_count_hex, population_count_hex, weight_count_hex, recurrent_state_count_hex,
+      weights_encoding, recurrent_state_encoding, graph_layout_sha256,
+      write_validation_policy, descriptor_json, created_at_ms
+    ) VALUES (
+      @checkpointId, @operationId, @runId, @transitionEpoch, @generation, @completedStep,
+      @boundaryKind, @checkpointFormatVersion, @stateVersion, @graphLayoutVersion,
+      @managedRoot, @relativeFilename, @logicalRootSha256, @storedByteCount,
+      @decodedByteCount, @roleCount, @populationCount, @weightCount, @recurrentStateCount,
+      @weightsEncoding, @recurrentStateEncoding, @graphLayoutSha256,
+      @writeValidationPolicy, @descriptorJson, @createdAtMs
+    )
+  `).run({ ...candidate, checkpointId: candidate.logicalRootSha256, descriptorJson, createdAtMs: Date.now() });
+  db.prepare(`INSERT INTO rust_checkpoint_retention_v1 (
+    checkpoint_id, retention_kind, classified_at_ms
+  ) VALUES (?, 'automatic', ?)`).run(candidate.logicalRootSha256, Date.now());
+}
+
+/** Read exactly one trusted fixed record at an explicit file position. */
+function readExactAt(file: number, target: Buffer, position: number): void {
+  let offset = 0;
+  while (offset < target.length) {
+    const count = readSync(file, target, offset, target.length - offset, position + offset);
+    if (count === 0) throw new Error('trusted import inventory ended early');
+    offset += count;
+  }
+}
+
+/** Verify the Rust-written import inventory before opening the SQLite transaction. */
+function verifyImportInventory(inventory: ManagedImportInventoryDescriptor): VerifiedManagedFile {
+  const expectedBytes = u64HexToBigInt(inventory.storedByteCount);
+  const verified = verifyManagedDirectFile(inventory.relativeFilename, expectedBytes);
+  const file = openSync(verified.path, 'r');
+  try {
+    const hasher = createHash('sha256');
+    const chunk = Buffer.allocUnsafe(1024 * 1024);
+    let position = 0;
+    const total = Number(expectedBytes);
+    while (position < total) {
+      const count = readSync(file, chunk, 0, Math.min(chunk.length, total - position), position);
+      if (count === 0) throw new Error('trusted import inventory ended early');
+      hasher.update(chunk.subarray(0, count));
+      position += count;
+    }
+    if (hasher.digest('hex') !== inventory.sha256) {
+      throw new Error('trusted import inventory failed its SHA-256 check');
+    }
+    const header = Buffer.alloc(32);
+    readExactAt(file, header, 0);
+    if (header.subarray(0, 13).toString('ascii') !== 'SLITHER-EXPV1' ||
+        header.subarray(13, 16).some(byte => byte !== 0) ||
+        header.readBigUInt64LE(16) !== u64HexToBigInt(inventory.historyCount) ||
+        header.readBigUInt64LE(24) !== u64HexToBigInt(inventory.hallOfFameCount)) {
+      throw new Error('trusted import inventory header is invalid');
+    }
+    return verified;
+  } finally {
+    closeSync(file);
+  }
+}
+
+/** Commit a complete exact archive identity without exposing its records to Node. */
+function commitManagedImport(
+  descriptor: ManagedCheckpointDescriptor,
+  inventory: ManagedImportInventoryDescriptor
+): {
+  operationId: CheckpointOperationId;
+  transitionEpoch: U64Hex;
+  runId: string;
+  checkpointId: string;
+  descriptor: ManagedCheckpointDescriptor;
+} {
+  assertDescriptorBounds(descriptor);
+  const managedFile = verifyManagedFile(descriptor);
+  const inventoryFile = verifyImportInventory(inventory);
+  const historyCount = u64HexToBigInt(inventory.historyCount);
+  const hallOfFameCount = u64HexToBigInt(inventory.hallOfFameCount);
+  if (historyCount !== u64HexToBigInt(descriptor.generation) - 1n ||
+      historyCount > MAX_EXPORT_GENERATIONS || hallOfFameCount > historyCount) {
+    throw new Error('import inventory coverage differs from its checkpoint boundary');
+  }
+  const file = openSync(inventoryFile.path, 'r');
+  try {
+    return db.transaction(() => {
+      recheckManagedFile(managedFile);
+      recheckManagedFile(inventoryFile);
+      const futureCheckpoint = db.prepare(`SELECT 1 FROM rust_checkpoint_v3_metadata
+        WHERE run_id = ? AND generation_hex > ? LIMIT 1`).get(descriptor.runId, descriptor.generation);
+      const targetHistoryGeneration = historyCount.toString(16).padStart(16, '0');
+      const futureHistory = db.prepare(`SELECT 1 FROM rust_generation_history_v1
+        WHERE run_id = ? AND generation_hex > ? LIMIT 1`).get(descriptor.runId, targetHistoryGeneration);
+      if (futureCheckpoint || futureHistory) {
+        throw new Error('exact import cannot move a run behind its retained future history; resume it as a branch');
+      }
+
+      const existingOperation = db.prepare(`SELECT descriptor_json FROM rust_checkpoint_v3_metadata
+        WHERE operation_id = ?`).get(descriptor.operationId) as ExistingDescriptorRow | undefined;
+      if (existingOperation && existingOperation.descriptor_json !== serializeDescriptor(descriptor)) {
+        throw new Error('import operation conflicts with a different checkpoint');
+      }
+      const existingCheckpoint = db.prepare(`SELECT descriptor_json FROM rust_checkpoint_v3_metadata
+        WHERE checkpoint_id = ?`).get(descriptor.logicalRootSha256) as ExistingDescriptorRow | undefined;
+      let committedDescriptor = descriptor;
+      if (existingCheckpoint) {
+        committedDescriptor = parseManagedCheckpointDescriptor(JSON.parse(existingCheckpoint.descriptor_json));
+        if (!managedCheckpointContentsEqual(committedDescriptor, descriptor)) {
+          throw new Error('import checkpoint identity conflicts with different immutable content');
+        }
+      } else {
+        if (existingOperation) throw new Error('import operation already belongs to another checkpoint');
+        insertCheckpointMetadata(descriptor);
+      }
+
+      const historyRecord = Buffer.alloc(56);
+      for (let generation = 1n; generation <= historyCount; generation++) {
+        const position = 32 + Number((generation - 1n) * 56n);
+        readExactAt(file, historyRecord, position);
+        const generationHex = generation.toString(16).padStart(16, '0');
+        if (historyRecord.readBigUInt64LE(0) !== generation ||
+            [8, 16, 24, 40, 48].some(offset => !Number.isFinite(historyRecord.readDoubleLE(offset)))) {
+          throw new Error('import history record is malformed');
+        }
+        const existing = db.prepare(`SELECT record_version, record_blob FROM rust_generation_history_v1
+          WHERE run_id = ? AND generation_hex = ?`).get(descriptor.runId, generationHex) as {
+            record_version: number; record_blob: Buffer;
+          } | undefined;
+        if (existing) {
+          if (existing.record_version !== 1 || !Buffer.isBuffer(existing.record_blob) ||
+              !existing.record_blob.equals(historyRecord)) {
+            throw new Error(`import history identity conflicts at generation ${generation}`);
+          }
+        } else {
+          db.prepare(`INSERT INTO rust_generation_history_v1
+            (run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms)
+            VALUES (?, ?, NULL, 1, ?, ?)`).run(
+            descriptor.runId, generationHex, historyRecord, Date.now()
+          );
+        }
+      }
+
+      const hallRecord = Buffer.alloc(120);
+      let previousHallGeneration = 0n;
+      for (let ordinal = 0n; ordinal < hallOfFameCount; ordinal++) {
+        const position = 32 + Number(historyCount * 56n + ordinal * 120n);
+        readExactAt(file, hallRecord, position);
+        const generation = hallRecord.readBigUInt64LE(0);
+        const generationHex = generation.toString(16).padStart(16, '0');
+        const logicalSha256 = hallRecord.subarray(56, 88).toString('hex');
+        const encoding = hallRecord[88] === 0 ? 'raw-f32le-v1' :
+          hallRecord[88] === 1 ? 'f32le-shuffle4-zstd-v1' : null;
+        const weights = parseManagedHallOfFameWeightsDescriptor({
+          version: 1,
+          logicalSha256,
+          relativeFilename: `${logicalSha256}.hof-weights-v1`,
+          encoding,
+          storedByteCount: hallRecord.readBigUInt64LE(96).toString(16).padStart(16, '0'),
+          decodedByteCount: hallRecord.readBigUInt64LE(104).toString(16).padStart(16, '0'),
+          weightCount: hallRecord.readBigUInt64LE(112).toString(16).padStart(16, '0')
+        }, descriptor);
+        if (generation <= previousHallGeneration || generation > historyCount ||
+            !Number.isFinite(hallRecord.readDoubleLE(32)) ||
+            !Number.isFinite(hallRecord.readDoubleLE(40))) {
+          throw new Error('import Hall-of-Fame record is malformed');
+        }
+        const weightsFile = verifyHallOfFameWeightsFile(weights);
+        recheckManagedFile(weightsFile);
+        db.prepare(`INSERT OR IGNORE INTO rust_hall_of_fame_weights_v1 (
+          logical_sha256, relative_filename, encoding, stored_byte_count_hex,
+          decoded_byte_count_hex, weight_count_hex, created_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+          weights.logicalSha256, weights.relativeFilename, weights.encoding,
+          weights.storedByteCount, weights.decodedByteCount, weights.weightCount, Date.now()
+        );
+        assertStoredHallOfFameWeights(weights);
+        const compactRecord = Buffer.from(hallRecord.subarray(0, 56));
+        const existing = db.prepare(`SELECT record_version, record_blob, genome_sha256
+          FROM rust_hall_of_fame_v1 WHERE run_id = ? AND generation_hex = ?`)
+          .get(descriptor.runId, generationHex) as {
+            record_version: number; record_blob: Buffer; genome_sha256: string | null;
+          } | undefined;
+        if (existing) {
+          if (existing.record_version !== 1 || !Buffer.isBuffer(existing.record_blob) ||
+              !existing.record_blob.equals(compactRecord) || existing.genome_sha256 !== logicalSha256) {
+            throw new Error(`import Hall-of-Fame identity conflicts at generation ${generation}`);
+          }
+        } else {
+          db.prepare(`INSERT INTO rust_hall_of_fame_v1 (
+            run_id, generation_hex, checkpoint_id, record_version, record_blob,
+            weights_sha256, genome_sha256, fitness_value, pinned, weight_state, created_at_ms
+          ) VALUES (?, ?, NULL, 1, ?, ?, ?, ?, 0, 'selected', ?)`).run(
+            descriptor.runId, generationHex, compactRecord, logicalSha256, logicalSha256,
+            hallRecord.readDoubleLE(32), Date.now()
+          );
+        }
+        previousHallGeneration = generation;
+      }
+      applyHallOfFameRetention(descriptor.runId);
+      db.prepare(`INSERT INTO rust_checkpoint_v3_current
+        (run_id, checkpoint_id, transition_epoch, operation_id) VALUES (?, ?, ?, ?)
+        ON CONFLICT(run_id) DO UPDATE SET checkpoint_id = excluded.checkpoint_id,
+          transition_epoch = excluded.transition_epoch, operation_id = excluded.operation_id`)
+        .run(descriptor.runId, committedDescriptor.logicalRootSha256,
+          committedDescriptor.transitionEpoch, committedDescriptor.operationId);
+      db.prepare(`INSERT INTO rust_active_run_v1 (singleton, run_id) VALUES (1, ?)
+        ON CONFLICT(singleton) DO UPDATE SET run_id = excluded.run_id`).run(descriptor.runId);
+      return {
+        operationId: descriptor.operationId,
+        transitionEpoch: committedDescriptor.transitionEpoch,
+        runId: committedDescriptor.runId,
+        checkpointId: committedDescriptor.logicalRootSha256,
+        descriptor: committedDescriptor
+      };
+    }).immediate();
+  } finally {
+    closeSync(file);
+    try { unlinkSync(inventoryFile.path); } catch { /* Rust inventory is operation-local. */ }
+  }
+}
+
 /**
  * Commit a verified descriptor and monotonic per-run current pointer atomically.
  * @param descriptor - Strict descriptor whose final managed file already exists.
@@ -1519,26 +1808,7 @@ function commitManagedCheckpoint(
     assertChronologicalSuccessor(candidate, readCurrentPointer(candidate.runId));
     recheckManagedFile(managedFile);
     if (hallOfFameWeightsFile) recheckManagedFile(hallOfFameWeightsFile);
-    db.prepare(`
-      INSERT INTO rust_checkpoint_v3_metadata (
-        checkpoint_id, operation_id, run_id, transition_epoch, generation_hex, completed_step_hex,
-        boundary_kind, checkpoint_format_version_hex, state_version_hex, graph_layout_version_hex,
-        managed_root, relative_filename, logical_root_sha256, stored_byte_count_hex,
-        decoded_byte_count_hex, role_count_hex, population_count_hex, weight_count_hex, recurrent_state_count_hex,
-        weights_encoding, recurrent_state_encoding, graph_layout_sha256,
-        write_validation_policy, descriptor_json, created_at_ms
-      ) VALUES (
-        @checkpointId, @operationId, @runId, @transitionEpoch, @generation, @completedStep,
-        @boundaryKind, @checkpointFormatVersion, @stateVersion, @graphLayoutVersion,
-        @managedRoot, @relativeFilename, @logicalRootSha256, @storedByteCount,
-        @decodedByteCount, @roleCount, @populationCount, @weightCount, @recurrentStateCount,
-        @weightsEncoding, @recurrentStateEncoding, @graphLayoutSha256,
-        @writeValidationPolicy, @descriptorJson, @createdAtMs
-      )
-    `).run({ ...candidate, checkpointId: candidate.logicalRootSha256, descriptorJson, createdAtMs: Date.now() });
-    db.prepare(`INSERT INTO rust_checkpoint_retention_v1 (
-      checkpoint_id, retention_kind, classified_at_ms
-    ) VALUES (?, 'automatic', ?)`).run(candidate.logicalRootSha256, Date.now());
+    insertCheckpointMetadata(candidate);
     if (generationCommit !== null && summaryRecord !== null && hallOfFameRecord !== null) {
       const weights = generationCommit.hallOfFameWeights;
       db.prepare(`INSERT OR IGNORE INTO rust_hall_of_fame_weights_v1 (
@@ -1714,6 +1984,19 @@ port.on('message', (message: unknown) => {
         throw new TypeError('invalid checkpoint selection request');
       }
       post({ type: 'managedCheckpointSelected', operationId, ...selectManagedCheckpoint(runId as string | null) });
+      return;
+    }
+    if (request['type'] === 'commitManagedImport') {
+      if (Object.keys(request).length !== 3 || !Object.hasOwn(request, 'descriptor') ||
+          !Object.hasOwn(request, 'inventory')) {
+        throw new TypeError('invalid managed import request');
+      }
+      const descriptor = parseManagedCheckpointDescriptor(request['descriptor']);
+      const inventory = parseManagedImportInventoryDescriptor(
+        request['inventory'], descriptor.operationId
+      );
+      const committed = commitManagedImport(descriptor, inventory);
+      post({ type: 'managedImportCommitted', ...committed });
       return;
     }
     if (request['type'] !== 'commitManagedCheckpoint' || Object.keys(request).length !== 3 ||

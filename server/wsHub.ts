@@ -15,6 +15,7 @@ import type {
   VizMsg,
   SensorSpec,
   ServerMessage,
+  StateReplacedMsg,
   StatsMsg,
   WelcomeMsg
 } from './protocol.ts';
@@ -169,6 +170,29 @@ export class WsHub {
   updateWelcome(patch: Partial<WelcomeMsg>): void {
     this.welcome = { ...this.welcome, ...patch, type: 'welcome' };
     this.welcomeJson = JSON.stringify(this.welcome);
+  }
+
+  /** Replace all cached handshake state after an authoritative run swap. */
+  replaceWelcome(welcome: WelcomeMsg): void {
+    this.welcome = { ...welcome, type: 'welcome' };
+    this.welcomeJson = JSON.stringify(this.welcome);
+  }
+
+  /**
+   * Invalidate every old join while retaining each transport connection.
+   * @param message - Reliable replacement notice containing the new handshake.
+   */
+  enterAwaitingRejoin(message: StateReplacedMsg): void {
+    const payload = JSON.stringify(message);
+    for (const state of this.connections.values()) {
+      state.reliableQueue.length = 0;
+      state.reliableQueueBytes = 0;
+      state.pendingStats = null;
+      this.discardPendingFrame(state);
+      state.joined = false;
+      delete state.mode;
+      if (state.clientType !== 'unknown') this.enqueueReliable(state, payload);
+    }
   }
 
   /**

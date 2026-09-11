@@ -1194,6 +1194,8 @@ let currentVizData: VizData | null = null;
 let pendingExport = false;
 /** Whether the connected server supports an opaque browser-managed save download. */
 let serverArchiveExport = false;
+/** Whether the connected server accepts the selected save without browser parsing. */
+let serverArchiveImport = false;
 
 /** Proxy world exposed to UI helpers and HoF spawn. */
 const proxyWorld: ProxyWorld = {
@@ -3536,6 +3538,7 @@ wsClient = createWsClient({
     serverWorldSeed = info.worldSeed;
     serverInferenceMode = info.inferenceMode;
     serverArchiveExport = info.capabilities?.archiveExport === true;
+    serverArchiveImport = info.capabilities?.archiveImport === true;
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
     lastServerTick = 0;
@@ -3576,6 +3579,7 @@ wsClient = createWsClient({
   onDisconnected: () => {
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = true;
     serverArchiveExport = false;
+    serverArchiveImport = false;
     resumePlayerAfterReconnect =
       playerSnakeId !== null || joinPending || playerResumeToken.length > 0;
     playerActionPump.stop();
@@ -3754,6 +3758,50 @@ wsClient = createWsClient({
     }
     selectedSnake = null;
     console.info(`[new-run] started seed ${msg.worldSeed ?? 'unknown'}`);
+  },
+  onStateReplaced: (msg) => {
+    const info = msg.welcome;
+    const rejoinPlayer = playerSnakeId !== null || joinPending;
+    playerActionPump.stop();
+    authoritativeControls.dispose();
+    playerSnakeId = null;
+    spectatorFollowSnakeId = null;
+    playerSensorTick = 0;
+    playerSensorMeta = null;
+    playerResumeToken = '';
+    resumePlayerAfterReconnect = false;
+    boostHeld = false;
+    selectedSnake = null;
+    currentVizData = null;
+    lastServerTick = 0;
+    try { localStorage.removeItem(PLAYER_RESUME_TOKEN_KEY); } catch { /* Storage is optional. */ }
+    serverCfgHash = info.configHash;
+    serverConfigRevision = info.configRevision;
+    serverWorldSeed = info.worldSeed;
+    serverRecovery = null;
+    serverInferenceMode = info.inferenceMode;
+    serverArchiveExport = info.capabilities?.archiveExport === true;
+    serverArchiveImport = info.capabilities?.archiveImport === true;
+    applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
+    if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
+    setConnectionStatus('server');
+    joinPending = rejoinPlayer;
+    setJoinOverlayVisible(true);
+    setJoinStatus(rejoinPlayer ? 'Joining imported run...' : 'Imported run ready');
+    updateJoinControls();
+    if (rejoinPlayer && lastPlayerName) {
+      proxyWorld.viewMode = 'follow';
+      wsClient?.sendJoin('player', lastPlayerName);
+      wsClient?.sendView({ mode: 'follow', viewW: cssW, viewH: cssH });
+    } else {
+      joinPending = false;
+      proxyWorld.viewMode = 'overview';
+      wsClient?.sendJoin('spectator');
+      wsClient?.sendView({ mode: 'overview', viewW: cssW, viewH: cssH });
+      setJoinOverlayVisible(false);
+    }
+    wsClient?.sendViz(activeTab === 'tab-viz');
+    console.info(`[import] activated ${msg.checkpointId.slice(0, 12)} from run ${info.runId}`);
   },
   onError: (msg) => {
     console.warn(`[ws] ${msg.message}`);
@@ -4252,6 +4300,58 @@ if (btnPinCheckpoint) {
     }).finally(() => { btnPinCheckpoint.disabled = false; });
   });
 }
+
+/** Small success response returned after an atomic Rust archive replacement. */
+interface ServerArchiveImportResult {
+  /** True only after SQLite and the running Rust authority both switched. */
+  ok: boolean;
+  /** Imported run identity. */
+  runId: string;
+  /** Exact fixed-width imported generation. */
+  generation: string;
+  /** Exact imported checkpoint identity. */
+  checkpointId: string;
+  /** Bounded rejection detail when the upload fails. */
+  message?: string;
+}
+
+/**
+ * Upload one selected save unchanged; JavaScript never reads its population bytes.
+ * @param file - Browser-owned file selected by the user.
+ * @param onProgress - Optional visible upload-byte progress callback.
+ * @returns Small committed replacement identity from the server.
+ */
+function uploadServerArchive(
+  file: File,
+  onProgress?: (sentBytes: number, totalBytes: number) => void
+): Promise<ServerArchiveImportResult> {
+  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+  if (!base) return Promise.reject(new Error('invalid server URL.'));
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', `${base}/api/import/archive`);
+    request.setRequestHeader('Content-Type', 'application/vnd.slither-neuroevo.save');
+    request.timeout = 0;
+    request.upload.onprogress = event => {
+      if (event.lengthComputable) onProgress?.(event.loaded, event.total);
+    };
+    request.onerror = () => reject(new Error('archive upload connection failed'));
+    request.onabort = () => reject(new Error('archive upload was cancelled'));
+    request.onload = () => {
+      let result: Partial<ServerArchiveImportResult> | undefined;
+      try { result = JSON.parse(request.responseText) as Partial<ServerArchiveImportResult>; }
+      catch { /* The status below supplies the bounded failure. */ }
+      if (request.status < 200 || request.status >= 300 || result?.ok !== true ||
+          typeof result.runId !== 'string' || !/^[0-9a-f]{16}$/u.test(result.generation ?? '') ||
+          !/^[0-9a-f]{64}$/u.test(result.checkpointId ?? '')) {
+        reject(new Error(result?.message ?? `server archive import failed (${request.status})`));
+        return;
+      }
+      resolve(result as ServerArchiveImportResult);
+    };
+    request.send(file);
+  });
+}
 /** Button that triggers exporting population and HoF data. */
 const btnExport = document.getElementById('btnExport') as HTMLButtonElement | null;
 if (btnExport) {
@@ -4280,7 +4380,18 @@ if (btnImport && fileInput) {
     if (!target?.files?.length) return;
     const file = target.files.item(0);
     if (!file) return;
+    const importLabel = btnImport.textContent;
+    btnImport.disabled = true;
     try {
+      if (serverArchiveImport) {
+        const result = await uploadServerArchive(file, (sentBytes, totalBytes) => {
+          btnImport.textContent = sentBytes >= totalBytes
+            ? 'Activating...'
+            : `Importing ${Math.min(99, Math.floor(sentBytes * 100 / totalBytes))}%`;
+        });
+        alert(`Imported generation ${BigInt(`0x${result.generation}`).toString()} from run ${result.runId}.`);
+        return;
+      }
       const data = await importFromFile(file);
       if (!data || !Array.isArray(data.genomes)) {
         throw new Error('Invalid import file: missing genomes array.');
@@ -4340,6 +4451,8 @@ if (btnImport && fileInput) {
       }
     } finally {
       if (target) target.value = '';
+      btnImport.disabled = false;
+      btnImport.textContent = importLabel;
     }
   });
 }

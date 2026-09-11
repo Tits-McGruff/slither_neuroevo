@@ -148,6 +148,39 @@ impl PendingRunStartTransition {
         })
     }
 
+    /// Retain an already decoded and admitted import candidate behind the same
+    /// durability barrier as an ordinary startup restore.
+    pub(crate) fn restore_validated_import(
+        restored: super::checkpoint::RestoredCheckpoint,
+        descriptor: CheckpointDescriptor,
+        admission_policy: StateAdmissionPolicy,
+        checkpoint_limits: CheckpointLimits,
+        graph_limits: GraphLimits,
+        work_limits: RunningStepWorkLimits,
+    ) -> Result<Self, RunStartTransitionError> {
+        if restored.content.run_id != descriptor.run_id
+            || restored.content.logical_root_sha256 != descriptor.logical_root_sha256
+            || restored.content.generation_hex != descriptor.generation_hex
+            || restored.content.completed_step_hex != descriptor.completed_step_hex
+        {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        Ok(Self {
+            authority: restored.state,
+            admission_policy,
+            checkpoint_limits,
+            graph_limits,
+            work_limits,
+            generation_start: GenerationStartWorkspace::new(),
+            checkpoint_descriptor: Some(descriptor),
+            persistence_acknowledged: false,
+            authority_published: false,
+            first_scheduled_step_attempted: false,
+            first_scheduled_frame_published: false,
+            restored_checkpoint: true,
+        })
+    }
+
     /// Verify the committed source before moving a private candidate to a branch.
     pub fn validate_recovery_source(
         &self,
@@ -243,6 +276,27 @@ impl PendingRunStartTransition {
         if let Some(field) = expected.first_mismatch(committed) {
             return Err(RunStartTransitionError::PersistenceAcknowledgementMismatch { field });
         }
+        self.persistence_acknowledged = true;
+        Ok(())
+    }
+
+    /// Accept an exact imported content record after SQLite either inserted it
+    /// or idempotently reused its earlier local publication correlation.
+    pub(crate) fn acknowledge_import_persistence(
+        &mut self,
+        committed: &CheckpointDescriptor,
+    ) -> Result<(), RunStartTransitionError> {
+        if self.authority_published || !self.restored_checkpoint {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        let expected = self
+            .checkpoint_descriptor
+            .as_ref()
+            .ok_or(RunStartTransitionError::CheckpointNotPublished)?;
+        if let Some(field) = expected.first_content_mismatch(committed) {
+            return Err(RunStartTransitionError::PersistenceAcknowledgementMismatch { field });
+        }
+        self.checkpoint_descriptor = Some(committed.clone());
         self.persistence_acknowledged = true;
         Ok(())
     }

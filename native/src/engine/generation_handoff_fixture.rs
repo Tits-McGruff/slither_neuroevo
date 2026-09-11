@@ -1413,8 +1413,9 @@ mod tests {
                             .events()[0],
                     ),
                     RunningAuthorityLoopProgress::ControllerReclaimPending
-                    | RunningAuthorityLoopProgress::ControllerJoinPending => {
-                        panic!("no reclaim was requested in this fixture")
+                    | RunningAuthorityLoopProgress::ControllerJoinPending
+                    | RunningAuthorityLoopProgress::ImportPending => {
+                        panic!("no lifecycle command was requested in this fixture")
                     }
                     RunningAuthorityLoopProgress::GenerationTransitionPending { .. } => {
                         panic!("generation two must not terminate during delivery-resume proof")

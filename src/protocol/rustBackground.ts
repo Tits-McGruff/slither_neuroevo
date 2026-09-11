@@ -283,6 +283,8 @@ export interface RustBackgroundEvent {
   receiptResolution?: unknown;
   /** Published successor and unavailable controller reservations. */
   generationStart?: unknown;
+  /** Scalar proof that a durably committed import became authoritative. */
+  importPublication?: unknown;
   /** Replaceable basic stats and cached frame metadata, after priority events. */
   display?: RustBackgroundDisplay;
   /** Full reliable ordinary-step batch, delivered before its step is published. */

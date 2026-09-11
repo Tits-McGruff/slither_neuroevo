@@ -10,21 +10,22 @@ use napi::{Env, Error, JsString, JsValue, Result, Status};
 use napi_derive::napi;
 
 use crate::engine::contract::{
-    CommandBatch, EngineCommand, ExternalDeliveryReceipt, RunningAuthorityCommand,
-    SequencedCommand, ENGINE_CONTRACT_VERSION,
+    CommandBatch, EngineCommand, ExternalDeliveryReceipt, PreparedImportSlot,
+    RunningAuthorityCommand, SequencedCommand, ENGINE_CONTRACT_VERSION,
 };
 use crate::engine::display::{FrameCopyResult, RunningDisplayStatus};
 use crate::engine::error::{EngineError, EngineErrorCode};
 use crate::engine::export_archive::{
-    compose_export_archive, validate_import_archive, ExportArchiveDescriptor,
-    ExportInventoryDescriptor, ValidatedImportArchive,
+    compose_export_archive, prepare_import_archive, validate_import_archive,
+    ExportArchiveDescriptor, ExportInventoryDescriptor, PreparedImportArchive,
+    ValidatedImportArchive,
 };
 use crate::engine::fresh_run::stage6a_p0_export_validation_contract;
 use crate::engine::runtime::EngineRuntime;
 use crate::napi_engine::{
     background_generation_event_to_napi, background_generation_health_to_napi, bounded_js_string,
-    bounded_object_string, checkpoint_descriptor_from_napi_object, engine_error_to_napi,
-    parse_background_sequence, parse_checkpoint_operation_id,
+    bounded_object_string, checkpoint_descriptor_from_napi_object, checkpoint_descriptor_to_napi,
+    engine_error_to_napi, parse_background_sequence, parse_checkpoint_operation_id,
     parse_managed_checkpoint_publication_options, parse_managed_path, parse_u64_hex,
     positive_usize, u64_hex, JoinEngineTask, Stage6BackgroundGenerationDrain,
     Stage6BackgroundGenerationHealth,
@@ -95,6 +96,33 @@ pub struct ValidatedImportArchiveResult {
     pub stored_byte_count: String,
 }
 
+/// Small prepared-import facts. The private candidate remains retained in Rust.
+#[napi(object)]
+pub struct PreparedImportArchiveResult {
+    pub run_id: String,
+    pub generation: String,
+    pub completed_step: String,
+    pub checkpoint_id: String,
+    pub save_logical_root_sha256: String,
+    pub history_count: String,
+    pub hall_of_fame_count: String,
+    pub stored_byte_count: String,
+    pub descriptor: crate::napi_engine::ManagedCheckpointDescriptor,
+    pub inventory: PreparedImportInventoryResult,
+    pub startup_metadata: String,
+}
+
+/// Trusted fixed-width import inventory consumed only by the SQLite worker.
+#[napi(object)]
+pub struct PreparedImportInventoryResult {
+    pub version: u32,
+    pub relative_filename: String,
+    pub sha256: String,
+    pub stored_byte_count: String,
+    pub history_count: String,
+    pub hall_of_fame_count: String,
+}
+
 /// Libuv task for file/codec work that must not block the Node event loop.
 pub struct PrepareExportArchiveTask {
     managed_directory: PathBuf,
@@ -148,6 +176,79 @@ pub struct ValidateImportArchiveTask {
     operation_id: String,
 }
 
+/// Libuv preparation task retaining its admitted candidate in the native handle.
+pub struct PrepareImportArchiveTask {
+    archive_path: PathBuf,
+    scratch_directory: PathBuf,
+    managed_directory: PathBuf,
+    operation_id: String,
+    prepared: PreparedImportSlot,
+    active: Arc<AtomicBool>,
+}
+
+impl Task for PrepareImportArchiveTask {
+    type Output = PreparedImportArchive;
+    type JsValue = PreparedImportArchiveResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
+            Error::new(
+                Status::GenericFailure,
+                "P0 import memory ceiling exceeds usize",
+            )
+        })?;
+        let (checkpoint_limits, graph_limits, admission_policy) =
+            stage6a_p0_export_validation_contract(memory_ceiling)
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+        prepare_import_archive(
+            &self.archive_path,
+            &self.scratch_directory,
+            &self.managed_directory,
+            &self.operation_id,
+            &checkpoint_limits,
+            &graph_limits,
+            &admission_policy,
+            memory_ceiling,
+        )
+        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        let facts = output.facts;
+        let descriptor = output.descriptor;
+        let inventory = output.inventory;
+        let startup_metadata = output.startup_metadata_json;
+        self.prepared
+            .put(output.transition)
+            .map_err(|_| Error::new(Status::GenericFailure, "prepared import slot changed"))?;
+        Ok(PreparedImportArchiveResult {
+            run_id: facts.run_id,
+            generation: facts.generation_hex,
+            completed_step: facts.completed_step_hex,
+            checkpoint_id: facts.checkpoint_id,
+            save_logical_root_sha256: facts.save_logical_root_sha256,
+            history_count: facts.history_count_hex,
+            hall_of_fame_count: facts.hall_of_fame_count_hex,
+            stored_byte_count: facts.stored_byte_count_hex,
+            descriptor: checkpoint_descriptor_to_napi(descriptor),
+            inventory: PreparedImportInventoryResult {
+                version: inventory.version,
+                relative_filename: inventory.relative_filename,
+                sha256: inventory.sha256,
+                stored_byte_count: inventory.stored_byte_count_hex,
+                history_count: inventory.history_count_hex,
+                hall_of_fame_count: inventory.hall_of_fame_count_hex,
+            },
+            startup_metadata,
+        })
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.active.store(false, Ordering::Release);
+        Ok(())
+    }
+}
+
 impl Task for ValidateImportArchiveTask {
     type Output = ValidatedImportArchive;
     type JsValue = ValidatedImportArchiveResult;
@@ -194,6 +295,8 @@ pub struct ExperimentalRunningAuthority {
     runtime: Arc<EngineRuntime>,
     drain_active: AtomicBool,
     join_scheduled: Arc<AtomicBool>,
+    prepared_import: PreparedImportSlot,
+    import_active: Arc<AtomicBool>,
 }
 
 impl ExperimentalRunningAuthority {
@@ -202,6 +305,8 @@ impl ExperimentalRunningAuthority {
             runtime,
             drain_active: AtomicBool::new(false),
             join_scheduled: Arc::new(AtomicBool::new(false)),
+            prepared_import: PreparedImportSlot::new(),
+            import_active: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -330,6 +435,124 @@ impl ExperimentalRunningAuthority {
             scratch_directory,
             operation_id: operation_id.as_str().to_owned(),
         }))
+    }
+
+    /// Fully validate and retain an imported authority while publishing only
+    /// its immutable managed checkpoint. Live state and SQLite remain unchanged.
+    #[napi(catch_unwind)]
+    pub fn prepare_import_archive(
+        &self,
+        archive_path: JsString<'_>,
+        scratch_directory: JsString<'_>,
+        managed_directory: JsString<'_>,
+        operation_id: JsString<'_>,
+    ) -> Result<AsyncTask<PrepareImportArchiveTask>> {
+        let archive_path = parse_managed_path(bounded_js_string(
+            archive_path,
+            "archivePath",
+            32 * 1024,
+            false,
+        )?)?;
+        let scratch_directory = parse_managed_path(bounded_js_string(
+            scratch_directory,
+            "scratchDirectory",
+            32 * 1024,
+            false,
+        )?)?;
+        let managed_directory = parse_managed_path(bounded_js_string(
+            managed_directory,
+            "managedDirectory",
+            32 * 1024,
+            false,
+        )?)?;
+        let operation_id = parse_checkpoint_operation_id(bounded_js_string(
+            operation_id,
+            "operationId",
+            32,
+            false,
+        )?)?;
+        if self.import_active.swap(true, Ordering::AcqRel) {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "another import preparation is already running",
+            ));
+        }
+        if self.prepared_import.is_some() {
+            self.import_active.store(false, Ordering::Release);
+            return Err(Error::new(
+                Status::GenericFailure,
+                "another prepared import is awaiting its durability decision",
+            ));
+        }
+        Ok(AsyncTask::new(PrepareImportArchiveTask {
+            archive_path,
+            scratch_directory,
+            managed_directory,
+            operation_id: operation_id.as_str().to_owned(),
+            prepared: self.prepared_import.clone(),
+            active: Arc::clone(&self.import_active),
+        }))
+    }
+
+    /// Drop one private candidate after upload validation or metadata commit
+    /// fails. Published content-addressed files remain harmless and reusable.
+    #[napi(catch_unwind)]
+    pub fn discard_prepared_import(&self) -> Result<()> {
+        if self.import_active.load(Ordering::Acquire) {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "import preparation is still running",
+            ));
+        }
+        let removed = self.prepared_import.take();
+        if removed.is_none() {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "no prepared import is retained",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Queue the pre-commit pause at the next untouched step boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_stage_prepared_import(&self, sequence: JsString<'_>) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::StagePreparedImport {
+                slot: self.prepared_import.clone(),
+            },
+        )
+    }
+
+    /// Resume the unchanged game after a failure before SQLite commits.
+    #[napi(catch_unwind)]
+    pub fn submit_cancel_prepared_import(&self, sequence: JsString<'_>) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::CancelPreparedImport {
+                slot: self.prepared_import.clone(),
+            },
+        )
+    }
+
+    /// Queue the final import swap only after the SQLite worker has selected
+    /// and returned the complete committed checkpoint descriptor.
+    #[napi(catch_unwind)]
+    pub fn submit_import_persistence_acknowledgement(
+        &self,
+        sequence: JsString<'_>,
+        descriptor: Object<'_>,
+    ) -> Result<()> {
+        let sequence = parse_background_sequence(sequence)?;
+        let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+        self.submit(
+            sequence,
+            RunningAuthorityCommand::PublishPreparedImport {
+                slot: self.prepared_import.clone(),
+                descriptor: Box::new(descriptor),
+            },
+        )
     }
 
     /// Queue the exact descriptor acknowledged by the dedicated SQLite worker.

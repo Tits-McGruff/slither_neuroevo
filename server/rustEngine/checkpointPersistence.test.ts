@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -10,7 +10,8 @@ import type {
   ManagedGenerationCommit,
   ManagedHallOfFameWeightsDescriptor,
   ManagedHallOfFameReference,
-  ManagedGenerationSummary
+  ManagedGenerationSummary,
+  ManagedImportInventoryDescriptor
 } from './checkpointPersistenceProtocol.ts';
 
 /**
@@ -762,20 +763,78 @@ describe(SUITE, { timeout: 30_000 }, () => {
       operationId: '72'.repeat(16), transitionEpoch: u64(3n), generation: u64(3n),
       completedStep: u64(7_200n), boundaryKind: 'generation'
     }), repeatedCommit);
-    const lease = await fixture.client.acquireCurrentExportLease();
-    expect(lease.inventory).toMatchObject({ historyCount: u64(2n), hallOfFameCount: u64(1n) });
-    await fixture.client.releaseExportLease(lease.operationId);
+    await fixture.client.close();
+    const pinDatabase = new Database(fixture.databasePath);
+    try {
+      pinDatabase.prepare('UPDATE rust_hall_of_fame_v1 SET pinned = 1').run();
+    } finally { pinDatabase.close(); }
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    const lease = await reopened.acquireCurrentExportLease();
+    expect(lease.inventory).toMatchObject({ historyCount: u64(2n), hallOfFameCount: u64(2n) });
+    await reopened.releaseExportLease(lease.operationId);
 
     const inspect = new Database(fixture.databasePath, { readonly: true });
     try {
       expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get())
         .toEqual({ count: 1 });
-      expect(inspect.prepare(`SELECT generation_hex, weight_state FROM rust_hall_of_fame_v1
+      expect(inspect.prepare(`SELECT generation_hex, pinned, weight_state FROM rust_hall_of_fame_v1
         ORDER BY generation_hex`).all()).toEqual([
-        { generation_hex: u64(1n), weight_state: 'unselected' },
-        { generation_hex: u64(2n), weight_state: 'selected' }
+        { generation_hex: u64(1n), pinned: 1, weight_state: 'selected' },
+        { generation_hex: u64(2n), pinned: 1, weight_state: 'selected' }
       ]);
     } finally { inspect.close(); }
+  });
+
+  it('imports complete history and shared weight objects in one current-pointer transaction', async () => {
+    const source = createFixture();
+    await source.client.commit(createDescriptor(source.managedRoot));
+    for (let generation = 2n; generation <= 3n; generation++) {
+      await source.client.commit(createDescriptor(source.managedRoot, {
+        operationId: (generation + 160n).toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation), generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n), boundaryKind: 'generation'
+      }), createGenerationCommit(generation - 1n, { bestF64Hex: f64(Number(generation)) }));
+    }
+    const lease = await source.client.acquireCurrentExportLease();
+    expect(lease.inventory).toMatchObject({ historyCount: u64(2n), hallOfFameCount: u64(2n) });
+
+    const target = createFixture();
+    copyFileSync(join(source.managedRoot, lease.descriptor.relativeFilename),
+      join(target.managedRoot, lease.descriptor.relativeFilename));
+    const sourceDatabase = new Database(source.databasePath, { readonly: true });
+    try {
+      const objects = sourceDatabase.prepare('SELECT relative_filename FROM rust_hall_of_fame_weights_v1')
+        .all() as Array<{ relative_filename: string }>;
+      for (const object of objects) copyFileSync(join(source.managedRoot, object.relative_filename),
+        join(target.managedRoot, object.relative_filename));
+    } finally { sourceDatabase.close(); }
+    const operationId = 'ef'.repeat(16);
+    const relativeFilename = `.${operationId}.import-inventory-v1`;
+    copyFileSync(join(source.managedRoot, lease.inventory.relativeFilename), join(target.managedRoot, relativeFilename));
+    const descriptor = { ...lease.descriptor, operationId };
+    const inventory: ManagedImportInventoryDescriptor = {
+      ...lease.inventory,
+      relativeFilename
+    };
+    const committed = await target.client.commitImport(descriptor, inventory);
+    expect(committed).toMatchObject({ checkpointId: descriptor.logicalRootSha256, descriptor });
+    expect(await target.client.selectCurrent()).toEqual(descriptor);
+    expect(existsSync(join(target.managedRoot, relativeFilename))).toBe(false);
+
+    const inspect = new Database(target.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_generation_history_v1').get()).toEqual({ count: 2 });
+      expect(inspect.prepare(`SELECT count(*) AS count FROM rust_hall_of_fame_v1
+        WHERE weight_state = 'selected'`).get()).toEqual({ count: 2 });
+      expect(inspect.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1').get())
+        .toEqual({ run_id: descriptor.runId });
+    } finally { inspect.close(); }
+    await source.client.releaseExportLease(lease.operationId);
   });
 
   it('rejects ambiguous run selection while retaining explicit per-run reads', async () => {

@@ -43,7 +43,7 @@ is actually needed.
 | 3 | Rust foundation established | Rust state/graph/RNG contracts, coarse bridge, managed checkpoint-v3 codec/metadata worker and Rust→SQLite publication handoff exist. Detailed retained artifacts are under `docs/todo/evidence/stage3/`. |
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
-| 6 | 6A vertical slice exercised; 6B started | The dedicated experimental server owns durable startup/recovery, continuous Rust frames/stats, browser and Protocol 2 routing, and generation persistence. The real browser and PyRL trainer crossed a generation over the machine's trusted-LAN route with integrated telemetry. Stage 6B retention, commands, and archives are now in progress. |
+| 6 | 6A vertical slice exercised; 6B active | The dedicated experimental server owns durable startup/recovery, continuous Rust frames/stats, browser and Protocol 2 routing, generation persistence, managed retention, and direct archive export/import. Remaining secondary commands, compatibility, durability/performance gates, and cutover work continue. |
 | 7–8 | Not yet accepted | Performance/durability acceptance and production cutover remain future gates. |
 
 ## Milestone index
@@ -339,5 +339,18 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Interrupted binary responses are terminated without appending JSON, and a
   pinned current checkpoint remains reported as both current and pinned.
 
-The next dependency is the atomic imported-run persistence and live replacement
-barrier, followed by direct browser upload progress/result wiring.
+- 2026-09-12 Direct import now streams the browser-selected `.slither-save`
+  unchanged, privately restores it in Rust, commits its checkpoint, complete
+  compact history, selected Hall of Fame and active run in one SQLite
+  transaction, then swaps the paused running authority. Failed imports leave
+  the old game current; success invalidates old controller state while keeping
+  sockets open for a fresh join. Duplicate pinned winner entries share one
+  packed object without losing either pin. Focused real-server round trips and
+  metadata-import tests cover replay, corruption, cleanup and live replacement.
+  Stage 7 retains two scaling/durability follow-ups: incremental Hall-of-Fame
+  selection instead of a full-history rewrite, and orphan recovery for an
+  interrupted Hall-of-Fame file unlink.
+
+The next dependency is the explicit older-checkpoint recovery branch for
+same-run imports, followed by reuse of this durability-gated replacement path
+for Reset/New Run and the remaining thin secondary command surfaces.

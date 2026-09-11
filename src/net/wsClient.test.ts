@@ -171,6 +171,7 @@ describe('wsClient', () => {
     let sawSettings = false;
     let sawGodMode = false;
     let sawNewRun = false;
+    let sawStateReplaced = false;
     const client = createWsClient({
       onConnected: () => {
         sawWelcome = true;
@@ -188,6 +189,9 @@ describe('wsClient', () => {
       },
       onNewRunResult: () => {
         sawNewRun = true;
+      },
+      onStateReplaced: () => {
+        sawStateReplaced = true;
       }
     });
 
@@ -224,6 +228,9 @@ describe('wsClient', () => {
       applied: false,
       reason: 'unavailable'
     }));
+    instance.emit(JSON.stringify({
+      type: 'stateReplaced', reason: 'import', checkpointId: 'a'.repeat(64), welcome: {}
+    }));
     instance.emit(new ArrayBuffer(8));
 
     expect(sawWelcome).toBe(true);
@@ -231,6 +238,7 @@ describe('wsClient', () => {
     expect(sawSettings).toBe(true);
     expect(sawGodMode).toBe(true);
     expect(sawNewRun).toBe(true);
+    expect(sawStateReplaced).toBe(true);
     expect(instance.sent.map(payload => JSON.parse(payload) as { type: string }).map(msg => msg.type))
       .toEqual(['hello', 'settings', 'godMode', 'godMode', 'newRun']);
   });

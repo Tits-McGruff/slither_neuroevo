@@ -7,6 +7,7 @@ import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { networkInterfaces } from 'node:os';
 import { isIP } from 'node:net';
+import { randomBytes } from 'node:crypto';
 import { DEFAULT_CONFIG, parseConfig, type ServerConfig } from './config.ts';
 import { WsHub } from './wsHub.ts';
 import { createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
@@ -16,6 +17,12 @@ import { createRustStats, createRustWelcome } from './rustEngine/browserMetadata
 import { ExperimentalRuntimeTelemetry } from './rustEngine/runtimeTelemetry.ts';
 import type { CheckpointRetentionInventory } from './rustEngine/checkpointRetention.ts';
 import type { ManagedCheckpointExportLease } from './rustEngine/checkpointPersistenceProtocol.ts';
+import {
+  parseManagedCheckpointDescriptor,
+  parseManagedImportInventoryDescriptor
+} from './rustEngine/checkpointPersistenceProtocol.ts';
+import { spoolArchiveUpload } from './rustEngine/archiveUpload.ts';
+import { parseRustStartupMetadata } from './rustEngine/startupMetadata.ts';
 
 /** Repository-owned built browser assets. */
 const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
@@ -102,8 +109,10 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       ...(config.resume.startsWith('sha256:') ? { restoreCheckpointId: config.resume.slice(7) } : {}),
       ...(config.seed === undefined ? {} : { seed: config.seed }), onWake: () => schedule() });
   } catch (error) { return startFaultedServer(config, error); }
-  const recovery = recoveryNotice(owner);
+  let recovery = recoveryNotice(owner);
   if (recovery) console.warn('[rust.recovery]', recovery);
+  let activeMetadata = owner.metadata;
+  let activeCheckpointId = owner.runStart.checkpointId;
   let retention: CheckpointRetentionInventory;
   let retentionCleanup: { deletedCheckpointCount: number; deletedStoredByteCount: string };
   try {
@@ -128,6 +137,13 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let retentionMaintenance: Promise<void> | undefined;
   let exportOperation: Promise<void> | undefined;
   let activeExportResponse: import('node:http').ServerResponse | undefined;
+  let importOperation: Promise<void> | undefined;
+  let activeImportRequest: import('node:http').IncomingMessage | undefined;
+  let activeImportResponse: import('node:http').ServerResponse | undefined;
+  let importAuthorityPublished = false;
+  const disconnectedDuringImport = new Set<number>();
+  let executeImport: ((request: import('node:http').IncomingMessage,
+    response: import('node:http').ServerResponse) => Promise<void>) | undefined;
 
   /** Keep population-sized bytes in Rust/filesystem/browser networking for one exact lease. */
   const serveExport = async (
@@ -198,11 +214,40 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     if (pathname === '/api/health' || pathname === '/health') {
       const nativeHealth = owner.runtime.health();
       response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: owner.metadata.runId,
-        seed: owner.metadata.seed, startupCheckpointId: owner.runStart.checkpointId, ...nativeHealth,
+      response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: activeMetadata.runId,
+        seed: activeMetadata.seed, startupCheckpointId: activeCheckpointId, ...nativeHealth,
         telemetry: telemetry.snapshot(nativeHealth), outbound: hub?.getOutboundDiagnostics(),
         retention, retentionCleanup,
         ...(recovery ? { recovery } : {}), ...(fault ? { interfaceFault: fault } : {}) }));
+      return;
+    }
+    if (request.method === 'POST' && pathname === '/api/import/archive') {
+      if (fault || stopping || !executeImport) {
+        response.writeHead(503, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: fault ?? 'server is not ready' }));
+        return;
+      }
+      if (importOperation || exportOperation || pinning || retentionMaintenance) {
+        response.writeHead(409, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: 'another archive operation is in progress' }));
+        return;
+      }
+      activeImportRequest = request;
+      activeImportResponse = response;
+      importOperation = executeImport(request, response).catch(error => {
+        if (response.destroyed) return;
+        if (response.headersSent) {
+          response.destroy();
+          return;
+        }
+        response.writeHead(fault ? 503 : 400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: error instanceof Error ? error.message : String(error) }));
+      }).finally(() => {
+        activeImportRequest = undefined;
+        activeImportResponse = undefined;
+        importAuthorityPublished = false;
+        importOperation = undefined;
+      });
       return;
     }
     if (request.method === 'GET' && pathname === '/api/export/latest') {
@@ -211,9 +256,9 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is stopping' }));
         return;
       }
-      if (exportOperation) {
+      if (exportOperation || importOperation || pinning || retentionMaintenance) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
-        response.end(JSON.stringify({ ok: false, message: 'checkpoint export is already in progress' }));
+        response.end(JSON.stringify({ ok: false, message: 'another persistence operation is in progress' }));
         return;
       }
       activeExportResponse = response;
@@ -234,9 +279,9 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is stopping' }));
         return;
       }
-      if (pinning) {
+      if (pinning || importOperation || exportOperation || retentionMaintenance) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
-        response.end(JSON.stringify({ ok: false, message: 'checkpoint pin is already in progress' }));
+        response.end(JSON.stringify({ ok: false, message: 'another persistence operation is in progress' }));
         return;
       }
       pinning = owner.persistence.pinCurrentCheckpoint().then(async pinned => {
@@ -273,15 +318,18 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   const close = (): Promise<void> => {
     closePromise ??= (async () => {
       stopping = true;
-      if (scheduled) clearImmediate(scheduled);
       if (timer) clearInterval(timer);
+      activeImportRequest?.destroy();
+      activeImportResponse?.destroy();
+      activeExportResponse?.destroy();
+      await importOperation?.catch(() => {});
+      await pinning?.catch(() => {});
+      await retentionMaintenance?.catch(() => {});
+      await exportOperation?.catch(() => {});
+      if (scheduled) clearImmediate(scheduled);
       hub?.closeAll();
       owner.runtime.requestStop();
       await draining?.catch(() => {});
-      await pinning?.catch(() => {});
-      await retentionMaintenance?.catch(() => {});
-      activeExportResponse?.destroy();
-      await exportOperation?.catch(() => {});
       try { await owner.close(); }
       finally {
         telemetry.close();
@@ -291,7 +339,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     return closePromise;
   };
   try {
-    hub = new WsHub(server, { ...createRustWelcome(owner.metadata), ...(recovery ? { recovery } : {}) }, { maxConnections: 64 });
+    hub = new WsHub(server, { ...createRustWelcome(activeMetadata), ...(recovery ? { recovery } : {}) }, { maxConnections: 64 });
     const sockets = hub;
     let routing!: ExternalControllerRouting;
     const output = new BackgroundOutputPump({
@@ -305,7 +353,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           sockets.updateWelcome({ frameByteLength: event.display.frameByteLength });
           if (now - lastStats >= 1000 / config.uiFrameRateHz) {
             lastStats = now;
-            sockets.broadcastStats(createRustStats(event.display, owner.metadata, pumpsPerSecond));
+            sockets.broadcastStats(createRustStats(event.display, activeMetadata, pumpsPerSecond));
           }
         }
       },
@@ -341,12 +389,94 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       fault ??= error instanceof Error ? error.message : String(error);
       owner.runtime.requestStop();
     };
+    /** Keep upload bytes and the complete replacement outside JavaScript memory. */
+    executeImport = async (request, response): Promise<void> => {
+      const operationId = randomBytes(16).toString('hex');
+      let uploadPath: string | undefined;
+      let inventoryPath: string | undefined;
+      let prepared = false;
+      let staged = false;
+      let committed = false;
+      try {
+        const upload = await spoolArchiveUpload({
+          source: request,
+          contentLength: request.headers['content-length'],
+          scratchDirectory: owner.managedDirectory,
+          operationId
+        });
+        uploadPath = upload.readyPath;
+        const imported = await owner.runtime.prepareImportArchive(
+          upload.readyPath,
+          owner.managedDirectory,
+          owner.managedDirectory,
+          operationId
+        );
+        const descriptor = parseManagedCheckpointDescriptor(imported.descriptor);
+        const inventory = parseManagedImportInventoryDescriptor(imported.inventory, operationId);
+        const metadata = parseRustStartupMetadata(imported.startupMetadata);
+        if (descriptor.operationId !== operationId || descriptor.runId !== imported.runId ||
+            descriptor.generation !== imported.generation ||
+            descriptor.completedStep !== imported.completedStep ||
+            descriptor.logicalRootSha256 !== imported.checkpointId ||
+            metadata.runId !== imported.runId) {
+          throw new Error('prepared import identity is internally inconsistent');
+        }
+        prepared = true;
+        inventoryPath = resolve(owner.managedDirectory, inventory.relativeFilename);
+        await output.stagePreparedImport();
+        staged = true;
+        const durable = await owner.persistence.commitImport(descriptor, inventory);
+        committed = true;
+        await output.publishPreparedImport(durable.descriptor);
+        activeMetadata = metadata;
+        activeCheckpointId = durable.checkpointId;
+        recovery = undefined;
+        routing.resetAfterImport();
+        disconnectedDuringImport.clear();
+        importAuthorityPublished = true;
+        const welcome = createRustWelcome(activeMetadata);
+        sockets.replaceWelcome(welcome);
+        sockets.enterAwaitingRejoin({
+          type: 'stateReplaced', reason: 'import', checkpointId: durable.checkpointId, welcome
+        });
+        retention = await owner.persistence.inspectRetention();
+        if (!response.destroyed) {
+          response.writeHead(200, { 'Content-Type': 'application/json' });
+          response.end(JSON.stringify({
+            ok: true,
+            runId: activeMetadata.runId,
+            generation: descriptor.generation,
+            completedStep: descriptor.completedStep,
+            checkpointId: durable.checkpointId,
+            saveLogicalRootSha256: imported.saveLogicalRootSha256
+          }));
+        }
+      } catch (error) {
+        if (staged && !committed) await output.cancelPreparedImport().catch(fail);
+        else if (prepared && !staged) {
+          try { owner.runtime.discardPreparedImport(); } catch { /* Candidate may already be gone. */ }
+        }
+        if (!committed) {
+          for (const connection of disconnectedDuringImport) routing.disconnect(connection);
+          disconnectedDuringImport.clear();
+          routing.flush();
+        }
+        if (committed) fail(error);
+        throw error;
+      } finally {
+        for (const path of [uploadPath, inventoryPath]) {
+          if (path) await unlink(path).catch(error => {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          });
+        }
+      }
+    };
     /** Run one bounded drain without overlapping asynchronous persistence. */
     schedule = (): void => {
-      if (scheduled || draining || stopping || fault) return;
+      if (scheduled || draining || fault || (stopping && !importOperation)) return;
       scheduled = setImmediate(() => {
         scheduled = undefined;
-        if (stopping || fault) return;
+        if (fault || (stopping && !importOperation)) return;
         pumps++;
         const now = performance.now();
         if (now - pumpStart >= 1000) { pumpsPerSecond = pumps * 1000 / (now - pumpStart); pumpStart = now; pumps = 0; }
@@ -359,9 +489,18 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     /** Convert unexpected admission failures into a terminal interface fault. */
     const route = (action: () => void): void => { try { action(); } catch (error) { fail(error); } schedule(); };
     sockets.setHandlers({
-      onJoin(connection, message, client) { route(() => { if (fault || stopping) unsupported(connection); else routing.join(connection, message, client); }); },
-      onAction(connection, message) { route(() => { if (!fault && !stopping) routing.action(connection, message); }); },
-      onDisconnect(connection) { route(() => { if (!stopping && !fault) routing.disconnect(connection); }); },
+      onJoin(connection, message, client) { route(() => {
+        if (fault || stopping || (importOperation && !importAuthorityPublished)) unsupported(connection);
+        else routing.join(connection, message, client);
+      }); },
+      onAction(connection, message) { route(() => {
+        if (!fault && !stopping && (!importOperation || importAuthorityPublished)) routing.action(connection, message);
+      }); },
+      onDisconnect(connection) { route(() => {
+        if (stopping || fault) return;
+        if (importOperation && !importAuthorityPublished) disconnectedDuringImport.add(connection);
+        else routing.disconnect(connection);
+      }); },
       onReset: unsupported, onSettings: unsupported, onGodMode: unsupported, onNewRun: unsupported,
       onViz: unsupported
     });

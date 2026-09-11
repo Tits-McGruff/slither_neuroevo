@@ -451,6 +451,7 @@ pub struct Stage6BackgroundGenerationEvent {
     pub reassignments: Option<Stage6BackgroundGenerationReassignments>,
     pub receipt_resolution: Option<Stage6BackgroundGenerationReceiptResolution>,
     pub generation_start: Option<Stage6BackgroundGenerationStart>,
+    pub import_publication: Option<Stage6RunStartPublication>,
     pub display: Option<crate::napi_running_engine::BackgroundDisplayStatus>,
     pub controller_messages: Option<Vec<BackgroundControllerMessage>>,
     pub controller_receipt_resolution: Option<BackgroundControllerReceiptResolution>,
@@ -2660,7 +2661,9 @@ pub(crate) fn parse_u64_hex(value: &str, field: &str, allow_zero: bool) -> Resul
 }
 
 /// Convert the Rust descriptor without exposing any authoritative payload bytes.
-fn checkpoint_descriptor_to_napi(descriptor: CheckpointDescriptor) -> ManagedCheckpointDescriptor {
+pub(crate) fn checkpoint_descriptor_to_napi(
+    descriptor: CheckpointDescriptor,
+) -> ManagedCheckpointDescriptor {
     ManagedCheckpointDescriptor {
         protocol_version: descriptor.protocol_version,
         operation_id: descriptor.operation_id.as_str().to_owned(),
@@ -3365,6 +3368,30 @@ fn running_authority_event_to_napi(
                 unavailable_controllers,
             });
         }
+        RunningAuthorityEvent::ImportPublished {
+            command_sequence,
+            world_epoch,
+            generation,
+            completed_step,
+            population_epoch,
+        } => {
+            output.kind = "importPublished".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.import_publication = Some(Stage6RunStartPublication {
+                world_epoch: u64_hex(world_epoch),
+                generation: u64_hex(generation),
+                completed_step: u64_hex(completed_step),
+                population_epoch: u64_hex(population_epoch),
+            });
+        }
+        RunningAuthorityEvent::ImportStaged { command_sequence } => {
+            output.kind = "importStaged".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+        }
+        RunningAuthorityEvent::ImportCancelled { command_sequence } => {
+            output.kind = "importCancelled".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+        }
         RunningAuthorityEvent::CommandRejected {
             command_sequence,
             code,
@@ -3389,6 +3416,7 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         reassignments: None,
         receipt_resolution: None,
         generation_start: None,
+        import_publication: None,
         display: None,
         controller_messages: None,
         controller_receipt_resolution: None,
@@ -3517,6 +3545,7 @@ const fn running_loop_state_name(
         crate::engine::running_loop::RunningAuthorityLoopState::GenerationTransitionPending => {
             "generationTransitionPending"
         }
+        crate::engine::running_loop::RunningAuthorityLoopState::ImportPending => "importPending",
         crate::engine::running_loop::RunningAuthorityLoopState::Faulted => "faulted",
     }
 }

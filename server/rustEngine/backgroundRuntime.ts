@@ -10,7 +10,12 @@ import type {
   RustBackgroundReclaimReceipt,
   RustGenerationAssignmentReceipt
 } from '../../src/protocol/rustBackground.ts';
-import type { ManagedCheckpointDescriptor, ManagedExportInventoryDescriptor, U64Hex } from './checkpointPersistenceProtocol.ts';
+import type {
+  ManagedCheckpointDescriptor,
+  ManagedExportInventoryDescriptor,
+  ManagedImportInventoryDescriptor,
+  U64Hex
+} from './checkpointPersistenceProtocol.ts';
 import type { RustRunStartCheckpointPublishOptions } from './runStartPersistenceHandoff.ts';
 
 /** Coarse production-addon handle created by transferring the durable fresh run. */
@@ -44,6 +49,24 @@ export interface ExperimentalRunningAuthorityNativeHandle {
     scratchDirectory: string,
     operationId: string
   ): Promise<RustValidatedImportArchive>;
+  /** Validate, publish, and retain one private imported authority for durability. */
+  prepareImportArchive(
+    archivePath: string,
+    scratchDirectory: string,
+    managedDirectory: string,
+    operationId: string
+  ): Promise<RustPreparedImportArchive>;
+  /** Drop a prepared candidate after a pre-commit failure. */
+  discardPreparedImport(): void;
+  /** Pause stepping at the next clean boundary before the import transaction. */
+  submitStagePreparedImport(sequence: U64Hex): void;
+  /** Cancel a staged import before durability and resume the unchanged game. */
+  submitCancelPreparedImport(sequence: U64Hex): void;
+  /** Swap only the exact descriptor returned by the committed import transaction. */
+  submitImportPersistenceAcknowledgement(
+    sequence: U64Hex,
+    descriptor: ManagedCheckpointDescriptor
+  ): void;
   /** Return the complete descriptor committed by the dedicated SQLite worker. */
   submitGenerationPersistenceAcknowledgement(sequence: U64Hex, descriptor: ManagedCheckpointDescriptor): void;
   /** Prepare connected-controller assignments after durability. */
@@ -104,12 +127,27 @@ export interface RustValidatedImportArchive {
   storedByteCount: U64Hex;
 }
 
+/** Small prepared-import facts; the complete candidate remains owned by Rust. */
+export interface RustPreparedImportArchive extends RustValidatedImportArchive {
+  /** Newly published descriptor awaiting the SQLite import transaction. */
+  descriptor: ManagedCheckpointDescriptor;
+  /** Rust-written fixed records ready for one worker-owned transaction. */
+  inventory: ManagedImportInventoryDescriptor;
+  /** Bounded Rust-authored welcome metadata for the candidate. */
+  startupMetadata: string;
+}
+
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
   'start', 'submitControllerAction', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',
   'validateImportArchive',
+  'prepareImportArchive',
+  'discardPreparedImport',
+  'submitStagePreparedImport',
+  'submitCancelPreparedImport',
+  'submitImportPersistenceAcknowledgement',
   'submitPrepareGenerationReassignments', 'submitGenerationAssignmentReceipt',
   'submitControllerDeliveryReceipt',
   'submitPublishGenerationStart', 'drainOutputs', 'health', 'latestDisplay',

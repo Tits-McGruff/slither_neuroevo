@@ -97,6 +97,13 @@ export class ExternalControllerRouting {
     }
   }
 
+  /** Forget transport-only leases after a whole imported authority replaces them. */
+  resetAfterImport(): void {
+    this.routes.clear();
+    this.pendingActions.clear();
+    this.pendingDisconnects.clear();
+  }
+
   /** Request legacy or explicit-token reclaim before considering a fresh snake. */
   join(connection: number, message: JoinMsg, client: ClientType): void {
     if (message.mode !== 'player') { this.disconnect(connection); return; }

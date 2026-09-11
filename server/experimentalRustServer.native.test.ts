@@ -82,16 +82,18 @@ function directionDelta(from: number, to: number): number {
 }
 
 describeNetworkSuite('experimental Rust server real sockets', () => {
-  it('streams one Rust-composed exact-checkpoint save and removes operation files', async () => {
+  it('streams, imports, and atomically activates one exact Rust save', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-export-server-'));
     const dbPath = join(root, 'experiment.sqlite');
     const managedDirectory = `${dbPath}.checkpoints`;
     const server = await startExperimentalRustServer({
       ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 41, dbPath
     });
+    let target: Awaited<ReturnType<typeof startExperimentalRustServer>> | undefined;
+    const peers: Peer[] = [];
     try {
       const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
-        startupCheckpointId: string;
+        runId: string; startupCheckpointId: string;
       };
       const exported = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
       expect(exported.status).toBe(200);
@@ -126,7 +128,60 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
         await new Promise<void>(done => setTimeout(done, 10));
       } while (performance.now() < cleanupDeadline);
       expect(leftovers).toEqual([]);
+
+      const targetDbPath = join(root, 'target.sqlite');
+      target = await startExperimentalRustServer({
+        ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42, dbPath: targetDbPath
+      });
+      const targetBefore = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
+        runId: string; startupCheckpointId: string;
+      };
+      expect(targetBefore.runId).not.toBe(health.runId);
+      const viewer = await connect(target.port, 'ui');
+      peers.push(viewer);
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
+        capabilities: { archiveExport: true, archiveImport: true }
+      });
+      const importedResponse = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: bytes
+      });
+      expect(importedResponse.status).toBe(200);
+      expect(await importedResponse.json()).toMatchObject({
+        ok: true, runId: health.runId, generation: '0000000000000001', checkpointId: health.startupCheckpointId
+      });
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
+      expect(viewer.socket.readyState).toBe(WebSocket.OPEN);
+      expect(viewer.packets.find(packet => packet['type'] === 'stateReplaced')).toMatchObject({
+        reason: 'import', checkpointId: health.startupCheckpointId,
+        welcome: { runId: health.runId, worldSeed: 41 }
+      });
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: health.runId, seed: 41, startupCheckpointId: health.startupCheckpointId
+      });
+
+      const replay = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: bytes
+      });
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toMatchObject({ ok: true, checkpointId: health.startupCheckpointId });
+      const corrupt = Buffer.from(bytes);
+      corrupt[512] = (corrupt[512] ?? 0) ^ 0xff;
+      const rejected = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: corrupt
+      });
+      expect(rejected.status).toBe(400);
+      expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: health.runId, startupCheckpointId: health.startupCheckpointId
+      });
+      const targetFiles = await readdir(`${targetDbPath}.checkpoints`);
+      expect(targetFiles.filter(name => name.includes('upload') || name.includes('import-inventory') ||
+        name.includes('import-stage'))).toEqual([]);
     } finally {
+      for (const peer of peers) peer.socket.terminate();
+      await target?.close();
       await server.close();
       await rm(root, { recursive: true, force: true });
     }

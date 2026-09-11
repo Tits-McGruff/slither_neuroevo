@@ -207,6 +207,16 @@ export interface CommitManagedCheckpointRequest {
   generationCommit: ManagedGenerationCommit | null;
 }
 
+/** Atomic import request referencing only Rust-published managed files. */
+export interface CommitManagedImportRequest {
+  /** Message discriminator. */
+  type: 'commitManagedImport';
+  /** Exact imported checkpoint descriptor retained by Rust. */
+  descriptor: ManagedCheckpointDescriptor;
+  /** Trusted fixed-width history and Hall-of-Fame inventory. */
+  inventory: ManagedImportInventoryDescriptor;
+}
+
 /** Orderly client-owned worker shutdown request. */
 export interface CheckpointPersistenceShutdownRequest {
   /** Message discriminator. */
@@ -223,6 +233,7 @@ export type CheckpointPersistenceWorkerRequest =
   | { type: 'acquireCurrentExportLease'; operationId: CheckpointOperationId }
   | { type: 'releaseExportLease'; operationId: CheckpointOperationId }
   | CommitManagedCheckpointRequest
+  | CommitManagedImportRequest
   | SelectManagedCheckpointRequest
   | CheckpointPersistenceShutdownRequest;
 
@@ -274,6 +285,22 @@ export interface ManagedExportInventoryDescriptor {
   hallOfFameCount: U64Hex;
 }
 
+/** Rust-validated fixed-width metadata used by one exact import transaction. */
+export interface ManagedImportInventoryDescriptor {
+  /** Inventory contract version. */
+  version: 1;
+  /** Operation-derived direct child of the controlled managed directory. */
+  relativeFilename: string;
+  /** SHA-256 of the complete trusted inventory bytes. */
+  sha256: string;
+  /** Exact complete inventory length. */
+  storedByteCount: U64Hex;
+  /** Number of contiguous compact history records. */
+  historyCount: U64Hex;
+  /** Number of selected unique Hall-of-Fame records. */
+  hallOfFameCount: U64Hex;
+}
+
 /** One validated metadata selection, without opening or decoding population payloads. */
 export interface ManagedCheckpointSelectedResponse extends ManagedCheckpointSelection {
   /** Response discriminator. */
@@ -300,6 +327,13 @@ export interface ManagedCheckpointCommittedResponse {
   descriptor: ManagedCheckpointDescriptor;
 }
 
+/** Imported metadata/current-pointer commit echoed to the retained Rust candidate. */
+export interface ManagedImportCommittedResponse
+  extends Omit<ManagedCheckpointCommittedResponse, 'type'> {
+  /** Message discriminator. */
+  type: 'managedImportCommitted';
+}
+
 /** Correlated rejection returned without changing an existing current pointer. */
 export interface ManagedCheckpointRejectedResponse {
   /** Message discriminator. */
@@ -320,6 +354,7 @@ export type CheckpointPersistenceWorkerResponse =
   | { type: 'currentExportLeaseAcquired'; lease: ManagedCheckpointExportLease }
   | { type: 'exportLeaseReleased'; operationId: CheckpointOperationId }
   | ManagedCheckpointCommittedResponse
+  | ManagedImportCommittedResponse
   | ManagedCheckpointSelectedResponse
   | ManagedCheckpointRejectedResponse;
 
@@ -747,6 +782,51 @@ export function parseManagedExportInventoryDescriptor(
   if (hallOfFame > history || expectedBytes > 0xffff_ffff_ffff_ffffn ||
       BigInt(`0x${storedByteCount}`) !== expectedBytes) {
     reject('export inventory has inconsistent counts');
+  }
+  return {
+    version: 1,
+    relativeFilename: descriptor['relativeFilename'] as string,
+    sha256: descriptor['sha256'],
+    storedByteCount,
+    historyCount,
+    hallOfFameCount
+  };
+}
+
+/** Compare immutable checkpoint content while ignoring local publication correlation. */
+export function managedCheckpointContentsEqual(
+  left: ManagedCheckpointDescriptor,
+  right: ManagedCheckpointDescriptor
+): boolean {
+  return MANAGED_CHECKPOINT_DESCRIPTOR_KEYS.every(key =>
+    key === 'operationId' || key === 'transitionEpoch' || left[key] === right[key]
+  );
+}
+
+/** Validate the Rust-written fixed-width inventory for one import operation. */
+export function parseManagedImportInventoryDescriptor(
+  value: unknown,
+  operationId: CheckpointOperationId
+): ManagedImportInventoryDescriptor {
+  const descriptor = asRecord(value, 'importInventory');
+  requireOnlyKeys(descriptor, [
+    'version', 'relativeFilename', 'sha256', 'storedByteCount',
+    'historyCount', 'hallOfFameCount'
+  ]);
+  if (descriptor['version'] !== 1 ||
+      descriptor['relativeFilename'] !== `.${operationId}.import-inventory-v1` ||
+      typeof descriptor['sha256'] !== 'string' || !SHA256_HEX.test(descriptor['sha256'])) {
+    reject('import inventory has invalid identity');
+  }
+  const storedByteCount = asU64Hex(descriptor['storedByteCount'], 'importInventory.storedByteCount');
+  const historyCount = asU64Hex(descriptor['historyCount'], 'importInventory.historyCount');
+  const hallOfFameCount = asU64Hex(descriptor['hallOfFameCount'], 'importInventory.hallOfFameCount');
+  const history = BigInt(`0x${historyCount}`);
+  const hallOfFame = BigInt(`0x${hallOfFameCount}`);
+  const expectedBytes = 32n + history * 56n + hallOfFame * 120n;
+  if (hallOfFame > history || expectedBytes > 0xffff_ffff_ffff_ffffn ||
+      BigInt(`0x${storedByteCount}`) !== expectedBytes) {
+    reject('import inventory has inconsistent counts');
   }
   return {
     version: 1,
