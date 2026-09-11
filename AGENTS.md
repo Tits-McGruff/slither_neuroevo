@@ -320,7 +320,7 @@ node .\node_modules\vite\bin\vite.js build
 cargo test --manifest-path native\Cargo.toml --release
 ```
 
-CI is `.github/workflows/CI.yml`. Its Ubuntu/Windows and Node 22/24 matrix
+CI is `.github/workflows/CI.yml`. Its Ubuntu/Windows and Node 24/26 matrix
 builds native once in each job, verifies the addon identity, runs the native/MT
 overlay and every primary JavaScript layer, then runs Vite, TypeScript, and
 ESLint. A separate Rust job enforces rustfmt and Clippy.
