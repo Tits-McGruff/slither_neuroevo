@@ -23,6 +23,7 @@ import {
 } from './rustEngine/checkpointPersistenceProtocol.ts';
 import { spoolArchiveUpload } from './rustEngine/archiveUpload.ts';
 import { parseRustStartupMetadata } from './rustEngine/startupMetadata.ts';
+import type { NewRunMsg, ResetMsg } from './protocol.ts';
 
 /** Repository-owned built browser assets. */
 const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
@@ -107,6 +108,26 @@ function importBranchNotice(value: ManagedImportBranchResult | null): RustImport
   if (!value) return undefined;
   return { sourceRunId: value.sourceRunId, branchRunId: value.branchRunId,
     sourceGeneration: value.sourceGeneration, sourceCheckpointId: value.sourceCheckpointId };
+}
+
+/** Reject reset-only changes until the fixed-P0 builder accepts arbitrary settings and graphs. */
+function validateFixedP0Reset(message: ResetMsg, metadata: ExperimentalServerRuntime['metadata']): void {
+  if (message.graphSpec !== undefined && message.graphSpec !== null) {
+    throw new Error('the Rust P0 reset does not yet accept a custom graph');
+  }
+  const current = createRustWelcome(metadata).settings;
+  const core = current.core as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(message.settings ?? {})) {
+    if (!Object.is(core[key], value)) {
+      throw new Error(`the Rust P0 reset does not yet accept changed setting ${key}`);
+    }
+  }
+  const updates = new Map(current.updates.map(update => [update.path, update.value]));
+  for (const update of message.updates ?? []) {
+    if (!updates.has(update.path) || !Object.is(updates.get(update.path), update.value)) {
+      throw new Error(`the Rust P0 reset does not yet accept changed setting ${update.path}`);
+    }
+  }
 }
 
 /** Start the fixed native P0 profile from fresh or retained managed authority. */
@@ -515,6 +536,109 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         }
       }
     };
+    /** Build, persist, and publish one generation-one authority without exposing it early. */
+    const executeFreshReplacement = async (
+      reason: 'reset' | 'newRun',
+      seed: number
+    ): Promise<{ runId: string; seed: number; checkpointId: string }> => {
+      const operationId = randomBytes(16).toString('hex');
+      const runId = randomUUID();
+      let prepared = false;
+      let staged = false;
+      let committed = false;
+      try {
+        await owner.admitCheckpoint();
+        const candidate = await owner.runtime.prepareFreshRun(
+          owner.managedDirectory,
+          operationId,
+          runId,
+          seed
+        );
+        prepared = true;
+        const descriptor = parseManagedCheckpointDescriptor(candidate.descriptor);
+        const metadata = parseRustStartupMetadata(candidate.startupMetadata);
+        if (descriptor.operationId !== operationId || descriptor.runId !== runId ||
+            descriptor.boundaryKind !== 'run-start' ||
+            descriptor.generation !== '0000000000000001' ||
+            descriptor.completedStep !== '0000000000000000' ||
+            metadata.runId !== runId || metadata.seed !== seed ||
+            metadata.configHash !== activeMetadata.configHash) {
+          throw new Error('prepared fresh-run identity is internally inconsistent');
+        }
+        await output.stagePreparedImport();
+        staged = true;
+        const durable = await owner.persistence.commit(descriptor, null, true);
+        committed = true;
+        await output.publishPreparedImport(durable.descriptor);
+        activeMetadata = metadata;
+        activeCheckpointId = durable.checkpointId;
+        recovery = undefined;
+        importBranch = undefined;
+        routing.resetAfterImport();
+        disconnectedDuringImport.clear();
+        importAuthorityPublished = true;
+        const welcome = createRustWelcome(activeMetadata);
+        sockets.replaceWelcome(welcome);
+        sockets.enterAwaitingRejoin({
+          type: 'stateReplaced', reason, checkpointId: durable.checkpointId, welcome
+        });
+        retention = await owner.persistence.inspectRetention();
+        return { runId, seed, checkpointId: durable.checkpointId };
+      } catch (error) {
+        if (staged && !committed) await output.cancelPreparedImport().catch(fail);
+        else if (prepared && !staged) {
+          try { owner.runtime.discardPreparedImport(); } catch { /* Candidate may already be gone. */ }
+        }
+        if (!committed) {
+          for (const connection of disconnectedDuringImport) routing.disconnect(connection);
+          disconnectedDuringImport.clear();
+          routing.flush();
+        }
+        if (committed) fail(error);
+        throw error;
+      }
+    };
+    /** Serialize Reset/New Run with archive and retention work. */
+    const startFreshReplacement = (
+      connection: number,
+      reason: 'reset' | 'newRun',
+      seed: number,
+      newRunMessage?: NewRunMsg
+    ): void => {
+      if (fault || stopping || importOperation || exportOperation || pinning || retentionMaintenance) {
+        const detail = fault ?? (stopping ? 'server is stopping' : 'another persistence operation is in progress');
+        if (newRunMessage) {
+          sockets.sendJsonTo(connection, {
+            type: 'newRunResult', requestId: newRunMessage.requestId, applied: false, reason: detail
+          });
+        } else {
+          sockets.sendJsonTo(connection, { type: 'error', message: `reset failed: ${detail}` });
+        }
+        return;
+      }
+      importAuthorityPublished = false;
+      importOperation = executeFreshReplacement(reason, seed).then(result => {
+        importOperation = undefined;
+        importAuthorityPublished = false;
+        if (newRunMessage) {
+          sockets.sendJsonToAwaitingConnection(connection, {
+            type: 'newRunResult', requestId: newRunMessage.requestId, applied: true,
+            worldSeed: result.seed, runId: result.runId
+          });
+        }
+      }).catch(error => {
+        importOperation = undefined;
+        importAuthorityPublished = false;
+        const detail = error instanceof Error ? error.message : String(error);
+        if (newRunMessage) {
+          sockets.sendJsonTo(connection, {
+            type: 'newRunResult', requestId: newRunMessage.requestId, applied: false, reason: detail
+          });
+        } else {
+          sockets.sendJsonTo(connection, { type: 'error', message: `reset failed: ${detail}` });
+        }
+      });
+    };
     /** Run one bounded drain without overlapping asynchronous persistence. */
     schedule = (): void => {
       if (scheduled || draining || fault || (stopping && !importOperation)) return;
@@ -545,7 +669,21 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         if (importOperation && !importAuthorityPublished) disconnectedDuringImport.add(connection);
         else routing.disconnect(connection);
       }); },
-      onReset: unsupported, onSettings: unsupported, onGodMode: unsupported, onNewRun: unsupported,
+      onReset(connection, message) {
+        try {
+          validateFixedP0Reset(message, activeMetadata);
+          startFreshReplacement(connection, 'reset', activeMetadata.seed);
+        } catch (error) {
+          sockets.sendJsonTo(connection, {
+            type: 'error', message: `reset failed: ${error instanceof Error ? error.message : String(error)}`
+          });
+        }
+      },
+      onSettings: unsupported,
+      onGodMode: unsupported,
+      onNewRun(connection, message) {
+        startFreshReplacement(connection, 'newRun', randomBytes(4).readUInt32LE(), message);
+      },
       onViz: unsupported
     });
     await new Promise<void>((done, reject) => { server.once('error', reject); server.listen(config.port, config.host, () => { server.off('error', reject); done(); }); });

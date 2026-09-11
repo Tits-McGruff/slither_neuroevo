@@ -9,6 +9,7 @@ use napi::bindgen_prelude::{AsyncTask, JsObjectValue, Object, Task};
 use napi::{Env, Error, JsString, JsValue, Result, Status};
 use napi_derive::napi;
 
+use crate::engine::checkpoint::{CheckpointDescriptor, CheckpointOperationId};
 use crate::engine::contract::{
     CommandBatch, EngineCommand, ExternalDeliveryReceipt, PreparedImportSlot,
     RunningAuthorityCommand, SequencedCommand, ENGINE_CONTRACT_VERSION,
@@ -20,7 +21,10 @@ use crate::engine::export_archive::{
     ExportArchiveDescriptor, ExportInventoryDescriptor, PreparedImportArchive,
     ValidatedImportArchive,
 };
-use crate::engine::fresh_run::stage6a_p0_export_validation_contract;
+use crate::engine::fresh_run::{
+    prepare_stage6a_p0_fresh_run, stage6a_p0_export_validation_contract, Stage6aP0FreshRunRequest,
+};
+use crate::engine::run_start::PendingRunStartTransition;
 use crate::engine::runtime::EngineRuntime;
 use crate::napi_engine::{
     background_generation_event_to_napi, background_generation_health_to_napi, bounded_js_string,
@@ -121,6 +125,65 @@ pub struct PreparedImportInventoryResult {
     pub stored_byte_count: String,
     pub history_count: String,
     pub hall_of_fame_count: String,
+}
+
+/// Small fresh replacement facts. The complete candidate remains in Rust.
+#[napi(object)]
+pub struct PreparedFreshRunResult {
+    pub descriptor: crate::napi_engine::ManagedCheckpointDescriptor,
+    pub startup_metadata: String,
+}
+
+/// Complete off-loop result before the transition enters the shared slot.
+pub struct PreparedFreshRun {
+    transition: PendingRunStartTransition,
+    descriptor: CheckpointDescriptor,
+    startup_metadata_json: String,
+}
+
+/// Libuv task for constructing and publishing a private generation-one run.
+pub struct PrepareFreshRunTask {
+    managed_directory: PathBuf,
+    operation_id: CheckpointOperationId,
+    request: Stage6aP0FreshRunRequest,
+    prepared: PreparedImportSlot,
+    active: Arc<AtomicBool>,
+}
+
+impl Task for PrepareFreshRunTask {
+    type Output = PreparedFreshRun;
+    type JsValue = PreparedFreshRunResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let mut transition = prepare_stage6a_p0_fresh_run(self.request.clone())
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+        let descriptor = transition
+            .publish_checkpoint(&self.managed_directory, self.operation_id.clone())
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+        let startup_metadata_json = transition
+            .startup_metadata_json()
+            .map_err(|error| Error::new(Status::GenericFailure, error))?;
+        Ok(PreparedFreshRun {
+            transition,
+            descriptor,
+            startup_metadata_json,
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        self.prepared
+            .put(output.transition)
+            .map_err(|_| Error::new(Status::GenericFailure, "prepared replacement slot changed"))?;
+        Ok(PreparedFreshRunResult {
+            descriptor: checkpoint_descriptor_to_napi(output.descriptor),
+            startup_metadata: output.startup_metadata_json,
+        })
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.active.store(false, Ordering::Release);
+        Ok(())
+    }
 }
 
 /// Libuv task for file/codec work that must not block the Node event loop.
@@ -434,6 +497,65 @@ impl ExperimentalRunningAuthority {
             archive_path,
             scratch_directory,
             operation_id: operation_id.as_str().to_owned(),
+        }))
+    }
+
+    /// Construct and publish one private fixed-P0 generation-one replacement.
+    /// The running game and SQLite remain unchanged until later commands commit it.
+    #[napi(catch_unwind)]
+    pub fn prepare_fresh_run(
+        &self,
+        managed_directory: JsString<'_>,
+        operation_id: JsString<'_>,
+        run_id: JsString<'_>,
+        seed: u32,
+    ) -> Result<AsyncTask<PrepareFreshRunTask>> {
+        let managed_directory = parse_managed_path(bounded_js_string(
+            managed_directory,
+            "managedDirectory",
+            32 * 1024,
+            false,
+        )?)?;
+        let operation_id = parse_checkpoint_operation_id(bounded_js_string(
+            operation_id,
+            "operationId",
+            32,
+            false,
+        )?)?;
+        let run_id = bounded_js_string(run_id, "runId", 256, false)?;
+        if self.import_active.swap(true, Ordering::AcqRel) {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "another replacement preparation is already running",
+            ));
+        }
+        if self.prepared_import.is_some() {
+            self.import_active.store(false, Ordering::Release);
+            return Err(Error::new(
+                Status::GenericFailure,
+                "another prepared replacement is awaiting its durability decision",
+            ));
+        }
+        let memory_ceiling_bytes = match usize::try_from(4u64 * 1024 * 1024 * 1024) {
+            Ok(value) => value,
+            Err(_) => {
+                self.import_active.store(false, Ordering::Release);
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    "P0 fresh-run memory ceiling exceeds usize",
+                ));
+            }
+        };
+        Ok(AsyncTask::new(PrepareFreshRunTask {
+            managed_directory,
+            operation_id,
+            request: Stage6aP0FreshRunRequest {
+                run_id,
+                seed,
+                memory_ceiling_bytes,
+            },
+            prepared: self.prepared_import.clone(),
+            active: Arc::clone(&self.import_active),
         }))
     }
 

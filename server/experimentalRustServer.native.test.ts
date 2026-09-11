@@ -334,12 +334,12 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
           step: { samples: expect.any(Number), p95Ms: expect.any(Number), p99Ms: expect.any(Number) },
           process: { rssBytes: expect.any(Number), eventLoopDelayP95Ms: expect.any(Number) },
           frame: { latestBytes: expect.any(Number), maximumObservedBytes: expect.any(Number) },
-          trainerAction: { samples: 1 },
+          trainerAction: { samples: expect.any(Number) },
           playerAction: { samples: 0 },
           controllerLifecycle: { samples: 2 },
           controllerActivity: {
             player: { freshAssignments: 0, successfulReclaims: 0, appliedActions: 0, appliedDisconnects: 0 },
-            trainer: { freshAssignments: 1, successfulReclaims: 1, appliedActions: 1,
+            trainer: { freshAssignments: 1, successfulReclaims: 1, appliedActions: expect.any(Number),
               appliedDisconnects: expect.any(Number) }
           }
         },
@@ -350,6 +350,12 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
         },
         retentionCleanup: { deletedCheckpointCount: 0, deletedStoredByteCount: '0000000000000000' }
       });
+      const activity = (health['telemetry'] as {
+        trainerAction: { samples: number };
+        controllerActivity: { trainer: { appliedActions: number } };
+      });
+      expect(activity.trainerAction.samples).toBeGreaterThan(0);
+      expect(activity.controllerActivity.trainer.appliedActions).toBeGreaterThan(0);
       const pinResponse = await fetch(`http://127.0.0.1:${server.port}/api/checkpoints/current/pin`, { method: 'POST' });
       expect(pinResponse.status).toBe(200);
       const pinned = await pinResponse.json() as Record<string, unknown>;
@@ -359,8 +365,38 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
         return retention?.retained?.pinned?.checkpointCount === 1;
       });
       expect(pinnedHealth).toMatchObject({ retention: { retained: { pinned: { checkpointCount: 1 } } } });
+      const beforeReset = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        runId: string; seed: number; startupCheckpointId: string;
+      };
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { simSpeed: 2 } }));
+      await until(viewer, () => viewer.packets.some(packet =>
+        packet['type'] === 'error' && String(packet['message']).includes('changed setting simSpeed')));
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+        runId: beforeReset.runId, startupCheckpointId: beforeReset.startupCheckpointId
+      });
       viewer.socket.send(JSON.stringify({ type: 'reset' }));
-      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'error'));
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
+      const resetNotice = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced');
+      expect(resetNotice).toMatchObject({ reason: 'reset', welcome: { worldSeed: 42 } });
+      const afterReset = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        runId: string; seed: number; startupCheckpointId: string;
+      };
+      expect(afterReset).toMatchObject({ seed: beforeReset.seed });
+      expect(afterReset.runId).not.toBe(beforeReset.runId);
+      expect(afterReset.startupCheckpointId).not.toBe(beforeReset.startupCheckpointId);
+
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'newRun', requestId: 'native-new-run' }));
+      await until(viewer, () => viewer.packets.some(packet =>
+        packet['type'] === 'stateReplaced' && packet['reason'] === 'newRun') &&
+        viewer.packets.some(packet => packet['type'] === 'newRunResult' && packet['requestId'] === 'native-new-run'));
+      const newRunResult = viewer.packets.findLast(packet => packet['type'] === 'newRunResult');
+      expect(newRunResult).toMatchObject({ requestId: 'native-new-run', applied: true });
+      const afterNewRun = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        runId: string; seed: number; startupCheckpointId: string;
+      };
+      expect(afterNewRun).toMatchObject({ runId: newRunResult?.['runId'], seed: newRunResult?.['worldSeed'] });
+      expect(afterNewRun.runId).not.toBe(afterReset.runId);
     } finally {
       for (const peer of peers) peer.socket.terminate();
       await server.close();

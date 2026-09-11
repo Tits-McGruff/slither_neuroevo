@@ -340,6 +340,18 @@ export class WsHub {
   }
 
   /**
+   * Queue a lifecycle result to a known connection after it entered awaiting-rejoin.
+   * @param connId - Existing connection id.
+   * @param payload - Reliable lifecycle result.
+   * @returns True when the message entered the reliable queue.
+   */
+  sendJsonToAwaitingConnection(connId: number, payload: ServerMessage): boolean {
+    const state = this.connections.get(connId);
+    if (!state) return false;
+    return this.enqueueReliable(state, JSON.stringify(payload));
+  }
+
+  /**
    * Queue one priority JSON payload or report/close on bounded-queue failure.
    * @param state - Target connection.
    * @param payload - Pre-serialized JSON text.

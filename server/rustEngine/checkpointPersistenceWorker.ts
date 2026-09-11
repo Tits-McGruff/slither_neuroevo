@@ -1805,7 +1805,8 @@ function commitManagedImport(
  */
 function commitManagedCheckpoint(
   descriptor: ManagedCheckpointDescriptor,
-  generationCommit: ManagedGenerationCommit | null
+  generationCommit: ManagedGenerationCommit | null,
+  activateRun: boolean
 ): {
   operationId: CheckpointOperationId;
   transitionEpoch: U64Hex;
@@ -1876,6 +1877,10 @@ function commitManagedCheckpoint(
         current.pointer_transition_epoch !== candidate.transitionEpoch) {
         throw new Error('operationId replay is superseded and must not regress the current pointer');
       }
+      if (activateRun) {
+        db.prepare(`INSERT INTO rust_active_run_v1 (singleton, run_id) VALUES (1, ?)
+          ON CONFLICT(singleton) DO UPDATE SET run_id = excluded.run_id`).run(candidate.runId);
+      }
       return;
     }
     const existingCheckpoint = db.prepare(
@@ -1942,6 +1947,10 @@ function commitManagedCheckpoint(
       transitionEpoch: candidate.transitionEpoch,
       operationId: candidate.operationId
     });
+    if (activateRun) {
+      db.prepare(`INSERT INTO rust_active_run_v1 (singleton, run_id) VALUES (1, ?)
+        ON CONFLICT(singleton) DO UPDATE SET run_id = excluded.run_id`).run(candidate.runId);
+    }
   });
   commit(descriptor);
   return {
@@ -2079,8 +2088,9 @@ port.on('message', (message: unknown) => {
       post({ type: 'managedImportCommitted', ...committed });
       return;
     }
-    if (request['type'] !== 'commitManagedCheckpoint' || Object.keys(request).length !== 3 ||
-      !Object.hasOwn(request, 'descriptor') || !Object.hasOwn(request, 'generationCommit')) {
+    if (request['type'] !== 'commitManagedCheckpoint' || Object.keys(request).length !== 4 ||
+      !Object.hasOwn(request, 'descriptor') || !Object.hasOwn(request, 'generationCommit') ||
+      typeof request['activateRun'] !== 'boolean') {
       throw new TypeError('worker request has an unsupported type or unknown fields');
     }
     const descriptor = parseManagedCheckpointDescriptor(request['descriptor']);
@@ -2088,7 +2098,7 @@ port.on('message', (message: unknown) => {
       request['generationCommit'],
       descriptor
     );
-    const committed = commitManagedCheckpoint(descriptor, generationCommit);
+    const committed = commitManagedCheckpoint(descriptor, generationCommit, request['activateRun']);
     post({ type: 'managedCheckpointCommitted', ...committed });
   } catch (error) {
     post({ type: 'managedCheckpointRejected', operationId, reason: rejectionReason(error) });

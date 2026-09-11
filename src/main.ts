@@ -3761,6 +3761,7 @@ wsClient = createWsClient({
   },
   onStateReplaced: (msg) => {
     const info = msg.welcome;
+    resolvePendingServerReset();
     const rejoinPlayer = playerSnakeId !== null || joinPending;
     playerActionPump.stop();
     authoritativeControls.dispose();
@@ -3787,7 +3788,9 @@ wsClient = createWsClient({
     setConnectionStatus('server');
     joinPending = rejoinPlayer;
     setJoinOverlayVisible(true);
-    setJoinStatus(rejoinPlayer ? 'Joining imported run...' : 'Imported run ready');
+    const replacementLabel = msg.reason === 'import' ? 'imported run' :
+      msg.reason === 'reset' ? 'reset run' : 'new run';
+    setJoinStatus(rejoinPlayer ? `Joining ${replacementLabel}...` : `${replacementLabel[0]!.toUpperCase()}${replacementLabel.slice(1)} ready`);
     updateJoinControls();
     if (rejoinPlayer && lastPlayerName) {
       proxyWorld.viewMode = 'follow';

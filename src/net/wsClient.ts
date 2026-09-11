@@ -182,8 +182,8 @@ export interface StateReplacedMsg {
   /** Message discriminator. */
   type: 'stateReplaced';
   /** Replacement operation that completed. */
-  reason: 'import';
-  /** Exact imported checkpoint identity. */
+  reason: 'import' | 'reset' | 'newRun';
+  /** Exact replacement checkpoint identity. */
   checkpointId: string;
   /** Complete current server state used before sending a new join. */
   welcome: WelcomeMsg;

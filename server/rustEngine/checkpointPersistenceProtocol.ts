@@ -205,6 +205,8 @@ export interface CommitManagedCheckpointRequest {
   descriptor: ManagedCheckpointDescriptor;
   /** Exact small generation metadata, otherwise null for run start. */
   generationCommit: ManagedGenerationCommit | null;
+  /** Whether this commit also selects a newly replacing live run. */
+  activateRun: boolean;
 }
 
 /** Atomic import request referencing only Rust-published managed files. */

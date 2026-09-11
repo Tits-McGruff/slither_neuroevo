@@ -196,11 +196,13 @@ export class CheckpointPersistenceClient {
    * Commit a descriptor after its file is already final under the controlled root.
    * @param value - Strict descriptor candidate containing no checkpoint payload bytes.
    * @param generationCommitValue - Exact compact history and Hall-of-Fame reference.
+   * @param activateRun - Select this new run as the process-restart lineage in the same transaction.
    * @returns Matching durable metadata/current-pointer acknowledgement.
    */
   commit(
     value: unknown,
-    generationCommitValue: unknown = null
+    generationCommitValue: unknown = null,
+    activateRun = false
   ): Promise<ManagedCheckpointCommitResult> {
     if (this.failure) return Promise.reject(this.failure);
     if (this.stopping) return Promise.reject(new Error('checkpoint persistence client is stopping'));
@@ -218,11 +220,7 @@ export class CheckpointPersistenceClient {
     return new Promise<ManagedCheckpointCommitResult>((resolve, reject) => {
       this.pending.set(descriptor.operationId, { descriptor, import: false, branchRunId: null, resolve, reject });
       try {
-        this.worker.postMessage({
-          type: 'commitManagedCheckpoint',
-          descriptor,
-          generationCommit
-        });
+        this.worker.postMessage({ type: 'commitManagedCheckpoint', descriptor, generationCommit, activateRun });
       } catch (error) {
         this.pending.delete(descriptor.operationId);
         reject(asError(error));

@@ -383,8 +383,8 @@ export interface StateReplacedMsg {
   /** Message discriminator. */
   type: 'stateReplaced';
   /** Replacement operation that completed. */
-  reason: 'import';
-  /** Exact imported checkpoint identity. */
+  reason: 'import' | 'reset' | 'newRun';
+  /** Exact replacement checkpoint identity. */
   checkpointId: string;
   /** New complete handshake state used before a fresh join. */
   welcome: WelcomeMsg;

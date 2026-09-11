@@ -361,5 +361,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   minimal PyRL server adapter at `6938663` also handles replacement while it is
   still waiting for its first assignment on the open socket.
 
-The next dependency is reuse of this durability-gated replacement path for
-Reset/New Run, followed by the remaining thin secondary command surfaces.
+- 2026-09-12 The live Rust server now prepares Reset and New Run as private
+  generation-one candidates, writes and commits their run-start checkpoint,
+  then swaps authority and invalidates old controller assignments on the open
+  sockets. Reset retains the seed, New Run uses OS entropy, and SQLite selects
+  the replacement lineage in the same transaction as its current pointer.
+  The fixed-P0 route rejects changed settings/custom graphs instead of
+  silently ignoring them.
+
+The next dependency is the remaining thin secondary command surfaces, starting
+with atomic live settings and God Mode against the running Rust authority.

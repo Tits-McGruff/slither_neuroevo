@@ -56,6 +56,13 @@ export interface ExperimentalRunningAuthorityNativeHandle {
     managedDirectory: string,
     operationId: string
   ): Promise<RustPreparedImportArchive>;
+  /** Build and publish a private generation-one candidate without changing the live game. */
+  prepareFreshRun(
+    managedDirectory: string,
+    operationId: string,
+    runId: string,
+    seed: number
+  ): Promise<RustPreparedFreshRun>;
   /** Drop a prepared candidate after a pre-commit failure. */
   discardPreparedImport(): void;
   /** Pause stepping at the next clean boundary before the import transaction. */
@@ -138,6 +145,14 @@ export interface RustPreparedImportArchive extends RustValidatedImportArchive {
   startupMetadata: string;
 }
 
+/** Small Rust-authored result for one private fresh replacement. */
+export interface RustPreparedFreshRun {
+  /** Newly published run-start checkpoint awaiting its SQLite commit. */
+  descriptor: ManagedCheckpointDescriptor;
+  /** Bounded welcome metadata for the still-private candidate. */
+  startupMetadata: string;
+}
+
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
@@ -145,6 +160,7 @@ const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle
   'prepareExportArchive',
   'validateImportArchive',
   'prepareImportArchive',
+  'prepareFreshRun',
   'discardPreparedImport',
   'submitStagePreparedImport',
   'submitCancelPreparedImport',

@@ -123,8 +123,12 @@ the required unchanged owner trainer or a real browser on another trusted-LAN
 device.
 
 This entry uses the fixed default graph and settings. Pin, direct archive
-export, and direct archive import are available; settings, Reset/New Run and
-the other secondary commands are still being connected.
+export/import, same-seed **Reset**, and entropy-seeded **New Run** are
+available. Both run controls write generation one before replacing the live
+game and keep existing WebSocket connections open for a fresh join. A Reset
+that changes settings or supplies a custom graph is rejected until the
+general Rust configuration builder is connected; live settings, God Mode,
+visualization, resurrection, and graph/preset actions remain in migration.
 `npm run server` remains the separate reference runtime.
 
 ### Architecture

@@ -301,6 +301,19 @@ impl PendingRunStartTransition {
         Ok(())
     }
 
+    /// Accept the exact durable descriptor for either a newly constructed run
+    /// or a previously restored import candidate.
+    pub(crate) fn acknowledge_replacement_persistence(
+        &mut self,
+        committed: &CheckpointDescriptor,
+    ) -> Result<(), RunStartTransitionError> {
+        if self.restored_checkpoint {
+            self.acknowledge_import_persistence(committed)
+        } else {
+            self.acknowledge_persistence(committed)
+        }
+    }
+
     /// Construct and atomically activate the running world after exact durability.
     ///
     /// A construction or state-admission failure leaves the durable boundary and

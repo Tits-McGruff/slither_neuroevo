@@ -625,7 +625,7 @@ impl RunningAuthorityLoop {
             transition
                 .as_mut()
                 .expect("prepared import transition remains owned")
-                .acknowledge_import_persistence(committed)?;
+                .acknowledge_replacement_persistence(committed)?;
             if let Some(run_id) = branch_run_id {
                 let candidate = transition
                     .take()

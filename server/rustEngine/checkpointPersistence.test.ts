@@ -885,7 +885,7 @@ describe(SUITE, { timeout: 30_000 }, () => {
     } finally { inspect.close(); }
   });
 
-  it('rejects ambiguous run selection while retaining explicit per-run reads', async () => {
+  it('rejects ambiguous runs until one durable checkpoint explicitly activates its lineage', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);
     const second = createDescriptor(fixture.managedRoot, { runId: 'another-run', operationId: 'c'.repeat(32) });
@@ -894,6 +894,8 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await expect(fixture.client.selectCurrent()).rejects.toThrow('multiple current runs');
     await expect(fixture.client.selectCurrent(first.runId)).resolves.toEqual(first);
     await expect(fixture.client.selectCurrent(second.runId)).resolves.toEqual(second);
+    await fixture.client.commit(second, null, true);
+    await expect(fixture.client.selectCurrent()).resolves.toEqual(second);
   });
 
   it('rejects oversized stored metadata without materializing it or rewriting the source', async () => {
