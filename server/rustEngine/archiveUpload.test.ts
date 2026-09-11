@@ -1,4 +1,4 @@
-import { readFileSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,7 +31,7 @@ describe('raw archive upload spooling', () => {
     const result = await spoolArchiveUpload({ source: chunks('save-', 'bytes'), contentLength: '10',
       scratchDirectory: directory, operationId, maximumBytes: 64n });
     expect(result).toEqual({ operationId, relativeFilename: `.${operationId}.upload.ready`,
-      readyPath: join(directory, `.${operationId}.upload.ready`), storedByteCount: '000000000000000a' });
+      readyPath: join(realpathSync(directory), `.${operationId}.upload.ready`), storedByteCount: '000000000000000a' });
     expect(readFileSync(result.readyPath).toString()).toBe('save-bytes');
     expect(readdirSync(directory)).toEqual([`.${operationId}.upload.ready`]);
   });
