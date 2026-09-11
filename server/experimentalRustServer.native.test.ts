@@ -310,7 +310,8 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       if (!assignment || !sample) throw new Error(`browser transport did not assign: ${errors.join('; ')}`);
       const snakeId = assignment.snakeId;
       const clientTick = sample.tick;
-      while (frameDirection(latestFrame, snakeId) === undefined && performance.now() < deadline) await new Promise<void>(done => setTimeout(done, 10));
+      const frameDeadline = performance.now() + 5000;
+      while (frameDirection(latestFrame, snakeId) === undefined && performance.now() < frameDeadline) await new Promise<void>(done => setTimeout(done, 10));
       const initialDirection = frameDirection(latestFrame, snakeId);
       expect(initialDirection).toEqual(expect.any(Number));
 
@@ -324,7 +325,8 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       // No sensor or frame callback invokes the pump: its own timer and change
       // request are the only producers while incoming state is merely observed.
       pump.start();
-      while (performance.now() < deadline) {
+      const firstTurnDeadline = performance.now() + 5000;
+      while (performance.now() < firstTurnDeadline) {
         const direction = frameDirection(latestFrame, snakeId);
         if (direction !== undefined && initialDirection !== undefined && directionDelta(initialDirection, direction) > 0.02) break;
         await new Promise<void>(done => setTimeout(done, 10));
@@ -334,7 +336,8 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       turn = -1;
       boost = 0;
       pump.requestImmediate();
-      while (performance.now() < deadline) {
+      const reverseDeadline = performance.now() + 5000;
+      while (performance.now() < reverseDeadline) {
         const direction = frameDirection(latestFrame, snakeId);
         if (actions.some(action => action.turn === -1 && action.boost === 0) &&
             direction !== undefined && directionDelta(beforeRelease, direction) < -0.02) break;
