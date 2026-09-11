@@ -248,6 +248,20 @@ fn current_build_policy(
     }
 }
 
+/// Rebuild the fixed P0 restore contract without allocating a second population.
+pub(crate) fn stage6a_p0_export_validation_contract(
+    memory_ceiling_bytes: usize,
+) -> Result<(CheckpointLimits, GraphLimits, StateAdmissionPolicy), FreshRunError> {
+    let settings =
+        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
+    let settings_schema_sha256 = normalized_settings_schema_hash(&settings)?;
+    Ok((
+        stage6a_p0_checkpoint_limits(),
+        stage6a_p0_graph_limits(),
+        current_build_policy(memory_ceiling_bytes, settings_schema_sha256),
+    ))
+}
+
 /// Build metadata-only population/brain records suitable for memory preflight.
 #[allow(clippy::too_many_arguments)]
 fn boundary_shell(

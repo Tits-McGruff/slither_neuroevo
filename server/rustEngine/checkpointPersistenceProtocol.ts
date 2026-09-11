@@ -254,6 +254,24 @@ export interface ManagedCheckpointExportLease {
   runId: string;
   /** Original immutable checkpoint descriptor selected by the current pointer. */
   descriptor: ManagedCheckpointDescriptor;
+  /** Bounded worker-written inventory consumed directly by Rust archive composition. */
+  inventory: ManagedExportInventoryDescriptor;
+}
+
+/** Fixed-width history/Hall-of-Fame inventory spooled for one exact export lease. */
+export interface ManagedExportInventoryDescriptor {
+  /** Binary inventory contract version. */
+  version: 1;
+  /** Operation-derived direct child of the controlled managed directory. */
+  relativeFilename: string;
+  /** SHA-256 of the complete inventory bytes. */
+  sha256: string;
+  /** Exact final inventory length. */
+  storedByteCount: U64Hex;
+  /** Number of 56-byte compact history records. */
+  historyCount: U64Hex;
+  /** Number of Hall-of-Fame records and linked winner objects. */
+  hallOfFameCount: U64Hex;
 }
 
 /** One validated metadata selection, without opening or decoding population payloads. */
@@ -702,6 +720,41 @@ export function parseManagedHallOfFameWeightsDescriptor(
     storedByteCount,
     decodedByteCount,
     weightCount
+  };
+}
+
+/** Validate the worker-written fixed-width inventory for one exact export operation. */
+export function parseManagedExportInventoryDescriptor(
+  value: unknown,
+  operationId: CheckpointOperationId
+): ManagedExportInventoryDescriptor {
+  const descriptor = asRecord(value, 'exportInventory');
+  requireOnlyKeys(descriptor, [
+    'version', 'relativeFilename', 'sha256', 'storedByteCount',
+    'historyCount', 'hallOfFameCount'
+  ]);
+  if (descriptor['version'] !== 1 ||
+      descriptor['relativeFilename'] !== `.${operationId}.export-inventory-v1` ||
+      typeof descriptor['sha256'] !== 'string' || !SHA256_HEX.test(descriptor['sha256'])) {
+    reject('export inventory has invalid identity');
+  }
+  const storedByteCount = asU64Hex(descriptor['storedByteCount'], 'exportInventory.storedByteCount');
+  const historyCount = asU64Hex(descriptor['historyCount'], 'exportInventory.historyCount');
+  const hallOfFameCount = asU64Hex(descriptor['hallOfFameCount'], 'exportInventory.hallOfFameCount');
+  const history = BigInt(`0x${historyCount}`);
+  const hallOfFame = BigInt(`0x${hallOfFameCount}`);
+  const expectedBytes = 32n + history * 56n + hallOfFame * 120n;
+  if (history !== hallOfFame || expectedBytes > 0xffff_ffff_ffff_ffffn ||
+      BigInt(`0x${storedByteCount}`) !== expectedBytes) {
+    reject('export inventory has inconsistent counts');
+  }
+  return {
+    version: 1,
+    relativeFilename: descriptor['relativeFilename'] as string,
+    sha256: descriptor['sha256'],
+    storedByteCount,
+    historyCount,
+    hallOfFameCount
   };
 }
 

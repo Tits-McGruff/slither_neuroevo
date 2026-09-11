@@ -92,7 +92,10 @@ milestones and prior-run anchors, and never removes compact generation history
 or Hall-of-Fame records. Health includes the last cleanup's exact file and byte
 counts. The Settings panel's **Pin checkpoint** button
 permanently protects the exact current managed checkpoint; it does not also
-create or download an export.
+create or download an export. **Export** starts one ordinary browser download
+of the exact current Rust checkpoint plus its complete compact history and
+run-scoped Hall of Fame. A second export receives `409` until the first
+download finishes or is cancelled.
 
 With that server running, a short real-boundary diagnostic exercises a
 spectator, an observation-driven Protocol 2 bot with disconnect/token reclaim,
@@ -383,7 +386,16 @@ The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM
 
 ## Import and export
 
-Population import/export lives in the Settings tab and writes a JSON file that includes the population, applied settings, the active graph spec, and Hall of Fame entries. The server streams its snapshot without constructing one population-sized JSON string; the browser then assembles the download so it can add UI settings and Hall of Fame entries. Imports replace the population and settings, but an imported seed is retained as file metadata; it does not silently change the active run's seed.
+The experimental Rust server's **Export** button opens a direct
+`/api/export/latest` download. Rust validates and packs the exact leased
+checkpoint, complete compact history, and run-scoped Hall of Fame into one
+`.slither-save` file; Node streams it, and browser JavaScript never reads or
+rebuilds its population. Direct `.slither-save` import is the next migration
+slice and is not enabled yet.
+
+The TypeScript reference runtime retains its compatibility JSON import/export
+path until Rust cutover. That older path still assembles population data in the
+browser and should not be confused with the Rust archive path.
 
 Automatic restart checkpoints are exact generation-boundary population
 checkpoints. They preserve the evolved population, generation, experiment
@@ -396,11 +408,9 @@ checkpoint; use `--fresh` to start and durably record a new run without
 deleting older snapshots, or `--resume <snapshot-id>` to select a specific
 valid checkpoint.
 
-The **Export** button first creates a population-export snapshot, then streams
-JSON one genome at a time to the browser. A population export is portable but
-is not selected for automatic exact resume. Current resumable checkpoints use
-per-genome SQLite rows; the older combined `genomes_blob` format remains
-read-only compatibility.
+Reference-runtime JSON exports are portable but are not selected for automatic
+exact resume. Its current compatibility checkpoints use per-genome SQLite
+rows; the older combined `genomes_blob` format remains read-only compatibility.
 
 Imports reset the simulation to the file contents under the active run identity.
 Imports from older builds may be incompatible with the current v3 sensor

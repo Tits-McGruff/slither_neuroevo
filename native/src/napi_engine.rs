@@ -2208,7 +2208,7 @@ impl Task for PublishStage6GenerationTask {
 }
 
 /// Validate one controlled path before moving publication to a worker thread.
-fn parse_managed_path(value: String) -> Result<PathBuf> {
+pub(crate) fn parse_managed_path(value: String) -> Result<PathBuf> {
     if value.is_empty() || value.len() > 32_768 || value.contains('\0') {
         return Err(Error::new(
             Status::InvalidArg,
@@ -2219,7 +2219,7 @@ fn parse_managed_path(value: String) -> Result<PathBuf> {
 }
 
 /// Validate one exact operation token before any file work.
-fn parse_checkpoint_operation_id(value: String) -> Result<CheckpointOperationId> {
+pub(crate) fn parse_checkpoint_operation_id(value: String) -> Result<CheckpointOperationId> {
     CheckpointOperationId::parse(value)
         .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))
 }

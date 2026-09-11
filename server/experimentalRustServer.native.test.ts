@@ -82,6 +82,53 @@ function directionDelta(from: number, to: number): number {
 }
 
 describeNetworkSuite('experimental Rust server real sockets', () => {
+  it('streams one Rust-composed exact-checkpoint save and removes operation files', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-export-server-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    const managedDirectory = `${dbPath}.checkpoints`;
+    const server = await startExperimentalRustServer({
+      ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 41, dbPath
+    });
+    try {
+      const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        startupCheckpointId: string;
+      };
+      const exported = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+      expect(exported.status).toBe(200);
+      expect(exported.headers.get('content-type')).toBe('application/vnd.slither-neuroevo.save');
+      expect(exported.headers.get('content-disposition')).toMatch(
+        /^attachment; filename="slither-neuroevo-[0-9a-f]{12}-gen-1-v1\.slither-save"$/u
+      );
+      expect(exported.headers.get('x-slither-checkpoint-id')).toBe(health.startupCheckpointId);
+      expect(exported.headers.get('x-slither-save-root')).toMatch(/^[0-9a-f]{64}$/u);
+      const concurrent = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+      expect(concurrent.status).toBe(409);
+      await concurrent.body?.cancel();
+      const bytes = Buffer.from(await exported.arrayBuffer());
+      expect(bytes.byteLength).toBe(Number(exported.headers.get('content-length')));
+      expect(bytes.subarray(0, 100).toString('utf8').replace(/\0.*$/u, '')).toBe(
+        'checkpoint/checkpoint-v3.ustar'
+      );
+      expect(bytes.includes(Buffer.from('history.bin\0'))).toBe(true);
+      expect(bytes.includes(Buffer.from('hof/index.bin\0'))).toBe(true);
+      expect(bytes.includes(Buffer.from('hof/weights.f32le\0'))).toBe(true);
+      expect(bytes.includes(Buffer.from('manifest.json\0'))).toBe(true);
+      const cleanupDeadline = performance.now() + 2000;
+      let leftovers: string[] = [];
+      do {
+        leftovers = (await readdir(managedDirectory)).filter(name =>
+          name.includes('export-inventory') || name.includes('slither-save') || name.includes('export-hof')
+        );
+        if (leftovers.length === 0) break;
+        await new Promise<void>(done => setTimeout(done, 10));
+      } while (performance.now() < cleanupDeadline);
+      expect(leftovers).toEqual([]);
+    } finally {
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it('resumes exact managed IDs and exposes recovery or health-only failure over real HTTP/WebSocket', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-recovery-server-'));
     const dbPath = join(root, 'experiment.sqlite');

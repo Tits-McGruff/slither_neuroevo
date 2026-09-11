@@ -30,7 +30,7 @@ export function createRustWelcome(metadata: RustStartupMetadata): WelcomeMsg {
     sessionId: randomUUID(), tickRate: 1 / metadata.fixedStepSeconds,
     worldSeed: metadata.seed, runId: metadata.runId, configHash: metadata.configHash,
     configRevision: wireInteger(metadata.configRevision), frameByteLength: 0,
-    capabilities: { checkpointPinning: true, archiveExport: false },
+    capabilities: { checkpointPinning: true, archiveExport: true },
     settings: {
       // Graph-editor defaults describe the one admitted P0 graph. This route
       // accepts no graph edits and never constructs native population weights.

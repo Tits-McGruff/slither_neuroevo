@@ -1,5 +1,6 @@
 import { parseRecoveryScanCursor, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
-import { lstatSync, realpathSync, statSync, unlinkSync } from 'node:fs';
+import { closeSync, fsyncSync, lstatSync, openSync, realpathSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, resolve, sep } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
@@ -14,6 +15,7 @@ import {
 import {
   parseManagedCheckpointDescriptor,
   parseManagedCheckpointDescriptorLimits,
+  parseManagedHallOfFameWeightsDescriptor,
   parseManagedGenerationCommit,
   type CheckpointOperationId,
   type CheckpointPersistenceWorkerResponse,
@@ -22,6 +24,7 @@ import {
   type ManagedCheckpointDescriptorLimits,
   type ManagedGenerationCommit,
   type ManagedGenerationSummary,
+  type ManagedExportInventoryDescriptor,
   type ManagedHallOfFameWeightsDescriptor,
   type ManagedHallOfFameReference,
   type U64Hex
@@ -29,6 +32,12 @@ import {
 
 /** Maximum text length returned to the client for any worker rejection. */
 const MAX_REJECTION_REASON_BYTES = 1024;
+/** Fixed inventory header bytes: 16-byte magic plus two little-endian u64 counts. */
+const EXPORT_INVENTORY_HEADER_BYTES = 32;
+/** Fixed bytes for one Hall-of-Fame record, digest, encoding tag, padding, and counts. */
+const EXPORT_INVENTORY_HALL_OF_FAME_BYTES = 120;
+/** Practical hard ceiling for complete-generation records in one ordinary export. */
+const MAX_EXPORT_GENERATIONS = 1_000_000n;
 
 /** Worker bootstrap data owned by the client and structured-cloned at spawn time. */
 interface CheckpointPersistenceWorkerData {
@@ -150,7 +159,11 @@ initializeHallOfFameWeightsSchema(db);
 initializeRecoverySchema(db);
 initializeRetentionSchema(db);
 /** One exact in-process export reference; worker shutdown cancels it implicitly. */
-let activeExportLease: { operationId: CheckpointOperationId; checkpointId: string } | undefined;
+let activeExportLease: {
+  operationId: CheckpointOperationId;
+  checkpointId: string;
+  inventoryPath: string;
+} | undefined;
 
 /**
  * Parse worker bootstrap data without accepting arbitrary nested values.
@@ -861,14 +874,178 @@ function pinCurrentCheckpoint(): { checkpointId: string; generation: U64Hex } {
   }).immediate();
 }
 
+/** Build the inherited completed-generation filter for one exact checkpoint boundary. */
+function exportLineageFilter(
+  runId: string,
+  checkpointGeneration: U64Hex,
+  tableAlias: string
+): { sql: string; parameters: string[]; completedGenerationCount: bigint } {
+  const completedGenerationCount = u64HexToBigInt(checkpointGeneration) - 1n;
+  const lineage = recoveryLineage(runId).map(item => {
+    const boundary = item.maximumGeneration === null
+      ? completedGenerationCount
+      : u64HexToBigInt(item.maximumGeneration) - 1n;
+    return { runId: item.runId, maximumCompletedGeneration: boundary };
+  });
+  return {
+    sql: lineage.map(() => `(${tableAlias}.run_id = ? AND ${tableAlias}.generation_hex <= ?)`)
+      .join(' OR '),
+    parameters: lineage.flatMap(item => [
+      item.runId,
+      item.maximumCompletedGeneration.toString(16).padStart(16, '0')
+    ]),
+    completedGenerationCount
+  };
+}
+
+/** Write every byte of one small fixed record to an already-open inventory file. */
+function writeInventoryBytes(file: number, bytes: Buffer): void {
+  let offset = 0;
+  while (offset < bytes.length) offset += writeSync(file, bytes, offset, bytes.length - offset);
+}
+
+/** Publish one bounded fixed-width history and Hall-of-Fame inventory for Rust. */
+function publishExportInventory(
+  operationId: CheckpointOperationId,
+  runId: string,
+  checkpoint: ManagedCheckpointDescriptor
+): { descriptor: ManagedExportInventoryDescriptor; path: string } {
+  const historyFilter = exportLineageFilter(runId, checkpoint.generation, 'history');
+  const hallFilter = exportLineageFilter(runId, checkpoint.generation, 'hall');
+  const expectedCount = historyFilter.completedGenerationCount;
+  if (expectedCount < 0n || expectedCount > MAX_EXPORT_GENERATIONS) {
+    throw new RangeError('export generation count exceeds the bounded inventory limit');
+  }
+  const historyCount = BigInt((db.prepare(`SELECT count(*) AS count
+    FROM rust_generation_history_v1 AS history WHERE ${historyFilter.sql}`)
+    .get(...historyFilter.parameters) as { count: number }).count);
+  const hallOfFameCount = BigInt((db.prepare(`SELECT count(*) AS count
+    FROM rust_hall_of_fame_v1 AS hall WHERE ${hallFilter.sql}`)
+    .get(...hallFilter.parameters) as { count: number }).count);
+  const linkedHallOfFameCount = BigInt((db.prepare(`SELECT count(*) AS count
+    FROM rust_hall_of_fame_v1 AS hall
+    JOIN rust_hall_of_fame_weights_v1 AS weights ON weights.logical_sha256 = hall.weights_sha256
+    WHERE ${hallFilter.sql}`).get(...hallFilter.parameters) as { count: number }).count);
+  if (historyCount !== expectedCount || hallOfFameCount !== expectedCount ||
+      linkedHallOfFameCount !== expectedCount) {
+    throw new Error('export requires complete compact history and Hall-of-Fame coverage');
+  }
+
+  const relativeFilename = `.${operationId}.export-inventory-v1`;
+  const finalPath = resolve(managedRootPath, relativeFilename);
+  const partialPath = `${finalPath}.partial`;
+  let file: number | undefined;
+  let published = false;
+  const hasher = createHash('sha256');
+  const write = (bytes: Buffer): void => {
+    hasher.update(bytes);
+    writeInventoryBytes(file!, bytes);
+  };
+  try {
+    file = openSync(partialPath, 'wx');
+    const header = Buffer.alloc(EXPORT_INVENTORY_HEADER_BYTES);
+    header.write('SLITHER-EXPV1', 0, 'ascii');
+    header.writeBigUInt64LE(historyCount, 16);
+    header.writeBigUInt64LE(hallOfFameCount, 24);
+    write(header);
+
+    let expectedGeneration = 1n;
+    const historyRows = db.prepare(`SELECT generation_hex, record_blob
+      FROM rust_generation_history_v1 AS history WHERE ${historyFilter.sql}
+      ORDER BY generation_hex`).iterate(...historyFilter.parameters) as Iterable<{
+        generation_hex: string; record_blob: Buffer;
+      }>;
+    for (const row of historyRows) {
+      if (row.generation_hex !== expectedGeneration.toString(16).padStart(16, '0') ||
+          !Buffer.isBuffer(row.record_blob) || row.record_blob.length !== 56) {
+        throw new Error('export compact history is missing, duplicated, or malformed');
+      }
+      write(row.record_blob);
+      expectedGeneration++;
+    }
+    if (expectedGeneration !== historyCount + 1n) {
+      throw new Error('export compact history count changed during inventory publication');
+    }
+
+    expectedGeneration = 1n;
+    const hallRows = db.prepare(`SELECT hall.generation_hex, hall.record_blob,
+      weights.logical_sha256, weights.relative_filename, weights.encoding,
+      weights.stored_byte_count_hex, weights.decoded_byte_count_hex, weights.weight_count_hex
+      FROM rust_hall_of_fame_v1 AS hall
+      JOIN rust_hall_of_fame_weights_v1 AS weights ON weights.logical_sha256 = hall.weights_sha256
+      WHERE ${hallFilter.sql} ORDER BY hall.generation_hex`).iterate(...hallFilter.parameters) as Iterable<{
+        generation_hex: string; record_blob: Buffer; logical_sha256: string; relative_filename: string;
+        encoding: string; stored_byte_count_hex: string; decoded_byte_count_hex: string;
+        weight_count_hex: string;
+      }>;
+    for (const row of hallRows) {
+      if (row.generation_hex !== expectedGeneration.toString(16).padStart(16, '0') ||
+          !Buffer.isBuffer(row.record_blob) || row.record_blob.length !== 56) {
+        throw new Error('export Hall-of-Fame history is missing, duplicated, or malformed');
+      }
+      const weights = parseManagedHallOfFameWeightsDescriptor({
+        version: 1,
+        logicalSha256: row.logical_sha256,
+        relativeFilename: row.relative_filename,
+        encoding: row.encoding,
+        storedByteCount: row.stored_byte_count_hex,
+        decodedByteCount: row.decoded_byte_count_hex,
+        weightCount: row.weight_count_hex
+      }, checkpoint);
+      verifyHallOfFameWeightsFile(weights);
+      const record = Buffer.alloc(EXPORT_INVENTORY_HALL_OF_FAME_BYTES);
+      row.record_blob.copy(record, 0);
+      Buffer.from(weights.logicalSha256, 'hex').copy(record, 56);
+      record[88] = weights.encoding === 'raw-f32le-v1' ? 0 : 1;
+      record.writeBigUInt64LE(u64HexToBigInt(weights.storedByteCount), 96);
+      record.writeBigUInt64LE(u64HexToBigInt(weights.decodedByteCount), 104);
+      record.writeBigUInt64LE(u64HexToBigInt(weights.weightCount), 112);
+      write(record);
+      expectedGeneration++;
+    }
+    if (expectedGeneration !== hallOfFameCount + 1n) {
+      throw new Error('export Hall-of-Fame count changed during inventory publication');
+    }
+    fsyncSync(file!);
+    closeSync(file!);
+    file = undefined;
+    renameSync(partialPath, finalPath);
+    published = true;
+    const storedByteCount = BigInt(EXPORT_INVENTORY_HEADER_BYTES) + historyCount * 56n +
+      hallOfFameCount * BigInt(EXPORT_INVENTORY_HALL_OF_FAME_BYTES);
+    verifyManagedDirectFile(relativeFilename, storedByteCount);
+    return {
+      descriptor: {
+        version: 1,
+        relativeFilename,
+        sha256: hasher.digest('hex'),
+        storedByteCount: storedByteCount.toString(16).padStart(16, '0'),
+        historyCount: historyCount.toString(16).padStart(16, '0'),
+        hallOfFameCount: hallOfFameCount.toString(16).padStart(16, '0')
+      },
+      path: finalPath
+    };
+  } catch (error) {
+    if (file !== undefined) closeSync(file);
+    for (const path of [partialPath, ...(published ? [finalPath] : [])]) {
+      try { unlinkSync(path); } catch (cleanupError) {
+        if (!(cleanupError && typeof cleanupError === 'object' &&
+          (cleanupError as NodeJS.ErrnoException).code === 'ENOENT')) throw cleanupError;
+      }
+    }
+    throw error;
+  }
+}
+
 /** Protect the exact active current file until one direct export releases it. */
 function acquireCurrentExportLease(operationId: CheckpointOperationId): {
   operationId: CheckpointOperationId;
   runId: string;
   descriptor: ManagedCheckpointDescriptor;
+  inventory: ManagedExportInventoryDescriptor;
 } {
   if (activeExportLease) throw new Error('another checkpoint export is already active');
-  return db.transaction(() => {
+  const selected = db.transaction(() => {
     const runId = resolveSelectedRun(null);
     if (runId === null) throw new Error('export requires one active managed run');
     const current = readCurrentPointer(runId);
@@ -880,15 +1057,22 @@ function acquireCurrentExportLease(operationId: CheckpointOperationId): {
       throw new Error('current checkpoint is not available for export');
     }
     verifyManagedFile(descriptor);
-    activeExportLease = { operationId, checkpointId: descriptor.logicalRootSha256 };
-    return { operationId, runId, descriptor };
+    return { runId, descriptor };
   }).deferred();
+  const inventory = publishExportInventory(operationId, selected.runId, selected.descriptor);
+  activeExportLease = { operationId, checkpointId: selected.descriptor.logicalRootSha256,
+    inventoryPath: inventory.path };
+  return { operationId, ...selected, inventory: inventory.descriptor };
 }
 
 /** Release only the exact active export reference. */
 function releaseExportLease(operationId: CheckpointOperationId): void {
   if (!activeExportLease || activeExportLease.operationId !== operationId) {
     throw new Error('export lease is not active');
+  }
+  try { unlinkSync(activeExportLease.inventoryPath); }
+  catch (error) {
+    if (!(error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
   }
   activeExportLease = undefined;
 }
@@ -1282,6 +1466,11 @@ function post(response: CheckpointPersistenceWorkerResponse): void {
 port.on('message', (message: unknown) => {
   if (message !== null && typeof message === 'object' && !Array.isArray(message) &&
     (message as Record<string, unknown>)['type'] === 'shutdown' && Object.keys(message).length === 1) {
+    if (activeExportLease) {
+      try { unlinkSync(activeExportLease.inventoryPath); }
+      catch { /* Best-effort temporary inventory cleanup during worker shutdown. */ }
+      activeExportLease = undefined;
+    }
     db.close();
     port.removeAllListeners('message');
     port.close();

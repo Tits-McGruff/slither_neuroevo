@@ -162,4 +162,14 @@ describe('Stage 1 browser-player transmission correction', () => {
     );
     expect(callback?.[1]).not.toMatch(/sendAction|requestImmediate|sendPlayerAction/);
   });
+
+  it('delegates Rust archive downloads to the browser without reading the response body', () => {
+    const source = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+    const directBranch = source.match(
+      /if \(serverArchiveExport\) \{([\s\S]*?)\r?\n\s*return;\r?\n\s*\}/u
+    )?.[1];
+    expect(directBranch).toContain("document.createElement('a')");
+    expect(directBranch).toContain('/api/export/latest');
+    expect(directBranch).not.toMatch(/fetch\(|arrayBuffer\(|\.json\(|\.text\(|Blob\(/u);
+  });
 });

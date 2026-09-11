@@ -40,6 +40,8 @@ pub mod effects;
 pub mod error;
 /// Serial TypeScript-compatible fitness, selection, crossover, and mutation.
 pub mod evolution;
+/// Self-contained save archive assembly from one leased managed checkpoint.
+pub mod export_archive;
 /// Atomic external-controller death replacement staging.
 pub mod external_replacement;
 /// Reusable corrected prefix of one complete authoritative fixed step.

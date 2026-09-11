@@ -10,7 +10,7 @@ import type {
   RustBackgroundReclaimReceipt,
   RustGenerationAssignmentReceipt
 } from '../../src/protocol/rustBackground.ts';
-import type { ManagedCheckpointDescriptor, U64Hex } from './checkpointPersistenceProtocol.ts';
+import type { ManagedCheckpointDescriptor, ManagedExportInventoryDescriptor, U64Hex } from './checkpointPersistenceProtocol.ts';
 import type { RustRunStartCheckpointPublishOptions } from './runStartPersistenceHandoff.ts';
 
 /** Coarse production-addon handle created by transferring the durable fresh run. */
@@ -31,6 +31,13 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitControllerDisconnect(sequence: U64Hex, close: RustBackgroundControllerDisconnect): void;
   /** Publish or exactly retry the retained generation's immutable managed file. */
   submitGenerationCheckpoint(sequence: U64Hex, options: RustRunStartCheckpointPublishOptions): void;
+  /** Compose one leased checkpoint and its compact history into an opaque ready archive. */
+  prepareExportArchive(
+    managedDirectory: string,
+    operationId: string,
+    checkpoint: ManagedCheckpointDescriptor,
+    inventory: ManagedExportInventoryDescriptor
+  ): Promise<RustPreparedExportArchive>;
   /** Return the complete descriptor committed by the dedicated SQLite worker. */
   submitGenerationPersistenceAcknowledgement(sequence: U64Hex, descriptor: ManagedCheckpointDescriptor): void;
   /** Prepare connected-controller assignments after durability. */
@@ -55,10 +62,27 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   join(): Promise<void>;
 }
 
+/** Small ready-file facts returned by Rust; archive bytes remain on disk. */
+export interface RustPreparedExportArchive {
+  /** Exact lease and archive operation. */
+  operationId: string;
+  /** Exact checkpoint root bound when the request started. */
+  checkpointId: string;
+  /** Controlled operation-local file below the managed directory. */
+  relativeFilename: string;
+  /** Safe attachment basename suggested by Rust. */
+  downloadFilename: string;
+  /** Exact complete archive bytes. */
+  storedByteCount: U64Hex;
+  /** Encoding-independent save role root. */
+  logicalRootSha256: string;
+}
+
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
   'start', 'submitControllerAction', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
+  'prepareExportArchive',
   'submitPrepareGenerationReassignments', 'submitGenerationAssignmentReceipt',
   'submitControllerDeliveryReceipt',
   'submitPublishGenerationStart', 'drainOutputs', 'health', 'latestDisplay',

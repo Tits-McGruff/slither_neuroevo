@@ -317,5 +317,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   One exact export lease also keeps its selected checkpoint alive across later
   generations and cleanup until the direct download releases it.
 
-The next dependency is Rust archive composition over the leased checkpoint and
-bounded history/Hall-of-Fame inventory.
+- 2026-09-11 The metadata worker now publishes one bounded fixed-width export
+  inventory for an exact current-checkpoint lease. Rust fully validates that
+  checkpoint and every referenced Hall-of-Fame weight object, composes and
+  re-reads one self-contained USTAR `.slither-save`, then Node streams the
+  ready file directly and removes it with the lease. The Rust-capable browser
+  path activates an ordinary download without reading population bytes.
+
+The next dependency is bounded direct archive upload, Rust validation, and an
+atomic imported-run replacement barrier.

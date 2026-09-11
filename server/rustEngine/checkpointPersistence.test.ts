@@ -556,6 +556,7 @@ describe(SUITE, { timeout: 30_000 }, () => {
       expect(migrated.prepare(`SELECT count(*) AS count FROM sqlite_schema
         WHERE type = 'table' AND name = 'rust_hall_of_fame_weights_v1'`).get()).toEqual({ count: 1 });
     } finally { migrated.close(); }
+    await expect(reopened.acquireCurrentExportLease()).rejects.toThrow(/complete compact history/);
     await expect(reopened.pinCurrentCheckpoint()).resolves.toEqual({
       checkpointId: second.logicalRootSha256,
       generation: second.generation
@@ -660,6 +661,16 @@ describe(SUITE, { timeout: 30_000 }, () => {
       if (generation === 2n) lease = await fixture.client.acquireCurrentExportLease();
     }
     expect(lease).toMatchObject({ runId: descriptors[1]!.runId, descriptor: descriptors[1] });
+    expect(lease?.inventory).toMatchObject({
+      version: 1,
+      historyCount: u64(1n),
+      hallOfFameCount: u64(1n),
+      storedByteCount: u64(208n)
+    });
+    const inventoryPath = join(fixture.managedRoot, lease!.inventory.relativeFilename);
+    const inventoryBytes = readFileSync(inventoryPath);
+    expect(inventoryBytes.subarray(0, 13).toString('ascii')).toBe('SLITHER-EXPV1');
+    expect(createHash('sha256').update(inventoryBytes).digest('hex')).toBe(lease!.inventory.sha256);
     await expect(fixture.client.acquireCurrentExportLease()).rejects.toThrow(/busy/);
 
     const protectedCleanup = await fixture.client.applyRetention();
@@ -667,6 +678,7 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(protectedCleanup.inventory.plannedPrune.checkpointCount).toBe(1);
     expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(true);
     await fixture.client.releaseExportLease(lease!.operationId);
+    expect(existsSync(inventoryPath)).toBe(false);
 
     const releasedCleanup = await fixture.client.applyRetention();
     expect(releasedCleanup.deletedCheckpointCount).toBe(1);

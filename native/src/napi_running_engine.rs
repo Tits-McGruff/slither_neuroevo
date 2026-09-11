@@ -1,10 +1,11 @@
 //! Production-addon handle for one Rust-owned background authority.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use napi::bindgen_prelude::{AsyncTask, Object};
+use napi::bindgen_prelude::{AsyncTask, JsObjectValue, Object, Task};
 use napi::{Env, Error, JsString, JsValue, Result, Status};
 use napi_derive::napi;
 
@@ -14,11 +15,16 @@ use crate::engine::contract::{
 };
 use crate::engine::display::{FrameCopyResult, RunningDisplayStatus};
 use crate::engine::error::{EngineError, EngineErrorCode};
+use crate::engine::export_archive::{
+    compose_export_archive, ExportArchiveDescriptor, ExportInventoryDescriptor,
+};
+use crate::engine::fresh_run::stage6a_p0_export_validation_contract;
 use crate::engine::runtime::EngineRuntime;
 use crate::napi_engine::{
     background_generation_event_to_napi, background_generation_health_to_napi, bounded_js_string,
     bounded_object_string, checkpoint_descriptor_from_napi_object, engine_error_to_napi,
-    parse_background_sequence, parse_managed_checkpoint_publication_options, parse_u64_hex,
+    parse_background_sequence, parse_checkpoint_operation_id,
+    parse_managed_checkpoint_publication_options, parse_managed_path, parse_u64_hex,
     positive_usize, u64_hex, JoinEngineTask, Stage6BackgroundGenerationDrain,
     Stage6BackgroundGenerationHealth,
 };
@@ -62,6 +68,63 @@ pub(crate) fn display_status_to_napi(status: RunningDisplayStatus) -> Background
 pub struct BackgroundFrameCopy {
     pub status: String,
     pub display: Option<BackgroundDisplayStatus>,
+}
+
+/// Bounded ready-file facts returned after Rust completes export composition.
+#[napi(object)]
+pub struct PreparedExportArchive {
+    pub operation_id: String,
+    pub checkpoint_id: String,
+    pub relative_filename: String,
+    pub download_filename: String,
+    pub stored_byte_count: String,
+    pub logical_root_sha256: String,
+}
+
+/// Libuv task for file/codec work that must not block the Node event loop.
+pub struct PrepareExportArchiveTask {
+    managed_directory: PathBuf,
+    operation_id: String,
+    checkpoint: crate::engine::checkpoint::CheckpointDescriptor,
+    inventory: ExportInventoryDescriptor,
+}
+
+impl Task for PrepareExportArchiveTask {
+    type Output = ExportArchiveDescriptor;
+    type JsValue = PreparedExportArchive;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
+            Error::new(
+                Status::GenericFailure,
+                "P0 export memory ceiling exceeds usize",
+            )
+        })?;
+        let (checkpoint_limits, graph_limits, admission_policy) =
+            stage6a_p0_export_validation_contract(memory_ceiling)
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+        compose_export_archive(
+            &self.managed_directory,
+            &self.operation_id,
+            &self.checkpoint,
+            &self.inventory,
+            &checkpoint_limits,
+            &graph_limits,
+            &admission_policy,
+        )
+        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(PreparedExportArchive {
+            operation_id: output.operation_id,
+            checkpoint_id: output.checkpoint_id,
+            relative_filename: output.relative_filename,
+            download_filename: output.download_filename,
+            stored_byte_count: output.stored_byte_count_hex,
+            logical_root_sha256: output.logical_root_sha256,
+        })
+    }
 }
 
 /// The fresh-run session can create this handle only by transferring its sole
@@ -143,6 +206,37 @@ impl ExperimentalRunningAuthority {
                 operation_id,
             },
         )
+    }
+
+    /// Build one exact leased checkpoint export on libuv's worker pool.
+    #[napi(catch_unwind)]
+    pub fn prepare_export_archive(
+        &self,
+        managed_directory: JsString<'_>,
+        operation_id: JsString<'_>,
+        checkpoint: Object<'_>,
+        inventory: Object<'_>,
+    ) -> Result<AsyncTask<PrepareExportArchiveTask>> {
+        let managed_directory = parse_managed_path(bounded_js_string(
+            managed_directory,
+            "managedDirectory",
+            32 * 1024,
+            false,
+        )?)?;
+        let operation_id = parse_checkpoint_operation_id(bounded_js_string(
+            operation_id,
+            "operationId",
+            32,
+            false,
+        )?)?;
+        let checkpoint = checkpoint_descriptor_from_napi_object(&checkpoint)?;
+        let inventory = parse_export_inventory_descriptor(&inventory, operation_id.as_str())?;
+        Ok(AsyncTask::new(PrepareExportArchiveTask {
+            managed_directory,
+            operation_id: operation_id.as_str().to_owned(),
+            checkpoint,
+            inventory,
+        }))
     }
 
     /// Queue the exact descriptor acknowledged by the dedicated SQLite worker.
@@ -478,6 +572,77 @@ impl Drop for DrainGuard<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
     }
+}
+
+/// Parse the metadata worker's exact bounded export inventory descriptor.
+fn parse_export_inventory_descriptor(
+    descriptor: &Object<'_>,
+    operation_id: &str,
+) -> Result<ExportInventoryDescriptor> {
+    const KEYS: [&str; 6] = [
+        "version",
+        "relativeFilename",
+        "sha256",
+        "storedByteCount",
+        "historyCount",
+        "hallOfFameCount",
+    ];
+    let names = descriptor.get_property_names()?;
+    if names.get_array_length()? != KEYS.len() as u32 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "export inventory has unknown or missing fields",
+        ));
+    }
+    let mut seen = [false; KEYS.len()];
+    for index in 0..names.get_array_length()? {
+        let key = names.get_element::<JsString<'_>>(index)?;
+        let key = bounded_js_string(key, "export inventory key", 32, false)?;
+        let position = KEYS
+            .iter()
+            .position(|expected| *expected == key)
+            .ok_or_else(|| {
+                Error::new(
+                    Status::InvalidArg,
+                    "export inventory contains an unknown field",
+                )
+            })?;
+        if seen[position] || !descriptor.has_own_property(KEYS[position])? {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "export inventory has inherited or duplicate fields",
+            ));
+        }
+        seen[position] = true;
+    }
+    let version = descriptor
+        .get::<f64>("version")?
+        .ok_or_else(|| Error::new(Status::InvalidArg, "export inventory omits version"))?;
+    if version != 1.0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "export inventory version is unsupported",
+        ));
+    }
+    let relative_filename = bounded_object_string(
+        descriptor,
+        "relativeFilename",
+        32 + ".export-inventory-v1".len() + 1,
+    )?;
+    if relative_filename != format!(".{operation_id}.export-inventory-v1") {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "export inventory does not match the operation ID",
+        ));
+    }
+    Ok(ExportInventoryDescriptor {
+        version: 1,
+        relative_filename,
+        sha256: bounded_object_string(descriptor, "sha256", 64)?,
+        stored_byte_count_hex: bounded_object_string(descriptor, "storedByteCount", 16)?,
+        history_count_hex: bounded_object_string(descriptor, "historyCount", 16)?,
+        hall_of_fame_count_hex: bounded_object_string(descriptor, "hallOfFameCount", 16)?,
+    })
 }
 
 /// Parse one optional bounded identity without materializing an unbounded string.

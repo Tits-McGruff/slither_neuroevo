@@ -1052,6 +1052,7 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
       });
       expect(countMetadataRows(paths.databasePath)).toBe(2);
       expect(readdirSync(paths.managedRoot).sort()).toEqual([
+        firstPublication.generationCommit.hallOfFameWeights.relativeFilename,
         firstPublication.descriptor.relativeFilename,
         runStart.relativeFilename
       ].sort());
@@ -1562,6 +1563,7 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         });
         expect(countMetadataRows(paths.databasePath)).toBe(2);
         expect(readdirSync(paths.managedRoot).sort()).toEqual([
+          firstPublication.generationCommit.hallOfFameWeights.relativeFilename,
           firstPublication.descriptor.relativeFilename,
           runStart.relativeFilename
         ].sort());

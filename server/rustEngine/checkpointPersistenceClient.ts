@@ -12,6 +12,7 @@ import {
   managedCheckpointDescriptorsEqual,
   parseManagedCheckpointDescriptor,
   parseManagedCheckpointDescriptorLimits,
+  parseManagedExportInventoryDescriptor,
   parseManagedGenerationCommit,
   type CheckpointOperationId,
   type CheckpointPersistenceWorkerResponse,
@@ -636,17 +637,19 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
       throw new TypeError('invalid checkpoint export lease');
     }
     const lease = response['lease'] as Record<string, unknown>;
-    requireExactKeys(lease, ['operationId', 'runId', 'descriptor']);
+    requireExactKeys(lease, ['operationId', 'runId', 'descriptor', 'inventory']);
     if (!isOperationId(lease['operationId']) || typeof lease['runId'] !== 'string' || !lease['runId'] ||
         lease['runId'].includes('\0') || Buffer.byteLength(lease['runId']) > 256) {
       throw new TypeError('invalid checkpoint export lease identity');
     }
     const descriptor = parseManagedCheckpointDescriptor(lease['descriptor']);
     if (descriptor.runId !== lease['runId']) throw new TypeError('checkpoint export lease run identity mismatch');
+    const inventory = parseManagedExportInventoryDescriptor(lease['inventory'], lease['operationId']);
     return { type: 'currentExportLeaseAcquired', lease: {
       operationId: lease['operationId'],
       runId: lease['runId'],
-      descriptor
+      descriptor,
+      inventory
     } };
   }
   if (response['type'] === 'checkpointRetentionApplied') {

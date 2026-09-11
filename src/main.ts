@@ -1192,6 +1192,8 @@ let clientZoom = 1;
 let currentVizData: VizData | null = null;
 /** Whether an export request is pending. */
 let pendingExport = false;
+/** Whether the connected server supports an opaque browser-managed save download. */
+let serverArchiveExport = false;
 
 /** Proxy world exposed to UI helpers and HoF spawn. */
 const proxyWorld: ProxyWorld = {
@@ -3533,6 +3535,7 @@ wsClient = createWsClient({
     if (serverRecovery) console.warn('[recovery]', formatRecoveryRuntimeStatus(serverRecovery));
     serverWorldSeed = info.worldSeed;
     serverInferenceMode = info.inferenceMode;
+    serverArchiveExport = info.capabilities?.archiveExport === true;
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
     lastServerTick = 0;
@@ -3572,6 +3575,7 @@ wsClient = createWsClient({
   },
   onDisconnected: () => {
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = true;
+    serverArchiveExport = false;
     resumePlayerAfterReconnect =
       playerSnakeId !== null || joinPending || playerResumeToken.length > 0;
     playerActionPump.stop();
@@ -4158,13 +4162,24 @@ async function importServerSnapshot(data: PopulationFilePayload): Promise<{ used
 }
 
 /**
- * Export the latest server snapshot and HoF entries to a local file.
+ * Start an opaque direct archive download when supported, or use the reference JSON path.
  */
 async function exportServerSnapshot(): Promise<void> {
   const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
   if (!base) {
     pendingExport = false;
     alert('Export failed: invalid server URL.');
+    return;
+  }
+  if (serverArchiveExport) {
+    const link = document.createElement('a');
+    link.href = `${base}/api/export/latest`;
+    link.download = '';
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    pendingExport = false;
     return;
   }
   try {

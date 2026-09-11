@@ -528,7 +528,7 @@ pub enum CheckpointError {
 
 impl CheckpointError {
     /// Construct one stable bounded format diagnosis.
-    fn format(code: &'static str, detail: impl Into<String>) -> Self {
+    pub(crate) fn format(code: &'static str, detail: impl Into<String>) -> Self {
         let mut detail = detail.into();
         if detail.len() > 512 {
             detail.truncate(512);
@@ -1238,10 +1238,18 @@ pub fn publish_hall_of_fame_weights(
 }
 
 /// Fully verify an existing content-addressed elite object before reusing it.
-fn validate_existing_hall_of_fame_weights(
+pub(crate) fn validate_existing_hall_of_fame_weights(
     path: &Path,
     descriptor: &HallOfFameWeightsDescriptor,
 ) -> Result<(), CheckpointError> {
+    read_validated_hall_of_fame_weights(path, descriptor).map(drop)
+}
+
+/// Fully decode one independently retained elite object for save composition.
+pub(crate) fn read_validated_hall_of_fame_weights(
+    path: &Path,
+    descriptor: &HallOfFameWeightsDescriptor,
+) -> Result<Box<[f32]>, CheckpointError> {
     let metadata = fs::symlink_metadata(path)?;
     if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
         return Err(CheckpointError::format(
@@ -1297,7 +1305,12 @@ fn validate_existing_hall_of_fame_weights(
             "Hall-of-Fame object decoded to the wrong shape",
         ));
     }
-    Ok(())
+    decoded.into_iter().next().ok_or_else(|| {
+        CheckpointError::format(
+            "HOF_WEIGHTS_COUNT",
+            "Hall-of-Fame object decoded without one genome",
+        )
+    })
 }
 
 /// Restore only the immutable content selected by the metadata worker. Historical
@@ -3841,7 +3854,7 @@ fn expected_archive_length<const N: usize>(sizes: [u64; N]) -> Result<u64, Check
 
 /// Atomically publish without replacing an existing content-addressed file on Linux.
 #[cfg(target_os = "linux")]
-fn rename_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
+pub(crate) fn rename_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
     use rustix::fs::{renameat_with, RenameFlags, CWD};
 
     renameat_with(CWD, source, CWD, destination, RenameFlags::NOREPLACE).map_err(io::Error::from)
@@ -3849,27 +3862,27 @@ fn rename_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
 
 /// Windows `MoveFileEx` semantics used by `std::fs::rename` do not replace an existing file.
 #[cfg(target_os = "windows")]
-fn rename_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
+pub(crate) fn rename_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
     fs::rename(source, destination)
 }
 
 /// Unsupported development targets use an atomic exclusive hard-link publication.
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn rename_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
+pub(crate) fn rename_noreplace(source: &Path, destination: &Path) -> io::Result<()> {
     fs::hard_link(source, destination)?;
     fs::remove_file(source)
 }
 
 /// Flush the containing directory on Unix after the same-directory rename.
 #[cfg(unix)]
-fn sync_parent_directory(directory: &Path) -> Result<(), CheckpointError> {
+pub(crate) fn sync_parent_directory(directory: &Path) -> Result<(), CheckpointError> {
     File::open(directory)?.sync_all()?;
     Ok(())
 }
 
 /// Windows has no portable directory handle `sync_all`; file fsync and rename still apply.
 #[cfg(not(unix))]
-fn sync_parent_directory(_directory: &Path) -> Result<(), CheckpointError> {
+pub(crate) fn sync_parent_directory(_directory: &Path) -> Result<(), CheckpointError> {
     Ok(())
 }
 

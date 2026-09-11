@@ -2,7 +2,7 @@ import type { RustRecoveryNotice } from '../src/protocol/rustBackground.ts';
 import type { ExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { lstat, stat, statfs, unlink } from 'node:fs/promises';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { networkInterfaces } from 'node:os';
@@ -15,6 +15,7 @@ import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { createRustStats, createRustWelcome } from './rustEngine/browserMetadata.ts';
 import { ExperimentalRuntimeTelemetry } from './rustEngine/runtimeTelemetry.ts';
 import type { CheckpointRetentionInventory } from './rustEngine/checkpointRetention.ts';
+import type { ManagedCheckpointExportLease } from './rustEngine/checkpointPersistenceProtocol.ts';
 
 /** Repository-owned built browser assets. */
 const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
@@ -22,6 +23,23 @@ const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
 const MAX_CONTROLLERS = 16;
 /** Browser asset MIME types emitted by Vite. */
 const CONTENT_TYPES: Readonly<Record<string, string>> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+
+/** Reject an export before writing when its scalar worst-case files do not fit. */
+async function admitExportSpace(directory: string, lease: ManagedCheckpointExportLease): Promise<void> {
+  const population = BigInt(`0x${lease.descriptor.populationCount}`);
+  const weights = BigInt(`0x${lease.descriptor.weightCount}`);
+  const hallOfFameCount = BigInt(`0x${lease.inventory.hallOfFameCount}`);
+  if (population === 0n || weights % population !== 0n) {
+    throw new Error('export checkpoint has an invalid population weight shape');
+  }
+  const hallOfFameRawBytes = hallOfFameCount * (weights / population) * 4n;
+  const projectedAdditionalBytes = BigInt(`0x${lease.descriptor.storedByteCount}`) +
+    BigInt(`0x${lease.inventory.storedByteCount}`) + hallOfFameRawBytes * 2n + 16n * 1024n * 1024n;
+  const space = await statfs(directory, { bigint: true });
+  if (space.bavail * space.bsize < projectedAdditionalBytes) {
+    throw new Error('insufficient free disk for exact checkpoint export');
+  }
+}
 
 /** Explicit experimental process ownership returned to tests and the CLI. */
 export interface ExperimentalRustServer {
@@ -108,6 +126,69 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let pumpsPerSecond = 0;
   let pinning: Promise<void> | undefined;
   let retentionMaintenance: Promise<void> | undefined;
+  let exportOperation: Promise<void> | undefined;
+  let activeExportResponse: import('node:http').ServerResponse | undefined;
+
+  /** Keep population-sized bytes in Rust/filesystem/browser networking for one exact lease. */
+  const serveExport = async (
+    response: import('node:http').ServerResponse<import('node:http').IncomingMessage>
+  ): Promise<void> => {
+    const lease = await owner.persistence.acquireCurrentExportLease();
+    const readyPath = resolve(owner.managedDirectory, `.${lease.operationId}.slither-save.ready`);
+    try {
+      await admitExportSpace(owner.managedDirectory, lease);
+      const ready = await owner.runtime.prepareExportArchive(
+        owner.managedDirectory, lease.operationId, lease.descriptor, lease.inventory
+      );
+      if (ready.operationId !== lease.operationId ||
+          ready.checkpointId !== lease.descriptor.logicalRootSha256 ||
+          ready.relativeFilename !== `.${lease.operationId}.slither-save.ready` ||
+          !/^[0-9a-f]{64}$/u.test(ready.logicalRootSha256) ||
+          !/^slither-neuroevo-[0-9a-f]{12}-gen-[0-9]+-v1\.slither-save$/u.test(ready.downloadFilename) ||
+          !/^[0-9a-f]{16}$/u.test(ready.storedByteCount)) {
+        throw new Error('Rust returned an invalid export archive descriptor');
+      }
+      const expectedBytes = BigInt(`0x${ready.storedByteCount}`);
+      if (!readyPath.startsWith(`${resolve(owner.managedDirectory)}${sep}`)) {
+        throw new Error('Rust export archive escaped the managed directory');
+      }
+      const readyStat = await lstat(readyPath);
+      if (readyStat.isSymbolicLink() || !readyStat.isFile() || BigInt(readyStat.size) !== expectedBytes) {
+        throw new Error('Rust export archive is not the expected ready file');
+      }
+      if (response.destroyed) return;
+      response.writeHead(200, {
+        'Content-Type': 'application/vnd.slither-neuroevo.save',
+        'Content-Length': expectedBytes.toString(),
+        'Content-Disposition': `attachment; filename="${ready.downloadFilename}"`,
+        'X-Slither-Checkpoint-Id': ready.checkpointId,
+        'X-Slither-Save-Root': ready.logicalRootSha256
+      });
+      await new Promise<void>((done, reject) => {
+        const stream = createReadStream(readyPath!);
+        let settled = false;
+        const finish = (error?: Error): void => {
+          if (settled) return;
+          settled = true;
+          stream.destroy();
+          if (error) reject(error);
+          else done();
+        };
+        stream.once('error', finish);
+        response.once('finish', () => finish());
+        response.once('close', () => finish());
+        stream.pipe(response);
+      });
+    } finally {
+      try {
+        await unlink(readyPath).catch(error => {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        });
+      } finally {
+        await owner.persistence.releaseExportLease(lease.operationId);
+      }
+    }
+  };
   const server = createServer((request, response) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
     response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -122,6 +203,25 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         telemetry: telemetry.snapshot(nativeHealth), outbound: hub?.getOutboundDiagnostics(),
         retention, retentionCleanup,
         ...(recovery ? { recovery } : {}), ...(fault ? { interfaceFault: fault } : {}) }));
+      return;
+    }
+    if (request.method === 'GET' && pathname === '/api/export/latest') {
+      if (fault || stopping) {
+        response.writeHead(503, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: fault ?? 'server is stopping' }));
+        return;
+      }
+      if (exportOperation) {
+        response.writeHead(409, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: 'checkpoint export is already in progress' }));
+        return;
+      }
+      activeExportResponse = response;
+      exportOperation = serveExport(response).catch(error => {
+        if (response.destroyed) return;
+        if (!response.headersSent) response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: error instanceof Error ? error.message : String(error) }));
+      }).finally(() => { activeExportResponse = undefined; exportOperation = undefined; });
       return;
     }
     if (request.method === 'POST' && pathname === '/api/checkpoints/current/pin') {
@@ -176,6 +276,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       await draining?.catch(() => {});
       await pinning?.catch(() => {});
       await retentionMaintenance?.catch(() => {});
+      activeExportResponse?.destroy();
+      await exportOperation?.catch(() => {});
       try { await owner.close(); }
       finally {
         telemetry.close();
