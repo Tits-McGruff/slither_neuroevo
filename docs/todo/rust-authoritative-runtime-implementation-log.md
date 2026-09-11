@@ -324,5 +324,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   ready file directly and removes it with the lease. The Rust-capable browser
   path activates an ordinary download without reading population bytes.
 
-The next dependency is bounded direct archive upload, Rust validation, and an
-atomic imported-run replacement barrier.
+- 2026-09-11 Raw archive uploads now stream to one bounded synced ready file
+  without browser/Node parsing or whole-body buffering. Rust then checks the
+  complete outer container, manifest, role hashes/counts, history, Hall of Fame,
+  and embedded checkpoint and fully restores a private candidate without
+  changing the running game or SQLite current pointer; corrupt files and
+  validation scratch are removed cleanly.
+
+The next dependency is the atomic imported-run persistence and live replacement
+barrier, followed by direct browser upload progress/result wiring.

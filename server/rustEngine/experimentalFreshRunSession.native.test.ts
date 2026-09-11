@@ -384,6 +384,48 @@ describe('experimental server startup composition', () => {
     expect(owner.runtime.health().lifecycle).toBe('stopped');
     expect(readCurrentPointer(paths.databasePath, owner.metadata.runId)?.checkpoint_id).toBe(owner.runStart.checkpointId);
   }, 30_000);
+
+  it('round-trips one exact Rust save through strict import validation without changing authority', async () => {
+    const paths = createFixturePaths('archive-validation');
+    const owner = await createExperimentalServerRuntime({ databasePath: paths.databasePath,
+      managedDirectory: paths.managedRoot, seed: 42, onWake() {} });
+    const lease = await owner.persistence.acquireCurrentExportLease();
+    const readyPath = join(paths.managedRoot, `.${lease.operationId}.slither-save.ready`);
+    const corruptPath = join(paths.managedRoot, '.corrupt-upload.slither-save');
+    try {
+      const prepared = await owner.runtime.prepareExportArchive(
+        paths.managedRoot, lease.operationId, lease.descriptor, lease.inventory
+      );
+      expect(prepared.relativeFilename).toBe(`.${lease.operationId}.slither-save.ready`);
+      await expect(owner.runtime.validateImportArchive(
+        readyPath, paths.managedRoot, 'ab'.repeat(16)
+      )).resolves.toEqual({
+        runId: owner.metadata.runId,
+        generation: owner.runStart.descriptor.generation,
+        completedStep: owner.runStart.descriptor.completedStep,
+        checkpointId: owner.runStart.checkpointId,
+        saveLogicalRootSha256: prepared.logicalRootSha256,
+        historyCount: '0000000000000000',
+        hallOfFameCount: '0000000000000000',
+        storedByteCount: prepared.storedByteCount
+      });
+      const corrupt = readFileSync(readyPath);
+      corrupt[512] = (corrupt[512] ?? 0) ^ 0xff;
+      writeFileSync(corruptPath, corrupt);
+      await expect(owner.runtime.validateImportArchive(
+        corruptPath, paths.managedRoot, 'cd'.repeat(16)
+      )).rejects.toThrow(/hash|role|checkpoint|archive|save/i);
+      expect(owner.runtime.health().lifecycle).toBe('created');
+      expect(owner.runtime.health().faultCode).toBeUndefined();
+      expect(await owner.persistence.selectCurrent()).toEqual(owner.runStart.descriptor);
+      expect(readdirSync(paths.managedRoot).some(name => name.endsWith('.import-validation'))).toBe(false);
+    } finally {
+      rmSync(readyPath, { force: true });
+      rmSync(corruptPath, { force: true });
+      await owner.persistence.releaseExportLease(lease.operationId);
+      await owner.close();
+    }
+  }, 30_000);
 });
 
 describe('experimental fixed-P0 production-addon fresh-run session', () => {

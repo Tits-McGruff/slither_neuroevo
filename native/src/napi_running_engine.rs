@@ -16,7 +16,8 @@ use crate::engine::contract::{
 use crate::engine::display::{FrameCopyResult, RunningDisplayStatus};
 use crate::engine::error::{EngineError, EngineErrorCode};
 use crate::engine::export_archive::{
-    compose_export_archive, ExportArchiveDescriptor, ExportInventoryDescriptor,
+    compose_export_archive, validate_import_archive, ExportArchiveDescriptor,
+    ExportInventoryDescriptor, ValidatedImportArchive,
 };
 use crate::engine::fresh_run::stage6a_p0_export_validation_contract;
 use crate::engine::runtime::EngineRuntime;
@@ -81,6 +82,19 @@ pub struct PreparedExportArchive {
     pub logical_root_sha256: String,
 }
 
+/// Small immutable facts returned after a complete untrusted archive validation.
+#[napi(object)]
+pub struct ValidatedImportArchiveResult {
+    pub run_id: String,
+    pub generation: String,
+    pub completed_step: String,
+    pub checkpoint_id: String,
+    pub save_logical_root_sha256: String,
+    pub history_count: String,
+    pub hall_of_fame_count: String,
+    pub stored_byte_count: String,
+}
+
 /// Libuv task for file/codec work that must not block the Node event loop.
 pub struct PrepareExportArchiveTask {
     managed_directory: PathBuf,
@@ -123,6 +137,52 @@ impl Task for PrepareExportArchiveTask {
             download_filename: output.download_filename,
             stored_byte_count: output.stored_byte_count_hex,
             logical_root_sha256: output.logical_root_sha256,
+        })
+    }
+}
+
+/// Libuv task for validating an untrusted upload without touching authority.
+pub struct ValidateImportArchiveTask {
+    archive_path: PathBuf,
+    scratch_directory: PathBuf,
+    operation_id: String,
+}
+
+impl Task for ValidateImportArchiveTask {
+    type Output = ValidatedImportArchive;
+    type JsValue = ValidatedImportArchiveResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
+            Error::new(
+                Status::GenericFailure,
+                "P0 import memory ceiling exceeds usize",
+            )
+        })?;
+        let (checkpoint_limits, graph_limits, admission_policy) =
+            stage6a_p0_export_validation_contract(memory_ceiling)
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+        validate_import_archive(
+            &self.archive_path,
+            &self.scratch_directory,
+            &self.operation_id,
+            &checkpoint_limits,
+            &graph_limits,
+            &admission_policy,
+        )
+        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(ValidatedImportArchiveResult {
+            run_id: output.run_id,
+            generation: output.generation_hex,
+            completed_step: output.completed_step_hex,
+            checkpoint_id: output.checkpoint_id,
+            save_logical_root_sha256: output.save_logical_root_sha256,
+            history_count: output.history_count_hex,
+            hall_of_fame_count: output.hall_of_fame_count_hex,
+            stored_byte_count: output.stored_byte_count_hex,
         })
     }
 }
@@ -236,6 +296,39 @@ impl ExperimentalRunningAuthority {
             operation_id: operation_id.as_str().to_owned(),
             checkpoint,
             inventory,
+        }))
+    }
+
+    /// Fully validate one untrusted save archive without changing live or durable state.
+    #[napi(catch_unwind)]
+    pub fn validate_import_archive(
+        &self,
+        archive_path: JsString<'_>,
+        scratch_directory: JsString<'_>,
+        operation_id: JsString<'_>,
+    ) -> Result<AsyncTask<ValidateImportArchiveTask>> {
+        let archive_path = parse_managed_path(bounded_js_string(
+            archive_path,
+            "archivePath",
+            32 * 1024,
+            false,
+        )?)?;
+        let scratch_directory = parse_managed_path(bounded_js_string(
+            scratch_directory,
+            "scratchDirectory",
+            32 * 1024,
+            false,
+        )?)?;
+        let operation_id = parse_checkpoint_operation_id(bounded_js_string(
+            operation_id,
+            "operationId",
+            32,
+            false,
+        )?)?;
+        Ok(AsyncTask::new(ValidateImportArchiveTask {
+            archive_path,
+            scratch_directory,
+            operation_id: operation_id.as_str().to_owned(),
         }))
     }
 

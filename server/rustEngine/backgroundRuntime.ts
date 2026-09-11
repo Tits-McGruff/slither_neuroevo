@@ -38,6 +38,12 @@ export interface ExperimentalRunningAuthorityNativeHandle {
     checkpoint: ManagedCheckpointDescriptor,
     inventory: ManagedExportInventoryDescriptor
   ): Promise<RustPreparedExportArchive>;
+  /** Validate one untrusted save completely without changing the live game or metadata. */
+  validateImportArchive(
+    archivePath: string,
+    scratchDirectory: string,
+    operationId: string
+  ): Promise<RustValidatedImportArchive>;
   /** Return the complete descriptor committed by the dedicated SQLite worker. */
   submitGenerationPersistenceAcknowledgement(sequence: U64Hex, descriptor: ManagedCheckpointDescriptor): void;
   /** Prepare connected-controller assignments after durability. */
@@ -78,11 +84,32 @@ export interface RustPreparedExportArchive {
   logicalRootSha256: string;
 }
 
+/** Small trusted identity returned only after every archive role passes Rust validation. */
+export interface RustValidatedImportArchive {
+  /** Run identity recorded by both the outer manifest and embedded checkpoint. */
+  runId: string;
+  /** Exact restored generation. */
+  generation: U64Hex;
+  /** Exact restored completed-step boundary. */
+  completedStep: U64Hex;
+  /** Embedded checkpoint logical-root identity. */
+  checkpointId: string;
+  /** Encoding-independent identity of all save roles. */
+  saveLogicalRootSha256: string;
+  /** Number of validated history records. */
+  historyCount: U64Hex;
+  /** Number of validated Hall-of-Fame records. */
+  hallOfFameCount: U64Hex;
+  /** Exact uploaded archive length. */
+  storedByteCount: U64Hex;
+}
+
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
   'start', 'submitControllerAction', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',
+  'validateImportArchive',
   'submitPrepareGenerationReassignments', 'submitGenerationAssignmentReceipt',
   'submitControllerDeliveryReceipt',
   'submitPublishGenerationStart', 'drainOutputs', 'health', 'latestDisplay',
