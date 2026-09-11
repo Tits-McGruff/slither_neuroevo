@@ -15,7 +15,7 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 
 ### Prerequisites
 
-- **Node.js**: v22 or newer
+- **Node.js**: v24 or newer
 - **Rust**: Required for compiling the native acceleration layer. Install via [rustup.rs](https://rustup.rs).
 - **Windows build tools**: Visual Studio C++ build tools and a Windows SDK are required by native dependencies.
 
@@ -180,7 +180,7 @@ manifest. Focused commands are:
 - `test:integration`: real WebSocket, persistence, worker-pool, and other
   subsystem boundaries.
 - `test:system`: server/process lifecycle behavior.
-- `test:acceptance`: owner-visible end-to-end contracts.
+- `test:acceptance`: owner-visible end-to-end contract.
 - `test:regression`: named historical failures.
 - `test:performance`: measured budgets; currently informational in CI.
 - `test:security`: protocol/input and resource-boundary hardening.
@@ -485,7 +485,7 @@ Use GRU for smoother, more deliberate behavior.
 - **Visualizer empty**: Ensure a snake is focused (Follow mode) and wait a tick.
 - **Join disabled**: The local server is not connected yet.
 - **Snakes die instantly**: Lower hit scale or increase skip segments near head.
-- **Install fails on Windows**: Use Node 22+ and install the Visual Studio C++
+- **Install fails on Windows**: Use Node 24+ and install the Visual Studio C++
   build tools plus a Windows SDK for `better-sqlite3` and the native addon,
   then re-run `npm install`.
 - **Native startup failure**: Run `npm --prefix native run build`. JavaScript is
