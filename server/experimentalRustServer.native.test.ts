@@ -106,9 +106,12 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       await concurrent.body?.cancel();
       const bytes = Buffer.from(await exported.arrayBuffer());
       expect(bytes.byteLength).toBe(Number(exported.headers.get('content-length')));
-      expect(bytes.subarray(0, 100).toString('utf8').replace(/\0.*$/u, '')).toBe(
-        'checkpoint/checkpoint-v3.ustar'
-      );
+      expect(bytes.subarray(0, 100).toString('utf8').replace(/\0.*$/u, '')).toBe('checkpoint.bin');
+      expect(bytes.includes(Buffer.from('checkpoint/checkpoint-v3.ustar\0'))).toBe(false);
+      expect(bytes.includes(Buffer.from('graph.bin\0'))).toBe(true);
+      expect(bytes.includes(Buffer.from('population/index.bin\0'))).toBe(true);
+      expect(bytes.includes(Buffer.from('population/weights.'))).toBe(true);
+      expect(bytes.includes(Buffer.from('population/recurrent.'))).toBe(true);
       expect(bytes.includes(Buffer.from('history.bin\0'))).toBe(true);
       expect(bytes.includes(Buffer.from('hof/index.bin\0'))).toBe(true);
       expect(bytes.includes(Buffer.from('hof/weights.f32le\0'))).toBe(true);

@@ -556,7 +556,9 @@ describe(SUITE, { timeout: 30_000 }, () => {
       expect(migrated.prepare(`SELECT count(*) AS count FROM sqlite_schema
         WHERE type = 'table' AND name = 'rust_hall_of_fame_weights_v1'`).get()).toEqual({ count: 1 });
     } finally { migrated.close(); }
-    await expect(reopened.acquireCurrentExportLease()).rejects.toThrow(/complete compact history/);
+    const legacyLease = await reopened.acquireCurrentExportLease();
+    expect(legacyLease.inventory).toMatchObject({ historyCount: u64(1n), hallOfFameCount: u64(0n) });
+    await reopened.releaseExportLease(legacyLease.operationId);
     await expect(reopened.pinCurrentCheckpoint()).resolves.toEqual({
       checkpointId: second.logicalRootSha256,
       generation: second.generation
@@ -685,6 +687,95 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(releasedCleanup.inventory.plannedPrune.checkpointCount).toBe(0);
     expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(false);
     await expect(fixture.client.releaseExportLease(lease!.operationId)).rejects.toThrow(/not active/);
+  });
+
+  it('keeps compact history with the best 50 unique winner objects plus pins', async () => {
+    const fixture = createFixture();
+    await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    await fixture.client.commit(createDescriptor(fixture.managedRoot, {
+      operationId: (2n + 96n).toString(16).padStart(32, '0'),
+      transitionEpoch: u64(2n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    }), createGenerationCommit(1n, { bestF64Hex: f64(1) }));
+    await fixture.client.close();
+    const pinDatabase = new Database(fixture.databasePath);
+    try {
+      pinDatabase.prepare(`UPDATE rust_hall_of_fame_v1 SET pinned = 1
+        WHERE generation_hex = ?`).run(u64(1n));
+    } finally { pinDatabase.close(); }
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    for (let generation = 2n; generation <= 53n; generation++) {
+      if (generation === 2n) continue;
+      await reopened.commit(createDescriptor(fixture.managedRoot, {
+        operationId: (generation + 96n).toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation),
+        generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n),
+        boundaryKind: 'generation'
+      }), createGenerationCommit(generation - 1n, {
+        bestF64Hex: f64(Number(generation - 1n))
+      }));
+    }
+    const lease = await reopened.acquireCurrentExportLease();
+    expect(lease.inventory).toMatchObject({ historyCount: u64(52n), hallOfFameCount: u64(51n) });
+    await reopened.releaseExportLease(lease.operationId);
+
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_generation_history_v1').get())
+        .toEqual({ count: 52 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_v1').get())
+        .toEqual({ count: 52 });
+      expect(inspect.prepare(`SELECT weight_state, count(*) AS count FROM rust_hall_of_fame_v1
+        GROUP BY weight_state ORDER BY weight_state`).all()).toEqual([
+        { weight_state: 'selected', count: 51 },
+        { weight_state: 'unselected', count: 1 }
+      ]);
+      expect(inspect.prepare(`SELECT generation_hex, pinned FROM rust_hall_of_fame_v1
+        WHERE weight_state = 'unselected'`).all()).toEqual([{ generation_hex: u64(2n), pinned: 0 }]);
+      expect(inspect.prepare(`SELECT count(*) AS count FROM rust_hall_of_fame_v1
+        WHERE genome_sha256 IS NOT NULL`).get()).toEqual({ count: 52 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get())
+        .toEqual({ count: 51 });
+    } finally { inspect.close(); }
+  });
+
+  it('exports one weight segment when multiple generations select the same genome', async () => {
+    const fixture = createFixture();
+    await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    const firstCommit = createGenerationCommit(1n, { bestF64Hex: f64(10) });
+    await fixture.client.commit(createDescriptor(fixture.managedRoot, {
+      operationId: '71'.repeat(16), transitionEpoch: u64(2n), generation: u64(2n),
+      completedStep: u64(3_600n), boundaryKind: 'generation'
+    }), firstCommit);
+    const repeatedCommit = createGenerationCommit(2n, { bestF64Hex: f64(20) });
+    rmSync(join(fixture.managedRoot, repeatedCommit.hallOfFameWeights.relativeFilename));
+    repeatedCommit.hallOfFameWeights = firstCommit.hallOfFameWeights;
+    await fixture.client.commit(createDescriptor(fixture.managedRoot, {
+      operationId: '72'.repeat(16), transitionEpoch: u64(3n), generation: u64(3n),
+      completedStep: u64(7_200n), boundaryKind: 'generation'
+    }), repeatedCommit);
+    const lease = await fixture.client.acquireCurrentExportLease();
+    expect(lease.inventory).toMatchObject({ historyCount: u64(2n), hallOfFameCount: u64(1n) });
+    await fixture.client.releaseExportLease(lease.operationId);
+
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get())
+        .toEqual({ count: 1 });
+      expect(inspect.prepare(`SELECT generation_hex, weight_state FROM rust_hall_of_fame_v1
+        ORDER BY generation_hex`).all()).toEqual([
+        { generation_hex: u64(1n), weight_state: 'unselected' },
+        { generation_hex: u64(2n), weight_state: 'selected' }
+      ]);
+    } finally { inspect.close(); }
   });
 
   it('rejects ambiguous run selection while retaining explicit per-run reads', async () => {
@@ -1133,11 +1224,12 @@ describe(SUITE, { timeout: 30_000 }, () => {
       db.pragma('foreign_keys = ON');
       db.prepare(`
         INSERT INTO rust_hall_of_fame_v1 (
-          run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?)
+          run_id, generation_hex, checkpoint_id, record_version, record_blob,
+          fitness_value, pinned, weight_state, created_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, 0, 'legacy', ?)
       `).run(
         first.runId, forged.completedGeneration, first.logicalRootSha256,
-        1, Buffer.alloc(56), Date.now()
+        1, Buffer.alloc(56), 0, Date.now()
       );
     } finally {
       db.close();

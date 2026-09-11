@@ -388,10 +388,14 @@ The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM
 
 The experimental Rust server's **Export** button opens a direct
 `/api/export/latest` download. Rust validates and packs the exact leased
-checkpoint, complete compact history, and run-scoped Hall of Fame into one
-`.slither-save` file; Node streams it, and browser JavaScript never reads or
-rebuilds its population. Direct `.slither-save` import is the next migration
-slice and is not enabled yet.
+checkpoint roles, complete compact history, and run-scoped Hall of Fame into
+one flat `.slither-save` file; Node streams it, and browser JavaScript never
+reads or rebuilds its population. Large population, recurrent-state, and Hall
+of Fame weight entries use whichever of raw or lossless compressed storage is
+smaller. The save retains the best 50 unique unpinned winner genomes plus any
+pinned winners while preserving the complete compact generation history.
+Direct `.slither-save` import validation exists internally, but the live
+replacement endpoint and browser upload control are not enabled yet.
 
 The TypeScript reference runtime retains its compatibility JSON import/export
 path until Rust cutover. That older path still assembles population data in the
@@ -412,10 +416,10 @@ Reference-runtime JSON exports are portable but are not selected for automatic
 exact resume. Its current compatibility checkpoints use per-genome SQLite
 rows; the older combined `genomes_blob` format remains read-only compatibility.
 
-Imports reset the simulation to the file contents under the active run identity.
-Imports from older builds may be incompatible with the current v3 sensor
-layout. Keep the database intact and use an export produced by a compatible
-graph/sensor build when input sizes differ.
+The TypeScript reference runtime's JSON imports reset its simulation to the
+file contents. Imports from older builds may be incompatible with the current
+v3 sensor layout. Keep the database intact and use an export produced by a
+compatible graph/sensor build when input sizes differ.
 
 ## Preset recipes (QA-friendly)
 

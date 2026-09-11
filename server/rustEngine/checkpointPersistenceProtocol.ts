@@ -744,7 +744,7 @@ export function parseManagedExportInventoryDescriptor(
   const history = BigInt(`0x${historyCount}`);
   const hallOfFame = BigInt(`0x${hallOfFameCount}`);
   const expectedBytes = 32n + history * 56n + hallOfFame * 120n;
-  if (history !== hallOfFame || expectedBytes > 0xffff_ffff_ffff_ffffn ||
+  if (hallOfFame > history || expectedBytes > 0xffff_ffff_ffff_ffffn ||
       BigInt(`0x${storedByteCount}`) !== expectedBytes) {
     reject('export inventory has inconsistent counts');
   }

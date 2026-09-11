@@ -175,7 +175,7 @@ impl NumericEncoding {
     }
 
     /// Parse the exact stable manifest encoding name.
-    fn parse(value: &str) -> Result<Self, CheckpointError> {
+    pub(super) fn parse(value: &str) -> Result<Self, CheckpointError> {
         match value {
             "raw-f32le-v1" => Ok(Self::RawF32LeV1),
             "f32le-shuffle4-zstd-v1" => Ok(Self::F32LeShuffle4ZstdV1),
@@ -570,45 +570,60 @@ impl From<StateError> for CheckpointError {
 }
 
 /// Private bounded manifest for the fixed checkpoint role set.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CheckpointManifest {
-    magic: String,
-    container_version: u32,
-    archive_kind: String,
-    checkpoint_format_version: u32,
-    state_version: u32,
-    graph_layout_version: u32,
-    run_id: String,
-    generation_hex: String,
-    completed_step_hex: String,
-    boundary_kind: String,
-    logical_root_sha256: String,
-    roles: Vec<ManifestRole>,
-    role_stored_bytes_hex: String,
-    role_decoded_bytes_hex: String,
-    population_count_hex: String,
-    weight_float_count_hex: String,
-    recurrent_float_count_hex: String,
-    weights_encoding: String,
-    recurrent_encoding: String,
-    graph_architecture_key: String,
-    graph_layout_sha256: String,
-    write_validation_policy: String,
+pub(super) struct CheckpointManifest {
+    pub(super) magic: String,
+    pub(super) container_version: u32,
+    pub(super) archive_kind: String,
+    pub(super) checkpoint_format_version: u32,
+    pub(super) state_version: u32,
+    pub(super) graph_layout_version: u32,
+    pub(super) run_id: String,
+    pub(super) generation_hex: String,
+    pub(super) completed_step_hex: String,
+    pub(super) boundary_kind: String,
+    pub(super) logical_root_sha256: String,
+    pub(super) roles: Vec<ManifestRole>,
+    pub(super) role_stored_bytes_hex: String,
+    pub(super) role_decoded_bytes_hex: String,
+    pub(super) population_count_hex: String,
+    pub(super) weight_float_count_hex: String,
+    pub(super) recurrent_float_count_hex: String,
+    pub(super) weights_encoding: String,
+    pub(super) recurrent_encoding: String,
+    pub(super) graph_architecture_key: String,
+    pub(super) graph_layout_sha256: String,
+    pub(super) write_validation_policy: String,
 }
 
 /// One encoding-independent role declaration in manifest order.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ManifestRole {
-    role: String,
-    path: String,
-    encoding: String,
-    stored_bytes_hex: String,
-    decoded_bytes_hex: String,
-    decoded_count_hex: String,
-    record_size: u32,
-    logical_sha256: String,
+pub(super) struct ManifestRole {
+    pub(super) role: String,
+    pub(super) path: String,
+    pub(super) encoding: String,
+    pub(super) stored_bytes_hex: String,
+    pub(super) decoded_bytes_hex: String,
+    pub(super) decoded_count_hex: String,
+    pub(super) record_size: u32,
+    pub(super) logical_sha256: String,
+}
+
+/// One already validated checkpoint role that can be copied into a flat save archive.
+#[derive(Clone, Debug)]
+pub(super) struct CheckpointArchiveRole {
+    pub(super) manifest: ManifestRole,
+    pub(super) data_offset: u64,
+    pub(super) stored_bytes: u64,
+}
+
+/// Validated checkpoint manifest and direct role extents used by exact save export.
+#[derive(Clone, Debug)]
+pub(super) struct CheckpointArchiveLayout {
+    pub(super) manifest: CheckpointManifest,
+    pub(super) roles: Vec<CheckpointArchiveRole>,
 }
 
 /// Encoding-independent logical tuple used by the root hash.
@@ -656,11 +671,6 @@ impl<'a> FloatSource<'a> {
             slices,
             total_floats,
         })
-    }
-
-    /// Iterate logical Float32 values in packed-role order.
-    fn values(&self) -> impl Iterator<Item = f32> + '_ {
-        self.slices.iter().flat_map(|slice| slice.iter().copied())
     }
 
     /// Checked raw packed byte length.
@@ -747,6 +757,16 @@ struct NumericCandidate {
     encoded_blocks: usize,
     /// Unexpected reusable-scratch capacity changes; valid encoding keeps this zero.
     scratch_capacity_growths: usize,
+}
+
+/// Adaptive encoding selected for one already materialized raw Float32 file.
+pub(super) struct AdaptiveNumericFile {
+    pub(super) encoding: NumericEncoding,
+    pub(super) stored_bytes: u64,
+    pub(super) decoded_bytes: u64,
+    pub(super) float_count: u64,
+    pub(super) logical_sha256: [u8; 32],
+    pub(super) compressed_path: Option<PathBuf>,
 }
 
 /// Removes only operation-owned unpublished artifacts on ordinary error paths.
@@ -1350,6 +1370,57 @@ pub fn restore_committed_checkpoint(
         ));
     }
     Ok(restored)
+}
+
+/// Revalidate and expose the five direct checkpoint role extents for a flat save archive.
+pub(super) fn validated_checkpoint_archive_layout(
+    path: &Path,
+    limits: &CheckpointLimits,
+) -> Result<CheckpointArchiveLayout, CheckpointError> {
+    validate_limits(limits)?;
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.file_type().is_file()
+        || metadata.len() == 0
+        || metadata.len() > limits.max_archive_bytes
+    {
+        return Err(CheckpointError::format(
+            "MANAGED_FILE_TYPE",
+            "checkpoint export source must be one bounded regular file",
+        ));
+    }
+    let mut file = File::open(path)?;
+    let entries = scan_strict_ustar(&mut file, metadata.len(), limits)?;
+    let manifest_entry = entries
+        .last()
+        .ok_or_else(|| CheckpointError::format("USTAR_EMPTY", "archive has no entries"))?;
+    let manifest_bytes = read_entry_bytes(&mut file, manifest_entry, limits.max_manifest_bytes)?;
+    let manifest: CheckpointManifest =
+        serde_json::from_slice(&manifest_bytes).map_err(|error| {
+            CheckpointError::format(
+                "MANIFEST_JSON",
+                format!("invalid bounded manifest JSON: {error}"),
+            )
+        })?;
+    validate_manifest(&manifest, &entries, limits)?;
+    let mut roles = Vec::new();
+    roles.try_reserve_exact(LOGICAL_ROLE_COUNT).map_err(|_| {
+        CheckpointError::format(
+            "ALLOCATION",
+            "unable to reserve checkpoint export role table",
+        )
+    })?;
+    for (entry, role) in entries[..LOGICAL_ROLE_COUNT]
+        .iter()
+        .zip(manifest.roles.iter())
+    {
+        roles.push(CheckpointArchiveRole {
+            manifest: role.clone(),
+            data_offset: entry.data_offset,
+            stored_bytes: entry.size,
+        });
+    }
+    Ok(CheckpointArchiveLayout { manifest, roles })
 }
 
 /// Strictly decode, verify, compile, and admit one managed checkpoint.
@@ -2972,14 +3043,85 @@ fn select_numeric_candidate(
     limits: &CheckpointLimits,
     artifacts: &mut TemporaryArtifacts,
 ) -> Result<NumericCandidate, CheckpointError> {
-    let raw_bytes = source.raw_bytes()?;
+    select_numeric_reader_candidate(
+        directory,
+        operation_id,
+        label,
+        FloatByteReader::new(source),
+        source.total_floats,
+        limits,
+        artifacts,
+    )
+}
+
+/// Select the smaller approved encoding for one exact finite raw Float32 file.
+pub(super) fn select_adaptive_numeric_file(
+    raw_path: &Path,
+    directory: &Path,
+    operation_id: &str,
+    label: &'static str,
+    float_count: u64,
+    limits: &CheckpointLimits,
+) -> Result<AdaptiveNumericFile, CheckpointError> {
+    let expected_bytes = float_count.checked_mul(4).ok_or_else(|| {
+        CheckpointError::format("COUNT_OVERFLOW", "numeric file byte count overflowed")
+    })?;
+    let metadata = fs::symlink_metadata(raw_path)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.file_type().is_file()
+        || metadata.len() != expected_bytes
+    {
+        return Err(CheckpointError::format(
+            "NUMERIC_SOURCE",
+            "adaptive numeric source is not the expected regular raw file",
+        ));
+    }
+    let float_count_usize = u64_to_usize(float_count, "adaptive numeric float count")?;
+    let mut artifacts = TemporaryArtifacts::new();
+    let candidate = select_numeric_reader_candidate(
+        directory,
+        operation_id,
+        label,
+        BufReader::new(File::open(raw_path)?),
+        float_count_usize,
+        limits,
+        &mut artifacts,
+    )?;
+    if let Some(path) = &candidate.compressed_path {
+        artifacts
+            .paths
+            .retain(|candidate_path| candidate_path != path);
+    }
+    Ok(AdaptiveNumericFile {
+        encoding: candidate.encoding,
+        stored_bytes: candidate.stored_bytes,
+        decoded_bytes: candidate.raw_bytes,
+        float_count,
+        logical_sha256: candidate.logical_sha256,
+        compressed_path: candidate.compressed_path,
+    })
+}
+
+/// Stream raw Float32 bytes through the shared adaptive candidate codec.
+fn select_numeric_reader_candidate<R: Read>(
+    directory: &Path,
+    operation_id: &str,
+    label: &'static str,
+    mut reader: R,
+    total_floats: usize,
+    limits: &CheckpointLimits,
+    artifacts: &mut TemporaryArtifacts,
+) -> Result<NumericCandidate, CheckpointError> {
+    let raw_bytes = usize_to_u64(total_floats, "numeric count")?
+        .checked_mul(4)
+        .ok_or_else(|| CheckpointError::format("COUNT_OVERFLOW", "numeric byte count overflows"))?;
     if raw_bytes > limits.max_total_decoded_bytes {
         return Err(CheckpointError::format(
             "DECODED_LIMIT",
             format!("{label} raw bytes exceed aggregate decoded limit"),
         ));
     }
-    if source.total_floats == 0 {
+    if total_floats == 0 {
         return Ok(NumericCandidate {
             encoding: NumericEncoding::RawF32LeV1,
             stored_bytes: 0,
@@ -3003,7 +3145,6 @@ fn select_numeric_candidate(
     compressor.include_contentsize(true)?;
     compressor.window_log(ZSTD_WINDOW_LOG_MAX)?;
     let mut hasher = Sha256::new();
-    let mut values = source.values();
     let block_float_limit = SHUFFLED_BLOCK_BYTES / 4;
     let mut encoded_floats = 0usize;
     let mut candidate_bytes = 0u64;
@@ -3033,7 +3174,7 @@ fn select_numeric_candidate(
     })?;
     let initial_capacities = (raw.capacity(), shuffled.capacity(), frame.capacity());
     loop {
-        let remaining = source.total_floats.saturating_sub(encoded_floats);
+        let remaining = total_floats.saturating_sub(encoded_floats);
         if remaining == 0 {
             break;
         }
@@ -3042,15 +3183,8 @@ fn select_numeric_candidate(
             CheckpointError::format("COUNT_OVERFLOW", "numeric block byte count overflows")
         })?;
         raw.clear();
-        for _ in 0..count {
-            let value = values.next().ok_or_else(|| {
-                CheckpointError::format(
-                    "NUMERIC_SOURCE",
-                    "numeric source ended before declared count",
-                )
-            })?;
-            raw.extend_from_slice(&value.to_bits().to_le_bytes());
-        }
+        raw.resize(block_bytes, 0);
+        reader.read_exact(&mut raw)?;
         hasher.update(&raw);
         if !candidate_abandoned {
             shuffle_f32_bytes_into(&raw, &mut shuffled)?;
@@ -3090,7 +3224,8 @@ fn select_numeric_candidate(
             scratch_capacity_growths += 1;
         }
     }
-    if values.next().is_some() || encoded_floats != source.total_floats {
+    let mut trailing = [0u8; 1];
+    if reader.read(&mut trailing)? != 0 || encoded_floats != total_floats {
         return Err(CheckpointError::format(
             "NUMERIC_SOURCE",
             "numeric source count changed during encoding",
@@ -3115,7 +3250,7 @@ fn select_numeric_candidate(
             encoding: NumericEncoding::F32LeShuffle4ZstdV1,
             stored_bytes: candidate_bytes,
             raw_bytes,
-            float_count: source.total_floats,
+            float_count: total_floats,
             logical_sha256,
             compressed_path: Some(candidate_path),
             encoded_blocks,
@@ -3133,7 +3268,7 @@ fn select_numeric_candidate(
             encoding: NumericEncoding::RawF32LeV1,
             stored_bytes: raw_bytes,
             raw_bytes,
-            float_count: source.total_floats,
+            float_count: total_floats,
             logical_sha256,
             compressed_path: None,
             encoded_blocks,
@@ -3413,6 +3548,160 @@ fn preflight_numeric_role(
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+/// Fully validate and stream one standalone adaptive numeric file as raw Float32 bytes.
+pub(super) fn decode_adaptive_numeric_file<W: Write>(
+    path: &Path,
+    encoding: NumericEncoding,
+    stored_bytes: u64,
+    expected_floats: u64,
+    expected_sha256: [u8; 32],
+    output: &mut W,
+) -> Result<(), CheckpointError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.file_type().is_file()
+        || metadata.len() != stored_bytes
+    {
+        return Err(CheckpointError::format(
+            "NUMERIC_SOURCE",
+            "adaptive numeric file is not the expected regular file",
+        ));
+    }
+    let expected_floats = u64_to_usize(expected_floats, "adaptive numeric float count")?;
+    let entry = ScannedEntry {
+        name: path.to_string_lossy().into_owned(),
+        #[cfg(test)]
+        header_offset: 0,
+        data_offset: 0,
+        size: stored_bytes,
+    };
+    let mut file = File::open(path)?;
+    preflight_numeric_role(&mut file, &entry, encoding, expected_floats)?;
+    file.seek(SeekFrom::Start(0))?;
+    let mut hasher = Sha256::new();
+    match encoding {
+        NumericEncoding::RawF32LeV1 => {
+            let mut remaining = stored_bytes;
+            let initial_bytes = u64_to_usize(
+                remaining.min(SHUFFLED_BLOCK_BYTES as u64),
+                "raw numeric buffer bytes",
+            )?;
+            let mut buffer = vec![0u8; initial_bytes];
+            while remaining > 0 {
+                let take = buffer
+                    .len()
+                    .min(u64_to_usize(remaining, "raw numeric bytes")?);
+                file.read_exact(&mut buffer[..take])?;
+                hasher.update(&buffer[..take]);
+                output.write_all(&buffer[..take])?;
+                remaining -= take as u64;
+            }
+        }
+        NumericEncoding::F32LeShuffle4ZstdV1 => {
+            let max_frame_bytes = zstd_safe::compress_bound(SHUFFLED_BLOCK_BYTES);
+            let mut remaining = stored_bytes;
+            let mut decompressor = ZstdDecompressor::new()?;
+            decompressor.window_log_max(ZSTD_WINDOW_LOG_MAX)?;
+            let mut frame = Vec::with_capacity(max_frame_bytes);
+            let mut shuffled = Vec::with_capacity(SHUFFLED_BLOCK_BYTES);
+            let mut raw = Vec::with_capacity(SHUFFLED_BLOCK_BYTES);
+            let mut decoded_total = 0usize;
+            while remaining > 0 {
+                if remaining < SHUFFLED_BLOCK_HEADER_BYTES as u64 {
+                    return Err(CheckpointError::format(
+                        "SHUFFLED_HEADER",
+                        "adaptive numeric file changed after preflight",
+                    ));
+                }
+                let mut header = [0u8; SHUFFLED_BLOCK_HEADER_BYTES];
+                file.read_exact(&mut header)?;
+                remaining -= SHUFFLED_BLOCK_HEADER_BYTES as u64;
+                if &header[..4] != SHUFFLED_BLOCK_MAGIC {
+                    return Err(CheckpointError::format(
+                        "SHUFFLED_MAGIC",
+                        "adaptive numeric file changed after preflight",
+                    ));
+                }
+                let float_count = u32_to_usize(
+                    u32::from_le_bytes(header[4..8].try_into().unwrap()),
+                    "SFZ1 float count",
+                )?;
+                let frame_bytes = u32_to_usize(
+                    u32::from_le_bytes(header[8..12].try_into().unwrap()),
+                    "SFZ1 frame bytes",
+                )?;
+                let decoded_bytes = float_count.checked_mul(4).ok_or_else(|| {
+                    CheckpointError::format("COUNT_OVERFLOW", "decoded numeric block overflowed")
+                })?;
+                decoded_total = decoded_total.checked_add(float_count).ok_or_else(|| {
+                    CheckpointError::format("COUNT_OVERFLOW", "decoded numeric count overflowed")
+                })?;
+                if float_count == 0
+                    || decoded_bytes > SHUFFLED_BLOCK_BYTES
+                    || decoded_total > expected_floats
+                    || frame_bytes == 0
+                    || frame_bytes > max_frame_bytes
+                    || frame_bytes as u64 > remaining
+                {
+                    return Err(CheckpointError::format(
+                        "SHUFFLED_LIMIT",
+                        "adaptive numeric file changed after preflight",
+                    ));
+                }
+                frame.clear();
+                frame.resize(frame_bytes, 0);
+                file.read_exact(&mut frame)?;
+                remaining -= frame_bytes as u64;
+                validate_zstd_frame_header(&frame, decoded_bytes)?;
+                let compressed_size =
+                    zstd_safe::find_frame_compressed_size(&frame).map_err(|_| {
+                        CheckpointError::format(
+                            "ZSTD_FRAME",
+                            "unable to determine adaptive Zstandard frame boundary",
+                        )
+                    })?;
+                if compressed_size != frame.len() {
+                    return Err(CheckpointError::format(
+                        "ZSTD_FRAME",
+                        "adaptive SFZ1 envelope contains trailing frame bytes",
+                    ));
+                }
+                shuffled.clear();
+                let written = decompressor.decompress_to_buffer(&frame, &mut shuffled)?;
+                if written != decoded_bytes || shuffled.len() != decoded_bytes {
+                    return Err(CheckpointError::format(
+                        "ZSTD_DECODED_LENGTH",
+                        "decoded numeric block length changed after preflight",
+                    ));
+                }
+                raw.clear();
+                raw.resize(decoded_bytes, 0);
+                for value_index in 0..float_count {
+                    for byte_index in 0..4 {
+                        raw[value_index * 4 + byte_index] =
+                            shuffled[byte_index * float_count + value_index];
+                    }
+                }
+                hasher.update(&raw);
+                output.write_all(&raw)?;
+            }
+            if decoded_total != expected_floats {
+                return Err(CheckpointError::format(
+                    "NUMERIC_COUNT",
+                    "adaptive numeric file decoded the wrong Float32 count",
+                ));
+            }
+        }
+    }
+    if <[u8; 32]>::from(hasher.finalize()) != expected_sha256 {
+        return Err(CheckpointError::format(
+            "NUMERIC_SHA256",
+            "adaptive numeric file failed its logical SHA-256",
+        ));
     }
     Ok(())
 }
@@ -5520,6 +5809,41 @@ mod tests {
         assert_eq!(candidate.encoded_blocks, 4);
         assert_eq!(candidate.scratch_capacity_growths, 0);
         assert_eq!(candidate.encoding, NumericEncoding::F32LeShuffle4ZstdV1);
+    }
+
+    /// A raw file uses the shared adaptive codec and streams back to identical logical bytes.
+    #[test]
+    fn adaptive_numeric_file_round_trips_compressed_bytes() {
+        let directory = TestDirectory::new("adaptive-file");
+        let values = vec![f32::from_bits(0x3f12_3456); 4096];
+        let raw_bytes = values
+            .iter()
+            .flat_map(|value| value.to_bits().to_le_bytes())
+            .collect::<Vec<_>>();
+        let raw_path = directory.path.join("source.f32le");
+        fs::write(&raw_path, &raw_bytes).unwrap();
+        let candidate = select_adaptive_numeric_file(
+            &raw_path,
+            &directory.path,
+            "00000000000000000000000000000009",
+            "adaptive-file",
+            values.len() as u64,
+            &checkpoint_limits(),
+        )
+        .unwrap();
+        assert_eq!(candidate.encoding, NumericEncoding::F32LeShuffle4ZstdV1);
+        let compressed_path = candidate.compressed_path.as_ref().unwrap();
+        let mut decoded = Vec::new();
+        decode_adaptive_numeric_file(
+            compressed_path,
+            candidate.encoding,
+            candidate.stored_bytes,
+            candidate.float_count,
+            candidate.logical_sha256,
+            &mut decoded,
+        )
+        .unwrap();
+        assert_eq!(decoded, raw_bytes);
     }
 
     /// Archive length admission happens before an archive partial is created.

@@ -6,9 +6,10 @@
 //! writes one ordinary USTAR download without copying population data through Node.
 
 use super::checkpoint::{
-    read_validated_hall_of_fame_weights, rename_noreplace, restore_committed_checkpoint,
-    sync_parent_directory, CheckpointDescriptor, CheckpointError, CheckpointLimits,
-    HallOfFameWeightsDescriptor, NumericEncoding,
+    decode_adaptive_numeric_file, read_validated_hall_of_fame_weights, rename_noreplace,
+    restore_committed_checkpoint, select_adaptive_numeric_file, sync_parent_directory,
+    validated_checkpoint_archive_layout, CheckpointDescriptor, CheckpointError, CheckpointLimits,
+    CheckpointManifest, HallOfFameWeightsDescriptor, NumericEncoding,
 };
 use super::graph::GraphLimits;
 use super::state::StateAdmissionPolicy;
@@ -27,10 +28,10 @@ const MAX_EXPORT_GENERATIONS: u64 = 1_000_000;
 const MAX_EXPORT_ARCHIVE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const USTAR_BLOCK_BYTES: u64 = 512;
 const USTAR_TRAILER_BYTES: u64 = 1024;
-const CHECKPOINT_ARCHIVE_PATH: &str = "checkpoint/checkpoint-v3.ustar";
 const HISTORY_PATH: &str = "history.bin";
 const HOF_INDEX_PATH: &str = "hof/index.bin";
 const HOF_WEIGHTS_PATH: &str = "hof/weights.f32le";
+const HOF_WEIGHTS_ZSTD_PATH: &str = "hof/weights.f32le.shuf4.zst";
 const MANIFEST_PATH: &str = "manifest.json";
 const SAVE_ROOT_DOMAIN: &[u8] = b"slither-neuroevo-save-root\0v1\0";
 
@@ -83,6 +84,7 @@ struct SaveManifest {
     history_count_hex: String,
     hall_of_fame_count_hex: String,
     hall_of_fame_weight_count_hex: String,
+    checkpoint_manifest: CheckpointManifest,
     roles: Vec<SaveRole>,
 }
 
@@ -105,8 +107,9 @@ struct ScratchFiles {
 
 struct ScannedImportArchive {
     manifest: SaveManifest,
-    entry_sizes: [u64; 5],
-    entry_hashes: [[u8; 32]; 4],
+    entry_paths: Vec<String>,
+    entry_sizes: Vec<u64>,
+    entry_hashes: Vec<[u8; 32]>,
 }
 
 /// Strictly validate an untrusted save upload without changing live or durable state.
@@ -134,6 +137,7 @@ pub fn validate_import_archive(
     let manifest = scanned.manifest;
     validate_import_manifest(
         &manifest,
+        &scanned.entry_paths,
         &scanned.entry_sizes,
         &scanned.entry_hashes,
         metadata.len(),
@@ -239,6 +243,18 @@ pub fn compose_export_archive(
             "restored checkpoint identity changed before export",
         ));
     }
+    let checkpoint_layout =
+        validated_checkpoint_archive_layout(&checkpoint_path, checkpoint_limits)?;
+    if checkpoint_layout.manifest.logical_root_sha256 != checkpoint.logical_root_sha256
+        || checkpoint_layout.manifest.run_id != checkpoint.run_id
+        || checkpoint_layout.manifest.generation_hex != checkpoint.generation_hex
+        || checkpoint_layout.manifest.completed_step_hex != checkpoint.completed_step_hex
+    {
+        return Err(CheckpointError::format(
+            "EXPORT_CHECKPOINT",
+            "checkpoint manifest identity changed before flat export",
+        ));
+    }
 
     let inventory_facts = validate_inventory(&managed_directory, operation_id, inventory)?;
     let expected_history = parse_hex_u64(&checkpoint.generation_hex, "checkpoint generation")?
@@ -247,11 +263,11 @@ pub fn compose_export_archive(
             CheckpointError::format("EXPORT_GENERATION", "checkpoint generation is zero")
         })?;
     if inventory_facts.history_count != expected_history
-        || inventory_facts.hall_of_fame_count != expected_history
+        || inventory_facts.hall_of_fame_count > expected_history
     {
         return Err(CheckpointError::format(
             "EXPORT_COVERAGE",
-            "inventory does not cover every completed checkpoint generation",
+            "inventory history coverage or selected Hall-of-Fame count is invalid",
         ));
     }
 
@@ -265,9 +281,35 @@ pub fn compose_export_archive(
         &hof_weights_partial,
         checkpoint,
     )?;
+    let hof_numeric = select_adaptive_numeric_file(
+        &hof_weights_partial,
+        &managed_directory,
+        operation_id,
+        "export-hof-weights",
+        hof_weight_count,
+        checkpoint_limits,
+    )?;
+    if hof_numeric.logical_sha256 != hof_weights_sha256
+        || hof_numeric.decoded_bytes != hof_weights_bytes
+        || hof_numeric.float_count != hof_weight_count
+    {
+        return Err(CheckpointError::format(
+            "EXPORT_HOF_WEIGHTS",
+            "adaptive Hall-of-Fame encoding changed logical weights",
+        ));
+    }
+    if let Some(path) = &hof_numeric.compressed_path {
+        scratch.track(path.clone());
+    }
+    let hof_weights_path = match hof_numeric.encoding {
+        NumericEncoding::RawF32LeV1 => HOF_WEIGHTS_PATH,
+        NumericEncoding::F32LeShuffle4ZstdV1 => HOF_WEIGHTS_ZSTD_PATH,
+    };
+    let hof_weights_source = hof_numeric
+        .compressed_path
+        .as_deref()
+        .unwrap_or(&hof_weights_partial);
 
-    let checkpoint_bytes = fs::metadata(&checkpoint_path)?.len();
-    let checkpoint_sha256 = hash_file_range(&checkpoint_path, 0, checkpoint_bytes)?;
     let history_sha256 = hash_file_range(
         &inventory_facts.path,
         INVENTORY_HEADER_BYTES,
@@ -281,17 +323,32 @@ pub fn compose_export_archive(
         hof_index_offset,
         inventory_facts.hall_of_fame_bytes,
     )?;
-    let roles = vec![
-        save_role(
-            "checkpoint-v3",
-            CHECKPOINT_ARCHIVE_PATH,
-            "raw-ustar-v3",
-            checkpoint_bytes,
-            checkpoint_bytes,
-            1,
-            0,
-            checkpoint_sha256,
-        ),
+    let mut roles = checkpoint_layout
+        .roles
+        .iter()
+        .map(|role| {
+            Ok(save_role(
+                &role.manifest.role,
+                &role.manifest.path,
+                &role.manifest.encoding,
+                role.stored_bytes,
+                parse_hex_u64(
+                    &role.manifest.decoded_bytes_hex,
+                    "checkpoint role decoded bytes",
+                )?,
+                parse_hex_u64(
+                    &role.manifest.decoded_count_hex,
+                    "checkpoint role decoded count",
+                )?,
+                role.manifest.record_size,
+                parse_digest(
+                    &role.manifest.logical_sha256,
+                    "checkpoint role logical SHA-256",
+                )?,
+            ))
+        })
+        .collect::<Result<Vec<_>, CheckpointError>>()?;
+    roles.extend([
         save_role(
             "history",
             HISTORY_PATH,
@@ -314,15 +371,15 @@ pub fn compose_export_archive(
         ),
         save_role(
             "hall-of-fame-weights",
-            HOF_WEIGHTS_PATH,
-            NumericEncoding::RawF32LeV1.as_str(),
-            hof_weights_bytes,
+            hof_weights_path,
+            hof_numeric.encoding.as_str(),
+            hof_numeric.stored_bytes,
             hof_weights_bytes,
             hof_weight_count,
             4,
             hof_weights_sha256,
         ),
-    ];
+    ]);
     let save_root = logical_root(&roles)?;
     let manifest = SaveManifest {
         magic: "slither-neuroevo-save".to_owned(),
@@ -336,6 +393,7 @@ pub fn compose_export_archive(
         history_count_hex: hex_u64(inventory_facts.history_count),
         hall_of_fame_count_hex: hex_u64(inventory_facts.hall_of_fame_count),
         hall_of_fame_weight_count_hex: hex_u64(hof_weight_count),
+        checkpoint_manifest: checkpoint_layout.manifest.clone(),
         roles,
     };
     let manifest_bytes = serde_json::to_vec(&manifest).map_err(|error| {
@@ -355,13 +413,18 @@ pub fn compose_export_archive(
     let final_path = managed_directory.join(&relative_filename);
     let partial_path = managed_directory.join(format!(".{operation_id}.slither-save.partial"));
     scratch.track(partial_path.clone());
-    let expected_archive_bytes = expected_archive_length(&[
-        checkpoint_bytes,
+    let mut entry_sizes = checkpoint_layout
+        .roles
+        .iter()
+        .map(|role| role.stored_bytes)
+        .collect::<Vec<_>>();
+    entry_sizes.extend([
         inventory_facts.history_bytes,
         inventory_facts.hall_of_fame_bytes,
-        hof_weights_bytes,
+        hof_numeric.stored_bytes,
         manifest_bytes.len() as u64,
-    ])?;
+    ]);
+    let expected_archive_bytes = expected_archive_length(&entry_sizes)?;
     if expected_archive_bytes > MAX_EXPORT_ARCHIVE_BYTES {
         return Err(CheckpointError::format(
             "EXPORT_ARCHIVE_LIMIT",
@@ -374,13 +437,15 @@ pub fn compose_export_archive(
         .write(true)
         .open(&partial_path)?;
     let mut archive = TarBuilder::new(BufWriter::new(output));
-    append_file(
-        &mut archive,
-        CHECKPOINT_ARCHIVE_PATH,
-        &checkpoint_path,
-        0,
-        checkpoint_bytes,
-    )?;
+    for role in &checkpoint_layout.roles {
+        append_file(
+            &mut archive,
+            &role.manifest.path,
+            &checkpoint_path,
+            role.data_offset,
+            role.stored_bytes,
+        )?;
+    }
     append_file(
         &mut archive,
         HISTORY_PATH,
@@ -397,10 +462,10 @@ pub fn compose_export_archive(
     )?;
     append_file(
         &mut archive,
-        HOF_WEIGHTS_PATH,
-        &hof_weights_partial,
+        hof_weights_path,
+        hof_weights_source,
         0,
-        hof_weights_bytes,
+        hof_numeric.stored_bytes,
     )?;
     append_bytes(&mut archive, MANIFEST_PATH, &manifest_bytes)?;
     archive.finish()?;
@@ -416,6 +481,22 @@ pub fn compose_export_archive(
     }
     drop(output);
     validate_completed_archive(&partial_path, &manifest, expected_archive_bytes)?;
+    let validated = validate_import_archive(
+        &partial_path,
+        &managed_directory,
+        operation_id,
+        checkpoint_limits,
+        graph_limits,
+        admission_policy,
+    )?;
+    if validated.checkpoint_id != checkpoint.logical_root_sha256
+        || validated.save_logical_root_sha256 != manifest.logical_root_sha256
+    {
+        return Err(CheckpointError::format(
+            "EXPORT_POSTWRITE",
+            "full flat-save validation returned a different identity",
+        ));
+    }
     rename_noreplace(&partial_path, &final_path)?;
     scratch.track(final_path.clone());
     sync_parent_directory(&managed_directory)?;
@@ -461,7 +542,7 @@ fn validate_inventory(
     let history_count = parse_hex_u64(&descriptor.history_count_hex, "history count")?;
     let hall_of_fame_count =
         parse_hex_u64(&descriptor.hall_of_fame_count_hex, "Hall-of-Fame count")?;
-    if history_count != hall_of_fame_count || history_count > MAX_EXPORT_GENERATIONS {
+    if history_count > MAX_EXPORT_GENERATIONS || hall_of_fame_count > history_count {
         return Err(CheckpointError::format(
             "EXPORT_INVENTORY",
             "inventory counts are inconsistent or exceed the generation limit",
@@ -592,18 +673,22 @@ fn build_hall_of_fame_weights(
     let mut hasher = Sha256::new();
     let mut total_weights = 0u64;
     let mut record = [0u8; HOF_RECORD_BYTES as usize];
-    for generation in 1..=inventory.hall_of_fame_count {
+    let mut previous_generation = 0u64;
+    for _ in 0..inventory.hall_of_fame_count {
         input.read_exact(&mut record)?;
-        if read_u64(&record, 0) != generation
+        let generation = read_u64(&record, 0);
+        if generation <= previous_generation
+            || generation > inventory.history_count
             || !f64::from_bits(read_u64(&record, 32)).is_finite()
             || !f64::from_bits(read_u64(&record, 40)).is_finite()
             || record[89..96].iter().any(|byte| *byte != 0)
         {
             return Err(CheckpointError::format(
                 "EXPORT_HOF_INDEX",
-                "Hall-of-Fame records are malformed or non-contiguous",
+                "Hall-of-Fame records are malformed, duplicated, or unordered",
             ));
         }
+        previous_generation = generation;
         let logical_sha256 = hex_digest(record[56..88].try_into().unwrap());
         let encoding = match record[88] {
             0 => NumericEncoding::RawF32LeV1,
@@ -671,46 +756,60 @@ fn build_hall_of_fame_weights(
 }
 
 fn scan_import_archive(path: &Path) -> Result<ScannedImportArchive, CheckpointError> {
-    let expected_paths = [
-        CHECKPOINT_ARCHIVE_PATH,
-        HISTORY_PATH,
-        HOF_INDEX_PATH,
-        HOF_WEIGHTS_PATH,
-        MANIFEST_PATH,
-    ];
     let file = File::open(path)?;
     let mut archive = TarArchive::new(BufReader::new(file));
-    let mut sizes = [0u64; 5];
-    let mut hashes = [[0u8; 32]; 4];
+    let mut sizes = Vec::new();
+    sizes.try_reserve_exact(9).map_err(|_| {
+        CheckpointError::format("ALLOCATION", "unable to reserve save entry-size table")
+    })?;
+    let mut hashes = Vec::new();
+    hashes.try_reserve_exact(8).map_err(|_| {
+        CheckpointError::format("ALLOCATION", "unable to reserve save entry-hash table")
+    })?;
+    let mut paths = Vec::new();
+    paths.try_reserve_exact(9).map_err(|_| {
+        CheckpointError::format("ALLOCATION", "unable to reserve save entry-path table")
+    })?;
     let mut manifest = None;
     let mut seen = 0usize;
     for entry in archive.entries()? {
         let mut entry = entry?;
-        if seen >= expected_paths.len()
-            || !entry.header().entry_type().is_file()
-            || entry.path()?.as_ref() != Path::new(expected_paths[seen])
-        {
+        if seen >= 9 || !entry.header().entry_type().is_file() {
             return Err(CheckpointError::format(
                 "IMPORT_USTAR",
                 "save entries are unknown, unsafe, duplicated, or out of order",
             ));
         }
+        let path = entry.path()?.into_owned();
+        if path.is_absolute()
+            || path.components().any(|component| {
+                matches!(
+                    component,
+                    std::path::Component::ParentDir | std::path::Component::Prefix(_)
+                )
+            })
+        {
+            return Err(CheckpointError::format(
+                "IMPORT_USTAR",
+                "save entry path is not a safe relative role path",
+            ));
+        }
         let size = entry.header().size()?;
-        sizes[seen] = size;
-        if seen < hashes.len() {
+        let path_text = path.to_str().ok_or_else(|| {
+            CheckpointError::format("IMPORT_USTAR", "save entry path is not UTF-8")
+        })?;
+        paths.push(path_text.to_owned());
+        sizes.push(size);
+        if seen < 8 {
             let limit = match seen {
-                0 => MAX_EXPORT_ARCHIVE_BYTES,
-                1 => MAX_EXPORT_GENERATIONS * HISTORY_RECORD_BYTES,
-                2 => MAX_EXPORT_GENERATIONS * HOF_RECORD_BYTES,
+                5 => MAX_EXPORT_GENERATIONS * HISTORY_RECORD_BYTES,
+                6 => MAX_EXPORT_GENERATIONS * HOF_RECORD_BYTES,
                 _ => MAX_EXPORT_ARCHIVE_BYTES,
             };
             if size > limit {
                 return Err(CheckpointError::format(
                     "IMPORT_ENTRY_LIMIT",
-                    format!(
-                        "save entry {} exceeds its decoded limit",
-                        expected_paths[seen]
-                    ),
+                    format!("save entry {} exceeds its stored limit", path.display()),
                 ));
             }
             let mut hasher = Sha256::new();
@@ -721,8 +820,14 @@ fn scan_import_archive(path: &Path) -> Result<ScannedImportArchive, CheckpointEr
                     "save entry ended before its declared length",
                 ));
             }
-            hashes[seen] = hasher.finalize().into();
+            hashes.push(hasher.finalize().into());
         } else {
+            if path != Path::new(MANIFEST_PATH) {
+                return Err(CheckpointError::format(
+                    "IMPORT_USTAR",
+                    "save manifest must be the final entry",
+                ));
+            }
             if size == 0 || size > 1024 * 1024 {
                 return Err(CheckpointError::format(
                     "IMPORT_MANIFEST_LIMIT",
@@ -743,7 +848,7 @@ fn scan_import_archive(path: &Path) -> Result<ScannedImportArchive, CheckpointEr
         }
         seen += 1;
     }
-    if seen != expected_paths.len() {
+    if seen != 9 {
         return Err(CheckpointError::format(
             "IMPORT_USTAR",
             "save archive is missing required entries or its final manifest",
@@ -753,6 +858,7 @@ fn scan_import_archive(path: &Path) -> Result<ScannedImportArchive, CheckpointEr
         manifest: manifest.ok_or_else(|| {
             CheckpointError::format("IMPORT_MANIFEST", "save manifest is missing")
         })?,
+        entry_paths: paths,
         entry_sizes: sizes,
         entry_hashes: hashes,
     })
@@ -760,8 +866,9 @@ fn scan_import_archive(path: &Path) -> Result<ScannedImportArchive, CheckpointEr
 
 fn validate_import_manifest(
     manifest: &SaveManifest,
-    entry_sizes: &[u64; 5],
-    entry_hashes: &[[u8; 32]; 4],
+    entry_paths: &[String],
+    entry_sizes: &[u64],
+    entry_hashes: &[[u8; 32]],
     archive_bytes: u64,
 ) -> Result<(), CheckpointError> {
     if manifest.magic != "slither-neuroevo-save"
@@ -770,7 +877,16 @@ fn validate_import_manifest(
         || manifest.run_id.is_empty()
         || manifest.run_id.contains('\0')
         || manifest.run_id.len() > 256
-        || manifest.roles.len() != 4
+        || manifest.roles.len() != 8
+        || manifest.checkpoint_manifest.roles.len() != 5
+        || entry_paths.len() != 9
+        || entry_sizes.len() != 9
+        || entry_hashes.len() != 8
+        || entry_paths.last().is_none_or(|path| path != MANIFEST_PATH)
+        || entry_paths
+            .iter()
+            .enumerate()
+            .any(|(index, path)| entry_paths[..index].iter().any(|previous| previous == path))
     {
         return Err(CheckpointError::format(
             "IMPORT_MANIFEST",
@@ -784,6 +900,19 @@ fn validate_import_manifest(
         "save checkpoint root",
     )?;
     parse_digest(&manifest.logical_root_sha256, "save logical root")?;
+    if manifest.checkpoint_manifest.magic != "slither-neuroevo-checkpoint"
+        || manifest.checkpoint_manifest.archive_kind != "managed-checkpoint-v3"
+        || manifest.checkpoint_manifest.run_id != manifest.run_id
+        || manifest.checkpoint_manifest.generation_hex != manifest.generation_hex
+        || manifest.checkpoint_manifest.completed_step_hex != manifest.completed_step_hex
+        || manifest.checkpoint_manifest.logical_root_sha256
+            != manifest.checkpoint_logical_root_sha256
+    {
+        return Err(CheckpointError::format(
+            "IMPORT_CHECKPOINT_MANIFEST",
+            "flattened checkpoint manifest identity disagrees with the save",
+        ));
+    }
     let history_count = parse_hex_u64(&manifest.history_count_hex, "save history count")?;
     let hall_of_fame_count =
         parse_hex_u64(&manifest.hall_of_fame_count_hex, "save Hall-of-Fame count")?;
@@ -793,7 +922,7 @@ fn validate_import_manifest(
     )?;
     if generation == 0
         || history_count != generation - 1
-        || hall_of_fame_count != history_count
+        || hall_of_fame_count > history_count
         || history_count > MAX_EXPORT_GENERATIONS
     {
         return Err(CheckpointError::format(
@@ -801,14 +930,36 @@ fn validate_import_manifest(
             "save history and Hall-of-Fame coverage is inconsistent",
         ));
     }
+    for (index, checkpoint_role) in manifest.checkpoint_manifest.roles.iter().enumerate() {
+        let role = &manifest.roles[index];
+        let stored = parse_hex_u64(&role.stored_bytes_hex, "checkpoint role stored bytes")?;
+        if role.role != checkpoint_role.role
+            || role.path != checkpoint_role.path
+            || role.encoding != checkpoint_role.encoding
+            || role.stored_bytes_hex != checkpoint_role.stored_bytes_hex
+            || role.decoded_bytes_hex != checkpoint_role.decoded_bytes_hex
+            || role.decoded_count_hex != checkpoint_role.decoded_count_hex
+            || role.record_size != checkpoint_role.record_size
+            || role.logical_sha256 != checkpoint_role.logical_sha256
+            || entry_paths[index] != role.path
+            || entry_sizes[index] != stored
+        {
+            return Err(CheckpointError::format(
+                "IMPORT_CHECKPOINT_ROLE",
+                "flattened checkpoint role disagrees with its validated manifest",
+            ));
+        }
+        let logical_sha256 = parse_digest(&role.logical_sha256, "checkpoint role logical SHA-256")?;
+        if matches!(role.encoding.as_str(), "raw-binary-v1" | "raw-f32le-v1")
+            && logical_sha256 != entry_hashes[index]
+        {
+            return Err(CheckpointError::format(
+                "IMPORT_CHECKPOINT_ROLE",
+                "raw flattened checkpoint role failed its logical SHA-256",
+            ));
+        }
+    }
     let expected = [
-        (
-            "checkpoint-v3",
-            CHECKPOINT_ARCHIVE_PATH,
-            "raw-ustar-v3",
-            1,
-            0,
-        ),
         (
             "history",
             HISTORY_PATH,
@@ -823,16 +974,10 @@ fn validate_import_manifest(
             hall_of_fame_count,
             HOF_RECORD_BYTES as u32,
         ),
-        (
-            "hall-of-fame-weights",
-            HOF_WEIGHTS_PATH,
-            NumericEncoding::RawF32LeV1.as_str(),
-            hall_of_fame_weight_count,
-            4,
-        ),
     ];
-    for (index, role) in manifest.roles.iter().enumerate() {
-        let (name, path, encoding, count, record_size) = expected[index];
+    for (relative_index, role) in manifest.roles[5..7].iter().enumerate() {
+        let index = relative_index + 5;
+        let (name, path, encoding, count, record_size) = expected[relative_index];
         let stored = parse_hex_u64(&role.stored_bytes_hex, "role stored bytes")?;
         let decoded = parse_hex_u64(&role.decoded_bytes_hex, "role decoded bytes")?;
         let declared_count = parse_hex_u64(&role.decoded_count_hex, "role decoded count")?;
@@ -840,6 +985,7 @@ fn validate_import_manifest(
             || role.path != path
             || role.encoding != encoding
             || role.record_size != record_size
+            || entry_paths[index] != path
             || stored != entry_sizes[index]
             || decoded != stored
             || declared_count != count
@@ -851,9 +997,34 @@ fn validate_import_manifest(
             ));
         }
     }
-    if entry_sizes[1] != history_count.saturating_mul(HISTORY_RECORD_BYTES)
-        || entry_sizes[2] != hall_of_fame_count.saturating_mul(HOF_RECORD_BYTES)
-        || entry_sizes[3] != hall_of_fame_weight_count.saturating_mul(4)
+    let hof_role = &manifest.roles[7];
+    let hof_encoding = NumericEncoding::parse(&hof_role.encoding)?;
+    let hof_path = match hof_encoding {
+        NumericEncoding::RawF32LeV1 => HOF_WEIGHTS_PATH,
+        NumericEncoding::F32LeShuffle4ZstdV1 => HOF_WEIGHTS_ZSTD_PATH,
+    };
+    let hof_stored = parse_hex_u64(&hof_role.stored_bytes_hex, "Hall-of-Fame stored bytes")?;
+    let hof_decoded = parse_hex_u64(&hof_role.decoded_bytes_hex, "Hall-of-Fame decoded bytes")?;
+    if hof_role.role != "hall-of-fame-weights"
+        || hof_role.path != hof_path
+        || entry_paths[7] != hof_path
+        || hof_stored != entry_sizes[7]
+        || hof_decoded != hall_of_fame_weight_count.saturating_mul(4)
+        || parse_hex_u64(&hof_role.decoded_count_hex, "Hall-of-Fame decoded count")?
+            != hall_of_fame_weight_count
+        || hof_role.record_size != 4
+        || (hof_encoding == NumericEncoding::RawF32LeV1
+            && (hof_stored != hof_decoded
+                || parse_digest(&hof_role.logical_sha256, "Hall-of-Fame logical SHA-256")?
+                    != entry_hashes[7]))
+    {
+        return Err(CheckpointError::format(
+            "IMPORT_ROLE",
+            "save Hall-of-Fame weights disagree with the adaptive role contract",
+        ));
+    }
+    if entry_sizes[5] != history_count.saturating_mul(HISTORY_RECORD_BYTES)
+        || entry_sizes[6] != hall_of_fame_count.saturating_mul(HOF_RECORD_BYTES)
         || hex_digest(logical_root(&manifest.roles)?) != manifest.logical_root_sha256
         || expected_archive_length(entry_sizes)? != archive_bytes
     {
@@ -873,15 +1044,36 @@ fn extract_and_validate_import_roles(
     let file = File::open(archive_path)?;
     let mut archive = TarArchive::new(BufReader::new(file));
     let mut entries = archive.entries()?;
-    let mut checkpoint = OpenOptions::new()
+    let checkpoint = OpenOptions::new()
         .create_new(true)
         .write(true)
         .open(checkpoint_path)?;
-    let mut checkpoint_entry = entries
-        .next()
-        .transpose()?
-        .ok_or_else(|| CheckpointError::format("IMPORT_USTAR", "embedded checkpoint is missing"))?;
-    io::copy(&mut checkpoint_entry, &mut checkpoint)?;
+    let mut checkpoint_archive = TarBuilder::new(BufWriter::new(checkpoint));
+    for role in &manifest.checkpoint_manifest.roles {
+        let entry = entries.next().transpose()?.ok_or_else(|| {
+            CheckpointError::format("IMPORT_USTAR", "flattened checkpoint role is missing")
+        })?;
+        let size = entry.header().size()?;
+        append_reader(&mut checkpoint_archive, &role.path, size, entry)?;
+    }
+    let checkpoint_manifest_bytes =
+        serde_json::to_vec(&manifest.checkpoint_manifest).map_err(|error| {
+            CheckpointError::format(
+                "IMPORT_CHECKPOINT_MANIFEST",
+                format!("checkpoint manifest encoding failed: {error}"),
+            )
+        })?;
+    append_bytes(
+        &mut checkpoint_archive,
+        MANIFEST_PATH,
+        &checkpoint_manifest_bytes,
+    )?;
+    checkpoint_archive.finish()?;
+    let mut checkpoint_writer = checkpoint_archive.into_inner()?;
+    checkpoint_writer.flush()?;
+    let checkpoint = checkpoint_writer
+        .into_inner()
+        .map_err(|error| error.into_error())?;
     checkpoint.sync_all()?;
     drop(checkpoint);
 
@@ -922,10 +1114,13 @@ fn extract_and_validate_import_roles(
         })?;
     let mut hof_record = [0u8; HOF_RECORD_BYTES as usize];
     let mut indexed_weight_count = 0u64;
-    for generation in 1..=hall_of_fame_count {
+    let mut previous_generation = 0u64;
+    for _ in 0..hall_of_fame_count {
         hall_of_fame.read_exact(&mut hof_record)?;
+        let generation = read_u64(&hof_record, 0);
         let weight_count = read_u64(&hof_record, 112);
-        if read_u64(&hof_record, 0) != generation
+        if generation <= previous_generation
+            || generation > history_count
             || !f64::from_bits(read_u64(&hof_record, 32)).is_finite()
             || !f64::from_bits(read_u64(&hof_record, 40)).is_finite()
             || !matches!(hof_record[88], 0 | 1)
@@ -937,6 +1132,7 @@ fn extract_and_validate_import_roles(
                 "Hall-of-Fame index contains an invalid record",
             ));
         }
+        previous_generation = generation;
         indexed_weight_count = indexed_weight_count
             .checked_add(weight_count)
             .ok_or_else(|| {
@@ -956,9 +1152,40 @@ fn extract_and_validate_import_roles(
         ));
     }
 
-    let mut weights = entries.next().transpose()?.ok_or_else(|| {
+    let mut weights_entry = entries.next().transpose()?.ok_or_else(|| {
         CheckpointError::format("IMPORT_USTAR", "Hall-of-Fame weights are missing")
     })?;
+    let stage_directory = checkpoint_path.parent().ok_or_else(|| {
+        CheckpointError::format("IMPORT_PATH", "checkpoint validation path has no parent")
+    })?;
+    let encoded_path = stage_directory.join("hof-weights.encoded");
+    let raw_path = stage_directory.join("hof-weights.raw");
+    let mut scratch = ScratchFiles::new();
+    scratch.track(encoded_path.clone());
+    let mut encoded = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&encoded_path)?;
+    io::copy(&mut weights_entry, &mut encoded)?;
+    encoded.sync_all()?;
+    drop(encoded);
+    scratch.track(raw_path.clone());
+    let mut raw = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&raw_path)?;
+    let hof_role = &manifest.roles[7];
+    decode_adaptive_numeric_file(
+        &encoded_path,
+        NumericEncoding::parse(&hof_role.encoding)?,
+        parse_hex_u64(&hof_role.stored_bytes_hex, "Hall-of-Fame stored bytes")?,
+        declared_weight_count,
+        parse_digest(&hof_role.logical_sha256, "Hall-of-Fame logical SHA-256")?,
+        &mut raw,
+    )?;
+    raw.sync_all()?;
+    drop(raw);
+    let mut weights = BufReader::new(File::open(&raw_path)?);
     let mut bytes = [0u8; 4];
     for (expected_sha256, count) in weight_references {
         let mut hasher = Sha256::new();
@@ -979,6 +1206,16 @@ fn extract_and_validate_import_roles(
             ));
         }
     }
+    if weights.read(&mut bytes[..1])? != 0 {
+        return Err(CheckpointError::format(
+            "IMPORT_HOF_WEIGHTS",
+            "Hall-of-Fame weights exceed the indexed segments",
+        ));
+    }
+    drop(weights);
+    fs::remove_file(&raw_path)?;
+    fs::remove_file(&encoded_path)?;
+    scratch.paths.clear();
     Ok(())
 }
 
@@ -1121,19 +1358,17 @@ fn validate_completed_archive(
     }
     let file = File::open(path)?;
     let mut archive = TarArchive::new(BufReader::new(file));
-    let expected_paths = [
-        CHECKPOINT_ARCHIVE_PATH,
-        HISTORY_PATH,
-        HOF_INDEX_PATH,
-        HOF_WEIGHTS_PATH,
-        MANIFEST_PATH,
-    ];
     let mut seen = 0usize;
     for entry in archive.entries()? {
         let mut entry = entry?;
-        if seen >= expected_paths.len()
+        let expected_path = if seen < manifest.roles.len() {
+            manifest.roles[seen].path.as_str()
+        } else {
+            MANIFEST_PATH
+        };
+        if seen > manifest.roles.len()
             || !entry.header().entry_type().is_file()
-            || entry.path()?.as_ref() != Path::new(expected_paths[seen])
+            || entry.path()?.as_ref() != Path::new(expected_path)
         {
             return Err(CheckpointError::format(
                 "EXPORT_POSTWRITE",
@@ -1144,7 +1379,11 @@ fn validate_completed_archive(
             let role = &manifest.roles[seen];
             let mut hasher = Sha256::new();
             io::copy(&mut entry, &mut HashWriter(&mut hasher))?;
-            if hex_digest(hasher.finalize().into()) != role.logical_sha256 {
+            if matches!(
+                role.encoding.as_str(),
+                "raw-binary-v1" | "raw-f32le-v1" | "raw-history-v1" | "raw-hof-index-v1"
+            ) && hex_digest(hasher.finalize().into()) != role.logical_sha256
+            {
                 return Err(CheckpointError::format(
                     "EXPORT_POSTWRITE",
                     format!("save role {} failed post-write SHA-256", role.role),
@@ -1168,7 +1407,7 @@ fn validate_completed_archive(
         }
         seen += 1;
     }
-    if seen != expected_paths.len() {
+    if seen != manifest.roles.len() + 1 {
         return Err(CheckpointError::format(
             "EXPORT_POSTWRITE",
             "save archive is missing required entries",

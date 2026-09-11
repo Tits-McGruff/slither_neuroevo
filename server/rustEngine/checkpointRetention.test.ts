@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCheckpointRetentionInventory,
   OWNER_CHECKPOINT_RETENTION_DEFAULTS,
   selectManagedCheckpointRetention,
   type CheckpointRetentionCandidate
@@ -74,6 +75,16 @@ describe('production managed checkpoint retention selection', () => {
     expect(result.kept.find(item => item.checkpointId === pin.checkpointId)?.retentionClass).toBe('pinned');
     expect(result.automaticBytes).toBe(2_200n);
     expect(result.pinnedBytes).toBe(9_000n);
+  });
+
+  it('reports a pinned current checkpoint as both current and pinned', () => {
+    const current = candidate(3n, 3n, 100n, { pinned: true });
+    const decision = selectManagedCheckpointRetention([candidate(1n), candidate(2n), current], 'current');
+    const inventory = buildCheckpointRetentionInventory(decision, 'current');
+    expect(decision.kept.find(item => item.checkpointId === current.checkpointId)?.retentionClass).toBe('latest');
+    expect(inventory.retained.latest.checkpointCount).toBe(1);
+    expect(inventory.retained.pinned.checkpointCount).toBe(1);
+    expect(inventory.pinnedStoredByteCount).toBe('0000000000000064');
   });
 
   it('uses exact bigint generations instead of narrowing the persistence wire value', () => {

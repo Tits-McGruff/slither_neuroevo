@@ -248,6 +248,8 @@ export function selectManagedCheckpointRetention(
   }
 
   const pinned = candidates.filter(candidate => candidate.pinned).sort(oldestFirst);
+  const latestCurrent = candidates.filter(candidate => !candidate.priorRunAnchor &&
+    candidate.runId === currentRunId).sort(newestFirst)[0];
   const current = candidates.filter(candidate => !candidate.pinned && !candidate.priorRunAnchor &&
     candidate.runId === currentRunId).sort(newestFirst);
   const latestAnchorByRun = new Map<string, CheckpointRetentionCandidate>();
@@ -273,8 +275,8 @@ export function selectManagedCheckpointRetention(
   }
 
   const automatic = new Map<string, RetainedManagedCheckpoint>();
-  recent.forEach((candidate, index) => automatic.set(candidate.checkpointId, {
-    ...candidate, retentionClass: index === 0 ? 'latest' : 'recent'
+  recent.forEach(candidate => automatic.set(candidate.checkpointId, {
+    ...candidate, retentionClass: candidate.checkpointId === latestCurrent?.checkpointId ? 'latest' : 'recent'
   }));
   milestones.forEach(candidate => automatic.set(candidate.checkpointId, { ...candidate, retentionClass: 'milestone' }));
   anchors.forEach(candidate => automatic.set(candidate.checkpointId, { ...candidate, retentionClass: 'prior-anchor' }));
@@ -296,7 +298,8 @@ export function selectManagedCheckpointRetention(
   }
 
   const kept = [...automatic.values(), ...pinned.map(candidate => ({ ...candidate,
-    retentionClass: 'pinned' as const }))].sort(oldestFirst);
+    retentionClass: candidate.checkpointId === latestCurrent?.checkpointId ? 'latest' as const : 'pinned' as const }))]
+    .sort(oldestFirst);
   const keptIds = new Set(kept.map(candidate => candidate.checkpointId));
   return {
     kept,
@@ -314,8 +317,11 @@ export function buildCheckpointRetentionInventory(
   settings: CheckpointRetentionSettings = OWNER_CHECKPOINT_RETENTION_DEFAULTS
 ): CheckpointRetentionInventory {
   validateSettings(settings);
-  const retained = (retentionClass: CheckpointRetentionClass): CheckpointRetentionBucket =>
-    bucket(decision.kept.filter(item => item.retentionClass === retentionClass));
+  const retained = (retentionClass: CheckpointRetentionClass): CheckpointRetentionBucket => bucket(
+    retentionClass === 'pinned'
+      ? decision.kept.filter(item => item.pinned)
+      : decision.kept.filter(item => item.retentionClass === retentionClass)
+  );
   return {
     schemaVersion: 1,
     activeRunId,

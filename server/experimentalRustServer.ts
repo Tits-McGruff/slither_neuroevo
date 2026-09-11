@@ -219,7 +219,11 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       activeExportResponse = response;
       exportOperation = serveExport(response).catch(error => {
         if (response.destroyed) return;
-        if (!response.headersSent) response.writeHead(500, { 'Content-Type': 'application/json' });
+        if (response.headersSent) {
+          response.destroy();
+          return;
+        }
+        response.writeHead(500, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: error instanceof Error ? error.message : String(error) }));
       }).finally(() => { activeExportResponse = undefined; exportOperation = undefined; });
       return;

@@ -331,5 +331,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   changing the running game or SQLite current pointer; corrupt files and
   validation scratch are removed cleanly.
 
+- 2026-09-11 Rust Hall-of-Fame storage now retains the best 50 unique
+  run-scoped winner objects plus pins while keeping older compact metadata and
+  reclaiming unreferenced files. Exact saves contain direct checkpoint roles
+  instead of a nested checkpoint archive, deduplicate repeated winners, and
+  apply the shared adaptive numeric encoding to aggregate winner weights.
+  Interrupted binary responses are terminated without appending JSON, and a
+  pinned current checkpoint remains reported as both current and pinned.
+
 The next dependency is the atomic imported-run persistence and live replacement
 barrier, followed by direct browser upload progress/result wiring.
