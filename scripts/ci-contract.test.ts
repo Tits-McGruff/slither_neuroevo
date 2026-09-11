@@ -9,6 +9,19 @@ const SUITE = 'CI native and test-layer contract';
 /** Authoritative workflow text inspected without adding a YAML dependency. */
 const WORKFLOW = readFileSync(resolve('.github/workflows/CI.yml'), 'utf8');
 
+/** User-facing setup documentation. */
+const README = readFileSync(resolve('README.md'), 'utf8');
+
+/** Root package manifest. */
+const PACKAGE = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
+  engines?: { node?: string };
+};
+
+/** Native package manifest. */
+const NATIVE_PACKAGE = JSON.parse(readFileSync(resolve('native/package.json'), 'utf8')) as {
+  engines?: { node?: string };
+};
+
 /**
  * Count literal occurrences in the workflow.
  * @param value - Literal text to count.
@@ -19,9 +32,13 @@ function countOccurrences(value: string): number {
 }
 
 describe(SUITE, () => {
-  it('keeps Ubuntu and Windows on the Node 22/24 native matrix', () => {
+  it('keeps Node 24 as the minimum and tests Node 24/26 on Ubuntu and Windows', () => {
+    expect(PACKAGE.engines?.node).toBe('>=24');
+    expect(NATIVE_PACKAGE.engines?.node).toBe('>=24');
+    expect(README).toContain('- **Node.js**: v24 or newer');
+    expect(README).toContain('Use Node 24+');
     expect(WORKFLOW).toContain('os: [ubuntu-latest, windows-latest]');
-    expect(WORKFLOW).toContain('node-version: [22.x, 24.x]');
+    expect(WORKFLOW).toContain('node-version: [24.x, 26.x]');
   });
 
   it('builds the addon once and executes native MT in that same matrix job', () => {
