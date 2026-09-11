@@ -22,6 +22,15 @@ const NATIVE_PACKAGE = JSON.parse(readFileSync(resolve('native/package.json'), '
   engines?: { node?: string };
 };
 
+/** Version-manager pin for local development. */
+const NVMRC = readFileSync(resolve('.nvmrc'), 'utf8').trim();
+
+/** Root npm policy. */
+const NPMRC = readFileSync(resolve('.npmrc'), 'utf8');
+
+/** Native-package npm policy. */
+const NATIVE_NPMRC = readFileSync(resolve('native/.npmrc'), 'utf8');
+
 /**
  * Count literal occurrences in the workflow.
  * @param value - Literal text to count.
@@ -35,6 +44,9 @@ describe(SUITE, () => {
   it('keeps Node 24 as the minimum and tests Node 24/26 on Ubuntu and Windows', () => {
     expect(PACKAGE.engines?.node).toBe('>=24');
     expect(NATIVE_PACKAGE.engines?.node).toBe('>=24');
+    expect(NVMRC).toBe('24');
+    expect(NPMRC).toContain('engine-strict=true');
+    expect(NATIVE_NPMRC).toContain('engine-strict=true');
     expect(README).toContain('- **Node.js**: v24 or newer');
     expect(README).toContain('Use Node 24+');
     expect(WORKFLOW).toContain('os: [ubuntu-latest, windows-latest]');
