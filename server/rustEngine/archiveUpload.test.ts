@@ -1,4 +1,5 @@
-import { readFileSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -28,10 +29,11 @@ describe('raw archive upload spooling', () => {
   it('syncs one exact streamed body to an operation-local ready file', async () => {
     const directory = fixtureDirectory();
     const operationId = '12'.repeat(16) as CheckpointOperationId;
+    const canonicalDirectory = await realpath(directory);
     const result = await spoolArchiveUpload({ source: chunks('save-', 'bytes'), contentLength: '10',
       scratchDirectory: directory, operationId, maximumBytes: 64n });
     expect(result).toEqual({ operationId, relativeFilename: `.${operationId}.upload.ready`,
-      readyPath: join(realpathSync(directory), `.${operationId}.upload.ready`), storedByteCount: '000000000000000a' });
+      readyPath: join(canonicalDirectory, `.${operationId}.upload.ready`), storedByteCount: '000000000000000a' });
     expect(readFileSync(result.readyPath).toString()).toBe('save-bytes');
     expect(readdirSync(directory)).toEqual([`.${operationId}.upload.ready`]);
   });
