@@ -339,3 +339,15 @@ export interface RustRecoveryNotice {
   /** Completed generations lost relative to the newest retained boundary. */
   lostCompletedGenerations: { from: string; through: string } | null;
 }
+
+/** Compact provenance for an owner-selected older-checkpoint import branch. */
+export interface RustImportBranchNotice {
+  /** Original archive lineage whose later local history remains preserved. */
+  sourceRunId: string;
+  /** Fresh active lineage continuing from the imported boundary. */
+  branchRunId: string;
+  /** Exact imported checkpoint generation. */
+  sourceGeneration: RustBackgroundIdentity;
+  /** Exact imported checkpoint root. */
+  sourceCheckpointId: string;
+}

@@ -1,4 +1,4 @@
-import type { RustRecoveryNotice } from '../src/protocol/rustBackground.ts';
+import type { RustImportBranchNotice, RustRecoveryNotice } from '../src/protocol/rustBackground.ts';
 import type { ExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
@@ -7,7 +7,7 @@ import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { networkInterfaces } from 'node:os';
 import { isIP } from 'node:net';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { DEFAULT_CONFIG, parseConfig, type ServerConfig } from './config.ts';
 import { WsHub } from './wsHub.ts';
 import { createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
@@ -16,7 +16,7 @@ import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { createRustStats, createRustWelcome } from './rustEngine/browserMetadata.ts';
 import { ExperimentalRuntimeTelemetry } from './rustEngine/runtimeTelemetry.ts';
 import type { CheckpointRetentionInventory } from './rustEngine/checkpointRetention.ts';
-import type { ManagedCheckpointExportLease } from './rustEngine/checkpointPersistenceProtocol.ts';
+import type { ManagedCheckpointExportLease, ManagedImportBranchResult } from './rustEngine/checkpointPersistenceProtocol.ts';
 import {
   parseManagedCheckpointDescriptor,
   parseManagedImportInventoryDescriptor
@@ -90,6 +90,25 @@ function recoveryNotice(owner: ExperimentalServerRuntime): RustRecoveryNotice | 
       through: through.toString(16).padStart(16, '0') } : null };
 }
 
+/** Small terminal archive-import response emitted only after all cleanup completes. */
+interface ArchiveImportSuccess {
+  ok: true;
+  runId: string;
+  generation: string;
+  completedStep: string;
+  checkpointId: string;
+  saveLogicalRootSha256: string;
+  branched: boolean;
+  sourceRunId?: string;
+}
+
+/** Project durable import lineage for health and welcome messages. */
+function importBranchNotice(value: ManagedImportBranchResult | null): RustImportBranchNotice | undefined {
+  if (!value) return undefined;
+  return { sourceRunId: value.sourceRunId, branchRunId: value.branchRunId,
+    sourceGeneration: value.sourceGeneration, sourceCheckpointId: value.sourceCheckpointId };
+}
+
 /** Start the fixed native P0 profile from fresh or retained managed authority. */
 export async function startExperimentalRustServer(config: ServerConfig): Promise<ExperimentalRustServer> {
   if (resolve(config.dbPath) === resolve(DEFAULT_CONFIG.dbPath)) {
@@ -110,6 +129,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       ...(config.seed === undefined ? {} : { seed: config.seed }), onWake: () => schedule() });
   } catch (error) { return startFaultedServer(config, error); }
   let recovery = recoveryNotice(owner);
+  let importBranch = importBranchNotice(owner.importBranch);
   if (recovery) console.warn('[rust.recovery]', recovery);
   let activeMetadata = owner.metadata;
   let activeCheckpointId = owner.runStart.checkpointId;
@@ -143,7 +163,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let importAuthorityPublished = false;
   const disconnectedDuringImport = new Set<number>();
   let executeImport: ((request: import('node:http').IncomingMessage,
-    response: import('node:http').ServerResponse) => Promise<void>) | undefined;
+    resumeAsBranch: boolean) => Promise<ArchiveImportSuccess>) | undefined;
 
   /** Keep population-sized bytes in Rust/filesystem/browser networking for one exact lease. */
   const serveExport = async (
@@ -210,7 +230,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
-    const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+    const requestUrl = new URL(request.url ?? '/', 'http://localhost');
+    const pathname = requestUrl.pathname;
     if (pathname === '/api/health' || pathname === '/health') {
       const nativeHealth = owner.runtime.health();
       response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
@@ -218,10 +239,17 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         seed: activeMetadata.seed, startupCheckpointId: activeCheckpointId, ...nativeHealth,
         telemetry: telemetry.snapshot(nativeHealth), outbound: hub?.getOutboundDiagnostics(),
         retention, retentionCleanup,
-        ...(recovery ? { recovery } : {}), ...(fault ? { interfaceFault: fault } : {}) }));
+        ...(recovery ? { recovery } : {}), ...(importBranch ? { importBranch } : {}),
+        ...(fault ? { interfaceFault: fault } : {}) }));
       return;
     }
     if (request.method === 'POST' && pathname === '/api/import/archive') {
+      const importMode = requestUrl.searchParams.get('mode');
+      if (importMode !== null && importMode !== 'branch') {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: 'unsupported archive import mode' }));
+        return;
+      }
       if (fault || stopping || !executeImport) {
         response.writeHead(503, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is not ready' }));
@@ -234,19 +262,30 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       }
       activeImportRequest = request;
       activeImportResponse = response;
-      importOperation = executeImport(request, response).catch(error => {
+      /** Clear the busy gate before releasing either terminal HTTP response. */
+      const finishImport = (): void => {
+        activeImportRequest = undefined;
+        activeImportResponse = undefined;
+        importAuthorityPublished = false;
+        importOperation = undefined;
+      };
+      importOperation = executeImport(request, importMode === 'branch').then(result => {
+        finishImport();
+        if (response.destroyed) return;
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify(result));
+      }).catch(error => {
+        finishImport();
         if (response.destroyed) return;
         if (response.headersSent) {
           response.destroy();
           return;
         }
-        response.writeHead(fault ? 503 : 400, { 'Content-Type': 'application/json' });
-        response.end(JSON.stringify({ ok: false, message: error instanceof Error ? error.message : String(error) }));
-      }).finally(() => {
-        activeImportRequest = undefined;
-        activeImportResponse = undefined;
-        importAuthorityPublished = false;
-        importOperation = undefined;
+        const message = error instanceof Error ? error.message : String(error);
+        const requiresBranch = message.includes('resume it as a branch');
+        response.writeHead(requiresBranch ? 409 : fault ? 503 : 400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message,
+          ...(requiresBranch ? { code: 'IMPORT_REQUIRES_BRANCH' } : {}) }));
       });
       return;
     }
@@ -339,7 +378,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     return closePromise;
   };
   try {
-    hub = new WsHub(server, { ...createRustWelcome(activeMetadata), ...(recovery ? { recovery } : {}) }, { maxConnections: 64 });
+    hub = new WsHub(server, { ...createRustWelcome(activeMetadata), ...(recovery ? { recovery } : {}),
+      ...(importBranch ? { importBranch } : {}) }, { maxConnections: 64 });
     const sockets = hub;
     let routing!: ExternalControllerRouting;
     const output = new BackgroundOutputPump({
@@ -390,8 +430,9 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       owner.runtime.requestStop();
     };
     /** Keep upload bytes and the complete replacement outside JavaScript memory. */
-    executeImport = async (request, response): Promise<void> => {
+    executeImport = async (request, resumeAsBranch): Promise<ArchiveImportSuccess> => {
       const operationId = randomBytes(16).toString('hex');
+      const branchRunId = resumeAsBranch ? randomUUID() : null;
       let uploadPath: string | undefined;
       let inventoryPath: string | undefined;
       let prepared = false;
@@ -425,32 +466,35 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         inventoryPath = resolve(owner.managedDirectory, inventory.relativeFilename);
         await output.stagePreparedImport();
         staged = true;
-        const durable = await owner.persistence.commitImport(descriptor, inventory);
+        const durable = await owner.persistence.commitImport(descriptor, inventory, branchRunId);
         committed = true;
-        await output.publishPreparedImport(durable.descriptor);
-        activeMetadata = metadata;
+        if ((durable.importBranch?.branchRunId ?? null) !== branchRunId) {
+          throw new Error('committed import branch identity is inconsistent');
+        }
+        await output.publishPreparedImport(durable.descriptor, branchRunId ?? undefined);
+        activeMetadata = branchRunId === null ? metadata : { ...metadata, runId: branchRunId };
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
+        importBranch = importBranchNotice(durable.importBranch ?? null);
         routing.resetAfterImport();
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
-        const welcome = createRustWelcome(activeMetadata);
+        const welcome = { ...createRustWelcome(activeMetadata), ...(importBranch ? { importBranch } : {}) };
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason: 'import', checkpointId: durable.checkpointId, welcome
         });
         retention = await owner.persistence.inspectRetention();
-        if (!response.destroyed) {
-          response.writeHead(200, { 'Content-Type': 'application/json' });
-          response.end(JSON.stringify({
-            ok: true,
-            runId: activeMetadata.runId,
-            generation: descriptor.generation,
-            completedStep: descriptor.completedStep,
-            checkpointId: durable.checkpointId,
-            saveLogicalRootSha256: imported.saveLogicalRootSha256
-          }));
-        }
+        return {
+          ok: true,
+          runId: activeMetadata.runId,
+          generation: descriptor.generation,
+          completedStep: descriptor.completedStep,
+          checkpointId: durable.checkpointId,
+          saveLogicalRootSha256: imported.saveLogicalRootSha256,
+          branched: branchRunId !== null,
+          ...(branchRunId === null ? {} : { sourceRunId: descriptor.runId })
+        };
       } catch (error) {
         if (staged && !committed) await output.cancelPreparedImport().catch(fail);
         else if (prepared && !staged) {

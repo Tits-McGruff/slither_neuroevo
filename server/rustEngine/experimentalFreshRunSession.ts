@@ -1,5 +1,6 @@
 import { parseRecoveryBranchResult, type RecoveryBranchResult } from './recoveryProtocol.ts';
-import { managedCheckpointDescriptorsEqual, parseManagedCheckpointDescriptor } from './checkpointPersistenceProtocol.ts';
+import { managedCheckpointDescriptorsEqual, parseManagedCheckpointDescriptor,
+  parseManagedImportBranchResult, type ManagedImportBranchResult } from './checkpointPersistenceProtocol.ts';
 import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import { parseRustStartupMetadata } from './startupMetadata.ts';
 /**
@@ -338,12 +339,16 @@ export class ExperimentalFreshRunSession {
   }
 
   /** Restore exactly the committed descriptor selected by the persistence worker. */
-  public async initializeFromCheckpoint(descriptor: ManagedCheckpointDescriptor, recovery?: RecoveryBranchResult): Promise<ExperimentalFreshRunSnapshot> {
+  public async initializeFromCheckpoint(
+    descriptor: ManagedCheckpointDescriptor,
+    branch?: RecoveryBranchResult | ManagedImportBranchResult
+  ): Promise<ExperimentalFreshRunSnapshot> {
     const selected = parseManagedCheckpointDescriptor(descriptor);
-    const provenance = recovery === undefined ? undefined : parseRecoveryBranchResult(recovery);
+    const provenance = branch === undefined ? undefined : 'sourceGeneration' in branch
+      ? parseManagedImportBranchResult(branch) : parseRecoveryBranchResult(branch);
     if (provenance && (provenance.branchRunId !== this.runId ||
         !managedCheckpointDescriptorsEqual(provenance.recoveredDescriptor, selected))) {
-      throw new Error('recovery provenance differs from selected checkpoint or branch');
+      throw new Error('branch provenance differs from selected checkpoint or branch');
     }
     const result = await this.native.initializeFromCheckpoint(this.managedDirectory, selected, provenance !== undefined);
     this.restoredBoundary = selected;

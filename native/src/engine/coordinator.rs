@@ -878,8 +878,12 @@ fn execute_running_authority_command(
             .stage_prepared_import(&slot)
             .map_err(running_control_error)
             .map(|()| RunningAuthorityEvent::ImportStaged { command_sequence }),
-        RunningAuthorityCommand::PublishPreparedImport { slot, descriptor } => running
-            .publish_prepared_import(&slot, &descriptor, wall_now_ms)
+        RunningAuthorityCommand::PublishPreparedImport {
+            slot,
+            descriptor,
+            branch_run_id,
+        } => running
+            .publish_prepared_import(&slot, &descriptor, branch_run_id.as_deref(), wall_now_ms)
             .map_err(running_control_error)
             .map(|publication| RunningAuthorityEvent::ImportPublished {
                 command_sequence,

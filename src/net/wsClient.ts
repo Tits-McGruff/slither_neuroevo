@@ -1,4 +1,4 @@
-import type { RustRecoveryNotice } from '../protocol/rustBackground.ts';
+import type { RustImportBranchNotice, RustRecoveryNotice } from '../protocol/rustBackground.ts';
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../protocol/messages.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
 import type { SensorSpec } from '../protocol/sensors.ts';
@@ -34,6 +34,8 @@ export interface WelcomeMsg {
   runId: string;
   /** Durable recovery provenance when startup selected a retained branch. */
   recovery?: RustRecoveryNotice;
+  /** Durable provenance when an older imported checkpoint starts a fresh lineage. */
+  importBranch?: RustImportBranchNotice;
   configRevision: number;
   configHash: string;
   settings: {

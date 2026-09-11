@@ -609,22 +609,36 @@ impl RunningAuthorityLoop {
         &mut self,
         slot: &super::contract::PreparedImportSlot,
         committed: &CheckpointDescriptor,
+        branch_run_id: Option<&str>,
         wall_now_ms: u64,
     ) -> Result<super::state::RunStartPublication, RunningAuthorityLoopError> {
         self.require_action_state(
             "publish a prepared import",
             RunningAuthorityLoopState::ImportPending,
         )?;
-        let mut transition =
-            slot.take()
-                .ok_or(RunningAuthorityLoopError::RetainedStateMismatch {
-                    field: "prepared import candidate",
-                })?;
+        let mut transition = Some(slot.take().ok_or(
+            RunningAuthorityLoopError::RetainedStateMismatch {
+                field: "prepared import candidate",
+            },
+        )?);
         let attempted = (|| {
-            transition.acknowledge_import_persistence(committed)?;
-            let publication = transition.publish_running_authority()?;
+            transition
+                .as_mut()
+                .expect("prepared import transition remains owned")
+                .acknowledge_import_persistence(committed)?;
+            if let Some(run_id) = branch_run_id {
+                let candidate = transition
+                    .take()
+                    .expect("prepared import transition remains owned");
+                transition = Some(candidate.into_committed_recovery_branch(run_id.to_owned())?);
+            }
+            let publication = transition
+                .as_mut()
+                .expect("prepared import transition remains owned")
+                .publish_running_authority()?;
             Ok::<_, RunStartTransitionError>(publication)
         })();
+        let transition = transition.expect("prepared import transition remains owned");
         let publication = match attempted {
             Ok(publication) => publication,
             Err(error) => {
@@ -680,7 +694,7 @@ impl RunningAuthorityLoop {
         )?;
         let _ = slot.take();
         self.scheduler
-            .reset_wall_clock(&self.authority, wall_now_ms)?;
+            .resume_after_external_pause(&self.authority, wall_now_ms)?;
         self.state = RunningAuthorityLoopState::Ready;
         Ok(())
     }

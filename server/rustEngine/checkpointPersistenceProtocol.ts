@@ -215,6 +215,8 @@ export interface CommitManagedImportRequest {
   descriptor: ManagedCheckpointDescriptor;
   /** Trusted fixed-width history and Hall-of-Fame inventory. */
   inventory: ManagedImportInventoryDescriptor;
+  /** Fresh owner-selected lineage, or null for an exact-identity import. */
+  branchRunId: string | null;
 }
 
 /** Orderly client-owned worker shutdown request. */
@@ -255,6 +257,24 @@ export interface ManagedCheckpointSelection {
   runId: string | null;
   /** Durable provenance remains visible after the branch advances. */
   recovery: RecoveryBranchResult | null;
+  /** Durable provenance for an owner-selected older-checkpoint import branch. */
+  importBranch: ManagedImportBranchResult | null;
+}
+
+/** Durable provenance for an older same-run archive resumed under a fresh lineage. */
+export interface ManagedImportBranchResult {
+  /** Import operation that created the branch. */
+  operationId: CheckpointOperationId;
+  /** Fresh effective lineage used by the running authority. */
+  branchRunId: string;
+  /** Original archive lineage whose retained future remains untouched. */
+  sourceRunId: string;
+  /** Exact source generation selected by the archive. */
+  sourceGeneration: U64Hex;
+  /** Exact immutable source checkpoint root. */
+  sourceCheckpointId: string;
+  /** Original immutable descriptor aliased by the branch pointer. */
+  recoveredDescriptor: ManagedCheckpointDescriptor;
 }
 
 /** Exact immutable checkpoint protected for one direct archive download. */
@@ -332,6 +352,8 @@ export interface ManagedImportCommittedResponse
   extends Omit<ManagedCheckpointCommittedResponse, 'type'> {
   /** Message discriminator. */
   type: 'managedImportCommitted';
+  /** Durable branch provenance, or null for an exact-identity import. */
+  importBranch: ManagedImportBranchResult | null;
 }
 
 /** Correlated rejection returned without changing an existing current pointer. */
@@ -836,6 +858,31 @@ export function parseManagedImportInventoryDescriptor(
     historyCount,
     hallOfFameCount
   };
+}
+
+/** Validate durable provenance for one owner-selected import branch. */
+export function parseManagedImportBranchResult(value: unknown): ManagedImportBranchResult {
+  const raw = asRecord(value, 'importBranch');
+  requireOnlyKeys(raw, [
+    'operationId', 'branchRunId', 'sourceRunId', 'sourceGeneration',
+    'sourceCheckpointId', 'recoveredDescriptor'
+  ]);
+  const recoveredDescriptor = parseManagedCheckpointDescriptor(raw['recoveredDescriptor']);
+  const result: ManagedImportBranchResult = {
+    operationId: parseCheckpointOperationId(raw['operationId']),
+    branchRunId: asRunId(raw['branchRunId']),
+    sourceRunId: asRunId(raw['sourceRunId']),
+    sourceGeneration: asU64Hex(raw['sourceGeneration'], 'importBranch.sourceGeneration'),
+    sourceCheckpointId: asSha256(raw['sourceCheckpointId'], 'importBranch.sourceCheckpointId'),
+    recoveredDescriptor
+  };
+  if (result.branchRunId === result.sourceRunId ||
+      result.sourceRunId !== recoveredDescriptor.runId ||
+      result.sourceGeneration !== recoveredDescriptor.generation ||
+      result.sourceCheckpointId !== recoveredDescriptor.logicalRootSha256) {
+    reject('import branch provenance differs from its immutable source');
+  }
+  return result;
 }
 
 /**

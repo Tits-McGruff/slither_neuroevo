@@ -99,7 +99,9 @@ download finishes or is cancelled. **Import** uploads the selected
 `.slither-save` unchanged, shows upload progress, validates and commits the
 complete experiment, then switches the running Rust game at a safe boundary.
 Existing WebSocket connections stay open, discard their old assignments and
-join the imported run again without reusing stale controller tokens.
+join the imported run again without reusing stale controller tokens. If that
+run already has later local history, Import offers to continue the older save
+as a new run; the existing later history is kept unchanged.
 
 With that server running, a short real-boundary diagnostic exercises a
 spectator, an observation-driven Protocol 2 bot with disconnect/token reclaim,
@@ -404,7 +406,10 @@ and restores every role, SQLite commits the checkpoint, history, Hall of Fame
 and active-run pointer together, and only then does the running game switch.
 A rejected upload leaves the prior game current. Successful replacement keeps
 browser/trainer sockets connected but invalidates every old assignment and
-requires a fresh ordered join.
+requires a fresh ordered join. An older save from the same run cannot silently
+overwrite later generations. The page instead offers an explicit new-run
+branch that records the source run, generation, and checkpoint while leaving
+the original future intact.
 
 The TypeScript reference runtime retains its compatibility JSON import/export
 path until Rust cutover. That older path still assembles population data in the

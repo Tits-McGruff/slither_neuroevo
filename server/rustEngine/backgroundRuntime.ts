@@ -65,7 +65,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   /** Swap only the exact descriptor returned by the committed import transaction. */
   submitImportPersistenceAcknowledgement(
     sequence: U64Hex,
-    descriptor: ManagedCheckpointDescriptor
+    descriptor: ManagedCheckpointDescriptor,
+    branchRunId?: string
   ): void;
   /** Return the complete descriptor committed by the dedicated SQLite worker. */
   submitGenerationPersistenceAcknowledgement(sequence: U64Hex, descriptor: ManagedCheckpointDescriptor): void;

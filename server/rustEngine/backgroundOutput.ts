@@ -111,9 +111,12 @@ export class BackgroundOutputPump {
   }
 
   /** Swap only the exact descriptor returned by the committed SQLite import. */
-  publishPreparedImport(descriptor: ManagedCheckpointDescriptor): Promise<RustImportPublication> {
+  publishPreparedImport(
+    descriptor: ManagedCheckpointDescriptor,
+    branchRunId?: string
+  ): Promise<RustImportPublication> {
     return this.issueImportCommand('publish', sequence =>
-      this.options.owner.runtime.submitImportPersistenceAcknowledgement(sequence, descriptor)
+      this.options.owner.runtime.submitImportPersistenceAcknowledgement(sequence, descriptor, branchRunId)
     ).then(value => {
       if (!value) throw new Error('import publication omitted its result');
       return value;

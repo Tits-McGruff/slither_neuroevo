@@ -1,4 +1,4 @@
-import type { RustRecoveryNotice } from '../src/protocol/rustBackground.ts';
+import type { RustImportBranchNotice, RustRecoveryNotice } from '../src/protocol/rustBackground.ts';
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../src/protocol/messages.ts';
 import type { SensorSpec as SensorSpecBase } from '../src/protocol/sensors.ts';
 import type { SpatialHashDiagnostics } from '../src/spatialHash.ts';
@@ -205,6 +205,8 @@ export interface WelcomeMsg {
   runId: string;
   /** Durable recovery provenance when startup selected a retained branch. */
   recovery?: RustRecoveryNotice;
+  /** Durable provenance when an older imported checkpoint starts a fresh lineage. */
+  importBranch?: RustImportBranchNotice;
   /** Monotonic accepted configuration revision. */
   configRevision: number;
   /** Versioned canonical configuration content hash. */

@@ -351,6 +351,15 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   selection instead of a full-history rewrite, and orphan recovery for an
   interrupted Hall-of-Fame file unlink.
 
-The next dependency is the explicit older-checkpoint recovery branch for
-same-run imports, followed by reuse of this durability-gated replacement path
-for Reset/New Run and the remaining thin secondary command surfaces.
+- 2026-09-12 An older same-run archive with retained future history now rejects
+  exact replacement and can be explicitly resumed under a fresh durable run
+  identity. SQLite preserves the original suffix and records source
+  run/generation/checkpoint provenance; Rust reuses the admitted population and
+  changes only lineage after the commit. Live replacement and process restart
+  both restore the branch, and a rejected exact attempt resumes the old
+  scheduler without counting the persistence pause as wall-clock debt. The
+  minimal PyRL server adapter at `6938663` also handles replacement while it is
+  still waiting for its first assignment on the open socket.
+
+The next dependency is reuse of this durability-gated replacement path for
+Reset/New Run, followed by the remaining thin secondary command surfaces.

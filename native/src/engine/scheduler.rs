@@ -294,6 +294,35 @@ impl FixedStepScheduler {
         Ok(())
     }
 
+    /// Move an initialized idle clock past an external durability pause.
+    ///
+    /// Fractional simulation debt is preserved, while time spent validating or
+    /// committing a replacement is excluded from the next catch-up decision.
+    pub fn resume_after_external_pause(
+        &mut self,
+        authority: &AuthoritativeState,
+        wall_now_ms: u64,
+    ) -> Result<(), SchedulerError> {
+        self.validate_authority(authority)?;
+        if self.pending_step.is_some() {
+            return Err(SchedulerError::StepPending);
+        }
+        let previous_ms = self
+            .last_wall_now_ms
+            .ok_or(SchedulerError::ClockNotInitialized)?;
+        if wall_now_ms < previous_ms {
+            return Err(SchedulerError::RegressingWallClock {
+                previous_ms,
+                actual_ms: wall_now_ms,
+            });
+        }
+        self.last_wall_now_ms = Some(wall_now_ms);
+        self.serviced_mode = None;
+        self.dropped_simulation_seconds_latest = 0.0;
+        self.dropped_wall_seconds_latest = 0.0;
+        Ok(())
+    }
+
     /// Record one explicit inbound command/action service boundary.
     ///
     /// The caller invokes this only after draining commands and newest actions.

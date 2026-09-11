@@ -167,6 +167,43 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       });
       expect(replay.status).toBe(200);
       expect(await replay.json()).toMatchObject({ ok: true, checkpointId: health.startupCheckpointId });
+
+      const futureDatabase = new Database(targetDbPath);
+      try {
+        futureDatabase.prepare(`INSERT INTO rust_generation_history_v1
+          (run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms)
+          VALUES (?, '0000000000000002', NULL, 1, ?, ?)`)
+          .run(health.runId, Buffer.alloc(56), Date.now());
+      } finally { futureDatabase.close(); }
+      const requiresBranch = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: bytes
+      });
+      const requiresBranchBody = await requiresBranch.json();
+      expect({ status: requiresBranch.status, body: requiresBranchBody }).toMatchObject({
+        status: 409, body: { ok: false, code: 'IMPORT_REQUIRES_BRANCH' }
+      });
+      const branchedResponse = await fetch(`http://127.0.0.1:${target.port}/api/import/archive?mode=branch`, {
+        method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: bytes
+      });
+      const branched = await branchedResponse.json() as { runId: string; branched: boolean; sourceRunId: string; message?: string };
+      expect({ status: branchedResponse.status, body: branched }).toMatchObject({ status: 200 });
+      expect(branched).toMatchObject({ branched: true, sourceRunId: health.runId });
+      expect(branched.runId).not.toBe(health.runId);
+      expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: branched.runId,
+        importBranch: { sourceRunId: health.runId, branchRunId: branched.runId,
+          sourceGeneration: '0000000000000001', sourceCheckpointId: health.startupCheckpointId }
+      });
+
+      await target.close();
+      const { seed: _defaultSeed, ...resumeConfig } = DEFAULT_CONFIG;
+      target = await startExperimentalRustServer({
+        ...resumeConfig, port: 0, resume: 'latest', dbPath: targetDbPath
+      });
+      expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: branched.runId,
+        importBranch: { sourceRunId: health.runId, branchRunId: branched.runId }
+      });
       const corrupt = Buffer.from(bytes);
       corrupt[512] = (corrupt[512] ?? 0) ^ 0xff;
       const rejected = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
@@ -174,7 +211,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       });
       expect(rejected.status).toBe(400);
       expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
-        ok: true, runId: health.runId, startupCheckpointId: health.startupCheckpointId
+        ok: true, runId: branched.runId, startupCheckpointId: health.startupCheckpointId
       });
       const targetFiles = await readdir(`${targetDbPath}.checkpoints`);
       expect(targetFiles.filter(name => name.includes('upload') || name.includes('import-inventory') ||

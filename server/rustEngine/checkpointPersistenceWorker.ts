@@ -18,6 +18,7 @@ import {
   parseManagedCheckpointDescriptorLimits,
   parseManagedHallOfFameWeightsDescriptor,
   parseManagedGenerationCommit,
+  parseManagedImportBranchResult,
   parseManagedImportInventoryDescriptor,
   type CheckpointOperationId,
   type CheckpointPersistenceWorkerResponse,
@@ -29,6 +30,7 @@ import {
   type ManagedExportInventoryDescriptor,
   type ManagedHallOfFameWeightsDescriptor,
   type ManagedHallOfFameReference,
+  type ManagedImportBranchResult,
   type ManagedImportInventoryDescriptor,
   type U64Hex
 } from './checkpointPersistenceProtocol.ts';
@@ -224,12 +226,12 @@ function validateExistingSchema(database: ReturnType<typeof Database>): void {
   const schema = database.prepare(`SELECT count(*) AS total,
     sum(name IN ('rust_checkpoint_v3_metadata', 'rust_checkpoint_v3_current',
       'rust_generation_history_v1', 'rust_hall_of_fame_v1', 'rust_hall_of_fame_weights_v1',
-      'rust_recovery_branches_v1', 'rust_active_run_v1',
+      'rust_recovery_branches_v1', 'rust_import_branches_v1', 'rust_active_run_v1',
       'rust_checkpoint_retention_v1')) AS recognized
     FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).get() as {
       total: number; recognized: number | null;
     };
-  if (![4, 5, 6, 7, 8].includes(schema.total) || schema.recognized !== schema.total) {
+  if (![4, 5, 6, 7, 8, 9].includes(schema.total) || schema.recognized !== schema.total) {
     throw new Error('resume requires an existing managed checkpoint metadata database');
   }
   // Preparing these fixed reads also rejects incompatible columns without DDL.
@@ -302,6 +304,14 @@ function initializeRecoverySchema(database: ReturnType<typeof Database>): void {
       history_through_generation_hex TEXT NOT NULL,
       provenance_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS rust_import_branches_v1 (
+      branch_run_id TEXT PRIMARY KEY NOT NULL,
+      operation_id TEXT UNIQUE NOT NULL,
+      source_run_id TEXT NOT NULL,
+      recovered_checkpoint_id TEXT NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
+      history_through_generation_hex TEXT NOT NULL,
+      provenance_json TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS rust_active_run_v1 (
       singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
       run_id TEXT NOT NULL REFERENCES rust_checkpoint_v3_current(run_id)
@@ -325,6 +335,30 @@ function readRecoveryBranch(runId: string): RecoveryBranchResult | undefined {
   return result;
 }
 
+/** Read one durable owner-selected import branch without treating it as crash recovery. */
+function readImportBranch(runId: string): ManagedImportBranchResult | undefined {
+  const row = db.prepare(`SELECT CASE WHEN length(CAST(provenance_json AS BLOB)) <= 32768
+    THEN provenance_json END AS provenance_json FROM rust_import_branches_v1 WHERE branch_run_id = ?`)
+    .get(runId) as { provenance_json: string | null } | undefined;
+  if (!row) return undefined;
+  if (row.provenance_json === null) throw new Error('import branch provenance exceeds bounded metadata limits');
+  const result = parseManagedImportBranchResult(JSON.parse(row.provenance_json));
+  const historyThrough = (BigInt(`0x${result.sourceGeneration}`) - 1n).toString(16).padStart(16, '0');
+  const matching = db.prepare(`SELECT 1 FROM rust_import_branches_v1 WHERE branch_run_id = ?
+    AND operation_id = ? AND source_run_id = ? AND recovered_checkpoint_id = ? AND history_through_generation_hex = ?`)
+    .get(runId, result.operationId, result.sourceRunId, result.sourceCheckpointId, historyThrough);
+  if (result.branchRunId !== runId || !matching) throw new Error('import branch identity mismatch');
+  return result;
+}
+
+/** Resolve either durable branch kind while rejecting an impossible double identity. */
+function readLineageBranch(runId: string): RecoveryBranchResult | ManagedImportBranchResult | undefined {
+  const recovery = readRecoveryBranch(runId);
+  const imported = readImportBranch(runId);
+  if (recovery && imported) throw new Error('run identity belongs to multiple branch kinds');
+  return recovery ?? imported;
+}
+
 /** One bounded ancestor and the inherited checkpoint prefix still eligible for recovery. */
 interface RecoveryLineage {
   /** Run that physically owns immutable descriptor rows. */
@@ -343,7 +377,7 @@ function recoveryLineage(sourceRunId: string): RecoveryLineage[] {
     if (seen.has(runId) || lineage.length === 64) throw new Error('recovery ancestry is cyclic or exceeds 64 retained branches');
     seen.add(runId);
     lineage.push({ runId, maximumGeneration });
-    const branch = readRecoveryBranch(runId);
+    const branch = readLineageBranch(runId);
     if (!branch) return lineage;
     const boundary = branch.recoveredDescriptor.generation;
     const previous = lineage[lineage.length - 1]!.maximumGeneration;
@@ -406,7 +440,7 @@ function commitRecoveryBranch(value: RecoveryBranchCommit): RecoveryBranchResult
     if (invalidChronology) throw new Error('failed lineage has invalid retained chronology');
     const newest = db.prepare('SELECT max(generation_hex) AS generation FROM rust_checkpoint_v3_metadata WHERE run_id = ?')
       .get(commit.sourceRunId) as { generation: string | null };
-    const inherited = readRecoveryBranch(commit.sourceRunId)?.recoveredDescriptor.generation ?? null;
+    const inherited = readLineageBranch(commit.sourceRunId)?.recoveredDescriptor.generation ?? null;
     const abandonedThroughGeneration = newest.generation === null ? inherited :
       inherited !== null && inherited > newest.generation ? inherited : newest.generation;
     const result = parseRecoveryBranchResult({ ...commit, abandonedThroughGeneration });
@@ -974,7 +1008,7 @@ function validateCurrentPointerIdentity(
   } catch {
     throw new Error('current checkpoint pointer references invalid immutable descriptor metadata');
   }
-  const branch = current.metadata_run_id !== expectedRunId ? readRecoveryBranch(expectedRunId) : undefined;
+  const branch = current.metadata_run_id !== expectedRunId ? readLineageBranch(expectedRunId) : undefined;
   const aliased = branch !== undefined && branch.recoveredDescriptor.runId === current.metadata_run_id &&
     branch.recoveredDescriptor.logicalRootSha256 === current.pointer_checkpoint_id &&
     branch.operationId === current.pointer_operation_id &&
@@ -1020,12 +1054,13 @@ function resolveSelectedRun(runId: string | null): string | null {
 function selectManagedCheckpoint(runId: string | null): ManagedCheckpointSelection {
   return db.transaction(() => {
     const selectedRun = resolveSelectedRun(runId);
-    if (selectedRun === null) return { descriptor: null, runId: null, recovery: null };
+    if (selectedRun === null) return { descriptor: null, runId: null, recovery: null, importBranch: null };
     const current = readCurrentPointer(selectedRun);
-    if (!current) return { descriptor: null, runId: null, recovery: null };
+    if (!current) return { descriptor: null, runId: null, recovery: null, importBranch: null };
     const descriptor = validateCurrentPointerIdentity(selectedRun, current);
     assertDescriptorBounds(descriptor);
-    return { descriptor, runId: selectedRun, recovery: readRecoveryBranch(selectedRun) ?? null };
+    return { descriptor, runId: selectedRun, recovery: readRecoveryBranch(selectedRun) ?? null,
+      importBranch: readImportBranch(selectedRun) ?? null };
   }).deferred();
 }
 
@@ -1563,13 +1598,15 @@ function verifyImportInventory(inventory: ManagedImportInventoryDescriptor): Ver
 /** Commit a complete exact archive identity without exposing its records to Node. */
 function commitManagedImport(
   descriptor: ManagedCheckpointDescriptor,
-  inventory: ManagedImportInventoryDescriptor
+  inventory: ManagedImportInventoryDescriptor,
+  branchRunId: string | null
 ): {
   operationId: CheckpointOperationId;
   transitionEpoch: U64Hex;
   runId: string;
   checkpointId: string;
   descriptor: ManagedCheckpointDescriptor;
+  importBranch: ManagedImportBranchResult | null;
 } {
   assertDescriptorBounds(descriptor);
   const managedFile = verifyManagedFile(descriptor);
@@ -1590,8 +1627,27 @@ function commitManagedImport(
       const targetHistoryGeneration = historyCount.toString(16).padStart(16, '0');
       const futureHistory = db.prepare(`SELECT 1 FROM rust_generation_history_v1
         WHERE run_id = ? AND generation_hex > ? LIMIT 1`).get(descriptor.runId, targetHistoryGeneration);
-      if (futureCheckpoint || futureHistory) {
+      const hasRetainedFuture = Boolean(futureCheckpoint || futureHistory);
+      if (hasRetainedFuture && branchRunId === null) {
         throw new Error('exact import cannot move a run behind its retained future history; resume it as a branch');
+      }
+      if (!hasRetainedFuture && branchRunId !== null) {
+        throw new Error('import branch mode requires retained future history for the source run');
+      }
+      if (branchRunId !== null) {
+        if (!branchRunId || branchRunId === descriptor.runId || branchRunId.includes('\0') ||
+            Buffer.byteLength(branchRunId) > 256 || Buffer.from(branchRunId, 'utf8').toString('utf8') !== branchRunId) {
+          throw new Error('import branch run identity is invalid');
+        }
+        const occupied = db.prepare(`SELECT 1 FROM (
+          SELECT run_id FROM rust_checkpoint_v3_metadata WHERE run_id = ?
+          UNION ALL SELECT run_id FROM rust_checkpoint_v3_current WHERE run_id = ?
+          UNION ALL SELECT run_id FROM rust_generation_history_v1 WHERE run_id = ?
+          UNION ALL SELECT run_id FROM rust_hall_of_fame_v1 WHERE run_id = ?
+          UNION ALL SELECT branch_run_id AS run_id FROM rust_recovery_branches_v1 WHERE branch_run_id = ?
+          UNION ALL SELECT branch_run_id AS run_id FROM rust_import_branches_v1 WHERE branch_run_id = ?
+        ) LIMIT 1`).get(branchRunId, branchRunId, branchRunId, branchRunId, branchRunId, branchRunId);
+        if (occupied) throw new Error('import branch run identity already exists');
       }
 
       const existingOperation = db.prepare(`SELECT descriptor_json FROM rust_checkpoint_v3_metadata
@@ -1696,20 +1752,43 @@ function commitManagedImport(
         previousHallGeneration = generation;
       }
       applyHallOfFameRetention(descriptor.runId);
-      db.prepare(`INSERT INTO rust_checkpoint_v3_current
-        (run_id, checkpoint_id, transition_epoch, operation_id) VALUES (?, ?, ?, ?)
-        ON CONFLICT(run_id) DO UPDATE SET checkpoint_id = excluded.checkpoint_id,
-          transition_epoch = excluded.transition_epoch, operation_id = excluded.operation_id`)
-        .run(descriptor.runId, committedDescriptor.logicalRootSha256,
-          committedDescriptor.transitionEpoch, committedDescriptor.operationId);
+      let importBranch: ManagedImportBranchResult | null = null;
+      const effectiveRunId = branchRunId ?? descriptor.runId;
+      if (branchRunId !== null) {
+        importBranch = parseManagedImportBranchResult({
+          operationId: descriptor.operationId,
+          branchRunId,
+          sourceRunId: committedDescriptor.runId,
+          sourceGeneration: committedDescriptor.generation,
+          sourceCheckpointId: committedDescriptor.logicalRootSha256,
+          recoveredDescriptor: committedDescriptor
+        });
+        const historyThrough = historyCount.toString(16).padStart(16, '0');
+        db.prepare(`INSERT INTO rust_import_branches_v1 (branch_run_id, operation_id, source_run_id,
+          recovered_checkpoint_id, history_through_generation_hex, provenance_json) VALUES (?, ?, ?, ?, ?, ?)`)
+          .run(branchRunId, descriptor.operationId, committedDescriptor.runId,
+            committedDescriptor.logicalRootSha256, historyThrough, JSON.stringify(importBranch));
+        db.prepare(`INSERT INTO rust_checkpoint_v3_current
+          (run_id, checkpoint_id, transition_epoch, operation_id) VALUES (?, ?, ?, ?)`)
+          .run(branchRunId, committedDescriptor.logicalRootSha256,
+            committedDescriptor.transitionEpoch, descriptor.operationId);
+      } else {
+        db.prepare(`INSERT INTO rust_checkpoint_v3_current
+          (run_id, checkpoint_id, transition_epoch, operation_id) VALUES (?, ?, ?, ?)
+          ON CONFLICT(run_id) DO UPDATE SET checkpoint_id = excluded.checkpoint_id,
+            transition_epoch = excluded.transition_epoch, operation_id = excluded.operation_id`)
+          .run(descriptor.runId, committedDescriptor.logicalRootSha256,
+            committedDescriptor.transitionEpoch, committedDescriptor.operationId);
+      }
       db.prepare(`INSERT INTO rust_active_run_v1 (singleton, run_id) VALUES (1, ?)
-        ON CONFLICT(singleton) DO UPDATE SET run_id = excluded.run_id`).run(descriptor.runId);
+        ON CONFLICT(singleton) DO UPDATE SET run_id = excluded.run_id`).run(effectiveRunId);
       return {
         operationId: descriptor.operationId,
         transitionEpoch: committedDescriptor.transitionEpoch,
-        runId: committedDescriptor.runId,
+        runId: effectiveRunId,
         checkpointId: committedDescriptor.logicalRootSha256,
-        descriptor: committedDescriptor
+        descriptor: committedDescriptor,
+        importBranch
       };
     }).immediate();
   } finally {
@@ -1987,15 +2066,16 @@ port.on('message', (message: unknown) => {
       return;
     }
     if (request['type'] === 'commitManagedImport') {
-      if (Object.keys(request).length !== 3 || !Object.hasOwn(request, 'descriptor') ||
-          !Object.hasOwn(request, 'inventory')) {
+      if (Object.keys(request).length !== 4 || !Object.hasOwn(request, 'descriptor') ||
+          !Object.hasOwn(request, 'inventory') || !Object.hasOwn(request, 'branchRunId') ||
+          (request['branchRunId'] !== null && typeof request['branchRunId'] !== 'string')) {
         throw new TypeError('invalid managed import request');
       }
       const descriptor = parseManagedCheckpointDescriptor(request['descriptor']);
       const inventory = parseManagedImportInventoryDescriptor(
         request['inventory'], descriptor.operationId
       );
-      const committed = commitManagedImport(descriptor, inventory);
+      const committed = commitManagedImport(descriptor, inventory, request['branchRunId'] as string | null);
       post({ type: 'managedImportCommitted', ...committed });
       return;
     }

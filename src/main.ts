@@ -4311,8 +4311,24 @@ interface ServerArchiveImportResult {
   generation: string;
   /** Exact imported checkpoint identity. */
   checkpointId: string;
+  /** True when an older source was resumed under a fresh run identity. */
+  branched?: boolean;
+  /** Original archive run retained when `branched` is true. */
+  sourceRunId?: string;
   /** Bounded rejection detail when the upload fails. */
   message?: string;
+}
+
+/** Small structured failure used to offer the explicit safe branch operation. */
+class ServerArchiveImportError extends Error {
+  /** Stable server rejection code, when supplied. */
+  public readonly code: string | undefined;
+
+  public constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'ServerArchiveImportError';
+    this.code = code;
+  }
 }
 
 /**
@@ -4323,13 +4339,14 @@ interface ServerArchiveImportResult {
  */
 function uploadServerArchive(
   file: File,
-  onProgress?: (sentBytes: number, totalBytes: number) => void
+  onProgress?: (sentBytes: number, totalBytes: number) => void,
+  resumeAsBranch = false
 ): Promise<ServerArchiveImportResult> {
   const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
   if (!base) return Promise.reject(new Error('invalid server URL.'));
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open('POST', `${base}/api/import/archive`);
+    request.open('POST', `${base}/api/import/archive${resumeAsBranch ? '?mode=branch' : ''}`);
     request.setRequestHeader('Content-Type', 'application/vnd.slither-neuroevo.save');
     request.timeout = 0;
     request.upload.onprogress = event => {
@@ -4338,13 +4355,15 @@ function uploadServerArchive(
     request.onerror = () => reject(new Error('archive upload connection failed'));
     request.onabort = () => reject(new Error('archive upload was cancelled'));
     request.onload = () => {
-      let result: Partial<ServerArchiveImportResult> | undefined;
-      try { result = JSON.parse(request.responseText) as Partial<ServerArchiveImportResult>; }
+      let result: (Partial<ServerArchiveImportResult> & { code?: string }) | undefined;
+      try { result = JSON.parse(request.responseText) as Partial<ServerArchiveImportResult> & { code?: string }; }
       catch { /* The status below supplies the bounded failure. */ }
       if (request.status < 200 || request.status >= 300 || result?.ok !== true ||
           typeof result.runId !== 'string' || !/^[0-9a-f]{16}$/u.test(result.generation ?? '') ||
           !/^[0-9a-f]{64}$/u.test(result.checkpointId ?? '')) {
-        reject(new Error(result?.message ?? `server archive import failed (${request.status})`));
+        reject(new ServerArchiveImportError(
+          result?.message ?? `server archive import failed (${request.status})`, result?.code
+        ));
         return;
       }
       resolve(result as ServerArchiveImportResult);
@@ -4384,12 +4403,24 @@ if (btnImport && fileInput) {
     btnImport.disabled = true;
     try {
       if (serverArchiveImport) {
-        const result = await uploadServerArchive(file, (sentBytes, totalBytes) => {
+        const progress = (sentBytes: number, totalBytes: number): void => {
           btnImport.textContent = sentBytes >= totalBytes
             ? 'Activating...'
             : `Importing ${Math.min(99, Math.floor(sentBytes * 100 / totalBytes))}%`;
-        });
-        alert(`Imported generation ${BigInt(`0x${result.generation}`).toString()} from run ${result.runId}.`);
+        };
+        let result: ServerArchiveImportResult;
+        try {
+          result = await uploadServerArchive(file, progress);
+        } catch (error) {
+          if (!(error instanceof ServerArchiveImportError) || error.code !== 'IMPORT_REQUIRES_BRANCH' ||
+              !confirm('This save is older than later history already stored for that run. Resume it as a new run while keeping the later history?')) {
+            throw error;
+          }
+          result = await uploadServerArchive(file, progress, true);
+        }
+        const source = result.branched && result.sourceRunId
+          ? ` as a new run (original run ${result.sourceRunId})` : ` from run ${result.runId}`;
+        alert(`Imported generation ${BigInt(`0x${result.generation}`).toString()}${source}.`);
         return;
       }
       const data = await importFromFile(file);

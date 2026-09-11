@@ -388,6 +388,7 @@ pub enum RunningAuthorityCommand {
     PublishPreparedImport {
         slot: PreparedImportSlot,
         descriptor: Box<CheckpointDescriptor>,
+        branch_run_id: Option<String>,
     },
     /// Drop a private candidate and resume unchanged authority before commit.
     CancelPreparedImport {
@@ -448,6 +449,15 @@ impl RunningAuthorityCommand {
                     "prepared import slot is empty",
                 ))
             }
+            Self::PublishPreparedImport {
+                branch_run_id: Some(run_id),
+                ..
+            } if run_id.is_empty() || run_id.len() > 256 || run_id.contains('\0') => Err(
+                EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "import branch identity must be nonempty, NUL-free, and at most 256 UTF-8 bytes",
+                ),
+            ),
             _ => Ok(()),
         }
     }
@@ -495,9 +505,13 @@ impl RunningAuthorityCommand {
                 Ok(0)
             }
             Self::StagePreparedImport { .. } | Self::CancelPreparedImport { .. } => Ok(0),
-            Self::PublishPreparedImport { descriptor, .. } => {
-                Ok(size_of::<CheckpointDescriptor>().saturating_add(descriptor.owned_bytes()))
-            }
+            Self::PublishPreparedImport {
+                descriptor,
+                branch_run_id,
+                ..
+            } => Ok(size_of::<CheckpointDescriptor>()
+                .saturating_add(descriptor.owned_bytes())
+                .saturating_add(branch_run_id.as_ref().map_or(0, String::len))),
             Self::SubmitGenerationAssignmentReceipts { receipts }
             | Self::SubmitControllerDeliveryReceipts { receipts } => receipts
                 .len()

@@ -837,6 +837,54 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await source.client.releaseExportLease(lease.operationId);
   });
 
+  it('resumes an older exact import as a durable branch without replacing its future', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: '91'.repeat(16),
+      transitionEpoch: u64(2n), generation: u64(2n), completedStep: u64(3_600n), boundaryKind: 'generation' });
+    const third = createDescriptor(fixture.managedRoot, { operationId: '92'.repeat(16),
+      transitionEpoch: u64(3n), generation: u64(3n), completedStep: u64(7_200n), boundaryKind: 'generation' });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    const lease = await fixture.client.acquireCurrentExportLease();
+    await fixture.client.commit(third, createGenerationCommit(2n));
+
+    const operationId = '93'.repeat(16);
+    const relativeFilename = `.${operationId}.import-inventory-v1`;
+    const copyInventory = (): ManagedImportInventoryDescriptor => {
+      copyFileSync(join(fixture.managedRoot, lease.inventory.relativeFilename),
+        join(fixture.managedRoot, relativeFilename));
+      return { ...lease.inventory, relativeFilename };
+    };
+    const imported = { ...second, operationId };
+    await expect(fixture.client.commitImport(imported, copyInventory())).rejects.toThrow(/resume it as a branch/);
+    const branchRunId = 'owner-selected-import-branch';
+    const committed = await fixture.client.commitImport(imported, copyInventory(), branchRunId);
+    expect(committed).toMatchObject({ runId: branchRunId, checkpointId: second.logicalRootSha256,
+      descriptor: second, importBranch: { operationId, branchRunId, sourceRunId: second.runId,
+        sourceGeneration: second.generation, sourceCheckpointId: second.logicalRootSha256,
+        recoveredDescriptor: second } });
+    const selected = await fixture.client.selectStartup();
+    expect(selected).toMatchObject({ runId: branchRunId, descriptor: second,
+      recovery: null, importBranch: committed.importBranch });
+    expect(await fixture.client.selectCurrent(second.runId)).toEqual(third);
+    await fixture.client.releaseExportLease(lease.operationId);
+    await fixture.client.close();
+
+    const reopened = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(reopened);
+    await expect(reopened.selectStartup()).resolves.toMatchObject({ runId: branchRunId,
+      descriptor: second, importBranch: committed.importBranch });
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+        .get(second.runId)).toEqual({ checkpoint_id: third.logicalRootSha256 });
+      expect(inspect.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+        .get(branchRunId)).toEqual({ checkpoint_id: second.logicalRootSha256 });
+    } finally { inspect.close(); }
+  });
+
   it('rejects ambiguous run selection while retaining explicit per-run reads', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);

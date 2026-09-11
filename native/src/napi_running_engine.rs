@@ -543,14 +543,19 @@ impl ExperimentalRunningAuthority {
         &self,
         sequence: JsString<'_>,
         descriptor: Object<'_>,
+        branch_run_id: Option<JsString<'_>>,
     ) -> Result<()> {
         let sequence = parse_background_sequence(sequence)?;
         let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+        let branch_run_id = branch_run_id
+            .map(|value| bounded_js_string(value, "branchRunId", 256, false))
+            .transpose()?;
         self.submit(
             sequence,
             RunningAuthorityCommand::PublishPreparedImport {
                 slot: self.prepared_import.clone(),
                 descriptor: Box::new(descriptor),
+                branch_run_id,
             },
         )
     }

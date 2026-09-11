@@ -10,7 +10,7 @@ import { CheckpointPersistenceClient, type ManagedCheckpointCommitResult } from 
 import type { ExperimentalEngineInit } from './experimentalNativeBridge.ts';
 import { createExperimentalFreshRunSession, validateExperimentalFreshRunBinding, type ExperimentalFreshRunSession } from './experimentalFreshRunSession.ts';
 import { computeNativeSourceIdentity } from './nativeSourceIdentity.ts';
-import type { ManagedCheckpointSelection } from './checkpointPersistenceProtocol.ts';
+import type { ManagedCheckpointSelection, ManagedImportBranchResult } from './checkpointPersistenceProtocol.ts';
 
 /** Bounded production background queues for the first explicit P0 server. */
 const BACKGROUND_INIT: ExperimentalEngineInit = {
@@ -54,6 +54,8 @@ export interface ExperimentalServerRuntime {
   metadata: RustStartupMetadata;
   /** Durable recovery provenance for health/welcome reporting. */
   recovery: RecoveryBranchResult | null;
+  /** Durable older-checkpoint import provenance for restart and status surfaces. */
+  importBranch: ManagedImportBranchResult | null;
   /** Dedicated metadata worker reused for generation commits. */
   persistence: CheckpointPersistenceClient;
   /** Exact committed startup checkpoint, retained unchanged on restore. */
@@ -111,7 +113,8 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
         if (options.restoreCheckpointId && selection.descriptor.logicalRootSha256 !== options.restoreCheckpointId) throw new Error('requested exact checkpoint is not current');
         session = makeSession(selection.runId);
         await session.initializeFromCheckpoint(selection.descriptor,
-          selection.descriptor.runId !== selection.runId ? selection.recovery ?? undefined : undefined);
+          selection.descriptor.runId !== selection.runId
+            ? selection.recovery ?? selection.importBranch ?? undefined : undefined);
       } catch (currentError) {
         if (!options.restoreLatest && !options.restoreCheckpointId) throw currentError;
         if (options.restoreCheckpointId && selection?.descriptor?.logicalRootSha256 === options.restoreCheckpointId) throw currentError;
@@ -141,7 +144,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
           // Commit failures escape; an older candidate must never hide a durability failure.
           await restored.adoptRecoveryBranch(recovery);
           session = restored;
-          selection = { descriptor, runId: recovery.branchRunId, recovery };
+          selection = { descriptor, runId: recovery.branchRunId, recovery, importBranch: null };
           break;
         }
       }
@@ -161,7 +164,8 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     const owner = runtime;
     let closing: Promise<void> | undefined;
     return {
-      runtime: owner, metadata, recovery: selection?.recovery ?? null, persistence, runStart, managedDirectory,
+      runtime: owner, metadata, recovery: selection?.recovery ?? null,
+      importBranch: selection?.importBranch ?? null, persistence, runStart, managedDirectory,
       admitCheckpoint: () => admitCheckpoint(managedDirectory),
       close(): Promise<void> {
         closing ??= (async () => {
