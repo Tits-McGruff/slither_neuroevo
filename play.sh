@@ -1,102 +1,32 @@
 #!/bin/sh
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-cd "$SCRIPT_DIR" || exit 1
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$SCRIPT_DIR"
+
+HOST="${SLITHER_HOST:-0.0.0.0}"
+PORT="${SLITHER_PORT:-5174}"
+DB_PATH="${SLITHER_DB_PATH:-./data/rust-authority.db}"
+START_MODE="${SLITHER_START_MODE:-auto}"
+RESUME_TARGET="${SLITHER_RESUME_TARGET:-latest}"
+PID_FILE="${SLITHER_PID_FILE:-server.pid}"
+PORT_FILE="${SLITHER_PORT_FILE:-server.port}"
+LOG_FILE="${SLITHER_LOG_FILE:-server.log}"
+BUILD_STAMP="node_modules/.slither-rust-server-build"
+MANAGED_DIR="${DB_PATH}.checkpoints"
 
 echo "========================================"
 echo "Slither Neuroevolution Launcher"
+echo "Rust-authoritative Debian server"
 echo "========================================"
 
-# --------------------------------------------------------------------
-# Prerequisites
-# --------------------------------------------------------------------
-
-# Ensure Node.js is available on PATH.
-if ! command -v node >/dev/null 2>&1; then
-  echo "[ERROR] Node.js is not installed or not in your PATH."
-  echo "Please download and install it from https://nodejs.org/"
-  exit 1
-fi
-
-# Ensure npm is available on PATH.
-if ! command -v npm >/dev/null 2>&1; then
-  echo "[ERROR] npm is not installed or not in your PATH."
-  echo "It normally ships with Node.js; reinstall from https://nodejs.org/"
-  exit 1
-fi
-
-# Ensure we are in a Node project directory.
-if [ ! -f "package.json" ]; then
-  echo "[ERROR] package.json not found in $SCRIPT_DIR"
-  echo "Make sure you are running play.sh from the project directory."
-  exit 1
-fi
-
-# --------------------------------------------------------------------
-# Dependency installation
-# --------------------------------------------------------------------
-
-# Install dependencies when they are missing or incomplete.
-# This protects against stale node_modules after a pull or dependency change.
-need_install=0
-
-# First-run: node_modules does not exist.
-if [ ! -d "node_modules" ]; then
-  need_install=1
-else
-  # Sanity check: verify required runtime dependency is resolvable.
-  # If this fails, node_modules exists but the install is incomplete or stale.
-  node -e "require.resolve('smol-toml')" >/dev/null 2>&1 || need_install=1
-fi
-
-if [ "$need_install" -eq 1 ]; then
-  echo
-  echo "[SETUP] Installing dependencies..."
-  echo
-  if [ -f "package-lock.json" ]; then
-    # Reproducible install when a lockfile is present.
-    if ! npm ci; then
-      echo
-      echo "[ERROR] Failed to install dependencies (npm ci)."
-      exit 1
-    fi
-  else
-    # Standard install when no lockfile is present.
-    if ! npm install; then
-      echo
-      echo "[ERROR] Failed to install dependencies (npm install)."
-      exit 1
-    fi
+require_command() {
+  _name="$1"
+  if ! command -v "$_name" >/dev/null 2>&1; then
+    echo "[ERROR] Required command not found: $_name"
+    exit 1
   fi
-  echo
-  echo "[SUCCESS] Dependencies installed!"
-fi
-
-echo
-echo "[SETUP] Building required native inference addon..."
-echo
-if ! (cd native && node ./node_modules/@napi-rs/cli/dist/cli.js build --platform --release); then
-  echo
-  echo "[ERROR] Failed to build the native inference addon."
-  exit 1
-fi
-
-# --------------------------------------------------------------------
-# Detached mode defaults
-# --------------------------------------------------------------------
-# This version is designed to keep running after the shell ends.
-# It starts BOTH the simulation server and the Vite dev server detached,
-# writes PID files, and logs to server.log/dev.log.
-#
-# Stop later with:
-#   sh shutdown.sh
-#
-# Logs:
-#   tail -f server.log
-#   tail -f dev.log
-
-# --------------------------------------------------------------------
-# Small helpers
-# --------------------------------------------------------------------
+}
 
 read_pid() {
   if [ -f "$1" ]; then
@@ -111,11 +41,20 @@ pid_is_running() {
   [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null
 }
 
-wait_startup_ok() {
+stop_started_process() {
   _pid="$1"
+  kill -TERM "-$_pid" 2>/dev/null || kill -TERM "$_pid" 2>/dev/null || true
+}
+
+wait_for_health() {
+  _pid="$1"
+  _url="http://127.0.0.1:${PORT}/api/health"
   _tries=0
-  while [ "$_tries" -lt 20 ]; do
-    if pid_is_running "$_pid"; then
+  while [ "$_tries" -lt 120 ]; do
+    if ! pid_is_running "$_pid"; then
+      return 1
+    fi
+    if node -e "fetch(process.argv[1]).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" "$_url" >/dev/null 2>&1; then
       return 0
     fi
     _tries=$(( _tries + 1 ))
@@ -124,172 +63,161 @@ wait_startup_ok() {
   return 1
 }
 
-# Start a command detached, preferring setsid so the PID becomes a session leader.
-# That lets shutdown.sh kill the whole process group reliably via kill -PID.
-start_detached() {
-  _name="$1"
-  _pidfile="$2"
-  _logfile="$3"
-  _cmd="$4"
+require_command node
+require_command npm
+require_command setsid
 
+NODE_MAJOR=$(node -p "Number(process.versions.node.split('.')[0])")
+if [ "$NODE_MAJOR" -lt 24 ]; then
+  echo "[ERROR] Node.js 24 or newer is required; found $(node --version)."
+  exit 1
+fi
+
+if [ ! -f package.json ]; then
+  echo "[ERROR] package.json not found in $SCRIPT_DIR"
+  exit 1
+fi
+
+need_install=0
+if [ ! -d node_modules ] || [ ! -f native/node_modules/@napi-rs/cli/dist/cli.js ]; then
+  need_install=1
+elif ! node -e "require.resolve('smol-toml')" >/dev/null 2>&1; then
+  need_install=1
+fi
+
+if [ "$need_install" -eq 1 ]; then
   echo
-  echo "Starting ${_name} (detached)..."
-  echo
-
-  if [ -f "$_pidfile" ]; then
-    _old_pid="$(read_pid "$_pidfile")"
-    if pid_is_running "$_old_pid"; then
-      echo "[INFO] ${_name} already running with PID ${_old_pid}"
-      return 0
-    fi
-    rm -f "$_pidfile"
-  fi
-
-  if command -v setsid >/dev/null 2>&1; then
-    nohup setsid sh -c "exec ${_cmd}" </dev/null >"$_logfile" 2>&1 &
+  echo "[SETUP] Installing dependencies..."
+  if [ -f package-lock.json ]; then
+    npm ci
   else
-    nohup sh -c "exec ${_cmd}" </dev/null >"$_logfile" 2>&1 &
+    npm install
+  fi
+fi
+
+need_build=0
+if [ "${SLITHER_SKIP_BUILD:-0}" != "1" ]; then
+  if [ ! -f dist/index.html ] || [ ! -f native/index.js ] || [ ! -f "$BUILD_STAMP" ]; then
+    need_build=1
+  else
+    have_native=0
+    for _addon in native/slither-native.*.node; do
+      if [ -f "$_addon" ]; then
+        have_native=1
+        break
+      fi
+    done
+    if [ "$have_native" -eq 0 ]; then
+      need_build=1
+    fi
   fi
 
-  _pid=$!
-  echo "$_pid" >"$_pidfile"
+  if [ "$need_build" -eq 0 ]; then
+    for _path in package.json package-lock.json tsconfig.json vite.config.ts index.html styles.css server src native/Cargo.toml native/Cargo.lock native/src; do
+      if [ -e "$_path" ] && find "$_path" -type f -newer "$BUILD_STAMP" -print -quit 2>/dev/null | grep -q .; then
+        need_build=1
+        break
+      fi
+    done
+  fi
+fi
 
-  if ! wait_startup_ok "$_pid"; then
-    echo
-    echo "[ERROR] ${_name} exited during startup."
-    echo "Check ${_logfile} for the reason."
+if [ "$need_build" -eq 1 ]; then
+  echo
+  echo "[SETUP] Building native addon and browser client..."
+  npm run build
+  touch "$BUILD_STAMP"
+elif [ "${SLITHER_SKIP_BUILD:-0}" = "1" ]; then
+  echo "[INFO] Build skipped because SLITHER_SKIP_BUILD=1."
+else
+  echo "[INFO] Existing build is current."
+fi
+
+OLD_PID=$(read_pid "$PID_FILE")
+if pid_is_running "$OLD_PID"; then
+  echo "[INFO] Rust server already running with PID $OLD_PID."
+  echo "[INFO] Log: $LOG_FILE"
+  exit 0
+fi
+rm -f "$PID_FILE" "$PORT_FILE"
+
+mkdir -p "$(dirname "$DB_PATH")"
+
+case "$START_MODE" in
+  auto)
+    if [ -e "$DB_PATH" ]; then
+      ACTIVE_MODE="resume"
+    else
+      ACTIVE_MODE="fresh"
+    fi
+    ;;
+  fresh|resume)
+    ACTIVE_MODE="$START_MODE"
+    ;;
+  *)
+    echo "[ERROR] SLITHER_START_MODE must be auto, fresh, or resume."
+    exit 1
+    ;;
+esac
+
+if [ "$ACTIVE_MODE" = "fresh" ]; then
+  if [ -e "$DB_PATH" ]; then
+    echo "[ERROR] Fresh start requested but database already exists: $DB_PATH"
+    echo "[INFO] Use SLITHER_START_MODE=resume or choose a new SLITHER_DB_PATH."
     exit 1
   fi
-}
-
-# --------------------------------------------------------------------
-# Start services
-# --------------------------------------------------------------------
-
-start_detached "Simulation Server" "server.pid" "server.log" "npm run server"
-start_detached "Vite Dev Server"   "dev.pid"    "dev.log"    "npm run dev -- --force"
-
-echo
-echo "[OK] Simulation server running   PID: $(read_pid server.pid)   Log: server.log"
-echo "[OK] Vite dev server running     PID: $(read_pid dev.pid)      Log: dev.log"
-echo
-
-# --------------------------------------------------------------------
-# Connection details (from ./server/config.toml, enumerate real IPs for 0.0.0.0)
-# --------------------------------------------------------------------
-
-CFG_HOST=""
-CFG_PORT=""
-CFG_UIHOST=""
-CFG_UIPORT=""
-CFG_PUBLIC_WS_URL=""
-CFG_IPS=""
-
-if [ -f "server/config.toml" ]; then
-  while IFS= read -r line; do
-    case "$line" in
-      HOST=*) CFG_HOST="${line#HOST=}" ;;
-      PORT=*) CFG_PORT="${line#PORT=}" ;;
-      UIHOST=*) CFG_UIHOST="${line#UIHOST=}" ;;
-      UIPORT=*) CFG_UIPORT="${line#UIPORT=}" ;;
-      PUBLIC_WS_URL=*) CFG_PUBLIC_WS_URL="${line#PUBLIC_WS_URL=}" ;;
-      IPS=*) CFG_IPS="${line#IPS=}" ;;
-    esac
-  done <<EOF
-$(node -e "
-const fs=require('fs');
-const toml=require('smol-toml');
-const os=require('os');
-
-let cfg={};
-try { cfg = toml.parse(fs.readFileSync('server/config.toml','utf8')); } catch { cfg = {}; }
-
-const ifs=os.networkInterfaces();
-const ips=[];
-for (const name of Object.keys(ifs)) {
-  for (const i of (ifs[name]||[])) {
-    if (i && i.family==='IPv4' && !i.internal) ips.push(i.address);
-  }
-}
-
-function score(ip){
-  if (/^10\\./.test(ip)) return 0;
-  if (/^192\\.168\\./.test(ip)) return 1;
-  const m = ip.match(/^172\\.(\\d+)\\./);
-  if (m) {
-    const n = parseInt(m[1],10);
-    if (n>=16 && n<=31) return 2;
-  }
-  return 9;
-}
-ips.sort((a,b)=>score(a)-score(b) || a.localeCompare(b));
-
-function out(k,v){ process.stdout.write(k+'='+(v==null?'':String(v))+'\\n'); }
-out('HOST', cfg.host);
-out('PORT', cfg.port);
-out('UIHOST', cfg.uiHost);
-out('UIPORT', cfg.uiPort);
-out('PUBLIC_WS_URL', cfg.publicWsUrl || '');
-out('IPS', ips.join(' '));
-")
-EOF
-fi
-
-[ -z "$CFG_UIPORT" ] && CFG_UIPORT="5173"
-[ -z "$CFG_PORT" ] && CFG_PORT="5174"
-
-echo "Connection details:"
-echo
-echo "UI Local:       http://localhost:$CFG_UIPORT/"
-echo "Server Local:   http://localhost:$CFG_PORT/"
-echo
-
-UI_CONNECT_HOSTS=""
-SERVER_CONNECT_HOSTS=""
-
-case "$CFG_UIHOST" in
-  "0.0.0.0") UI_CONNECT_HOSTS="$CFG_IPS" ;;
-  ""|"127.0.0.1"|"localhost") UI_CONNECT_HOSTS="" ;;
-  *) UI_CONNECT_HOSTS="$CFG_UIHOST" ;;
-esac
-
-case "$CFG_HOST" in
-  "0.0.0.0") SERVER_CONNECT_HOSTS="$CFG_IPS" ;;
-  ""|"127.0.0.1"|"localhost") SERVER_CONNECT_HOSTS="" ;;
-  *) SERVER_CONNECT_HOSTS="$CFG_HOST" ;;
-esac
-
-if [ -n "$UI_CONNECT_HOSTS" ]; then
-  for ip in $UI_CONNECT_HOSTS; do
-    echo "UI Network:     http://$ip:$CFG_UIPORT/"
-  done
-  echo
-fi
-
-if [ -n "$SERVER_CONNECT_HOSTS" ]; then
-  for ip in $SERVER_CONNECT_HOSTS; do
-    echo "Server Network: http://$ip:$CFG_PORT/"
-  done
-  echo
-fi
-
-if [ -n "$CFG_PUBLIC_WS_URL" ]; then
-  echo "WebSocket Configured: $CFG_PUBLIC_WS_URL"
-  echo
-else
-  echo "WebSocket Local:      ws://localhost:$CFG_PORT/"
-  if [ -n "$UI_CONNECT_HOSTS" ]; then
-    for ip in $UI_CONNECT_HOSTS; do
-      echo "WebSocket Network:    ws://$ip:$CFG_PORT/"
-    done
-  elif [ -n "$SERVER_CONNECT_HOSTS" ]; then
-    for ip in $SERVER_CONNECT_HOSTS; do
-      echo "WebSocket Network:    ws://$ip:$CFG_PORT/"
-    done
+  if [ -d "$MANAGED_DIR" ] && [ -n "$(ls -A "$MANAGED_DIR" 2>/dev/null || true)" ]; then
+    echo "[ERROR] Fresh start requested but managed checkpoint directory is not empty: $MANAGED_DIR"
+    exit 1
   fi
-  echo
 fi
 
-echo "Open the UI URL in your browser."
+COMMON_ARGS="--host $HOST --port $PORT --db-path $DB_PATH --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1"
+
+echo
+echo "[START] Rust-authoritative server"
+echo "[INFO] Bind: $HOST:$PORT"
+echo "[INFO] Database: $DB_PATH"
+echo "[INFO] Mode: $ACTIVE_MODE${ACTIVE_MODE:+${ACTIVE_MODE:+}}"
+
+if [ "$ACTIVE_MODE" = "fresh" ]; then
+  nohup setsid sh -c 'exec npm run server:rust -- "$@"' sh --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --fresh </dev/null >"$LOG_FILE" 2>&1 &
+else
+  nohup setsid sh -c 'exec npm run server:rust -- "$@"' sh --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --resume "$RESUME_TARGET" </dev/null >"$LOG_FILE" 2>&1 &
+fi
+
+SERVER_PID=$!
+echo "$SERVER_PID" >"$PID_FILE"
+echo "$PORT" >"$PORT_FILE"
+
+if ! wait_for_health "$SERVER_PID"; then
+  echo
+  echo "[ERROR] Rust server did not become healthy."
+  echo "[INFO] Last server log lines:"
+  tail -n 60 "$LOG_FILE" 2>/dev/null || true
+  stop_started_process "$SERVER_PID"
+  rm -f "$PID_FILE" "$PORT_FILE"
+  exit 1
+fi
+
+echo
+echo "[OK] Rust-authoritative server is healthy."
+echo "[OK] PID: $SERVER_PID"
+echo "[OK] Log: $LOG_FILE"
+echo "[OK] Local health: http://127.0.0.1:$PORT/api/health"
+echo
+
+if command -v hostname >/dev/null 2>&1; then
+  for _ip in $(hostname -I 2>/dev/null || true); do
+    case "$_ip" in
+      *:*) continue ;;
+    esac
+    echo "[LAN] Browser:   http://${_ip}:${PORT}/"
+    echo "[LAN] WebSocket: ws://${_ip}:${PORT}"
+  done
+fi
+
+echo
+echo "Stop with: sh shutdown.sh"
 echo
 exit 0
