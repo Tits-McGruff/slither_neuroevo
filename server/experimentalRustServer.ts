@@ -16,7 +16,7 @@ import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { createRustStats, createRustWelcome, wireInteger } from './rustEngine/browserMetadata.ts';
 import { ExperimentalRuntimeTelemetry } from './rustEngine/runtimeTelemetry.ts';
 import type { CheckpointRetentionInventory } from './rustEngine/checkpointRetention.ts';
-import type { ManagedCheckpointExportLease, ManagedImportBranchResult } from './rustEngine/checkpointPersistenceProtocol.ts';
+import type { ManagedBrowserHistoryEntry, ManagedCheckpointExportLease, ManagedImportBranchResult } from './rustEngine/checkpointPersistenceProtocol.ts';
 import {
   parseManagedCheckpointDescriptor,
   parseManagedImportInventoryDescriptor
@@ -194,10 +194,12 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let activeMetadata = owner.metadata;
   let activeCheckpointId = owner.runStart.checkpointId;
   let retention: CheckpointRetentionInventory;
+  let fitnessHistory: ManagedBrowserHistoryEntry[];
   let retentionCleanup: { deletedCheckpointCount: number; deletedStoredByteCount: string };
   try {
     const initialCleanup = await owner.persistence.applyRetention();
     retention = initialCleanup.inventory;
+    fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
     retentionCleanup = { deletedCheckpointCount: initialCleanup.deletedCheckpointCount,
       deletedStoredByteCount: initialCleanup.deletedStoredByteCount };
   }
@@ -545,7 +547,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           sockets.updateWelcome({ frameByteLength: event.display.frameByteLength });
           if (now - lastStats >= 1000 / config.uiFrameRateHz) {
             lastStats = now;
-            sockets.broadcastStats(createRustStats(event.display, activeMetadata, pumpsPerSecond));
+            sockets.broadcastStats(createRustStats(event.display, activeMetadata, pumpsPerSecond, fitnessHistory));
           }
         }
       },
@@ -558,10 +560,11 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           owner.runtime.requestStop();
           return;
         }
-        retentionMaintenance = owner.persistence.applyRetention().then(result => {
+        retentionMaintenance = owner.persistence.applyRetention().then(async result => {
           retention = result.inventory;
           retentionCleanup = { deletedCheckpointCount: result.deletedCheckpointCount,
             deletedStoredByteCount: result.deletedStoredByteCount };
+          fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
         }).catch(error => {
           fault ??= error instanceof Error ? error.message : String(error);
           owner.runtime.requestStop();
@@ -625,6 +628,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         }
         await output.publishPreparedImport(durable.descriptor, branchRunId ?? undefined);
         activeMetadata = branchRunId === null ? metadata : { ...metadata, runId: branchRunId };
+        fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
         importBranch = importBranchNotice(durable.importBranch ?? null);
@@ -703,6 +707,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         committed = true;
         await output.publishPreparedImport(durable.descriptor);
         activeMetadata = metadata;
+        fitnessHistory = [];
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
         importBranch = undefined;

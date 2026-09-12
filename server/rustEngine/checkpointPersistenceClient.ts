@@ -23,6 +23,7 @@ import {
   type ManagedCheckpointExportLease,
   type ManagedCheckpointSelection,
   type ManagedCheckpointDescriptorLimits,
+  type ManagedBrowserHistoryEntry,
   type ManagedGenerationCommit,
   type ManagedImportBranchResult,
   type ManagedImportInventoryDescriptor,
@@ -137,6 +138,8 @@ export class CheckpointPersistenceClient {
   private pin: { operationId: CheckpointOperationId; resolve(value: PinnedCheckpointResult): void; reject(error: Error): void } | undefined;
   /** At most one verified automatic pruning pass may be in flight. */
   private pruning: { operationId: CheckpointOperationId; resolve(value: CheckpointPruneResult): void; reject(error: Error): void } | undefined;
+  /** At most one compact browser-history read may be in flight. */
+  private history: { operationId: CheckpointOperationId; runId: string; resolve(value: ManagedBrowserHistoryEntry[]): void; reject(error: Error): void } | undefined;
   /** One temporary exact-checkpoint reference across preparation and download. */
   private exportLease: ExportLeaseState | undefined;
   /** Terminal lifecycle failure, if the worker violates protocol or exits unexpectedly. */
@@ -374,6 +377,22 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Read the newest compact generation summaries for one active lineage. */
+  readBrowserHistory(runId: string, limit = 120): Promise<ManagedBrowserHistoryEntry[]> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.history) return Promise.reject(new Error('browser history read is busy or stopping'));
+    if (!runId || runId.includes('\0') || Buffer.byteLength(runId) > 256 ||
+        !Number.isSafeInteger(limit) || limit < 1 || limit > 120) {
+      return Promise.reject(new TypeError('invalid browser history request'));
+    }
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.history = { operationId, runId, resolve, reject };
+      try { this.worker.postMessage({ type: 'readBrowserHistory', operationId, runId, limit }); }
+      catch (error) { this.history = undefined; reject(asError(error)); }
+    });
+  }
+
   /**
    * Stop the client-owned worker after it has completed all preceding synchronous messages.
    * @returns Promise resolved after the worker exits cleanly.
@@ -442,6 +461,15 @@ export class CheckpointPersistenceClient {
         }
         this.pruning = undefined;
         pending.resolve(response.result);
+        return;
+      }
+      if (response.type === 'browserHistoryRead') {
+        const pending = this.history;
+        if (!pending || pending.operationId !== response.operationId || pending.runId !== response.runId) {
+          throw new Error('persistence worker returned mismatched browser history');
+        }
+        this.history = undefined;
+        pending.resolve(response.history);
         return;
       }
       if (response.type === 'currentCheckpointPinned') {
@@ -537,6 +565,12 @@ export class CheckpointPersistenceClient {
           pending.reject(new Error(response.reason));
           return;
         }
+        if (response.operationId === this.history?.operationId) {
+          const pending = this.history;
+          this.history = undefined;
+          pending.reject(new Error(response.reason));
+          return;
+        }
         if (response.operationId === this.exportLease?.operationId && this.exportLease.phase !== 'active') {
           const lease = this.exportLease;
           if (lease.phase === 'releasing') this.exportLease = { phase: 'active', operationId: lease.operationId };
@@ -606,6 +640,8 @@ export class CheckpointPersistenceClient {
     this.pin = undefined;
     this.pruning?.reject(error);
     this.pruning = undefined;
+    this.history?.reject(error);
+    this.history = undefined;
     if (this.exportLease?.phase !== 'active') this.exportLease?.reject(error);
     this.exportLease = undefined;
     void this.terminateForFailure();
@@ -639,7 +675,7 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning &&
+    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning && !this.history &&
         (!this.exportLease || this.exportLease.phase === 'active')) {
       this.resolveStopped?.();
       this.resolveStopped = null;
@@ -712,6 +748,37 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
       operationId: response['operationId'],
       result: parseCheckpointPruneResult(response['result'])
     };
+  }
+  if (response['type'] === 'browserHistoryRead') {
+    requireExactKeys(response, ['type', 'operationId', 'runId', 'history']);
+    if (!isOperationId(response['operationId']) || typeof response['runId'] !== 'string' ||
+        !response['runId'] || response['runId'].includes('\0') || Buffer.byteLength(response['runId']) > 256 ||
+        !Array.isArray(response['history']) || response['history'].length > 120) {
+      throw new TypeError('invalid browser history response');
+    }
+    let previousGeneration = 0;
+    const history = response['history'].map(value => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new TypeError('invalid browser history entry');
+      }
+      const entry = value as Record<string, unknown>;
+      requireExactKeys(entry, [
+        'gen', 'best', 'avg', 'min', 'speciesCount', 'topSpeciesSize', 'avgWeight', 'weightVariance'
+      ]);
+      if (!Number.isSafeInteger(entry['gen']) || (entry['gen'] as number) < 1 ||
+          !Number.isSafeInteger(entry['speciesCount']) || (entry['speciesCount'] as number) < 0 ||
+          !Number.isSafeInteger(entry['topSpeciesSize']) || (entry['topSpeciesSize'] as number) < 0 ||
+          !['best', 'avg', 'min', 'avgWeight', 'weightVariance'].every(key =>
+            typeof entry[key] === 'number' && Number.isFinite(entry[key]))) {
+        throw new TypeError('invalid browser history entry values');
+      }
+      const parsed = entry as unknown as ManagedBrowserHistoryEntry;
+      if (parsed.gen <= previousGeneration) throw new TypeError('unordered browser history response');
+      previousGeneration = parsed.gen;
+      return parsed;
+    });
+    return { type: 'browserHistoryRead', operationId: response['operationId'],
+      runId: response['runId'], history };
   }
   if (response['type'] === 'currentCheckpointPinned') {
     requireExactKeys(response, ['type', 'operationId', 'checkpointId', 'generation']);

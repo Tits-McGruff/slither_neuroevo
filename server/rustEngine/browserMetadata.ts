@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_CORE_SETTINGS, SETTINGS_PATHS } from '../../src/protocol/settings.ts';
 import { getSensorLayout, getSensorSpec } from '../../src/protocol/sensors.ts';
 import type { RustBackgroundDisplay, RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
+import type { FitnessHistoryEntry } from '../../src/protocol/messages.ts';
 import type { StatsMsg, WelcomeMsg } from '../protocol.ts';
 
 /** Require exact Protocol 2 numbers rather than silently narrowing Rust counters. */
@@ -47,13 +48,18 @@ export function createRustWelcome(metadata: RustStartupMetadata): WelcomeMsg {
   };
 }
 
-/** Forward cached native facts; unsupported collision diagnostics are absent. */
-export function createRustStats(display: RustBackgroundDisplay, metadata: RustStartupMetadata, pumpsPerSecond: number): StatsMsg {
+/** Forward cached native facts and compact persisted history; unsupported collision diagnostics are absent. */
+export function createRustStats(
+  display: RustBackgroundDisplay,
+  metadata: RustStartupMetadata,
+  pumpsPerSecond: number,
+  fitnessHistory: FitnessHistoryEntry[] = []
+): StatsMsg {
   return {
     type: 'stats', tick: wireInteger(display.completedStep), gen: wireInteger(display.generation),
     generationTime: display.generationTime, generationSeconds: nativeSetting(metadata, 'generationSeconds'),
     alive: display.alivePopulation, aliveTotal: display.aliveSnakes,
     baselineBotsAlive: display.baselineBotsAlive, baselineBotsTotal: display.baselineBotsTotal,
-    fps: pumpsPerSecond
+    fps: pumpsPerSecond, fitnessHistory
   };
 }

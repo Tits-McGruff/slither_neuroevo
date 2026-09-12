@@ -27,6 +27,7 @@ import {
   type ManagedCheckpointDescriptorLimits,
   type ManagedGenerationCommit,
   type ManagedGenerationSummary,
+  type ManagedBrowserHistoryEntry,
   type ManagedExportInventoryDescriptor,
   type ManagedHallOfFameWeightsDescriptor,
   type ManagedHallOfFameReference,
@@ -1174,6 +1175,59 @@ function exportLineageFilter(
   };
 }
 
+/** Decode the newest bounded compact history window for the current browser charts. */
+function readBrowserHistory(runId: string, limit: number): ManagedBrowserHistoryEntry[] {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 120) {
+    throw new RangeError('browser history limit must be an integer from 1 to 120');
+  }
+  return db.transaction(() => {
+    const current = readCurrentPointer(runId);
+    if (!current) throw new Error('browser history requires a current managed run');
+    const descriptor = validateCurrentPointerIdentity(runId, current);
+    const filter = exportLineageFilter(runId, descriptor.generation, 'history');
+    const rows = db.prepare(`SELECT history.generation_hex, history.record_version, history.record_blob
+      FROM rust_generation_history_v1 AS history WHERE ${filter.sql}
+      ORDER BY history.generation_hex DESC LIMIT ?`).all(...filter.parameters, limit) as Array<{
+        generation_hex: string;
+        record_version: number;
+        record_blob: Buffer;
+      }>;
+    const decoded = rows.map(row => {
+      if (row.record_version !== 1 || !/^[0-9a-f]{16}$/u.test(row.generation_hex) ||
+          !Buffer.isBuffer(row.record_blob) || row.record_blob.length !== 56 ||
+          row.record_blob.readBigUInt64LE(0) !== u64HexToBigInt(row.generation_hex)) {
+        throw new Error('browser history contains malformed compact metadata');
+      }
+      const generation = u64HexToBigInt(row.generation_hex);
+      if (generation > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new RangeError('browser history generation exceeds Protocol 2');
+      }
+      const entry: ManagedBrowserHistoryEntry = {
+        gen: Number(generation),
+        best: row.record_blob.readDoubleLE(8),
+        avg: row.record_blob.readDoubleLE(16),
+        min: row.record_blob.readDoubleLE(24),
+        speciesCount: row.record_blob.readUInt32LE(32),
+        topSpeciesSize: row.record_blob.readUInt32LE(36),
+        avgWeight: row.record_blob.readDoubleLE(40),
+        weightVariance: row.record_blob.readDoubleLE(48)
+      };
+      if (![entry.best, entry.avg, entry.min, entry.avgWeight, entry.weightVariance]
+        .every(Number.isFinite)) {
+        throw new Error('browser history contains non-finite compact metadata');
+      }
+      return entry;
+    });
+    decoded.reverse();
+    for (let index = 1; index < decoded.length; index++) {
+      if (decoded[index - 1]!.gen >= decoded[index]!.gen) {
+        throw new Error('browser history contains duplicate or unordered generations');
+      }
+    }
+    return decoded;
+  }).deferred();
+}
+
 /** Write every byte of one small fixed record to an already-open inventory file. */
 function writeInventoryBytes(file: number, bytes: Buffer): void {
   let offset = 0;
@@ -1989,7 +2043,7 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
   if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'scanRecoveryCandidate' ||
       request['type'] === 'inspectCheckpointRetention' || request['type'] === 'pinCurrentCheckpoint' ||
       request['type'] === 'applyCheckpointRetention' || request['type'] === 'acquireCurrentExportLease' ||
-      request['type'] === 'releaseExportLease') {
+      request['type'] === 'releaseExportLease' || request['type'] === 'readBrowserHistory') {
     const operationId = request['operationId'];
     return typeof operationId === 'string' && /^[0-9a-f]{32}$/u.test(operationId) ? operationId : null;
   }
@@ -2052,6 +2106,20 @@ port.on('message', (message: unknown) => {
     if (request['type'] === 'inspectCheckpointRetention') {
       if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid retention inventory request');
       post({ type: 'checkpointRetentionInspected', operationId, inventory: inspectCheckpointRetention() });
+      return;
+    }
+    if (request['type'] === 'readBrowserHistory') {
+      const runId = request['runId'];
+      const limit = request['limit'];
+      if (!operationId || Object.keys(request).length !== 4 || typeof runId !== 'string' ||
+          !runId || runId.includes('\0') || Buffer.byteLength(runId) > 256 ||
+          typeof limit !== 'number') {
+        throw new TypeError('invalid browser history request');
+      }
+      post({
+        type: 'browserHistoryRead', operationId, runId,
+        history: readBrowserHistory(runId, limit)
+      });
       return;
     }
     if (request['type'] === 'scanRecoveryCandidate') {

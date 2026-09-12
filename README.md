@@ -76,7 +76,10 @@ player/bot connections, frames, sensors, steering, disconnect and reclaim. Add
 `--host 0.0.0.0` for trusted home-LAN access. Checkpoints are retained beside
 the database in its `.checkpoints` directory, with free-disk admission before
 each generation save. Recovery provenance is included in health and welcome
-messages. `/api/health` also exposes bounded scalar runtime telemetry for
+messages. Browser fitness, species, and weight charts use the newest 120
+compact persisted generation summaries and therefore survive restart,
+recovery, and import without loading checkpoint populations into Node.
+`/api/health` also exposes bounded scalar runtime telemetry for
 full-step mean/p95/p99/max, simulated-to-wall time, frame bytes, checkpoint,
 separate browser-player/trainer action and controller-lifecycle latency, Node event-loop delay, and process
 memory, plus Rust-confirmed per-kind assignment, reclaim, action, and disconnect

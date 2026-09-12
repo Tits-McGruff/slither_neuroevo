@@ -209,6 +209,26 @@ export interface CommitManagedCheckpointRequest {
   activateRun: boolean;
 }
 
+/** Bounded browser-chart projection decoded by the SQLite worker from compact history. */
+export interface ManagedBrowserHistoryEntry {
+  /** Completed generation, narrowed only within the browser-safe range. */
+  gen: number;
+  /** Best fitness for the generation. */
+  best: number;
+  /** Mean fitness for the generation. */
+  avg: number;
+  /** Minimum fitness for the generation. */
+  min: number;
+  /** Greedy species count. */
+  speciesCount: number;
+  /** Largest species bucket. */
+  topSpeciesSize: number;
+  /** Mean absolute parameter value. */
+  avgWeight: number;
+  /** Variance of absolute parameter values. */
+  weightVariance: number;
+}
+
 /** Atomic import request referencing only Rust-published managed files. */
 export interface CommitManagedImportRequest {
   /** Message discriminator. */
@@ -236,6 +256,7 @@ export type CheckpointPersistenceWorkerRequest =
   | { type: 'applyCheckpointRetention'; operationId: CheckpointOperationId }
   | { type: 'acquireCurrentExportLease'; operationId: CheckpointOperationId }
   | { type: 'releaseExportLease'; operationId: CheckpointOperationId }
+  | { type: 'readBrowserHistory'; operationId: CheckpointOperationId; runId: string; limit: number }
   | CommitManagedCheckpointRequest
   | CommitManagedImportRequest
   | SelectManagedCheckpointRequest
@@ -377,6 +398,7 @@ export type CheckpointPersistenceWorkerResponse =
   | { type: 'checkpointRetentionApplied'; operationId: CheckpointOperationId; result: CheckpointPruneResult }
   | { type: 'currentExportLeaseAcquired'; lease: ManagedCheckpointExportLease }
   | { type: 'exportLeaseReleased'; operationId: CheckpointOperationId }
+  | { type: 'browserHistoryRead'; operationId: CheckpointOperationId; runId: string; history: ManagedBrowserHistoryEntry[] }
   | ManagedCheckpointCommittedResponse
   | ManagedImportCommittedResponse
   | ManagedCheckpointSelectedResponse

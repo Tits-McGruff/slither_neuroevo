@@ -384,6 +384,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   pellet count, and lets the existing baseline timer and external-controller
   replacement paths handle the dead snake on the next fixed step.
 
+- 2026-09-12 Rust-server stats now carry the newest 120 compact persisted
+  generation summaries. The isolated SQLite worker resolves inherited branch
+  history and decodes only the fixed small records; Node caches that projection
+  for browser charts and refreshes it after durable generations and imports.
+
 The next dependency is the remaining bounded browser read/control surfaces,
-starting with compact history and Hall-of-Fame reads before focused neural
-visualization and resurrection.
+starting with Hall-of-Fame reads before focused neural visualization and
+resurrection.

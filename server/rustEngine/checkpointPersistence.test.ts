@@ -377,6 +377,16 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await expect(fixture.client.commitRecoveryBranch(request)).rejects.toThrow(/superseded/);
     expect(await fixture.client.selectCurrent(request.branchRunId)).toEqual(successor);
     expect(await fixture.client.selectCurrent(first.runId)).toEqual(third);
+    expect(await fixture.client.readBrowserHistory(request.branchRunId)).toEqual([
+      { gen: 1, best: 12.5, avg: 7.25, min: -1.5, speciesCount: 2,
+        topSpeciesSize: 1, avgWeight: 0.125, weightVariance: 0.03125 },
+      { gen: 2, best: 12.5, avg: 7.25, min: -1.5, speciesCount: 2,
+        topSpeciesSize: 1, avgWeight: 0.125, weightVariance: 0.03125 }
+    ]);
+    expect(await fixture.client.readBrowserHistory(request.branchRunId, 1)).toEqual([
+      { gen: 2, best: 12.5, avg: 7.25, min: -1.5, speciesCount: 2,
+        topSpeciesSize: 1, avgWeight: 0.125, weightVariance: 0.03125 }
+    ]);
     await fixture.client.close();
     const db = new Database(fixture.databasePath, { readonly: true });
     try {
