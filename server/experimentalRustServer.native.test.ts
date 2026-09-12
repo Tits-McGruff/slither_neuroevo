@@ -302,6 +302,27 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       await until(viewer, () => viewer.frames > 0 && viewer.packets.some(packet => packet['type'] === 'stats'));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ protocolVersion: 2, worldSeed: 42,
         sensorSpec: { sensorCount: 83 }, inferenceMode: { activeBackend: 'native', activeWorkerCount: 0 } });
+      viewer.socket.send(JSON.stringify({ type: 'viz', enabled: true }));
+      await until(viewer, () => viewer.packets.some(packet => {
+        const viz = packet['viz'] as { layers?: unknown[] } | undefined;
+        return packet['type'] === 'stats' && viz?.layers?.length === 5;
+      }));
+      expect(viewer.packets.findLast(packet => packet['viz'])).toMatchObject({
+        viz: {
+          kind: 'graph', snakeId: expect.any(Number),
+          layers: [
+            { count: 83, activations: null },
+            { count: 64, activations: expect.any(Array) },
+            { count: 64, activations: expect.any(Array) },
+            { count: 16, activations: expect.any(Array), isRecurrent: true },
+            { count: 2, activations: expect.any(Array) }
+          ]
+        }
+      });
+      viewer.socket.send(JSON.stringify({ type: 'viz', enabled: false }));
+      const statsBeforeDisable = viewer.packets.filter(packet => packet['type'] === 'stats').length;
+      await until(viewer, () => viewer.packets.filter(packet => packet['type'] === 'stats').length > statsBeforeDisable);
+      expect(viewer.packets.findLast(packet => packet['type'] === 'stats')?.['viz']).toBeUndefined();
       const selected = firstFrameSnake(viewer.latestFrame);
       expect(selected).toBeDefined();
       if (!selected) throw new Error('native frame omitted every alive snake');

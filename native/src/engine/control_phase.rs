@@ -28,6 +28,7 @@ use super::fixed_step::{
     copy_world_reusing, rng_text_capacity, FixedStepPrefixConfig, FixedStepPrefixError,
     PreparedFixedStepPrefix, RngCopyScratch,
 };
+use super::inference::{VisualizationCapturePlan, VisualizationLayerPlan};
 use super::physics::PhysicsStepKey;
 use super::sensors::{
     ObservationDeliveryMarker, SensorError, SensorGenerationState, SensorSampleDiagnostics,
@@ -1250,6 +1251,10 @@ pub struct ControlPhaseWorkspace {
     external_events: Vec<PreparedExternalObservation>,
     neural_candidates: Vec<CalculationCandidateIndex>,
     reset_brains: Vec<BrainHandle>,
+    visualization_plan: VisualizationCapturePlan,
+    visualization_values: Vec<f32>,
+    visualization_identity: Option<(u32, u64)>,
+    visualization_enabled: bool,
     snake_order: Vec<usize>,
     brain_order: Vec<usize>,
     lease_order: Vec<usize>,
@@ -1259,9 +1264,20 @@ pub struct ControlPhaseWorkspace {
 
 impl ControlPhaseWorkspace {
     /// Construct empty retained join scratch around one admitted neural pipeline.
-    #[must_use]
-    pub fn new(neural: NeuralControlPipeline) -> Self {
-        Self {
+    pub fn new(neural: NeuralControlPipeline) -> Result<Self, ControlPhaseError> {
+        let visualization_plan = neural
+            .inference()
+            .prepare_visualization_capture()
+            .map_err(NeuralControlError::from)?;
+        let mut visualization_values = Vec::new();
+        visualization_values
+            .try_reserve_exact(visualization_plan.len())
+            .map_err(|_| ControlPhaseError::AllocationFailed {
+                buffer: "focused visualization values",
+                required: visualization_plan.len(),
+            })?;
+        visualization_values.resize(visualization_plan.len(), 0.0);
+        Ok(Self {
             neural,
             baseline: BaselineControlWorkspace::new(),
             sensor_scratch: SensorScratch::default(),
@@ -1277,12 +1293,40 @@ impl ControlPhaseWorkspace {
             external_events: Vec::new(),
             neural_candidates: Vec::new(),
             reset_brains: Vec::new(),
+            visualization_plan,
+            visualization_values,
+            visualization_identity: None,
+            visualization_enabled: false,
             snake_order: Vec::new(),
             brain_order: Vec::new(),
             lease_order: Vec::new(),
             ready: false,
             diagnostics: ControlPhaseDiagnostics::default(),
+        })
+    }
+
+    /// Enable or disable the single focused visualization calculation.
+    pub fn set_visualization_enabled(&mut self, enabled: bool) {
+        self.visualization_enabled = enabled;
+        if !enabled {
+            self.visualization_identity = None;
         }
+    }
+
+    /// Whether a subscriber currently requests focused activation work.
+    pub const fn visualization_enabled(&self) -> bool {
+        self.visualization_enabled
+    }
+
+    /// Return the last fully prepared focused snapshot without copying it.
+    pub fn visualization(&self) -> Option<FocusedVisualization<'_>> {
+        let (frame_v1_id, completed_step) = self.visualization_identity?;
+        Some(FocusedVisualization {
+            frame_v1_id,
+            completed_step,
+            layers: self.visualization_plan.layers(),
+            values: &self.visualization_values,
+        })
     }
 
     /// Build one shared observation boundary and every exclusive source decision.
@@ -1458,6 +1502,28 @@ impl ControlPhaseWorkspace {
             }
             update.turn = turn;
             update.boost = boost;
+        }
+        let focused = batch.work().first().copied();
+        let _ = batch;
+        if self.visualization_enabled {
+            if let Some(unit) = focused {
+                self.neural.capture_focused_visualization(
+                    unit.brain(),
+                    &self.visualization_plan,
+                    &mut self.visualization_values,
+                    inputs.population,
+                    inputs.brains,
+                )?;
+                let frame_v1_id = world
+                    .snakes
+                    .get(unit.snake_index())
+                    .filter(|snake| snake.id == unit.snake_id())
+                    .ok_or(ControlPhaseError::InternalShapeMismatch {
+                        field: "focused visualization snake",
+                    })?
+                    .frame_v1_id;
+                self.visualization_identity = Some((frame_v1_id, calculation_key.step()));
+            }
         }
         Ok(calculation_key)
     }
@@ -1864,6 +1930,7 @@ impl ControlPhaseWorkspace {
         self.external_events.clear();
         self.neural_candidates.clear();
         self.reset_brains.clear();
+        self.visualization_identity = None;
         self.snake_order.clear();
         self.brain_order.clear();
         self.lease_order.clear();
@@ -1885,6 +1952,19 @@ impl ControlPhaseWorkspace {
             self.collect_diagnostics()
         }
     }
+}
+
+/// Borrowed single-brain visualization captured from one control boundary.
+#[derive(Clone, Copy, Debug)]
+pub struct FocusedVisualization<'a> {
+    /// Browser/frame identity of the selected neural snake.
+    pub frame_v1_id: u32,
+    /// Completed step that becomes authoritative with this capture.
+    pub completed_step: u64,
+    /// Static graph-layer structure.
+    pub layers: &'a [VisualizationLayerPlan],
+    /// Packed finite activation values for layers that carry them.
+    pub values: &'a [f32],
 }
 
 fn prepare_orders(
@@ -2835,7 +2915,7 @@ mod tests {
         })
         .unwrap();
         let neural = NeuralControlPipeline::try_new(8, sensor, plan, usize::MAX).unwrap();
-        ControlPhaseWorkspace::new(neural)
+        ControlPhaseWorkspace::new(neural).unwrap()
     }
 
     fn world_step_config() -> WorldStepConfig {

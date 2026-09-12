@@ -444,6 +444,11 @@ pub(crate) fn run_running_coordinator(
         if let Some(display) = display {
             // The preceding command/service reservation has left scope. This
             // sample cannot precede its reliable result or describe staged work.
+            if running.visualization_enabled() {
+                running.publish_visualization(display)?;
+            } else {
+                display.clear_visualization()?;
+            }
             display.publish_if_due(running, monotonic_elapsed_ms(wall_origin)?, output)?;
         }
         match wait {
@@ -834,6 +839,13 @@ fn execute_running_authority_command(
                 pellets_dropped: publication.pellets_dropped,
                 effective_step,
             }),
+        RunningAuthorityCommand::SetVisualization { enabled } => {
+            running.set_visualization_enabled(enabled);
+            Ok(RunningAuthorityEvent::VisualizationChanged {
+                command_sequence,
+                enabled,
+            })
+        }
         RunningAuthorityCommand::ResurrectHallOfFame {
             managed_directory,
             weights,
@@ -1041,6 +1053,7 @@ fn running_response_owned_byte_bound(
         RunningAuthorityCommand::ApplyLiveSettings { .. } => 128,
         RunningAuthorityCommand::GodModeMove { .. } => 0,
         RunningAuthorityCommand::GodModeKill { .. } => 0,
+        RunningAuthorityCommand::SetVisualization { .. } => 0,
         RunningAuthorityCommand::ResurrectHallOfFame { .. } => 0,
         RunningAuthorityCommand::PublishAcknowledgedGenerationStart => {
             // Every unavailable record is a unique old-controller outcome and

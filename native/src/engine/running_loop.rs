@@ -400,6 +400,31 @@ impl RunningAuthorityLoop {
         ))
     }
 
+    /// Toggle the opt-in single-brain capture without changing game authority.
+    pub(crate) fn set_visualization_enabled(&mut self, enabled: bool) {
+        self.coordinator.set_visualization_enabled(enabled);
+    }
+
+    /// Whether the current graph coordinator is performing focused capture.
+    pub(crate) fn visualization_enabled(&self) -> bool {
+        self.coordinator.visualization_enabled()
+    }
+
+    /// Copy a newly published focused snapshot into the independent display cache.
+    pub(crate) fn publish_visualization(
+        &self,
+        display: &super::display::RunningDisplayCache,
+    ) -> Result<(), super::error::EngineError> {
+        if let Some(visualization) = self
+            .coordinator
+            .visualization()
+            .filter(|value| value.completed_step == self.completed_step())
+        {
+            display.publish_visualization(self.world_epoch(), visualization)?;
+        }
+        Ok(())
+    }
+
     /// Apply one ordered God Mode move before the next fixed step is prepared.
     pub(crate) fn apply_god_mode_move(
         &mut self,
@@ -767,6 +792,7 @@ impl RunningAuthorityLoop {
             }
         };
         let clock = self.background_clock;
+        let visualization_enabled = self.coordinator.visualization_enabled();
         let mut replacement = match transition.into_running_loop(
             FixedStepSchedulerPolicy::provisional_defaults(),
             wall_now_ms,
@@ -782,6 +808,7 @@ impl RunningAuthorityLoop {
         if let Some(clock) = clock {
             replacement.set_background_clock(clock);
         }
+        replacement.set_visualization_enabled(visualization_enabled);
         *self = replacement;
         Ok(publication)
     }

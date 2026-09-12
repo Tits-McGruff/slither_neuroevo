@@ -13,7 +13,9 @@ use super::coordinator::{
     fault_and_stop, panic_error, run_coordinator, run_running_coordinator, CoordinatorState,
     LifecycleState, RunningAuthorityMetrics,
 };
-use super::display::{FrameCopyResult, RunningDisplayCache, RunningDisplayStatus};
+use super::display::{
+    FrameCopyResult, RunningDisplayCache, RunningDisplayStatus, RunningVisualizationStatus,
+};
 use super::error::{EngineError, EngineErrorCode};
 use super::queues::{
     DrainResult, InboundMetrics, InboundQueue, OutputMetrics, OutputQueue, WakeMetrics, WakeSink,
@@ -306,6 +308,20 @@ impl EngineRuntime {
                 display: Some(display),
                 ..
             } => display.latest(),
+            _ => Ok(None),
+        }
+    }
+
+    /// Copy only a newer single-brain visualization from the independent cache.
+    pub fn latest_visualization(
+        &self,
+        after_sequence: u64,
+    ) -> Result<Option<RunningVisualizationStatus>, EngineError> {
+        match &self.mode {
+            RuntimeMode::RunningAuthority {
+                display: Some(display),
+                ..
+            } => display.latest_visualization(after_sequence),
             _ => Ok(None),
         }
     }

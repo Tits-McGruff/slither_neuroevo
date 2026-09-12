@@ -487,6 +487,7 @@ pub struct Stage6BackgroundGenerationEvent {
     pub god_mode_move: Option<BackgroundGodModeMove>,
     pub god_mode_kill: Option<BackgroundGodModeKill>,
     pub hall_of_fame_resurrection: Option<BackgroundHallOfFameResurrection>,
+    pub visualization_enabled: Option<bool>,
     pub controller_disconnect: Option<BackgroundControllerDisconnect>,
     pub controller_join_assignment: Option<BackgroundControllerReclaimAssignment>,
     pub controller_join_resolution: Option<BackgroundControllerReclaimResolution>,
@@ -3276,6 +3277,14 @@ fn running_authority_event_to_napi(
                 effective_step: u64_hex(effective_step),
             });
         }
+        RunningAuthorityEvent::VisualizationChanged {
+            command_sequence,
+            enabled,
+        } => {
+            output.kind = "visualizationChanged".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.visualization_enabled = Some(enabled);
+        }
         RunningAuthorityEvent::ControllerMessages { messages, .. } => {
             output.kind = "controllerMessages".to_owned();
             output.controller_messages = Some(
@@ -3548,6 +3557,7 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         god_mode_move: None,
         god_mode_kill: None,
         hall_of_fame_resurrection: None,
+        visualization_enabled: None,
         controller_disconnect: None,
         controller_join_assignment: None,
         controller_join_resolution: None,

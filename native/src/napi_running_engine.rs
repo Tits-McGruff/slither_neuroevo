@@ -14,7 +14,7 @@ use crate::engine::contract::{
     CommandBatch, EngineCommand, ExternalDeliveryReceipt, PreparedImportSlot,
     RunningAuthorityCommand, SequencedCommand, ENGINE_CONTRACT_VERSION,
 };
-use crate::engine::display::{FrameCopyResult, RunningDisplayStatus};
+use crate::engine::display::{FrameCopyResult, RunningDisplayStatus, RunningVisualizationStatus};
 use crate::engine::error::{EngineError, EngineErrorCode};
 use crate::engine::export_archive::{
     compose_export_archive, prepare_import_archive, validate_import_archive,
@@ -76,6 +76,86 @@ pub(crate) fn display_status_to_napi(status: RunningDisplayStatus) -> Background
 pub struct BackgroundFrameCopy {
     pub status: String,
     pub display: Option<BackgroundDisplayStatus>,
+}
+
+/// One ordered layer returned only for the selected Rust brain.
+#[napi(object)]
+pub struct BackgroundVisualizationLayer {
+    pub count: u32,
+    pub has_activations: bool,
+    pub activations: Vec<f64>,
+    pub is_recurrent: Option<bool>,
+}
+
+/// Replaceable complete focused neural snapshot.
+#[napi(object)]
+pub struct BackgroundVisualization {
+    pub sequence: String,
+    pub world_epoch: String,
+    pub completed_step: String,
+    pub snake_id: u32,
+    pub kind: String,
+    pub layers: Vec<BackgroundVisualizationLayer>,
+}
+
+fn visualization_to_napi(status: RunningVisualizationStatus) -> Result<BackgroundVisualization> {
+    let mut values = status.values.iter().copied();
+    let mut layers = Vec::new();
+    layers.try_reserve_exact(status.layers.len()).map_err(|_| {
+        Error::new(
+            Status::GenericFailure,
+            "cannot allocate visualization layers",
+        )
+    })?;
+    for layer in status.layers {
+        let count = u32::try_from(layer.count).map_err(|_| {
+            Error::new(Status::GenericFailure, "visualization layer exceeds Uint32")
+        })?;
+        let activations = if layer.has_activations {
+            let mut output = Vec::new();
+            output.try_reserve_exact(layer.count).map_err(|_| {
+                Error::new(
+                    Status::GenericFailure,
+                    "cannot allocate visualization values",
+                )
+            })?;
+            for _ in 0..layer.count {
+                let value = values.next().ok_or_else(|| {
+                    Error::new(Status::GenericFailure, "visualization values ended early")
+                })?;
+                if !value.is_finite() {
+                    return Err(Error::new(
+                        Status::GenericFailure,
+                        "visualization contains a non-finite activation",
+                    ));
+                }
+                output.push(f64::from(value));
+            }
+            output
+        } else {
+            Vec::new()
+        };
+        layers.push(BackgroundVisualizationLayer {
+            count,
+            has_activations: layer.has_activations,
+            activations,
+            is_recurrent: layer.recurrent.then_some(true),
+        });
+    }
+    if values.next().is_some() {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "visualization contains extra activation values",
+        ));
+    }
+    Ok(BackgroundVisualization {
+        sequence: u64_hex(status.sequence),
+        world_epoch: u64_hex(status.world_epoch),
+        completed_step: u64_hex(status.completed_step),
+        snake_id: status.frame_v1_id,
+        kind: "graph".to_owned(),
+        layers,
+    })
 }
 
 /// Bounded ready-file facts returned after Rust completes export composition.
@@ -857,6 +937,15 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Queue an aggregate subscriber toggle for focused neural capture.
+    #[napi(catch_unwind)]
+    pub fn submit_visualization(&self, sequence: JsString<'_>, enabled: bool) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SetVisualization { enabled },
+        )
+    }
+
     /// Queue one exact retained winner for Rust-owned decoding and resurrection.
     #[napi(catch_unwind)]
     pub fn submit_hall_of_fame_resurrection(
@@ -960,6 +1049,26 @@ impl ExperimentalRunningAuthority {
                 .latest_display()
                 .map(|status| status.map(display_status_to_napi))
                 .map_err(engine_error_to_napi)
+        })
+    }
+
+    /// Copy only a newer cached focused snapshot; never inspect the live authority.
+    #[napi(catch_unwind)]
+    pub fn latest_visualization(
+        &self,
+        after_sequence: JsString<'_>,
+    ) -> Result<Option<BackgroundVisualization>> {
+        let after_sequence = parse_u64_hex(
+            &bounded_js_string(after_sequence, "afterSequence", 16, false)?,
+            "afterSequence",
+            true,
+        )?;
+        self.root(|| {
+            self.runtime
+                .latest_visualization(after_sequence)
+                .map_err(engine_error_to_napi)?
+                .map(visualization_to_napi)
+                .transpose()
         })
     }
 

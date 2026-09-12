@@ -373,6 +373,10 @@ pub enum RunningAuthorityCommand {
     GodModeKill {
         frame_v1_id: u32,
     },
+    /// Enable or disable replaceable focused activation capture.
+    SetVisualization {
+        enabled: bool,
+    },
     /// Restore one verified retained winner directly from its managed object.
     ResurrectHallOfFame {
         managed_directory: String,
@@ -557,6 +561,7 @@ impl RunningAuthorityCommand {
                 }),
             Self::GodModeMove { .. } => Ok(0),
             Self::GodModeKill { .. } => Ok(0),
+            Self::SetVisualization { .. } => Ok(0),
             Self::ResurrectHallOfFame {
                 managed_directory,
                 weights,
@@ -743,6 +748,11 @@ pub enum RunningAuthorityEvent {
         frame_v1_id: u32,
         effective_step: u64,
     },
+    /// Focused capture work changed without mutating authoritative game state.
+    VisualizationChanged {
+        command_sequence: u64,
+        enabled: bool,
+    },
     /// The entire ordinary-step delivery batch, admitted before step preparation.
     ControllerMessages {
         ticket_sequence: u64,
@@ -861,6 +871,7 @@ impl RunningAuthorityEvent {
             Self::GodModeMoved { .. } => 0,
             Self::GodModeKilled { .. } => 0,
             Self::HallOfFameResurrected { .. } => 0,
+            Self::VisualizationChanged { .. } => 0,
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
             Self::GenerationCheckpointPublished {

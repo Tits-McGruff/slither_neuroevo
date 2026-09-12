@@ -16,7 +16,7 @@ use super::checkpoint::{
 use super::control::{NeuralControlError, NeuralControlPipeline};
 use super::control_phase::{
     ControlCommitWorkspace, ControlPhaseError, ControlPhaseInputs, ControlPhaseWorkspace,
-    PreparedExternalObservation,
+    FocusedVisualization, PreparedExternalObservation,
 };
 use super::external_replacement::{AssignmentResolution, UnavailableControllerReservation};
 use super::fixed_step::{FixedStepPrefixError, FixedStepPrefixInputs, FixedStepPrefixWorkspace};
@@ -573,7 +573,7 @@ impl RunningStepCoordinator {
             work_limits: limits,
             last_wall_now_ms: None,
             prefix: FixedStepPrefixWorkspace::new(),
-            control: ControlPhaseWorkspace::new(neural),
+            control: ControlPhaseWorkspace::new(neural)?,
             control_commit: ControlCommitWorkspace::new(),
             world_step: WorldStepWorkspace::new(),
             generation_start: GenerationStartWorkspace::new(),
@@ -619,6 +619,9 @@ impl RunningStepCoordinator {
         replacement.last_wall_now_ms = self.last_wall_now_ms;
         replacement.next_external_event_sequence = self.next_external_event_sequence;
         replacement.last_published_diagnostics = self.last_published_diagnostics;
+        replacement
+            .control
+            .set_visualization_enabled(self.control.visualization_enabled());
         #[cfg(feature = "engine-test-hooks")]
         {
             replacement.allocation_snapshot = self.allocation_snapshot;
@@ -633,6 +636,21 @@ impl RunningStepCoordinator {
     #[must_use]
     pub const fn math_backend(&self) -> InferenceMathBackend {
         self.math_backend
+    }
+
+    /// Toggle focused capture without altering authoritative game state.
+    pub fn set_visualization_enabled(&mut self, enabled: bool) {
+        self.control.set_visualization_enabled(enabled);
+    }
+
+    /// Whether focused capture is requested for future due brains.
+    pub const fn visualization_enabled(&self) -> bool {
+        self.control.visualization_enabled()
+    }
+
+    /// Reborrow the latest capture only after its corresponding step publishes.
+    pub fn visualization(&self) -> Option<FocusedVisualization<'_>> {
+        self.control.visualization()
     }
 
     /// Stage one complete step and publish it immediately or await Node delivery.

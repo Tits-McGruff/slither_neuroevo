@@ -401,5 +401,9 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   and brain state, validates the complete staged authority, and commits it at
   the ordered command boundary before the worker releases the lease.
 
-The next dependency is focused Rust neural visualization, followed by the
-remaining compatibility and Stage 6B gates.
+- 2026-09-13 The existing Visualizer tab now controls one aggregate Rust
+  subscription. Rust re-evaluates only one due neural brain, publishes its
+  complete visible layers after the matching step commits, and stops all
+  activation-capture work when the last browser unsubscribes.
+
+The next dependency is the remaining compatibility work and Stage 6B gates.

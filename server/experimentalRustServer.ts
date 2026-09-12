@@ -1,4 +1,8 @@
-import type { RustImportBranchNotice, RustRecoveryNotice } from '../src/protocol/rustBackground.ts';
+import type {
+  RustBackgroundVisualization,
+  RustImportBranchNotice,
+  RustRecoveryNotice
+} from '../src/protocol/rustBackground.ts';
 import type { ExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
@@ -223,6 +227,11 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let pumpStart = performance.now();
   let pumps = 0;
   let pumpsPerSecond = 0;
+  const visualizationConnections = new Set<number>();
+  let latestVisualization: RustBackgroundVisualization | undefined;
+  let visualizationApplied = false;
+  let visualizationCommand: { sequence: string; enabled: boolean } | undefined;
+  let flushVisualization = (): void => {};
   const pendingSettings = new Map<string, {
     connection: number;
     requestId: string;
@@ -609,17 +618,37 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
             }
           }
         }
+        const command = visualizationCommand;
+        if (command && command.sequence === event.commandSequence &&
+            (event.kind === 'visualizationChanged' || event.kind === 'commandRejected')) {
+          visualizationCommand = undefined;
+          if (event.kind !== 'visualizationChanged' ||
+              event.visualizationEnabled !== command.enabled) {
+            fail(new Error(event.rejectionDetail ?? 'Rust rejected visualization state'));
+            return;
+          }
+          visualizationApplied = command.enabled;
+          flushVisualization();
+        }
         const now = performance.now();
         if (event.display) {
           telemetry.observeDisplay(event.display);
           sockets.updateWelcome({ frameByteLength: event.display.frameByteLength });
           if (now - lastStats >= 1000 / config.uiFrameRateHz) {
             lastStats = now;
-            sockets.broadcastStats(createRustStats(event.display, activeMetadata, pumpsPerSecond, fitnessHistory));
+            sockets.broadcastStats(createRustStats(
+              event.display,
+              activeMetadata,
+              pumpsPerSecond,
+              fitnessHistory,
+              visualizationConnections.size > 0 ? latestVisualization : undefined
+            ));
           }
         }
       },
       hasFrameRecipients: () => sockets.hasFrameRecipients() && performance.now() - lastFrame >= 1000 / config.uiFrameRateHz,
+      wantsVisualization: () => visualizationConnections.size > 0,
+      visualization(snapshot) { latestVisualization = snapshot; },
       frame(lease) { lastFrame = performance.now(); sockets.broadcastFrame(lease.bytes, lease.release); },
       observeCheckpointBarrier: durationMs => {
         telemetry.observeCheckpointBarrier(durationMs);
@@ -647,6 +676,17 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       observeLifecycleLatency: (kind, operation, durationMs) =>
         telemetry.observeControllerLifecycle(kind, operation, durationMs),
       observeDisconnect: kind => telemetry.observeControllerDisconnect(kind) });
+    /** Converge many UI subscriptions onto one ordered native capture toggle. */
+    flushVisualization = (): void => {
+      const enabled = visualizationConnections.size > 0;
+      if (visualizationCommand || enabled === visualizationApplied || fault || stopping) return;
+      let sequence: string | undefined;
+      const admitted = output.admission.trySubmitControl(value => {
+        owner.runtime.submitVisualization(value, enabled);
+        sequence = value;
+      });
+      if (admitted && sequence) visualizationCommand = { sequence, enabled };
+    };
     /** Keep health available after a terminal native/interface failure. */
     const fail = (error: unknown): void => {
       const failure = error instanceof Error ? error : new Error(String(error));
@@ -888,6 +928,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         pumps++;
         const now = performance.now();
         if (now - pumpStart >= 1000) { pumpsPerSecond = pumps * 1000 / (now - pumpStart); pumpStart = now; pumps = 0; }
+        try { flushVisualization(); } catch (error) { fail(error); return; }
         draining = output.drain();
         void draining.then(() => routing.flush()).catch(fail).finally(() => { draining = undefined; });
       });
@@ -905,6 +946,9 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         if (!fault && !stopping && (!importOperation || importAuthorityPublished)) routing.action(connection, message);
       }); },
       onDisconnect(connection) { route(() => {
+        visualizationConnections.delete(connection);
+        if (visualizationConnections.size === 0) latestVisualization = undefined;
+        flushVisualization();
         if (stopping || fault) return;
         if (importOperation && !importAuthorityPublished) disconnectedDuringImport.add(connection);
         else routing.disconnect(connection);
@@ -993,7 +1037,12 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       onNewRun(connection, message) {
         startFreshReplacement(connection, 'newRun', randomBytes(4).readUInt32LE(), message);
       },
-      onViz: unsupported
+      onViz(connection, message) { route(() => {
+        if (message.enabled) visualizationConnections.add(connection);
+        else visualizationConnections.delete(connection);
+        if (visualizationConnections.size === 0) latestVisualization = undefined;
+        flushVisualization();
+      }); }
     });
     await new Promise<void>((done, reject) => { server.once('error', reject); server.listen(config.port, config.host, () => { server.off('error', reject); done(); }); });
     const address = server.address();

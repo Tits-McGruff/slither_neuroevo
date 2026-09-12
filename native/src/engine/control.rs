@@ -14,7 +14,7 @@ use super::inference::{
     evaluate_heterogeneous_population, evaluate_heterogeneous_population_with_resets,
     publish_heterogeneous_recurrent, validate_heterogeneous_recurrent_commit,
     ActivationCapturePlan, GraphExecutionPlan, HeterogeneousInferenceBuffers,
-    HeterogeneousRecurrentReset, InferenceError,
+    HeterogeneousRecurrentReset, InferenceError, VisualizationCapturePlan,
 };
 use super::sensors::{
     ObservationDeliveryMarker, SensorError, SensorEvaluator, SensorGenerationState,
@@ -525,6 +525,72 @@ impl NeuralControlPipeline {
         }
         self.inference
             .capture_activation(capture, &scratch_view, destination)?;
+        Ok(())
+    }
+
+    /// Re-evaluate one explicitly focused due brain and capture all visible layers.
+    pub fn capture_focused_visualization(
+        &mut self,
+        brain: BrainHandle,
+        capture: &VisualizationCapturePlan,
+        destination: &mut [f32],
+        population: &[PopulationGenome],
+        brains: &[BrainRuntimeState],
+    ) -> Result<(), NeuralControlError> {
+        let ready = self.ready.ok_or(NeuralControlError::BatchNotReady)?;
+        let input_size = self.inference.input_size();
+        let output_size = self.inference.output_size();
+        let recurrent_size = self.inference.total_state_size();
+        let CalculationExecutionBuffers {
+            work, scratches, ..
+        } = self.workspace.execution_buffers()?;
+        let ordinal = work
+            .iter()
+            .position(|unit| unit.brain() == brain)
+            .ok_or(NeuralControlError::FocusedBrainNotInBatch { brain })?;
+        if ordinal >= ready.active {
+            return Err(NeuralControlError::InternalLengthMismatch {
+                buffer: "focused visualization ordinal",
+                actual: ordinal,
+                expected: ready.active,
+            });
+        }
+        let reset_recurrent = self.recurrent_reset_mask[ordinal];
+        let graph_scratch = scratches
+            .first_mut()
+            .ok_or(NeuralControlError::MissingCalculationScratch)?;
+        let observation_offset = ordinal * input_size;
+        let mut scratch_view = graph_scratch.view();
+        let buffers = HeterogeneousInferenceBuffers {
+            observations: &self.observations[observation_offset..observation_offset + input_size],
+            staged_outputs: &mut self.capture_output[..output_size],
+            staged_recurrent: &mut self.capture_recurrent[..recurrent_size],
+        };
+        if reset_recurrent {
+            evaluate_heterogeneous_population_with_resets(
+                &self.inference,
+                &work[ordinal..ordinal + 1],
+                population,
+                brains,
+                HeterogeneousRecurrentReset {
+                    mask: std::slice::from_ref(&reset_recurrent),
+                    zero_recurrent: &self.zero_recurrent,
+                },
+                buffers,
+                &mut scratch_view,
+            )?;
+        } else {
+            evaluate_heterogeneous_population(
+                &self.inference,
+                &work[ordinal..ordinal + 1],
+                population,
+                brains,
+                buffers,
+                &mut scratch_view,
+            )?;
+        }
+        self.inference
+            .capture_visualization(capture, &scratch_view, destination)?;
         Ok(())
     }
 

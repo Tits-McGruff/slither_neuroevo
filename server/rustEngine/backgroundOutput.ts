@@ -1,10 +1,15 @@
-import type { RustBackgroundEvent, RustBackgroundIdentity } from '../../src/protocol/rustBackground.ts';
+import type {
+  RustBackgroundEvent,
+  RustBackgroundIdentity,
+  RustBackgroundVisualization
+} from '../../src/protocol/rustBackground.ts';
 import type { AssignMsg, ReclaimResultMsg, SensorsMsg } from '../protocol.ts';
 import { BackgroundFramePool, type BackgroundFrameLease } from './backgroundFrames.ts';
 import { BackgroundGenerationRouter } from './backgroundGeneration.ts';
 import { BackgroundCommandAdmission } from './commandAdmission.ts';
 import { ControllerDeliveryRouter, JoinDeliveryRouter, ReclaimDeliveryRouter } from './controllerDelivery.ts';
 import type { ExperimentalServerRuntime } from './experimentalStartup.ts';
+import type { RustNativeVisualization } from './backgroundRuntime.ts';
 import type { ManagedCheckpointDescriptor, U64Hex } from './checkpointPersistenceProtocol.ts';
 
 /** Scalar result of the one complete imported-authority swap. */
@@ -31,6 +36,10 @@ export interface BackgroundOutputOptions {
   frame(lease: BackgroundFrameLease): void;
   /** Avoid frame copies when there is no joined viewer. */
   hasFrameRecipients(): boolean;
+  /** Whether any UI currently requests focused neural data. */
+  wantsVisualization?(): boolean;
+  /** Accept one newer complete focused neural snapshot. */
+  visualization?(snapshot: RustBackgroundVisualization): void;
   /** Bound connected external controllers independently of native input capacity. */
   maxControllers: number;
   /** Observe one complete generation durability barrier. */
@@ -53,6 +62,8 @@ export class BackgroundOutputPump {
   private readonly frames: BackgroundFramePool;
   /** Last frame actually handed to the transport. */
   private frameSequence: RustBackgroundIdentity = '0000000000000000';
+  /** Last focused snapshot copied from the replaceable Rust cache. */
+  private visualizationSequence: RustBackgroundIdentity = '0000000000000000';
   /** Coalesce concurrent wakeups while asynchronous persistence is pending. */
   private active: Promise<boolean> | undefined;
   /** One import lifecycle command awaiting queue admission or its exact reply. */
@@ -207,6 +218,14 @@ export class BackgroundOutputPump {
         }
       }
       if (!drained.moreWork) {
+        if (this.options.wantsVisualization?.() === true) {
+          const nativeVisualization = runtime.latestVisualization(this.visualizationSequence);
+          if (nativeVisualization) {
+            const visualization = normalizeVisualization(nativeVisualization);
+            this.options.visualization?.(visualization);
+            this.visualizationSequence = nativeVisualization.sequence;
+          }
+        }
         if (this.options.hasFrameRecipients()) {
           const lease = this.frames.tryAcquireLatest(this.frameSequence);
           if (lease) {
@@ -219,4 +238,49 @@ export class BackgroundOutputPump {
     }
     return true;
   }
+}
+
+/** Reject malformed native snapshots before they reach the shared browser protocol. */
+function normalizeVisualization(value: RustNativeVisualization): RustBackgroundVisualization {
+  if (!/^[0-9a-f]{16}$/u.test(value.sequence) ||
+      !/^[0-9a-f]{16}$/u.test(value.worldEpoch) ||
+      !/^[0-9a-f]{16}$/u.test(value.completedStep) ||
+      value.kind !== 'graph' || !Number.isSafeInteger(value.snakeId) || value.snakeId <= 0 ||
+      !Array.isArray(value.layers) || value.layers.length > 256) {
+    throw new TypeError('invalid Rust visualization identity');
+  }
+  let values = 0;
+  for (const layer of value.layers) {
+    if (!Number.isSafeInteger(layer.count) || layer.count < 0 || layer.count > 1_000_000) {
+      throw new TypeError('invalid Rust visualization layer width');
+    }
+    if (typeof layer.hasActivations !== 'boolean' || !Array.isArray(layer.activations) ||
+        layer.activations.length !== (layer.hasActivations ? layer.count : 0)) {
+      throw new TypeError('invalid Rust visualization activation shape');
+    }
+    if (layer.hasActivations) {
+      for (const activation of layer.activations) {
+        if (typeof activation !== 'number' || !Number.isFinite(activation)) {
+          throw new TypeError('invalid Rust visualization activation');
+        }
+      }
+      values += layer.activations.length;
+      if (values > 1_000_000) throw new RangeError('Rust visualization exceeds its value limit');
+    }
+    if (layer.isRecurrent !== undefined && layer.isRecurrent !== true) {
+      throw new TypeError('invalid Rust visualization recurrent marker');
+    }
+  }
+  return {
+    sequence: value.sequence,
+    worldEpoch: value.worldEpoch,
+    completedStep: value.completedStep,
+    snakeId: value.snakeId,
+    kind: value.kind,
+    layers: value.layers.map(layer => ({
+      count: layer.count,
+      activations: layer.hasActivations ? layer.activations : null,
+      ...(layer.isRecurrent ? { isRecurrent: true } : {})
+    }))
+  };
 }

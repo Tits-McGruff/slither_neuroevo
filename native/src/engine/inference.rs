@@ -117,6 +117,57 @@ pub struct ActivationCapturePlan {
     total_len: usize,
 }
 
+/// One browser-visible layer in a complete focused visualization plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VisualizationLayerPlan {
+    source: Option<TensorRange>,
+    activation_offset: Option<usize>,
+    count: usize,
+    recurrent: bool,
+}
+
+impl VisualizationLayerPlan {
+    /// Number of neurons drawn in this layer.
+    pub const fn count(self) -> usize {
+        self.count
+    }
+
+    /// Whether this layer represents recurrent memory.
+    pub const fn is_recurrent(self) -> bool {
+        self.recurrent
+    }
+
+    /// Offset into the packed captured values, or none for a structure-only layer.
+    pub const fn has_activations(self) -> bool {
+        self.source.is_some()
+    }
+}
+
+/// Precomputed ranges for one opt-in complete-graph visualization.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisualizationCapturePlan {
+    layout_digest_sha256: [u8; 32],
+    layers: Vec<VisualizationLayerPlan>,
+    total_len: usize,
+}
+
+impl VisualizationCapturePlan {
+    /// Ordered browser-visible layer layouts.
+    pub fn layers(&self) -> &[VisualizationLayerPlan] {
+        &self.layers
+    }
+
+    /// Exact number of captured Float32 activation values.
+    pub const fn len(&self) -> usize {
+        self.total_len
+    }
+
+    /// Whether the graph exposes no visualizable activations.
+    pub const fn is_empty(&self) -> bool {
+        self.layers.is_empty()
+    }
+}
+
 impl ActivationCapturePlan {
     /// Selected graph-node identifier.
     pub fn node_id(&self) -> &str {
@@ -487,6 +538,94 @@ impl GraphExecutionPlan {
         })
     }
 
+    /// Precompute every layer needed by the existing browser visualizer.
+    pub fn prepare_visualization_capture(
+        &self,
+    ) -> Result<VisualizationCapturePlan, InferenceError> {
+        let mut layers = Vec::new();
+        let maximum_layers = self.nodes.iter().try_fold(0usize, |count, node| {
+            let added = match node.node_type {
+                CompiledNodeType::Mlp => node.hidden.len().saturating_add(2),
+                CompiledNodeType::Dense
+                | CompiledNodeType::Gru
+                | CompiledNodeType::Lstm
+                | CompiledNodeType::Rru => 1,
+                CompiledNodeType::Input | CompiledNodeType::Concat | CompiledNodeType::Split => 0,
+            };
+            count
+                .checked_add(added)
+                .ok_or(InferenceError::ArithmeticOverflow {
+                    context: "visualization layer count",
+                })
+        })?;
+        layers
+            .try_reserve_exact(maximum_layers)
+            .map_err(|_| InferenceError::AllocationFailed {
+                buffer: "visualization layer plans",
+                elements: maximum_layers,
+            })?;
+        let mut value_offset = 0usize;
+        for node in &self.nodes {
+            match node.node_type {
+                CompiledNodeType::Mlp => {
+                    let input_count = node.inputs.iter().try_fold(0usize, |count, input| {
+                        count
+                            .checked_add(input.len)
+                            .ok_or(InferenceError::ArithmeticOverflow {
+                                context: "visualization MLP input width",
+                            })
+                    })?;
+                    layers.push(VisualizationLayerPlan {
+                        source: None,
+                        activation_offset: None,
+                        count: input_count,
+                        recurrent: false,
+                    });
+                    for range in node.hidden.iter().chain(std::iter::once(&node.output)) {
+                        let activation_offset = value_offset;
+                        value_offset = value_offset.checked_add(range.len).ok_or(
+                            InferenceError::ArithmeticOverflow {
+                                context: "visualization activation width",
+                            },
+                        )?;
+                        layers.push(VisualizationLayerPlan {
+                            source: Some(*range),
+                            activation_offset: Some(activation_offset),
+                            count: range.len,
+                            recurrent: false,
+                        });
+                    }
+                }
+                CompiledNodeType::Dense
+                | CompiledNodeType::Gru
+                | CompiledNodeType::Lstm
+                | CompiledNodeType::Rru => {
+                    let activation_offset = value_offset;
+                    value_offset = value_offset.checked_add(node.output.len).ok_or(
+                        InferenceError::ArithmeticOverflow {
+                            context: "visualization activation width",
+                        },
+                    )?;
+                    layers.push(VisualizationLayerPlan {
+                        source: Some(node.output),
+                        activation_offset: Some(activation_offset),
+                        count: node.output.len,
+                        recurrent: matches!(
+                            node.node_type,
+                            CompiledNodeType::Gru | CompiledNodeType::Lstm | CompiledNodeType::Rru
+                        ),
+                    });
+                }
+                CompiledNodeType::Input | CompiledNodeType::Concat | CompiledNodeType::Split => {}
+            }
+        }
+        Ok(VisualizationCapturePlan {
+            layout_digest_sha256: self.layout_digest_sha256,
+            layers,
+            total_len: value_offset,
+        })
+    }
+
     /// Copy one requested node activation from the most recent evaluation in
     /// this exact scratch view. Callers invoke this only for the focused brain.
     pub fn capture_activation(
@@ -513,6 +652,41 @@ impl GraphExecutionPlan {
             destination[destination_offset..destination_end]
                 .copy_from_slice(&scratch.activation[range.offset..end]);
             destination_offset = destination_end;
+        }
+        Ok(())
+    }
+
+    /// Copy every browser-visible activation from one completed focused evaluation.
+    pub fn capture_visualization(
+        &self,
+        capture: &VisualizationCapturePlan,
+        scratch: &CalculationScratchView<'_>,
+        destination: &mut [f32],
+    ) -> Result<(), InferenceError> {
+        if capture.layout_digest_sha256 != self.layout_digest_sha256 {
+            return Err(InferenceError::ActivationLayoutMismatch {
+                node_id: "complete visualization".to_owned(),
+            });
+        }
+        require_length(
+            "visualization capture",
+            destination.len(),
+            capture.total_len,
+        )?;
+        for layer in capture.layers.iter().filter(|layer| layer.source.is_some()) {
+            let source = layer.source.expect("filtered activation layer");
+            let destination_offset = layer
+                .activation_offset
+                .expect("activation layer must have a packed offset");
+            let source_end = source.end()?;
+            let destination_end = destination_offset.checked_add(source.len).ok_or(
+                InferenceError::ArithmeticOverflow {
+                    context: "visualization capture destination",
+                },
+            )?;
+            require_minimum_length("activation scratch", scratch.activation.len(), source_end)?;
+            destination[destination_offset..destination_end]
+                .copy_from_slice(&scratch.activation[source.offset..source_end]);
         }
         Ok(())
     }
@@ -2164,6 +2338,33 @@ mod tests {
         plan.capture_activation(&head_capture, &scratch_view, &mut captured)
             .unwrap();
         assert_eq!(captured, output);
+
+        let visualization = plan.prepare_visualization_capture().unwrap();
+        assert_eq!(
+            visualization
+                .layers()
+                .iter()
+                .map(|layer| (layer.count(), layer.has_activations(), layer.is_recurrent()))
+                .collect::<Vec<_>>(),
+            [
+                (1, true, false),
+                (1, false, false),
+                (2, true, false),
+                (1, true, false),
+                (1, true, true),
+                (1, true, true),
+                (1, true, true),
+                (2, true, false),
+            ]
+        );
+        let mut visualization_values = vec![f32::NAN; visualization.len()];
+        plan.capture_visualization(&visualization, &scratch_view, &mut visualization_values)
+            .unwrap();
+        assert_eq!(
+            &visualization_values[visualization_values.len() - output.len()..],
+            output
+        );
+        assert!(visualization_values.iter().all(|value| value.is_finite()));
 
         let mlp_capture = plan.prepare_activation_capture("mlpB").unwrap();
         assert_eq!(mlp_capture.layer_widths(), &[2, 1]);

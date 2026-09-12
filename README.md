@@ -139,8 +139,10 @@ general Rust configuration builder is connected. Settings marked as live apply
 atomically at the next Rust step boundary and are preserved by later Reset or
 New Run operations. God Mode move keeps the complete body in bounds, while God
 Mode kill uses the normal corpse-pellet, random-stream, ID-allocation, and
-controller/baseline lifecycle paths. Visualization, resurrection, and
-graph/preset actions remain in migration.
+controller/baseline lifecycle paths. Hall-of-Fame resurrection and focused
+neural visualization are now available in the Rust server; visualization does
+no activation-capture work while no browser is viewing the Visualizer tab.
+Graph and preset actions remain in migration.
 `npm run server` remains the separate reference runtime.
 
 ### Architecture

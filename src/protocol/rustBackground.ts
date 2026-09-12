@@ -1,3 +1,5 @@
+import type { VizData } from './messages.ts';
+
 /** Exact fixed-width unsigned identity emitted by the Rust background bridge. */
 export type RustBackgroundIdentity = string;
 
@@ -60,6 +62,18 @@ export interface RustBackgroundDisplay {
   pellets: number;
   /** Cached byte length; welcome refresh never serializes the world. */
   frameByteLength: number;
+}
+
+/** Replaceable activation data for exactly one Rust-selected neural snake. */
+export interface RustBackgroundVisualization extends VizData {
+  /** Monotonic cache publication identity. */
+  sequence: RustBackgroundIdentity;
+  /** Authority incarnation that produced the snapshot. */
+  worldEpoch: RustBackgroundIdentity;
+  /** Committed step whose control boundary produced the activations. */
+  completedStep: RustBackgroundIdentity;
+  /** Browser/frame identity of the selected snake. */
+  snakeId: number;
 }
 
 /** Every unsuccessful copy leaves both destination and latest cached frame intact. */
@@ -328,6 +342,8 @@ export interface RustBackgroundEvent {
     /** First fixed step that observes the new snake. */
     effectiveStep: RustBackgroundIdentity;
   };
+  /** Aggregate visualization subscription state confirmed by Rust. */
+  visualizationEnabled?: boolean;
   /** Exact close result; false means stale or already disconnected. */
   controllerDisconnect?: {
     /** Requested assignment epoch. */

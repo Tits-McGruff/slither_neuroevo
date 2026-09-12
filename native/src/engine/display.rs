@@ -2,6 +2,7 @@
 
 use std::sync::{Mutex, MutexGuard, TryLockError};
 
+use super::control_phase::FocusedVisualization;
 use super::error::{EngineError, EngineErrorCode};
 use super::frame_v1::{FrameV1Error, FrameV1Metadata};
 use super::queues::OutputQueue;
@@ -18,6 +19,25 @@ pub struct RunningDisplayStatus {
     pub baseline_bots_alive: usize,
     pub baseline_bots_total: usize,
     pub frame: FrameV1Metadata,
+}
+
+/// One compact layer descriptor for the opt-in browser neural visualizer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RunningVisualizationLayer {
+    pub count: usize,
+    pub has_activations: bool,
+    pub recurrent: bool,
+}
+
+/// Latest complete single-brain visualization copied from one published step.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RunningVisualizationStatus {
+    pub sequence: u64,
+    pub world_epoch: u64,
+    pub completed_step: u64,
+    pub frame_v1_id: u32,
+    pub layers: Vec<RunningVisualizationLayer>,
+    pub values: Vec<f32>,
 }
 
 /// A failed or skipped copy never changes the caller's destination.
@@ -38,6 +58,8 @@ struct CachedDisplay {
     bytes: Vec<u8>,
     status: Option<RunningDisplayStatus>,
     packed_at_ms: u64,
+    visualization_sequence: u64,
+    visualization: Option<RunningVisualizationStatus>,
 }
 
 /// One reusable Rust buffer charged to authority's admitted frame allocation.
@@ -69,6 +91,8 @@ impl RunningDisplayCache {
                 bytes,
                 status: None,
                 packed_at_ms: 0,
+                visualization_sequence: 0,
+                visualization: None,
             }),
         })
     }
@@ -76,6 +100,78 @@ impl RunningDisplayCache {
     /// Read cached welcome metadata without traversing or locking authority.
     pub fn latest(&self) -> Result<Option<RunningDisplayStatus>, EngineError> {
         Ok(self.try_cache()?.and_then(|cache| cache.status))
+    }
+
+    /// Copy the newest focused snapshot only when its sequence advanced.
+    pub fn latest_visualization(
+        &self,
+        after_sequence: u64,
+    ) -> Result<Option<RunningVisualizationStatus>, EngineError> {
+        Ok(self.try_cache()?.and_then(|cache| {
+            cache
+                .visualization
+                .as_ref()
+                .filter(|value| value.sequence > after_sequence)
+                .cloned()
+        }))
+    }
+
+    /// Drop a prior subscription's snapshot before capture is disabled.
+    pub(crate) fn clear_visualization(&self) -> Result<(), EngineError> {
+        if let Some(mut cache) = self.try_cache()? {
+            cache.visualization = None;
+        }
+        Ok(())
+    }
+
+    /// Replace the focused snapshot without touching the frame cache.
+    pub(crate) fn publish_visualization(
+        &self,
+        world_epoch: u64,
+        visualization: FocusedVisualization<'_>,
+    ) -> Result<(), EngineError> {
+        let Some(mut cache) = self.try_cache()? else {
+            return Ok(());
+        };
+        if cache.visualization.as_ref().is_some_and(|prior| {
+            prior.world_epoch == world_epoch
+                && prior.completed_step == visualization.completed_step
+                && prior.frame_v1_id == visualization.frame_v1_id
+        }) {
+            return Ok(());
+        }
+        cache.visualization_sequence = cache.visualization_sequence.saturating_add(1);
+        let sequence = cache.visualization_sequence;
+        let mut status = cache
+            .visualization
+            .take()
+            .unwrap_or(RunningVisualizationStatus {
+                sequence,
+                world_epoch,
+                completed_step: visualization.completed_step,
+                frame_v1_id: visualization.frame_v1_id,
+                layers: Vec::new(),
+                values: Vec::new(),
+            });
+        status.sequence = sequence;
+        status.world_epoch = world_epoch;
+        status.completed_step = visualization.completed_step;
+        status.frame_v1_id = visualization.frame_v1_id;
+        status.layers.clear();
+        status.layers.extend(
+            visualization
+                .layers
+                .iter()
+                .map(|layer| RunningVisualizationLayer {
+                    count: layer.count(),
+                    has_activations: layer.has_activations(),
+                    recurrent: layer.is_recurrent(),
+                }),
+        );
+        status.values.clear();
+        status.values.extend_from_slice(visualization.values);
+        cache.visualization = Some(status);
+        Ok(())
     }
 
     /// Pin the selected cache before checking reliable-output priority. The

@@ -1,13 +1,14 @@
-import type { RustBackgroundJoinRequest } from '../../src/protocol/rustBackground.ts';
 import type {
+  RustBackgroundControllerAction,
+  RustBackgroundControllerDisconnect,
   RustBackgroundDrain,
   RustBackgroundDisplay,
   RustBackgroundFrameCopy,
   RustBackgroundHealth,
-  RustBackgroundControllerAction,
-  RustBackgroundControllerDisconnect,
+  RustBackgroundJoinRequest,
   RustBackgroundReclaimRequest,
   RustBackgroundReclaimReceipt,
+  RustBackgroundVisualization,
   RustGenerationAssignmentReceipt
 } from '../../src/protocol/rustBackground.ts';
 import type {
@@ -19,6 +20,24 @@ import type {
 } from './checkpointPersistenceProtocol.ts';
 import type { RustRunStartCheckpointPublishOptions } from './runStartPersistenceHandoff.ts';
 import type { LiveSettingsUpdate } from '../../src/protocol/settings.ts';
+
+/** Raw native layer shape before structure-only layers become protocol nulls. */
+export interface RustNativeVisualizationLayer {
+  /** Browser-visible neuron count. */
+  count: number;
+  /** Whether the values array contains one value per neuron. */
+  hasActivations: boolean;
+  /** Packed finite values, empty for a structure-only layer. */
+  activations: number[];
+  /** Recurrent-memory presentation marker. */
+  isRecurrent?: true;
+}
+
+/** Raw replaceable native visualization copied from the Rust cache. */
+export interface RustNativeVisualization extends Omit<RustBackgroundVisualization, 'layers'> {
+  /** Ordered native layers requiring one small boundary normalization. */
+  layers: RustNativeVisualizationLayer[];
+}
 
 /** Coarse production-addon handle created by transferring the durable fresh run. */
 export interface ExperimentalRunningAuthorityNativeHandle {
@@ -40,6 +59,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitGodModeMove(sequence: U64Hex, snakeId: number, x: number, y: number): void;
   /** Queue one exact browser-addressed normal God Mode death. */
   submitGodModeKill(sequence: U64Hex, snakeId: number): void;
+  /** Toggle aggregate opt-in focused activation capture. */
+  submitVisualization(sequence: U64Hex, enabled: boolean): void;
   /** Decode and resurrect one worker-leased retained winner. */
   submitHallOfFameResurrection(
     sequence: U64Hex,
@@ -106,6 +127,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   health(): RustBackgroundHealth;
   /** Read cached metadata without serializing or waiting on the live world. */
   latestDisplay(): RustBackgroundDisplay | null;
+  /** Copy only a newer complete single-brain visualization snapshot. */
+  latestVisualization(afterSequence: U64Hex): RustNativeVisualization | null;
   /** Copy a newer complete frame into a non-shared caller-owned Uint8Array. */
   copyLatestFrame(destination: Uint8Array, afterSequence: U64Hex): RustBackgroundFrameCopy;
   /** Signal shutdown without waiting for authoritative work. */
@@ -171,7 +194,7 @@ export interface RustPreparedFreshRun {
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
-  'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitGodModeKill', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
+  'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',
   'validateImportArchive',
   'prepareImportArchive',
@@ -182,7 +205,7 @@ const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle
   'submitImportPersistenceAcknowledgement',
   'submitPrepareGenerationReassignments', 'submitGenerationAssignmentReceipt',
   'submitControllerDeliveryReceipt',
-  'submitPublishGenerationStart', 'drainOutputs', 'health', 'latestDisplay',
+  'submitPublishGenerationStart', 'drainOutputs', 'health', 'latestDisplay', 'latestVisualization',
   'copyLatestFrame', 'requestStop', 'join'
 ];
 
