@@ -395,5 +395,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   state; packed neural weights stay in their managed objects for the pending
   Rust resurrection command.
 
-The next dependency is the remaining bounded browser read/control surfaces,
-starting with Hall-of-Fame resurrection before focused neural visualization.
+- 2026-09-13 Hall-of-Fame Spawn now sends one compact generation identity. The
+  SQLite worker verifies and leases the exact retained weight object, Rust
+  decodes it directly, collision-safely places a new snake with dedicated IDs
+  and brain state, validates the complete staged authority, and commits it at
+  the ordered command boundary before the worker releases the lease.
+
+The next dependency is focused Rust neural visualization, followed by the
+remaining compatibility and Stage 6B gates.

@@ -80,9 +80,10 @@ messages. Browser fitness, species, and weight charts use the newest 120
 compact persisted generation summaries and therefore survive restart,
 recovery, and import without loading checkpoint populations into Node.
 The Hall of Fame table likewise reads bounded best-first compact records from
-`/api/hof`; its Rust entries do not send genome weights to browser JavaScript,
-so their Spawn buttons remain disabled until the Rust resurrection command is
-connected.
+`/api/hof`. Spawn sends only the selected compact entry identity; the worker
+leases its exact managed weight object while Rust validates, decodes, places,
+and publishes the new independently controlled snake. Neural weights never
+round-trip through browser JavaScript or the Node main thread.
 `/api/health` also exposes bounded scalar runtime telemetry for
 full-step mean/p95/p99/max, simulated-to-wall time, frame bytes, checkpoint,
 separate browser-player/trainer action and controller-lifecycle latency, Node event-loop delay, and process

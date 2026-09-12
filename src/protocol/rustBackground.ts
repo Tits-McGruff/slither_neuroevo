@@ -321,6 +321,13 @@ export interface RustBackgroundEvent {
     /** First fixed step that observes this death. */
     effectiveStep: RustBackgroundIdentity;
   };
+  /** Successful retained-winner resurrection. */
+  hallOfFameResurrection?: {
+    /** Exact browser/frame snake identity. */
+    snakeId: number;
+    /** First fixed step that observes the new snake. */
+    effectiveStep: RustBackgroundIdentity;
+  };
   /** Exact close result; false means stale or already disconnected. */
   controllerDisconnect?: {
     /** Requested assignment epoch. */

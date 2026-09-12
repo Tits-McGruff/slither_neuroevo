@@ -412,7 +412,7 @@ async function sendJsonChunks(res: ServerResponse, chunks: Iterable<string>): Pr
  * @param limitBytes - Maximum allowed payload size.
  * @returns Parsed JSON payload.
  */
-async function readJsonBody(req: IncomingMessage, limitBytes: number): Promise<unknown> {
+export async function readJsonBody(req: IncomingMessage, limitBytes: number): Promise<unknown> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of req) {

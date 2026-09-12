@@ -30,9 +30,10 @@ use crate::engine::runtime::EngineRuntime;
 use crate::napi_engine::{
     background_generation_event_to_napi, background_generation_health_to_napi, bounded_js_string,
     bounded_object_string, checkpoint_descriptor_from_napi_object, checkpoint_descriptor_to_napi,
-    engine_error_to_napi, parse_background_sequence, parse_checkpoint_operation_id,
-    parse_managed_checkpoint_publication_options, parse_managed_path, parse_u64_hex,
-    positive_usize, u64_hex, JoinEngineTask, Stage6BackgroundGenerationDrain,
+    engine_error_to_napi, hall_of_fame_weights_descriptor_from_napi, parse_background_sequence,
+    parse_checkpoint_operation_id, parse_managed_checkpoint_publication_options,
+    parse_managed_path, parse_u64_hex, positive_usize, u64_hex, JoinEngineTask,
+    ManagedHallOfFameWeightsDescriptor, Stage6BackgroundGenerationDrain,
     Stage6BackgroundGenerationHealth,
 };
 
@@ -852,6 +853,28 @@ impl ExperimentalRunningAuthority {
             parse_background_sequence(sequence)?,
             RunningAuthorityCommand::GodModeKill {
                 frame_v1_id: snake_id,
+            },
+        )
+    }
+
+    /// Queue one exact retained winner for Rust-owned decoding and resurrection.
+    #[napi(catch_unwind)]
+    pub fn submit_hall_of_fame_resurrection(
+        &self,
+        sequence: JsString<'_>,
+        managed_directory: JsString<'_>,
+        weights: ManagedHallOfFameWeightsDescriptor,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::ResurrectHallOfFame {
+                managed_directory: bounded_js_string(
+                    managed_directory,
+                    "managedDirectory",
+                    32_768,
+                    false,
+                )?,
+                weights: Box::new(hall_of_fame_weights_descriptor_from_napi(weights)?),
             },
         )
     }

@@ -457,6 +457,13 @@ pub struct BackgroundGodModeKill {
     pub effective_step: String,
 }
 
+/// Small authoritative result of one retained-winner resurrection.
+#[napi(object)]
+pub struct BackgroundHallOfFameResurrection {
+    pub snake_id: u32,
+    pub effective_step: String,
+}
+
 /// One typed output drained from the real background runtime.
 #[napi(object)]
 pub struct Stage6BackgroundGenerationEvent {
@@ -479,6 +486,7 @@ pub struct Stage6BackgroundGenerationEvent {
     pub settings_effective_step: Option<String>,
     pub god_mode_move: Option<BackgroundGodModeMove>,
     pub god_mode_kill: Option<BackgroundGodModeKill>,
+    pub hall_of_fame_resurrection: Option<BackgroundHallOfFameResurrection>,
     pub controller_disconnect: Option<BackgroundControllerDisconnect>,
     pub controller_join_assignment: Option<BackgroundControllerReclaimAssignment>,
     pub controller_join_resolution: Option<BackgroundControllerReclaimResolution>,
@@ -2995,7 +3003,7 @@ fn checkpoint_descriptor_from_napi(
 }
 
 /// Parse one stable numeric encoding used by the checkpoint descriptor.
-fn parse_numeric_encoding(value: &str) -> Result<NumericEncoding> {
+pub(crate) fn parse_numeric_encoding(value: &str) -> Result<NumericEncoding> {
     match value {
         "raw-f32le-v1" => Ok(NumericEncoding::RawF32LeV1),
         "f32le-shuffle4-zstd-v1" => Ok(NumericEncoding::F32LeShuffle4ZstdV1),
@@ -3004,6 +3012,42 @@ fn parse_numeric_encoding(value: &str) -> Result<NumericEncoding> {
             "checkpoint descriptor contains an unsupported numeric encoding",
         )),
     }
+}
+
+/// Validate one scalar elite-object descriptor before the background queue owns it.
+pub(crate) fn hall_of_fame_weights_descriptor_from_napi(
+    descriptor: ManagedHallOfFameWeightsDescriptor,
+) -> Result<HallOfFameWeightsDescriptor> {
+    if descriptor.version != 1
+        || descriptor.logical_sha256.len() != 64
+        || !descriptor
+            .logical_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || descriptor.relative_filename != format!("{}.hof-weights-v1", descriptor.logical_sha256)
+    {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "invalid Hall-of-Fame weight identity",
+        ));
+    }
+    let encoding = parse_numeric_encoding(&descriptor.encoding)?;
+    for (field, value) in [
+        ("storedByteCount", descriptor.stored_byte_count.as_str()),
+        ("decodedByteCount", descriptor.decoded_byte_count.as_str()),
+        ("weightCount", descriptor.weight_count.as_str()),
+    ] {
+        parse_u64_hex(value, field, true)?;
+    }
+    Ok(HallOfFameWeightsDescriptor {
+        version: descriptor.version,
+        logical_sha256: descriptor.logical_sha256,
+        relative_filename: descriptor.relative_filename,
+        encoding,
+        stored_byte_count_hex: descriptor.stored_byte_count,
+        decoded_byte_count_hex: descriptor.decoded_byte_count,
+        weight_count_hex: descriptor.weight_count,
+    })
 }
 
 /// Convert one exact u64 or Float64-bit word to canonical wire hexadecimal.
@@ -3217,6 +3261,18 @@ fn running_authority_event_to_napi(
             output.god_mode_kill = Some(BackgroundGodModeKill {
                 snake_id: frame_v1_id,
                 pellets_dropped: usize_hex(pellets_dropped, "God Mode corpse pellets")?,
+                effective_step: u64_hex(effective_step),
+            });
+        }
+        RunningAuthorityEvent::HallOfFameResurrected {
+            command_sequence,
+            frame_v1_id,
+            effective_step,
+        } => {
+            output.kind = "hallOfFameResurrected".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.hall_of_fame_resurrection = Some(BackgroundHallOfFameResurrection {
+                snake_id: frame_v1_id,
                 effective_step: u64_hex(effective_step),
             });
         }
@@ -3491,6 +3547,7 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         settings_effective_step: None,
         god_mode_move: None,
         god_mode_kill: None,
+        hall_of_fame_resurrection: None,
         controller_disconnect: None,
         controller_join_assignment: None,
         controller_join_resolution: None,

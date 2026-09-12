@@ -450,6 +450,35 @@ impl RunningAuthorityLoop {
         Ok((publication, effective_step))
     }
 
+    /// Restore one leased packed winner and commit it before the next fixed step.
+    pub(crate) fn resurrect_hall_of_fame(
+        &mut self,
+        managed_directory: &std::path::Path,
+        descriptor: &HallOfFameWeightsDescriptor,
+    ) -> Result<(super::state::ResurrectionPublication, u64), String> {
+        self.require_action_state(
+            "resurrect Hall-of-Fame winner",
+            RunningAuthorityLoopState::Ready,
+        )
+        .map_err(|error| error.to_string())?;
+        let effective_step = self
+            .authority
+            .state()
+            .generation
+            .completed_step
+            .checked_add(1)
+            .ok_or_else(|| "completed step is exhausted".to_owned())?;
+        let weights = super::checkpoint::read_validated_hall_of_fame_weights(
+            &managed_directory.join(&descriptor.relative_filename),
+            descriptor,
+        )
+        .map_err(|error| error.to_string())?;
+        let publication = self
+            .authority
+            .resurrect_hall_of_fame(weights, self.work_limits)?;
+        Ok((publication, effective_step))
+    }
+
     /// Prepare one fresh assignment only after the full reliable output fits.
     pub(crate) fn prepare_controller_join(
         &mut self,

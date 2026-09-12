@@ -29,6 +29,7 @@ import {
 import { spoolArchiveUpload } from './rustEngine/archiveUpload.ts';
 import { parseRustStartupMetadata } from './rustEngine/startupMetadata.ts';
 import type { GodModeMsg, LiveSettingsMsg, NewRunMsg, ResetMsg } from './protocol.ts';
+import { readJsonBody } from './httpApi.ts';
 import {
   getLiveSettingDefinition,
   normalizeLiveSettingsUpdates,
@@ -237,17 +238,23 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     requestId: string;
     snakeId: number;
   }>();
+  const pendingResurrections = new Map<string, {
+    resolve(snakeId: number): void;
+    reject(error: Error): void;
+  }>();
   let pinning: Promise<void> | undefined;
   let retentionMaintenance: Promise<void> | undefined;
   let exportOperation: Promise<void> | undefined;
   let activeExportResponse: import('node:http').ServerResponse | undefined;
   let importOperation: Promise<void> | undefined;
+  let resurrectionOperation: Promise<void> | undefined;
   let activeImportRequest: import('node:http').IncomingMessage | undefined;
   let activeImportResponse: import('node:http').ServerResponse | undefined;
   let importAuthorityPublished = false;
   const disconnectedDuringImport = new Set<number>();
   let executeImport: ((request: import('node:http').IncomingMessage,
     resumeAsBranch: boolean) => Promise<ArchiveImportSuccess>) | undefined;
+  let executeResurrection: ((entryId: string) => Promise<number>) | undefined;
 
   /** Keep population-sized bytes in Rust/filesystem/browser networking for one exact lease. */
   const serveExport = async (
@@ -340,7 +347,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is not ready' }));
         return;
       }
-      if (importOperation || exportOperation || pinning || retentionMaintenance) {
+      if (importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: 'another archive operation is in progress' }));
         return;
@@ -380,7 +387,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is stopping' }));
         return;
       }
-      if (exportOperation || importOperation || pinning || retentionMaintenance) {
+      if (exportOperation || importOperation || resurrectionOperation || pinning || retentionMaintenance) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: 'another persistence operation is in progress' }));
         return;
@@ -404,13 +411,44 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       }));
       return;
     }
+    if (request.method === 'POST' && pathname === '/api/resurrect') {
+      if (fault || stopping || !executeResurrection) {
+        response.writeHead(503, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: fault ?? 'server is not ready' }));
+        return;
+      }
+      if (resurrectionOperation || importOperation || exportOperation || pinning || retentionMaintenance) {
+        response.writeHead(409, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: 'another authority operation is in progress' }));
+        return;
+      }
+      resurrectionOperation = readJsonBody(request, 4096).then(value => {
+        if (!value || typeof value !== 'object' || Array.isArray(value) ||
+            Object.keys(value).length !== 1 ||
+            typeof (value as Record<string, unknown>)['entryId'] !== 'string' ||
+            !/^[0-9a-f]{16}$/u.test((value as Record<string, string>)['entryId']!)) {
+          throw new TypeError('resurrection requires one exact Hall-of-Fame entryId');
+        }
+        return executeResurrection!((value as Record<string, string>)['entryId']!);
+      }).then(snakeId => {
+        if (response.destroyed) return;
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: true, snakeId }));
+      }).catch(error => {
+        if (response.destroyed) return;
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false,
+          message: error instanceof Error ? error.message : String(error) }));
+      }).finally(() => { resurrectionOperation = undefined; });
+      return;
+    }
     if (request.method === 'POST' && pathname === '/api/checkpoints/current/pin') {
       if (fault || stopping) {
         response.writeHead(503, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is stopping' }));
         return;
       }
-      if (pinning || importOperation || exportOperation || retentionMaintenance) {
+      if (pinning || importOperation || exportOperation || resurrectionOperation || retentionMaintenance) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: 'another persistence operation is in progress' }));
         return;
@@ -454,6 +492,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       activeImportResponse?.destroy();
       activeExportResponse?.destroy();
       await importOperation?.catch(() => {});
+      await resurrectionOperation?.catch(() => {});
       await pinning?.catch(() => {});
       await retentionMaintenance?.catch(() => {});
       await exportOperation?.catch(() => {});
@@ -555,6 +594,21 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
             }
           }
         }
+        if (event.commandSequence &&
+            (event.kind === 'hallOfFameResurrected' || event.kind === 'commandRejected')) {
+          const pending = pendingResurrections.get(event.commandSequence);
+          if (pending) {
+            pendingResurrections.delete(event.commandSequence);
+            const resurrected = event.hallOfFameResurrection;
+            if (event.kind === 'hallOfFameResurrected' && resurrected) {
+              pending.resolve(resurrected.snakeId);
+            } else {
+              pending.reject(new Error(
+                event.rejectionDetail ?? event.rejectionCode ?? 'Rust rejected resurrection'
+              ));
+            }
+          }
+        }
         const now = performance.now();
         if (event.display) {
           telemetry.observeDisplay(event.display);
@@ -595,9 +649,41 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       observeDisconnect: kind => telemetry.observeControllerDisconnect(kind) });
     /** Keep health available after a terminal native/interface failure. */
     const fail = (error: unknown): void => {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      for (const pending of pendingResurrections.values()) pending.reject(failure);
+      pendingResurrections.clear();
       if (!fault) sockets.broadcastError(error instanceof Error ? error.message : String(error));
       fault ??= error instanceof Error ? error.message : String(error);
       owner.runtime.requestStop();
+    };
+    /** Hold the exact SQLite winner lease until Rust publishes or rejects the new snake. */
+    executeResurrection = async (entryId): Promise<number> => {
+      const selected = await owner.persistence.selectHallOfFameEntry(
+        activeMetadata.runId,
+        entryId as import('./rustEngine/checkpointPersistenceProtocol.ts').U64Hex
+      );
+      try {
+        const snakeId = await new Promise<number>((resolve, reject) => {
+          let admittedSequence: string | undefined;
+          const admitted = output.admission.trySubmitControl(sequence => {
+            owner.runtime.submitHallOfFameResurrection(
+              sequence,
+              owner.managedDirectory,
+              selected.weights
+            );
+            admittedSequence = sequence;
+          });
+          if (!admitted || !admittedSequence) {
+            reject(new Error('authoritative command queue is busy'));
+            return;
+          }
+          pendingResurrections.set(admittedSequence, { resolve, reject });
+          schedule();
+        });
+        return snakeId;
+      } finally {
+        await owner.persistence.releaseHallOfFameEntry(selected.operationId);
+      }
     };
     /** Keep upload bytes and the complete replacement outside JavaScript memory. */
     executeImport = async (request, resumeAsBranch): Promise<ArchiveImportSuccess> => {
@@ -759,7 +845,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       seed: number,
       newRunMessage?: NewRunMsg
     ): void => {
-      if (fault || stopping || importOperation || exportOperation || pinning || retentionMaintenance) {
+      if (fault || stopping || importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance) {
         const detail = fault ?? (stopping ? 'server is stopping' : 'another persistence operation is in progress');
         if (newRunMessage) {
           sockets.sendJsonTo(connection, {
@@ -795,10 +881,10 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     };
     /** Run one bounded drain without overlapping asynchronous persistence. */
     schedule = (): void => {
-      if (scheduled || draining || fault || (stopping && !importOperation)) return;
+      if (scheduled || draining || fault || (stopping && !importOperation && !resurrectionOperation)) return;
       scheduled = setImmediate(() => {
         scheduled = undefined;
-        if (fault || (stopping && !importOperation)) return;
+        if (fault || (stopping && !importOperation && !resurrectionOperation)) return;
         pumps++;
         const now = performance.now();
         if (now - pumpStart >= 1000) { pumpsPerSecond = pumps * 1000 / (now - pumpStart); pumpStart = now; pumps = 0; }

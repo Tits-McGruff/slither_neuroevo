@@ -106,6 +106,12 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const hallOfFame = await fetch(`http://127.0.0.1:${server.port}/api/hof`);
       expect(hallOfFame.status).toBe(200);
       expect(await hallOfFame.json()).toEqual({ hof: [] });
+      const missingWinner = await fetch(`http://127.0.0.1:${server.port}/api/resurrect`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entryId: '0000000000000001' })
+      });
+      expect(missingWinner.status).toBe(400);
+      expect(await missingWinner.json()).toMatchObject({ ok: false });
       const exported = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
       expect(exported.status).toBe(200);
       expect(exported.headers.get('content-type')).toBe('application/vnd.slither-neuroevo.save');

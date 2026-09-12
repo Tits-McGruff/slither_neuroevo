@@ -834,6 +834,17 @@ fn execute_running_authority_command(
                 pellets_dropped: publication.pellets_dropped,
                 effective_step,
             }),
+        RunningAuthorityCommand::ResurrectHallOfFame {
+            managed_directory,
+            weights,
+        } => running
+            .resurrect_hall_of_fame(std::path::Path::new(&managed_directory), &weights)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|(publication, effective_step)| RunningAuthorityEvent::HallOfFameResurrected {
+                command_sequence,
+                frame_v1_id: publication.frame_v1_id,
+                effective_step,
+            }),
         RunningAuthorityCommand::PublishGenerationCheckpoint {
             managed_directory,
             operation_id,
@@ -1030,6 +1041,7 @@ fn running_response_owned_byte_bound(
         RunningAuthorityCommand::ApplyLiveSettings { .. } => 128,
         RunningAuthorityCommand::GodModeMove { .. } => 0,
         RunningAuthorityCommand::GodModeKill { .. } => 0,
+        RunningAuthorityCommand::ResurrectHallOfFame { .. } => 0,
         RunningAuthorityCommand::PublishAcknowledgedGenerationStart => {
             // Every unavailable record is a unique old-controller outcome and
             // retains exactly that source controller's scope and known token.

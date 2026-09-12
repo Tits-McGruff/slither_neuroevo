@@ -3423,6 +3423,23 @@ async function resurrectOnServer(genome: GenomeJSON): Promise<number | null> {
   return Number.isFinite(payload.snakeId) ? payload.snakeId ?? null : null;
 }
 
+/** Ask the Rust server to resurrect one retained winner by its opaque compact identity. */
+async function resurrectHallOfFameOnServer(entryId: string): Promise<number | null> {
+  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+  if (!base) return null;
+  const response = await fetch(`${base}/api/resurrect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entryId })
+  });
+  const result = await response.json() as { ok?: boolean; snakeId?: number; message?: string };
+  if (!response.ok || result.ok !== true || !Number.isSafeInteger(result.snakeId)) {
+    console.error('Rust resurrection failed:', result.message ?? response.statusText);
+    return null;
+  }
+  return result.snakeId!;
+}
+
 
 /**
  * Validate the applied graph spec against the active sensor input size.
@@ -4600,7 +4617,7 @@ async function updateHoFTable(world: ProxyWorld): Promise<void> {
     html += `
       <div class="hof-item">
         <span>#${idx + 1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})</span>
-        <button onclick="window.spawnHoF(${idx})"${entry.genome ? '' : ' disabled title="Rust resurrection is not enabled yet"'}>Spawn</button>
+        <button onclick="window.spawnHoF(${idx})"${entry.genome || entry.entryId ? '' : ' disabled'}>Spawn</button>
       </div>`;
   });
   container.innerHTML = html;
@@ -4610,8 +4627,10 @@ async function updateHoFTable(world: ProxyWorld): Promise<void> {
 window.spawnHoF = async function (idx) {
   const list = await hof.getAll();
   const entry = list[idx];
-  if (entry?.genome && window.currentWorld) {
-    const spawnedId = await window.currentWorld.resurrect(entry.genome);
+  if (entry && window.currentWorld) {
+    const spawnedId = entry.entryId && connectionMode === 'server'
+      ? await resurrectHallOfFameOnServer(entry.entryId)
+      : entry.genome ? await window.currentWorld.resurrect(entry.genome) : null;
     if (spawnedId != null && connectionMode === 'server') {
       spectatorFollowSnakeId = spawnedId;
       proxyWorld.viewMode = 'follow';

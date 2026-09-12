@@ -373,6 +373,11 @@ pub enum RunningAuthorityCommand {
     GodModeKill {
         frame_v1_id: u32,
     },
+    /// Restore one verified retained winner directly from its managed object.
+    ResurrectHallOfFame {
+        managed_directory: String,
+        weights: Box<HallOfFameWeightsDescriptor>,
+    },
     /// Publish or exactly retry the Rust-admitted immutable generation file.
     PublishGenerationCheckpoint {
         /// Server-controlled managed directory encoded as one bounded UTF-8 path.
@@ -461,6 +466,17 @@ impl RunningAuthorityCommand {
                 EngineErrorCode::InvalidCommand,
                 "God Mode kill requires an exact snake ID",
             )),
+            Self::ResurrectHallOfFame {
+                managed_directory, ..
+            } if managed_directory.is_empty()
+                || managed_directory.len() > 32_768
+                || managed_directory.contains('\0') =>
+            {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "Hall-of-Fame directory must be a bounded nonempty path",
+                ))
+            }
             Self::PublishGenerationCheckpoint {
                 managed_directory, ..
             } if managed_directory.is_empty()
@@ -541,6 +557,13 @@ impl RunningAuthorityCommand {
                 }),
             Self::GodModeMove { .. } => Ok(0),
             Self::GodModeKill { .. } => Ok(0),
+            Self::ResurrectHallOfFame {
+                managed_directory,
+                weights,
+            } => Ok(managed_directory
+                .capacity()
+                .saturating_add(size_of::<HallOfFameWeightsDescriptor>())
+                .saturating_add(weights.owned_bytes())),
             Self::PublishGenerationCheckpoint {
                 managed_directory,
                 operation_id,
@@ -714,6 +737,12 @@ pub enum RunningAuthorityEvent {
         pellets_dropped: usize,
         effective_step: u64,
     },
+    /// One retained winner became a live independently owned Rust snake.
+    HallOfFameResurrected {
+        command_sequence: u64,
+        frame_v1_id: u32,
+        effective_step: u64,
+    },
     /// The entire ordinary-step delivery batch, admitted before step preparation.
     ControllerMessages {
         ticket_sequence: u64,
@@ -831,6 +860,7 @@ impl RunningAuthorityEvent {
             Self::LiveSettingsApplied { config_hash, .. } => config_hash.capacity(),
             Self::GodModeMoved { .. } => 0,
             Self::GodModeKilled { .. } => 0,
+            Self::HallOfFameResurrected { .. } => 0,
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
             Self::GenerationCheckpointPublished {

@@ -13,6 +13,7 @@ import type {
 import type {
   ManagedCheckpointDescriptor,
   ManagedExportInventoryDescriptor,
+  ManagedHallOfFameWeightsDescriptor,
   ManagedImportInventoryDescriptor,
   U64Hex
 } from './checkpointPersistenceProtocol.ts';
@@ -39,6 +40,12 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitGodModeMove(sequence: U64Hex, snakeId: number, x: number, y: number): void;
   /** Queue one exact browser-addressed normal God Mode death. */
   submitGodModeKill(sequence: U64Hex, snakeId: number): void;
+  /** Decode and resurrect one worker-leased retained winner. */
+  submitHallOfFameResurrection(
+    sequence: U64Hex,
+    managedDirectory: string,
+    weights: ManagedHallOfFameWeightsDescriptor
+  ): void;
   /** Queue a close without invalidating an already prepared step. */
   submitControllerDisconnect(sequence: U64Hex, close: RustBackgroundControllerDisconnect): void;
   /** Publish or exactly retry the retained generation's immutable managed file. */
@@ -164,7 +171,7 @@ export interface RustPreparedFreshRun {
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
-  'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitGodModeKill', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
+  'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitGodModeKill', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',
   'validateImportArchive',
   'prepareImportArchive',

@@ -858,14 +858,40 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       expect(next.display.generationTime).toBeGreaterThan(first.display.generationTime);
       expect(backing.subarray(8, 8 + first.display.frameByteLength)).toEqual(retained);
       expect(events.some(event => event.kind === 'display' && event.display?.frameByteLength)).toBe(true);
-      // A wrong-phase control must return through the production queue without faulting the game.
-      runtime.submitPrepareGenerationReassignments('0000000000000001');
-      while (!events.some(event => event.commandSequence === '0000000000000001') && performance.now() < deadline) {
+      const winnerWeights = Buffer.alloc(13_458 * Float32Array.BYTES_PER_ELEMENT);
+      const winnerSha256 = createHash('sha256').update(winnerWeights).digest('hex');
+      writeFileSync(join(paths.managedRoot, `${winnerSha256}.hof-weights-v1`), winnerWeights);
+      runtime.submitHallOfFameResurrection(
+        '0000000000000001',
+        paths.managedRoot,
+        {
+          version: 1,
+          logicalSha256: winnerSha256,
+          relativeFilename: `${winnerSha256}.hof-weights-v1`,
+          encoding: 'raw-f32le-v1',
+          storedByteCount: winnerWeights.byteLength.toString(16).padStart(16, '0'),
+          decodedByteCount: winnerWeights.byteLength.toString(16).padStart(16, '0'),
+          weightCount: (13_458).toString(16).padStart(16, '0')
+        }
+      );
+      while (!events.some(event => event.commandSequence === '0000000000000001') &&
+          performance.now() < deadline) {
         events.push(...runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes).events);
         await new Promise<void>(resolveImmediate => setImmediate(resolveImmediate));
       }
       expect(events).toContainEqual(expect.objectContaining({
-        kind: 'commandRejected', commandSequence: '0000000000000001', rejectionCode: 'InvalidCommand'
+        kind: 'hallOfFameResurrected',
+        commandSequence: '0000000000000001',
+        hallOfFameResurrection: expect.objectContaining({ snakeId: expect.any(Number) })
+      }));
+      // A wrong-phase control must return through the production queue without faulting the game.
+      runtime.submitPrepareGenerationReassignments('0000000000000002');
+      while (!events.some(event => event.commandSequence === '0000000000000002') && performance.now() < deadline) {
+        events.push(...runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes).events);
+        await new Promise<void>(resolveImmediate => setImmediate(resolveImmediate));
+      }
+      expect(events).toContainEqual(expect.objectContaining({
+        kind: 'commandRejected', commandSequence: '0000000000000002', rejectionCode: 'InvalidCommand'
       }));
       expect(events.filter(event => event.kind === 'started')).toHaveLength(1);
       expect(runtime.health().faultCode).toBeUndefined();
