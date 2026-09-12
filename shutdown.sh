@@ -1,223 +1,162 @@
 #!/bin/sh
+set -eu
 
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd) || exit 1
-cd "$SCRIPT_DIR" || exit 1
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$SCRIPT_DIR"
 
-# --------------------------------------------------------------------
-# Purpose
-# --------------------------------------------------------------------
-# Stop the detached processes started by play.sh, robustly.
-# PID files alone are not always reliable with npm, tsx, vite, and WSL;
-# sometimes the recorded PID is a wrapper and the real listener survives.
-#
-# This shutdown script therefore:
-#   1) Tries to stop recorded PIDs (server.pid, dev.pid)
-#   2) Reads server/config.toml to find uiPort and port
-#   3) Finds processes actually LISTENing on those ports
-#   4) Stops those listener processes, killing their process groups too
-#   5) Only removes PID files when the ports are no longer being served
-#
-# It tries hard to only kill processes that belong to this repo directory.
+PID_FILE="${SLITHER_PID_FILE:-server.pid}"
+PORT_FILE="${SLITHER_PORT_FILE:-server.port}"
+DEFAULT_PORT="${SLITHER_PORT:-5174}"
+LEGACY_DEV_PID_FILE="dev.pid"
 
-# --------------------------------------------------------------------
-# Small helpers
-# --------------------------------------------------------------------
-
-read_pidfile() {
-  _file="$1"
-  if [ -f "$_file" ]; then
-    tr -d ' \t\r\n' <"$_file" 2>/dev/null || true
+read_pid() {
+  if [ -f "$1" ]; then
+    tr -d ' \t\r\n' <"$1" 2>/dev/null || true
   else
     echo ""
   fi
 }
 
-is_pid_running() {
+pid_is_running() {
   _pid="$1"
   [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null
 }
 
-# Return the process group id (PGID) for a PID, empty if unavailable.
-get_pgid() {
-  _pid="$1"
-  ps -o pgid= -p "$_pid" 2>/dev/null | tr -d ' \t\r\n' || true
-}
-
-# Return the command line for a PID (best effort).
-get_args() {
-  _pid="$1"
-  ps -o args= -p "$_pid" 2>/dev/null || true
-}
-
-# True if PID's command line looks like it belongs to this repo.
 pid_belongs_to_repo() {
   _pid="$1"
-  _args="$(get_args "$_pid")"
-  echo "$_args" | grep -F "$SCRIPT_DIR" >/dev/null 2>&1
+  if [ -d "/proc/${_pid}" ]; then
+    _cwd=$(readlink -f "/proc/${_pid}/cwd" 2>/dev/null || true)
+    case "$_cwd" in
+      "$SCRIPT_DIR"|"$SCRIPT_DIR"/*) return 0 ;;
+    esac
+  fi
+  _args=$(ps -o args= -p "$_pid" 2>/dev/null || true)
+  printf '%s\n' "$_args" | grep -F "$SCRIPT_DIR" >/dev/null 2>&1
 }
 
-# Find PIDs listening on a TCP port, best effort, prefers ss then lsof then fuser.
-pids_listening_on_port() {
-  _port="$1"
-
-  if command -v ss >/dev/null 2>&1; then
-    # ss output typically contains: users:(("node",pid=2225,fd=20))
-    ss -H -ltnp 2>/dev/null \
-      | grep -E "[:.]${_port}[[:space:]]" \
-      | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' \
-      | sort -u
-    return 0
-  fi
-
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -tiTCP:"$_port" -sTCP:LISTEN 2>/dev/null | sort -u
-    return 0
-  fi
-
-  if command -v fuser >/dev/null 2>&1; then
-    # fuser prints PIDs, may include extra output, normalize to numbers only.
-    fuser -n tcp "$_port" 2>/dev/null | tr ' ' '\n' | sed -n 's/^\([0-9]\+\)$/\1/p' | sort -u
-    return 0
-  fi
-
-  echo ""
+get_pgid() {
+  ps -o pgid= -p "$1" 2>/dev/null | tr -d ' \t\r\n' || true
 }
 
-# Try to stop a PID cleanly, and also stop its whole process group.
-# This is critical for vite, tsx, esbuild helpers, and other subprocess trees.
+current_pgid() {
+  ps -o pgid= -p "$$" 2>/dev/null | tr -d ' \t\r\n' || true
+}
+
 stop_pid_and_group() {
   _name="$1"
   _pid="$2"
 
-  if ! is_pid_running "$_pid"; then
+  if ! pid_is_running "$_pid"; then
     return 0
   fi
 
-  # Safety check: do not kill unrelated processes unless they look like this repo.
   if ! pid_belongs_to_repo "$_pid"; then
-    echo "[INFO] ${_name}: PID ${_pid} does not look like it belongs to ${SCRIPT_DIR}, skipping."
+    echo "[WARN] ${_name}: PID ${_pid} does not belong to $SCRIPT_DIR; leaving it alone."
     return 1
   fi
 
-  _pgid="$(get_pgid "$_pid")"
+  _pgid=$(get_pgid "$_pid")
+  _self_pgid=$(current_pgid)
+  _group_safe=0
+  if [ -n "$_pgid" ] && [ "$_pgid" != "$_self_pgid" ]; then
+    _group_safe=1
+  fi
 
-  echo "[INFO] Stopping ${_name} PID ${_pid}..."
-
-  # First try TERM on process group, then on PID.
-  if [ -n "$_pgid" ]; then
+  echo "[STOP] ${_name} PID ${_pid}"
+  if [ "$_group_safe" -eq 1 ]; then
     kill -TERM "-$_pgid" 2>/dev/null || true
+  else
+    kill -TERM "$_pid" 2>/dev/null || true
   fi
-  kill -TERM "$_pid" 2>/dev/null || true
 
-  # Wait up to ~5 seconds.
-  _i=0
-  while [ "$_i" -lt 10 ]; do
-    if ! is_pid_running "$_pid"; then
-      echo "[INFO] ${_name} stopped."
-      return 0
-    fi
-    _i=$(( _i + 1 ))
+  _tries=0
+  while pid_is_running "$_pid" && [ "$_tries" -lt 20 ]; do
+    _tries=$(( _tries + 1 ))
     sleep 0.5
   done
 
-  echo "[INFO] ${_name} did not exit, sending SIGKILL..."
-
-  if [ -n "$_pgid" ]; then
-    kill -KILL "-$_pgid" 2>/dev/null || true
-  fi
-  kill -KILL "$_pid" 2>/dev/null || true
-
-  # Wait a little more.
-  _i=0
-  while [ "$_i" -lt 6 ]; do
-    if ! is_pid_running "$_pid"; then
-      echo "[INFO] ${_name} stopped."
-      return 0
+  if pid_is_running "$_pid"; then
+    echo "[WARN] ${_name} did not exit after SIGTERM; sending SIGKILL."
+    if [ "$_group_safe" -eq 1 ]; then
+      kill -KILL "-$_pgid" 2>/dev/null || true
+    else
+      kill -KILL "$_pid" 2>/dev/null || true
     fi
-    _i=$(( _i + 1 ))
-    sleep 0.5
+  fi
+
+  _tries=0
+  while pid_is_running "$_pid" && [ "$_tries" -lt 10 ]; do
+    _tries=$(( _tries + 1 ))
+    sleep 0.2
   done
 
-  echo "[ERROR] ${_name} PID ${_pid} is still running."
-  return 1
+  if pid_is_running "$_pid"; then
+    echo "[ERROR] ${_name} PID ${_pid} is still running."
+    return 1
+  fi
+  return 0
 }
 
-# --------------------------------------------------------------------
-# Read config ports (uiPort, port) from server/config.toml
-# --------------------------------------------------------------------
+pids_listening_on_port() {
+  _port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -H -ltnp 2>/dev/null \
+      | grep -E "[:.]${_port}[[:space:]]" \
+      | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' \
+      | sort -u
+    return 0
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -tiTCP:"$_port" -sTCP:LISTEN 2>/dev/null | sort -u
+    return 0
+  fi
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -n tcp "$_port" 2>/dev/null | tr ' ' '\n' | sed -n 's/^\([0-9][0-9]*\)$/\1/p' | sort -u
+    return 0
+  fi
+  return 0
+}
 
-UI_PORT="5173"
-SERVER_PORT="5174"
-
-if [ -f "server/config.toml" ]; then
-  # Use Node + smol-toml, because you already depend on it, and TOML parsing in sh is pain.
-  cfg_lines="$(
-    node -e "
-      const fs=require('fs');
-      const toml=require('smol-toml');
-      let cfg={};
-      try { cfg = toml.parse(fs.readFileSync('server/config.toml','utf8')); } catch { cfg = {}; }
-      if (cfg.uiPort != null) console.log('UIPORT=' + cfg.uiPort);
-      if (cfg.port != null) console.log('PORT=' + cfg.port);
-    " 2>/dev/null
-  )"
-
-  echo "$cfg_lines" | while IFS= read -r line; do
-    case "$line" in
-      UIPORT=*) UI_PORT="${line#UIPORT=}" ;;
-      PORT=*) SERVER_PORT="${line#PORT=}" ;;
-    esac
-  done
+PORT="$DEFAULT_PORT"
+if [ -f "$PORT_FILE" ]; then
+  _saved_port=$(tr -d ' \t\r\n' <"$PORT_FILE" 2>/dev/null || true)
+  case "$_saved_port" in
+    ''|*[!0-9]*) ;;
+    *) PORT="$_saved_port" ;;
+  esac
 fi
 
-# Normalize to digits only, keep defaults if garbage.
-echo "$UI_PORT" | grep -E '^[0-9]+$' >/dev/null 2>&1 || UI_PORT="5173"
-echo "$SERVER_PORT" | grep -E '^[0-9]+$' >/dev/null 2>&1 || SERVER_PORT="5174"
-
-# --------------------------------------------------------------------
-# Step 1, stop PIDs from pid files, best effort
-# --------------------------------------------------------------------
-
-SERVER_PID="$(read_pidfile server.pid)"
-DEV_PID="$(read_pidfile dev.pid)"
-
+SERVER_PID=$(read_pid "$PID_FILE")
 if [ -n "$SERVER_PID" ]; then
-  stop_pid_and_group "Simulation Server (pidfile)" "$SERVER_PID" || true
+  stop_pid_and_group "Rust server" "$SERVER_PID" || true
 fi
 
-if [ -n "$DEV_PID" ]; then
-  stop_pid_and_group "Vite Dev Server (pidfile)" "$DEV_PID" || true
+# One-time compatibility with the old launcher, which also started Vite.
+LEGACY_DEV_PID=$(read_pid "$LEGACY_DEV_PID_FILE")
+if [ -n "$LEGACY_DEV_PID" ]; then
+  stop_pid_and_group "legacy Vite server" "$LEGACY_DEV_PID" || true
 fi
 
-# --------------------------------------------------------------------
-# Step 2, if ports are still listening, stop the real listener processes
-# --------------------------------------------------------------------
+LISTENER_PIDS=$(pids_listening_on_port "$PORT" || true)
+for _pid in $LISTENER_PIDS; do
+  if pid_belongs_to_repo "$_pid"; then
+    stop_pid_and_group "server listener on port $PORT" "$_pid" || true
+  fi
+done
 
-# Collect listener PIDs for both ports, de-duplicate.
-LISTENER_PIDS="$( (pids_listening_on_port "$UI_PORT"; pids_listening_on_port "$SERVER_PORT") 2>/dev/null | sort -u )"
+LEFT=""
+for _pid in $(pids_listening_on_port "$PORT" || true); do
+  if pid_belongs_to_repo "$_pid"; then
+    LEFT="$LEFT $_pid"
+  fi
+done
 
-if [ -n "$LISTENER_PIDS" ]; then
-  echo "[INFO] Detected listener processes on ports ${UI_PORT} and/or ${SERVER_PORT}, stopping them..."
-  for pid in $LISTENER_PIDS; do
-    # Label names based on port association is messy, just call them listeners.
-    stop_pid_and_group "Listener" "$pid" || true
-  done
+if [ -n "$LEFT" ]; then
+  echo "[ERROR] Repo-owned process still listening on port $PORT:$LEFT"
+  echo "[INFO] Keeping PID metadata so shutdown can be retried."
+  exit 1
 fi
 
-# --------------------------------------------------------------------
-# Step 3, verify shutdown, only then delete pid files
-# --------------------------------------------------------------------
-
-# After kills, re-check listening PIDs that belong to this repo.
-LEFT_UI="$(pids_listening_on_port "$UI_PORT" | while read -r p; do pid_belongs_to_repo "$p" && echo "$p"; done)"
-LEFT_SRV="$(pids_listening_on_port "$SERVER_PORT" | while read -r p; do pid_belongs_to_repo "$p" && echo "$p"; done)"
-
-if [ -z "$LEFT_UI" ] && [ -z "$LEFT_SRV" ]; then
-  rm -f server.pid dev.pid
-  echo "[OK] Shutdown complete."
-else
-  echo "[ERROR] Some repo processes are still listening:"
-  [ -n "$LEFT_UI" ] && echo "  UI port ${UI_PORT} still has PIDs: $LEFT_UI"
-  [ -n "$LEFT_SRV" ] && echo "  Server port ${SERVER_PORT} still has PIDs: $LEFT_SRV"
-  echo "[INFO] Keeping pid files so you can retry shutdown without losing references."
-fi
+rm -f "$PID_FILE" "$PORT_FILE" "$LEGACY_DEV_PID_FILE"
+echo "[OK] Rust-authoritative server stopped."
+exit 0
