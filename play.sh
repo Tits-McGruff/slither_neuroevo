@@ -172,18 +172,16 @@ if [ "$ACTIVE_MODE" = "fresh" ]; then
   fi
 fi
 
-COMMON_ARGS="--host $HOST --port $PORT --db-path $DB_PATH --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1"
-
 echo
 echo "[START] Rust-authoritative server"
 echo "[INFO] Bind: $HOST:$PORT"
 echo "[INFO] Database: $DB_PATH"
-echo "[INFO] Mode: $ACTIVE_MODE${ACTIVE_MODE:+${ACTIVE_MODE:+}}"
+echo "[INFO] Mode: $ACTIVE_MODE"
 
 if [ "$ACTIVE_MODE" = "fresh" ]; then
-  nohup setsid sh -c 'exec npm run server:rust -- "$@"' sh --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --fresh </dev/null >"$LOG_FILE" 2>&1 &
+  nohup setsid npm run server:rust -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --fresh </dev/null >"$LOG_FILE" 2>&1 &
 else
-  nohup setsid sh -c 'exec npm run server:rust -- "$@"' sh --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --resume "$RESUME_TARGET" </dev/null >"$LOG_FILE" 2>&1 &
+  nohup setsid npm run server:rust -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --resume "$RESUME_TARGET" </dev/null >"$LOG_FILE" 2>&1 &
 fi
 
 SERVER_PID=$!
