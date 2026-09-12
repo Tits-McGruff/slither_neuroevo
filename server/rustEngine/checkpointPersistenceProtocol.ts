@@ -245,6 +245,22 @@ export interface ManagedBrowserHallOfFameEntry {
   pinned: boolean;
 }
 
+/** Exact selected retained genome descriptor passed to Rust for one resurrection. */
+export interface ManagedHallOfFameSelection {
+  /** Correlation token for the isolated worker read. */
+  operationId: CheckpointOperationId;
+  /** Effective run containing the selected inherited or local entry. */
+  runId: string;
+  /** Exact run-scoped completed-generation key. */
+  entryId: U64Hex;
+  /** Current active boundary that fixes the compatible graph and weight count. */
+  checkpoint: ManagedCheckpointDescriptor;
+  /** Compact winner identity and display metadata. */
+  reference: ManagedHallOfFameReference;
+  /** Verified immutable packed weights consumed directly by Rust. */
+  weights: ManagedHallOfFameWeightsDescriptor;
+}
+
 /** Atomic import request referencing only Rust-published managed files. */
 export interface CommitManagedImportRequest {
   /** Message discriminator. */
@@ -274,6 +290,8 @@ export type CheckpointPersistenceWorkerRequest =
   | { type: 'releaseExportLease'; operationId: CheckpointOperationId }
   | { type: 'readBrowserHistory'; operationId: CheckpointOperationId; runId: string; limit: number }
   | { type: 'readBrowserHallOfFame'; operationId: CheckpointOperationId; runId: string; limit: number }
+  | { type: 'selectHallOfFameEntry'; operationId: CheckpointOperationId; runId: string; entryId: U64Hex }
+  | { type: 'releaseHallOfFameEntry'; operationId: CheckpointOperationId }
   | CommitManagedCheckpointRequest
   | CommitManagedImportRequest
   | SelectManagedCheckpointRequest
@@ -417,6 +435,8 @@ export type CheckpointPersistenceWorkerResponse =
   | { type: 'exportLeaseReleased'; operationId: CheckpointOperationId }
   | { type: 'browserHistoryRead'; operationId: CheckpointOperationId; runId: string; history: ManagedBrowserHistoryEntry[] }
   | { type: 'browserHallOfFameRead'; operationId: CheckpointOperationId; runId: string; entries: ManagedBrowserHallOfFameEntry[] }
+  | { type: 'hallOfFameEntrySelected'; selection: ManagedHallOfFameSelection }
+  | { type: 'hallOfFameEntryReleased'; operationId: CheckpointOperationId }
   | ManagedCheckpointCommittedResponse
   | ManagedImportCommittedResponse
   | ManagedCheckpointSelectedResponse

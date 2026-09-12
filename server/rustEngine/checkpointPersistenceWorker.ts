@@ -29,6 +29,7 @@ import {
   type ManagedGenerationSummary,
   type ManagedBrowserHistoryEntry,
   type ManagedBrowserHallOfFameEntry,
+  type ManagedHallOfFameSelection,
   type ManagedExportInventoryDescriptor,
   type ManagedHallOfFameWeightsDescriptor,
   type ManagedHallOfFameReference,
@@ -178,6 +179,8 @@ let activeExportLease: {
   checkpointId: string;
   inventoryPath: string;
 } | undefined;
+/** One packed winner protected while Rust verifies and consumes it. */
+let activeHallOfFameLease: { operationId: CheckpointOperationId; logicalSha256: string } | undefined;
 cleanupUnreferencedHallOfFameWeights();
 
 /**
@@ -811,7 +814,7 @@ function assertStoredHallOfFameWeights(descriptor: ManagedHallOfFameWeightsDescr
 
 /** Remove immutable winner objects after no compact Hall-of-Fame row retains them. */
 function cleanupUnreferencedHallOfFameWeights(): void {
-  if (activeExportLease) return;
+  if (activeExportLease || activeHallOfFameLease) return;
   const rows = db.prepare(`SELECT logical_sha256, relative_filename, encoding,
     stored_byte_count_hex, decoded_byte_count_hex, weight_count_hex
     FROM rust_hall_of_fame_weights_v1 AS weights
@@ -1278,6 +1281,79 @@ function readBrowserHallOfFame(runId: string, limit: number): ManagedBrowserHall
       };
     });
   }).deferred();
+}
+
+/** Select and verify one retained packed winner without decoding its weights in Node. */
+function selectHallOfFameEntry(runId: string, entryId: U64Hex,
+  operationId: CheckpointOperationId): ManagedHallOfFameSelection {
+  if (activeHallOfFameLease) throw new Error('another Hall-of-Fame selection is already active');
+  return db.transaction(() => {
+    const current = readCurrentPointer(runId);
+    if (!current) throw new Error('Hall-of-Fame selection requires a current managed run');
+    const checkpoint = validateCurrentPointerIdentity(runId, current);
+    const filter = exportLineageFilter(runId, checkpoint.generation, 'hall');
+    const row = db.prepare(`SELECT hall.record_version, hall.record_blob,
+      weights.logical_sha256, weights.relative_filename, weights.encoding,
+      weights.stored_byte_count_hex, weights.decoded_byte_count_hex, weights.weight_count_hex
+      FROM rust_hall_of_fame_v1 AS hall
+      JOIN rust_hall_of_fame_weights_v1 AS weights ON weights.logical_sha256 = hall.weights_sha256
+      WHERE hall.weight_state = 'selected' AND (${filter.sql}) AND hall.generation_hex = ?`)
+      .get(...filter.parameters, entryId) as {
+        record_version: number;
+        record_blob: Buffer;
+        logical_sha256: string;
+        relative_filename: string;
+        encoding: string;
+        stored_byte_count_hex: string;
+        decoded_byte_count_hex: string;
+        weight_count_hex: string;
+      } | undefined;
+    if (!row) throw new Error('Hall-of-Fame entry is not retained in the active lineage');
+    if (row.record_version !== 1 || !Buffer.isBuffer(row.record_blob) || row.record_blob.length !== 56 ||
+        row.record_blob.readBigUInt64LE(0) !== u64HexToBigInt(entryId)) {
+      throw new Error('selected Hall-of-Fame record is malformed');
+    }
+    const hex64 = (offset: number): U64Hex =>
+      row.record_blob.readBigUInt64LE(offset).toString(16).padStart(16, '0') as U64Hex;
+    const reference: ManagedHallOfFameReference = {
+      completedGeneration: entryId,
+      sourcePopulationSlot: row.record_blob.readUInt32LE(8).toString(16).padStart(16, '0') as U64Hex,
+      successorPopulationSlot: row.record_blob.readUInt32LE(12).toString(16).padStart(16, '0') as U64Hex,
+      sourceSnakeId: hex64(16),
+      successorGenomeId: hex64(24),
+      fitnessF64Hex: hex64(32),
+      pointsF64Hex: hex64(40),
+      length: hex64(48)
+    };
+    if (!Number.isFinite(row.record_blob.readDoubleLE(32)) ||
+        !Number.isFinite(row.record_blob.readDoubleLE(40)) ||
+        u64HexToBigInt(reference.sourcePopulationSlot) >= u64HexToBigInt(checkpoint.populationCount) ||
+        u64HexToBigInt(reference.successorPopulationSlot) >= u64HexToBigInt(checkpoint.populationCount) ||
+        u64HexToBigInt(reference.sourceSnakeId) === 0n || u64HexToBigInt(reference.successorGenomeId) === 0n) {
+      throw new Error('selected Hall-of-Fame reference is invalid');
+    }
+    const weights = parseManagedHallOfFameWeightsDescriptor({
+      version: 1,
+      logicalSha256: row.logical_sha256,
+      relativeFilename: row.relative_filename,
+      encoding: row.encoding,
+      storedByteCount: row.stored_byte_count_hex,
+      decodedByteCount: row.decoded_byte_count_hex,
+      weightCount: row.weight_count_hex
+    }, checkpoint);
+    verifyHallOfFameWeightsFile(weights);
+    activeHallOfFameLease = { operationId, logicalSha256: weights.logicalSha256 };
+    return { operationId, runId, entryId, checkpoint, reference, weights };
+  }).deferred();
+}
+
+/** Release one exact packed winner after Rust consumes or rejects it. */
+function releaseHallOfFameEntry(operationId: CheckpointOperationId): void {
+  if (!activeHallOfFameLease || activeHallOfFameLease.operationId !== operationId) {
+    throw new Error('Hall-of-Fame selection lease is not active');
+  }
+  activeHallOfFameLease = undefined;
+  cleanupUnreferencedHallOfFameWeights();
 }
 
 /** Write every byte of one small fixed record to an already-open inventory file. */
@@ -2096,7 +2172,8 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
       request['type'] === 'inspectCheckpointRetention' || request['type'] === 'pinCurrentCheckpoint' ||
       request['type'] === 'applyCheckpointRetention' || request['type'] === 'acquireCurrentExportLease' ||
       request['type'] === 'releaseExportLease' || request['type'] === 'readBrowserHistory' ||
-      request['type'] === 'readBrowserHallOfFame') {
+      request['type'] === 'readBrowserHallOfFame' || request['type'] === 'selectHallOfFameEntry' ||
+      request['type'] === 'releaseHallOfFameEntry') {
     const operationId = request['operationId'];
     return typeof operationId === 'string' && /^[0-9a-f]{32}$/u.test(operationId) ? operationId : null;
   }
@@ -2124,6 +2201,7 @@ port.on('message', (message: unknown) => {
       catch { /* Best-effort temporary inventory cleanup during worker shutdown. */ }
       activeExportLease = undefined;
     }
+    activeHallOfFameLease = undefined;
     db.close();
     port.removeAllListeners('message');
     port.close();
@@ -2187,6 +2265,26 @@ port.on('message', (message: unknown) => {
         type: 'browserHallOfFameRead', operationId, runId,
         entries: readBrowserHallOfFame(runId, limit)
       });
+      return;
+    }
+    if (request['type'] === 'releaseHallOfFameEntry') {
+      if (!operationId || Object.keys(request).length !== 2) {
+        throw new TypeError('invalid Hall-of-Fame release request');
+      }
+      releaseHallOfFameEntry(operationId);
+      post({ type: 'hallOfFameEntryReleased', operationId });
+      return;
+    }
+    if (request['type'] === 'selectHallOfFameEntry') {
+      const runId = request['runId'];
+      const entryId = request['entryId'];
+      if (!operationId || Object.keys(request).length !== 4 || typeof runId !== 'string' ||
+          !runId || runId.includes('\0') || Buffer.byteLength(runId) > 256 ||
+          typeof entryId !== 'string' || !/^[0-9a-f]{16}$/u.test(entryId)) {
+        throw new TypeError('invalid Hall-of-Fame selection request');
+      }
+      post({ type: 'hallOfFameEntrySelected',
+        selection: selectHallOfFameEntry(runId, entryId, operationId) });
       return;
     }
     if (request['type'] === 'scanRecoveryCandidate') {

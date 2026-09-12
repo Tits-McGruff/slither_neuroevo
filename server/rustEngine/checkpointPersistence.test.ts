@@ -394,6 +394,17 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(await fixture.client.readBrowserHallOfFame(request.branchRunId, 1)).toEqual([
       { entryId: u64(2n), gen: 2, fitness: 20, points: 6.25, length: 9, pinned: false }
     ]);
+    const selectedWinner = await fixture.client.selectHallOfFameEntry(request.branchRunId, u64(2n));
+    expect(selectedWinner).toMatchObject({
+      runId: request.branchRunId,
+      entryId: u64(2n),
+      checkpoint: successor,
+      reference: createGenerationCommit(2n, { bestF64Hex: f64(20) }).hallOfFame,
+      weights: createHallOfFameWeights(2n)
+    });
+    await expect(fixture.client.selectHallOfFameEntry(request.branchRunId, u64(1n)))
+      .rejects.toThrow(/busy/);
+    await fixture.client.releaseHallOfFameEntry(selectedWinner.operationId);
     await fixture.client.close();
     const db = new Database(fixture.databasePath, { readonly: true });
     try {

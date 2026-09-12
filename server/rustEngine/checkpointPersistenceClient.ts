@@ -14,6 +14,7 @@ import {
   parseManagedCheckpointDescriptor,
   parseManagedCheckpointDescriptorLimits,
   parseManagedExportInventoryDescriptor,
+  parseManagedHallOfFameWeightsDescriptor,
   parseManagedImportBranchResult,
   parseManagedImportInventoryDescriptor,
   parseManagedGenerationCommit,
@@ -25,6 +26,7 @@ import {
   type ManagedCheckpointDescriptorLimits,
   type ManagedBrowserHistoryEntry,
   type ManagedBrowserHallOfFameEntry,
+  type ManagedHallOfFameSelection,
   type ManagedGenerationCommit,
   type ManagedImportBranchResult,
   type ManagedImportInventoryDescriptor,
@@ -110,6 +112,14 @@ type ExportLeaseState =
   | { phase: 'releasing'; operationId: CheckpointOperationId;
       resolve(): void; reject(error: Error): void };
 
+/** Client lifecycle for one exact packed winner protected across native consumption. */
+type HallOfFameLeaseState =
+  | { phase: 'acquiring'; operationId: CheckpointOperationId; runId: string; entryId: U64Hex;
+      resolve(value: ManagedHallOfFameSelection): void; reject(error: Error): void }
+  | { phase: 'active'; operationId: CheckpointOperationId; runId: string; entryId: U64Hex }
+  | { phase: 'releasing'; operationId: CheckpointOperationId; runId: string; entryId: U64Hex;
+      resolve(): void; reject(error: Error): void };
+
 /**
  * Client lifecycle wrapper around exactly one dedicated SQLite persistence worker.
  *
@@ -143,6 +153,8 @@ export class CheckpointPersistenceClient {
   private history: { operationId: CheckpointOperationId; runId: string; resolve(value: ManagedBrowserHistoryEntry[]): void; reject(error: Error): void } | undefined;
   /** At most one compact browser Hall-of-Fame read may be in flight. */
   private hallOfFame: { operationId: CheckpointOperationId; runId: string; resolve(value: ManagedBrowserHallOfFameEntry[]): void; reject(error: Error): void } | undefined;
+  /** At most one exact retained winner selection may be in flight. */
+  private hallOfFameSelection: HallOfFameLeaseState | undefined;
   /** One temporary exact-checkpoint reference across preparation and download. */
   private exportLease: ExportLeaseState | undefined;
   /** Terminal lifecycle failure, if the worker violates protocol or exits unexpectedly. */
@@ -412,6 +424,37 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Select and verify one retained winner descriptor for direct Rust consumption. */
+  selectHallOfFameEntry(runId: string, entryId: U64Hex): Promise<ManagedHallOfFameSelection> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.hallOfFameSelection) {
+      return Promise.reject(new Error('Hall-of-Fame selection is busy or stopping'));
+    }
+    if (!runId || runId.includes('\0') || Buffer.byteLength(runId) > 256 || !isU64Hex(entryId)) {
+      return Promise.reject(new TypeError('invalid Hall-of-Fame selection request'));
+    }
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.hallOfFameSelection = { phase: 'acquiring', operationId, runId, entryId, resolve, reject };
+      try { this.worker.postMessage({ type: 'selectHallOfFameEntry', operationId, runId, entryId }); }
+      catch (error) { this.hallOfFameSelection = undefined; reject(asError(error)); }
+    });
+  }
+
+  /** Release the retained winner after native success or rejection. */
+  releaseHallOfFameEntry(operationId: CheckpointOperationId): Promise<void> {
+    if (this.failure) return Promise.reject(this.failure);
+    const lease = this.hallOfFameSelection;
+    if (this.stopping || !lease || lease.phase !== 'active' || lease.operationId !== operationId) {
+      return Promise.reject(new Error('Hall-of-Fame selection lease is not active'));
+    }
+    return new Promise((resolve, reject) => {
+      this.hallOfFameSelection = { ...lease, phase: 'releasing', resolve, reject };
+      try { this.worker.postMessage({ type: 'releaseHallOfFameEntry', operationId }); }
+      catch (error) { this.hallOfFameSelection = lease; reject(asError(error)); }
+    });
+  }
+
   /**
    * Stop the client-owned worker after it has completed all preceding synchronous messages.
    * @returns Promise resolved after the worker exits cleanly.
@@ -455,6 +498,15 @@ export class CheckpointPersistenceClient {
   private onMessage(value: unknown): void {
     try {
       const response = parseWorkerResponse(value);
+      if (response.type === 'hallOfFameEntryReleased') {
+        const lease = this.hallOfFameSelection;
+        if (!lease || lease.phase !== 'releasing' || lease.operationId !== response.operationId) {
+          throw new Error('persistence worker returned mismatched Hall-of-Fame release');
+        }
+        this.hallOfFameSelection = undefined;
+        lease.resolve();
+        return;
+      }
       if (response.type === 'exportLeaseReleased') {
         const lease = this.exportLease;
         if (!lease || lease.phase !== 'releasing' || lease.operationId !== response.operationId) {
@@ -498,6 +550,18 @@ export class CheckpointPersistenceClient {
         }
         this.hallOfFame = undefined;
         pending.resolve(response.entries);
+        return;
+      }
+      if (response.type === 'hallOfFameEntrySelected') {
+        const pending = this.hallOfFameSelection;
+        const selected = response.selection;
+        if (!pending || pending.phase !== 'acquiring' || pending.operationId !== selected.operationId || pending.runId !== selected.runId ||
+            pending.entryId !== selected.entryId) {
+          throw new Error('persistence worker returned mismatched Hall-of-Fame selection');
+        }
+        this.hallOfFameSelection = { phase: 'active', operationId: pending.operationId,
+          runId: pending.runId, entryId: pending.entryId };
+        pending.resolve(selected);
         return;
       }
       if (response.type === 'currentCheckpointPinned') {
@@ -605,6 +669,18 @@ export class CheckpointPersistenceClient {
           pending.reject(new Error(response.reason));
           return;
         }
+        if (response.operationId === this.hallOfFameSelection?.operationId &&
+            this.hallOfFameSelection.phase !== 'active') {
+          const pending = this.hallOfFameSelection;
+          if (pending.phase === 'releasing') {
+            this.hallOfFameSelection = { phase: 'active', operationId: pending.operationId,
+              runId: pending.runId, entryId: pending.entryId };
+          } else {
+            this.hallOfFameSelection = undefined;
+          }
+          pending.reject(new Error(response.reason));
+          return;
+        }
         if (response.operationId === this.exportLease?.operationId && this.exportLease.phase !== 'active') {
           const lease = this.exportLease;
           if (lease.phase === 'releasing') this.exportLease = { phase: 'active', operationId: lease.operationId };
@@ -678,6 +754,8 @@ export class CheckpointPersistenceClient {
     this.history = undefined;
     this.hallOfFame?.reject(error);
     this.hallOfFame = undefined;
+    if (this.hallOfFameSelection?.phase !== 'active') this.hallOfFameSelection?.reject(error);
+    this.hallOfFameSelection = undefined;
     if (this.exportLease?.phase !== 'active') this.exportLease?.reject(error);
     this.exportLease = undefined;
     void this.terminateForFailure();
@@ -712,6 +790,7 @@ export class CheckpointPersistenceClient {
       return;
     }
     if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning && !this.history && !this.hallOfFame &&
+        (!this.hallOfFameSelection || this.hallOfFameSelection.phase === 'active') &&
         (!this.exportLease || this.exportLease.phase === 'active')) {
       this.resolveStopped?.();
       this.resolveStopped = null;
@@ -750,6 +829,11 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     throw new TypeError('checkpoint persistence worker sent a non-object response');
   }
   const response = value as Record<string, unknown>;
+  if (response['type'] === 'hallOfFameEntryReleased') {
+    requireExactKeys(response, ['type', 'operationId']);
+    if (!isOperationId(response['operationId'])) throw new TypeError('invalid Hall-of-Fame release correlation');
+    return { type: 'hallOfFameEntryReleased', operationId: response['operationId'] };
+  }
   if (response['type'] === 'exportLeaseReleased') {
     requireExactKeys(response, ['type', 'operationId']);
     if (!isOperationId(response['operationId'])) throw new TypeError('invalid export lease release correlation');
@@ -851,6 +935,51 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     }
     return { type: 'browserHallOfFameRead', operationId: response['operationId'],
       runId: response['runId'], entries };
+  }
+  if (response['type'] === 'hallOfFameEntrySelected') {
+    requireExactKeys(response, ['type', 'selection']);
+    if (!response['selection'] || typeof response['selection'] !== 'object' ||
+        Array.isArray(response['selection'])) {
+      throw new TypeError('invalid Hall-of-Fame selection response');
+    }
+    const selection = response['selection'] as Record<string, unknown>;
+    requireExactKeys(selection, [
+      'operationId', 'runId', 'entryId', 'checkpoint', 'reference', 'weights'
+    ]);
+    if (!isOperationId(selection['operationId']) || typeof selection['runId'] !== 'string' ||
+        !selection['runId'] || selection['runId'].includes('\0') ||
+        Buffer.byteLength(selection['runId']) > 256 || !isU64Hex(selection['entryId']) ||
+        !selection['reference'] || typeof selection['reference'] !== 'object' ||
+        Array.isArray(selection['reference'])) {
+      throw new TypeError('invalid Hall-of-Fame selection identity');
+    }
+    const checkpoint = parseManagedCheckpointDescriptor(selection['checkpoint']);
+    const reference = selection['reference'] as Record<string, unknown>;
+    requireExactKeys(reference, [
+      'completedGeneration', 'sourcePopulationSlot', 'sourceSnakeId', 'fitnessF64Hex',
+      'pointsF64Hex', 'length', 'successorPopulationSlot', 'successorGenomeId'
+    ]);
+    const u64Fields = [
+      'completedGeneration', 'sourcePopulationSlot', 'sourceSnakeId', 'length',
+      'successorPopulationSlot', 'successorGenomeId'
+    ] as const;
+    if (u64Fields.some(field => !isU64Hex(reference[field])) ||
+        reference['completedGeneration'] !== selection['entryId'] ||
+        !isFiniteF64Hex(reference['fitnessF64Hex']) || !isFiniteF64Hex(reference['pointsF64Hex']) ||
+        BigInt(`0x${reference['sourcePopulationSlot'] as string}`) >= BigInt(`0x${checkpoint.populationCount}`) ||
+        BigInt(`0x${reference['successorPopulationSlot'] as string}`) >= BigInt(`0x${checkpoint.populationCount}`) ||
+        BigInt(`0x${reference['sourceSnakeId'] as string}`) === 0n ||
+        BigInt(`0x${reference['successorGenomeId'] as string}`) === 0n) {
+      throw new TypeError('invalid Hall-of-Fame selected reference');
+    }
+    return { type: 'hallOfFameEntrySelected', selection: {
+      operationId: selection['operationId'],
+      runId: selection['runId'],
+      entryId: selection['entryId'],
+      checkpoint,
+      reference: reference as unknown as ManagedHallOfFameSelection['reference'],
+      weights: parseManagedHallOfFameWeightsDescriptor(selection['weights'], checkpoint)
+    } };
   }
   if (response['type'] === 'currentCheckpointPinned') {
     requireExactKeys(response, ['type', 'operationId', 'checkpointId', 'generation']);
@@ -975,4 +1104,10 @@ function isOperationId(value: unknown): value is CheckpointOperationId {
  */
 function isU64Hex(value: unknown): value is U64Hex {
   return typeof value === 'string' && /^[0-9a-f]{16}$/u.test(value);
+}
+
+/** Check one exact IEEE-754 bit string decodes to a finite Float64 value. */
+function isFiniteF64Hex(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{16}$/u.test(value)) return false;
+  return Number.isFinite(Buffer.from(value, 'hex').readDoubleBE(0));
 }
