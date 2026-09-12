@@ -9,6 +9,8 @@
 use super::baseline::{BaselineLifecycleState, BaselineSlotRuntime};
 #[path = "controller_join.rs"]
 mod controller_join;
+#[path = "resurrection.rs"]
+mod resurrection;
 use super::contract::ENGINE_CONTRACT_VERSION;
 use super::external_replacement::{
     ExternalReplacementAuthorityProof, UnavailableControllerReason,
@@ -31,6 +33,7 @@ use super::step_config::{
     RunningStepWorkLimits, StepConfigError,
 };
 pub use controller_join::{ControllerJoinInput, PreparedControllerJoin};
+pub use resurrection::ResurrectionPublication;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -5909,6 +5912,49 @@ mod tests {
         let changed = authority.state().clone();
         assert!(authority.commit_controller_join(prepared).is_err());
         assert_eq!(authority.state(), &changed);
+    }
+
+    #[test]
+    fn hall_of_fame_resurrection_adds_one_owned_brain_and_preserves_population() {
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let before = authority.state().clone();
+        let weights = vec![0.375; graph.compiled().total_parameters].into_boxed_slice();
+        let publication = authority
+            .resurrect_hall_of_fame(
+                weights.clone(),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .expect("retained winner should resurrect");
+        let after = authority.state();
+        assert_eq!(after.population, before.population);
+        assert_eq!(after.world.snakes.len(), before.world.snakes.len() + 1);
+        assert_eq!(after.brains.len(), before.brains.len() + 1);
+        let snake = after.world.snakes.last().expect("resurrected snake");
+        assert_eq!(snake.kind, SnakeKind::Resurrected);
+        assert_eq!(snake.id, publication.snake_id);
+        assert_eq!(snake.frame_v1_id, publication.frame_v1_id);
+        let brain = after.brains.last().expect("resurrected brain");
+        assert_eq!(brain.owner, BrainOwner::Entity(publication.snake_id));
+        assert_eq!(
+            brain.non_population_weights.as_deref(),
+            Some(weights.as_ref())
+        );
+        assert!(brain.recurrent.iter().all(|value| *value == 0.0));
+        let committed = after.clone();
+        assert!(authority
+            .resurrect_hall_of_fame(
+                vec![0.0; graph.compiled().total_parameters - 1].into_boxed_slice(),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .is_err());
+        assert_eq!(authority.state(), &committed);
+        authority.memory_ceiling_bytes = 0;
+        assert!(authority
+            .resurrect_hall_of_fame(weights, RunningStepWorkLimits::provisional_defaults())
+            .is_err());
+        assert_eq!(authority.state(), &committed);
     }
 
     #[test]
