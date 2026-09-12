@@ -251,6 +251,7 @@ pub struct GenerationStartWorkspace {
     baseline_body: Vec<WorldPoint>,
     diagnostics: GenerationStartDiagnostics,
     prepared_source_address: Option<usize>,
+    prepared_source_sequence: Option<(u64, u64, u64, u64)>,
     prepared_config: Option<GenerationStartConfig>,
     ready: bool,
 }
@@ -360,6 +361,7 @@ impl GenerationStartWorkspace {
         self.diagnostics.baseline_snakes = baseline_count;
         self.update_capacity_diagnostics();
         self.prepared_source_address = Some(std::ptr::from_ref(source).addr());
+        self.prepared_source_sequence = Some(source_sequence(source));
         self.prepared_config = Some(config);
         self.ready = true;
         self.prepared(source, config)
@@ -399,7 +401,9 @@ impl GenerationStartWorkspace {
         config: GenerationStartConfig,
     ) -> Result<PreparedGenerationStart<'workspace, 'source>, GenerationStartError> {
         config.project(source)?;
-        if self.prepared_source_address != Some(std::ptr::from_ref(source).addr()) {
+        if self.prepared_source_address != Some(std::ptr::from_ref(source).addr())
+            || self.prepared_source_sequence != Some(source_sequence(source))
+        {
             return Err(GenerationStartError::SourceChanged);
         }
         if self.prepared_config != Some(config) {
@@ -432,7 +436,9 @@ impl GenerationStartWorkspace {
         if !self.ready {
             return Err(GenerationStartError::ResultNotReady);
         }
-        if self.prepared_source_address != Some(source_address) {
+        if self.prepared_source_address != Some(source_address)
+            || self.prepared_source_sequence != Some(source_sequence(authority.state()))
+        {
             return Err(GenerationStartError::SourceChanged);
         }
         if self.prepared_config != Some(config) {
@@ -473,6 +479,7 @@ impl GenerationStartWorkspace {
     pub(crate) fn retains(&self, source: &StateCandidate, config: GenerationStartConfig) -> bool {
         self.ready
             && self.prepared_source_address == Some(std::ptr::from_ref(source).addr())
+            && self.prepared_source_sequence == Some(source_sequence(source))
             && self.prepared_config == Some(config)
             && config.project(source).is_ok()
     }
@@ -841,9 +848,19 @@ impl GenerationStartWorkspace {
         self.fixed_step = None;
         self.diagnostics = GenerationStartDiagnostics::default();
         self.prepared_source_address = None;
+        self.prepared_source_sequence = None;
         self.prepared_config = None;
         self.ready = false;
     }
+}
+
+fn source_sequence(source: &StateCandidate) -> (u64, u64, u64, u64) {
+    (
+        source.generation.generation,
+        source.generation.completed_step,
+        source.generation.population_epoch,
+        source.identity.config_revision,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
