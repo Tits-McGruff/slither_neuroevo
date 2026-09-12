@@ -48,7 +48,7 @@ jobs:
       - name: Verify native addon load and source identity
         run: node -e "const addon = require('./native/index.js'); if (!addon.nativeAddonBuildIdentifier?.()) throw new Error('native build identifier missing')"
       - name: Test native crate
-        run: cargo test --manifest-path native/Cargo.toml --release --features engine-test-hooks
+        run: cargo test --manifest-path native/Cargo.toml --release --features engine-test-hooks -- --test-threads=1
       - name: Build checkpoint handoff test addon
         run: cargo build --manifest-path native/Cargo.toml --features engine-test-hooks
       - name: Expose isolated checkpoint handoff test addon

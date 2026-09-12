@@ -15,6 +15,7 @@ LOG_FILE="${SLITHER_LOG_FILE:-server.log}"
 BUILD_STAMP="node_modules/.slither-rust-server-build"
 MANAGED_DIR="${DB_PATH}.checkpoints"
 
+
 echo "========================================"
 echo "Slither Neuroevolution Launcher"
 echo "Rust-authoritative Debian server"
@@ -46,6 +47,30 @@ stop_started_process() {
   kill -TERM "-$_pid" 2>/dev/null || kill -TERM "$_pid" 2>/dev/null || true
 }
 
+wait_for_process_exit() {
+  _pid="$1"
+  _tries=0
+  while [ "$_tries" -lt 50 ]; do
+    if ! pid_is_running "$_pid"; then
+      return 0
+    fi
+    _tries=$(( _tries + 1 ))
+    sleep 0.1
+  done
+  if pid_is_running "$_pid"; then
+    kill -KILL "-$_pid" 2>/dev/null || kill -KILL "$_pid" 2>/dev/null || true
+  fi
+  _tries=0
+  while [ "$_tries" -lt 20 ]; do
+    if ! pid_is_running "$_pid"; then
+      return 0
+    fi
+    _tries=$(( _tries + 1 ))
+    sleep 0.1
+  done
+  return 1
+}
+
 wait_for_health() {
   _pid="$1"
   _url="http://127.0.0.1:${PORT}/api/health"
@@ -57,10 +82,52 @@ wait_for_health() {
     if node -e "fetch(process.argv[1]).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" "$_url" >/dev/null 2>&1; then
       return 0
     fi
+    if [ -f "$LOG_FILE" ] && grep -Fq '[rust.startup-fault]' "$LOG_FILE" 2>/dev/null; then
+      return 1
+    fi
     _tries=$(( _tries + 1 ))
     sleep 0.5
   done
   return 1
+}
+
+start_server_process() {
+  _mode="$1"
+  echo
+  echo "[START] Rust-authoritative server"
+  echo "[INFO] Bind: $HOST:$PORT"
+  echo "[INFO] Database: $DB_PATH"
+  echo "[INFO] Mode: $_mode"
+  : >"$LOG_FILE"
+  if [ "$_mode" = "fresh" ]; then
+    nohup setsid npm run server:rust -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --fresh </dev/null >"$LOG_FILE" 2>&1 &
+  else
+    nohup setsid npm run server:rust -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --resume "$RESUME_TARGET" </dev/null >"$LOG_FILE" 2>&1 &
+  fi
+  SERVER_PID=$!
+  echo "$SERVER_PID" >"$PID_FILE"
+  echo "$PORT" >"$PORT_FILE"
+}
+
+archive_unrestorable_state() {
+  _stamp=$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || echo unknown)
+  _archive="${DB_PATH}.unrestorable-${_stamp}-$$"
+  mkdir -p "$_archive"
+  for _path in "$DB_PATH" "${DB_PATH}-wal" "${DB_PATH}-shm" "$MANAGED_DIR"; do
+    if [ -e "$_path" ]; then
+      _name=${_path##*/}
+      mv "$_path" "$_archive/$_name"
+    fi
+  done
+  echo "[WARN] No valid retained checkpoint could be restored."
+  echo "[WARN] Preserved the unusable persistence state at: $_archive"
+}
+
+print_start_failure() {
+  echo
+  echo "[ERROR] Rust server did not become healthy."
+  echo "[INFO] Last server log lines:"
+  tail -n 60 "$LOG_FILE" 2>/dev/null || true
 }
 
 require_command node
@@ -172,30 +239,37 @@ if [ "$ACTIVE_MODE" = "fresh" ]; then
   fi
 fi
 
-echo
-echo "[START] Rust-authoritative server"
-echo "[INFO] Bind: $HOST:$PORT"
-echo "[INFO] Database: $DB_PATH"
-echo "[INFO] Mode: $ACTIVE_MODE"
-
-if [ "$ACTIVE_MODE" = "fresh" ]; then
-  nohup setsid npm run server:rust -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --fresh </dev/null >"$LOG_FILE" 2>&1 &
-else
-  nohup setsid npm run server:rust -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --resume "$RESUME_TARGET" </dev/null >"$LOG_FILE" 2>&1 &
-fi
-
-SERVER_PID=$!
-echo "$SERVER_PID" >"$PID_FILE"
-echo "$PORT" >"$PORT_FILE"
+start_server_process "$ACTIVE_MODE"
 
 if ! wait_for_health "$SERVER_PID"; then
-  echo
-  echo "[ERROR] Rust server did not become healthy."
-  echo "[INFO] Last server log lines:"
-  tail -n 60 "$LOG_FILE" 2>/dev/null || true
-  stop_started_process "$SERVER_PID"
-  rm -f "$PID_FILE" "$PORT_FILE"
-  exit 1
+  if [ "$START_MODE" = "auto" ] && [ "$ACTIVE_MODE" = "resume" ] && [ "$RESUME_TARGET" = "latest" ] &&
+      grep -Fq 'no valid retained managed checkpoint; startup remains faulted' "$LOG_FILE" 2>/dev/null; then
+    stop_started_process "$SERVER_PID"
+    if ! wait_for_process_exit "$SERVER_PID"; then
+      print_start_failure
+      echo "[ERROR] Could not stop the faulted Rust server safely; persistence state was left untouched."
+      rm -f "$PID_FILE" "$PORT_FILE"
+      exit 1
+    fi
+    rm -f "$PID_FILE" "$PORT_FILE"
+    archive_unrestorable_state
+    ACTIVE_MODE="fresh"
+    echo "[INFO] Auto mode will start a new run from a clean persistence path."
+    start_server_process "$ACTIVE_MODE"
+    if ! wait_for_health "$SERVER_PID"; then
+      print_start_failure
+      stop_started_process "$SERVER_PID"
+      wait_for_process_exit "$SERVER_PID" || true
+      rm -f "$PID_FILE" "$PORT_FILE"
+      exit 1
+    fi
+  else
+    print_start_failure
+    stop_started_process "$SERVER_PID"
+    wait_for_process_exit "$SERVER_PID" || true
+    rm -f "$PID_FILE" "$PORT_FILE"
+    exit 1
+  fi
 fi
 
 echo
