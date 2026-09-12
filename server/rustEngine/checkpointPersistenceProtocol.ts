@@ -229,6 +229,22 @@ export interface ManagedBrowserHistoryEntry {
   weightVariance: number;
 }
 
+/** Bounded Hall-of-Fame row shown by the browser without transferring genome weights. */
+export interface ManagedBrowserHallOfFameEntry {
+  /** Exact run-scoped generation key used by later resurrection requests. */
+  entryId: U64Hex;
+  /** Completed generation narrowed to the browser-safe range. */
+  gen: number;
+  /** Retained winner fitness. */
+  fitness: number;
+  /** Retained winner score. */
+  points: number;
+  /** Retained winner body length. */
+  length: number;
+  /** Whether the owner explicitly pinned this historical entry. */
+  pinned: boolean;
+}
+
 /** Atomic import request referencing only Rust-published managed files. */
 export interface CommitManagedImportRequest {
   /** Message discriminator. */
@@ -257,6 +273,7 @@ export type CheckpointPersistenceWorkerRequest =
   | { type: 'acquireCurrentExportLease'; operationId: CheckpointOperationId }
   | { type: 'releaseExportLease'; operationId: CheckpointOperationId }
   | { type: 'readBrowserHistory'; operationId: CheckpointOperationId; runId: string; limit: number }
+  | { type: 'readBrowserHallOfFame'; operationId: CheckpointOperationId; runId: string; limit: number }
   | CommitManagedCheckpointRequest
   | CommitManagedImportRequest
   | SelectManagedCheckpointRequest
@@ -399,6 +416,7 @@ export type CheckpointPersistenceWorkerResponse =
   | { type: 'currentExportLeaseAcquired'; lease: ManagedCheckpointExportLease }
   | { type: 'exportLeaseReleased'; operationId: CheckpointOperationId }
   | { type: 'browserHistoryRead'; operationId: CheckpointOperationId; runId: string; history: ManagedBrowserHistoryEntry[] }
+  | { type: 'browserHallOfFameRead'; operationId: CheckpointOperationId; runId: string; entries: ManagedBrowserHallOfFameEntry[] }
   | ManagedCheckpointCommittedResponse
   | ManagedImportCommittedResponse
   | ManagedCheckpointSelectedResponse

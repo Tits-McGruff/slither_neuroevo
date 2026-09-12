@@ -16,7 +16,12 @@ import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { createRustStats, createRustWelcome, wireInteger } from './rustEngine/browserMetadata.ts';
 import { ExperimentalRuntimeTelemetry } from './rustEngine/runtimeTelemetry.ts';
 import type { CheckpointRetentionInventory } from './rustEngine/checkpointRetention.ts';
-import type { ManagedBrowserHistoryEntry, ManagedCheckpointExportLease, ManagedImportBranchResult } from './rustEngine/checkpointPersistenceProtocol.ts';
+import type {
+  ManagedBrowserHallOfFameEntry,
+  ManagedBrowserHistoryEntry,
+  ManagedCheckpointExportLease,
+  ManagedImportBranchResult
+} from './rustEngine/checkpointPersistenceProtocol.ts';
 import {
   parseManagedCheckpointDescriptor,
   parseManagedImportInventoryDescriptor
@@ -195,11 +200,13 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let activeCheckpointId = owner.runStart.checkpointId;
   let retention: CheckpointRetentionInventory;
   let fitnessHistory: ManagedBrowserHistoryEntry[];
+  let hallOfFame: ManagedBrowserHallOfFameEntry[];
   let retentionCleanup: { deletedCheckpointCount: number; deletedStoredByteCount: string };
   try {
     const initialCleanup = await owner.persistence.applyRetention();
     retention = initialCleanup.inventory;
     fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
+    hallOfFame = await owner.persistence.readBrowserHallOfFame(activeMetadata.runId);
     retentionCleanup = { deletedCheckpointCount: initialCleanup.deletedCheckpointCount,
       deletedStoredByteCount: initialCleanup.deletedStoredByteCount };
   }
@@ -390,6 +397,13 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       }).finally(() => { activeExportResponse = undefined; exportOperation = undefined; });
       return;
     }
+    if (request.method === 'GET' && pathname === '/api/hof') {
+      response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({
+        hof: hallOfFame.map(entry => ({ ...entry, seed: activeMetadata.seed }))
+      }));
+      return;
+    }
     if (request.method === 'POST' && pathname === '/api/checkpoints/current/pin') {
       if (fault || stopping) {
         response.writeHead(503, { 'Content-Type': 'application/json' });
@@ -565,6 +579,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           retentionCleanup = { deletedCheckpointCount: result.deletedCheckpointCount,
             deletedStoredByteCount: result.deletedStoredByteCount };
           fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
+          hallOfFame = await owner.persistence.readBrowserHallOfFame(activeMetadata.runId);
         }).catch(error => {
           fault ??= error instanceof Error ? error.message : String(error);
           owner.runtime.requestStop();
@@ -629,6 +644,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         await output.publishPreparedImport(durable.descriptor, branchRunId ?? undefined);
         activeMetadata = branchRunId === null ? metadata : { ...metadata, runId: branchRunId };
         fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
+        hallOfFame = await owner.persistence.readBrowserHallOfFame(activeMetadata.runId);
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
         importBranch = importBranchNotice(durable.importBranch ?? null);
@@ -708,6 +724,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         await output.publishPreparedImport(durable.descriptor);
         activeMetadata = metadata;
         fitnessHistory = [];
+        hallOfFame = [];
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
         importBranch = undefined;

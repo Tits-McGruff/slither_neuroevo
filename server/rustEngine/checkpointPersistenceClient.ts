@@ -24,6 +24,7 @@ import {
   type ManagedCheckpointSelection,
   type ManagedCheckpointDescriptorLimits,
   type ManagedBrowserHistoryEntry,
+  type ManagedBrowserHallOfFameEntry,
   type ManagedGenerationCommit,
   type ManagedImportBranchResult,
   type ManagedImportInventoryDescriptor,
@@ -140,6 +141,8 @@ export class CheckpointPersistenceClient {
   private pruning: { operationId: CheckpointOperationId; resolve(value: CheckpointPruneResult): void; reject(error: Error): void } | undefined;
   /** At most one compact browser-history read may be in flight. */
   private history: { operationId: CheckpointOperationId; runId: string; resolve(value: ManagedBrowserHistoryEntry[]): void; reject(error: Error): void } | undefined;
+  /** At most one compact browser Hall-of-Fame read may be in flight. */
+  private hallOfFame: { operationId: CheckpointOperationId; runId: string; resolve(value: ManagedBrowserHallOfFameEntry[]): void; reject(error: Error): void } | undefined;
   /** One temporary exact-checkpoint reference across preparation and download. */
   private exportLease: ExportLeaseState | undefined;
   /** Terminal lifecycle failure, if the worker violates protocol or exits unexpectedly. */
@@ -393,6 +396,22 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Read a best-first compact Hall-of-Fame window without loading packed weights. */
+  readBrowserHallOfFame(runId: string, limit = 100): Promise<ManagedBrowserHallOfFameEntry[]> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.hallOfFame) return Promise.reject(new Error('browser Hall-of-Fame read is busy or stopping'));
+    if (!runId || runId.includes('\0') || Buffer.byteLength(runId) > 256 ||
+        !Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      return Promise.reject(new TypeError('invalid browser Hall-of-Fame request'));
+    }
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.hallOfFame = { operationId, runId, resolve, reject };
+      try { this.worker.postMessage({ type: 'readBrowserHallOfFame', operationId, runId, limit }); }
+      catch (error) { this.hallOfFame = undefined; reject(asError(error)); }
+    });
+  }
+
   /**
    * Stop the client-owned worker after it has completed all preceding synchronous messages.
    * @returns Promise resolved after the worker exits cleanly.
@@ -470,6 +489,15 @@ export class CheckpointPersistenceClient {
         }
         this.history = undefined;
         pending.resolve(response.history);
+        return;
+      }
+      if (response.type === 'browserHallOfFameRead') {
+        const pending = this.hallOfFame;
+        if (!pending || pending.operationId !== response.operationId || pending.runId !== response.runId) {
+          throw new Error('persistence worker returned mismatched browser Hall of Fame');
+        }
+        this.hallOfFame = undefined;
+        pending.resolve(response.entries);
         return;
       }
       if (response.type === 'currentCheckpointPinned') {
@@ -571,6 +599,12 @@ export class CheckpointPersistenceClient {
           pending.reject(new Error(response.reason));
           return;
         }
+        if (response.operationId === this.hallOfFame?.operationId) {
+          const pending = this.hallOfFame;
+          this.hallOfFame = undefined;
+          pending.reject(new Error(response.reason));
+          return;
+        }
         if (response.operationId === this.exportLease?.operationId && this.exportLease.phase !== 'active') {
           const lease = this.exportLease;
           if (lease.phase === 'releasing') this.exportLease = { phase: 'active', operationId: lease.operationId };
@@ -642,6 +676,8 @@ export class CheckpointPersistenceClient {
     this.pruning = undefined;
     this.history?.reject(error);
     this.history = undefined;
+    this.hallOfFame?.reject(error);
+    this.hallOfFame = undefined;
     if (this.exportLease?.phase !== 'active') this.exportLease?.reject(error);
     this.exportLease = undefined;
     void this.terminateForFailure();
@@ -675,7 +711,7 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning && !this.history &&
+    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning && !this.history && !this.hallOfFame &&
         (!this.exportLease || this.exportLease.phase === 'active')) {
       this.resolveStopped?.();
       this.resolveStopped = null;
@@ -779,6 +815,42 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     });
     return { type: 'browserHistoryRead', operationId: response['operationId'],
       runId: response['runId'], history };
+  }
+  if (response['type'] === 'browserHallOfFameRead') {
+    requireExactKeys(response, ['type', 'operationId', 'runId', 'entries']);
+    if (!isOperationId(response['operationId']) || typeof response['runId'] !== 'string' ||
+        !response['runId'] || response['runId'].includes('\0') || Buffer.byteLength(response['runId']) > 256 ||
+        !Array.isArray(response['entries']) || response['entries'].length > 100) {
+      throw new TypeError('invalid browser Hall-of-Fame response');
+    }
+    const ids = new Set<string>();
+    const entries = response['entries'].map(value => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new TypeError('invalid browser Hall-of-Fame entry');
+      }
+      const entry = value as Record<string, unknown>;
+      requireExactKeys(entry, ['entryId', 'gen', 'fitness', 'points', 'length', 'pinned']);
+      if (!isU64Hex(entry['entryId']) || !Number.isSafeInteger(entry['gen']) ||
+          (entry['gen'] as number) < 1 || BigInt(entry['gen'] as number) !== BigInt(`0x${entry['entryId']}`) ||
+          typeof entry['fitness'] !== 'number' || !Number.isFinite(entry['fitness']) ||
+          typeof entry['points'] !== 'number' || !Number.isFinite(entry['points']) ||
+          !Number.isSafeInteger(entry['length']) || (entry['length'] as number) < 0 ||
+          typeof entry['pinned'] !== 'boolean' || ids.has(entry['entryId'])) {
+        throw new TypeError('invalid browser Hall-of-Fame entry values');
+      }
+      ids.add(entry['entryId']);
+      return entry as unknown as ManagedBrowserHallOfFameEntry;
+    });
+    for (let index = 1; index < entries.length; index++) {
+      const previous = entries[index - 1]!;
+      const current = entries[index]!;
+      if (previous.fitness < current.fitness ||
+          (previous.fitness === current.fitness && previous.entryId >= current.entryId)) {
+        throw new TypeError('unordered browser Hall-of-Fame response');
+      }
+    }
+    return { type: 'browserHallOfFameRead', operationId: response['operationId'],
+      runId: response['runId'], entries };
   }
   if (response['type'] === 'currentCheckpointPinned') {
     requireExactKeys(response, ['type', 'operationId', 'checkpointId', 'generation']);

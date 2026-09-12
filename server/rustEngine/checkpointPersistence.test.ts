@@ -373,19 +373,26 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await expect(fixture.client.selectCurrent(request.branchRunId)).rejects.toThrow(/provenance-aware/);
     const successor = createDescriptor(fixture.managedRoot, { operationId: '55'.repeat(16),
       runId: request.branchRunId, generation: u64(3n), completedStep: u64(121n), boundaryKind: 'generation' });
-    await fixture.client.commit(successor, createGenerationCommit(2n));
+    await fixture.client.commit(successor, createGenerationCommit(2n, { bestF64Hex: f64(20) }));
     await expect(fixture.client.commitRecoveryBranch(request)).rejects.toThrow(/superseded/);
     expect(await fixture.client.selectCurrent(request.branchRunId)).toEqual(successor);
     expect(await fixture.client.selectCurrent(first.runId)).toEqual(third);
     expect(await fixture.client.readBrowserHistory(request.branchRunId)).toEqual([
       { gen: 1, best: 12.5, avg: 7.25, min: -1.5, speciesCount: 2,
         topSpeciesSize: 1, avgWeight: 0.125, weightVariance: 0.03125 },
-      { gen: 2, best: 12.5, avg: 7.25, min: -1.5, speciesCount: 2,
+      { gen: 2, best: 20, avg: 7.25, min: -1.5, speciesCount: 2,
         topSpeciesSize: 1, avgWeight: 0.125, weightVariance: 0.03125 }
     ]);
     expect(await fixture.client.readBrowserHistory(request.branchRunId, 1)).toEqual([
-      { gen: 2, best: 12.5, avg: 7.25, min: -1.5, speciesCount: 2,
+      { gen: 2, best: 20, avg: 7.25, min: -1.5, speciesCount: 2,
         topSpeciesSize: 1, avgWeight: 0.125, weightVariance: 0.03125 }
+    ]);
+    expect(await fixture.client.readBrowserHallOfFame(request.branchRunId)).toEqual([
+      { entryId: u64(2n), gen: 2, fitness: 20, points: 6.25, length: 9, pinned: false },
+      { entryId: u64(1n), gen: 1, fitness: 12.5, points: 6.25, length: 9, pinned: false }
+    ]);
+    expect(await fixture.client.readBrowserHallOfFame(request.branchRunId, 1)).toEqual([
+      { entryId: u64(2n), gen: 2, fitness: 20, points: 6.25, length: 9, pinned: false }
     ]);
     await fixture.client.close();
     const db = new Database(fixture.databasePath, { readonly: true });

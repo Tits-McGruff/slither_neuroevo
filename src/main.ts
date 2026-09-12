@@ -4600,7 +4600,7 @@ async function updateHoFTable(world: ProxyWorld): Promise<void> {
     html += `
       <div class="hof-item">
         <span>#${idx + 1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})</span>
-        <button onclick="window.spawnHoF(${idx})">Spawn</button>
+        <button onclick="window.spawnHoF(${idx})"${entry.genome ? '' : ' disabled title="Rust resurrection is not enabled yet"'}>Spawn</button>
       </div>`;
   });
   container.innerHTML = html;
@@ -4610,7 +4610,7 @@ async function updateHoFTable(world: ProxyWorld): Promise<void> {
 window.spawnHoF = async function (idx) {
   const list = await hof.getAll();
   const entry = list[idx];
-  if (entry && window.currentWorld) {
+  if (entry?.genome && window.currentWorld) {
     const spawnedId = await window.currentWorld.resurrect(entry.genome);
     if (spawnedId != null && connectionMode === 'server') {
       spectatorFollowSnakeId = spawnedId;

@@ -71,7 +71,12 @@ export interface HallOfFameEntry {
   fitness: number;
   points: number;
   length: number;
-  genome: GenomeJSON;
+  /** Exact genome for the TypeScript reference runtime. */
+  genome?: GenomeJSON;
+  /** Opaque Rust run-scoped selector used without transferring genome weights. */
+  entryId?: string;
+  /** Whether this historical winner is explicitly retained by the owner. */
+  pinned?: boolean;
 }
 
 /** Stats emitted alongside frame buffers. */

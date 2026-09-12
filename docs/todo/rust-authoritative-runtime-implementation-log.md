@@ -389,6 +389,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   history and decodes only the fixed small records; Node caches that projection
   for browser charts and refreshes it after durable generations and imports.
 
+- 2026-09-13 The Rust server's Hall-of-Fame list now comes from a bounded
+  best-first SQLite-worker projection of the selected run-scoped records.
+  The browser receives only scalar identity, fitness, score, length and pin
+  state; packed neural weights stay in their managed objects for the pending
+  Rust resurrection command.
+
 The next dependency is the remaining bounded browser read/control surfaces,
-starting with Hall-of-Fame reads before focused neural visualization and
-resurrection.
+starting with Hall-of-Fame resurrection before focused neural visualization.

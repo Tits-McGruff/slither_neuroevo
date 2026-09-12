@@ -28,6 +28,7 @@ import {
   type ManagedGenerationCommit,
   type ManagedGenerationSummary,
   type ManagedBrowserHistoryEntry,
+  type ManagedBrowserHallOfFameEntry,
   type ManagedExportInventoryDescriptor,
   type ManagedHallOfFameWeightsDescriptor,
   type ManagedHallOfFameReference,
@@ -1228,6 +1229,57 @@ function readBrowserHistory(runId: string, limit: number): ManagedBrowserHistory
   }).deferred();
 }
 
+/** Decode one bounded best-first Hall-of-Fame window without reading packed weights. */
+function readBrowserHallOfFame(runId: string, limit: number): ManagedBrowserHallOfFameEntry[] {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new RangeError('browser Hall-of-Fame limit must be an integer from 1 to 100');
+  }
+  return db.transaction(() => {
+    const current = readCurrentPointer(runId);
+    if (!current) throw new Error('browser Hall of Fame requires a current managed run');
+    const descriptor = validateCurrentPointerIdentity(runId, current);
+    const filter = exportLineageFilter(runId, descriptor.generation, 'hall');
+    const rows = db.prepare(`SELECT hall.generation_hex, hall.record_version,
+      hall.record_blob, hall.fitness_value, hall.pinned
+      FROM rust_hall_of_fame_v1 AS hall
+      WHERE hall.weight_state = 'selected' AND (${filter.sql})
+      ORDER BY hall.fitness_value DESC, hall.generation_hex ASC LIMIT ?`)
+      .all(...filter.parameters, limit) as Array<{
+        generation_hex: string;
+        record_version: number;
+        record_blob: Buffer;
+        fitness_value: number;
+        pinned: number;
+      }>;
+    return rows.map(row => {
+      if (row.record_version !== 1 || !/^[0-9a-f]{16}$/u.test(row.generation_hex) ||
+          !Buffer.isBuffer(row.record_blob) || row.record_blob.length !== 56 ||
+          row.record_blob.readBigUInt64LE(0) !== u64HexToBigInt(row.generation_hex) ||
+          !Number.isFinite(row.fitness_value) || ![0, 1].includes(row.pinned)) {
+        throw new Error('browser Hall of Fame contains malformed compact metadata');
+      }
+      const generation = u64HexToBigInt(row.generation_hex);
+      const length = row.record_blob.readBigUInt64LE(48);
+      if (generation > BigInt(Number.MAX_SAFE_INTEGER) || length > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new RangeError('browser Hall of Fame exceeds Protocol 2');
+      }
+      const fitness = row.record_blob.readDoubleLE(32);
+      const points = row.record_blob.readDoubleLE(40);
+      if (!Number.isFinite(fitness) || !Number.isFinite(points) || fitness !== row.fitness_value) {
+        throw new Error('browser Hall of Fame contains inconsistent numeric metadata');
+      }
+      return {
+        entryId: row.generation_hex as U64Hex,
+        gen: Number(generation),
+        fitness,
+        points,
+        length: Number(length),
+        pinned: row.pinned === 1
+      };
+    });
+  }).deferred();
+}
+
 /** Write every byte of one small fixed record to an already-open inventory file. */
 function writeInventoryBytes(file: number, bytes: Buffer): void {
   let offset = 0;
@@ -2043,7 +2095,8 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
   if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'scanRecoveryCandidate' ||
       request['type'] === 'inspectCheckpointRetention' || request['type'] === 'pinCurrentCheckpoint' ||
       request['type'] === 'applyCheckpointRetention' || request['type'] === 'acquireCurrentExportLease' ||
-      request['type'] === 'releaseExportLease' || request['type'] === 'readBrowserHistory') {
+      request['type'] === 'releaseExportLease' || request['type'] === 'readBrowserHistory' ||
+      request['type'] === 'readBrowserHallOfFame') {
     const operationId = request['operationId'];
     return typeof operationId === 'string' && /^[0-9a-f]{32}$/u.test(operationId) ? operationId : null;
   }
@@ -2119,6 +2172,20 @@ port.on('message', (message: unknown) => {
       post({
         type: 'browserHistoryRead', operationId, runId,
         history: readBrowserHistory(runId, limit)
+      });
+      return;
+    }
+    if (request['type'] === 'readBrowserHallOfFame') {
+      const runId = request['runId'];
+      const limit = request['limit'];
+      if (!operationId || Object.keys(request).length !== 4 || typeof runId !== 'string' ||
+          !runId || runId.includes('\0') || Buffer.byteLength(runId) > 256 ||
+          typeof limit !== 'number') {
+        throw new TypeError('invalid browser Hall-of-Fame request');
+      }
+      post({
+        type: 'browserHallOfFameRead', operationId, runId,
+        entries: readBrowserHallOfFame(runId, limit)
       });
       return;
     }

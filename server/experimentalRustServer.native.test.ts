@@ -103,6 +103,9 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         runId: string; startupCheckpointId: string;
       };
+      const hallOfFame = await fetch(`http://127.0.0.1:${server.port}/api/hof`);
+      expect(hallOfFame.status).toBe(200);
+      expect(await hallOfFame.json()).toEqual({ hof: [] });
       const exported = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
       expect(exported.status).toBe(200);
       expect(exported.headers.get('content-type')).toBe('application/vnd.slither-neuroevo.save');
