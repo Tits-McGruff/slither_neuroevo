@@ -602,6 +602,33 @@ impl RunningStepCoordinator {
         })
     }
 
+    /// Build config-dependent workspaces for a live revision while preserving event chronology.
+    pub(crate) fn prepare_live_config_rebind(
+        &self,
+        authority: &AuthoritativeState,
+    ) -> Result<Self, RunningStepError> {
+        if self.pending_key.is_some()
+            || self.pending_generation.is_some()
+            || self.pending_delivery_context.is_some()
+        {
+            return Err(RunningStepError::AuthorityMismatch {
+                field: "live configuration replacement",
+            });
+        }
+        let mut replacement = Self::try_new(authority, self.work_limits)?;
+        replacement.last_wall_now_ms = self.last_wall_now_ms;
+        replacement.next_external_event_sequence = self.next_external_event_sequence;
+        replacement.last_published_diagnostics = self.last_published_diagnostics;
+        #[cfg(feature = "engine-test-hooks")]
+        {
+            replacement.allocation_snapshot = self.allocation_snapshot;
+            replacement.allocation_cursor = self.allocation_cursor;
+            replacement.last_phase_timings = self.last_phase_timings;
+            replacement.last_phase_allocations = self.last_phase_allocations;
+        }
+        Ok(replacement)
+    }
+
     /// Exact numeric implementation bound by the admitted run identity.
     #[must_use]
     pub const fn math_backend(&self) -> InferenceMathBackend {

@@ -16,6 +16,7 @@ use super::genome::{
 };
 use super::graph::{typescript_default_graph_spec, GraphBundle, GraphError, GraphLimits};
 use super::inference::InferenceMathBackend;
+use super::live_settings::{prepare_live_settings, LiveSettingUpdate};
 use super::rng::labelled_stream;
 use super::run_start::{PendingRunStartTransition, RunStartTransitionError};
 use super::state::{
@@ -67,7 +68,15 @@ pub struct Stage6aP0FreshRunRequest {
 pub fn prepare_stage6a_p0_fresh_run(
     request: Stage6aP0FreshRunRequest,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
-    let prepared = prepare_stage6a_p0_boundary(request)?;
+    prepare_stage6a_p0_fresh_run_with_live_settings(request, &[])
+}
+
+/// Build a fresh P0 lineage with the current live subset preserved across Reset/New Run.
+pub fn prepare_stage6a_p0_fresh_run_with_live_settings(
+    request: Stage6aP0FreshRunRequest,
+    live_settings: &[LiveSettingUpdate],
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let prepared = prepare_stage6a_p0_boundary(request, live_settings)?;
     PendingRunStartTransition::admit(
         prepared.candidate,
         prepared.graph,
@@ -134,6 +143,7 @@ struct PreparedStage6aP0Boundary {
 /// Construct and preflight the full boundary before it can become pending.
 fn prepare_stage6a_p0_boundary(
     request: Stage6aP0FreshRunRequest,
+    live_settings: &[LiveSettingUpdate],
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
     let run_id = validated_run_id(&request.run_id)?;
     let graph_limits = stage6a_p0_graph_limits();
@@ -153,7 +163,14 @@ fn prepare_stage6a_p0_boundary(
     let settings =
         typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
     let settings_schema_sha256 = normalized_settings_schema_hash(&settings)?;
-    let config = stage6a_p0_config(&graph, settings, settings_schema_sha256.clone());
+    let mut config = stage6a_p0_config(&graph, settings, settings_schema_sha256.clone());
+    if !live_settings.is_empty() {
+        config = prepare_live_settings(&config, 0, live_settings)
+            .map_err(|_| FreshRunError::ProfileInvariant {
+                reason: "fresh-run live setting replacement is invalid",
+            })?
+            .config;
+    }
     let projected = project_running_step_config(&config, work_limits)?;
     let baseline_config = project_baseline_generation_config(&config)?;
     let config_hash = normalized_config_hash(&config)?;
@@ -663,10 +680,13 @@ mod tests {
 
     /// Build a valid fixed-P0 boundary whose generation ends after eight steps.
     fn short_generation_pending(seed: u32) -> PendingRunStartTransition {
-        let mut prepared = prepare_stage6a_p0_boundary(Stage6aP0FreshRunRequest {
-            memory_ceiling_bytes: 4 * 1024 * MIB,
-            ..request(seed)
-        })
+        let mut prepared = prepare_stage6a_p0_boundary(
+            Stage6aP0FreshRunRequest {
+                memory_ceiling_bytes: 4 * 1024 * MIB,
+                ..request(seed)
+            },
+            &[],
+        )
         .expect("fixed P0 boundary must construct before test-only shortening");
         prepared.candidate.config.fixed_step_seconds = 1.0;
         let generation_seconds = prepared
@@ -1144,7 +1164,7 @@ mod tests {
             u32::from_str_radix(fixture.seed.trim_start_matches("0x"), 16).unwrap(),
             FIXTURE_SEED
         );
-        let prepared = prepare_stage6a_p0_boundary(request(FIXTURE_SEED))
+        let prepared = prepare_stage6a_p0_boundary(request(FIXTURE_SEED), &[])
             .expect("selected P0 boundary must construct");
         let candidate = &prepared.candidate;
         assert_eq!(fixture.graph.graph_type, "graph");
@@ -1266,10 +1286,13 @@ mod tests {
     #[test]
     fn rust_allocates_dense_population_identity_and_returns_only_a_pending_boundary() {
         let opaque_run_id = "  aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee  ";
-        let prepared = prepare_stage6a_p0_boundary(Stage6aP0FreshRunRequest {
-            run_id: opaque_run_id.to_owned(),
-            ..request(7)
-        })
+        let prepared = prepare_stage6a_p0_boundary(
+            Stage6aP0FreshRunRequest {
+                run_id: opaque_run_id.to_owned(),
+                ..request(7)
+            },
+            &[],
+        )
         .expect("P0 boundary must construct");
         assert_eq!(prepared.candidate.identity.run_id, opaque_run_id);
         for (slot, (genome, brain)) in prepared
@@ -1454,7 +1477,7 @@ mod tests {
     #[test]
     fn restored_generation_activates_without_resetting_its_chronology() {
         let managed = TestDirectory::create("restored-generation");
-        let mut prepared = prepare_stage6a_p0_boundary(request(42)).unwrap();
+        let mut prepared = prepare_stage6a_p0_boundary(request(42), &[]).unwrap();
         prepared.candidate.phase =
             AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::Generation);
         prepared.candidate.generation.generation = 2;
@@ -1516,7 +1539,7 @@ mod tests {
 
     #[test]
     fn recovery_rebinding_preserves_every_state_field_and_moves_population_storage() {
-        let prepared = prepare_stage6a_p0_boundary(request(42)).unwrap();
+        let prepared = prepare_stage6a_p0_boundary(request(42), &[]).unwrap();
         let mut expected = prepared.candidate.clone();
         let population = prepared.candidate.population.as_ptr();
         let state = AuthoritativeState::validate_and_own(

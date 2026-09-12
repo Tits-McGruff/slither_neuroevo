@@ -15,6 +15,7 @@ use super::frame_v1::{
 };
 use super::generation::GenerationCommitRecord;
 use super::graph::GraphLimits;
+use super::live_settings::LiveSettingUpdate;
 use super::physics::PhysicsStepKey;
 use super::run_start::RunStartTransitionError;
 use super::running_step::{
@@ -358,6 +359,68 @@ impl RunningAuthorityLoop {
             },
             wall_now_ms,
         )
+    }
+
+    /// Atomically replace live config and every Rust cache derived from it.
+    pub(crate) fn apply_live_settings(
+        &mut self,
+        updates: &[LiveSettingUpdate],
+    ) -> Result<(u64, String, u64), String> {
+        self.require_action_state("apply live settings", RunningAuthorityLoopState::Ready)
+            .map_err(|error| error.to_string())?;
+        let effective_step = self
+            .authority
+            .state()
+            .generation
+            .completed_step
+            .checked_add(1)
+            .ok_or_else(|| "completed step is exhausted".to_owned())?;
+        let mut prepared = self
+            .authority
+            .prepare_live_settings(updates)
+            .map_err(|error| error.to_string())?;
+        self.authority.swap_prepared_live_settings(&mut prepared);
+        let replacement = match self.coordinator.prepare_live_config_rebind(&self.authority) {
+            Ok(replacement) => replacement,
+            Err(error) => {
+                self.authority.swap_prepared_live_settings(&mut prepared);
+                return Err(error.to_string());
+            }
+        };
+        if let Err(error) = self.scheduler.rebind_live_config(&self.authority) {
+            self.authority.swap_prepared_live_settings(&mut prepared);
+            return Err(error.to_string());
+        }
+        self.coordinator = replacement;
+        let state = self.authority.state();
+        Ok((
+            state.identity.config_revision,
+            state.identity.config_hash.clone(),
+            effective_step,
+        ))
+    }
+
+    /// Apply one ordered God Mode move before the next fixed step is prepared.
+    pub(crate) fn apply_god_mode_move(
+        &mut self,
+        frame_v1_id: u32,
+        x: f64,
+        y: f64,
+    ) -> Result<(super::god_mode::GodModeMovePublication, u64), String> {
+        self.require_action_state("apply God Mode move", RunningAuthorityLoopState::Ready)
+            .map_err(|error| error.to_string())?;
+        let effective_step = self
+            .authority
+            .state()
+            .generation
+            .completed_step
+            .checked_add(1)
+            .ok_or_else(|| "completed step is exhausted".to_owned())?;
+        let publication = self
+            .authority
+            .apply_god_mode_move(frame_v1_id, x, y)
+            .map_err(|error| error.to_string())?;
+        Ok((publication, effective_step))
     }
 
     /// Prepare one fresh assignment only after the full reliable output fits.

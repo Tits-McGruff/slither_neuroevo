@@ -295,6 +295,23 @@ export interface RustBackgroundEvent {
   controllerActionLeaseId?: RustBackgroundIdentity;
   /** Completed-step boundary before the accepted action can affect physics. */
   controllerActionCompletedStep?: RustBackgroundIdentity;
+  /** Config revision installed by one atomic live-settings command. */
+  settingsConfigRevision?: RustBackgroundIdentity;
+  /** Canonical native config hash installed with the revision. */
+  settingsConfigHash?: string;
+  /** First step that observes the newly active settings. */
+  settingsEffectiveStep?: RustBackgroundIdentity;
+  /** Successful in-bounds God Mode translation. */
+  godModeMove?: {
+    /** Exact browser/frame snake identity. */
+    snakeId: number;
+    /** Clamped authoritative head X. */
+    x: number;
+    /** Clamped authoritative head Y. */
+    y: number;
+    /** First fixed step that observes this translation. */
+    effectiveStep: RustBackgroundIdentity;
+  };
   /** Exact close result; false means stale or already disconnected. */
   controllerDisconnect?: {
     /** Requested assignment epoch. */

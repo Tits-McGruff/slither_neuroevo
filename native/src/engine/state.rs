@@ -18,6 +18,9 @@ use super::graph::{
     CompiledGraph, CompiledNode, GraphBundle, GraphEdge, GraphNodeKind, GraphNodeSpec,
     GraphOutputRef, GraphSpec,
 };
+use super::live_settings::{
+    prepare_live_settings, LiveSettingUpdate, LiveSettingsError, PreparedLiveSettings,
+};
 use super::physics::{PhysicsStepKey, PhysicsStepKeyField};
 use super::rng::{RngError, SerializedRngState, StatefulRng};
 use super::run_start::RunStartPersistenceProof;
@@ -1385,6 +1388,47 @@ impl AuthoritativeState {
     #[must_use]
     pub fn state(&self) -> &StateCandidate {
         &self.candidate
+    }
+
+    /// Prepare a small config-only replacement without copying world or population storage.
+    pub(crate) fn prepare_live_settings(
+        &self,
+        updates: &[LiveSettingUpdate],
+    ) -> Result<PreparedLiveSettings, LiveSettingsError> {
+        prepare_live_settings(
+            &self.candidate.config,
+            self.candidate.identity.config_revision,
+            updates,
+        )
+    }
+
+    /// Exchange one already prepared config identity with the current authority.
+    /// Calling this a second time with the same value restores the prior config.
+    pub(crate) fn swap_prepared_live_settings(&mut self, replacement: &mut PreparedLiveSettings) {
+        std::mem::swap(&mut self.candidate.config, &mut replacement.config);
+        std::mem::swap(
+            &mut self.candidate.identity.config_revision,
+            &mut replacement.config_revision,
+        );
+        std::mem::swap(
+            &mut self.candidate.identity.config_hash,
+            &mut replacement.config_hash,
+        );
+    }
+
+    /// Apply one prevalidated-address God Mode move without exposing mutable world storage.
+    pub(crate) fn apply_god_mode_move(
+        &mut self,
+        frame_v1_id: u32,
+        x: f64,
+        y: f64,
+    ) -> Result<super::god_mode::GodModeMovePublication, super::god_mode::GodModeError> {
+        super::god_mode::apply_god_mode_move(
+            &mut self.candidate.world,
+            self.candidate.config.world_radius,
+            frame_v1_id,
+            WorldPoint { x, y },
+        )
     }
 
     /// Read the immutable compiled graph shared by compatible genomes.

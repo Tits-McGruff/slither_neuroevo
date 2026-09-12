@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use napi::bindgen_prelude::{AsyncTask, JsObjectValue, Object, Task};
+use napi::bindgen_prelude::{Array, AsyncTask, JsObjectValue, Object, Task};
 use napi::{Env, Error, JsString, JsValue, Result, Status};
 use napi_derive::napi;
 
@@ -22,7 +22,8 @@ use crate::engine::export_archive::{
     ValidatedImportArchive,
 };
 use crate::engine::fresh_run::{
-    prepare_stage6a_p0_fresh_run, stage6a_p0_export_validation_contract, Stage6aP0FreshRunRequest,
+    prepare_stage6a_p0_fresh_run_with_live_settings, stage6a_p0_export_validation_contract,
+    Stage6aP0FreshRunRequest,
 };
 use crate::engine::run_start::PendingRunStartTransition;
 use crate::engine::runtime::EngineRuntime;
@@ -146,6 +147,7 @@ pub struct PrepareFreshRunTask {
     managed_directory: PathBuf,
     operation_id: CheckpointOperationId,
     request: Stage6aP0FreshRunRequest,
+    live_settings: Box<[crate::engine::live_settings::LiveSettingUpdate]>,
     prepared: PreparedImportSlot,
     active: Arc<AtomicBool>,
 }
@@ -155,8 +157,11 @@ impl Task for PrepareFreshRunTask {
     type JsValue = PreparedFreshRunResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut transition = prepare_stage6a_p0_fresh_run(self.request.clone())
-            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+        let mut transition = prepare_stage6a_p0_fresh_run_with_live_settings(
+            self.request.clone(),
+            &self.live_settings,
+        )
+        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
         let descriptor = transition
             .publish_checkpoint(&self.managed_directory, self.operation_id.clone())
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
@@ -509,6 +514,7 @@ impl ExperimentalRunningAuthority {
         operation_id: JsString<'_>,
         run_id: JsString<'_>,
         seed: u32,
+        live_settings: Array<'_>,
     ) -> Result<AsyncTask<PrepareFreshRunTask>> {
         let managed_directory = parse_managed_path(bounded_js_string(
             managed_directory,
@@ -523,6 +529,7 @@ impl ExperimentalRunningAuthority {
             false,
         )?)?;
         let run_id = bounded_js_string(run_id, "runId", 256, false)?;
+        let live_settings = parse_live_settings(&live_settings)?;
         if self.import_active.swap(true, Ordering::AcqRel) {
             return Err(Error::new(
                 Status::GenericFailure,
@@ -554,6 +561,7 @@ impl ExperimentalRunningAuthority {
                 seed,
                 memory_ceiling_bytes,
             },
+            live_settings,
             prepared: self.prepared_import.clone(),
             active: Arc::clone(&self.import_active),
         }))
@@ -804,6 +812,36 @@ impl ExperimentalRunningAuthority {
         self.submit(
             parse_background_sequence(sequence)?,
             RunningAuthorityCommand::SubmitControllerAction(parse_controller_action(&action)?),
+        )
+    }
+
+    /// Queue one bounded atomic live-settings batch at the next clean boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_live_settings(&self, sequence: JsString<'_>, updates: Array<'_>) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::ApplyLiveSettings {
+                updates: parse_live_settings(&updates)?,
+            },
+        )
+    }
+
+    /// Queue one browser-addressed God Mode translation at the next clean boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_god_mode_move(
+        &self,
+        sequence: JsString<'_>,
+        snake_id: u32,
+        x: f64,
+        y: f64,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::GodModeMove {
+                frame_v1_id: snake_id,
+                x,
+                y,
+            },
         )
     }
 
@@ -1094,6 +1132,41 @@ fn optional_reclaim_identity(request: &Object<'_>, field: &str, maximum: usize) 
         Some(value) => bounded_js_string(value, field, maximum, false),
         None => Ok(String::new()),
     }
+}
+
+/// Bound and copy one small numeric settings array before native queue admission.
+fn parse_live_settings(
+    updates: &Array<'_>,
+) -> Result<Box<[crate::engine::live_settings::LiveSettingUpdate]>> {
+    let length = usize::try_from(updates.len())
+        .map_err(|_| Error::new(Status::InvalidArg, "live settings length exceeds usize"))?;
+    if length == 0 || length > crate::engine::live_settings::MAXIMUM_LIVE_SETTING_UPDATES {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "live settings require 1 to 64 updates",
+        ));
+    }
+    let mut parsed = Vec::new();
+    parsed
+        .try_reserve_exact(length)
+        .map_err(|_| Error::new(Status::GenericFailure, "live settings allocation failed"))?;
+    for index in 0..updates.len() {
+        let update = updates
+            .get::<Object<'_>>(index)?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "live setting must be an object"))?;
+        let path = bounded_object_string(&update, "path", 128)?;
+        let value = update
+            .get::<f64>("value")?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "live setting omits value"))?;
+        if !value.is_finite() {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "live setting value must be finite",
+            ));
+        }
+        parsed.push(crate::engine::live_settings::LiveSettingUpdate { path, value });
+    }
+    Ok(parsed.into_boxed_slice())
 }
 
 /// Validate a fresh legacy identity and stamp its native receipt time.

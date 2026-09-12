@@ -323,6 +323,36 @@ impl FixedStepScheduler {
         Ok(())
     }
 
+    /// Rebind only a live configuration revision while preserving wall debt and diagnostics.
+    pub(crate) fn rebind_live_config(
+        &mut self,
+        authority: &AuthoritativeState,
+    ) -> Result<(), SchedulerError> {
+        let state = authority.state();
+        if self.pending_step.is_some() {
+            return Err(SchedulerError::StepPending);
+        }
+        if authority.world_epoch() != self.world_epoch
+            || state.phase != AuthorityPhase::Running
+            || state.generation.completed_step != self.expected_completed_step
+            || state.config.fixed_step_seconds.to_bits() != self.fixed_step_seconds.to_bits()
+            || !state.config.requested_sim_speed.is_finite()
+            || state.config.requested_sim_speed <= 0.0
+            || state.identity.config_revision <= self.config_revision
+        {
+            return Err(SchedulerError::AuthorityMismatch {
+                field: "live configuration replacement",
+            });
+        }
+        self.config_revision = state.identity.config_revision;
+        self.config_hash.clone_from(&state.identity.config_hash);
+        self.requested_multiplier = state.config.requested_sim_speed;
+        self.maximum_wall_debt_seconds = self
+            .maximum_wall_debt_seconds
+            .max(self.accumulator_seconds / self.requested_multiplier);
+        Ok(())
+    }
+
     /// Record one explicit inbound command/action service boundary.
     ///
     /// The caller invokes this only after draining commands and newest actions.

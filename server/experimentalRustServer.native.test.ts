@@ -76,6 +76,14 @@ function frameDirection(bytes: Buffer | undefined, snakeId: number): number | un
   return undefined;
 }
 
+/** Read the first alive snake's public identity and head from frame v1. */
+function firstFrameSnake(bytes: Buffer | undefined): { snakeId: number; x: number; y: number } | undefined {
+  if (!bytes || bytes.byteLength < 15 * Float32Array.BYTES_PER_ELEMENT) return undefined;
+  const value = (index: number): number => bytes.readFloatLE(index * Float32Array.BYTES_PER_ELEMENT);
+  if (Math.trunc(value(2)) < 1) return undefined;
+  return { snakeId: value(7), x: value(10), y: value(11) };
+}
+
 /** Signed shortest angular change from one wrapped direction to another. */
 function directionDelta(from: number, to: number): number {
   return Math.atan2(Math.sin(to - from), Math.cos(to - from));
@@ -285,6 +293,23 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       await until(viewer, () => viewer.frames > 0 && viewer.packets.some(packet => packet['type'] === 'stats'));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ protocolVersion: 2, worldSeed: 42,
         sensorSpec: { sensorCount: 83 }, inferenceMode: { activeBackend: 'native', activeWorkerCount: 0 } });
+      const selected = firstFrameSnake(viewer.latestFrame);
+      expect(selected).toBeDefined();
+      if (!selected) throw new Error('native frame omitted every alive snake');
+      viewer.socket.send(JSON.stringify({ type: 'godMode', requestId: 'native-god-move', action: 'move',
+        snakeId: selected.snakeId, x: selected.x * 0.9, y: selected.y * 0.9 }));
+      await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'native-god-move'));
+      expect(viewer.packets.findLast(packet => packet['requestId'] === 'native-god-move')).toMatchObject({
+        type: 'godModeResult', action: 'move', snakeId: selected.snakeId, applied: true,
+        sequence: expect.any(Number), step: expect.any(Number), x: expect.any(Number), y: expect.any(Number)
+      });
+      viewer.socket.send(JSON.stringify({ type: 'godMode', requestId: 'native-god-missing', action: 'move',
+        snakeId: 16_777_216, x: 0, y: 0 }));
+      await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'native-god-missing'));
+      expect(viewer.packets.findLast(packet => packet['requestId'] === 'native-god-missing')).toMatchObject({
+        type: 'godModeResult', action: 'move', snakeId: 16_777_216, applied: false,
+        reason: expect.stringContaining('missing or already dead')
+      });
       const bot = await connect(server.port, 'bot'); peers.push(bot);
       bot.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'socket-bot' }));
       await until(bot, () => bot.packets.some(packet => packet['type'] === 'sensors'));
@@ -386,6 +411,34 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       expect(afterReset.startupCheckpointId).not.toBe(beforeReset.startupCheckpointId);
 
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({
+        type: 'settings', requestId: 'native-settings-rejected',
+        updates: [{ path: 'snakeCount', value: 40 }]
+      }));
+      await until(viewer, () => viewer.packets.some(packet =>
+        packet['type'] === 'settingsApplied' && packet['requestId'] === 'native-settings-rejected'));
+      expect(viewer.packets.findLast(packet => packet['requestId'] === 'native-settings-rejected'))
+        .toMatchObject({ applied: false, updates: [], reason: expect.stringContaining('requires reset') });
+      viewer.socket.send(JSON.stringify({
+        type: 'settings', requestId: 'native-settings-applied', updates: [
+          { path: 'simSpeed', value: 2 },
+          { path: 'reward.pointsPerKill', value: 275 },
+          { path: 'foodSpawn.edgeFalloffEnabled', value: 0 }
+        ]
+      }));
+      await until(viewer, () => viewer.packets.some(packet =>
+        packet['type'] === 'settingsApplied' && packet['requestId'] === 'native-settings-applied'));
+      const settingsApplied = viewer.packets.findLast(packet => packet['requestId'] === 'native-settings-applied');
+      expect(settingsApplied).toMatchObject({ applied: true, configRevision: 2,
+        configHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u), sequence: expect.any(Number),
+        step: expect.any(Number), updates: [
+          { path: 'simSpeed', value: 2 },
+          { path: 'reward.pointsPerKill', value: 275 },
+          { path: 'foodSpawn.edgeFalloffEnabled', value: 0 }
+        ] });
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+        configRevision: 2, configHash: settingsApplied?.['configHash']
+      });
       viewer.socket.send(JSON.stringify({ type: 'newRun', requestId: 'native-new-run' }));
       await until(viewer, () => viewer.packets.some(packet =>
         packet['type'] === 'stateReplaced' && packet['reason'] === 'newRun') &&
@@ -393,10 +446,15 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const newRunResult = viewer.packets.findLast(packet => packet['type'] === 'newRunResult');
       expect(newRunResult).toMatchObject({ requestId: 'native-new-run', applied: true });
       const afterNewRun = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
-        runId: string; seed: number; startupCheckpointId: string;
+        runId: string; seed: number; startupCheckpointId: string; configRevision: number; configHash: string;
       };
       expect(afterNewRun).toMatchObject({ runId: newRunResult?.['runId'], seed: newRunResult?.['worldSeed'] });
       expect(afterNewRun.runId).not.toBe(afterReset.runId);
+      expect(afterNewRun).toMatchObject({ configRevision: 1, configHash: settingsApplied?.['configHash'] });
+      const newRunNotice = viewer.packets.findLast(packet =>
+        packet['type'] === 'stateReplaced' && packet['reason'] === 'newRun');
+      expect(newRunNotice).toMatchObject({ welcome: { configHash: settingsApplied?.['configHash'],
+        settings: { core: { simSpeed: 2 } } } });
     } finally {
       for (const peer of peers) peer.socket.terminate();
       await server.close();

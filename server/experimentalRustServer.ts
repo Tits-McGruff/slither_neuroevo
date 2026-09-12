@@ -13,7 +13,7 @@ import { WsHub } from './wsHub.ts';
 import { createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
-import { createRustStats, createRustWelcome } from './rustEngine/browserMetadata.ts';
+import { createRustStats, createRustWelcome, wireInteger } from './rustEngine/browserMetadata.ts';
 import { ExperimentalRuntimeTelemetry } from './rustEngine/runtimeTelemetry.ts';
 import type { CheckpointRetentionInventory } from './rustEngine/checkpointRetention.ts';
 import type { ManagedCheckpointExportLease, ManagedImportBranchResult } from './rustEngine/checkpointPersistenceProtocol.ts';
@@ -23,7 +23,12 @@ import {
 } from './rustEngine/checkpointPersistenceProtocol.ts';
 import { spoolArchiveUpload } from './rustEngine/archiveUpload.ts';
 import { parseRustStartupMetadata } from './rustEngine/startupMetadata.ts';
-import type { NewRunMsg, ResetMsg } from './protocol.ts';
+import type { GodModeMsg, LiveSettingsMsg, NewRunMsg, ResetMsg } from './protocol.ts';
+import {
+  getLiveSettingDefinition,
+  normalizeLiveSettingsUpdates,
+  type LiveSettingsUpdate
+} from '../src/protocol/settings.ts';
 
 /** Repository-owned built browser assets. */
 const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
@@ -130,6 +135,40 @@ function validateFixedP0Reset(message: ResetMsg, metadata: ExperimentalServerRun
   }
 }
 
+/** Apply Rust-confirmed numeric values to the small cached welcome configuration. */
+function applyMetadataSettings(
+  metadata: ExperimentalServerRuntime['metadata'],
+  updates: readonly LiveSettingsUpdate[],
+  configRevision: string,
+  configHash: string
+): ExperimentalServerRuntime['metadata'] {
+  const values: ReadonlyMap<string, number> = new Map(
+    updates.map(update => [update.path, update.value])
+  );
+  return {
+    ...metadata,
+    configRevision,
+    configHash,
+    settings: metadata.settings.map(setting => {
+      const value = values.get(setting.path);
+      if (value === undefined) return setting;
+      return { ...setting, value: typeof setting.value === 'boolean' ? value === 1 : value };
+    })
+  };
+}
+
+/** Select the complete live subset that a fresh replacement must preserve. */
+function metadataLiveSettings(metadata: ExperimentalServerRuntime['metadata']): LiveSettingsUpdate[] {
+  return metadata.settings.flatMap(setting => {
+    const definition = getLiveSettingDefinition(setting.path);
+    if (definition?.requiresReset !== false) return [];
+    if (typeof setting.value === 'string') {
+      throw new TypeError(`live setting ${setting.path} has an unsupported text value`);
+    }
+    return [{ path: setting.path as LiveSettingsUpdate['path'], value: Number(setting.value) }];
+  });
+}
+
 /** Start the fixed native P0 profile from fresh or retained managed authority. */
 export async function startExperimentalRustServer(config: ServerConfig): Promise<ExperimentalRustServer> {
   if (resolve(config.dbPath) === resolve(DEFAULT_CONFIG.dbPath)) {
@@ -174,6 +213,16 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let pumpStart = performance.now();
   let pumps = 0;
   let pumpsPerSecond = 0;
+  const pendingSettings = new Map<string, {
+    connection: number;
+    requestId: string;
+    updates: LiveSettingsUpdate[];
+  }>();
+  const pendingGodModeMoves = new Map<string, {
+    connection: number;
+    requestId: string;
+    snakeId: number;
+  }>();
   let pinning: Promise<void> | undefined;
   let retentionMaintenance: Promise<void> | undefined;
   let exportOperation: Promise<void> | undefined;
@@ -257,7 +306,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       const nativeHealth = owner.runtime.health();
       response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: activeMetadata.runId,
-        seed: activeMetadata.seed, startupCheckpointId: activeCheckpointId, ...nativeHealth,
+        seed: activeMetadata.seed, configRevision: wireInteger(activeMetadata.configRevision),
+        configHash: activeMetadata.configHash, startupCheckpointId: activeCheckpointId, ...nativeHealth,
         telemetry: telemetry.snapshot(nativeHealth), outbound: hub?.getOutboundDiagnostics(),
         retention, retentionCleanup,
         ...(recovery ? { recovery } : {}), ...(importBranch ? { importBranch } : {}),
@@ -408,6 +458,61 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       send: (id, message) => sockets.sendJsonTo(Number(BigInt(`0x${id}`)), message),
       event(event) {
         routing.event(event);
+        if (event.commandSequence && (event.kind === 'liveSettingsApplied' || event.kind === 'commandRejected')) {
+          const pending = pendingSettings.get(event.commandSequence);
+          if (pending) {
+            pendingSettings.delete(event.commandSequence);
+            if (event.kind === 'liveSettingsApplied') {
+              if (!event.settingsConfigRevision || !event.settingsConfigHash || !event.settingsEffectiveStep) {
+                fail(new Error('Rust live-settings result omitted its authoritative identity'));
+                return;
+              }
+              activeMetadata = applyMetadataSettings(
+                activeMetadata,
+                pending.updates,
+                event.settingsConfigRevision,
+                event.settingsConfigHash
+              );
+              sockets.updateWelcome(createRustWelcome(activeMetadata));
+              sockets.broadcastJsonToUi({
+                type: 'settingsApplied', requestId: pending.requestId, applied: true,
+                updates: pending.updates,
+                configRevision: wireInteger(event.settingsConfigRevision),
+                configHash: event.settingsConfigHash,
+                sequence: wireInteger(event.commandSequence),
+                step: wireInteger(event.settingsEffectiveStep)
+              });
+            } else {
+              sockets.sendJsonTo(pending.connection, {
+                type: 'settingsApplied', requestId: pending.requestId, applied: false, updates: [],
+                configRevision: wireInteger(activeMetadata.configRevision),
+                configHash: activeMetadata.configHash,
+                reason: event.rejectionDetail ?? event.rejectionCode ?? 'Rust rejected live settings'
+              });
+            }
+          }
+        }
+        if (event.commandSequence && (event.kind === 'godModeMoved' || event.kind === 'commandRejected')) {
+          const pending = pendingGodModeMoves.get(event.commandSequence);
+          if (pending) {
+            pendingGodModeMoves.delete(event.commandSequence);
+            const moved = event.godModeMove;
+            if (event.kind === 'godModeMoved' && moved) {
+              sockets.sendJsonTo(pending.connection, {
+                type: 'godModeResult', requestId: pending.requestId, action: 'move',
+                snakeId: moved.snakeId, applied: true,
+                sequence: wireInteger(event.commandSequence), step: wireInteger(moved.effectiveStep),
+                x: moved.x, y: moved.y
+              });
+            } else {
+              sockets.sendJsonTo(pending.connection, {
+                type: 'godModeResult', requestId: pending.requestId, action: 'move',
+                snakeId: pending.snakeId, applied: false,
+                reason: event.rejectionDetail ?? event.rejectionCode ?? 'Rust rejected God Mode move'
+              });
+            }
+          }
+        }
         const now = performance.now();
         if (event.display) {
           telemetry.observeDisplay(event.display);
@@ -552,7 +657,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           owner.managedDirectory,
           operationId,
           runId,
-          seed
+          seed,
+          metadataLiveSettings(activeMetadata)
         );
         prepared = true;
         const descriptor = parseManagedCheckpointDescriptor(candidate.descriptor);
@@ -679,8 +785,64 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           });
         }
       },
-      onSettings: unsupported,
-      onGodMode: unsupported,
+      onSettings(connection, message: LiveSettingsMsg) {
+        const normalized = normalizeLiveSettingsUpdates(message.updates);
+        if (!normalized.ok) {
+          sockets.sendJsonTo(connection, {
+            type: 'settingsApplied', requestId: message.requestId, applied: false, updates: [],
+            configRevision: wireInteger(activeMetadata.configRevision),
+            configHash: activeMetadata.configHash, reason: normalized.reason
+          });
+          return;
+        }
+        let admittedSequence: string | undefined;
+        const admitted = !fault && !stopping && (!importOperation || importAuthorityPublished) &&
+          output.admission.trySubmitControl(sequence => {
+            owner.runtime.submitLiveSettings(sequence, normalized.updates);
+            admittedSequence = sequence;
+          });
+        if (!admitted || !admittedSequence) {
+          sockets.sendJsonTo(connection, {
+            type: 'settingsApplied', requestId: message.requestId, applied: false, updates: [],
+            configRevision: wireInteger(activeMetadata.configRevision),
+            configHash: activeMetadata.configHash,
+            reason: fault ?? (stopping ? 'server is stopping' : 'authoritative command queue is busy')
+          });
+          return;
+        }
+        pendingSettings.set(admittedSequence, {
+          connection, requestId: message.requestId, updates: normalized.updates
+        });
+        schedule();
+      },
+      onGodMode(connection, message: GodModeMsg) {
+        if (message.action === 'kill') {
+          sockets.sendJsonTo(connection, {
+            type: 'godModeResult', requestId: message.requestId, action: 'kill',
+            snakeId: message.snakeId, applied: false,
+            reason: 'God Mode kill is not yet available in the Rust runtime'
+          });
+          return;
+        }
+        let admittedSequence: string | undefined;
+        const admitted = !fault && !stopping && (!importOperation || importAuthorityPublished) &&
+          output.admission.trySubmitControl(sequence => {
+            owner.runtime.submitGodModeMove(sequence, message.snakeId, message.x, message.y);
+            admittedSequence = sequence;
+          });
+        if (!admitted || !admittedSequence) {
+          sockets.sendJsonTo(connection, {
+            type: 'godModeResult', requestId: message.requestId, action: 'move',
+            snakeId: message.snakeId, applied: false,
+            reason: fault ?? (stopping ? 'server is stopping' : 'authoritative command queue is busy')
+          });
+          return;
+        }
+        pendingGodModeMoves.set(admittedSequence, {
+          connection, requestId: message.requestId, snakeId: message.snakeId
+        });
+        schedule();
+      },
       onNewRun(connection, message) {
         startFreshReplacement(connection, 'newRun', randomBytes(4).readUInt32LE(), message);
       },

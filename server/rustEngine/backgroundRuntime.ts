@@ -17,6 +17,7 @@ import type {
   U64Hex
 } from './checkpointPersistenceProtocol.ts';
 import type { RustRunStartCheckpointPublishOptions } from './runStartPersistenceHandoff.ts';
+import type { LiveSettingsUpdate } from '../../src/protocol/settings.ts';
 
 /** Coarse production-addon handle created by transferring the durable fresh run. */
 export interface ExperimentalRunningAuthorityNativeHandle {
@@ -32,6 +33,10 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   start(): void;
   /** Queue steering for the next eligible step without altering a pending step. */
   submitControllerAction(sequence: U64Hex, action: RustBackgroundControllerAction): void;
+  /** Queue one complete live-settings batch for atomic Rust application. */
+  submitLiveSettings(sequence: U64Hex, updates: readonly LiveSettingsUpdate[]): void;
+  /** Queue one exact browser-addressed God Mode translation. */
+  submitGodModeMove(sequence: U64Hex, snakeId: number, x: number, y: number): void;
   /** Queue a close without invalidating an already prepared step. */
   submitControllerDisconnect(sequence: U64Hex, close: RustBackgroundControllerDisconnect): void;
   /** Publish or exactly retry the retained generation's immutable managed file. */
@@ -61,7 +66,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
     managedDirectory: string,
     operationId: string,
     runId: string,
-    seed: number
+    seed: number,
+    liveSettings: readonly LiveSettingsUpdate[]
   ): Promise<RustPreparedFreshRun>;
   /** Drop a prepared candidate after a pre-commit failure. */
   discardPreparedImport(): void;
@@ -156,7 +162,7 @@ export interface RustPreparedFreshRun {
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
-  'start', 'submitControllerAction', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
+  'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',
   'validateImportArchive',
   'prepareImportArchive',

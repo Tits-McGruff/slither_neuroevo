@@ -6,6 +6,7 @@ use super::error::{truncate_utf8, MAX_ERROR_DETAIL_BYTES};
 use super::error::{EngineError, EngineErrorCode};
 use super::external_replacement::UnavailableControllerReservation;
 use super::generation::GenerationCommitRecord;
+use super::live_settings::LiveSettingUpdate;
 use super::physics::PhysicsStepKey;
 use super::run_start::PendingRunStartTransition;
 use super::running_loop::RunningGenerationStartResolution;
@@ -203,6 +204,8 @@ impl EngineCommand {
                     | RunningAuthorityCommand::DisconnectController(_)
                     | RunningAuthorityCommand::ReclaimController(_)
                     | RunningAuthorityCommand::JoinController(_)
+                    | RunningAuthorityCommand::ApplyLiveSettings { .. }
+                    | RunningAuthorityCommand::GodModeMove { .. }
                     | RunningAuthorityCommand::StagePreparedImport { .. }
             )
         )
@@ -355,6 +358,16 @@ pub enum RunningAuthorityCommand {
     SubmitControllerAction(ControllerActionRequest),
     /// Close ownership at a fresh boundary without extending wall-time grace.
     DisconnectController(ControllerDisconnectRequest),
+    /// Replace one bounded settings batch and all config-derived Rust caches atomically.
+    ApplyLiveSettings {
+        updates: Box<[LiveSettingUpdate]>,
+    },
+    /// Translate one browser-addressed live snake before the next step.
+    GodModeMove {
+        frame_v1_id: u32,
+        x: f64,
+        y: f64,
+    },
     /// Publish or exactly retry the Rust-admitted immutable generation file.
     PublishGenerationCheckpoint {
         /// Server-controlled managed directory encoded as one bounded UTF-8 path.
@@ -421,6 +434,24 @@ impl RunningAuthorityCommand {
                 || !action.turn.is_finite() || !(-1.0..=1.0).contains(&action.turn) => {
                 Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid controller action identity or steering"))
             }
+            Self::ApplyLiveSettings { updates }
+                if updates.is_empty()
+                    || updates.len()
+                        > super::live_settings::MAXIMUM_LIVE_SETTING_UPDATES =>
+            {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "live settings require 1 to 64 updates",
+                ))
+            }
+            Self::GodModeMove { frame_v1_id, x, y }
+                if *frame_v1_id == 0 || !x.is_finite() || !y.is_finite() =>
+            {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "God Mode move requires an exact snake ID and finite coordinates",
+                ))
+            }
             Self::PublishGenerationCheckpoint {
                 managed_directory, ..
             } if managed_directory.is_empty()
@@ -486,6 +517,20 @@ impl RunningAuthorityCommand {
                 }),
             Self::SubmitControllerReclaimReceipt(_) | Self::SubmitControllerJoinReceipt(_) => Ok(0),
             Self::SubmitControllerAction(_) | Self::DisconnectController(_) => Ok(0),
+            Self::ApplyLiveSettings { updates } => updates
+                .iter()
+                .try_fold(0usize, |bytes, update| {
+                    bytes
+                        .checked_add(size_of::<LiveSettingUpdate>())
+                        .and_then(|value| value.checked_add(update.path.capacity()))
+                })
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "live settings byte accounting overflowed",
+                    )
+                }),
+            Self::GodModeMove { .. } => Ok(0),
             Self::PublishGenerationCheckpoint {
                 managed_directory,
                 operation_id,
@@ -637,6 +682,21 @@ pub enum RunningAuthorityEvent {
         lease_id: u64,
         completed_step: u64,
     },
+    /// One complete config batch and all derived caches became authoritative.
+    LiveSettingsApplied {
+        command_sequence: u64,
+        config_revision: u64,
+        config_hash: String,
+        effective_step: u64,
+    },
+    /// One live snake and its complete body were translated in bounds.
+    GodModeMoved {
+        command_sequence: u64,
+        frame_v1_id: u32,
+        x: f64,
+        y: f64,
+        effective_step: u64,
+    },
     /// The entire ordinary-step delivery batch, admitted before step preparation.
     ControllerMessages {
         ticket_sequence: u64,
@@ -751,6 +811,8 @@ impl RunningAuthorityEvent {
             Self::ControllerDeliveryReceiptsApplied { .. }
             | Self::ControllerActionApplied { .. }
             | Self::ControllerDisconnected { .. } => 0,
+            Self::LiveSettingsApplied { config_hash, .. } => config_hash.capacity(),
+            Self::GodModeMoved { .. } => 0,
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
             Self::GenerationCheckpointPublished {

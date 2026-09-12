@@ -61,6 +61,8 @@ pub mod generation_handoff_fixture;
 pub mod generation_start;
 /// Versioned TypeScript-compatible random genome initialization.
 pub mod genome;
+/// Ordered God Mode mutations at clean authoritative boundaries.
+pub mod god_mode;
 /// Deterministic graph validation, layout, and compilation contracts.
 pub mod graph;
 /// Safe scalar complete-graph and heterogeneous-population inference.
@@ -68,6 +70,8 @@ pub mod inference;
 /// Deterministic Stage 4 whole-population inference evidence.
 #[cfg(feature = "engine-test-hooks")]
 pub mod inference_fixture;
+/// Atomic runtime-setting replacement at a clean authoritative boundary.
+pub mod live_settings;
 /// Staged steering, boost, movement, and packed body-point proposals.
 pub mod movement;
 /// Complete multi-substep physics working transaction and stable outcome staging.

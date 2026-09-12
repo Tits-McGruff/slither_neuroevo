@@ -369,5 +369,14 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   The fixed-P0 route rejects changed settings/custom graphs instead of
   silently ignoring them.
 
-The next dependency is the remaining thin secondary command surfaces, starting
-with atomic live settings and God Mode against the running Rust authority.
+- 2026-09-12 Protocol 2 live settings now replace the complete bounded batch at
+  one clean Rust boundary, increment the native config identity, rebuild every
+  config-derived scheduler/control/physics cache without copying the world or
+  population, and update browser/health state only from Rust confirmation.
+  Rust independently enforces the live subset, types and ranges, and fresh run
+  replacements preserve the active live values. God Mode move now translates
+  the selected Rust snake's head, prior swept position and complete body by one
+  bounded delta before the next step, using the exact frame-v1 public ID.
+
+The next dependency is God Mode kill through Rust's normal death-effects and
+controller-lifecycle path.

@@ -440,6 +440,15 @@ pub struct BackgroundControllerReceiptResolution {
     pub published_completed_step: Option<String>,
 }
 
+/// Small authoritative result of one in-bounds God Mode translation.
+#[napi(object)]
+pub struct BackgroundGodModeMove {
+    pub snake_id: u32,
+    pub x: f64,
+    pub y: f64,
+    pub effective_step: String,
+}
+
 /// One typed output drained from the real background runtime.
 #[napi(object)]
 pub struct Stage6BackgroundGenerationEvent {
@@ -457,6 +466,10 @@ pub struct Stage6BackgroundGenerationEvent {
     pub controller_receipt_resolution: Option<BackgroundControllerReceiptResolution>,
     pub controller_action_lease_id: Option<String>,
     pub controller_action_completed_step: Option<String>,
+    pub settings_config_revision: Option<String>,
+    pub settings_config_hash: Option<String>,
+    pub settings_effective_step: Option<String>,
+    pub god_mode_move: Option<BackgroundGodModeMove>,
     pub controller_disconnect: Option<BackgroundControllerDisconnect>,
     pub controller_join_assignment: Option<BackgroundControllerReclaimAssignment>,
     pub controller_join_resolution: Option<BackgroundControllerReclaimResolution>,
@@ -3156,6 +3169,34 @@ fn running_authority_event_to_napi(
             output.controller_action_lease_id = Some(u64_hex(lease_id));
             output.controller_action_completed_step = Some(u64_hex(completed_step));
         }
+        RunningAuthorityEvent::LiveSettingsApplied {
+            command_sequence,
+            config_revision,
+            config_hash,
+            effective_step,
+        } => {
+            output.kind = "liveSettingsApplied".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.settings_config_revision = Some(u64_hex(config_revision));
+            output.settings_config_hash = Some(config_hash);
+            output.settings_effective_step = Some(u64_hex(effective_step));
+        }
+        RunningAuthorityEvent::GodModeMoved {
+            command_sequence,
+            frame_v1_id,
+            x,
+            y,
+            effective_step,
+        } => {
+            output.kind = "godModeMoved".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.god_mode_move = Some(BackgroundGodModeMove {
+                snake_id: frame_v1_id,
+                x,
+                y,
+                effective_step: u64_hex(effective_step),
+            });
+        }
         RunningAuthorityEvent::ControllerMessages { messages, .. } => {
             output.kind = "controllerMessages".to_owned();
             output.controller_messages = Some(
@@ -3422,6 +3463,10 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         controller_receipt_resolution: None,
         controller_action_lease_id: None,
         controller_action_completed_step: None,
+        settings_config_revision: None,
+        settings_config_hash: None,
+        settings_effective_step: None,
+        god_mode_move: None,
         controller_disconnect: None,
         controller_join_assignment: None,
         controller_join_resolution: None,
