@@ -133,18 +133,22 @@ describe(SUITE, () => {
     });
   });
 
-  it('retains LAN discovery, network URL output, and the mandatory native build in both launchers', () => {
+  it('keeps trusted-LAN discovery in the Windows launcher and Rust authority in the Debian launcher', () => {
     const powershell = fs.readFileSync(path.resolve('scripts/slither.ps1'), 'utf8');
     const posix = fs.readFileSync(path.resolve('play.sh'), 'utf8');
 
-    for (const launcher of [powershell, posix]) {
-      expect(launcher).toContain('publicWsUrl');
-      expect(launcher).toContain('UI Network:');
-      expect(launcher).toContain('WebSocket Network:');
-      expect(launcher).toContain('@napi-rs');
-      expect(launcher).toContain('build');
-    }
+    expect(powershell).toContain('publicWsUrl');
+    expect(powershell).toContain('UI Network:');
+    expect(powershell).toContain('WebSocket Network:');
+    expect(powershell).toContain('@napi-rs');
     expect(powershell).toContain('Get-NonLoopbackIPv4');
-    expect(posix).toContain('networkInterfaces');
+
+    expect(posix).toContain('SLITHER_HOST:-0.0.0.0');
+    expect(posix).toContain('npm run build');
+    expect(posix).toContain('npm run server:rust');
+    expect(posix).toContain('hostname -I');
+    expect(posix).toContain('[LAN] Browser:');
+    expect(posix).toContain('[LAN] WebSocket:');
+    expect(posix).not.toContain('npm run dev -- --force');
   });
 });
