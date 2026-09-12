@@ -825,6 +825,15 @@ fn execute_running_authority_command(
                 y: publication.y,
                 effective_step,
             }),
+        RunningAuthorityCommand::GodModeKill { frame_v1_id } => running
+            .apply_god_mode_kill(frame_v1_id)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|(publication, effective_step)| RunningAuthorityEvent::GodModeKilled {
+                command_sequence,
+                frame_v1_id: publication.frame_v1_id,
+                pellets_dropped: publication.pellets_dropped,
+                effective_step,
+            }),
         RunningAuthorityCommand::PublishGenerationCheckpoint {
             managed_directory,
             operation_id,
@@ -1020,6 +1029,7 @@ fn running_response_owned_byte_bound(
         // A canonical `sha256:` identity is 71 bytes; allow allocator rounding too.
         RunningAuthorityCommand::ApplyLiveSettings { .. } => 128,
         RunningAuthorityCommand::GodModeMove { .. } => 0,
+        RunningAuthorityCommand::GodModeKill { .. } => 0,
         RunningAuthorityCommand::PublishAcknowledgedGenerationStart => {
             // Every unavailable record is a unique old-controller outcome and
             // retains exactly that source controller's scope and known token.

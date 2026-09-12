@@ -1431,6 +1431,27 @@ impl AuthoritativeState {
         )
     }
 
+    /// Prepare and commit one ordinary side-effect-bearing God Mode death.
+    pub(crate) fn apply_god_mode_kill(
+        &mut self,
+        frame_v1_id: u32,
+        physics: super::physics::PhysicsConfig,
+    ) -> Result<super::god_mode::GodModeKillPublication, super::god_mode::GodModeError> {
+        let prepared = super::god_mode::prepare_god_mode_kill(
+            &self.candidate.world,
+            &self.candidate.rng,
+            &self.candidate.allocators,
+            physics,
+            frame_v1_id,
+        )?;
+        super::god_mode::commit_god_mode_kill(
+            &mut self.candidate.world,
+            &mut self.candidate.rng,
+            &mut self.candidate.allocators,
+            prepared,
+        )
+    }
+
     /// Read the immutable compiled graph shared by compatible genomes.
     #[must_use]
     pub fn graph(&self) -> &CompiledGraph {

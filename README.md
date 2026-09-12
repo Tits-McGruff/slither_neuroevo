@@ -129,8 +129,9 @@ game and keep existing WebSocket connections open for a fresh join. A Reset
 that changes settings or supplies a custom graph is rejected until the
 general Rust configuration builder is connected. Settings marked as live apply
 atomically at the next Rust step boundary and are preserved by later Reset or
-New Run operations. God Mode move also uses the next Rust boundary and keeps
-the complete body in bounds; God Mode kill, visualization, resurrection, and
+New Run operations. God Mode move keeps the complete body in bounds, while God
+Mode kill uses the normal corpse-pellet, random-stream, ID-allocation, and
+controller/baseline lifecycle paths. Visualization, resurrection, and
 graph/preset actions remain in migration.
 `npm run server` remains the separate reference runtime.
 

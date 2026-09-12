@@ -287,6 +287,129 @@ impl RuntimeRngBundle {
         }
         Ok(())
     }
+
+    /// Export a cold-path owned continuation for an ordered operator mutation.
+    fn export_owned(&self, source: &RngStateBundle) -> Result<RngStateBundle, EffectError> {
+        if source.baselines.len() != self.baselines.len() {
+            return Err(EffectError::ShapeMismatch);
+        }
+        let mut target = source.clone();
+        self.world.export_state_into(&mut target.world);
+        self.external_controller
+            .export_state_into(&mut target.external_controller);
+        for (destination, runtime) in target.baselines.iter_mut().zip(&self.baselines) {
+            runtime.export_state_into(&mut destination.state);
+        }
+        Ok(target)
+    }
+}
+
+/// Complete normal corpse-pellet side effects prepared for one God Mode death.
+#[derive(Debug)]
+pub(crate) struct PreparedSingleCorpse {
+    pub(crate) pellets: Vec<PelletState>,
+    pub(crate) rng: RngStateBundle,
+    pub(crate) allocators: AllocatorState,
+}
+
+/// Reuse the normal death formula, identity allocator, and owning RNG stream for one corpse.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_single_corpse(
+    source_rng: &RngStateBundle,
+    source_allocators: &AllocatorState,
+    snake: &SnakeState,
+    body: &[WorldPoint],
+    existing_pellets: usize,
+    movement_config: MovementConfig,
+    food_config: FoodConfig,
+    death_config: DeathDropConfig,
+    maximum_pellets: usize,
+) -> Result<PreparedSingleCorpse, EffectError> {
+    movement_config
+        .validate()
+        .map_err(|_| EffectError::InvalidConfig { field: "movement" })?;
+    death_config.validate()?;
+    if !food_config.growth_per_food.is_finite() || food_config.growth_per_food < 0.0 {
+        return Err(EffectError::InvalidConfig {
+            field: "growth_per_food",
+        });
+    }
+    if body.is_empty() {
+        return Ok(PreparedSingleCorpse {
+            pellets: Vec::new(),
+            rng: source_rng.clone(),
+            allocators: source_allocators.clone(),
+        });
+    }
+
+    let (big_count, small_count) =
+        death_pellet_counts(body.len(), movement_config, food_config, death_config)?;
+    let generated_count =
+        big_count
+            .checked_add(small_count)
+            .ok_or(EffectError::ArithmeticOverflow {
+                context: "single corpse pellet count",
+            })?;
+    let total_pellets =
+        existing_pellets
+            .checked_add(generated_count)
+            .ok_or(EffectError::ArithmeticOverflow {
+                context: "single corpse world pellet count",
+            })?;
+    if total_pellets > maximum_pellets {
+        return Err(EffectError::PelletCapacityExceeded {
+            required: total_pellets,
+            maximum: maximum_pellets,
+        });
+    }
+
+    let mut pellets = Vec::new();
+    reserve_for(&mut pellets, generated_count, "single corpse pellets")?;
+    let mut allocators = source_allocators.clone();
+    let generated_u64 =
+        u64::try_from(generated_count).map_err(|_| EffectError::ArithmeticOverflow {
+            context: "single corpse pellet ID count",
+        })?;
+    let reservation = allocators
+        .reserve_entity_ids(generated_u64)
+        .map_err(EffectError::Allocator)?
+        .ok_or(EffectError::ShapeMismatch)?;
+    let mut baseline_rngs = Vec::new();
+    let mut runtime = RuntimeRngBundle::from_serialized(source_rng, &mut baseline_rngs)?;
+    let (stream, _) = runtime.stream_for(snake)?;
+    let mut next_id = reservation.first;
+    let realized = realize_corpse_pellets(
+        &mut pellets,
+        &mut next_id,
+        snake,
+        body,
+        DeathPlan {
+            snake_index: 0,
+            big_count,
+            small_count,
+        },
+        death_config,
+        (movement_config.food_value * death_config.big_pellet_value_factor).max(MINIMUM_BIG_VALUE),
+        (movement_config.food_value * death_config.small_pellet_value_factor)
+            .max(MINIMUM_SMALL_VALUE),
+        stream,
+    )?;
+    if realized != (big_count, small_count)
+        || next_id
+            != reservation
+                .last
+                .checked_add(1)
+                .ok_or(EffectError::ArithmeticOverflow {
+                    context: "single corpse reserved pellet range",
+                })?
+    {
+        return Err(EffectError::ShapeMismatch);
+    }
+    Ok(PreparedSingleCorpse {
+        pellets,
+        rng: runtime.export_owned(source_rng)?,
+        allocators,
+    })
 }
 
 /// Reusable staging storage for deterministic pellet and RNG realization.

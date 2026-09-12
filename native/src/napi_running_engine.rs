@@ -845,6 +845,17 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Queue one browser-addressed God Mode death through ordinary side effects.
+    #[napi(catch_unwind)]
+    pub fn submit_god_mode_kill(&self, sequence: JsString<'_>, snake_id: u32) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::GodModeKill {
+                frame_v1_id: snake_id,
+            },
+        )
+    }
+
     /// Resolve an ordinary observation/death-assignment send without touching a generation barrier.
     #[napi(catch_unwind)]
     pub fn submit_controller_delivery_receipt(

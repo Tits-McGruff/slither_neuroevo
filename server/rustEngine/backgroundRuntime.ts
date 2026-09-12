@@ -37,6 +37,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitLiveSettings(sequence: U64Hex, updates: readonly LiveSettingsUpdate[]): void;
   /** Queue one exact browser-addressed God Mode translation. */
   submitGodModeMove(sequence: U64Hex, snakeId: number, x: number, y: number): void;
+  /** Queue one exact browser-addressed normal God Mode death. */
+  submitGodModeKill(sequence: U64Hex, snakeId: number): void;
   /** Queue a close without invalidating an already prepared step. */
   submitControllerDisconnect(sequence: U64Hex, close: RustBackgroundControllerDisconnect): void;
   /** Publish or exactly retry the retained generation's immutable managed file. */
@@ -162,7 +164,7 @@ export interface RustPreparedFreshRun {
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
-  'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
+  'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitGodModeKill', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',
   'validateImportArchive',
   'prepareImportArchive',

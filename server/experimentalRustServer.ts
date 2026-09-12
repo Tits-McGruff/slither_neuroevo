@@ -223,6 +223,11 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     requestId: string;
     snakeId: number;
   }>();
+  const pendingGodModeKills = new Map<string, {
+    connection: number;
+    requestId: string;
+    snakeId: number;
+  }>();
   let pinning: Promise<void> | undefined;
   let retentionMaintenance: Promise<void> | undefined;
   let exportOperation: Promise<void> | undefined;
@@ -509,6 +514,27 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
                 type: 'godModeResult', requestId: pending.requestId, action: 'move',
                 snakeId: pending.snakeId, applied: false,
                 reason: event.rejectionDetail ?? event.rejectionCode ?? 'Rust rejected God Mode move'
+              });
+            }
+          }
+        }
+        if (event.commandSequence && (event.kind === 'godModeKilled' || event.kind === 'commandRejected')) {
+          const pending = pendingGodModeKills.get(event.commandSequence);
+          if (pending) {
+            pendingGodModeKills.delete(event.commandSequence);
+            const killed = event.godModeKill;
+            if (event.kind === 'godModeKilled' && killed) {
+              sockets.sendJsonTo(pending.connection, {
+                type: 'godModeResult', requestId: pending.requestId, action: 'kill',
+                snakeId: killed.snakeId, applied: true,
+                sequence: wireInteger(event.commandSequence), step: wireInteger(killed.effectiveStep),
+                pelletsDropped: wireInteger(killed.pelletsDropped)
+              });
+            } else {
+              sockets.sendJsonTo(pending.connection, {
+                type: 'godModeResult', requestId: pending.requestId, action: 'kill',
+                snakeId: pending.snakeId, applied: false,
+                reason: event.rejectionDetail ?? event.rejectionCode ?? 'Rust rejected God Mode kill'
               });
             }
           }
@@ -817,11 +843,24 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       },
       onGodMode(connection, message: GodModeMsg) {
         if (message.action === 'kill') {
-          sockets.sendJsonTo(connection, {
-            type: 'godModeResult', requestId: message.requestId, action: 'kill',
-            snakeId: message.snakeId, applied: false,
-            reason: 'God Mode kill is not yet available in the Rust runtime'
+          let admittedSequence: string | undefined;
+          const admitted = !fault && !stopping && (!importOperation || importAuthorityPublished) &&
+            output.admission.trySubmitControl(sequence => {
+              owner.runtime.submitGodModeKill(sequence, message.snakeId);
+              admittedSequence = sequence;
+            });
+          if (!admitted || !admittedSequence) {
+            sockets.sendJsonTo(connection, {
+              type: 'godModeResult', requestId: message.requestId, action: 'kill',
+              snakeId: message.snakeId, applied: false,
+              reason: fault ?? (stopping ? 'server is stopping' : 'authoritative command queue is busy')
+            });
+            return;
+          }
+          pendingGodModeKills.set(admittedSequence, {
+            connection, requestId: message.requestId, snakeId: message.snakeId
           });
+          schedule();
           return;
         }
         let admittedSequence: string | undefined;

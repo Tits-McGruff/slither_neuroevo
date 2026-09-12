@@ -303,11 +303,21 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
         type: 'godModeResult', action: 'move', snakeId: selected.snakeId, applied: true,
         sequence: expect.any(Number), step: expect.any(Number), x: expect.any(Number), y: expect.any(Number)
       });
+      viewer.socket.send(JSON.stringify({ type: 'godMode', requestId: 'native-god-kill', action: 'kill',
+        snakeId: selected.snakeId }));
+      await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'native-god-kill'));
+      const killResult = viewer.packets.findLast(packet => packet['requestId'] === 'native-god-kill');
+      expect(killResult).toMatchObject({
+        type: 'godModeResult', action: 'kill', snakeId: selected.snakeId, applied: true,
+        sequence: expect.any(Number), step: expect.any(Number), pelletsDropped: expect.any(Number)
+      });
+      expect(Number(killResult?.['pelletsDropped'])).toBeGreaterThan(0);
+      await until(viewer, () => frameDirection(viewer.latestFrame, selected.snakeId) === undefined);
       viewer.socket.send(JSON.stringify({ type: 'godMode', requestId: 'native-god-missing', action: 'move',
-        snakeId: 16_777_216, x: 0, y: 0 }));
+        snakeId: selected.snakeId, x: 0, y: 0 }));
       await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'native-god-missing'));
       expect(viewer.packets.findLast(packet => packet['requestId'] === 'native-god-missing')).toMatchObject({
-        type: 'godModeResult', action: 'move', snakeId: 16_777_216, applied: false,
+        type: 'godModeResult', action: 'move', snakeId: selected.snakeId, applied: false,
         reason: expect.stringContaining('missing or already dead')
       });
       const bot = await connect(server.port, 'bot'); peers.push(bot);

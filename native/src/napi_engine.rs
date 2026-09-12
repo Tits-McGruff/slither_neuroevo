@@ -449,6 +449,14 @@ pub struct BackgroundGodModeMove {
     pub effective_step: String,
 }
 
+/// Small authoritative result of one normal side-effect-bearing God Mode death.
+#[napi(object)]
+pub struct BackgroundGodModeKill {
+    pub snake_id: u32,
+    pub pellets_dropped: String,
+    pub effective_step: String,
+}
+
 /// One typed output drained from the real background runtime.
 #[napi(object)]
 pub struct Stage6BackgroundGenerationEvent {
@@ -470,6 +478,7 @@ pub struct Stage6BackgroundGenerationEvent {
     pub settings_config_hash: Option<String>,
     pub settings_effective_step: Option<String>,
     pub god_mode_move: Option<BackgroundGodModeMove>,
+    pub god_mode_kill: Option<BackgroundGodModeKill>,
     pub controller_disconnect: Option<BackgroundControllerDisconnect>,
     pub controller_join_assignment: Option<BackgroundControllerReclaimAssignment>,
     pub controller_join_resolution: Option<BackgroundControllerReclaimResolution>,
@@ -3197,6 +3206,20 @@ fn running_authority_event_to_napi(
                 effective_step: u64_hex(effective_step),
             });
         }
+        RunningAuthorityEvent::GodModeKilled {
+            command_sequence,
+            frame_v1_id,
+            pellets_dropped,
+            effective_step,
+        } => {
+            output.kind = "godModeKilled".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.god_mode_kill = Some(BackgroundGodModeKill {
+                snake_id: frame_v1_id,
+                pellets_dropped: usize_hex(pellets_dropped, "God Mode corpse pellets")?,
+                effective_step: u64_hex(effective_step),
+            });
+        }
         RunningAuthorityEvent::ControllerMessages { messages, .. } => {
             output.kind = "controllerMessages".to_owned();
             output.controller_messages = Some(
@@ -3467,6 +3490,7 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         settings_config_hash: None,
         settings_effective_step: None,
         god_mode_move: None,
+        god_mode_kill: None,
         controller_disconnect: None,
         controller_join_assignment: None,
         controller_join_resolution: None,

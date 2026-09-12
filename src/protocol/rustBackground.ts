@@ -312,6 +312,15 @@ export interface RustBackgroundEvent {
     /** First fixed step that observes this translation. */
     effectiveStep: RustBackgroundIdentity;
   };
+  /** Successful normal side-effect-bearing God Mode death. */
+  godModeKill?: {
+    /** Exact browser/frame snake identity. */
+    snakeId: number;
+    /** Normal corpse pellets added by the death. */
+    pelletsDropped: RustBackgroundIdentity;
+    /** First fixed step that observes this death. */
+    effectiveStep: RustBackgroundIdentity;
+  };
   /** Exact close result; false means stale or already disconnected. */
   controllerDisconnect?: {
     /** Requested assignment epoch. */

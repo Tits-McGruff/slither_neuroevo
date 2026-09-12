@@ -1,6 +1,8 @@
 //! Ordered God Mode mutations applied before the next authoritative step.
 
-use super::state::{WorldPoint, WorldState};
+use super::effects::{prepare_single_corpse, EffectError, PreparedSingleCorpse};
+use super::physics::PhysicsConfig;
+use super::state::{AllocatorState, RngStateBundle, WorldPoint, WorldState};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -13,6 +15,98 @@ pub struct GodModeMovePublication {
     pub x: f64,
     /// Clamped authoritative head Y.
     pub y: f64,
+}
+
+/// Result of one normal side-effect-bearing God Mode death.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GodModeKillPublication {
+    /// Exact public frame-v1 identity selected by the browser.
+    pub frame_v1_id: u32,
+    /// Normal corpse pellets added by the accepted death.
+    pub pellets_dropped: usize,
+}
+
+/// Fully prepared cold-path mutation; population and brain storage are never copied.
+#[derive(Debug)]
+pub(crate) struct PreparedGodModeKill {
+    snake_index: usize,
+    snake_id: u64,
+    frame_v1_id: u32,
+    source_pellet_count: usize,
+    corpse: PreparedSingleCorpse,
+}
+
+/// Prepare a God Mode death through the normal corpse formula, allocator, and RNG stream.
+pub(crate) fn prepare_god_mode_kill(
+    world: &WorldState,
+    rng: &RngStateBundle,
+    allocators: &AllocatorState,
+    physics: PhysicsConfig,
+    frame_v1_id: u32,
+) -> Result<PreparedGodModeKill, GodModeError> {
+    if frame_v1_id == 0 {
+        return Err(GodModeError::InvalidRequest);
+    }
+    let snake_index = world
+        .snakes
+        .iter()
+        .position(|snake| snake.frame_v1_id == frame_v1_id && snake.alive)
+        .ok_or(GodModeError::MissingOrDeadSnake(frame_v1_id))?;
+    let snake = &world.snakes[snake_index];
+    let body_end = snake
+        .body
+        .start
+        .checked_add(snake.body.len)
+        .filter(|end| *end <= world.body_points.len())
+        .ok_or(GodModeError::InvalidBody)?;
+    let corpse = prepare_single_corpse(
+        rng,
+        allocators,
+        snake,
+        &world.body_points[snake.body.start..body_end],
+        world.pellets.len(),
+        physics.movement,
+        physics.food,
+        physics.death,
+        physics.maximum_pellets,
+    )?;
+    Ok(PreparedGodModeKill {
+        snake_index,
+        snake_id: snake.id,
+        frame_v1_id,
+        source_pellet_count: world.pellets.len(),
+        corpse,
+    })
+}
+
+/// Commit one fully prepared death after the only fallible destination reservation succeeds.
+pub(crate) fn commit_god_mode_kill(
+    world: &mut WorldState,
+    rng: &mut RngStateBundle,
+    allocators: &mut AllocatorState,
+    mut prepared: PreparedGodModeKill,
+) -> Result<GodModeKillPublication, GodModeError> {
+    let source_matches = world.snakes.get(prepared.snake_index).is_some_and(|snake| {
+        snake.id == prepared.snake_id && snake.frame_v1_id == prepared.frame_v1_id && snake.alive
+    });
+    if !source_matches || world.pellets.len() != prepared.source_pellet_count {
+        return Err(GodModeError::SourceChanged);
+    }
+    let pellets_dropped = prepared.corpse.pellets.len();
+    world
+        .pellets
+        .try_reserve_exact(pellets_dropped)
+        .map_err(|_| GodModeError::AllocationFailed {
+            required: world.pellets.len().saturating_add(pellets_dropped),
+        })?;
+    world.snakes[prepared.snake_index].alive = false;
+    world.pellets.append(&mut prepared.corpse.pellets);
+    *rng = prepared.corpse.rng;
+    *allocators = prepared.corpse.allocators;
+    Ok(GodModeKillPublication {
+        frame_v1_id: prepared.frame_v1_id,
+        pellets_dropped,
+    })
 }
 
 /// Translate one live snake by the largest delta that keeps its entire body in bounds.
@@ -123,12 +217,15 @@ fn maximum_translation_scale(
 }
 
 /// Recoverable rejection of one requested God Mode move.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum GodModeError {
     InvalidRequest,
     MissingOrDeadSnake(u32),
     InvalidBody,
     NoValidTranslation,
+    SourceChanged,
+    AllocationFailed { required: usize },
+    Effects(EffectError),
 }
 
 impl Display for GodModeError {
@@ -142,11 +239,32 @@ impl Display for GodModeError {
             Self::NoValidTranslation => {
                 write!(formatter, "translation cannot keep the body in bounds")
             }
+            Self::SourceChanged => write!(formatter, "God Mode kill source changed before commit"),
+            Self::AllocationFailed { required } => {
+                write!(
+                    formatter,
+                    "God Mode kill could not reserve {required} pellets"
+                )
+            }
+            Self::Effects(error) => write!(formatter, "God Mode death effects failed: {error}"),
         }
     }
 }
 
-impl Error for GodModeError {}
+impl Error for GodModeError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Effects(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<EffectError> for GodModeError {
+    fn from(error: EffectError) -> Self {
+        Self::Effects(error)
+    }
+}
 
 #[cfg(test)]
 mod tests {

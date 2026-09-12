@@ -378,5 +378,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   the selected Rust snake's head, prior swept position and complete body by one
   bounded delta before the next step, using the exact frame-v1 public ID.
 
-The next dependency is God Mode kill through Rust's normal death-effects and
-controller-lifecycle path.
+- 2026-09-12 God Mode kill now prepares and commits one Rust-owned operator
+  death at the ordered command boundary. It reuses the normal corpse formula,
+  owning snake RNG stream and entity-ID allocator, reports the exact dropped
+  pellet count, and lets the existing baseline timer and external-controller
+  replacement paths handle the dead snake on the next fixed step.
+
+The next dependency is the remaining bounded browser read/control surfaces,
+starting with compact history and Hall-of-Fame reads before focused neural
+visualization and resurrection.

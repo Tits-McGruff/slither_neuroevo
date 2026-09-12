@@ -423,6 +423,33 @@ impl RunningAuthorityLoop {
         Ok((publication, effective_step))
     }
 
+    /// Kill one live snake with normal corpse, RNG, allocator, and later lifecycle handling.
+    pub(crate) fn apply_god_mode_kill(
+        &mut self,
+        frame_v1_id: u32,
+    ) -> Result<(super::god_mode::GodModeKillPublication, u64), String> {
+        self.require_action_state("apply God Mode kill", RunningAuthorityLoopState::Ready)
+            .map_err(|error| error.to_string())?;
+        let effective_step = self
+            .authority
+            .state()
+            .generation
+            .completed_step
+            .checked_add(1)
+            .ok_or_else(|| "completed step is exhausted".to_owned())?;
+        let physics = self
+            .authority
+            .running_step_config(self.work_limits)
+            .map_err(|error| error.to_string())?
+            .world_step
+            .physics;
+        let publication = self
+            .authority
+            .apply_god_mode_kill(frame_v1_id, physics)
+            .map_err(|error| error.to_string())?;
+        Ok((publication, effective_step))
+    }
+
     /// Prepare one fresh assignment only after the full reliable output fits.
     pub(crate) fn prepare_controller_join(
         &mut self,

@@ -206,6 +206,7 @@ impl EngineCommand {
                     | RunningAuthorityCommand::JoinController(_)
                     | RunningAuthorityCommand::ApplyLiveSettings { .. }
                     | RunningAuthorityCommand::GodModeMove { .. }
+                    | RunningAuthorityCommand::GodModeKill { .. }
                     | RunningAuthorityCommand::StagePreparedImport { .. }
             )
         )
@@ -368,6 +369,10 @@ pub enum RunningAuthorityCommand {
         x: f64,
         y: f64,
     },
+    /// Kill one browser-addressed live snake through ordinary death effects.
+    GodModeKill {
+        frame_v1_id: u32,
+    },
     /// Publish or exactly retry the Rust-admitted immutable generation file.
     PublishGenerationCheckpoint {
         /// Server-controlled managed directory encoded as one bounded UTF-8 path.
@@ -452,6 +457,10 @@ impl RunningAuthorityCommand {
                     "God Mode move requires an exact snake ID and finite coordinates",
                 ))
             }
+            Self::GodModeKill { frame_v1_id } if *frame_v1_id == 0 => Err(EngineError::new(
+                EngineErrorCode::InvalidCommand,
+                "God Mode kill requires an exact snake ID",
+            )),
             Self::PublishGenerationCheckpoint {
                 managed_directory, ..
             } if managed_directory.is_empty()
@@ -531,6 +540,7 @@ impl RunningAuthorityCommand {
                     )
                 }),
             Self::GodModeMove { .. } => Ok(0),
+            Self::GodModeKill { .. } => Ok(0),
             Self::PublishGenerationCheckpoint {
                 managed_directory,
                 operation_id,
@@ -697,6 +707,13 @@ pub enum RunningAuthorityEvent {
         y: f64,
         effective_step: u64,
     },
+    /// One live snake was killed through normal corpse side effects.
+    GodModeKilled {
+        command_sequence: u64,
+        frame_v1_id: u32,
+        pellets_dropped: usize,
+        effective_step: u64,
+    },
     /// The entire ordinary-step delivery batch, admitted before step preparation.
     ControllerMessages {
         ticket_sequence: u64,
@@ -813,6 +830,7 @@ impl RunningAuthorityEvent {
             | Self::ControllerDisconnected { .. } => 0,
             Self::LiveSettingsApplied { config_hash, .. } => config_hash.capacity(),
             Self::GodModeMoved { .. } => 0,
+            Self::GodModeKilled { .. } => 0,
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
             Self::GenerationCheckpointPublished {
