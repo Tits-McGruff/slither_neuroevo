@@ -109,7 +109,10 @@ each durable generation save. It records the cleanup in SQLite before removing
 only unpinned managed files, keeps the latest eight checkpoints plus configured
 milestones and prior-run anchors, and never removes compact generation history
 or Hall-of-Fame records. Health includes the last cleanup's exact file and byte
-counts. The Settings panel's **Pin checkpoint** button
+counts. On managed restart it also verifies every retained checkpoint and
+referenced Hall-of-Fame object before removing exact final files left
+unreferenced by an interrupted publication; unknown files and links are left
+alone. The Settings panel's **Pin checkpoint** button
 permanently protects the exact current managed checkpoint; it does not also
 create or download an export. **Export** starts one ordinary browser download
 of the exact current Rust checkpoint plus its complete compact history and

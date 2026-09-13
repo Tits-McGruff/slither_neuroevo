@@ -563,6 +563,59 @@ describe(SUITE, { timeout: 30_000 }, () => {
     })).rejects.toThrow(/different legacy conversion provenance/);
   });
 
+  it('verifies referenced objects before removing only unreferenced final managed files', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, {
+      operationId: '51'.repeat(16),
+      transitionEpoch: u64(2n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    });
+    const generationCommit = createGenerationCommit(1n);
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, generationCommit);
+    await fixture.client.close();
+
+    const orphanCheckpoint = join(fixture.managedRoot, `${'a'.repeat(64)}.checkpoint-v3`);
+    const orphanWinner = join(fixture.managedRoot, `${'b'.repeat(64)}.hof-weights-v1`);
+    const unknownFile = join(fixture.managedRoot, 'owner-notes.checkpoint-v3');
+    writeFileSync(orphanCheckpoint, 'orphan checkpoint');
+    writeFileSync(orphanWinner, 'orphan winner');
+    writeFileSync(unknownFile, 'leave me alone');
+
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    await expect(reopened.selectStartup()).resolves.toMatchObject({ descriptor: second });
+    expect(existsSync(orphanCheckpoint)).toBe(false);
+    expect(existsSync(orphanWinner)).toBe(false);
+    expect(existsSync(unknownFile)).toBe(true);
+    expect(existsSync(join(fixture.managedRoot, first.relativeFilename))).toBe(true);
+    expect(existsSync(join(fixture.managedRoot, second.relativeFilename))).toBe(true);
+    expect(existsSync(join(
+      fixture.managedRoot,
+      generationCommit.hallOfFameWeights.relativeFilename
+    ))).toBe(true);
+    await reopened.close();
+
+    const protectedOrphan = join(fixture.managedRoot, `${'c'.repeat(64)}.checkpoint-v3`);
+    writeFileSync(protectedOrphan, 'do not delete after failed verification');
+    rmSync(join(fixture.managedRoot, second.relativeFilename));
+    const damaged = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(damaged);
+    await expect(damaged.selectStartup()).resolves.toMatchObject({ descriptor: second });
+    expect(existsSync(protectedOrphan)).toBe(true);
+  });
+
   it('classifies old managed files and returns bounded owner-policy retention accounting', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);

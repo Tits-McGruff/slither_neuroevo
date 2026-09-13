@@ -448,4 +448,9 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   run and survives restart. Health and welcome identify its source row and
   format and explicitly label it population-only rather than exact continuation.
 
+- 2026-09-14 Managed startup now verifies every physically retained checkpoint
+  and referenced Hall-of-Fame object before deleting unreferenced final managed
+  files. Any failed verification disables deletion; unknown files and links are
+  untouched.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

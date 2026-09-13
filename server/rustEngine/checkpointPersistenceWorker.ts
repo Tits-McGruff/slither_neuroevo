@@ -1,5 +1,5 @@
 import { parseRecoveryScanCursor, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
-import { closeSync, fsyncSync, lstatSync, openSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, lstatSync, openSync, readdirSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, resolve, sep } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
@@ -195,7 +195,8 @@ let activeExportLease: {
 } | undefined;
 /** One packed winner protected while Rust verifies and consumes it. */
 let activeHallOfFameLease: { operationId: CheckpointOperationId; logicalSha256: string } | undefined;
-cleanupUnreferencedHallOfFameWeights();
+/** Existing stores scan once at the explicit startup selection barrier, never beside publication. */
+let startupOrphansScanned = !bootstrap.existingOnly;
 
 /**
  * Parse worker bootstrap data without accepting arbitrary nested values.
@@ -837,8 +838,9 @@ function assertStoredHallOfFameWeights(descriptor: ManagedHallOfFameWeightsDescr
 }
 
 /** Remove immutable winner objects after no compact Hall-of-Fame row retains them. */
-function cleanupUnreferencedHallOfFameWeights(): void {
-  if (activeExportLease || activeHallOfFameLease) return;
+function cleanupUnreferencedHallOfFameWeights(): { files: number; storedBytes: bigint } {
+  const result = { files: 0, storedBytes: 0n };
+  if (activeExportLease || activeHallOfFameLease) return result;
   const rows = db.prepare(`SELECT logical_sha256, relative_filename, encoding,
     stored_byte_count_hex, decoded_byte_count_hex, weight_count_hex
     FROM rust_hall_of_fame_weights_v1 AS weights
@@ -872,6 +874,8 @@ function cleanupUnreferencedHallOfFameWeights(): void {
     try {
       const file = verifyManagedDirectFile(row.relative_filename, storedBytes);
       unlinkSync(file.path);
+      result.files++;
+      result.storedBytes += storedBytes;
     } catch (error) {
       if (!(error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'ENOENT')) {
         continue;
@@ -882,6 +886,106 @@ function cleanupUnreferencedHallOfFameWeights(): void {
         SELECT 1 FROM rust_hall_of_fame_v1 WHERE weights_sha256 = ?
       )`).run(row.logical_sha256, row.logical_sha256);
   }
+  return result;
+}
+
+/**
+ * Verify every retained final object, then remove only exact unreferenced final-file names.
+ * @returns Exact file and byte counts reclaimed during this startup pass.
+ */
+function scavengeUnreferencedManagedFiles(): {
+  checkpointFiles: number;
+  hallOfFameFiles: number;
+  storedBytes: bigint;
+} {
+  const referenced = new Set<string>();
+  try {
+    const checkpointRows = db.prepare(`SELECT
+      CASE WHEN length(CAST(metadata.descriptor_json AS BLOB)) <= 16384
+        THEN metadata.descriptor_json END AS descriptor_json,
+      retention.retention_kind
+      FROM rust_checkpoint_v3_metadata AS metadata
+      JOIN rust_checkpoint_retention_v1 AS retention USING(checkpoint_id)
+      ORDER BY metadata.rowid`).all() as Array<{
+        descriptor_json: string | null;
+        retention_kind: string;
+      }>;
+    for (const row of checkpointRows) {
+      if (row.descriptor_json === null ||
+          !['automatic', 'pinned', 'pruning', 'pruned'].includes(row.retention_kind)) {
+        throw new Error('managed orphan scan found invalid checkpoint metadata');
+      }
+      const descriptor = parseManagedCheckpointDescriptor(JSON.parse(row.descriptor_json));
+      assertDescriptorBounds(descriptor);
+      referenced.add(descriptor.relativeFilename);
+      if (row.retention_kind === 'automatic' || row.retention_kind === 'pinned') {
+        verifyManagedFile(descriptor);
+      } else if (row.retention_kind === 'pruning') {
+        try { verifyManagedFile(descriptor); }
+        catch (error) {
+          if (!(error && typeof error === 'object' &&
+              (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
+        }
+      }
+    }
+
+    const weightRows = db.prepare(`SELECT weights.logical_sha256, weights.relative_filename,
+      weights.encoding, weights.stored_byte_count_hex, weights.decoded_byte_count_hex,
+      weights.weight_count_hex FROM rust_hall_of_fame_weights_v1 AS weights
+      WHERE EXISTS (SELECT 1 FROM rust_hall_of_fame_v1 AS hall
+        WHERE hall.weights_sha256 = weights.logical_sha256)
+      ORDER BY weights.rowid`).all() as Array<{
+        logical_sha256: string;
+        relative_filename: string;
+        encoding: string;
+        stored_byte_count_hex: string;
+        decoded_byte_count_hex: string;
+        weight_count_hex: string;
+      }>;
+    for (const row of weightRows) {
+      if (!/^[0-9a-f]{64}$/u.test(row.logical_sha256) ||
+          row.relative_filename !== `${row.logical_sha256}.hof-weights-v1` ||
+          !['raw-f32le-v1', 'f32le-shuffle4-zstd-v1'].includes(row.encoding) ||
+          !/^[0-9a-f]{16}$/u.test(row.stored_byte_count_hex) ||
+          !/^[0-9a-f]{16}$/u.test(row.decoded_byte_count_hex) ||
+          !/^[0-9a-f]{16}$/u.test(row.weight_count_hex)) {
+        throw new Error('managed orphan scan found invalid Hall-of-Fame metadata');
+      }
+      const storedBytes = u64HexToBigInt(row.stored_byte_count_hex as U64Hex);
+      const decodedBytes = u64HexToBigInt(row.decoded_byte_count_hex as U64Hex);
+      const weightCount = u64HexToBigInt(row.weight_count_hex as U64Hex);
+      if (decodedBytes !== weightCount * 4n ||
+          (row.encoding === 'raw-f32le-v1' && storedBytes !== decodedBytes)) {
+        throw new Error('managed orphan scan found inconsistent Hall-of-Fame counts');
+      }
+      verifyManagedDirectFile(row.relative_filename, storedBytes);
+      referenced.add(row.relative_filename);
+    }
+  } catch {
+    // Recovery and repair must remain available; malformed retained metadata disables deletion.
+    return { checkpointFiles: 0, hallOfFameFiles: 0, storedBytes: 0n };
+  }
+
+  const removedWeights = cleanupUnreferencedHallOfFameWeights();
+  const result = {
+    checkpointFiles: 0,
+    hallOfFameFiles: removedWeights.files,
+    storedBytes: removedWeights.storedBytes
+  };
+  const finalName = /^[0-9a-f]{64}\.(?<kind>checkpoint-v3|hof-weights-v1)$/u;
+  for (const entry of readdirSync(managedRootPath, { withFileTypes: true })) {
+    const match = finalName.exec(entry.name);
+    if (!match || !entry.isFile() || entry.isSymbolicLink() || referenced.has(entry.name)) continue;
+    const path = resolve(managedRootPath, entry.name);
+    const metadata = lstatSync(path, { bigint: true });
+    if (!metadata.isFile() || metadata.isSymbolicLink() ||
+        dirname(realpathSync(path)) !== managedRootPath) continue;
+    unlinkSync(path);
+    result.storedBytes += metadata.size;
+    if (match.groups?.['kind'] === 'checkpoint-v3') result.checkpointFiles++;
+    else result.hallOfFameFiles++;
+  }
+  return result;
 }
 
 /**
@@ -1079,8 +1183,23 @@ function resolveSelectedRun(runId: string | null): string | null {
   return selectedRun;
 }
 
+/** Reclaim crash-orphaned finals once, serialized before startup selection and native publication. */
+function scavengeStartupOrphansOnce(): void {
+  if (startupOrphansScanned) return;
+  const cleanup = scavengeUnreferencedManagedFiles();
+  startupOrphansScanned = true;
+  if (cleanup.checkpointFiles > 0 || cleanup.hallOfFameFiles > 0) {
+    console.warn('[rust.persistence] removed unreferenced managed files', {
+      checkpointFiles: cleanup.checkpointFiles,
+      hallOfFameFiles: cleanup.hallOfFameFiles,
+      storedBytes: cleanup.storedBytes.toString()
+    });
+  }
+}
+
 /** Read one exact current target without choosing arbitrarily among multiple runs. */
 function selectManagedCheckpoint(runId: string | null): ManagedCheckpointSelection {
+  scavengeStartupOrphansOnce();
   return db.transaction(() => {
     const selectedRun = resolveSelectedRun(runId);
     if (selectedRun === null) return {
