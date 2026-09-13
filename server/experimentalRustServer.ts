@@ -817,6 +817,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     executeImport = async (request, resumeAsBranch): Promise<ArchiveImportSuccess> => {
       const operationId = randomBytes(16).toString('hex');
       const branchRunId = resumeAsBranch ? randomUUID() : null;
+      const legacyRunId = randomUUID();
+      const legacySeed = randomBytes(4).readUInt32LE(0);
       let uploadPath: string | undefined;
       let inventoryPath: string | undefined;
       let prepared = false;
@@ -834,7 +836,9 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           upload.readyPath,
           owner.managedDirectory,
           owner.managedDirectory,
-          operationId
+          operationId,
+          legacyRunId,
+          legacySeed
         );
         const descriptor = parseManagedCheckpointDescriptor(imported.descriptor);
         const inventory = parseManagedImportInventoryDescriptor(imported.inventory, operationId);

@@ -510,6 +510,14 @@ The HTTP routes share port 5174 with WebSocket upgrade handling. Request bodies
 are JSON and are limited to 50 MiB. These unauthenticated routes are intended
 only for the local UI and local tooling.
 
+The experimental Rust server instead defaults to port 3000. Its
+`GET /api/export/latest` response is a streamed `.slither-save`, and
+`POST /api/import/archive` accepts either that raw archive or an older raw
+browser-exported JSON population. The browser sends the selected file unchanged;
+the generic JSON-body limit and browser parsing do not apply to this route.
+Legacy JSON becomes a new generation-one population run rather than an exact
+resume.
+
 ### `GET /health`
 
 Returns `{ "ok": true, ... }` plus current tick, connected client count,

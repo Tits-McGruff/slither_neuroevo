@@ -13,10 +13,20 @@ use super::checkpoint::{
     CheckpointManifest, CheckpointOperationId, HallOfFameWeightsDescriptor, NumericEncoding,
     RestoredCheckpoint,
 };
-use super::graph::GraphLimits;
-use super::state::StateAdmissionPolicy;
-use serde::{Deserialize, Serialize};
+use super::fresh_run::{
+    prepare_stage6a_legacy_population_import, FreshRunSettingUpdate, LegacyPopulationGenome,
+    Stage6aP0FreshRunRequest,
+};
+use super::graph::{
+    typescript_default_graph_spec, GraphEdge, GraphLimits, GraphNodeKind, GraphNodeSpec,
+    GraphOutputRef, GraphSpec,
+};
+use super::state::{NormalizedSettingValue, StateAdmissionPolicy};
+use super::step_config::typescript_default_settings;
+use serde::de::{self, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
+use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -36,6 +46,9 @@ const HOF_WEIGHTS_PATH: &str = "hof/weights.f32le";
 const HOF_WEIGHTS_ZSTD_PATH: &str = "hof/weights.f32le.shuf4.zst";
 const MANIFEST_PATH: &str = "manifest.json";
 const SAVE_ROOT_DOMAIN: &[u8] = b"slither-neuroevo-save-root\0v1\0";
+const MAX_LEGACY_JSON_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_LEGACY_GENOMES: usize = 300;
+const MAX_LEGACY_WEIGHTS_PER_GENOME: usize = 1_000_000;
 
 /// Exact fixed-width inventory facts returned by the metadata worker.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -126,6 +139,215 @@ struct SaveRole {
     logical_sha256: String,
 }
 
+/// Old browser population file decoded directly from its upload stream.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyPopulationFile {
+    #[serde(default)]
+    generation: Option<u64>,
+    #[serde(default)]
+    arch_key: Option<String>,
+    genomes: BoundedLegacyGenomes,
+    #[serde(default)]
+    world_seed: Option<u32>,
+    #[serde(default)]
+    graph_spec: Option<LegacyGraphWire>,
+    #[serde(default)]
+    settings: Option<serde_json::Value>,
+    #[serde(default)]
+    updates: Vec<LegacySettingWire>,
+}
+
+struct BoundedLegacyGenomes(Vec<LegacyGenomeWire>);
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyGenomeWire {
+    arch_key: String,
+    weights: BoundedLegacyWeights,
+}
+
+struct BoundedLegacyWeights(Vec<f32>);
+
+#[derive(Deserialize)]
+struct LegacySettingWire {
+    path: String,
+    value: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyGraphWire {
+    #[serde(rename = "type")]
+    graph_type: String,
+    nodes: Vec<LegacyGraphNodeWire>,
+    edges: Vec<LegacyGraphEdgeWire>,
+    outputs: Vec<LegacyGraphOutputWire>,
+    output_size: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum LegacyGraphNodeWire {
+    Input {
+        id: String,
+        #[serde(rename = "outputSize")]
+        output_size: usize,
+    },
+    Dense {
+        id: String,
+        #[serde(rename = "inputSize")]
+        input_size: usize,
+        #[serde(rename = "outputSize")]
+        output_size: usize,
+    },
+    #[serde(rename = "MLP")]
+    Mlp {
+        id: String,
+        #[serde(rename = "inputSize")]
+        input_size: usize,
+        #[serde(rename = "hiddenSizes", default)]
+        hidden_sizes: Vec<usize>,
+        #[serde(rename = "outputSize")]
+        output_size: usize,
+    },
+    #[serde(rename = "GRU")]
+    Gru {
+        id: String,
+        #[serde(rename = "inputSize")]
+        input_size: usize,
+        #[serde(rename = "hiddenSize")]
+        hidden_size: usize,
+    },
+    #[serde(rename = "LSTM")]
+    Lstm {
+        id: String,
+        #[serde(rename = "inputSize")]
+        input_size: usize,
+        #[serde(rename = "hiddenSize")]
+        hidden_size: usize,
+    },
+    #[serde(rename = "RRU")]
+    Rru {
+        id: String,
+        #[serde(rename = "inputSize")]
+        input_size: usize,
+        #[serde(rename = "hiddenSize")]
+        hidden_size: usize,
+    },
+    Concat {
+        id: String,
+    },
+    Split {
+        id: String,
+        #[serde(rename = "outputSizes")]
+        output_sizes: Vec<usize>,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyGraphEdgeWire {
+    from: String,
+    to: String,
+    from_port: Option<i64>,
+    to_port: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyGraphOutputWire {
+    node_id: String,
+    port: Option<i64>,
+}
+
+impl<'de> Deserialize<'de> for BoundedLegacyGenomes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct GenomeVisitor;
+
+        impl<'de> Visitor<'de> for GenomeVisitor {
+            type Value = BoundedLegacyGenomes;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("an array containing at most 300 legacy genomes")
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut genomes = Vec::new();
+                genomes
+                    .try_reserve_exact(sequence.size_hint().unwrap_or(0).min(MAX_LEGACY_GENOMES))
+                    .map_err(|_| de::Error::custom("legacy genome allocation failed"))?;
+                while let Some(genome) = sequence.next_element()? {
+                    if genomes.len() == MAX_LEGACY_GENOMES {
+                        return Err(de::Error::custom("legacy population exceeds 300 genomes"));
+                    }
+                    genomes.push(genome);
+                }
+                Ok(BoundedLegacyGenomes(genomes))
+            }
+        }
+
+        deserializer.deserialize_seq(GenomeVisitor)
+    }
+}
+
+impl<'de> Deserialize<'de> for BoundedLegacyWeights {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct WeightVisitor;
+
+        impl<'de> Visitor<'de> for WeightVisitor {
+            type Value = BoundedLegacyWeights;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("an array containing at most one million finite weights")
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut weights = Vec::new();
+                weights
+                    .try_reserve_exact(
+                        sequence
+                            .size_hint()
+                            .unwrap_or(0)
+                            .min(MAX_LEGACY_WEIGHTS_PER_GENOME),
+                    )
+                    .map_err(|_| de::Error::custom("legacy weight allocation failed"))?;
+                while let Some(weight) = sequence.next_element::<f32>()? {
+                    if weights.len() == MAX_LEGACY_WEIGHTS_PER_GENOME {
+                        return Err(de::Error::custom(
+                            "legacy genome exceeds one million weights",
+                        ));
+                    }
+                    if !weight.is_finite() {
+                        return Err(de::Error::custom(
+                            "legacy genome contains a non-finite weight",
+                        ));
+                    }
+                    weights.push(weight);
+                }
+                if weights.is_empty() {
+                    return Err(de::Error::custom("legacy genome has no weights"));
+                }
+                Ok(BoundedLegacyWeights(weights))
+            }
+        }
+
+        deserializer.deserialize_seq(WeightVisitor)
+    }
+}
+
 struct ScratchFiles {
     paths: Vec<PathBuf>,
 }
@@ -175,11 +397,23 @@ pub fn prepare_import_archive(
     scratch_directory: &Path,
     managed_directory: &Path,
     operation_id: &str,
+    legacy_run_id: &str,
+    legacy_seed: u32,
     checkpoint_limits: &CheckpointLimits,
     graph_limits: &GraphLimits,
     admission_policy: &StateAdmissionPolicy,
     memory_ceiling_bytes: usize,
 ) -> Result<PreparedImportArchive, CheckpointError> {
+    if upload_looks_like_legacy_json(archive_path)? {
+        return prepare_legacy_json_import(
+            archive_path,
+            managed_directory,
+            operation_id,
+            legacy_run_id,
+            legacy_seed,
+            memory_ceiling_bytes,
+        );
+    }
     let mut candidate = validate_import_candidate(
         archive_path,
         scratch_directory,
@@ -233,6 +467,384 @@ pub fn prepare_import_archive(
         })?,
         startup_metadata_json,
         transition,
+    })
+}
+
+fn upload_looks_like_legacy_json(path: &Path) -> Result<bool, CheckpointError> {
+    let mut input = BufReader::new(File::open(path)?);
+    let mut byte = [0u8; 1];
+    loop {
+        if input.read(&mut byte)? == 0 {
+            return Ok(false);
+        }
+        if !byte[0].is_ascii_whitespace() {
+            return Ok(byte[0] == b'{');
+        }
+    }
+}
+
+/// Convert one old browser population file into a new, exact Rust run-start checkpoint.
+fn prepare_legacy_json_import(
+    archive_path: &Path,
+    managed_directory: &Path,
+    operation_id: &str,
+    legacy_run_id: &str,
+    legacy_seed: u32,
+    memory_ceiling_bytes: usize,
+) -> Result<PreparedImportArchive, CheckpointError> {
+    validate_operation_id(operation_id)?;
+    let metadata = fs::symlink_metadata(archive_path)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.file_type().is_file()
+        || metadata.len() == 0
+        || metadata.len() > MAX_LEGACY_JSON_BYTES
+    {
+        return Err(CheckpointError::format(
+            "LEGACY_IMPORT_LIMIT",
+            "legacy JSON must be one nonempty regular file no larger than 512 MiB",
+        ));
+    }
+    let input = BufReader::new(File::open(archive_path)?);
+    let mut decoder = serde_json::Deserializer::from_reader(input);
+    let legacy = LegacyPopulationFile::deserialize(&mut decoder).map_err(|error| {
+        CheckpointError::format(
+            "LEGACY_IMPORT_JSON",
+            format!("legacy population JSON is invalid: {error}"),
+        )
+    })?;
+    decoder.end().map_err(|error| {
+        CheckpointError::format(
+            "LEGACY_IMPORT_JSON",
+            format!("legacy population JSON has trailing data: {error}"),
+        )
+    })?;
+    if legacy.generation.is_some_and(|generation| generation == 0)
+        || legacy.updates.len() > 128
+        || legacy
+            .arch_key
+            .as_ref()
+            .is_some_and(|key| key.is_empty() || key.len() > 256 * 1024)
+    {
+        return Err(CheckpointError::format(
+            "LEGACY_IMPORT_METADATA",
+            "legacy generation, architecture key, or settings count is invalid",
+        ));
+    }
+    let root_architecture = legacy.arch_key.as_deref();
+    let mut genomes = Vec::new();
+    genomes
+        .try_reserve_exact(legacy.genomes.0.len())
+        .map_err(|_| {
+            CheckpointError::format("ALLOCATION", "legacy genome table allocation failed")
+        })?;
+    let mut first_architecture: Option<String> = None;
+    for genome in &legacy.genomes.0 {
+        if genome.arch_key.is_empty()
+            || genome.arch_key.len() > 256 * 1024
+            || root_architecture.is_some_and(|key| key != genome.arch_key)
+            || first_architecture
+                .as_deref()
+                .is_some_and(|key| key != genome.arch_key)
+        {
+            return Err(CheckpointError::format(
+                "LEGACY_IMPORT_ARCHITECTURE",
+                "legacy genomes do not share one bounded architecture key",
+            ));
+        }
+        first_architecture.get_or_insert_with(|| genome.arch_key.clone());
+    }
+    for genome in legacy.genomes.0 {
+        genomes.push(LegacyPopulationGenome {
+            weights: genome.weights.0.into_boxed_slice(),
+        });
+    }
+    let graph = match legacy.graph_spec {
+        Some(graph) => legacy_graph_spec(graph)?,
+        None => typescript_default_graph_spec(),
+    };
+    let settings = legacy_settings(legacy.settings.as_ref(), legacy.updates)?;
+    let seed = legacy.world_seed.unwrap_or(legacy_seed);
+    let mut transition = prepare_stage6a_legacy_population_import(
+        Stage6aP0FreshRunRequest {
+            run_id: legacy_run_id.to_owned(),
+            seed,
+            memory_ceiling_bytes,
+        },
+        &settings,
+        graph,
+        genomes,
+    )
+    .map_err(|error| CheckpointError::format("LEGACY_IMPORT_CANDIDATE", error.to_string()))?;
+    let operation = CheckpointOperationId::parse(operation_id.to_owned())?;
+    let descriptor = transition
+        .publish_checkpoint(managed_directory, operation)
+        .map_err(|error| CheckpointError::format("LEGACY_IMPORT_CHECKPOINT", error.to_string()))?;
+    let startup_metadata_json = transition
+        .startup_metadata_json()
+        .map_err(|error| CheckpointError::format("LEGACY_IMPORT_METADATA", error))?;
+    let inventory = publish_empty_import_inventory(managed_directory, operation_id)?;
+    let save_sha256 = hex_digest(hash_file_range(archive_path, 0, metadata.len())?);
+    let facts = ValidatedImportArchive {
+        run_id: descriptor.run_id.clone(),
+        generation_hex: descriptor.generation_hex.clone(),
+        completed_step_hex: descriptor.completed_step_hex.clone(),
+        checkpoint_id: descriptor.logical_root_sha256.clone(),
+        save_logical_root_sha256: save_sha256,
+        history_count_hex: hex_u64(0),
+        hall_of_fame_count_hex: hex_u64(0),
+        stored_byte_count_hex: hex_u64(metadata.len()),
+    };
+    Ok(PreparedImportArchive {
+        facts,
+        descriptor,
+        inventory,
+        startup_metadata_json,
+        transition,
+    })
+}
+
+fn legacy_graph_spec(wire: LegacyGraphWire) -> Result<GraphSpec, CheckpointError> {
+    if wire.graph_type != "graph"
+        || wire.nodes.is_empty()
+        || wire.nodes.len() > 64
+        || wire.edges.len() > 128
+        || wire.outputs.is_empty()
+        || wire.outputs.len() > 8
+        || wire.nodes.iter().any(|node| {
+            let (id, extra_count) = match node {
+                LegacyGraphNodeWire::Input { id, .. }
+                | LegacyGraphNodeWire::Dense { id, .. }
+                | LegacyGraphNodeWire::Gru { id, .. }
+                | LegacyGraphNodeWire::Lstm { id, .. }
+                | LegacyGraphNodeWire::Rru { id, .. }
+                | LegacyGraphNodeWire::Concat { id } => (id, 0),
+                LegacyGraphNodeWire::Mlp {
+                    id, hidden_sizes, ..
+                } => (id, hidden_sizes.len()),
+                LegacyGraphNodeWire::Split { id, output_sizes } => (id, output_sizes.len()),
+            };
+            id.is_empty() || id.len() > 64 || !id.is_ascii() || extra_count > 16
+        })
+        || wire.edges.iter().any(|edge| {
+            edge.from.len() > 64
+                || edge.to.len() > 64
+                || !edge.from.is_ascii()
+                || !edge.to.is_ascii()
+        })
+        || wire
+            .outputs
+            .iter()
+            .any(|output| output.node_id.len() > 64 || !output.node_id.is_ascii())
+    {
+        return Err(CheckpointError::format(
+            "LEGACY_IMPORT_GRAPH",
+            "legacy graph exceeds safe TypeScript-layout compatibility limits",
+        ));
+    }
+    let nodes = wire
+        .nodes
+        .into_iter()
+        .map(|node| {
+            let (id, kind) = match node {
+                LegacyGraphNodeWire::Input { id, output_size } => {
+                    (id, GraphNodeKind::Input { output_size })
+                }
+                LegacyGraphNodeWire::Dense {
+                    id,
+                    input_size,
+                    output_size,
+                } => (
+                    id,
+                    GraphNodeKind::Dense {
+                        input_size,
+                        output_size,
+                    },
+                ),
+                LegacyGraphNodeWire::Mlp {
+                    id,
+                    input_size,
+                    hidden_sizes,
+                    output_size,
+                } => (
+                    id,
+                    GraphNodeKind::Mlp {
+                        input_size,
+                        hidden_sizes,
+                        output_size,
+                    },
+                ),
+                LegacyGraphNodeWire::Gru {
+                    id,
+                    input_size,
+                    hidden_size,
+                } => (
+                    id,
+                    GraphNodeKind::Gru {
+                        input_size,
+                        hidden_size,
+                    },
+                ),
+                LegacyGraphNodeWire::Lstm {
+                    id,
+                    input_size,
+                    hidden_size,
+                } => (
+                    id,
+                    GraphNodeKind::Lstm {
+                        input_size,
+                        hidden_size,
+                    },
+                ),
+                LegacyGraphNodeWire::Rru {
+                    id,
+                    input_size,
+                    hidden_size,
+                } => (
+                    id,
+                    GraphNodeKind::Rru {
+                        input_size,
+                        hidden_size,
+                    },
+                ),
+                LegacyGraphNodeWire::Concat { id } => (id, GraphNodeKind::Concat),
+                LegacyGraphNodeWire::Split { id, output_sizes } => {
+                    (id, GraphNodeKind::Split { output_sizes })
+                }
+            };
+            GraphNodeSpec { id, kind }
+        })
+        .collect();
+    Ok(GraphSpec {
+        nodes,
+        edges: wire
+            .edges
+            .into_iter()
+            .map(|edge| GraphEdge {
+                from: edge.from,
+                to: edge.to,
+                from_port: edge.from_port,
+                to_port: edge.to_port,
+            })
+            .collect(),
+        outputs: wire
+            .outputs
+            .into_iter()
+            .map(|output| GraphOutputRef {
+                node_id: output.node_id,
+                port: output.port,
+            })
+            .collect(),
+        output_size: wire.output_size,
+    })
+}
+
+fn legacy_settings(
+    root: Option<&serde_json::Value>,
+    updates: Vec<LegacySettingWire>,
+) -> Result<Vec<FreshRunSettingUpdate>, CheckpointError> {
+    let defaults = typescript_default_settings(55, 10);
+    let mut result = Vec::new();
+    result
+        .try_reserve_exact(defaults.len())
+        .map_err(|_| CheckpointError::format("ALLOCATION", "legacy settings allocation failed"))?;
+    if let Some(root) = root {
+        for setting in &defaults {
+            if let Some(value) = json_path(root, &setting.path) {
+                if let Some(value) = legacy_setting_value(value, &setting.value) {
+                    result.push(FreshRunSettingUpdate {
+                        path: setting.path.clone(),
+                        value,
+                    });
+                }
+            }
+        }
+    }
+    for update in updates {
+        if update.path.len() > 128 {
+            return Err(CheckpointError::format(
+                "LEGACY_IMPORT_SETTINGS",
+                "legacy setting path exceeds 128 bytes",
+            ));
+        }
+        let Some(expected) = defaults.iter().find(|setting| setting.path == update.path) else {
+            continue;
+        };
+        let Some(value) = legacy_setting_value(&update.value, &expected.value) else {
+            return Err(CheckpointError::format(
+                "LEGACY_IMPORT_SETTINGS",
+                format!("legacy setting {} has the wrong type", update.path),
+            ));
+        };
+        if let Some(existing) = result
+            .iter_mut()
+            .find(|setting| setting.path == update.path)
+        {
+            existing.value = value;
+        } else {
+            result.push(FreshRunSettingUpdate {
+                path: update.path,
+                value,
+            });
+        }
+    }
+    Ok(result)
+}
+
+fn json_path<'a>(root: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    path.split('.')
+        .try_fold(root, |value, segment| value.get(segment))
+}
+
+fn legacy_setting_value(
+    value: &serde_json::Value,
+    expected: &NormalizedSettingValue,
+) -> Option<f64> {
+    match expected {
+        NormalizedSettingValue::Bool(_) => value.as_bool().map(u8::from).map(f64::from),
+        NormalizedSettingValue::Integer(_) => {
+            value.as_i64().map(|number| number as f64).or_else(|| {
+                value
+                    .as_u64()
+                    .and_then(|number| u32::try_from(number).ok())
+                    .map(f64::from)
+            })
+        }
+        NormalizedSettingValue::Float(_) => value.as_f64().filter(|number| number.is_finite()),
+        NormalizedSettingValue::Text(_) => None,
+    }
+}
+
+fn publish_empty_import_inventory(
+    managed_directory: &Path,
+    operation_id: &str,
+) -> Result<ImportInventoryDescriptor, CheckpointError> {
+    let directory = managed_directory.canonicalize()?;
+    let partial_path = directory.join(format!(".{operation_id}.import-inventory-v1.partial"));
+    let relative_filename = format!(".{operation_id}.import-inventory-v1");
+    let final_path = directory.join(&relative_filename);
+    let mut cleanup = ScratchFiles::new();
+    cleanup.track(partial_path.clone());
+    let mut header = [0u8; INVENTORY_HEADER_BYTES as usize];
+    header[..INVENTORY_MAGIC.len()].copy_from_slice(INVENTORY_MAGIC);
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&partial_path)?;
+    file.write_all(&header)?;
+    file.sync_all()?;
+    drop(file);
+    rename_noreplace(&partial_path, &final_path)?;
+    cleanup.track(final_path.clone());
+    sync_parent_directory(&directory)?;
+    let sha256 = hex_digest(hash_file_range(&final_path, 0, INVENTORY_HEADER_BYTES)?);
+    cleanup.paths.clear();
+    Ok(ImportInventoryDescriptor {
+        version: 1,
+        relative_filename,
+        sha256,
+        stored_byte_count_hex: hex_u64(INVENTORY_HEADER_BYTES),
+        history_count_hex: hex_u64(0),
+        hall_of_fame_count_hex: hex_u64(0),
     })
 }
 

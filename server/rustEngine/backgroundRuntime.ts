@@ -97,7 +97,9 @@ export interface ExperimentalRunningAuthorityNativeHandle {
     archivePath: string,
     scratchDirectory: string,
     managedDirectory: string,
-    operationId: string
+    operationId: string,
+    legacyRunId: string,
+    legacySeed: number
   ): Promise<RustPreparedImportArchive>;
   /** Build and publish a private generation-one candidate without changing the live game. */
   prepareFreshRun(

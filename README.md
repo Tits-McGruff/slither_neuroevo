@@ -104,8 +104,11 @@ create or download an export. **Export** starts one ordinary browser download
 of the exact current Rust checkpoint plus its complete compact history and
 run-scoped Hall of Fame. A second export receives `409` until the first
 download finishes or is cancelled. **Import** uploads the selected
-`.slither-save` unchanged, shows upload progress, validates and commits the
-complete experiment, then switches the running Rust game at a safe boundary.
+`.slither-save` or older browser-exported `.json` unchanged and shows upload
+progress. Exact saves restore the complete experiment. An older JSON file
+imports its population as a new generation-one Rust run, preserving compatible
+graph/settings and its seed but not claiming its missing history or random-state
+continuation. Rust switches the running game only after the replacement commits.
 Existing WebSocket connections stay open, discard their old assignments and
 join the imported run again without reusing stale controller tokens. If that
 run already has later local history, Import offers to continue the older save
@@ -422,10 +425,14 @@ reads or rebuilds its population. Large population, recurrent-state, and Hall
 of Fame weight entries use whichever of raw or lossless compressed storage is
 smaller. The save retains the best 50 unique unpinned winner genomes plus any
 pinned winners while preserving the complete compact generation history.
-**Import** sends the original `.slither-save` directly as the request body;
-browser JavaScript never reads or reconstructs it. Rust privately validates
-and restores every role, SQLite commits the checkpoint, history, Hall of Fame
-and active-run pointer together, and only then does the running game switch.
+**Import** sends the original `.slither-save` or legacy browser `.json` directly
+as the request body; browser JavaScript never reads or reconstructs either one.
+Rust privately validates exact-save roles or incrementally parses bounded legacy
+genomes from disk. SQLite commits the replacement and active-run pointer before
+the running game switches. A legacy JSON population starts a new generation-one
+lineage because those files do not contain exact Rust history, allocator, or
+random-stream state; compatible settings, ASCII-identified graphs, and the
+source seed are retained when present.
 A rejected upload leaves the prior game current. Successful replacement keeps
 browser/trainer sockets connected but invalidates every old assignment and
 requires a fresh ordered join. An older save from the same run cannot silently
@@ -433,9 +440,9 @@ overwrite later generations. The page instead offers an explicit new-run
 branch that records the source run, generation, and checkpoint while leaving
 the original future intact.
 
-The TypeScript reference runtime retains its compatibility JSON import/export
-path until Rust cutover. That older path still assembles population data in the
-browser and should not be confused with the Rust archive path.
+The TypeScript reference runtime retains its JSON export path until Rust
+cutover. Its older in-browser import remains available when running that
+reference server, while the Rust server accepts the same file by direct upload.
 
 Automatic restart checkpoints are exact generation-boundary population
 checkpoints. They preserve the evolved population, generation, experiment

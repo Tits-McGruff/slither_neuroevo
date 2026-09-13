@@ -81,6 +81,13 @@ pub struct FreshRunSettingUpdate {
     pub value: f64,
 }
 
+/// One already-decoded legacy genome admitted for a population-only import.
+#[derive(Debug)]
+pub struct LegacyPopulationGenome {
+    /// Packed parameters in the historical TypeScript graph layout.
+    pub weights: Box<[f32]>,
+}
+
 /// Build and admit one current-default run-start boundary behind durability.
 pub fn prepare_stage6a_p0_fresh_run(
     request: Stage6aP0FreshRunRequest,
@@ -122,6 +129,61 @@ pub fn prepare_stage6a_p0_fresh_run_with_settings_and_graph(
     graph: GraphSpec,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
     let prepared = prepare_stage6a_p0_boundary(request, settings, graph)?;
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
+/// Build a new generation-one lineage around an old browser-exported population.
+///
+/// Legacy JSON does not contain the exact Rust continuation state required for a
+/// resume. Its genomes therefore replace only the randomly initialized numeric
+/// population of an otherwise normal fresh boundary; chronology, recurrent
+/// state, RNG streams, allocators, and world state all begin from that boundary.
+pub fn prepare_stage6a_legacy_population_import(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    genomes: Vec<LegacyPopulationGenome>,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    if genomes.is_empty() || genomes.len() > MAXIMUM_FRESH_RUN_POPULATION_COUNT {
+        return Err(FreshRunError::Settings(
+            "legacy import requires 1 to 300 genomes".to_owned(),
+        ));
+    }
+    let mut replacement_settings = settings.to_vec();
+    let population_count = genomes.len() as f64;
+    if let Some(setting) = replacement_settings
+        .iter_mut()
+        .find(|setting| setting.path == "snakeCount")
+    {
+        setting.value = population_count;
+    } else {
+        replacement_settings.push(FreshRunSettingUpdate {
+            path: "snakeCount".to_owned(),
+            value: population_count,
+        });
+    }
+    let mut prepared = prepare_stage6a_p0_boundary(request, &replacement_settings, graph)?;
+    let expected_weights = prepared.graph.total_parameters;
+    if genomes
+        .iter()
+        .any(|genome| genome.weights.len() != expected_weights)
+    {
+        return Err(FreshRunError::Settings(format!(
+            "legacy genome weight count must equal the graph's {expected_weights} parameters"
+        )));
+    }
+    for (target, imported) in prepared.candidate.population.iter_mut().zip(genomes) {
+        target.weights = imported.weights;
+        target.fitness = 0.0;
+    }
     PendingRunStartTransition::admit(
         prepared.candidate,
         prepared.graph,

@@ -428,4 +428,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   population sizes from validated Reset settings instead of fixing them at
   55 and 10; checkpoint/import limits cover the existing UI ranges.
 
+- 2026-09-13 The direct Rust import route now recognizes older browser JSON
+  population files without loading them in browser or Node memory. Rust parses
+  bounded genomes from disk, preserves compatible settings, ASCII-safe graph
+  layouts and the source seed, then commits the population as a new
+  generation-one checkpoint because legacy files lack exact continuation state.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

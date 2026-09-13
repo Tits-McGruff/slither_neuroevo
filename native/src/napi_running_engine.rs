@@ -335,6 +335,8 @@ pub struct PrepareImportArchiveTask {
     scratch_directory: PathBuf,
     managed_directory: PathBuf,
     operation_id: String,
+    legacy_run_id: String,
+    legacy_seed: u32,
     prepared: PreparedImportSlot,
     active: Arc<AtomicBool>,
 }
@@ -358,6 +360,8 @@ impl Task for PrepareImportArchiveTask {
             &self.scratch_directory,
             &self.managed_directory,
             &self.operation_id,
+            &self.legacy_run_id,
+            self.legacy_seed,
             &checkpoint_limits,
             &graph_limits,
             &admission_policy,
@@ -664,6 +668,8 @@ impl ExperimentalRunningAuthority {
         scratch_directory: JsString<'_>,
         managed_directory: JsString<'_>,
         operation_id: JsString<'_>,
+        legacy_run_id: JsString<'_>,
+        legacy_seed: u32,
     ) -> Result<AsyncTask<PrepareImportArchiveTask>> {
         let archive_path = parse_managed_path(bounded_js_string(
             archive_path,
@@ -689,6 +695,7 @@ impl ExperimentalRunningAuthority {
             32,
             false,
         )?)?;
+        let legacy_run_id = bounded_js_string(legacy_run_id, "legacyRunId", 256, false)?;
         if self.import_active.swap(true, Ordering::AcqRel) {
             return Err(Error::new(
                 Status::GenericFailure,
@@ -707,6 +714,8 @@ impl ExperimentalRunningAuthority {
             scratch_directory,
             managed_directory,
             operation_id: operation_id.as_str().to_owned(),
+            legacy_run_id,
+            legacy_seed,
             prepared: self.prepared_import.clone(),
             active: Arc::clone(&self.import_active),
         }))

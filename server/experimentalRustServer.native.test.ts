@@ -90,6 +90,90 @@ function directionDelta(from: number, to: number): number {
 }
 
 describeNetworkSuite('experimental Rust server real sockets', () => {
+  it('imports an old browser JSON population as a new Rust run', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-legacy-import-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    const server = await startExperimentalRustServer({
+      ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 41, dbPath
+    });
+    const peers: Peer[] = [];
+    try {
+      const before = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        runId: string;
+      };
+      const viewer = await connect(server.port, 'ui');
+      peers.push(viewer);
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      const weights = new Array<number>(13_458).fill(0);
+      const legacyFile = JSON.stringify({
+        generation: 37,
+        archKey: 'legacy-default-graph',
+        worldSeed: 1_234_567,
+        settings: { snakeCount: 2, simSpeed: 3, baselineBots: { count: 1 } },
+        genomes: [
+          { archKey: 'legacy-default-graph', brainType: 'mlp', fitness: 99, weights },
+          { archKey: 'legacy-default-graph', brainType: 'mlp', fitness: 50, weights }
+        ]
+      });
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/import/archive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: legacyFile
+      });
+      const imported = await response.json() as {
+        ok: boolean; runId: string; generation: string; completedStep: string; checkpointId: string;
+      };
+      expect({ status: response.status, imported }).toMatchObject({
+        status: 200,
+        imported: {
+          ok: true,
+          generation: '0000000000000001',
+          completedStep: '0000000000000000'
+        }
+      });
+      expect(imported.runId).not.toBe(before.runId);
+      expect(imported.checkpointId).toMatch(/^[0-9a-f]{64}$/u);
+      await until(viewer, () => viewer.packets.some(packet =>
+        packet['type'] === 'stateReplaced' && packet['reason'] === 'import'));
+      expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')).toMatchObject({
+        checkpointId: imported.checkpointId,
+        welcome: {
+          runId: imported.runId,
+          worldSeed: 1_234_567,
+          settings: {
+            core: { snakeCount: 2, simSpeed: 3 },
+            updates: expect.arrayContaining([{ path: 'baselineBots.count', value: 1 }])
+          }
+        }
+      });
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+        ok: true,
+        runId: imported.runId,
+        seed: 1_234_567,
+        generation: '0000000000000001',
+        startupCheckpointId: imported.checkpointId
+      });
+      const rejected = await fetch(`http://127.0.0.1:${server.port}/api/import/archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          generation: 1,
+          archKey: 'legacy-default-graph',
+          genomes: [{ archKey: 'legacy-default-graph', weights: [0] }]
+        })
+      });
+      expect(rejected.status).toBe(400);
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: imported.runId, startupCheckpointId: imported.checkpointId
+      });
+      expect((await readdir(`${dbPath}.checkpoints`)).filter(name =>
+        name.includes('upload') || name.includes('import-inventory'))).toEqual([]);
+    } finally {
+      for (const peer of peers) peer.socket.terminate();
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it('streams, imports, and atomically activates one exact Rust save', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-export-server-'));
     const dbPath = join(root, 'experiment.sqlite');
