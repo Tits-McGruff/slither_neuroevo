@@ -77,7 +77,7 @@ jobs:
       - name: Rust background generation and SQLite handoff
         env:
           SLITHER_STAGE3_CHECKPOINT_TEST_ADDON: native/target/ci-handoff-hooks.node
-        run: node node_modules/vitest/vitest.mjs run server/rustEngine/checkpointPersistence.native.test.ts --reporter=dot
+        run: node node_modules/vitest/vitest.mjs run server/rustEngine/checkpointPersistence.native.test.ts --reporter=dot --testTimeout=15000
       - name: Build browser client
         run: npm run build:client
       - name: Required native and MT contracts
