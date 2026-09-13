@@ -42,7 +42,27 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
-      - run: npm ci
+      - name: Install dependencies
+        if: runner.os != 'Windows'
+        run: npm ci
+
+      - name: Install dependencies (Windows, retry transient failures)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            npm ci
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) {
+              exit 0
+            }
+            if ($attempt -eq $maxAttempts) {
+              exit $exitCode
+            }
+            Write-Host "npm ci failed on attempt $attempt; retrying in 10 seconds..."
+            Start-Sleep -Seconds 10
+          }
       - name: Build native addon
         run: npm --prefix native run build
       - name: Verify native addon load and source identity
