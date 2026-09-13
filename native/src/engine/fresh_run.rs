@@ -16,7 +16,7 @@ use super::genome::{
 };
 use super::graph::{typescript_default_graph_spec, GraphBundle, GraphError, GraphLimits};
 use super::inference::InferenceMathBackend;
-use super::live_settings::{prepare_live_settings, LiveSettingUpdate};
+use super::live_settings::LiveSettingUpdate;
 use super::rng::labelled_stream;
 use super::run_start::{PendingRunStartTransition, RunStartTransitionError};
 use super::state::{
@@ -24,11 +24,11 @@ use super::state::{
     preflight_generation_boundary_allocation, AllocatorState, AuthorityPhase, BrainHandle,
     BrainOwner, BrainRuntimeState, ContractVersions, FixedStepContinuationState,
     GenerationBoundaryKind, GenerationState, GenomeLineage, NormalizedEngineConfig,
-    PopulationGenome, RngStateBundle, RunIdentity, StateAdmissionPolicy, StateCandidate,
-    StateError, WorldState, ALLOCATOR_VERSION, BASELINE_ENTITY_ID_START, CHECKPOINT_VERSION,
-    ENGINE_STATE_VERSION, EXTERNAL_ENTITY_ID_START, GENERATION_BOUNDARY_VERSION,
-    NORMALIZED_CONFIG_VERSION, PROTOCOL_VERSION, RESURRECTED_ENTITY_ID_START, RNG_BUNDLE_VERSION,
-    SENSOR_VERSION, SERIALIZER_VERSION,
+    NormalizedSettingValue, PopulationGenome, RngStateBundle, RunIdentity, StateAdmissionPolicy,
+    StateCandidate, StateError, WorldState, ALLOCATOR_VERSION, BASELINE_ENTITY_ID_START,
+    CHECKPOINT_VERSION, ENGINE_STATE_VERSION, EXTERNAL_ENTITY_ID_START,
+    GENERATION_BOUNDARY_VERSION, NORMALIZED_CONFIG_VERSION, PROTOCOL_VERSION,
+    RESURRECTED_ENTITY_ID_START, RNG_BUNDLE_VERSION, SENSOR_VERSION, SERIALIZER_VERSION,
 };
 use super::step_config::{
     project_baseline_generation_config, project_running_step_config, typescript_default_settings,
@@ -64,6 +64,15 @@ pub struct Stage6aP0FreshRunRequest {
     pub memory_ceiling_bytes: usize,
 }
 
+/// One complete fresh-run setting value crossing the private Node/Rust boundary.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FreshRunSettingUpdate {
+    /// Exact canonical settings path.
+    pub path: String,
+    /// Finite numeric representation; booleans are zero or one.
+    pub value: f64,
+}
+
 /// Build and admit one current-default run-start boundary behind durability.
 pub fn prepare_stage6a_p0_fresh_run(
     request: Stage6aP0FreshRunRequest,
@@ -76,7 +85,22 @@ pub fn prepare_stage6a_p0_fresh_run_with_live_settings(
     request: Stage6aP0FreshRunRequest,
     live_settings: &[LiveSettingUpdate],
 ) -> Result<PendingRunStartTransition, FreshRunError> {
-    let prepared = prepare_stage6a_p0_boundary(request, live_settings)?;
+    let settings = live_settings
+        .iter()
+        .map(|update| FreshRunSettingUpdate {
+            path: update.path.clone(),
+            value: update.value,
+        })
+        .collect::<Vec<_>>();
+    prepare_stage6a_p0_fresh_run_with_settings(request, &settings)
+}
+
+/// Build a fresh fixed-graph lineage from one complete validated settings projection.
+pub fn prepare_stage6a_p0_fresh_run_with_settings(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let prepared = prepare_stage6a_p0_boundary(request, settings)?;
     PendingRunStartTransition::admit(
         prepared.candidate,
         prepared.graph,
@@ -143,7 +167,7 @@ struct PreparedStage6aP0Boundary {
 /// Construct and preflight the full boundary before it can become pending.
 fn prepare_stage6a_p0_boundary(
     request: Stage6aP0FreshRunRequest,
-    live_settings: &[LiveSettingUpdate],
+    replacement_settings: &[FreshRunSettingUpdate],
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
     let run_id = validated_run_id(&request.run_id)?;
     let graph_limits = stage6a_p0_graph_limits();
@@ -160,16 +184,20 @@ fn prepare_stage6a_p0_boundary(
     }
 
     let work_limits = RunningStepWorkLimits::provisional_defaults();
-    let settings =
+    let mut settings =
         typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
+    apply_fresh_run_settings(&mut settings, replacement_settings)?;
     let settings_schema_sha256 = normalized_settings_schema_hash(&settings)?;
     let mut config = stage6a_p0_config(&graph, settings, settings_schema_sha256.clone());
-    if !live_settings.is_empty() {
-        config = prepare_live_settings(&config, 0, live_settings)
-            .map_err(|_| FreshRunError::ProfileInvariant {
-                reason: "fresh-run live setting replacement is invalid",
-            })?
-            .config;
+    config.requested_sim_speed = fresh_float(&config, "simSpeed")?;
+    config.world_radius = fresh_integer(&config, "worldRadius")? as f64;
+    if fresh_integer(&config, "snakeCount")? != STAGE6A_P0_POPULATION_COUNT
+        || fresh_integer(&config, "baselineBots.count")? != STAGE6A_P0_BASELINE_COUNT
+        || fresh_integer(&config, "sense.bubbleBins")? != 16
+    {
+        return Err(FreshRunError::ProfileInvariant {
+            reason: "fixed graph currently requires 55 evolved snakes, 10 baseline bots, and 16 sensor bins",
+        });
     }
     let projected = project_running_step_config(&config, work_limits)?;
     let baseline_config = project_baseline_generation_config(&config)?;
@@ -227,6 +255,94 @@ fn prepare_stage6a_p0_boundary(
         graph_limits,
         work_limits,
     })
+}
+
+/// Apply exact typed numeric replacements before projection and state admission.
+fn apply_fresh_run_settings(
+    settings: &mut [super::state::NormalizedSetting],
+    updates: &[FreshRunSettingUpdate],
+) -> Result<(), FreshRunError> {
+    if updates.len() > 128 {
+        return Err(FreshRunError::Settings(
+            "fresh-run settings exceed 128 entries".to_owned(),
+        ));
+    }
+    for (index, update) in updates.iter().enumerate() {
+        if !update.value.is_finite() || update.path.is_empty() || update.path.len() > 128 {
+            return Err(FreshRunError::Settings(
+                "fresh-run setting is not bounded and finite".to_owned(),
+            ));
+        }
+        if updates[..index]
+            .iter()
+            .any(|prior| prior.path == update.path)
+        {
+            return Err(FreshRunError::Settings(format!(
+                "duplicate fresh-run setting {}",
+                update.path
+            )));
+        }
+        let setting = settings
+            .binary_search_by(|setting| setting.path.as_str().cmp(update.path.as_str()))
+            .ok()
+            .and_then(|position| settings.get_mut(position))
+            .ok_or_else(|| {
+                FreshRunError::Settings(format!("unknown fresh-run setting {}", update.path))
+            })?;
+        let replacement = match &setting.value {
+            NormalizedSettingValue::Bool(_) if update.value == 0.0 || update.value == 1.0 => {
+                NormalizedSettingValue::Bool(update.value == 1.0)
+            }
+            NormalizedSettingValue::Integer(_)
+                if update.value.fract() == 0.0
+                    && update.value >= i64::MIN as f64
+                    && update.value <= i64::MAX as f64 =>
+            {
+                NormalizedSettingValue::Integer(update.value as i64)
+            }
+            NormalizedSettingValue::Float(_) => NormalizedSettingValue::Float(update.value),
+            _ => {
+                return Err(FreshRunError::Settings(format!(
+                    "fresh-run setting {} has the wrong numeric type",
+                    update.path
+                )))
+            }
+        };
+        setting.value = replacement;
+    }
+    Ok(())
+}
+
+/// Read one required Float64 setting after typed replacement.
+fn fresh_float(config: &NormalizedEngineConfig, path: &str) -> Result<f64, FreshRunError> {
+    match config
+        .settings
+        .iter()
+        .find(|setting| setting.path == path)
+        .map(|setting| &setting.value)
+    {
+        Some(NormalizedSettingValue::Float(value)) => Ok(*value),
+        _ => Err(FreshRunError::Settings(format!(
+            "missing floating fresh-run setting {path}"
+        ))),
+    }
+}
+
+/// Read one required non-negative integer setting after typed replacement.
+fn fresh_integer(config: &NormalizedEngineConfig, path: &str) -> Result<usize, FreshRunError> {
+    match config
+        .settings
+        .iter()
+        .find(|setting| setting.path == path)
+        .map(|setting| &setting.value)
+    {
+        Some(NormalizedSettingValue::Integer(value)) => usize::try_from(*value).map_err(|_| {
+            FreshRunError::Settings(format!("invalid integer fresh-run setting {path}"))
+        }),
+        _ => Err(FreshRunError::Settings(format!(
+            "missing integer fresh-run setting {path}"
+        ))),
+    }
 }
 
 /// Validate the opaque lineage label before any graph or population allocation.
@@ -494,6 +610,8 @@ pub enum FreshRunError {
     InvalidRunId,
     /// Fixed profile dimensions and their versioned constants disagree.
     ProfileInvariant { reason: &'static str },
+    /// A supplied complete setting projection was malformed or incompatible.
+    Settings(String),
     /// Checked profile arithmetic overflowed.
     ArithmeticOverflow { context: &'static str },
     /// Exact metadata or numeric allocation failed.
@@ -525,6 +643,7 @@ impl Display for FreshRunError {
             Self::ProfileInvariant { reason } => {
                 write!(formatter, "Stage 6A P0 profile invariant failed: {reason}")
             }
+            Self::Settings(detail) => write!(formatter, "fresh-run settings failed: {detail}"),
             Self::ArithmeticOverflow { context } => {
                 write!(formatter, "fresh-run arithmetic overflow in {context}")
             }
@@ -1031,6 +1150,63 @@ mod tests {
         assert!(!transition.checkpoint_published());
         assert!(!transition.authority_published());
         assert_eq!(transition.snake_count(), 0);
+    }
+
+    #[test]
+    fn fresh_replacement_applies_reset_only_and_live_settings_before_hashing() {
+        let prepared = prepare_stage6a_p0_boundary(
+            request(43),
+            &[
+                FreshRunSettingUpdate {
+                    path: "worldRadius".to_owned(),
+                    value: 4_200.0,
+                },
+                FreshRunSettingUpdate {
+                    path: "generationSeconds".to_owned(),
+                    value: 90.0,
+                },
+                FreshRunSettingUpdate {
+                    path: "simSpeed".to_owned(),
+                    value: 3.0,
+                },
+                FreshRunSettingUpdate {
+                    path: "foodSpawn.edgeFalloffEnabled".to_owned(),
+                    value: 0.0,
+                },
+            ],
+        )
+        .expect("compatible fixed-graph settings must build one private boundary");
+        assert_eq!(prepared.candidate.config.world_radius, 4_200.0);
+        assert_eq!(prepared.candidate.config.requested_sim_speed, 3.0);
+        assert_eq!(
+            fresh_float(&prepared.candidate.config, "generationSeconds").unwrap(),
+            90.0
+        );
+        assert!(matches!(
+            prepared
+                .candidate
+                .config
+                .settings
+                .iter()
+                .find(|setting| setting.path == "foodSpawn.edgeFalloffEnabled")
+                .map(|setting| &setting.value),
+            Some(NormalizedSettingValue::Bool(false))
+        ));
+        assert_eq!(
+            prepared.candidate.identity.config_hash,
+            normalized_config_hash(&prepared.candidate.config).unwrap()
+        );
+
+        let error = prepare_stage6a_p0_boundary(
+            request(44),
+            &[FreshRunSettingUpdate {
+                path: "snakeCount".to_owned(),
+                value: 54.0,
+            }],
+        )
+        .err()
+        .expect("fixed profile shape changes must remain rejected before publication");
+        assert!(error.to_string().contains("fixed graph currently requires"));
     }
 
     fn fixture() -> FreshRunFixture {

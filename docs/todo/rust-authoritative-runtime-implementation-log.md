@@ -411,4 +411,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   download enforce a 60-second no-progress deadline without imposing a total
   transfer-duration limit, and all terminal paths retain the existing cleanup.
 
-The next dependency is the remaining compatibility work and Stage 6B gates.
+- 2026-09-13 Reset now sends the complete normalized setting set into private
+  Rust construction. Rust applies compatible live and reset-only values before
+  deriving configuration identity, writes generation one, and only then swaps
+  the running game; fixed-graph shape changes remain rejected.
+
+The next dependency is custom-graph fresh construction, then the remaining
+compatibility work and Stage 6B gates.

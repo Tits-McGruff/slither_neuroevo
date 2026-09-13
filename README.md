@@ -130,12 +130,13 @@ round. The probe is a wire-compatible diagnostic client; it does not replace
 the required unchanged owner trainer or a real browser on another trusted-LAN
 device.
 
-This entry uses the fixed default graph and fixed reset-only settings. Pin, direct archive
+This entry still uses the fixed default graph. Pin, direct archive
 export/import, same-seed **Reset**, and entropy-seeded **New Run** are
 available. Both run controls write generation one before replacing the live
-game and keep existing WebSocket connections open for a fresh join. A Reset
-that changes settings or supplies a custom graph is rejected until the
-general Rust configuration builder is connected. Settings marked as live apply
+game and keep existing WebSocket connections open for a fresh join. Reset can
+apply graph-compatible values from both the main controls and the complete
+settings list; custom graphs and settings that change the fixed graph's shape
+remain unavailable. Settings marked as live apply
 atomically at the next Rust step boundary and are preserved by later Reset or
 New Run operations. God Mode move keeps the complete body in bounds, while God
 Mode kill uses the normal corpse-pellet, random-stream, ID-allocation, and

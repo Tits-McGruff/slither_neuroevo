@@ -21,6 +21,14 @@ import type {
 import type { RustRunStartCheckpointPublishOptions } from './runStartPersistenceHandoff.ts';
 import type { LiveSettingsUpdate } from '../../src/protocol/settings.ts';
 
+/** One complete numeric setting supplied only to private fresh-run construction. */
+export interface RustFreshRunSetting {
+  /** Canonical normalized settings path. */
+  path: string;
+  /** Finite numeric representation; booleans are zero or one. */
+  value: number;
+}
+
 /** Raw native layer shape before structure-only layers become protocol nulls. */
 export interface RustNativeVisualizationLayer {
   /** Browser-visible neuron count. */
@@ -97,7 +105,7 @@ export interface ExperimentalRunningAuthorityNativeHandle {
     operationId: string,
     runId: string,
     seed: number,
-    liveSettings: readonly LiveSettingsUpdate[]
+    settings: readonly RustFreshRunSetting[]
   ): Promise<RustPreparedFreshRun>;
   /** Drop a prepared candidate after a pre-commit failure. */
   discardPreparedImport(): void;

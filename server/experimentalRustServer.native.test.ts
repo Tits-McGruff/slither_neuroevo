@@ -433,16 +433,20 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const beforeReset = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         runId: string; seed: number; startupCheckpointId: string;
       };
-      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { simSpeed: 2 } }));
-      await until(viewer, () => viewer.packets.some(packet =>
-        packet['type'] === 'error' && String(packet['message']).includes('changed setting simSpeed')));
-      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
-        runId: beforeReset.runId, startupCheckpointId: beforeReset.startupCheckpointId
-      });
-      viewer.socket.send(JSON.stringify({ type: 'reset' }));
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { simSpeed: 2 }, updates: [
+        { path: 'worldRadius', value: 4_200 },
+        { path: 'generationSeconds', value: 90 },
+        { path: 'foodSpawn.edgeFalloffEnabled', value: 0 }
+      ] }));
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
       const resetNotice = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced');
-      expect(resetNotice).toMatchObject({ reason: 'reset', welcome: { worldSeed: 42 } });
+      expect(resetNotice).toMatchObject({ reason: 'reset', welcome: { worldSeed: 42, settings: {
+        core: { simSpeed: 2 }, updates: expect.arrayContaining([
+          { path: 'worldRadius', value: 4_200 },
+          { path: 'generationSeconds', value: 90 },
+          { path: 'foodSpawn.edgeFalloffEnabled', value: 0 }
+        ])
+      } } });
       const afterReset = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         runId: string; seed: number; startupCheckpointId: string;
       };

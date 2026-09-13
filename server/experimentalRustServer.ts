@@ -39,6 +39,7 @@ import {
   normalizeLiveSettingsUpdates,
   type LiveSettingsUpdate
 } from '../src/protocol/settings.ts';
+import { normalizeSettingValue } from '../src/protocol/settingDefinitions.ts';
 
 /** Repository-owned built browser assets. */
 const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
@@ -128,24 +129,44 @@ function importBranchNotice(value: ManagedImportBranchResult | null): RustImport
     sourceGeneration: value.sourceGeneration, sourceCheckpointId: value.sourceCheckpointId };
 }
 
-/** Reject reset-only changes until the fixed-P0 builder accepts arbitrary settings and graphs. */
-function validateFixedP0Reset(message: ResetMsg, metadata: ExperimentalServerRuntime['metadata']): void {
-  if (message.graphSpec !== undefined && message.graphSpec !== null) {
-    throw new Error('the Rust P0 reset does not yet accept a custom graph');
+/** Build one complete fixed-graph setting request without trusting browser normalization. */
+function fixedGraphReplacementSettings(
+  metadata: ExperimentalServerRuntime['metadata'],
+  message?: ResetMsg
+): Array<{ path: string; value: number }> {
+  if (message?.graphSpec !== undefined && message.graphSpec !== null) {
+    throw new Error('the Rust reset does not yet accept a custom graph');
   }
   const current = createRustWelcome(metadata).settings;
-  const core = current.core as unknown as Record<string, unknown>;
-  for (const [key, value] of Object.entries(message.settings ?? {})) {
-    if (!Object.is(core[key], value)) {
-      throw new Error(`the Rust P0 reset does not yet accept changed setting ${key}`);
+  const core = current.core as unknown as Record<string, number>;
+  const replacements = new Map<string, number>();
+  for (const [key, value] of Object.entries(message?.settings ?? {})) {
+    const definition = getLiveSettingDefinition(key);
+    if (!definition || typeof value !== 'number') throw new Error(`reset setting ${key} is invalid`);
+    const normalized = normalizeSettingValue(definition, value);
+    if (!metadata.settings.some(setting => setting.path === key)) {
+      if (!Object.is(core[key], normalized)) {
+        throw new Error(`the fixed Rust graph does not yet accept changed setting ${key}`);
+      }
+      continue;
     }
+    replacements.set(key, normalized);
   }
-  const updates = new Map(current.updates.map(update => [update.path, update.value]));
-  for (const update of message.updates ?? []) {
-    if (!updates.has(update.path) || !Object.is(updates.get(update.path), update.value)) {
-      throw new Error(`the Rust P0 reset does not yet accept changed setting ${update.path}`);
+  for (const update of message?.updates ?? []) {
+    const definition = getLiveSettingDefinition(update.path);
+    if (!definition || !metadata.settings.some(setting => setting.path === update.path)) {
+      throw new Error(`reset setting ${update.path} is not supported by the current Rust graph`);
     }
+    replacements.set(update.path, normalizeSettingValue(definition, update.value));
   }
+  return metadata.settings.map(setting => {
+    const replacement = replacements.get(setting.path);
+    const currentValue = typeof setting.value === 'boolean' ? Number(setting.value) : setting.value;
+    if (typeof currentValue !== 'number' || !Number.isFinite(currentValue)) {
+      throw new TypeError(`Rust fresh-run setting ${setting.path} is not numeric`);
+    }
+    return { path: setting.path, value: replacement ?? currentValue };
+  });
 }
 
 /** Apply Rust-confirmed numeric values to the small cached welcome configuration. */
@@ -168,18 +189,6 @@ function applyMetadataSettings(
       return { ...setting, value: typeof setting.value === 'boolean' ? value === 1 : value };
     })
   };
-}
-
-/** Select the complete live subset that a fresh replacement must preserve. */
-function metadataLiveSettings(metadata: ExperimentalServerRuntime['metadata']): LiveSettingsUpdate[] {
-  return metadata.settings.flatMap(setting => {
-    const definition = getLiveSettingDefinition(setting.path);
-    if (definition?.requiresReset !== false) return [];
-    if (typeof setting.value === 'string') {
-      throw new TypeError(`live setting ${setting.path} has an unsupported text value`);
-    }
-    return [{ path: setting.path as LiveSettingsUpdate['path'], value: Number(setting.value) }];
-  });
 }
 
 /** Start the fixed native P0 profile from fresh or retained managed authority. */
@@ -833,7 +842,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     /** Build, persist, and publish one generation-one authority without exposing it early. */
     const executeFreshReplacement = async (
       reason: 'reset' | 'newRun',
-      seed: number
+      seed: number,
+      settings: Array<{ path: string; value: number }>
     ): Promise<{ runId: string; seed: number; checkpointId: string }> => {
       const operationId = randomBytes(16).toString('hex');
       const runId = randomUUID();
@@ -847,17 +857,21 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           operationId,
           runId,
           seed,
-          metadataLiveSettings(activeMetadata)
+          settings
         );
         prepared = true;
         const descriptor = parseManagedCheckpointDescriptor(candidate.descriptor);
         const metadata = parseRustStartupMetadata(candidate.startupMetadata);
+        const returnedSettings = new Map(metadata.settings.map(setting => [setting.path,
+          typeof setting.value === 'boolean' ? Number(setting.value) : setting.value]));
+        const settingsMatch = returnedSettings.size === settings.length && settings.every(setting =>
+          Object.is(returnedSettings.get(setting.path), setting.value));
         if (descriptor.operationId !== operationId || descriptor.runId !== runId ||
             descriptor.boundaryKind !== 'run-start' ||
             descriptor.generation !== '0000000000000001' ||
             descriptor.completedStep !== '0000000000000000' ||
             metadata.runId !== runId || metadata.seed !== seed ||
-            metadata.configHash !== activeMetadata.configHash) {
+            !settingsMatch) {
           throw new Error('prepared fresh-run identity is internally inconsistent');
         }
         await output.stagePreparedImport();
@@ -900,7 +914,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       connection: number,
       reason: 'reset' | 'newRun',
       seed: number,
-      newRunMessage?: NewRunMsg
+      newRunMessage?: NewRunMsg,
+      settings: Array<{ path: string; value: number }> = fixedGraphReplacementSettings(activeMetadata)
     ): void => {
       if (fault || stopping || importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance) {
         const detail = fault ?? (stopping ? 'server is stopping' : 'another persistence operation is in progress');
@@ -914,7 +929,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         return;
       }
       importAuthorityPublished = false;
-      importOperation = executeFreshReplacement(reason, seed).then(result => {
+      importOperation = executeFreshReplacement(reason, seed, settings).then(result => {
         importOperation = undefined;
         importAuthorityPublished = false;
         if (newRunMessage) {
@@ -972,8 +987,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       }); },
       onReset(connection, message) {
         try {
-          validateFixedP0Reset(message, activeMetadata);
-          startFreshReplacement(connection, 'reset', activeMetadata.seed);
+          const settings = fixedGraphReplacementSettings(activeMetadata, message);
+          startFreshReplacement(connection, 'reset', activeMetadata.seed, undefined, settings);
         } catch (error) {
           sockets.sendJsonTo(connection, {
             type: 'error', message: `reset failed: ${error instanceof Error ? error.message : String(error)}`
