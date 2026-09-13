@@ -4483,7 +4483,7 @@ steering and boost release still reach the next eligible fixed step.
   pin state and retention metadata while preserving versioned history and
   graph/config references. Never introduce SQLite checkpoint chunks or hold a
   full checkpoint in Node/Rust bridge memory.
-- [ ] Enforce the full transient-disk admission formula before checkpoint,
+- [x] Enforce the full transient-disk admission formula before checkpoint,
   import, export, and pin. Disk failure preserves the prior durable/current
   boundary and does not prune first.
 - [ ] Classify the automatic managed checkpoint files already produced by the

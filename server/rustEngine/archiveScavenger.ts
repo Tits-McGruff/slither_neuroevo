@@ -4,7 +4,7 @@ import { join } from 'node:path';
 /** Archive/checkpoint scratch files become startup-cleanup candidates after one day. */
 export const ARCHIVE_ARTIFACT_GRACE_MS = 24 * 60 * 60 * 1000;
 /** Exact private direct-child names produced by bounded checkpoint/archive work. */
-const ARCHIVE_ARTIFACT_NAME = /^(?:checkpoint-v3-[0-9a-f]{32}\.partial|\.[0-9a-f]{32}\.(?:hof-weights\.partial|(?:weights|recurrent|hof-weights)\.codec\.partial|export-hof-weights\.partial|slither-save\.(?:partial|ready)|upload\.(?:partial|ready)))$/u;
+const ARCHIVE_ARTIFACT_NAME = /^(?:checkpoint-v3-[0-9a-f]{32}\.partial|\.[0-9a-f]{32}\.(?:hof-weights\.partial|(?:weights|recurrent|hof-weights)\.codec\.partial|export-hof-weights\.partial|(?:export|import)-inventory-v1(?:\.partial)?|import-hof-weights\.(?:encoded|raw)\.partial|slither-save\.(?:partial|ready)|upload\.(?:partial|ready)))$/u;
 
 /** Bounded result suitable for one startup log or health projection. */
 export interface ArchiveScavengeResult {
@@ -17,7 +17,7 @@ export interface ArchiveScavengeResult {
 }
 
 /** Exact private filenames emitted by the current Rust archive/checkpoint writers. */
-function isRecognizedArtifact(name: string): boolean {
+export function isRecognizedArchiveArtifact(name: string): boolean {
   return ARCHIVE_ARTIFACT_NAME.test(name);
 }
 
@@ -39,7 +39,7 @@ export async function scavengeStaleArchiveArtifacts(
   const result: ArchiveScavengeResult = { examined: 0, removed: 0, removedBytes: 0n };
   const entries = await opendir(directory);
   for await (const entry of entries) {
-    if (!entry.isFile() || !isRecognizedArtifact(entry.name)) continue;
+    if (!entry.isFile() || !isRecognizedArchiveArtifact(entry.name)) continue;
     const path = join(directory, entry.name);
     let metadata: Awaited<ReturnType<typeof lstat>>;
     try {

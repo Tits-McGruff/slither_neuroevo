@@ -87,8 +87,10 @@ instead of starting a new game.
 The server prints a browser URL and supports the existing Protocol 2
 player/bot connections, frames, sensors, steering, disconnect and reclaim. Add
 `--host 0.0.0.0` for trusted home-LAN access. Checkpoints are retained beside
-the database in its `.checkpoints` directory, with free-disk admission before
-each generation save. Recovery provenance is included in health and welcome
+the database in its `.checkpoints` directory. Checkpoint, import, export, and
+pin operations count existing work files, their new source/candidate/final
+files, SQLite/WAL allowance, and a 1 GiB operating reserve before they begin;
+rejections show the complete byte calculation. Recovery provenance is included in health and welcome
 messages. Browser fitness, species, and weight charts use the newest 120
 compact persisted generation summaries and therefore survive restart,
 recovery, and import without loading checkpoint populations into Node.

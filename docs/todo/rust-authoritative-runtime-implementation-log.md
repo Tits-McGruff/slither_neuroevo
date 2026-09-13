@@ -458,4 +458,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Hall-of-Fame retention ranks in SQLite and changes only the bounded selected
   set instead of rereading and rewriting all lifetime history each generation.
 
+- 2026-09-14 Checkpoint, import, export, and pin now share the transient-disk
+  formula, including existing private work files, operation spools, final
+  managed bytes, SQLite/WAL allowance, the temp quota, and 1 GiB operating
+  reserve. Import scratch and export inventories use recognizable
+  operation-scoped names for safe restart cleanup.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

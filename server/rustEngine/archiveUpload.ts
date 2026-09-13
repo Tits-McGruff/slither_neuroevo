@@ -73,7 +73,10 @@ async function nextChunk(
 }
 
 /** Parse an optional HTTP length before opening an upload spool. */
-function parseContentLength(value: string | undefined, maximumBytes: bigint): bigint | undefined {
+export function parseArchiveContentLength(
+  value: string | undefined,
+  maximumBytes: bigint
+): bigint | undefined {
   if (value === undefined) return undefined;
   if (!/^(?:0|[1-9][0-9]*)$/u.test(value)) {
     throw new ArchiveUploadError('INVALID_LENGTH', 'archive Content-Length must be one canonical decimal integer');
@@ -112,7 +115,7 @@ export async function spoolArchiveUpload(options: ArchiveUploadOptions): Promise
   if (!/^[0-9a-f]{32}$/u.test(options.operationId)) {
     throw new TypeError('archive upload operation ID must be 32 lowercase hexadecimal digits');
   }
-  const declaredBytes = parseContentLength(options.contentLength, maximumBytes);
+  const declaredBytes = parseArchiveContentLength(options.contentLength, maximumBytes);
   const directory = await realpath(options.scratchDirectory);
   const partialName = `.${options.operationId}.upload.partial`;
   const readyName = `.${options.operationId}.upload.ready`;

@@ -1,6 +1,6 @@
 import type { RecoveryBranchResult, RecoveryScanCursor } from './recoveryProtocol.ts';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdir, open, statfs } from 'node:fs/promises';
+import { mkdir, open } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,10 @@ import type {
   ManagedLegacyConversion
 } from './checkpointPersistenceProtocol.ts';
 import { scavengeStaleArchiveArtifacts } from './archiveScavenger.ts';
+import {
+  admitDiskOperation,
+  CHECKPOINT_PUBLICATION_BYTES
+} from './diskAdmission.ts';
 
 /** Bounded production background queues for the first explicit P0 server. */
 const BACKGROUND_INIT: ExperimentalEngineInit = {
@@ -26,8 +30,6 @@ const BACKGROUND_INIT: ExperimentalEngineInit = {
   maxOutputTotalOwnedBytes: 32 * 1024 * 1024, maxOutputEventOwnedBytes: 1024 * 1024,
   maxOutputFrameConnections: 4
 };
-/** Reserve enough disk for bounded publication before starting a fresh experiment. */
-const MINIMUM_FREE_BYTES = 256n * 1024n * 1024n;
 /** Native source/loader directory, independent of the shell's working directory. */
 const NATIVE_DIRECTORY = fileURLToPath(new URL('../../native/', import.meta.url));
 /** CommonJS loader for the generated native addon. */
@@ -77,8 +79,12 @@ export interface ExperimentalServerRuntime {
 
 /** Admit bounded publication against current free disk without deleting retained saves. */
 async function admitCheckpoint(directory: string): Promise<void> {
-  const space = await statfs(directory, { bigint: true });
-  if (space.bavail * space.bsize < MINIMUM_FREE_BYTES) throw new Error('insufficient free disk for experimental checkpoints');
+  await admitDiskOperation(directory, {
+    operation: 'checkpoint',
+    sourceSpoolBytes: 0n,
+    candidateSpoolBytes: 0n,
+    finalManagedBytes: CHECKPOINT_PUBLICATION_BYTES
+  });
 }
 
 /** Construct or restore a durable Rust boundary and transfer its sole running authority. */

@@ -2415,7 +2415,8 @@ fn extract_and_validate_import_roles(
     let stage_directory = checkpoint_path.parent().ok_or_else(|| {
         CheckpointError::format("IMPORT_PATH", "checkpoint validation path has no parent")
     })?;
-    let inventory_partial_path = stage_directory.join("import-inventory.partial");
+    let inventory_partial_path =
+        stage_directory.join(format!(".{operation_id}.import-inventory-v1.partial"));
     let mut inventory_cleanup = ScratchFiles::new();
     let mut inventory_writer = if publication_directory.is_some() {
         inventory_cleanup.track(inventory_partial_path.clone());
@@ -2517,8 +2518,10 @@ fn extract_and_validate_import_roles(
     let mut weights_entry = entries.next().transpose()?.ok_or_else(|| {
         CheckpointError::format("IMPORT_USTAR", "Hall-of-Fame weights are missing")
     })?;
-    let encoded_path = stage_directory.join("hof-weights.encoded");
-    let raw_path = stage_directory.join("hof-weights.raw");
+    let encoded_path = stage_directory.join(format!(
+        ".{operation_id}.import-hof-weights.encoded.partial"
+    ));
+    let raw_path = stage_directory.join(format!(".{operation_id}.import-hof-weights.raw.partial"));
     let mut weight_scratch = ScratchFiles::new();
     weight_scratch.track(encoded_path.clone());
     let mut encoded = OpenOptions::new()

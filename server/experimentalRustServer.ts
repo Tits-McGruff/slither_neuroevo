@@ -8,7 +8,7 @@ import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import type { ExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { lstat, stat, statfs, unlink } from 'node:fs/promises';
+import { lstat, stat, unlink } from 'node:fs/promises';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { networkInterfaces } from 'node:os';
@@ -32,7 +32,16 @@ import {
   parseManagedCheckpointDescriptor,
   parseManagedImportInventoryDescriptor
 } from './rustEngine/checkpointPersistenceProtocol.ts';
-import { spoolArchiveUpload } from './rustEngine/archiveUpload.ts';
+import {
+  parseArchiveContentLength,
+  P0_ARCHIVE_UPLOAD_LIMIT,
+  spoolArchiveUpload
+} from './rustEngine/archiveUpload.ts';
+import {
+  admitDiskOperation,
+  CHECKPOINT_PUBLICATION_BYTES,
+  IMPORT_CANDIDATE_BYTES
+} from './rustEngine/diskAdmission.ts';
 import { parseRustStartupMetadata } from './rustEngine/startupMetadata.ts';
 import type { GodModeMsg, LiveSettingsMsg, NewRunMsg, ResetMsg } from './protocol.ts';
 import { readJsonBody } from './httpApi.ts';
@@ -61,10 +70,12 @@ async function admitExportSpace(directory: string, lease: ManagedCheckpointExpor
   const hallOfFameRawBytes = hallOfFameCount * (weights / population) * 4n;
   const projectedAdditionalBytes = BigInt(`0x${lease.descriptor.storedByteCount}`) +
     BigInt(`0x${lease.inventory.storedByteCount}`) + hallOfFameRawBytes * 2n + 16n * 1024n * 1024n;
-  const space = await statfs(directory, { bigint: true });
-  if (space.bavail * space.bsize < projectedAdditionalBytes) {
-    throw new Error('insufficient free disk for exact checkpoint export');
-  }
+  await admitDiskOperation(directory, {
+    operation: 'export',
+    sourceSpoolBytes: 0n,
+    candidateSpoolBytes: projectedAdditionalBytes,
+    finalManagedBytes: 0n
+  });
 }
 
 /** Explicit experimental process ownership returned to tests and the CLI. */
@@ -566,7 +577,9 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         response.end(JSON.stringify({ ok: false, message: 'another persistence operation is in progress' }));
         return;
       }
-      pinning = owner.persistence.pinCurrentCheckpoint().then(async pinned => {
+      pinning = admitDiskOperation(owner.managedDirectory, {
+        operation: 'pin', sourceSpoolBytes: 0n, candidateSpoolBytes: 0n, finalManagedBytes: 0n
+      }).then(() => owner.persistence.pinCurrentCheckpoint()).then(async pinned => {
         retention = await owner.persistence.inspectRetention();
         if (response.destroyed) return;
         response.writeHead(200, { 'Content-Type': 'application/json' });
@@ -842,6 +855,16 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       let staged = false;
       let committed = false;
       try {
+        const declaredUploadBytes = parseArchiveContentLength(
+          request.headers['content-length'],
+          P0_ARCHIVE_UPLOAD_LIMIT
+        );
+        await admitDiskOperation(owner.managedDirectory, {
+          operation: 'import',
+          sourceSpoolBytes: declaredUploadBytes ?? P0_ARCHIVE_UPLOAD_LIMIT,
+          candidateSpoolBytes: IMPORT_CANDIDATE_BYTES,
+          finalManagedBytes: CHECKPOINT_PUBLICATION_BYTES
+        });
         const upload = await spoolArchiveUpload({
           source: request,
           contentLength: request.headers['content-length'],

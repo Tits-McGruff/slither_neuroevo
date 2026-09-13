@@ -20,6 +20,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'server/rustEngine/controllerDelivery.test.ts',
     'server/rustEngine/commandAdmission.test.ts',
     'server/rustEngine/checkpointRetention.test.ts',
+    'server/rustEngine/diskAdmission.test.ts',
     'server/rustEngine/externalRouting.test.ts',
     'server/rustEngine/experimentalNativeBridge.test.ts',
     'server/rustEngine/experimentalFreshRunSession.test.ts',
