@@ -145,7 +145,8 @@ Mode kill uses the normal corpse-pellet, random-stream, ID-allocation, and
 controller/baseline lifecycle paths. Hall-of-Fame resurrection and focused
 neural visualization are now available in the Rust server; visualization does
 no activation-capture work while no browser is viewing the Visualizer tab.
-Graph-preset persistence remains in migration.
+Named graph presets are saved, listed and loaded through the Rust server's
+isolated SQLite metadata worker.
 `npm run server` remains the separate reference runtime.
 
 ### Architecture

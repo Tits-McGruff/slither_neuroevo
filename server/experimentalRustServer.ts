@@ -3,6 +3,7 @@ import type {
   RustImportBranchNotice,
   RustRecoveryNotice
 } from '../src/protocol/rustBackground.ts';
+import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import type { ExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
@@ -443,6 +444,68 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       response.end(JSON.stringify({
         hof: hallOfFame.map(entry => ({ ...entry, seed: activeMetadata.seed }))
       }));
+      return;
+    }
+    if (request.method === 'GET' && pathname === '/api/graph-presets') {
+      const rawLimit = requestUrl.searchParams.get('limit');
+      const requestedLimit = rawLimit === null ? Number.NaN : Number(rawLimit);
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.min(200, Math.max(1, Math.trunc(requestedLimit)))
+        : 50;
+      void owner.persistence.listGraphPresets(limit).then(presets => {
+        if (response.destroyed) return;
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: true, presets }));
+      }).catch(error => {
+        if (response.destroyed) return;
+        response.writeHead(500, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false,
+          message: error instanceof Error ? error.message : String(error) }));
+      });
+      return;
+    }
+    if (request.method === 'GET' && pathname.startsWith('/api/graph-presets/')) {
+      const id = Number(pathname.slice('/api/graph-presets/'.length));
+      if (!Number.isSafeInteger(id) || id < 1) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, message: 'preset id must be a positive integer' }));
+        return;
+      }
+      void owner.persistence.loadGraphPreset(id).then(preset => {
+        if (response.destroyed) return;
+        response.writeHead(preset ? 200 : 404, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify(preset
+          ? { ok: true, preset }
+          : { ok: false, message: 'preset not found' }));
+      }).catch(error => {
+        if (response.destroyed) return;
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false,
+          message: error instanceof Error ? error.message : String(error) }));
+      });
+      return;
+    }
+    if (request.method === 'POST' && pathname === '/api/graph-presets') {
+      void readJsonBody(request, 512 * 1024).then(value => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+          throw new TypeError('graph preset body must be an object');
+        }
+        const body = value as Record<string, unknown>;
+        if (Object.keys(body).length !== 2 || typeof body['name'] !== 'string' ||
+            !body['spec'] || typeof body['spec'] !== 'object' || Array.isArray(body['spec'])) {
+          throw new TypeError('graph preset requires exactly name and spec');
+        }
+        return owner.persistence.saveGraphPreset(body['name'], body['spec'] as GraphSpec);
+      }).then(presetId => {
+        if (response.destroyed) return;
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: true, presetId }));
+      }).catch(error => {
+        if (response.destroyed) return;
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false,
+          message: error instanceof Error ? error.message : String(error) }));
+      });
       return;
     }
     if (request.method === 'POST' && pathname === '/api/resurrect') {

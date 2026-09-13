@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto';
 import { dirname, resolve, sep } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
+import { validateGraph } from '../../src/brains/graph/validate.ts';
+import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 import {
   buildCheckpointRetentionInventory,
   OWNER_CHECKPOINT_RETENTION_DEFAULTS,
@@ -35,6 +37,8 @@ import {
   type ManagedHallOfFameReference,
   type ManagedImportBranchResult,
   type ManagedImportInventoryDescriptor,
+  type ManagedGraphPreset,
+  type ManagedGraphPresetMeta,
   type U64Hex
 } from './checkpointPersistenceProtocol.ts';
 
@@ -48,6 +52,10 @@ const EXPORT_INVENTORY_HALL_OF_FAME_BYTES = 120;
 const MAX_EXPORT_GENERATIONS = 1_000_000n;
 /** Owner-selected number of best unique unpinned Hall-of-Fame genomes. */
 const MAX_UNPINNED_HALL_OF_FAME_GENOMES = 50;
+/** Largest serialized graph preset admitted by the existing browser contract. */
+const MAX_GRAPH_PRESET_BYTES = 256 * 1024;
+/** Largest UTF-8 preset name retained in SQLite. */
+const MAX_GRAPH_PRESET_NAME_BYTES = 256;
 
 /** Worker bootstrap data owned by the client and structured-cloned at spawn time. */
 interface CheckpointPersistenceWorkerData {
@@ -169,6 +177,7 @@ if (String(journalMode).toLowerCase() !== 'wal' || Number(synchronous) !== 2) {
 }
 db.pragma('foreign_keys = ON');
 if (!bootstrap.existingOnly) initializeSchema(db);
+initializeGraphPresetSchema(db);
 initializeHallOfFameWeightsSchema(db);
 initializeImportableHistorySchema(db);
 initializeRecoverySchema(db);
@@ -232,11 +241,11 @@ function validateExistingSchema(database: ReturnType<typeof Database>): void {
     sum(name IN ('rust_checkpoint_v3_metadata', 'rust_checkpoint_v3_current',
       'rust_generation_history_v1', 'rust_hall_of_fame_v1', 'rust_hall_of_fame_weights_v1',
       'rust_recovery_branches_v1', 'rust_import_branches_v1', 'rust_active_run_v1',
-      'rust_checkpoint_retention_v1')) AS recognized
+      'rust_checkpoint_retention_v1', 'graph_presets')) AS recognized
     FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).get() as {
       total: number; recognized: number | null;
     };
-  if (![4, 5, 6, 7, 8, 9].includes(schema.total) || schema.recognized !== schema.total) {
+  if (![4, 5, 6, 7, 8, 9, 10].includes(schema.total) || schema.recognized !== schema.total) {
     throw new Error('resume requires an existing managed checkpoint metadata database');
   }
   // Preparing these fixed reads also rejects incompatible columns without DDL.
@@ -1283,6 +1292,84 @@ function readBrowserHallOfFame(runId: string, limit: number): ManagedBrowserHall
   }).deferred();
 }
 
+/** Add the small legacy-compatible graph-preset table to dedicated Rust databases. */
+function initializeGraphPresetSchema(database: ReturnType<typeof Database>): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS graph_presets (
+      id INTEGER PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      spec_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_graph_presets_name ON graph_presets(name);
+  `);
+  database.prepare('SELECT id, created_at, name, spec_json FROM graph_presets LIMIT 0').all();
+}
+
+/** Parse and independently compile one bounded preset document. */
+function parseGraphPresetSpec(specJson: string): GraphSpec {
+  if (!specJson || Buffer.byteLength(specJson) > MAX_GRAPH_PRESET_BYTES) {
+    throw new RangeError('graph preset exceeds 256 KiB');
+  }
+  const spec: unknown = JSON.parse(specJson);
+  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
+    throw new TypeError('graph preset spec must be an object');
+  }
+  const result = validateGraph(spec as GraphSpec);
+  if (!result.ok) throw new Error(`invalid graph preset: ${result.reason}`);
+  return spec as GraphSpec;
+}
+
+/** Insert one bounded validated graph preset. */
+function saveGraphPreset(name: string, specJson: string): number {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.includes('\0') || Buffer.byteLength(trimmed) > MAX_GRAPH_PRESET_NAME_BYTES) {
+    throw new TypeError('graph preset name must contain 1 to 256 UTF-8 bytes');
+  }
+  parseGraphPresetSpec(specJson);
+  const result = db.prepare(`INSERT INTO graph_presets (created_at, name, spec_json)
+    VALUES (?, ?, ?)`).run(Date.now(), trimmed, specJson);
+  const id = Number(result.lastInsertRowid);
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error('graph preset row identity is invalid');
+  return id;
+}
+
+/** List only small preset metadata in newest-first order. */
+function listGraphPresets(limit: number): ManagedGraphPresetMeta[] {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
+    throw new RangeError('graph preset limit must be an integer from 1 to 200');
+  }
+  const rows = db.prepare(`SELECT id, created_at, name FROM graph_presets
+    ORDER BY created_at DESC, id DESC LIMIT ?`).all(limit) as Array<{
+      id: number; created_at: number; name: string;
+    }>;
+  return listStoredGraphPresetMetadata(rows);
+}
+
+/** Load and revalidate one complete preset without touching authoritative state. */
+function loadGraphPreset(presetId: number): ManagedGraphPreset | null {
+  if (!Number.isSafeInteger(presetId) || presetId < 1) throw new TypeError('graph preset id is invalid');
+  const row = db.prepare(`SELECT id, created_at, name, spec_json FROM graph_presets WHERE id = ?`)
+    .get(presetId) as { id: number; created_at: number; name: string; spec_json: string } | undefined;
+  if (!row) return null;
+  const [metadata] = listStoredGraphPresetMetadata([row]);
+  return { ...metadata!, spec: parseGraphPresetSpec(row.spec_json) };
+}
+
+/** Validate metadata shared by complete preset loads. */
+function listStoredGraphPresetMetadata(
+  rows: Array<{ id: number; created_at: number; name: string }>
+): ManagedGraphPresetMeta[] {
+  return rows.map(row => {
+    if (!Number.isSafeInteger(row.id) || row.id < 1 || !Number.isSafeInteger(row.created_at) ||
+        row.created_at < 0 || typeof row.name !== 'string' || !row.name || row.name.includes('\0') ||
+        Buffer.byteLength(row.name) > MAX_GRAPH_PRESET_NAME_BYTES) {
+      throw new Error('stored graph preset metadata is invalid');
+    }
+    return { id: row.id, name: row.name, createdAt: row.created_at };
+  });
+}
+
 /** Select and verify one retained packed winner without decoding its weights in Node. */
 function selectHallOfFameEntry(runId: string, entryId: U64Hex,
   operationId: CheckpointOperationId): ManagedHallOfFameSelection {
@@ -2173,7 +2260,8 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
       request['type'] === 'applyCheckpointRetention' || request['type'] === 'acquireCurrentExportLease' ||
       request['type'] === 'releaseExportLease' || request['type'] === 'readBrowserHistory' ||
       request['type'] === 'readBrowserHallOfFame' || request['type'] === 'selectHallOfFameEntry' ||
-      request['type'] === 'releaseHallOfFameEntry') {
+      request['type'] === 'releaseHallOfFameEntry' || request['type'] === 'saveGraphPreset' ||
+      request['type'] === 'listGraphPresets' || request['type'] === 'loadGraphPreset') {
     const operationId = request['operationId'];
     return typeof operationId === 'string' && /^[0-9a-f]{32}$/u.test(operationId) ? operationId : null;
   }
@@ -2237,6 +2325,32 @@ port.on('message', (message: unknown) => {
     if (request['type'] === 'inspectCheckpointRetention') {
       if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid retention inventory request');
       post({ type: 'checkpointRetentionInspected', operationId, inventory: inspectCheckpointRetention() });
+      return;
+    }
+    if (request['type'] === 'saveGraphPreset') {
+      const name = request['name'];
+      const specJson = request['specJson'];
+      if (!operationId || Object.keys(request).length !== 4 || typeof name !== 'string' ||
+          typeof specJson !== 'string') {
+        throw new TypeError('invalid graph preset save request');
+      }
+      post({ type: 'graphPresetSaved', operationId, presetId: saveGraphPreset(name, specJson) });
+      return;
+    }
+    if (request['type'] === 'listGraphPresets') {
+      const limit = request['limit'];
+      if (!operationId || Object.keys(request).length !== 3 || typeof limit !== 'number') {
+        throw new TypeError('invalid graph preset list request');
+      }
+      post({ type: 'graphPresetsListed', operationId, presets: listGraphPresets(limit) });
+      return;
+    }
+    if (request['type'] === 'loadGraphPreset') {
+      const presetId = request['presetId'];
+      if (!operationId || Object.keys(request).length !== 3 || typeof presetId !== 'number') {
+        throw new TypeError('invalid graph preset load request');
+      }
+      post({ type: 'graphPresetLoaded', operationId, preset: loadGraphPreset(presetId) });
       return;
     }
     if (request['type'] === 'readBrowserHistory') {

@@ -1,6 +1,8 @@
 import { parseRecoveryScanCursor, parseRecoveryScanResult, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
 import { Worker } from 'node:worker_threads';
 import { randomBytes } from 'node:crypto';
+import { validateGraph } from '../../src/brains/graph/validate.ts';
+import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 import {
   parseCheckpointPruneResult,
   parseCheckpointRetentionInventory,
@@ -30,6 +32,8 @@ import {
   type ManagedGenerationCommit,
   type ManagedImportBranchResult,
   type ManagedImportInventoryDescriptor,
+  type ManagedGraphPreset,
+  type ManagedGraphPresetMeta,
   type U64Hex
 } from './checkpointPersistenceProtocol.ts';
 
@@ -120,6 +124,12 @@ type HallOfFameLeaseState =
   | { phase: 'releasing'; operationId: CheckpointOperationId; runId: string; entryId: U64Hex;
       resolve(): void; reject(error: Error): void };
 
+/** One correlated graph-preset metadata operation. */
+type PendingGraphPresetOperation =
+  | { kind: 'save'; resolve(value: number): void; reject(error: Error): void }
+  | { kind: 'list'; resolve(value: ManagedGraphPresetMeta[]): void; reject(error: Error): void }
+  | { kind: 'load'; resolve(value: ManagedGraphPreset | null): void; reject(error: Error): void };
+
 /**
  * Client lifecycle wrapper around exactly one dedicated SQLite persistence worker.
  *
@@ -155,6 +165,8 @@ export class CheckpointPersistenceClient {
   private hallOfFame: { operationId: CheckpointOperationId; runId: string; resolve(value: ManagedBrowserHallOfFameEntry[]): void; reject(error: Error): void } | undefined;
   /** At most one exact retained winner selection may be in flight. */
   private hallOfFameSelection: HallOfFameLeaseState | undefined;
+  /** Independent bounded graph-preset requests indexed by their correlation token. */
+  private readonly graphPresets = new Map<CheckpointOperationId, PendingGraphPresetOperation>();
   /** One temporary exact-checkpoint reference across preparation and download. */
   private exportLease: ExportLeaseState | undefined;
   /** Terminal lifecycle failure, if the worker violates protocol or exits unexpectedly. */
@@ -441,6 +453,57 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Persist one bounded graph preset without involving the authoritative engine. */
+  saveGraphPreset(name: string, spec: GraphSpec): Promise<number> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.graphPresets.size >= 8) {
+      return Promise.reject(new Error('graph preset persistence is busy or stopping'));
+    }
+    let normalized: { name: string; specJson: string };
+    try { normalized = normalizeGraphPreset(name, spec); }
+    catch (error) { return Promise.reject(asError(error)); }
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.graphPresets.set(operationId, { kind: 'save', resolve, reject });
+      try { this.worker.postMessage({ type: 'saveGraphPreset', operationId, ...normalized }); }
+      catch (error) { this.graphPresets.delete(operationId); reject(asError(error)); }
+    });
+  }
+
+  /** List newest graph-preset metadata without returning graph documents. */
+  listGraphPresets(limit = 50): Promise<ManagedGraphPresetMeta[]> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.graphPresets.size >= 8) {
+      return Promise.reject(new Error('graph preset persistence is busy or stopping'));
+    }
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
+      return Promise.reject(new TypeError('graph preset limit must be an integer from 1 to 200'));
+    }
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.graphPresets.set(operationId, { kind: 'list', resolve, reject });
+      try { this.worker.postMessage({ type: 'listGraphPresets', operationId, limit }); }
+      catch (error) { this.graphPresets.delete(operationId); reject(asError(error)); }
+    });
+  }
+
+  /** Load and independently validate one complete graph preset. */
+  loadGraphPreset(presetId: number): Promise<ManagedGraphPreset | null> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.graphPresets.size >= 8) {
+      return Promise.reject(new Error('graph preset persistence is busy or stopping'));
+    }
+    if (!Number.isSafeInteger(presetId) || presetId < 1) {
+      return Promise.reject(new TypeError('graph preset id must be a positive safe integer'));
+    }
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.graphPresets.set(operationId, { kind: 'load', resolve, reject });
+      try { this.worker.postMessage({ type: 'loadGraphPreset', operationId, presetId }); }
+      catch (error) { this.graphPresets.delete(operationId); reject(asError(error)); }
+    });
+  }
+
   /** Release the retained winner after native success or rejection. */
   releaseHallOfFameEntry(operationId: CheckpointOperationId): Promise<void> {
     if (this.failure) return Promise.reject(this.failure);
@@ -550,6 +613,33 @@ export class CheckpointPersistenceClient {
         }
         this.hallOfFame = undefined;
         pending.resolve(response.entries);
+        return;
+      }
+      if (response.type === 'graphPresetSaved') {
+        const pending = this.graphPresets.get(response.operationId);
+        if (!pending || pending.kind !== 'save') {
+          throw new Error('persistence worker returned a mismatched graph preset save');
+        }
+        this.graphPresets.delete(response.operationId);
+        pending.resolve(response.presetId);
+        return;
+      }
+      if (response.type === 'graphPresetsListed') {
+        const pending = this.graphPresets.get(response.operationId);
+        if (!pending || pending.kind !== 'list') {
+          throw new Error('persistence worker returned a mismatched graph preset list');
+        }
+        this.graphPresets.delete(response.operationId);
+        pending.resolve(response.presets);
+        return;
+      }
+      if (response.type === 'graphPresetLoaded') {
+        const pending = this.graphPresets.get(response.operationId);
+        if (!pending || pending.kind !== 'load') {
+          throw new Error('persistence worker returned a mismatched graph preset load');
+        }
+        this.graphPresets.delete(response.operationId);
+        pending.resolve(response.preset);
         return;
       }
       if (response.type === 'hallOfFameEntrySelected') {
@@ -669,6 +759,12 @@ export class CheckpointPersistenceClient {
           pending.reject(new Error(response.reason));
           return;
         }
+        const graphPreset = this.graphPresets.get(response.operationId);
+        if (graphPreset) {
+          this.graphPresets.delete(response.operationId);
+          graphPreset.reject(new Error(response.reason));
+          return;
+        }
         if (response.operationId === this.hallOfFameSelection?.operationId &&
             this.hallOfFameSelection.phase !== 'active') {
           const pending = this.hallOfFameSelection;
@@ -754,6 +850,8 @@ export class CheckpointPersistenceClient {
     this.history = undefined;
     this.hallOfFame?.reject(error);
     this.hallOfFame = undefined;
+    for (const pending of this.graphPresets.values()) pending.reject(error);
+    this.graphPresets.clear();
     if (this.hallOfFameSelection?.phase !== 'active') this.hallOfFameSelection?.reject(error);
     this.hallOfFameSelection = undefined;
     if (this.exportLease?.phase !== 'active') this.exportLease?.reject(error);
@@ -789,7 +887,7 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning && !this.history && !this.hallOfFame &&
+    if (this.stopping && code === 0 && this.pending.size === 0 && this.graphPresets.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning && !this.history && !this.hallOfFame &&
         (!this.hallOfFameSelection || this.hallOfFameSelection.phase === 'active') &&
         (!this.exportLease || this.exportLease.phase === 'active')) {
       this.resolveStopped?.();
@@ -818,6 +916,58 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+/** Normalize and validate one graph preset before it crosses the worker boundary. */
+function normalizeGraphPreset(name: string, spec: GraphSpec): { name: string; specJson: string } {
+  if (typeof name !== 'string') throw new TypeError('graph preset name must be a string');
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.includes('\0') || Buffer.byteLength(trimmed) > 256) {
+    throw new TypeError('graph preset name must contain 1 to 256 UTF-8 bytes');
+  }
+  const validation = validateGraph(spec);
+  if (!validation.ok) throw new TypeError(`invalid graph preset: ${validation.reason}`);
+  const specJson = JSON.stringify(spec);
+  if (Buffer.byteLength(specJson) > 256 * 1024) throw new RangeError('graph preset exceeds 256 KiB');
+  return { name: trimmed, specJson };
+}
+
+/** Parse one strictly bounded preset metadata row from the worker. */
+function parseGraphPresetMeta(value: unknown): ManagedGraphPresetMeta {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('invalid graph preset metadata');
+  }
+  const record = value as Record<string, unknown>;
+  requireExactKeys(record, ['id', 'name', 'createdAt']);
+  if (!Number.isSafeInteger(record['id']) || (record['id'] as number) < 1 ||
+      !Number.isSafeInteger(record['createdAt']) || (record['createdAt'] as number) < 0 ||
+      typeof record['name'] !== 'string' || !record['name'] || record['name'] !== record['name'].trim() ||
+      record['name'].includes('\0') || Buffer.byteLength(record['name']) > 256) {
+    throw new TypeError('invalid graph preset metadata');
+  }
+  return record as unknown as ManagedGraphPresetMeta;
+}
+
+/** Parse and recompile one complete preset returned by the worker. */
+function parseGraphPreset(value: unknown): ManagedGraphPreset {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('invalid graph preset payload');
+  }
+  const record = value as Record<string, unknown>;
+  requireExactKeys(record, ['id', 'name', 'createdAt', 'spec']);
+  const metadata = parseGraphPresetMeta({
+    id: record['id'], name: record['name'], createdAt: record['createdAt']
+  });
+  const spec = record['spec'];
+  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
+    throw new TypeError('invalid graph preset spec');
+  }
+  const validation = validateGraph(spec as GraphSpec);
+  const encoded = JSON.stringify(spec);
+  if (!validation.ok || Buffer.byteLength(encoded) > 256 * 1024) {
+    throw new TypeError('invalid graph preset spec');
+  }
+  return { ...metadata, spec: spec as GraphSpec };
+}
+
 /**
  * Validate a response has only the exact scalar fields defined by the worker protocol.
  * @param value - Unknown structured-cloned response.
@@ -829,6 +979,30 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     throw new TypeError('checkpoint persistence worker sent a non-object response');
   }
   const response = value as Record<string, unknown>;
+  if (response['type'] === 'graphPresetSaved') {
+    requireExactKeys(response, ['type', 'operationId', 'presetId']);
+    if (!isOperationId(response['operationId']) || !Number.isSafeInteger(response['presetId']) ||
+        (response['presetId'] as number) < 1) {
+      throw new TypeError('invalid graph preset save response');
+    }
+    return { type: 'graphPresetSaved', operationId: response['operationId'],
+      presetId: response['presetId'] as number };
+  }
+  if (response['type'] === 'graphPresetsListed') {
+    requireExactKeys(response, ['type', 'operationId', 'presets']);
+    if (!isOperationId(response['operationId']) || !Array.isArray(response['presets']) ||
+        response['presets'].length > 200) {
+      throw new TypeError('invalid graph preset list response');
+    }
+    return { type: 'graphPresetsListed', operationId: response['operationId'],
+      presets: response['presets'].map(parseGraphPresetMeta) };
+  }
+  if (response['type'] === 'graphPresetLoaded') {
+    requireExactKeys(response, ['type', 'operationId', 'preset']);
+    if (!isOperationId(response['operationId'])) throw new TypeError('invalid graph preset load response');
+    return { type: 'graphPresetLoaded', operationId: response['operationId'],
+      preset: response['preset'] === null ? null : parseGraphPreset(response['preset']) };
+  }
   if (response['type'] === 'hallOfFameEntryReleased') {
     requireExactKeys(response, ['type', 'operationId']);
     if (!isOperationId(response['operationId'])) throw new TypeError('invalid Hall-of-Fame release correlation');

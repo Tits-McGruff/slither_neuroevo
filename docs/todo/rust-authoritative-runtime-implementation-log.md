@@ -421,4 +421,7 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   width, sizes and initializes every genome, persists the graph in checkpoint
   v3, and returns the exact admitted source graph for restart and New Run.
 
+- 2026-09-13 The Rust server now saves, lists and loads bounded graph presets
+  through its isolated SQLite metadata worker and existing browser HTTP API.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

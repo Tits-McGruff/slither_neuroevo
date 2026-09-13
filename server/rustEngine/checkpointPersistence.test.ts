@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, type TestContext } from 'vitest';
+import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
 import type {
   ManagedCheckpointDescriptor,
@@ -300,6 +301,32 @@ afterEach(async () => {
 
 // Allow worker startup, durable I/O and joined shutdown on shared runners.
 describe(SUITE, { timeout: 30_000 }, () => {
+  it('keeps validated graph presets across metadata-worker restarts', async () => {
+    const fixture = createFixture();
+    const spec: GraphSpec = {
+      type: 'graph',
+      nodes: [
+        { id: 'input', type: 'Input', outputSize: 2 },
+        { id: 'head', type: 'Dense', inputSize: 2, outputSize: 2 }
+      ],
+      edges: [{ from: 'input', to: 'head' }],
+      outputs: [{ nodeId: 'head' }],
+      outputSize: 2
+    };
+    const presetId = await fixture.client.saveGraphPreset('  Small graph  ', spec);
+    expect(await fixture.client.listGraphPresets()).toEqual([
+      { id: presetId, name: 'Small graph', createdAt: expect.any(Number) }
+    ]);
+    await fixture.client.close();
+    const reopened = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(reopened);
+    await expect(reopened.loadGraphPreset(presetId)).resolves.toMatchObject({
+      id: presetId, name: 'Small graph', spec
+    });
+    await expect(reopened.loadGraphPreset(presetId + 1)).resolves.toBeNull();
+  });
+
   it('scans corrupt retained metadata newest first with bounded records and exact cursor retry', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);

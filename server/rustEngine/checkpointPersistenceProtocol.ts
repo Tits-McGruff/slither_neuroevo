@@ -1,5 +1,6 @@
 import type { RecoveryBranchCommit, RecoveryBranchResult, RecoveryScanCursor, RecoveryScanResult } from './recoveryProtocol.ts';
 import type { CheckpointPruneResult, CheckpointRetentionInventory } from './checkpointRetention.ts';
+import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 /** Descriptor protocol for the isolated Stage 3 checkpoint metadata worker. */
 
 /** Protocol version understood by the checkpoint persistence worker. */
@@ -13,6 +14,22 @@ export type F64Hex = string;
 
 /** Fixed lowercase hexadecimal operation token, independent of the run identity. */
 export type CheckpointOperationId = string;
+
+/** Small graph-preset list row stored beside Rust checkpoint metadata. */
+export interface ManagedGraphPresetMeta {
+  /** SQLite row identity. */
+  id: number;
+  /** User-visible bounded name. */
+  name: string;
+  /** Creation time in milliseconds since the Unix epoch. */
+  createdAt: number;
+}
+
+/** Complete bounded graph preset returned only on an explicit load. */
+export interface ManagedGraphPreset extends ManagedGraphPresetMeta {
+  /** Independently validated current graph definition. */
+  spec: GraphSpec;
+}
 
 /** Immutable checkpoint boundary kinds supported by the Stage 3 bridge. */
 export type ManagedCheckpointBoundaryKind = 'run-start' | 'generation';
@@ -290,6 +307,9 @@ export type CheckpointPersistenceWorkerRequest =
   | { type: 'releaseExportLease'; operationId: CheckpointOperationId }
   | { type: 'readBrowserHistory'; operationId: CheckpointOperationId; runId: string; limit: number }
   | { type: 'readBrowserHallOfFame'; operationId: CheckpointOperationId; runId: string; limit: number }
+  | { type: 'saveGraphPreset'; operationId: CheckpointOperationId; name: string; specJson: string }
+  | { type: 'listGraphPresets'; operationId: CheckpointOperationId; limit: number }
+  | { type: 'loadGraphPreset'; operationId: CheckpointOperationId; presetId: number }
   | { type: 'selectHallOfFameEntry'; operationId: CheckpointOperationId; runId: string; entryId: U64Hex }
   | { type: 'releaseHallOfFameEntry'; operationId: CheckpointOperationId }
   | CommitManagedCheckpointRequest
@@ -435,6 +455,9 @@ export type CheckpointPersistenceWorkerResponse =
   | { type: 'exportLeaseReleased'; operationId: CheckpointOperationId }
   | { type: 'browserHistoryRead'; operationId: CheckpointOperationId; runId: string; history: ManagedBrowserHistoryEntry[] }
   | { type: 'browserHallOfFameRead'; operationId: CheckpointOperationId; runId: string; entries: ManagedBrowserHallOfFameEntry[] }
+  | { type: 'graphPresetSaved'; operationId: CheckpointOperationId; presetId: number }
+  | { type: 'graphPresetsListed'; operationId: CheckpointOperationId; presets: ManagedGraphPresetMeta[] }
+  | { type: 'graphPresetLoaded'; operationId: CheckpointOperationId; preset: ManagedGraphPreset | null }
   | { type: 'hallOfFameEntrySelected'; selection: ManagedHallOfFameSelection }
   | { type: 'hallOfFameEntryReleased'; operationId: CheckpointOperationId }
   | ManagedCheckpointCommittedResponse

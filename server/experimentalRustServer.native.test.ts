@@ -444,6 +444,21 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
           { from: 'memory', to: 'head' }
         ], outputs: [{ nodeId: 'head' }], outputSize: 2
       };
+      const savePresetResponse = await fetch(`http://127.0.0.1:${server.port}/api/graph-presets`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Compact memory', spec: replacementGraph })
+      });
+      expect(savePresetResponse.status).toBe(200);
+      const savedPreset = await savePresetResponse.json() as { presetId: number };
+      expect(savedPreset.presetId).toBeGreaterThan(0);
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/graph-presets`)).json()).toMatchObject({
+        ok: true, presets: [{ id: savedPreset.presetId, name: 'Compact memory', createdAt: expect.any(Number) }]
+      });
+      expect(await (await fetch(
+        `http://127.0.0.1:${server.port}/api/graph-presets/${savedPreset.presetId}`
+      )).json()).toMatchObject({
+        ok: true, preset: { id: savedPreset.presetId, name: 'Compact memory', spec: replacementGraph }
+      });
       viewer.socket.send(JSON.stringify({ type: 'reset', settings: { simSpeed: 2 }, updates: [
         { path: 'worldRadius', value: 4_200 },
         { path: 'generationSeconds', value: 90 },
