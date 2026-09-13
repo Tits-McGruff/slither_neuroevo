@@ -22,6 +22,8 @@ import {
   parseManagedGenerationCommit,
   parseManagedImportBranchResult,
   parseManagedImportInventoryDescriptor,
+  parseManagedLegacyConversion,
+  parseManagedLegacySnapshotSelection,
   type CheckpointOperationId,
   type CheckpointPersistenceWorkerResponse,
   type ManagedCheckpointDescriptor,
@@ -37,6 +39,8 @@ import {
   type ManagedHallOfFameReference,
   type ManagedImportBranchResult,
   type ManagedImportInventoryDescriptor,
+  type ManagedLegacyConversion,
+  type ManagedLegacySnapshotSelection,
   type ManagedGraphPreset,
   type ManagedGraphPresetMeta,
   type U64Hex
@@ -182,6 +186,7 @@ initializeHallOfFameWeightsSchema(db);
 initializeImportableHistorySchema(db);
 initializeRecoverySchema(db);
 initializeRetentionSchema(db);
+initializeLegacyConversionSchema(db);
 /** One exact in-process export reference; worker shutdown cancels it implicitly. */
 let activeExportLease: {
   operationId: CheckpointOperationId;
@@ -1078,13 +1083,18 @@ function resolveSelectedRun(runId: string | null): string | null {
 function selectManagedCheckpoint(runId: string | null): ManagedCheckpointSelection {
   return db.transaction(() => {
     const selectedRun = resolveSelectedRun(runId);
-    if (selectedRun === null) return { descriptor: null, runId: null, recovery: null, importBranch: null };
+    if (selectedRun === null) return {
+      descriptor: null, runId: null, recovery: null, importBranch: null, legacyConversion: null
+    };
     const current = readCurrentPointer(selectedRun);
-    if (!current) return { descriptor: null, runId: null, recovery: null, importBranch: null };
+    if (!current) return {
+      descriptor: null, runId: null, recovery: null, importBranch: null, legacyConversion: null
+    };
     const descriptor = validateCurrentPointerIdentity(selectedRun, current);
     assertDescriptorBounds(descriptor);
     return { descriptor, runId: selectedRun, recovery: readRecoveryBranch(selectedRun) ?? null,
-      importBranch: readImportBranch(selectedRun) ?? null };
+      importBranch: readImportBranch(selectedRun) ?? null,
+      legacyConversion: readLegacyConversion(selectedRun) ?? null };
   }).deferred();
 }
 
@@ -1302,8 +1312,29 @@ function readBrowserHallOfFame(runId: string, limit: number): ManagedBrowserHall
   }).deferred();
 }
 
-/** Select only one bounded TypeScript v2 parent ID; Rust reads every population row. */
-function selectLegacySnapshot(): number | null {
+/** Add durable provenance for population-only conversions from older SQLite checkpoints. */
+function initializeLegacyConversionSchema(database: ReturnType<typeof Database>): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS rust_legacy_conversions_v1 (
+      run_id TEXT PRIMARY KEY NOT NULL REFERENCES rust_checkpoint_v3_current(run_id),
+      source_snapshot_id INTEGER NOT NULL CHECK(source_snapshot_id > 0),
+      source_format TEXT NOT NULL CHECK(source_format IN ('typescript-v2', 'legacy-gzip', 'legacy-json')),
+      completeness TEXT NOT NULL CHECK(completeness = 'population-only'),
+      created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0)
+    );
+  `);
+}
+
+/** Read and strictly validate one run's legacy-conversion provenance. */
+function readLegacyConversion(runId: string): ManagedLegacyConversion | undefined {
+  const row = db.prepare(`SELECT source_snapshot_id AS snapshotId, source_format AS sourceFormat,
+    completeness FROM rust_legacy_conversions_v1 WHERE run_id = ?`).get(runId) as
+    Record<string, unknown> | undefined;
+  return row ? parseManagedLegacyConversion(row) : undefined;
+}
+
+/** Select one bounded legacy parent and identify the exact population storage Rust must validate. */
+function selectLegacySnapshot(): ManagedLegacySnapshotSelection | null {
   const available = db.prepare(`SELECT count(*) AS count FROM sqlite_schema
     WHERE type = 'table' AND name = 'population_snapshots'`).get() as { count: number };
   if (available.count !== 1) return null;
@@ -1323,13 +1354,27 @@ function selectLegacySnapshot(): number | null {
   if (columns.has('boundary_kind')) {
     conditions.push(`(boundary_kind IS NULL OR boundary_kind IN ('run-start', 'generation'))`);
   }
-  const row = db.prepare(`SELECT id FROM population_snapshots
-    WHERE ${conditions.join(' AND ')} ORDER BY id DESC LIMIT 1`).get() as { id: number } | undefined;
+  const formatExpression = columns.has('format_version') ? 'format_version' : 'NULL';
+  const blobLengthExpression = columns.has('genomes_blob')
+    ? 'length(CAST(genomes_blob AS BLOB))'
+    : 'NULL';
+  const row = db.prepare(`SELECT id, ${formatExpression} AS format_version,
+    ${blobLengthExpression} AS genomes_blob_length FROM population_snapshots
+    WHERE ${conditions.join(' AND ')} ORDER BY id DESC LIMIT 1`).get() as {
+      id: number;
+      format_version: number | null;
+      genomes_blob_length: number | null;
+    } | undefined;
   if (!row) return null;
   if (!Number.isSafeInteger(row.id) || row.id <= 0) {
     throw new Error('legacy checkpoint has an invalid SQLite row ID');
   }
-  return row.id;
+  const sourceFormat = row.format_version === 2
+    ? 'typescript-v2'
+    : row.genomes_blob_length !== null && row.genomes_blob_length > 0
+      ? 'legacy-gzip'
+      : 'legacy-json';
+  return parseManagedLegacySnapshotSelection({ snapshotId: row.id, sourceFormat });
 }
 
 /** Add the small legacy-compatible graph-preset table to dedicated Rust databases. */
@@ -2110,12 +2155,15 @@ function commitManagedImport(
  * Commit a verified descriptor and monotonic per-run current pointer atomically.
  * @param descriptor - Strict descriptor whose final managed file already exists.
  * @param generationCommit - Exact compact result and Hall-of-Fame reference for a generation.
+ * @param activateRun - Whether this transaction selects a replacement active lineage.
+ * @param legacyConversion - Optional old SQLite population source for a run-start checkpoint.
  * @returns Matching commit acknowledgement fields.
  */
 function commitManagedCheckpoint(
   descriptor: ManagedCheckpointDescriptor,
   generationCommit: ManagedGenerationCommit | null,
-  activateRun: boolean
+  activateRun: boolean,
+  legacyConversion: ManagedLegacyConversion | null
 ): {
   operationId: CheckpointOperationId;
   transitionEpoch: U64Hex;
@@ -2136,6 +2184,10 @@ function commitManagedCheckpoint(
   const hallOfFameWeightsFile = generationCommit === null
     ? null
     : verifyHallOfFameWeightsFile(generationCommit.hallOfFameWeights);
+  if (legacyConversion !== null &&
+      (descriptor.boundaryKind !== 'run-start' || generationCommit !== null)) {
+    throw new Error('legacy conversion provenance is valid only for a run-start checkpoint');
+  }
   const commit = db.transaction((candidate: ManagedCheckpointDescriptor) => {
     const existingOperation = db.prepare(
       'SELECT descriptor_json FROM rust_checkpoint_v3_metadata WHERE operation_id = ?'
@@ -2176,6 +2228,14 @@ function commitManagedCheckpoint(
         throw new Error('operationId conflicts with a different Hall-of-Fame reference');
       }
       if (generationCommit !== null) assertStoredHallOfFameWeights(generationCommit.hallOfFameWeights);
+      if (candidate.boundaryKind === 'run-start') {
+        const existingLegacyConversion = readLegacyConversion(candidate.runId) ?? null;
+        if (existingLegacyConversion?.snapshotId !== legacyConversion?.snapshotId ||
+            existingLegacyConversion?.sourceFormat !== legacyConversion?.sourceFormat ||
+            existingLegacyConversion?.completeness !== legacyConversion?.completeness) {
+          throw new Error('operationId conflicts with different legacy conversion provenance');
+        }
+      }
       const current = readCurrentPointer(candidate.runId);
       if (!current) {
         throw new Error('operationId replay is superseded and must not regress the current pointer');
@@ -2256,6 +2316,12 @@ function commitManagedCheckpoint(
       transitionEpoch: candidate.transitionEpoch,
       operationId: candidate.operationId
     });
+    if (legacyConversion !== null) {
+      db.prepare(`INSERT INTO rust_legacy_conversions_v1 (
+        run_id, source_snapshot_id, source_format, completeness, created_at_ms
+      ) VALUES (?, ?, ?, ?, ?)`).run(candidate.runId, legacyConversion.snapshotId,
+        legacyConversion.sourceFormat, legacyConversion.completeness, Date.now());
+    }
     if (activateRun) {
       db.prepare(`INSERT INTO rust_active_run_v1 (singleton, run_id) VALUES (1, ?)
         ON CONFLICT(singleton) DO UPDATE SET run_id = excluded.run_id`).run(candidate.runId);
@@ -2465,7 +2531,7 @@ port.on('message', (message: unknown) => {
       if (!operationId || Object.keys(request).length !== 2) {
         throw new TypeError('invalid legacy checkpoint selection request');
       }
-      post({ type: 'legacySnapshotSelected', operationId, snapshotId: selectLegacySnapshot() });
+      post({ type: 'legacySnapshotSelected', operationId, selection: selectLegacySnapshot() });
       return;
     }
     if (request['type'] === 'commitManagedImport') {
@@ -2482,8 +2548,9 @@ port.on('message', (message: unknown) => {
       post({ type: 'managedImportCommitted', ...committed });
       return;
     }
-    if (request['type'] !== 'commitManagedCheckpoint' || Object.keys(request).length !== 4 ||
+    if (request['type'] !== 'commitManagedCheckpoint' || Object.keys(request).length !== 5 ||
       !Object.hasOwn(request, 'descriptor') || !Object.hasOwn(request, 'generationCommit') ||
+      !Object.hasOwn(request, 'legacyConversion') ||
       typeof request['activateRun'] !== 'boolean') {
       throw new TypeError('worker request has an unsupported type or unknown fields');
     }
@@ -2492,7 +2559,11 @@ port.on('message', (message: unknown) => {
       request['generationCommit'],
       descriptor
     );
-    const committed = commitManagedCheckpoint(descriptor, generationCommit, request['activateRun']);
+    const legacyConversion = request['legacyConversion'] === null
+      ? null : parseManagedLegacyConversion(request['legacyConversion']);
+    const committed = commitManagedCheckpoint(
+      descriptor, generationCommit, request['activateRun'], legacyConversion
+    );
     post({ type: 'managedCheckpointCommitted', ...committed });
   } catch (error) {
     post({ type: 'managedCheckpointRejected', operationId, reason: rejectionReason(error) });

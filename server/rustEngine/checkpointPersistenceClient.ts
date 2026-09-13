@@ -19,6 +19,8 @@ import {
   parseManagedHallOfFameWeightsDescriptor,
   parseManagedImportBranchResult,
   parseManagedImportInventoryDescriptor,
+  parseManagedLegacyConversion,
+  parseManagedLegacySnapshotSelection,
   parseManagedGenerationCommit,
   type CheckpointOperationId,
   type CheckpointPersistenceWorkerResponse,
@@ -32,6 +34,8 @@ import {
   type ManagedGenerationCommit,
   type ManagedImportBranchResult,
   type ManagedImportInventoryDescriptor,
+  type ManagedLegacyConversion,
+  type ManagedLegacySnapshotSelection,
   type ManagedGraphPreset,
   type ManagedGraphPresetMeta,
   type U64Hex
@@ -152,7 +156,7 @@ export class CheckpointPersistenceClient {
   /** One bounded legacy parent-row selection; population columns remain unread. */
   private legacySelection: {
     operationId: CheckpointOperationId;
-    resolve(value: number | null): void;
+    resolve(value: ManagedLegacySnapshotSelection | null): void;
     reject(error: Error): void;
   } | undefined;
   /** One candidate read; a corrupt row advances only its stable scalar cursor. */
@@ -233,20 +237,28 @@ export class CheckpointPersistenceClient {
    * @param value - Strict descriptor candidate containing no checkpoint payload bytes.
    * @param generationCommitValue - Exact compact history and Hall-of-Fame reference.
    * @param activateRun - Select this new run as the process-restart lineage in the same transaction.
+   * @param legacyConversionValue - Optional population-only source for a converted run start.
    * @returns Matching durable metadata/current-pointer acknowledgement.
    */
   commit(
     value: unknown,
     generationCommitValue: unknown = null,
-    activateRun = false
+    activateRun = false,
+    legacyConversionValue: unknown = null
   ): Promise<ManagedCheckpointCommitResult> {
     if (this.failure) return Promise.reject(this.failure);
     if (this.stopping) return Promise.reject(new Error('checkpoint persistence client is stopping'));
     let descriptor: ManagedCheckpointDescriptor;
     let generationCommit: ManagedGenerationCommit | null;
+    let legacyConversion: ManagedLegacyConversion | null;
     try {
       descriptor = parseManagedCheckpointDescriptor(value);
       generationCommit = parseManagedGenerationCommit(generationCommitValue, descriptor);
+      legacyConversion = legacyConversionValue === null
+        ? null : parseManagedLegacyConversion(legacyConversionValue);
+      if (legacyConversion !== null && descriptor.boundaryKind !== 'run-start') {
+        throw new TypeError('legacy conversion provenance requires a run-start checkpoint');
+      }
     } catch (error) {
       return Promise.reject(asError(error));
     }
@@ -256,7 +268,9 @@ export class CheckpointPersistenceClient {
     return new Promise<ManagedCheckpointCommitResult>((resolve, reject) => {
       this.pending.set(descriptor.operationId, { descriptor, import: false, branchRunId: null, resolve, reject });
       try {
-        this.worker.postMessage({ type: 'commitManagedCheckpoint', descriptor, generationCommit, activateRun });
+        this.worker.postMessage({
+          type: 'commitManagedCheckpoint', descriptor, generationCommit, activateRun, legacyConversion
+        });
       } catch (error) {
         this.pending.delete(descriptor.operationId);
         reject(asError(error));
@@ -442,8 +456,8 @@ export class CheckpointPersistenceClient {
     });
   }
 
-  /** Select only the newest compatible TypeScript v2 parent ID. */
-  selectLegacySnapshot(): Promise<number | null> {
+  /** Select only the newest compatible old parent identity. */
+  selectLegacySnapshot(): Promise<ManagedLegacySnapshotSelection | null> {
     if (this.failure) return Promise.reject(this.failure);
     if (this.stopping || this.legacySelection) {
       return Promise.reject(new Error('legacy checkpoint selection is busy or stopping'));
@@ -724,7 +738,8 @@ export class CheckpointPersistenceClient {
         }
         this.selection = undefined;
         selection.resolve({ descriptor: response.descriptor, runId: response.runId,
-          recovery: response.recovery, importBranch: response.importBranch });
+          recovery: response.recovery, importBranch: response.importBranch,
+          legacyConversion: response.legacyConversion });
         return;
       }
       if (response.type === 'legacySnapshotSelected') {
@@ -733,7 +748,7 @@ export class CheckpointPersistenceClient {
           throw new Error('persistence worker returned a mismatched legacy selection');
         }
         this.legacySelection = undefined;
-        selection.resolve(response.snapshotId);
+        selection.resolve(response.selection);
         return;
       }
       if (response.type === 'managedCheckpointRejected') {
@@ -1222,35 +1237,38 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     return { type: 'recoveryBranchCommitted', result: parseRecoveryBranchResult(response['result']) };
   }
   if (response['type'] === 'managedCheckpointSelected') {
-    requireExactKeys(response, ['type', 'operationId', 'descriptor', 'runId', 'recovery', 'importBranch']);
+    requireExactKeys(response, [
+      'type', 'operationId', 'descriptor', 'runId', 'recovery', 'importBranch', 'legacyConversion'
+    ]);
     if (!isOperationId(response['operationId'])) throw new TypeError('invalid checkpoint selection correlation');
     const descriptor = response['descriptor'] === null ? null : parseManagedCheckpointDescriptor(response['descriptor']);
     const recovery = response['recovery'] === null ? null : parseRecoveryBranchResult(response['recovery']);
     const importBranch = response['importBranch'] === null
       ? null : parseManagedImportBranchResult(response['importBranch']);
+    const legacyConversion = response['legacyConversion'] === null
+      ? null : parseManagedLegacyConversion(response['legacyConversion']);
     const runId = response['runId'];
     const branch = recovery ?? importBranch;
     if (descriptor === null) {
-      if (runId !== null || branch !== null) throw new Error('empty selection contains lineage');
+      if (runId !== null || branch !== null || legacyConversion !== null) {
+        throw new Error('empty selection contains lineage');
+      }
     } else if (typeof runId !== 'string' || !runId || Buffer.byteLength(runId) > 256 ||
         (recovery !== null && importBranch !== null) || (branch && branch.branchRunId !== runId) ||
         (descriptor.runId !== runId && (!branch || !managedCheckpointDescriptorsEqual(branch.recoveredDescriptor, descriptor)))) {
       throw new Error('selected checkpoint lacks matching branch provenance');
     }
     return { type: 'managedCheckpointSelected', operationId: response['operationId'], descriptor,
-      runId: runId as string | null, recovery, importBranch };
+      runId: runId as string | null, recovery, importBranch, legacyConversion };
   }
   if (response['type'] === 'legacySnapshotSelected') {
-    requireExactKeys(response, ['type', 'operationId', 'snapshotId']);
-    if (!isOperationId(response['operationId']) ||
-        (response['snapshotId'] !== null &&
-          (!Number.isSafeInteger(response['snapshotId']) || Number(response['snapshotId']) <= 0))) {
-      throw new TypeError('invalid legacy checkpoint selection');
-    }
+    requireExactKeys(response, ['type', 'operationId', 'selection']);
+    if (!isOperationId(response['operationId'])) throw new TypeError('invalid legacy checkpoint selection');
     return {
       type: 'legacySnapshotSelected',
       operationId: response['operationId'],
-      snapshotId: response['snapshotId'] as number | null
+      selection: response['selection'] === null
+        ? null : parseManagedLegacySnapshotSelection(response['selection'])
     };
   }
   if (response['type'] === 'managedCheckpointCommitted' || response['type'] === 'managedImportCommitted') {

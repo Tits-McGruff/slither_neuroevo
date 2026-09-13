@@ -71,7 +71,9 @@ writes a new generation-one Rust checkpoint without changing the old snapshot
 rows. The same path incrementally reads older combined `genomes_blob`
 populations and format-zero populations embedded in parent JSON, without
 loading either complete source value into Node. Later restarts use the managed
-Rust checkpoint.
+Rust checkpoint. Health and WebSocket welcome data keep a durable
+`legacyConversion` notice with the source row and format and explicitly mark
+the result as population-only, not an exact continuation.
 
 For a managed Rust database, latest startup validates the current checkpoint
 and, if necessary, recovers from the newest valid retained boundary under a new

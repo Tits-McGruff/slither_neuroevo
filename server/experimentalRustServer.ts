@@ -1,6 +1,7 @@
 import type {
   RustBackgroundVisualization,
   RustImportBranchNotice,
+  RustLegacyConversionNotice,
   RustRecoveryNotice
 } from '../src/protocol/rustBackground.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
@@ -169,6 +170,19 @@ function replacementSettings(
   });
 }
 
+/** Project the durable old-checkpoint conversion without exposing persistence internals. */
+function legacyConversionNotice(
+  value: ExperimentalServerRuntime['legacyConversion']
+): RustLegacyConversionNotice | undefined {
+  if (!value) return undefined;
+  return {
+    sourceSnapshotId: value.snapshotId,
+    sourceFormat: value.sourceFormat,
+    completeness: value.completeness,
+    exactContinuation: false
+  };
+}
+
 /** Apply Rust-confirmed numeric values to the small cached welcome configuration. */
 function applyMetadataSettings(
   metadata: ExperimentalServerRuntime['metadata'],
@@ -212,6 +226,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   } catch (error) { return startFaultedServer(config, error); }
   let recovery = recoveryNotice(owner);
   let importBranch = importBranchNotice(owner.importBranch);
+  let legacyConversion = legacyConversionNotice(owner.legacyConversion);
   if (recovery) console.warn('[rust.recovery]', recovery);
   let activeMetadata = owner.metadata;
   let activeCheckpointId = owner.runStart.checkpointId;
@@ -367,6 +382,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         telemetry: telemetry.snapshot(nativeHealth), outbound: hub?.getOutboundDiagnostics(),
         retention, retentionCleanup,
         ...(recovery ? { recovery } : {}), ...(importBranch ? { importBranch } : {}),
+        ...(legacyConversion ? { legacyConversion } : {}),
         ...(fault ? { interfaceFault: fault } : {}) }));
       return;
     }
@@ -607,7 +623,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   };
   try {
     hub = new WsHub(server, { ...createRustWelcome(activeMetadata), ...(recovery ? { recovery } : {}),
-      ...(importBranch ? { importBranch } : {}) }, { maxConnections: 64 });
+      ...(importBranch ? { importBranch } : {}),
+      ...(legacyConversion ? { legacyConversion } : {}) }, { maxConnections: 64 });
     const sockets = hub;
     let routing!: ExternalControllerRouting;
     const output = new BackgroundOutputPump({
@@ -866,6 +883,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
         importBranch = importBranchNotice(durable.importBranch ?? null);
+        legacyConversion = undefined;
         routing.resetAfterImport();
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
@@ -953,6 +971,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
         importBranch = undefined;
+        legacyConversion = undefined;
         routing.resetAfterImport();
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;

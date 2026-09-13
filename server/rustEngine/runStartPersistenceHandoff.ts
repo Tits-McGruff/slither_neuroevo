@@ -13,9 +13,11 @@ import {
 } from './checkpointPersistenceClient.ts';
 import {
   parseCheckpointOperationId,
+  parseManagedLegacyConversion,
   parseManagedCheckpointDescriptor,
   type CheckpointOperationId,
-  type ManagedCheckpointDescriptor
+  type ManagedCheckpointDescriptor,
+  type ManagedLegacyConversion
 } from './checkpointPersistenceProtocol.ts';
 
 /** Exact options accepted by Rust's managed run-start publisher. */
@@ -37,7 +39,12 @@ export interface RustRunStartPersistencePort {
 /** Narrow persistence dependency implemented by `CheckpointPersistenceClient`. */
 export interface RunStartCheckpointCommitter {
   /** Commit the exact Rust descriptor with no completed-generation metadata. */
-  commit(descriptor: unknown): Promise<ManagedCheckpointCommitResult>;
+  commit(
+    descriptor: unknown,
+    generationCommit?: unknown,
+    activateRun?: boolean,
+    legacyConversion?: unknown
+  ): Promise<ManagedCheckpointCommitResult>;
 }
 
 /** Construction dependencies for one fresh run-start handoff owner. */
@@ -54,6 +61,8 @@ export interface RunStartPersistenceHandoffOptions {
 interface ActiveRunStartPersistence {
   /** Exact operation being published and committed. */
   operationId: CheckpointOperationId;
+  /** Optional conversion facts that must match same-operation retries. */
+  legacyConversion: ManagedLegacyConversion | null;
   /** Identity used to clear only this particular completion. */
   token: object;
   /** Shared result returned to duplicate callers for the same operation. */
@@ -101,33 +110,46 @@ export class RunStartPersistenceHandoff {
   /**
    * Publish, commit and acknowledge the exact pending Rust run start.
    * @param operationIdValue - Correlation token only; no run data is accepted.
+   * @param legacyConversionValue - Optional old SQLite population source for this run.
    * @returns The persistence worker's exact committed descriptor acknowledgement.
    */
-  commitPendingRunStart(operationIdValue: unknown): Promise<ManagedCheckpointCommitResult> {
+  commitPendingRunStart(
+    operationIdValue: unknown,
+    legacyConversionValue: unknown = null
+  ): Promise<ManagedCheckpointCommitResult> {
     let operationId: CheckpointOperationId;
+    let legacyConversion: ManagedLegacyConversion | null;
     try {
       operationId = parseCheckpointOperationId(operationIdValue);
+      legacyConversion = legacyConversionValue === null
+        ? null : parseManagedLegacyConversion(legacyConversionValue);
     } catch (error) {
       return Promise.reject(error);
     }
     if (this.active) {
-      if (this.active.operationId === operationId) return this.active.promise;
+      if (this.active.operationId === operationId &&
+          this.active.legacyConversion?.snapshotId === legacyConversion?.snapshotId &&
+          this.active.legacyConversion?.sourceFormat === legacyConversion?.sourceFormat &&
+          this.active.legacyConversion?.completeness === legacyConversion?.completeness) {
+        return this.active.promise;
+      }
       return Promise.reject(new Error(
         `run-start persistence operation ${this.active.operationId} is already in flight`
       ));
     }
 
     const token = {};
-    const promise = this.commitOne(operationId).finally(() => {
+    const promise = this.commitOne(operationId, legacyConversion).finally(() => {
       if (this.active?.token === token) this.active = null;
     });
-    this.active = { operationId, token, promise };
+    this.active = { operationId, legacyConversion, token, promise };
     return promise;
   }
 
   /** Execute one complete direct Rust-to-worker-to-Rust attempt. */
   private async commitOne(
-    operationId: CheckpointOperationId
+    operationId: CheckpointOperationId,
+    legacyConversion: ManagedLegacyConversion | null
   ): Promise<ManagedCheckpointCommitResult> {
     const descriptor = parseManagedCheckpointDescriptor(
       await this.rust.publishRunStartCheckpoint({
@@ -141,7 +163,9 @@ export class RunStartPersistenceHandoff {
     if (descriptor.boundaryKind !== 'run-start') {
       throw new Error('Rust run-start checkpoint returned a non-run-start boundary');
     }
-    const committed = await this.persistence.commit(descriptor);
+    const committed = legacyConversion === null
+      ? await this.persistence.commit(descriptor)
+      : await this.persistence.commit(descriptor, null, false, legacyConversion);
     if (!managedCheckpointCommitResultMatchesDescriptor(committed, descriptor)) {
       throw new Error('persistence client returned a descriptor different from Rust publication');
     }

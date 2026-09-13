@@ -22,6 +22,7 @@ import type { ManagedCheckpointCommitResult } from './checkpointPersistenceClien
 import type {
   CheckpointOperationId,
   ManagedCheckpointDescriptor,
+  ManagedLegacyConversion,
   U64Hex
 } from './checkpointPersistenceProtocol.ts';
 import {
@@ -384,11 +385,16 @@ export class ExperimentalFreshRunSession {
     return parseFreshRunSnapshot(snapshot, this.restoredBoundary);
   }
 
-  /** Commit and acknowledge only Rust's exact pending run-start descriptor. */
+  /**
+   * Commit and acknowledge only Rust's exact pending run-start descriptor.
+   * @param operationId - Exact publication and transaction correlation token.
+   * @param legacyConversion - Optional old SQLite population source for this run.
+   */
   public commitPendingRunStart(
-    operationId: CheckpointOperationId
+    operationId: CheckpointOperationId,
+    legacyConversion: ManagedLegacyConversion | null = null
   ): Promise<ManagedCheckpointCommitResult> {
-    return this.persistenceHandoff.commitPendingRunStart(operationId);
+    return this.persistenceHandoff.commitPendingRunStart(operationId, legacyConversion);
   }
 
   /** Activate the retained Rust authority only after exact durability. */

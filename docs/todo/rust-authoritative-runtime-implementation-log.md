@@ -444,4 +444,8 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   and streams format-null/zero parent JSON directly from SQLite. Real startup
   tests cover both layouts and prove the source rows remain unchanged.
 
+- 2026-09-14 Legacy SQLite conversion provenance now commits with the new Rust
+  run and survives restart. Health and welcome identify its source row and
+  format and explicitly label it population-only rather than exact continuation.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

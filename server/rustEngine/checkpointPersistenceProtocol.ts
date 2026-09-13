@@ -224,6 +224,8 @@ export interface CommitManagedCheckpointRequest {
   generationCommit: ManagedGenerationCommit | null;
   /** Whether this commit also selects a newly replacing live run. */
   activateRun: boolean;
+  /** Validated population-only source when this run start converted an old row. */
+  legacyConversion: ManagedLegacyConversion | null;
 }
 
 /** Bounded browser-chart projection decoded by the SQLite worker from compact history. */
@@ -338,6 +340,25 @@ export interface ManagedCheckpointSelection {
   recovery: RecoveryBranchResult | null;
   /** Durable provenance for an owner-selected older-checkpoint import branch. */
   importBranch: ManagedImportBranchResult | null;
+  /** Durable population-only provenance for an old SQLite conversion. */
+  legacyConversion: ManagedLegacyConversion | null;
+}
+
+/** Old SQLite population representation selected without reading its payload in Node. */
+export type ManagedLegacySnapshotFormat = 'typescript-v2' | 'legacy-gzip' | 'legacy-json';
+
+/** Scalar old-row identity selected by the metadata worker and validated by Rust. */
+export interface ManagedLegacySnapshotSelection {
+  /** Positive SQLite parent-row identity. */
+  snapshotId: number;
+  /** Storage representation Rust must independently confirm while reading. */
+  sourceFormat: ManagedLegacySnapshotFormat;
+}
+
+/** Durable notice that a new Rust run contains only a converted old population. */
+export interface ManagedLegacyConversion extends ManagedLegacySnapshotSelection {
+  /** Old formats do not carry exact Rust continuation state. */
+  completeness: 'population-only';
 }
 
 /** Durable provenance for an older same-run archive resumed under a fresh lineage. */
@@ -447,7 +468,7 @@ export interface ManagedCheckpointRejectedResponse {
 
 /** Worker responses understood by the client. */
 export type CheckpointPersistenceWorkerResponse =
-  | { type: 'legacySnapshotSelected'; operationId: CheckpointOperationId; snapshotId: number | null }
+  | { type: 'legacySnapshotSelected'; operationId: CheckpointOperationId; selection: ManagedLegacySnapshotSelection | null }
   | { type: 'recoveryCandidate'; operationId: string; result: RecoveryScanResult }
   | { type: 'recoveryBranchCommitted'; result: RecoveryBranchResult }
   | { type: 'checkpointRetentionInspected'; operationId: CheckpointOperationId; inventory: CheckpointRetentionInventory }
@@ -945,6 +966,33 @@ export function parseManagedImportInventoryDescriptor(
     historyCount,
     hallOfFameCount
   };
+}
+
+/** Validate one bounded old SQLite row selection without reading population data. */
+export function parseManagedLegacySnapshotSelection(value: unknown): ManagedLegacySnapshotSelection {
+  const raw = asRecord(value, 'legacySnapshotSelection');
+  requireOnlyKeys(raw, ['snapshotId', 'sourceFormat']);
+  if (!Number.isSafeInteger(raw['snapshotId']) || (raw['snapshotId'] as number) <= 0) {
+    reject('legacy snapshot ID must be a positive safe integer');
+  }
+  if (!['typescript-v2', 'legacy-gzip', 'legacy-json'].includes(String(raw['sourceFormat']))) {
+    reject('legacy snapshot format is unsupported');
+  }
+  return {
+    snapshotId: raw['snapshotId'] as number,
+    sourceFormat: raw['sourceFormat'] as ManagedLegacySnapshotFormat
+  };
+}
+
+/** Validate durable population-only conversion provenance. */
+export function parseManagedLegacyConversion(value: unknown): ManagedLegacyConversion {
+  const raw = asRecord(value, 'legacyConversion');
+  requireOnlyKeys(raw, ['snapshotId', 'sourceFormat', 'completeness']);
+  if (raw['completeness'] !== 'population-only') reject('legacy conversion completeness is invalid');
+  const selection = parseManagedLegacySnapshotSelection({
+    snapshotId: raw['snapshotId'], sourceFormat: raw['sourceFormat']
+  });
+  return { ...selection, completeness: 'population-only' };
 }
 
 /** Validate durable provenance for one owner-selected import branch. */

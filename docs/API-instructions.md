@@ -345,6 +345,10 @@ not an automatic fallback.
 canonical content identity, so returning to an older configuration can repeat
 a hash at a newer revision.
 
+When the Rust server started by converting an older SQLite population,
+`legacyConversion` is present here with its source row and format. Clients must
+not treat that population-only conversion as exact continuation state.
+
 ### `assign`
 
 Sent after player join and whenever a dead controlled snake is replaced:
@@ -524,7 +528,10 @@ the newest compatible population through SQLite and commits it as a new
 generation-one managed checkpoint while retaining the source snapshot rows.
 The same startup conversion accepts the older combined `genomes_blob` layout
 and format-null/zero populations embedded in `payload_json`; both are read in
-bounded pieces rather than copied into Node.
+bounded pieces rather than copied into Node. Both `GET /api/health` and the
+Protocol 2 `welcome` include a durable `legacyConversion` object for the
+converted run. It reports `sourceSnapshotId`, `sourceFormat`,
+`completeness: "population-only"`, and `exactContinuation: false`.
 
 ### `GET /health`
 

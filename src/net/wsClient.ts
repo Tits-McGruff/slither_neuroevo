@@ -1,4 +1,8 @@
-import type { RustImportBranchNotice, RustRecoveryNotice } from '../protocol/rustBackground.ts';
+import type {
+  RustImportBranchNotice,
+  RustLegacyConversionNotice,
+  RustRecoveryNotice
+} from '../protocol/rustBackground.ts';
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../protocol/messages.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
 import type { SensorSpec } from '../protocol/sensors.ts';
@@ -36,6 +40,8 @@ export interface WelcomeMsg {
   recovery?: RustRecoveryNotice;
   /** Durable provenance when an older imported checkpoint starts a fresh lineage. */
   importBranch?: RustImportBranchNotice;
+  /** Honest population-only provenance when startup converted an old SQLite checkpoint. */
+  legacyConversion?: RustLegacyConversionNotice;
   configRevision: number;
   configHash: string;
   settings: {

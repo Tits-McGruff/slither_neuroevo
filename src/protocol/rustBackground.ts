@@ -403,3 +403,15 @@ export interface RustImportBranchNotice {
   /** Exact imported checkpoint root. */
   sourceCheckpointId: string;
 }
+
+/** Durable notice that an old checkpoint supplied population weights but not an exact continuation. */
+export interface RustLegacyConversionNotice {
+  /** Positive parent-row identity in the original SQLite database. */
+  sourceSnapshotId: number;
+  /** Exact old storage representation independently consumed by Rust. */
+  sourceFormat: 'typescript-v2' | 'legacy-gzip' | 'legacy-json';
+  /** Explicit limit of the converted state. */
+  completeness: 'population-only';
+  /** Prevent clients from mistaking population reuse for an exact resumed simulation. */
+  exactContinuation: false;
+}

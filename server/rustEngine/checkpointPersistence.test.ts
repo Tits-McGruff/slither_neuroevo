@@ -538,6 +538,31 @@ describe(SUITE, { timeout: 30_000 }, () => {
     });
   });
 
+  it('persists population-only conversion provenance and requires an exact run-start replay', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    const legacyConversion = {
+      snapshotId: 17,
+      sourceFormat: 'legacy-gzip' as const,
+      completeness: 'population-only' as const
+    };
+    await expect(fixture.client.commit(descriptor, null, false, legacyConversion)).resolves.toMatchObject({
+      checkpointId: descriptor.logicalRootSha256
+    });
+    await expect(fixture.client.selectStartup()).resolves.toMatchObject({
+      descriptor,
+      runId: descriptor.runId,
+      legacyConversion
+    });
+    await expect(fixture.client.commit(descriptor, null, false, legacyConversion)).resolves.toMatchObject({
+      checkpointId: descriptor.logicalRootSha256
+    });
+    await expect(fixture.client.commit(descriptor, null, false, {
+      ...legacyConversion,
+      snapshotId: 18
+    })).rejects.toThrow(/different legacy conversion provenance/);
+  });
+
   it('classifies old managed files and returns bounded owner-policy retention accounting', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);

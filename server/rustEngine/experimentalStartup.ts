@@ -10,7 +10,11 @@ import { CheckpointPersistenceClient, type ManagedCheckpointCommitResult } from 
 import type { ExperimentalEngineInit } from './experimentalNativeBridge.ts';
 import { createExperimentalFreshRunSession, validateExperimentalFreshRunBinding, type ExperimentalFreshRunSession } from './experimentalFreshRunSession.ts';
 import { computeNativeSourceIdentity } from './nativeSourceIdentity.ts';
-import type { ManagedCheckpointSelection, ManagedImportBranchResult } from './checkpointPersistenceProtocol.ts';
+import type {
+  ManagedCheckpointSelection,
+  ManagedImportBranchResult,
+  ManagedLegacyConversion
+} from './checkpointPersistenceProtocol.ts';
 import { scavengeStaleArchiveArtifacts } from './archiveScavenger.ts';
 
 /** Bounded production background queues for the first explicit P0 server. */
@@ -57,6 +61,8 @@ export interface ExperimentalServerRuntime {
   recovery: RecoveryBranchResult | null;
   /** Durable older-checkpoint import provenance for restart and status surfaces. */
   importBranch: ManagedImportBranchResult | null;
+  /** Durable notice that this run began from an old population-only checkpoint. */
+  legacyConversion: ManagedLegacyConversion | null;
   /** Dedicated metadata worker reused for generation commits. */
   persistence: CheckpointPersistenceClient;
   /** Exact committed startup checkpoint, retained unchanged on restore. */
@@ -110,16 +116,19 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
       persistence, managedDirectory
     });
     let selection: ManagedCheckpointSelection | null = null;
+    let legacyConversion: ManagedLegacyConversion | null = null;
     let session: ExperimentalFreshRunSession;
     if (restoring) {
       try {
         selection = await persistence.selectStartup();
+        legacyConversion = selection.legacyConversion;
         if (!selection.descriptor || !selection.runId) {
           if (options.restoreCheckpointId) throw new Error('requested exact checkpoint is not current');
-          const legacySnapshotId = await persistence.selectLegacySnapshot();
-          if (legacySnapshotId === null) throw new Error('no current managed or TypeScript v2 checkpoint to restore');
+          const legacySnapshot = await persistence.selectLegacySnapshot();
+          if (legacySnapshot === null) throw new Error('no current managed or compatible legacy checkpoint to restore');
           session = makeSession(randomUUID());
-          await session.initializeFromLegacySqlite(databasePath, legacySnapshotId);
+          await session.initializeFromLegacySqlite(databasePath, legacySnapshot.snapshotId);
+          legacyConversion = { ...legacySnapshot, completeness: 'population-only' };
         } else {
           if (options.restoreCheckpointId && selection.descriptor.logicalRootSha256 !== options.restoreCheckpointId) throw new Error('requested exact checkpoint is not current');
           session = makeSession(selection.runId);
@@ -156,7 +165,11 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
           // Commit failures escape; an older candidate must never hide a durability failure.
           await restored.adoptRecoveryBranch(recovery);
           session = restored;
-          selection = { descriptor, runId: recovery.branchRunId, recovery, importBranch: null };
+          selection = {
+            descriptor, runId: recovery.branchRunId, recovery, importBranch: null,
+            legacyConversion: null
+          };
+          legacyConversion = null;
           break;
         }
       }
@@ -170,14 +183,17 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     const runStart: ManagedCheckpointCommitResult = selected ? {
       operationId: selected.operationId, transitionEpoch: selected.transitionEpoch,
       runId: selected.runId, checkpointId: selected.logicalRootSha256, descriptor: selected
-    } : await session.commitPendingRunStart(randomBytes(16).toString('hex'));
+    } : await session.commitPendingRunStart(
+      randomBytes(16).toString('hex'), legacyConversion
+    );
     await session.activateRunningAuthority();
     runtime = await session.createBackgroundRuntime(BACKGROUND_INIT, options.onWake);
     const owner = runtime;
     let closing: Promise<void> | undefined;
     return {
       runtime: owner, metadata, recovery: selection?.recovery ?? null,
-      importBranch: selection?.importBranch ?? null, persistence, runStart, managedDirectory,
+      importBranch: selection?.importBranch ?? null, legacyConversion,
+      persistence, runStart, managedDirectory,
       admitCheckpoint: () => admitCheckpoint(managedDirectory),
       close(): Promise<void> {
         closing ??= (async () => {

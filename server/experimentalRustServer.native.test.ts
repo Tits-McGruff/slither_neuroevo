@@ -251,14 +251,23 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         runId: string; startupCheckpointId: string;
       };
-      expect(health).toMatchObject({ ok: true, seed: 7_654_321, generation: '0000000000000001' });
+      const legacyConversion = {
+        sourceSnapshotId: 1,
+        sourceFormat: 'typescript-v2',
+        completeness: 'population-only',
+        exactContinuation: false
+      };
+      expect(health).toMatchObject({
+        ok: true, seed: 7_654_321, generation: '0000000000000001', legacyConversion
+      });
       expect(health.runId).not.toBe('typescript-source-run');
       const viewer = await connect(server.port, 'ui');
       peers.push(viewer);
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
         worldSeed: 7_654_321,
-        settings: { core: { snakeCount: 2, simSpeed: 2 } }
+        settings: { core: { snakeCount: 2, simSpeed: 2 } },
+        legacyConversion
       });
       viewer.socket.terminate();
       await server.close();
@@ -267,7 +276,8 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       });
       expect(server.startupFault).toBeUndefined();
       expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
-        ok: true, runId: health.runId, startupCheckpointId: health.startupCheckpointId
+        ok: true, runId: health.runId, startupCheckpointId: health.startupCheckpointId,
+        legacyConversion
       });
       const retained = new Database(dbPath, { readonly: true });
       try {
@@ -344,14 +354,21 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const peers: Peer[] = [];
       try {
         expect(server.startupFault).toBeUndefined();
+        const legacyConversion = {
+          sourceSnapshotId: 1,
+          sourceFormat: storage === 'gzip' ? 'legacy-gzip' : 'legacy-json',
+          completeness: 'population-only',
+          exactContinuation: false
+        };
         expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
-          ok: true, seed: 1_234_567, generation: '0000000000000001'
+          ok: true, seed: 1_234_567, generation: '0000000000000001', legacyConversion
         });
         const viewer = await connect(server.port, 'ui');
         peers.push(viewer);
         await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
         expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
-          worldSeed: 1_234_567, settings: { core: { snakeCount: 2, simSpeed: 3 } }
+          worldSeed: 1_234_567, settings: { core: { snakeCount: 2, simSpeed: 3 } },
+          legacyConversion
         });
         const retained = new Database(dbPath, { readonly: true });
         try {
@@ -361,6 +378,12 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
             .update(row.genomes_blob ?? Buffer.alloc(0)).digest('hex')).toBe(sourceDigest);
           expect((retained.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_current').get() as
             { count: number }).count).toBe(1);
+          expect(retained.prepare(`SELECT source_snapshot_id, source_format, completeness
+            FROM rust_legacy_conversions_v1`).get()).toEqual({
+            source_snapshot_id: 1,
+            source_format: legacyConversion.sourceFormat,
+            completeness: 'population-only'
+          });
         } finally { retained.close(); }
       } finally {
         for (const peer of peers) peer.socket.terminate();
