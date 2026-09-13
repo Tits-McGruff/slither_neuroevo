@@ -35,6 +35,7 @@ use crate::engine::contract::{
     ENGINE_CONTRACT_VERSION,
 };
 use crate::engine::error::{truncate_utf8, EngineError, EngineErrorCode, MAX_ERROR_DETAIL_BYTES};
+use crate::engine::export_archive::prepare_legacy_sqlite_population_import;
 use crate::engine::frame_v1::FrameV1Metadata;
 use crate::engine::fresh_run::{
     prepare_stage6a_p0_checkpoint_restore, prepare_stage6a_p0_fresh_run, Stage6aP0FreshRunRequest,
@@ -714,7 +715,7 @@ impl ExperimentalStage6aFreshRunSession {
         }
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
             request: self.request.clone(),
-            restore: None,
+            source: FreshRunInitialization::Fresh,
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
         }))
@@ -757,7 +758,52 @@ impl ExperimentalStage6aFreshRunSession {
         };
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
             request: self.request.clone(),
-            restore: Some(restore),
+            source: FreshRunInitialization::Checkpoint(Box::new(restore)),
+            inner: Arc::clone(&self.inner),
+            active_operation: Arc::clone(&self.active_operation),
+        }))
+    }
+
+    /// Read one worker-selected TypeScript v2 checkpoint directly from SQLite.
+    #[napi(catch_unwind)]
+    pub fn initialize_from_legacy_sqlite(
+        &self,
+        database_path: JsString<'_>,
+        snapshot_id_hex: JsString<'_>,
+    ) -> Result<AsyncTask<InitializeExperimentalFreshRunTask>> {
+        self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
+        let parsed = (|| {
+            let database_path = parse_managed_path(bounded_js_string(
+                database_path,
+                "databasePath",
+                32_768,
+                false,
+            )?)?;
+            let snapshot_id = parse_u64_hex(
+                &bounded_js_string(snapshot_id_hex, "snapshotIdHex", 16, false)?,
+                "snapshotIdHex",
+                false,
+            )?;
+            let snapshot_id = i64::try_from(snapshot_id).map_err(|_| {
+                Error::new(
+                    Status::InvalidArg,
+                    "legacy snapshot ID exceeds SQLite INTEGER",
+                )
+            })?;
+            ensure_fresh_transition_absent(&self.inner)?;
+            Ok((database_path, snapshot_id))
+        })();
+        let legacy = match parsed {
+            Ok(value) => value,
+            Err(error) => {
+                self.active_operation
+                    .store(FRESH_OPERATION_IDLE, Ordering::Release);
+                return Err(error);
+            }
+        };
+        Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            request: self.request.clone(),
+            source: FreshRunInitialization::LegacySqlite(legacy),
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
         }))
@@ -1147,9 +1193,15 @@ impl Task for AdoptRecoveryBranchTask {
 }
 
 /// Async complete fixed-profile construction for one experimental lineage.
+enum FreshRunInitialization {
+    Fresh,
+    Checkpoint(Box<(PathBuf, CheckpointDescriptor, bool)>),
+    LegacySqlite((PathBuf, i64)),
+}
+
 pub struct InitializeExperimentalFreshRunTask {
     request: Stage6aP0FreshRunRequest,
-    restore: Option<(PathBuf, CheckpointDescriptor, bool)>,
+    source: FreshRunInitialization,
     inner: Arc<Mutex<ExperimentalFreshRunInner>>,
     active_operation: Arc<AtomicU8>,
 }
@@ -1160,24 +1212,38 @@ impl Task for InitializeExperimentalFreshRunTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         match catch_unwind(AssertUnwindSafe(|| {
-            let transition = match &self.restore {
-                Some((directory, descriptor, recovery)) => prepare_stage6a_p0_checkpoint_restore(
-                    directory,
-                    descriptor,
-                    self.request.memory_ceiling_bytes,
-                )
-                .and_then(|transition| {
-                    if *recovery {
-                        transition
-                            .into_committed_recovery_branch(self.request.run_id.clone())
-                            .map_err(crate::engine::fresh_run::FreshRunError::from)
-                    } else {
-                        Ok(transition)
-                    }
-                }),
-                None => prepare_stage6a_p0_fresh_run(self.request.clone()),
-            }
-            .map_err(|error| error.to_string())?;
+            let transition = match &self.source {
+                FreshRunInitialization::Checkpoint(restore) => {
+                    let (directory, descriptor, recovery) = restore.as_ref();
+                    prepare_stage6a_p0_checkpoint_restore(
+                        directory,
+                        descriptor,
+                        self.request.memory_ceiling_bytes,
+                    )
+                    .and_then(|transition| {
+                        if *recovery {
+                            transition
+                                .into_committed_recovery_branch(self.request.run_id.clone())
+                                .map_err(crate::engine::fresh_run::FreshRunError::from)
+                        } else {
+                            Ok(transition)
+                        }
+                    })
+                    .map_err(|error| error.to_string())?
+                }
+                FreshRunInitialization::LegacySqlite((database_path, snapshot_id)) => {
+                    prepare_legacy_sqlite_population_import(
+                        database_path,
+                        *snapshot_id,
+                        &self.request.run_id,
+                        self.request.memory_ceiling_bytes,
+                    )
+                    .map(|prepared| prepared.transition)
+                    .map_err(|error| error.to_string())?
+                }
+                FreshRunInitialization::Fresh => prepare_stage6a_p0_fresh_run(self.request.clone())
+                    .map_err(|error| error.to_string())?,
+            };
             let mut inner = lock_recover(&self.inner);
             if let Some(detail) = inner.fault_detail.as_deref() {
                 return Err(format!(

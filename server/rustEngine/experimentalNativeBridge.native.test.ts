@@ -252,6 +252,7 @@ describe('experimental native bridge real-addon integration', () => {
       'createBackgroundRuntime',
       'initialize',
       'initializeFromCheckpoint',
+      'initializeFromLegacySqlite',
       'publishFirstScheduledFrameV1',
       'publishInitialFrameV1',
       'publishRunStartCheckpoint',

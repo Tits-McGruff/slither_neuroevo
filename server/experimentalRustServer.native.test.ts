@@ -1,4 +1,5 @@
 import { mkdtemp, rm, readdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
@@ -10,6 +11,10 @@ import { createWsClient, type AssignMsg, type SensorsMsg, type WelcomeMsg, type 
 import { run as runStage6RuntimeProbe } from '../scripts/stage6/runtime-integration-probe.ts';
 import { startExperimentalRustServer } from './experimentalRustServer.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
+import { buildStackGraphSpec } from '../src/brains/stackBuilder.ts';
+import { compileGraph } from '../src/brains/graph/compiler.ts';
+import { CFG_DEFAULT } from '../src/config.ts';
+import { DEFAULT_CORE_SETTINGS } from '../src/protocol/settings.ts';
 
 /** Bounded test inbox for the real Protocol 2 transport. */
 interface Peer {
@@ -167,6 +172,111 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       });
       expect((await readdir(`${dbPath}.checkpoints`)).filter(name =>
         name.includes('upload') || name.includes('import-inventory'))).toEqual([]);
+    } finally {
+      for (const peer of peers) peer.socket.terminate();
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('converts the newest TypeScript v2 checkpoint without changing its source rows', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-v2-startup-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: 2, simSpeed: 2 };
+    const graphSpec = buildStackGraphSpec(core, CFG_DEFAULT);
+    const graph = compileGraph(graphSpec);
+    const firstWeights = Buffer.alloc(graph.totalParams * Float32Array.BYTES_PER_ELEMENT);
+    const secondWeights = Buffer.from(firstWeights);
+    secondWeights.writeFloatLE(0.25, 0);
+    const metadata = JSON.stringify({
+      formatVersion: 2,
+      boundaryVersion: 1,
+      boundaryKind: 'generation',
+      resumable: true,
+      generation: 19,
+      simulationStep: 72_000,
+      runId: 'typescript-source-run',
+      worldSeed: 7_654_321,
+      configHash: 'legacy-config',
+      configRevision: 4,
+      archKey: graph.key,
+      graphSpec,
+      populationCount: 2,
+      settings: core,
+      updates: [{ path: 'baselineBots.count', value: 0 }],
+      rng: {},
+      allocators: {},
+      bestFitnessEver: 0,
+      fitnessHistory: [],
+      lastHofEntry: null
+    });
+    const sourceDigest = createHash('sha256')
+      .update(metadata)
+      .update(firstWeights)
+      .update(secondWeights)
+      .digest('hex');
+    const database = new Database(dbPath);
+    try {
+      database.exec(`
+        CREATE TABLE population_snapshots (
+          id INTEGER PRIMARY KEY, payload_json TEXT, format_version INTEGER,
+          boundary_kind TEXT, population_count INTEGER
+        );
+        CREATE TABLE snapshot_genomes (
+          snapshot_id INTEGER NOT NULL, slot INTEGER NOT NULL, arch_key TEXT NOT NULL,
+          brain_type TEXT NOT NULL, fitness REAL NOT NULL, weight_count INTEGER NOT NULL,
+          weights_blob BLOB NOT NULL, weights_checksum TEXT NOT NULL,
+          PRIMARY KEY (snapshot_id, slot)
+        );
+      `);
+      database.prepare(`INSERT INTO population_snapshots
+        (id, payload_json, format_version, boundary_kind, population_count)
+        VALUES (1, ?, 2, 'generation', 2)`).run(metadata);
+      const insert = database.prepare(`INSERT INTO snapshot_genomes
+        (snapshot_id, slot, arch_key, brain_type, fitness, weight_count, weights_blob, weights_checksum)
+        VALUES (1, ?, ?, 'mlp', ?, ?, ?, ?)`);
+      for (const [slot, weights] of [firstWeights, secondWeights].entries()) {
+        insert.run(slot, graph.key, 10 - slot, graph.totalParams, weights,
+          createHash('sha256').update(weights).digest('hex'));
+      }
+    } finally { database.close(); }
+    const { seed: _defaultSeed, ...resumeConfig } = DEFAULT_CONFIG;
+    let server = await startExperimentalRustServer({
+      ...resumeConfig, port: 0, resume: 'latest', dbPath
+    });
+    const peers: Peer[] = [];
+    try {
+      expect(server.startupFault).toBeUndefined();
+      const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        runId: string; startupCheckpointId: string;
+      };
+      expect(health).toMatchObject({ ok: true, seed: 7_654_321, generation: '0000000000000001' });
+      expect(health.runId).not.toBe('typescript-source-run');
+      const viewer = await connect(server.port, 'ui');
+      peers.push(viewer);
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
+      expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
+        worldSeed: 7_654_321,
+        settings: { core: { snakeCount: 2, simSpeed: 2 } }
+      });
+      viewer.socket.terminate();
+      await server.close();
+      server = await startExperimentalRustServer({
+        ...resumeConfig, port: 0, resume: 'latest', dbPath
+      });
+      expect(server.startupFault).toBeUndefined();
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: health.runId, startupCheckpointId: health.startupCheckpointId
+      });
+      const retained = new Database(dbPath, { readonly: true });
+      try {
+        const row = retained.prepare('SELECT payload_json FROM population_snapshots WHERE id = 1')
+          .get() as { payload_json: string };
+        const blobs = retained.prepare(`SELECT weights_blob FROM snapshot_genomes
+          WHERE snapshot_id = 1 ORDER BY slot`).all() as Array<{ weights_blob: Buffer }>;
+        expect(createHash('sha256').update(row.payload_json)
+          .update(blobs[0]!.weights_blob).update(blobs[1]!.weights_blob).digest('hex')).toBe(sourceDigest);
+      } finally { retained.close(); }
     } finally {
       for (const peer of peers) peer.socket.terminate();
       await server.close();

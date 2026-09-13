@@ -88,7 +88,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
   const managedDirectory = resolve(options.managedDirectory);
   const sourceIdentity = computeNativeSourceIdentity(NATIVE_DIRECTORY);
   const binding = validateExperimentalFreshRunBinding(require(resolve(NATIVE_DIRECTORY, 'index.js')) as unknown, sourceIdentity);
-  if (!restoring) await mkdir(managedDirectory, { recursive: true });
+  await mkdir(managedDirectory, { recursive: true });
   const scavenged = await scavengeStaleArchiveArtifacts(managedDirectory);
   if (scavenged.removed > 0) {
     console.warn(`[rust.startup] removed ${scavenged.removed} stale temporary file(s) (${scavenged.removedBytes} bytes)`);
@@ -114,12 +114,19 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     if (restoring) {
       try {
         selection = await persistence.selectStartup();
-        if (!selection.descriptor || !selection.runId) throw new Error('no current managed checkpoint to restore');
-        if (options.restoreCheckpointId && selection.descriptor.logicalRootSha256 !== options.restoreCheckpointId) throw new Error('requested exact checkpoint is not current');
-        session = makeSession(selection.runId);
-        await session.initializeFromCheckpoint(selection.descriptor,
-          selection.descriptor.runId !== selection.runId
-            ? selection.recovery ?? selection.importBranch ?? undefined : undefined);
+        if (!selection.descriptor || !selection.runId) {
+          if (options.restoreCheckpointId) throw new Error('requested exact checkpoint is not current');
+          const legacySnapshotId = await persistence.selectLegacySnapshot();
+          if (legacySnapshotId === null) throw new Error('no current managed or TypeScript v2 checkpoint to restore');
+          session = makeSession(randomUUID());
+          await session.initializeFromLegacySqlite(databasePath, legacySnapshotId);
+        } else {
+          if (options.restoreCheckpointId && selection.descriptor.logicalRootSha256 !== options.restoreCheckpointId) throw new Error('requested exact checkpoint is not current');
+          session = makeSession(selection.runId);
+          await session.initializeFromCheckpoint(selection.descriptor,
+            selection.descriptor.runId !== selection.runId
+              ? selection.recovery ?? selection.importBranch ?? undefined : undefined);
+        }
       } catch (currentError) {
         if (!options.restoreLatest && !options.restoreCheckpointId) throw currentError;
         if (options.restoreCheckpointId && selection?.descriptor?.logicalRootSha256 === options.restoreCheckpointId) throw currentError;

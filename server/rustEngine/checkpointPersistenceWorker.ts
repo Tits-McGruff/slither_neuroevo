@@ -163,10 +163,10 @@ const managedRootPath = resolveManagedRoot(bootstrap.managedRootPath);
 const descriptorLimits = bootstrap.limits;
 /** Single synchronous SQLite connection owned exclusively by this worker. */
 const db = new Database(bootstrap.databasePath, { fileMustExist: bootstrap.existingOnly });
-if (bootstrap.existingOnly) {
-  try { validateExistingSchema(db); }
+const existingDatabaseKind = bootstrap.existingOnly ? (() => {
+  try { return validateExistingSchema(db); }
   catch (error) { db.close(); throw error; }
-}
+})() : 'new';
 
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = FULL');
@@ -176,7 +176,7 @@ if (String(journalMode).toLowerCase() !== 'wal' || Number(synchronous) !== 2) {
   throw new Error('checkpoint persistence worker requires journal_mode=WAL and synchronous=FULL');
 }
 db.pragma('foreign_keys = ON');
-if (!bootstrap.existingOnly) initializeSchema(db);
+if (!bootstrap.existingOnly || existingDatabaseKind === 'legacy') initializeSchema(db);
 initializeGraphPresetSchema(db);
 initializeHallOfFameWeightsSchema(db);
 initializeImportableHistorySchema(db);
@@ -236,24 +236,29 @@ function resolveManagedRoot(candidate: string): string {
 }
 
 /** Reject unrelated or incomplete databases before changing journal settings or schema. */
-function validateExistingSchema(database: ReturnType<typeof Database>): void {
-  const schema = database.prepare(`SELECT count(*) AS total,
-    sum(name IN ('rust_checkpoint_v3_metadata', 'rust_checkpoint_v3_current',
-      'rust_generation_history_v1', 'rust_hall_of_fame_v1', 'rust_hall_of_fame_weights_v1',
-      'rust_recovery_branches_v1', 'rust_import_branches_v1', 'rust_active_run_v1',
-      'rust_checkpoint_retention_v1', 'graph_presets')) AS recognized
-    FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).get() as {
-      total: number; recognized: number | null;
-    };
-  if (![4, 5, 6, 7, 8, 9, 10].includes(schema.total) || schema.recognized !== schema.total) {
-    throw new Error('resume requires an existing managed checkpoint metadata database');
+function validateExistingSchema(database: ReturnType<typeof Database>): 'managed' | 'legacy' {
+  const rows = database.prepare(`SELECT name FROM sqlite_schema
+    WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).all() as Array<{ name: string }>;
+  const tables = new Set(rows.map(row => row.name));
+  const managed = ['rust_checkpoint_v3_metadata', 'rust_checkpoint_v3_current',
+    'rust_generation_history_v1', 'rust_hall_of_fame_v1'];
+  if (managed.every(table => tables.has(table))) {
+    // Preparing these fixed reads also rejects incompatible columns without DDL.
+    database.prepare('SELECT checkpoint_id, operation_id, run_id, transition_epoch, generation_hex, completed_step_hex, descriptor_json FROM rust_checkpoint_v3_metadata LIMIT 0').all();
+    database.prepare('SELECT run_id, checkpoint_id, transition_epoch, operation_id FROM rust_checkpoint_v3_current LIMIT 0').all();
+    for (const table of ['rust_generation_history_v1', 'rust_hall_of_fame_v1']) {
+      database.prepare(`SELECT run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms FROM ${table} LIMIT 0`).all();
+    }
+    return 'managed';
   }
-  // Preparing these fixed reads also rejects incompatible columns without DDL.
-  database.prepare('SELECT checkpoint_id, operation_id, run_id, transition_epoch, generation_hex, completed_step_hex, descriptor_json FROM rust_checkpoint_v3_metadata LIMIT 0').all();
-  database.prepare('SELECT run_id, checkpoint_id, transition_epoch, operation_id FROM rust_checkpoint_v3_current LIMIT 0').all();
-  for (const table of ['rust_generation_history_v1', 'rust_hall_of_fame_v1']) {
-    database.prepare(`SELECT run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms FROM ${table} LIMIT 0`).all();
+  if (tables.has('population_snapshots') && tables.has('snapshot_genomes')) {
+    database.prepare(`SELECT id, payload_json, format_version, boundary_kind, population_count
+      FROM population_snapshots LIMIT 0`).all();
+    database.prepare(`SELECT snapshot_id, slot, arch_key, brain_type, fitness, weight_count,
+      weights_blob, weights_checksum FROM snapshot_genomes LIMIT 0`).all();
+    return 'legacy';
   }
+  throw new Error('resume requires a managed or TypeScript v2 checkpoint database');
 }
 
 /** One bounded metadata row used only for scalar retention planning. */
@@ -1292,6 +1297,24 @@ function readBrowserHallOfFame(runId: string, limit: number): ManagedBrowserHall
   }).deferred();
 }
 
+/** Select only one bounded TypeScript v2 parent ID; Rust reads every population row. */
+function selectLegacySnapshot(): number | null {
+  const available = db.prepare(`SELECT count(*) AS count FROM sqlite_schema
+    WHERE type = 'table' AND name IN ('population_snapshots', 'snapshot_genomes')`)
+    .get() as { count: number };
+  if (available.count !== 2) return null;
+  const row = db.prepare(`SELECT id FROM population_snapshots
+    WHERE format_version = 2 AND boundary_kind IN ('run-start', 'generation')
+      AND population_count BETWEEN 1 AND 300
+      AND length(CAST(payload_json AS BLOB)) BETWEEN 1 AND 4194304
+    ORDER BY id DESC LIMIT 1`).get() as { id: number } | undefined;
+  if (!row) return null;
+  if (!Number.isSafeInteger(row.id) || row.id <= 0) {
+    throw new Error('legacy checkpoint has an invalid SQLite row ID');
+  }
+  return row.id;
+}
+
 /** Add the small legacy-compatible graph-preset table to dedicated Rust databases. */
 function initializeGraphPresetSchema(database: ReturnType<typeof Database>): void {
   database.exec(`
@@ -2255,7 +2278,7 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
     const id = (commit as Record<string, unknown>)['operationId'];
     return typeof id === 'string' && /^[0-9a-f]{32}$/u.test(id) ? id : null;
   }
-  if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'scanRecoveryCandidate' ||
+  if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'selectLegacySnapshot' || request['type'] === 'scanRecoveryCandidate' ||
       request['type'] === 'inspectCheckpointRetention' || request['type'] === 'pinCurrentCheckpoint' ||
       request['type'] === 'applyCheckpointRetention' || request['type'] === 'acquireCurrentExportLease' ||
       request['type'] === 'releaseExportLease' || request['type'] === 'readBrowserHistory' ||
@@ -2419,6 +2442,13 @@ port.on('message', (message: unknown) => {
         throw new TypeError('invalid checkpoint selection request');
       }
       post({ type: 'managedCheckpointSelected', operationId, ...selectManagedCheckpoint(runId as string | null) });
+      return;
+    }
+    if (request['type'] === 'selectLegacySnapshot') {
+      if (!operationId || Object.keys(request).length !== 2) {
+        throw new TypeError('invalid legacy checkpoint selection request');
+      }
+      post({ type: 'legacySnapshotSelected', operationId, snapshotId: selectLegacySnapshot() });
       return;
     }
     if (request['type'] === 'commitManagedImport') {

@@ -488,6 +488,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
         'createBackgroundRuntime',
         'initialize',
         'initializeFromCheckpoint',
+        'initializeFromLegacySqlite',
         'publishFirstScheduledFrameV1',
         'publishInitialFrameV1',
         'publishRunStartCheckpoint',

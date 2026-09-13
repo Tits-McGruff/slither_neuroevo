@@ -153,6 +153,11 @@ class FakeFreshRunSession implements ExperimentalFreshRunNativeHandle {
     return this.current;
   }
 
+  /** Legacy conversion is exercised by the real SQLite/native integration fixture. */
+  public async initializeFromLegacySqlite(): Promise<unknown> {
+    throw new Error('requires native legacy SQLite fixture');
+  }
+
   /** Return Rust's exact descriptor for the supplied operation token. */
   public async publishRunStartCheckpoint(options: {
     managedDirectory: string;

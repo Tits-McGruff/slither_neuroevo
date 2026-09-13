@@ -62,14 +62,21 @@ npm run server:rust -- --fresh --db-path ./data/rust-experiment.sqlite
 npm run server:rust -- --resume latest --db-path ./data/rust-experiment.sqlite
 ```
 
-Use a dedicated database path rather than the normal reference-runtime
-database. Start it once with `--fresh`, then reuse that path with `--resume
-latest` or `--resume <checkpoint-sha256>`. Latest startup validates the current
-managed checkpoint and, if necessary, recovers from the newest valid retained
-boundary under a new provenance-labelled branch. An exact SHA-256 selector
-must validate and is never silently replaced. If latest startup finds no valid
-retained boundary, the process serves only a failing health endpoint and
-refuses game WebSockets instead of starting a new game.
+For a new experiment, start once with `--fresh`, then reuse that database with
+`--resume latest` or `--resume <checkpoint-sha256>`. `--resume latest` can also
+open a TypeScript reference-runtime database that uses the current per-genome
+checkpoint rows. Rust reads the newest compatible population directly from
+SQLite, preserves its seed, compatible settings, and ASCII-safe graph, and
+writes a new generation-one Rust checkpoint without changing the old snapshot
+rows. Later restarts use that managed Rust checkpoint. The older combined
+`genomes_blob` database format is not converted by this path yet.
+
+For a managed Rust database, latest startup validates the current checkpoint
+and, if necessary, recovers from the newest valid retained boundary under a new
+provenance-labelled branch. An exact SHA-256 selector must validate and is
+never silently replaced. If latest startup finds no valid retained boundary,
+the process serves only a failing health endpoint and refuses game WebSockets
+instead of starting a new game.
 
 The server prints a browser URL and supports the existing Protocol 2
 player/bot connections, frames, sensors, steering, disconnect and reclaim. Add

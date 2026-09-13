@@ -48,6 +48,7 @@ const REQUIRED_FRESH_RUN_METHODS = [
   'createBackgroundRuntime',
   'initialize',
   'initializeFromCheckpoint',
+  'initializeFromLegacySqlite',
   'publishFirstScheduledFrameV1',
   'publishInitialFrameV1',
   'publishRunStartCheckpoint',
@@ -62,6 +63,7 @@ const REQUIRED_FRESH_RUN_HANDLE_METHODS = [
   'createBackgroundRuntime',
   'initialize',
   'initializeFromCheckpoint',
+  'initializeFromLegacySqlite',
   'publishFirstScheduledFrameV1',
   'publishInitialFrameV1',
   'publishRunStartCheckpoint',
@@ -158,6 +160,8 @@ export interface ExperimentalFreshRunNativeHandle extends RustRunStartPersistenc
   initialize(): Promise<unknown>;
   /** Stream and validate the worker-selected immutable boundary off-loop. */
   initializeFromCheckpoint(managedDirectory: string, descriptor: ManagedCheckpointDescriptor, recoveryBranch?: boolean): Promise<unknown>;
+  /** Read one selected TypeScript v2 population without crossing the main Node isolate. */
+  initializeFromLegacySqlite(databasePath: string, snapshotIdHex: U64Hex): Promise<unknown>;
   /** Construct and publish the running world off the Node loop. */
   activateRunningAuthority(): Promise<unknown>;
   /** Adopt the exact durable branch on the retained private candidate off-loop. */
@@ -353,6 +357,20 @@ export class ExperimentalFreshRunSession {
     const result = await this.native.initializeFromCheckpoint(this.managedDirectory, selected, provenance !== undefined);
     this.restoredBoundary = selected;
     return parseFreshRunSnapshot(result, selected);
+  }
+
+  /** Convert one worker-selected TypeScript v2 population into a fresh Rust boundary. */
+  public async initializeFromLegacySqlite(
+    databasePath: string,
+    snapshotId: number
+  ): Promise<ExperimentalFreshRunSnapshot> {
+    if (!Number.isSafeInteger(snapshotId) || snapshotId <= 0) {
+      throw new RangeError('legacy snapshot ID must be a positive safe integer');
+    }
+    return parseFreshRunSnapshot(await this.native.initializeFromLegacySqlite(
+      databasePath,
+      BigInt(snapshotId).toString(16).padStart(16, '0') as U64Hex
+    ));
   }
 
   /** Apply the worker's committed branch to the existing candidate without another decode. */

@@ -23,6 +23,7 @@ use super::graph::{
 };
 use super::state::{NormalizedSettingValue, StateAdmissionPolicy};
 use super::step_config::typescript_default_settings;
+use rusqlite::{Connection, OpenFlags};
 use serde::de::{self, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
@@ -156,6 +157,33 @@ struct LegacyPopulationFile {
     settings: Option<serde_json::Value>,
     #[serde(default)]
     updates: Vec<LegacySettingWire>,
+}
+
+/// Bounded compatibility fields read from a TypeScript v2 parent row.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyDatabaseMetadata {
+    format_version: u32,
+    boundary_version: u32,
+    boundary_kind: String,
+    resumable: bool,
+    generation: u64,
+    run_id: String,
+    world_seed: u32,
+    arch_key: String,
+    graph_spec: LegacyGraphWire,
+    population_count: usize,
+    settings: serde_json::Value,
+    #[serde(default)]
+    updates: Vec<LegacySettingWire>,
+}
+
+/// Private old-database population ready for the normal run-start durability path.
+#[derive(Debug)]
+pub struct PreparedLegacySqliteImport {
+    pub snapshot_id: i64,
+    pub source_run_id: String,
+    pub transition: super::run_start::PendingRunStartTransition,
 }
 
 struct BoundedLegacyGenomes(Vec<LegacyGenomeWire>);
@@ -601,6 +629,187 @@ fn prepare_legacy_json_import(
         startup_metadata_json,
         transition,
     })
+}
+
+/// Read one TypeScript v2 checkpoint through SQLite without materializing its
+/// complete population in Node or in one SQLite result collection.
+pub fn prepare_legacy_sqlite_population_import(
+    database_path: &Path,
+    snapshot_id: i64,
+    run_id: &str,
+    memory_ceiling_bytes: usize,
+) -> Result<PreparedLegacySqliteImport, CheckpointError> {
+    if snapshot_id <= 0 {
+        return Err(CheckpointError::format(
+            "LEGACY_SQLITE_SELECTION",
+            "legacy snapshot ID must be positive",
+        ));
+    }
+    let file = fs::symlink_metadata(database_path)?;
+    if file.file_type().is_symlink() || !file.file_type().is_file() {
+        return Err(CheckpointError::format(
+            "LEGACY_SQLITE_PATH",
+            "legacy database must be one existing regular file",
+        ));
+    }
+    let connection = Connection::open_with_flags(
+        database_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(legacy_sqlite_error)?;
+    connection
+        .pragma_update(None, "query_only", true)
+        .map_err(legacy_sqlite_error)?;
+    let (metadata_json, declared_population): (String, i64) = connection
+        .query_row(
+            "SELECT payload_json, population_count FROM population_snapshots \
+             WHERE id = ?1 AND format_version = 2 \
+             AND boundary_kind IN ('run-start', 'generation') \
+             AND length(CAST(payload_json AS BLOB)) BETWEEN 1 AND 4194304",
+            [snapshot_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(legacy_sqlite_error)?;
+    let metadata: LegacyDatabaseMetadata =
+        serde_json::from_str(&metadata_json).map_err(|error| {
+            CheckpointError::format(
+                "LEGACY_SQLITE_METADATA",
+                format!("legacy v2 metadata is invalid: {error}"),
+            )
+        })?;
+    if metadata.format_version != 2
+        || metadata.boundary_version != 1
+        || !metadata.resumable
+        || !matches!(metadata.boundary_kind.as_str(), "run-start" | "generation")
+        || metadata.generation == 0
+        || metadata.run_id.is_empty()
+        || metadata.run_id.len() > 256
+        || metadata.arch_key.is_empty()
+        || metadata.arch_key.len() > 256 * 1024
+        || metadata.population_count == 0
+        || metadata.population_count > MAX_LEGACY_GENOMES
+        || declared_population != metadata.population_count as i64
+        || metadata.updates.len() > 128
+    {
+        return Err(CheckpointError::format(
+            "LEGACY_SQLITE_METADATA",
+            "legacy v2 checkpoint metadata is inconsistent or outside compatibility limits",
+        ));
+    }
+    let mut statement = connection
+        .prepare(
+            "SELECT slot, arch_key, brain_type, fitness, weight_count, \
+                    weights_blob, weights_checksum \
+             FROM snapshot_genomes WHERE snapshot_id = ?1 ORDER BY slot",
+        )
+        .map_err(legacy_sqlite_error)?;
+    let mut rows = statement
+        .query([snapshot_id])
+        .map_err(legacy_sqlite_error)?;
+    let mut genomes = Vec::new();
+    genomes
+        .try_reserve_exact(metadata.population_count)
+        .map_err(|_| {
+            CheckpointError::format("ALLOCATION", "legacy v2 population allocation failed")
+        })?;
+    while let Some(row) = rows.next().map_err(legacy_sqlite_error)? {
+        if genomes.len() == metadata.population_count {
+            return Err(CheckpointError::format(
+                "LEGACY_SQLITE_POPULATION",
+                "legacy v2 checkpoint has extra genome rows",
+            ));
+        }
+        let expected_slot = genomes.len();
+        let slot: i64 = row.get(0).map_err(legacy_sqlite_error)?;
+        let architecture: String = row.get(1).map_err(legacy_sqlite_error)?;
+        let brain_type: String = row.get(2).map_err(legacy_sqlite_error)?;
+        let fitness: f64 = row.get(3).map_err(legacy_sqlite_error)?;
+        let weight_count: i64 = row.get(4).map_err(legacy_sqlite_error)?;
+        let bytes: &[u8] = row
+            .get_ref(5)
+            .map_err(legacy_sqlite_error)?
+            .as_blob()
+            .map_err(|error| {
+                CheckpointError::format(
+                    "LEGACY_SQLITE_POPULATION",
+                    format!("legacy v2 weights are not a BLOB: {error}"),
+                )
+            })?;
+        let checksum: String = row.get(6).map_err(legacy_sqlite_error)?;
+        let weight_count = usize::try_from(weight_count).map_err(|_| {
+            CheckpointError::format(
+                "LEGACY_SQLITE_POPULATION",
+                "legacy v2 weight count is negative or too large",
+            )
+        })?;
+        if slot != expected_slot as i64
+            || architecture != metadata.arch_key
+            || brain_type.is_empty()
+            || brain_type.len() > 64
+            || !fitness.is_finite()
+            || weight_count == 0
+            || weight_count > MAX_LEGACY_WEIGHTS_PER_GENOME
+            || bytes.len() != weight_count.saturating_mul(4)
+            || checksum.len() != 64
+            || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || hex_digest(Sha256::digest(bytes).into()) != checksum.to_ascii_lowercase()
+        {
+            return Err(CheckpointError::format(
+                "LEGACY_SQLITE_POPULATION",
+                format!("legacy v2 genome {expected_slot} failed metadata or checksum validation"),
+            ));
+        }
+        let mut weights = Vec::new();
+        weights.try_reserve_exact(weight_count).map_err(|_| {
+            CheckpointError::format("ALLOCATION", "legacy v2 genome allocation failed")
+        })?;
+        for encoded in bytes.chunks_exact(4) {
+            let weight = f32::from_bits(u32::from_le_bytes(encoded.try_into().unwrap()));
+            if !weight.is_finite() {
+                return Err(CheckpointError::format(
+                    "LEGACY_SQLITE_POPULATION",
+                    format!("legacy v2 genome {expected_slot} contains a non-finite weight"),
+                ));
+            }
+            weights.push(weight);
+        }
+        genomes.push(LegacyPopulationGenome {
+            weights: weights.into_boxed_slice(),
+        });
+    }
+    if genomes.len() != metadata.population_count {
+        return Err(CheckpointError::format(
+            "LEGACY_SQLITE_POPULATION",
+            "legacy v2 checkpoint is missing genome rows",
+        ));
+    }
+    drop(rows);
+    drop(statement);
+    let settings = legacy_settings(Some(&metadata.settings), metadata.updates)?;
+    let graph = legacy_graph_spec(metadata.graph_spec)?;
+    let transition = prepare_stage6a_legacy_population_import(
+        Stage6aP0FreshRunRequest {
+            run_id: run_id.to_owned(),
+            seed: metadata.world_seed,
+            memory_ceiling_bytes,
+        },
+        &settings,
+        graph,
+        genomes,
+    )
+    .map_err(|error| CheckpointError::format("LEGACY_SQLITE_CANDIDATE", error.to_string()))?;
+    Ok(PreparedLegacySqliteImport {
+        snapshot_id,
+        source_run_id: metadata.run_id,
+        transition,
+    })
+}
+
+fn legacy_sqlite_error(error: rusqlite::Error) -> CheckpointError {
+    CheckpointError::format(
+        "LEGACY_SQLITE",
+        format!("legacy SQLite read failed: {error}"),
+    )
 }
 
 fn legacy_graph_spec(wire: LegacyGraphWire) -> Result<GraphSpec, CheckpointError> {

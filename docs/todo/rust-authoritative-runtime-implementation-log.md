@@ -434,4 +434,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   layouts and the source seed, then commits the population as a new
   generation-one checkpoint because legacy files lack exact continuation state.
 
+- 2026-09-13 Resume-latest now converts the newest compatible TypeScript v2
+  per-genome SQLite checkpoint directly in Rust. It verifies each bounded
+  weight row and checksum, commits a new generation-one managed checkpoint,
+  and leaves the source snapshot rows unchanged; combined-blob databases remain
+  the next compatibility case.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

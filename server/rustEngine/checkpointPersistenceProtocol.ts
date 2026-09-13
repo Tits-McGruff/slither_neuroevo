@@ -298,6 +298,7 @@ export interface CheckpointPersistenceShutdownRequest {
 
 /** Requests accepted by the isolated persistence worker. */
 export type CheckpointPersistenceWorkerRequest =
+  | { type: 'selectLegacySnapshot'; operationId: CheckpointOperationId }
   | { type: 'scanRecoveryCandidate'; operationId: string; cursor: RecoveryScanCursor | null }
   | { type: 'commitRecoveryBranch'; commit: RecoveryBranchCommit }
   | { type: 'inspectCheckpointRetention'; operationId: CheckpointOperationId }
@@ -446,6 +447,7 @@ export interface ManagedCheckpointRejectedResponse {
 
 /** Worker responses understood by the client. */
 export type CheckpointPersistenceWorkerResponse =
+  | { type: 'legacySnapshotSelected'; operationId: CheckpointOperationId; snapshotId: number | null }
   | { type: 'recoveryCandidate'; operationId: string; result: RecoveryScanResult }
   | { type: 'recoveryBranchCommitted'; result: RecoveryBranchResult }
   | { type: 'checkpointRetentionInspected'; operationId: CheckpointOperationId; inventory: CheckpointRetentionInventory }

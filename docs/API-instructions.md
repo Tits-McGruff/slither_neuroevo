@@ -518,6 +518,13 @@ the generic JSON-body limit and browser parsing do not apply to this route.
 Legacy JSON becomes a new generation-one population run rather than an exact
 resume.
 
+At startup, `--resume latest --db-path <path>` also accepts a TypeScript v2
+database whose resumable checkpoints use `snapshot_genomes` rows. Rust reads
+the newest compatible population through SQLite and commits it as a new
+generation-one managed checkpoint while retaining the source snapshot rows.
+This startup conversion does not yet accept the older combined `genomes_blob`
+layout.
+
 ### `GET /health`
 
 Returns `{ "ok": true, ... }` plus current tick, connected client count,

@@ -149,6 +149,12 @@ export class CheckpointPersistenceClient {
     resolve(value: ManagedCheckpointSelection): void;
     reject(error: Error): void;
   } | undefined;
+  /** One bounded legacy parent-row selection; population columns remain unread. */
+  private legacySelection: {
+    operationId: CheckpointOperationId;
+    resolve(value: number | null): void;
+    reject(error: Error): void;
+  } | undefined;
   /** One candidate read; a corrupt row advances only its stable scalar cursor. */
   private scan: { operationId: string; cursor: RecoveryScanCursor | null; resolve(value: RecoveryScanResult): void; reject(error: Error): void } | undefined;
   /** One startup recovery transaction; retries use the same caller-owned operation token. */
@@ -436,6 +442,20 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Select only the newest compatible TypeScript v2 parent ID. */
+  selectLegacySnapshot(): Promise<number | null> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.legacySelection) {
+      return Promise.reject(new Error('legacy checkpoint selection is busy or stopping'));
+    }
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.legacySelection = { operationId, resolve, reject };
+      try { this.worker.postMessage({ type: 'selectLegacySnapshot', operationId }); }
+      catch (error) { this.legacySelection = undefined; reject(asError(error)); }
+    });
+  }
+
   /** Select and verify one retained winner descriptor for direct Rust consumption. */
   selectHallOfFameEntry(runId: string, entryId: U64Hex): Promise<ManagedHallOfFameSelection> {
     if (this.failure) return Promise.reject(this.failure);
@@ -707,6 +727,15 @@ export class CheckpointPersistenceClient {
           recovery: response.recovery, importBranch: response.importBranch });
         return;
       }
+      if (response.type === 'legacySnapshotSelected') {
+        const selection = this.legacySelection;
+        if (!selection || response.operationId !== selection.operationId) {
+          throw new Error('persistence worker returned a mismatched legacy selection');
+        }
+        this.legacySelection = undefined;
+        selection.resolve(response.snapshotId);
+        return;
+      }
       if (response.type === 'managedCheckpointRejected') {
         if (!response.operationId) {
           throw new Error(`persistence worker rejected an uncorrelated request: ${response.reason}`);
@@ -757,6 +786,12 @@ export class CheckpointPersistenceClient {
           const pending = this.hallOfFame;
           this.hallOfFame = undefined;
           pending.reject(new Error(response.reason));
+          return;
+        }
+        if (response.operationId === this.legacySelection?.operationId) {
+          const selection = this.legacySelection;
+          this.legacySelection = undefined;
+          selection.reject(new Error(response.reason));
           return;
         }
         const graphPreset = this.graphPresets.get(response.operationId);
@@ -840,6 +875,8 @@ export class CheckpointPersistenceClient {
     this.recovery = undefined;
     this.selection?.reject(error);
     this.selection = undefined;
+    this.legacySelection?.reject(error);
+    this.legacySelection = undefined;
     this.retention?.reject(error);
     this.retention = undefined;
     this.pin?.reject(error);
@@ -887,7 +924,7 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0 && this.graphPresets.size === 0 && !this.selection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning && !this.history && !this.hallOfFame &&
+    if (this.stopping && code === 0 && this.pending.size === 0 && this.graphPresets.size === 0 && !this.selection && !this.legacySelection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning && !this.history && !this.hallOfFame &&
         (!this.hallOfFameSelection || this.hallOfFameSelection.phase === 'active') &&
         (!this.exportLease || this.exportLease.phase === 'active')) {
       this.resolveStopped?.();
@@ -1202,6 +1239,19 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     }
     return { type: 'managedCheckpointSelected', operationId: response['operationId'], descriptor,
       runId: runId as string | null, recovery, importBranch };
+  }
+  if (response['type'] === 'legacySnapshotSelected') {
+    requireExactKeys(response, ['type', 'operationId', 'snapshotId']);
+    if (!isOperationId(response['operationId']) ||
+        (response['snapshotId'] !== null &&
+          (!Number.isSafeInteger(response['snapshotId']) || Number(response['snapshotId']) <= 0))) {
+      throw new TypeError('invalid legacy checkpoint selection');
+    }
+    return {
+      type: 'legacySnapshotSelected',
+      operationId: response['operationId'],
+      snapshotId: response['snapshotId'] as number | null
+    };
   }
   if (response['type'] === 'managedCheckpointCommitted' || response['type'] === 'managedImportCommitted') {
     requireExactKeys(response, [
