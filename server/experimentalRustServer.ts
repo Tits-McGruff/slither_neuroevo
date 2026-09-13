@@ -26,7 +26,8 @@ import type {
   ManagedBrowserHallOfFameEntry,
   ManagedBrowserHistoryEntry,
   ManagedCheckpointExportLease,
-  ManagedImportBranchResult
+  ManagedImportBranchResult,
+  ManagedStorageDiagnostics
 } from './rustEngine/checkpointPersistenceProtocol.ts';
 import {
   parseManagedCheckpointDescriptor,
@@ -40,7 +41,9 @@ import {
 import {
   admitDiskOperation,
   IMPORT_CANDIDATE_BYTES,
-  IMPORT_FINAL_MANAGED_BYTES
+  IMPORT_FINAL_MANAGED_BYTES,
+  inspectManagedDisk,
+  type ManagedDiskDiagnostics
 } from './rustEngine/diskAdmission.ts';
 import { parseRustStartupMetadata } from './rustEngine/startupMetadata.ts';
 import type { GodModeMsg, LiveSettingsMsg, NewRunMsg, ResetMsg } from './protocol.ts';
@@ -58,6 +61,32 @@ const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
 const MAX_CONTROLLERS = 16;
 /** Browser asset MIME types emitted by Vite. */
 const CONTENT_TYPES: Readonly<Record<string, string>> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+
+/** Convert exact worker/filesystem counters to JSON-safe base-10 health fields. */
+function storageHealthPayload(
+  sqlite: ManagedStorageDiagnostics,
+  managed: ManagedDiskDiagnostics
+): Record<string, unknown> {
+  const decimal = (value: string): string => BigInt(`0x${value}`).toString();
+  return {
+    schemaVersion: 1,
+    sqlite: {
+      databaseBytes: decimal(sqlite.databaseByteCount),
+      walBytes: decimal(sqlite.walByteCount),
+      shmBytes: decimal(sqlite.shmByteCount),
+      pageSizeBytes: decimal(sqlite.pageSizeByteCount),
+      pageCount: decimal(sqlite.pageCount),
+      freelistPageCount: decimal(sqlite.freelistPageCount),
+      usedPageBytes: decimal(sqlite.usedPageByteCount)
+    },
+    managed: {
+      temporaryBytes: managed.tempByteCount.toString(),
+      temporaryQuotaBytes: managed.tempQuotaByteCount.toString(),
+      freeBytes: managed.freeByteCount.toString(),
+      operatingReserveBytes: managed.operatingReserveByteCount.toString()
+    }
+  };
+}
 
 /** Reject an export before writing when its scalar worst-case files do not fit. */
 async function admitExportSpace(directory: string, lease: ManagedCheckpointExportLease): Promise<void> {
@@ -244,12 +273,18 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let retention: CheckpointRetentionInventory;
   let fitnessHistory: ManagedBrowserHistoryEntry[];
   let hallOfFame: ManagedBrowserHallOfFameEntry[];
+  let storage: ManagedStorageDiagnostics;
+  let managedDisk: ManagedDiskDiagnostics;
   let retentionCleanup: { deletedCheckpointCount: number; deletedStoredByteCount: string };
   try {
     const initialCleanup = await owner.persistence.applyRetention();
     retention = initialCleanup.inventory;
-    fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
-    hallOfFame = await owner.persistence.readBrowserHallOfFame(activeMetadata.runId);
+    [fitnessHistory, hallOfFame, storage, managedDisk] = await Promise.all([
+      owner.persistence.readBrowserHistory(activeMetadata.runId),
+      owner.persistence.readBrowserHallOfFame(activeMetadata.runId),
+      owner.persistence.inspectStorage(),
+      inspectManagedDisk(owner.managedDirectory)
+    ]);
     retentionCleanup = { deletedCheckpointCount: initialCleanup.deletedCheckpointCount,
       deletedStoredByteCount: initialCleanup.deletedStoredByteCount };
   }
@@ -298,10 +333,27 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let activeImportRequest: import('node:http').IncomingMessage | undefined;
   let activeImportResponse: import('node:http').ServerResponse | undefined;
   let importAuthorityPublished = false;
+  let storageRefresh: Promise<void> | undefined;
+  let storageInspectionFault: string | undefined;
   const disconnectedDuringImport = new Set<number>();
   let executeImport: ((request: import('node:http').IncomingMessage,
     resumeAsBranch: boolean) => Promise<ArchiveImportSuccess>) | undefined;
   let executeResurrection: ((entryId: string) => Promise<number>) | undefined;
+
+  /** Refresh small storage counters without delaying or overlapping health responses. */
+  const refreshStorage = (): void => {
+    if (storageRefresh || stopping) return;
+    storageRefresh = Promise.all([
+      owner.persistence.inspectStorage(),
+      inspectManagedDisk(owner.managedDirectory)
+    ]).then(([nextStorage, nextManagedDisk]) => {
+      storage = nextStorage;
+      managedDisk = nextManagedDisk;
+      storageInspectionFault = undefined;
+    }).catch(error => {
+      storageInspectionFault = error instanceof Error ? error.message : String(error);
+    }).finally(() => { storageRefresh = undefined; });
+  };
 
   /** Keep population-sized bytes in Rust/filesystem/browser networking for one exact lease. */
   const serveExport = async (
@@ -385,13 +437,15 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     const requestUrl = new URL(request.url ?? '/', 'http://localhost');
     const pathname = requestUrl.pathname;
     if (pathname === '/api/health' || pathname === '/health') {
+      refreshStorage();
       const nativeHealth = owner.runtime.health();
       response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: activeMetadata.runId,
         seed: activeMetadata.seed, configRevision: wireInteger(activeMetadata.configRevision),
         configHash: activeMetadata.configHash, startupCheckpointId: activeCheckpointId, ...nativeHealth,
         telemetry: telemetry.snapshot(nativeHealth), outbound: hub?.getOutboundDiagnostics(),
-        retention, retentionCleanup,
+        retention, retentionCleanup, storage: storageHealthPayload(storage, managedDisk),
+        ...(storageInspectionFault ? { storageInspectionFault } : {}),
         ...(recovery ? { recovery } : {}), ...(importBranch ? { importBranch } : {}),
         ...(legacyConversion ? { legacyConversion } : {}),
         ...(fault ? { interfaceFault: fault } : {}) }));

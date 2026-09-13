@@ -717,7 +717,24 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
           retained: { latest: { checkpointCount: 1 }, pinned: { checkpointCount: 0 } },
           plannedPrune: { checkpointCount: 0 }
         },
-        retentionCleanup: { deletedCheckpointCount: 0, deletedStoredByteCount: '0000000000000000' }
+        retentionCleanup: { deletedCheckpointCount: 0, deletedStoredByteCount: '0000000000000000' },
+        storage: {
+          schemaVersion: 1,
+          sqlite: {
+            databaseBytes: expect.stringMatching(/^[1-9][0-9]*$/u),
+            walBytes: expect.stringMatching(/^[0-9]+$/u),
+            pageSizeBytes: expect.stringMatching(/^[1-9][0-9]*$/u),
+            pageCount: expect.stringMatching(/^[1-9][0-9]*$/u),
+            freelistPageCount: expect.stringMatching(/^[0-9]+$/u),
+            usedPageBytes: expect.stringMatching(/^[1-9][0-9]*$/u)
+          },
+          managed: {
+            temporaryBytes: expect.stringMatching(/^[0-9]+$/u),
+            temporaryQuotaBytes: expect.stringMatching(/^[1-9][0-9]*$/u),
+            freeBytes: expect.stringMatching(/^[1-9][0-9]*$/u),
+            operatingReserveBytes: expect.stringMatching(/^[1-9][0-9]*$/u)
+          }
+        }
       });
       const activity = (health['telemetry'] as {
         trainerAction: { samples: number };

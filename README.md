@@ -116,7 +116,9 @@ or Hall-of-Fame records. Health includes the last cleanup's exact file and byte
 counts. On managed restart it also verifies every retained checkpoint and
 referenced Hall-of-Fame object before removing exact final files left
 unreferenced by an interrupted publication; unknown files and links are left
-alone. The Settings panel's **Pin checkpoint** button
+alone. Health also reports the current SQLite, WAL, free-page, temporary-file,
+free-disk, quota, and operating-reserve byte counts without reading population
+data into Node. The Settings panel's **Pin checkpoint** button
 permanently protects the exact current managed checkpoint; it does not also
 create or download an export. **Export** starts one ordinary browser download
 of the exact current Rust checkpoint plus its complete compact history and

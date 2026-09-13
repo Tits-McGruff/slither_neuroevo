@@ -304,6 +304,7 @@ export type CheckpointPersistenceWorkerRequest =
   | { type: 'scanRecoveryCandidate'; operationId: string; cursor: RecoveryScanCursor | null }
   | { type: 'commitRecoveryBranch'; commit: RecoveryBranchCommit }
   | { type: 'inspectCheckpointRetention'; operationId: CheckpointOperationId }
+  | { type: 'inspectManagedStorage'; operationId: CheckpointOperationId }
   | { type: 'pinCurrentCheckpoint'; operationId: CheckpointOperationId }
   | { type: 'applyCheckpointRetention'; operationId: CheckpointOperationId }
   | { type: 'acquireCurrentExportLease'; operationId: CheckpointOperationId }
@@ -421,6 +422,26 @@ export interface ManagedImportInventoryDescriptor {
   hallOfFameCount: U64Hex;
 }
 
+/** Small SQLite file/page counters returned without exposing database ownership. */
+export interface ManagedStorageDiagnostics {
+  /** Diagnostics contract version. */
+  schemaVersion: 1;
+  /** Current main SQLite file length. */
+  databaseByteCount: U64Hex;
+  /** Current write-ahead-log file length, or zero when absent. */
+  walByteCount: U64Hex;
+  /** Current shared-memory sidecar length, or zero when absent. */
+  shmByteCount: U64Hex;
+  /** SQLite page size selected by the database. */
+  pageSizeByteCount: U64Hex;
+  /** Total logical SQLite page count, including free pages. */
+  pageCount: U64Hex;
+  /** Pages currently present on SQLite's freelist. */
+  freelistPageCount: U64Hex;
+  /** Logical bytes occupied by non-freelist pages. */
+  usedPageByteCount: U64Hex;
+}
+
 /** One validated metadata selection, without opening or decoding population payloads. */
 export interface ManagedCheckpointSelectedResponse extends ManagedCheckpointSelection {
   /** Response discriminator. */
@@ -472,6 +493,7 @@ export type CheckpointPersistenceWorkerResponse =
   | { type: 'recoveryCandidate'; operationId: string; result: RecoveryScanResult }
   | { type: 'recoveryBranchCommitted'; result: RecoveryBranchResult }
   | { type: 'checkpointRetentionInspected'; operationId: CheckpointOperationId; inventory: CheckpointRetentionInventory }
+  | { type: 'managedStorageInspected'; operationId: CheckpointOperationId; diagnostics: ManagedStorageDiagnostics }
   | { type: 'currentCheckpointPinned'; operationId: CheckpointOperationId; checkpointId: string; generation: U64Hex }
   | { type: 'checkpointRetentionApplied'; operationId: CheckpointOperationId; result: CheckpointPruneResult }
   | { type: 'currentExportLeaseAcquired'; lease: ManagedCheckpointExportLease }
@@ -966,6 +988,34 @@ export function parseManagedImportInventoryDescriptor(
     historyCount,
     hallOfFameCount
   };
+}
+
+/** Validate bounded SQLite storage counters returned by the isolated worker. */
+export function parseManagedStorageDiagnostics(value: unknown): ManagedStorageDiagnostics {
+  const diagnostics = asRecord(value, 'storageDiagnostics');
+  requireOnlyKeys(diagnostics, [
+    'schemaVersion', 'databaseByteCount', 'walByteCount', 'shmByteCount',
+    'pageSizeByteCount', 'pageCount', 'freelistPageCount', 'usedPageByteCount'
+  ]);
+  if (diagnostics['schemaVersion'] !== 1) reject('storage diagnostics version is unsupported');
+  const parsed = {
+    schemaVersion: 1 as const,
+    databaseByteCount: asU64Hex(diagnostics['databaseByteCount'], 'storageDiagnostics.databaseByteCount'),
+    walByteCount: asU64Hex(diagnostics['walByteCount'], 'storageDiagnostics.walByteCount'),
+    shmByteCount: asU64Hex(diagnostics['shmByteCount'], 'storageDiagnostics.shmByteCount'),
+    pageSizeByteCount: asU64Hex(diagnostics['pageSizeByteCount'], 'storageDiagnostics.pageSizeByteCount'),
+    pageCount: asU64Hex(diagnostics['pageCount'], 'storageDiagnostics.pageCount'),
+    freelistPageCount: asU64Hex(diagnostics['freelistPageCount'], 'storageDiagnostics.freelistPageCount'),
+    usedPageByteCount: asU64Hex(diagnostics['usedPageByteCount'], 'storageDiagnostics.usedPageByteCount')
+  };
+  const pages = BigInt(`0x${parsed.pageCount}`);
+  const freePages = BigInt(`0x${parsed.freelistPageCount}`);
+  const pageBytes = BigInt(`0x${parsed.pageSizeByteCount}`);
+  if (pageBytes < 512n || pageBytes > 65_536n || (pageBytes & (pageBytes - 1n)) !== 0n ||
+      freePages > pages || (pages - freePages) * pageBytes !== BigInt(`0x${parsed.usedPageByteCount}`)) {
+    reject('storage diagnostics contain inconsistent page accounting');
+  }
+  return parsed;
 }
 
 /** Validate one bounded old SQLite row selection without reading population data. */

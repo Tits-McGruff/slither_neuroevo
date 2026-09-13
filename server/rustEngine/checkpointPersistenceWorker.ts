@@ -41,6 +41,7 @@ import {
   type ManagedImportInventoryDescriptor,
   type ManagedLegacyConversion,
   type ManagedLegacySnapshotSelection,
+  type ManagedStorageDiagnostics,
   type ManagedGraphPreset,
   type ManagedGraphPresetMeta,
   type U64Hex
@@ -1364,6 +1365,51 @@ function inspectCheckpointRetention(): CheckpointRetentionInventory {
   }).deferred();
 }
 
+/** Encode one nonnegative bounded counter for the structured-clone protocol. */
+function storageU64(value: bigint, label: string): U64Hex {
+  if (value < 0n || value > 0xffff_ffff_ffff_ffffn) {
+    throw new RangeError(`${label} does not fit an unsigned 64-bit value`);
+  }
+  return value.toString(16).padStart(16, '0');
+}
+
+/** Read one SQLite integer pragma without permitting lossy Number conversion. */
+function sqliteCountPragma(name: 'page_size' | 'page_count' | 'freelist_count'): bigint {
+  const value = db.pragma(name, { simple: true });
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error(`SQLite ${name} is not a safe nonnegative integer`);
+  }
+  return BigInt(value as number);
+}
+
+/** Read one SQLite file length, treating an absent optional sidecar as empty. */
+function sqliteFileByteCount(path: string, optional: boolean): bigint {
+  try {
+    return statSync(path, { bigint: true }).size;
+  } catch (error) {
+    if (optional && (error as NodeJS.ErrnoException).code === 'ENOENT') return 0n;
+    throw error;
+  }
+}
+
+/** Inspect bounded file/page counters on the worker that exclusively owns SQLite. */
+function inspectManagedStorage(): ManagedStorageDiagnostics {
+  const pageSize = sqliteCountPragma('page_size');
+  const pageCount = sqliteCountPragma('page_count');
+  const freelistPageCount = sqliteCountPragma('freelist_count');
+  if (freelistPageCount > pageCount) throw new Error('SQLite freelist exceeds total page count');
+  return {
+    schemaVersion: 1,
+    databaseByteCount: storageU64(sqliteFileByteCount(bootstrap.databasePath, false), 'database bytes'),
+    walByteCount: storageU64(sqliteFileByteCount(`${bootstrap.databasePath}-wal`, true), 'WAL bytes'),
+    shmByteCount: storageU64(sqliteFileByteCount(`${bootstrap.databasePath}-shm`, true), 'SHM bytes'),
+    pageSizeByteCount: storageU64(pageSize, 'page size'),
+    pageCount: storageU64(pageCount, 'page count'),
+    freelistPageCount: storageU64(freelistPageCount, 'freelist page count'),
+    usedPageByteCount: storageU64((pageCount - freelistPageCount) * pageSize, 'used page bytes')
+  };
+}
+
 /** Pin the exact current immutable file in one worker-owned transaction. */
 function pinCurrentCheckpoint(): { checkpointId: string; generation: U64Hex } {
   return db.transaction(() => {
@@ -2558,7 +2604,8 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
     return typeof id === 'string' && /^[0-9a-f]{32}$/u.test(id) ? id : null;
   }
   if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'selectLegacySnapshot' || request['type'] === 'scanRecoveryCandidate' ||
-      request['type'] === 'inspectCheckpointRetention' || request['type'] === 'pinCurrentCheckpoint' ||
+      request['type'] === 'inspectCheckpointRetention' || request['type'] === 'inspectManagedStorage' ||
+      request['type'] === 'pinCurrentCheckpoint' ||
       request['type'] === 'applyCheckpointRetention' || request['type'] === 'acquireCurrentExportLease' ||
       request['type'] === 'releaseExportLease' || request['type'] === 'readBrowserHistory' ||
       request['type'] === 'readBrowserHallOfFame' || request['type'] === 'selectHallOfFameEntry' ||
@@ -2627,6 +2674,11 @@ port.on('message', (message: unknown) => {
     if (request['type'] === 'inspectCheckpointRetention') {
       if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid retention inventory request');
       post({ type: 'checkpointRetentionInspected', operationId, inventory: inspectCheckpointRetention() });
+      return;
+    }
+    if (request['type'] === 'inspectManagedStorage') {
+      if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid managed storage request');
+      post({ type: 'managedStorageInspected', operationId, diagnostics: inspectManagedStorage() });
       return;
     }
     if (request['type'] === 'saveGraphPreset') {

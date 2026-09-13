@@ -8,7 +8,8 @@ import {
   OPERATING_DISK_RESERVE_BYTES,
   SQLITE_WAL_ALLOWANCE_BYTES,
   evaluateDiskAdmission,
-  inspectArchiveTempBytes
+  inspectArchiveTempBytes,
+  inspectManagedDisk
 } from './diskAdmission.ts';
 
 /** Disposable directories removed after each disk-admission test. */
@@ -73,5 +74,12 @@ describe('managed disk admission', () => {
     writeFileSync(join(root, 'owner-notes.txt'), Buffer.alloc(17));
     mkdirSync(join(root, `.${operation}.weights.codec.partial`));
     await expect(inspectArchiveTempBytes(root)).resolves.toBe(18n);
+    const diagnostics = await inspectManagedDisk(root);
+    expect(diagnostics).toMatchObject({
+      tempByteCount: 18n,
+      tempQuotaByteCount: ARCHIVE_TEMP_QUOTA_BYTES,
+      operatingReserveByteCount: OPERATING_DISK_RESERVE_BYTES
+    });
+    expect(diagnostics.freeByteCount).toBeGreaterThan(0n);
   });
 });

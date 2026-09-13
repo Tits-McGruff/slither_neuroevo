@@ -19,6 +19,7 @@ import {
   parseManagedHallOfFameWeightsDescriptor,
   parseManagedImportBranchResult,
   parseManagedImportInventoryDescriptor,
+  parseManagedStorageDiagnostics,
   parseManagedLegacyConversion,
   parseManagedLegacySnapshotSelection,
   parseManagedGenerationCommit,
@@ -36,6 +37,7 @@ import {
   type ManagedImportInventoryDescriptor,
   type ManagedLegacyConversion,
   type ManagedLegacySnapshotSelection,
+  type ManagedStorageDiagnostics,
   type ManagedGraphPreset,
   type ManagedGraphPresetMeta,
   type U64Hex
@@ -165,6 +167,8 @@ export class CheckpointPersistenceClient {
   private recovery: { commit: RecoveryBranchCommit; resolve(value: RecoveryBranchResult): void; reject(error: Error): void } | undefined;
   /** At most one bounded retention inventory read may be in flight. */
   private retention: { operationId: CheckpointOperationId; resolve(value: CheckpointRetentionInventory): void; reject(error: Error): void } | undefined;
+  /** At most one small SQLite storage inspection may be in flight. */
+  private storage: { operationId: CheckpointOperationId; resolve(value: ManagedStorageDiagnostics): void; reject(error: Error): void } | undefined;
   /** At most one owner pin transaction may be in flight. */
   private pin: { operationId: CheckpointOperationId; resolve(value: PinnedCheckpointResult): void; reject(error: Error): void } | undefined;
   /** At most one verified automatic pruning pass may be in flight. */
@@ -371,6 +375,18 @@ export class CheckpointPersistenceClient {
       this.retention = { operationId, resolve, reject };
       try { this.worker.postMessage({ type: 'inspectCheckpointRetention', operationId }); }
       catch (error) { this.retention = undefined; reject(asError(error)); }
+    });
+  }
+
+  /** Read only SQLite file and page counters from the worker that owns the connection. */
+  inspectStorage(): Promise<ManagedStorageDiagnostics> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.storage) return Promise.reject(new Error('managed storage inspection is busy or stopping'));
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.storage = { operationId, resolve, reject };
+      try { this.worker.postMessage({ type: 'inspectManagedStorage', operationId }); }
+      catch (error) { this.storage = undefined; reject(asError(error)); }
     });
   }
 
@@ -706,6 +722,15 @@ export class CheckpointPersistenceClient {
         pending.resolve(response.inventory);
         return;
       }
+      if (response.type === 'managedStorageInspected') {
+        const pending = this.storage;
+        if (!pending || pending.operationId !== response.operationId) {
+          throw new Error('persistence worker returned mismatched storage diagnostics');
+        }
+        this.storage = undefined;
+        pending.resolve(response.diagnostics);
+        return;
+      }
       if (response.type === 'recoveryCandidate') {
         const pending = this.scan;
         const cursor = response.result.cursor;
@@ -776,6 +801,12 @@ export class CheckpointPersistenceClient {
         if (response.operationId === this.retention?.operationId) {
           const pending = this.retention;
           this.retention = undefined;
+          pending.reject(new Error(response.reason));
+          return;
+        }
+        if (response.operationId === this.storage?.operationId) {
+          const pending = this.storage;
+          this.storage = undefined;
           pending.reject(new Error(response.reason));
           return;
         }
@@ -894,6 +925,8 @@ export class CheckpointPersistenceClient {
     this.legacySelection = undefined;
     this.retention?.reject(error);
     this.retention = undefined;
+    this.storage?.reject(error);
+    this.storage = undefined;
     this.pin?.reject(error);
     this.pin = undefined;
     this.pruning?.reject(error);
@@ -939,7 +972,7 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0 && this.graphPresets.size === 0 && !this.selection && !this.legacySelection && !this.recovery && !this.scan && !this.retention && !this.pin && !this.pruning && !this.history && !this.hallOfFame &&
+    if (this.stopping && code === 0 && this.pending.size === 0 && this.graphPresets.size === 0 && !this.selection && !this.legacySelection && !this.recovery && !this.scan && !this.retention && !this.storage && !this.pin && !this.pruning && !this.history && !this.hallOfFame &&
         (!this.hallOfFameSelection || this.hallOfFameSelection.phase === 'active') &&
         (!this.exportLease || this.exportLease.phase === 'active')) {
       this.resolveStopped?.();
@@ -1225,6 +1258,15 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
       type: 'checkpointRetentionInspected',
       operationId: response['operationId'],
       inventory: parseCheckpointRetentionInventory(response['inventory'])
+    };
+  }
+  if (response['type'] === 'managedStorageInspected') {
+    requireExactKeys(response, ['type', 'operationId', 'diagnostics']);
+    if (!isOperationId(response['operationId'])) throw new TypeError('invalid storage diagnostics correlation');
+    return {
+      type: 'managedStorageInspected',
+      operationId: response['operationId'],
+      diagnostics: parseManagedStorageDiagnostics(response['diagnostics'])
     };
   }
   if (response['type'] === 'recoveryCandidate') {

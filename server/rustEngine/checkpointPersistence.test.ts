@@ -301,6 +301,22 @@ afterEach(async () => {
 
 // Allow worker startup, durable I/O and joined shutdown on shared runners.
 describe(SUITE, { timeout: 30_000 }, () => {
+  it('reports bounded SQLite file and free-page storage counters', async () => {
+    const fixture = createFixture();
+    const diagnostics = await fixture.client.inspectStorage();
+    const pageSize = BigInt(`0x${diagnostics.pageSizeByteCount}`);
+    const pageCount = BigInt(`0x${diagnostics.pageCount}`);
+    const freePages = BigInt(`0x${diagnostics.freelistPageCount}`);
+    expect(diagnostics.schemaVersion).toBe(1);
+    expect(BigInt(`0x${diagnostics.databaseByteCount}`)).toBeGreaterThan(0n);
+    expect(BigInt(`0x${diagnostics.walByteCount}`)).toBeGreaterThanOrEqual(0n);
+    expect(BigInt(`0x${diagnostics.shmByteCount}`)).toBeGreaterThanOrEqual(0n);
+    expect(pageSize).toBeGreaterThanOrEqual(512n);
+    expect(pageCount).toBeGreaterThan(0n);
+    expect(freePages).toBeLessThanOrEqual(pageCount);
+    expect(BigInt(`0x${diagnostics.usedPageByteCount}`)).toBe((pageCount - freePages) * pageSize);
+  });
+
   it('keeps validated graph presets across metadata-worker restarts', async () => {
     const fixture = createFixture();
     const spec: GraphSpec = {

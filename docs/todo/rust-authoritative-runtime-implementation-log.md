@@ -469,4 +469,9 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   longer retains a second complete encoded copy while constructing managed
   content objects.
 
+- 2026-09-14 Rust-server health now reports SQLite, WAL, SHM, page/freelist,
+  managed temporary-file, free-disk, quota, and operating-reserve byte counts.
+  SQLite counters come from the existing isolated metadata owner and never
+  inspect population payloads.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

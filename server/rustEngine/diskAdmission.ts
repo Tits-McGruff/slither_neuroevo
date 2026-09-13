@@ -39,6 +39,18 @@ export interface DiskAdmissionDecision extends DiskAdmissionRequest {
   requiredFreeBytes: bigint;
 }
 
+/** Current managed-directory space counters used by health and admission. */
+export interface ManagedDiskDiagnostics {
+  /** Recognized private work files currently charged to the temporary quota. */
+  tempByteCount: bigint;
+  /** Current filesystem blocks available to this process. */
+  freeByteCount: bigint;
+  /** Configured aggregate private-work-file quota. */
+  tempQuotaByteCount: bigint;
+  /** Space deliberately withheld from managed operations. */
+  operatingReserveByteCount: bigint;
+}
+
 /** Structured rejection retained across HTTP and background-generation callers. */
 export class DiskAdmissionError extends Error {
   /** Stable reason for tests and future health projection. */
@@ -122,18 +134,29 @@ export async function inspectArchiveTempBytes(managedDirectory: string): Promise
   return bytes;
 }
 
+/** Inspect current managed temporary use and available filesystem space. */
+export async function inspectManagedDisk(managedDirectory: string): Promise<ManagedDiskDiagnostics> {
+  const [tempByteCount, space] = await Promise.all([
+    inspectArchiveTempBytes(managedDirectory),
+    statfs(managedDirectory, { bigint: true })
+  ]);
+  return {
+    tempByteCount,
+    freeByteCount: space.bavail * space.bsize,
+    tempQuotaByteCount: ARCHIVE_TEMP_QUOTA_BYTES,
+    operatingReserveByteCount: OPERATING_DISK_RESERVE_BYTES
+  };
+}
+
 /** Inspect current filesystem state and enforce one operation's full formula. */
 export async function admitDiskOperation(
   managedDirectory: string,
   request: DiskAdmissionRequest
 ): Promise<DiskAdmissionDecision> {
-  const [existingTempBytes, space] = await Promise.all([
-    inspectArchiveTempBytes(managedDirectory),
-    statfs(managedDirectory, { bigint: true })
-  ]);
+  const diagnostics = await inspectManagedDisk(managedDirectory);
   return evaluateDiskAdmission(
     request,
-    existingTempBytes,
-    space.bavail * space.bsize
+    diagnostics.tempByteCount,
+    diagnostics.freeByteCount
   );
 }
