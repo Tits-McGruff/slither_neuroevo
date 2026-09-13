@@ -2,6 +2,7 @@ import { mkdtemp, rm, readdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import Database from 'better-sqlite3';
@@ -283,6 +284,92 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it.each(['gzip', 'embedded'] as const)(
+    'converts a format-zero %s population without changing its source row',
+    async (storage) => {
+      const root = await mkdtemp(join(tmpdir(), `slither-rust-v0-${storage}-`));
+      const dbPath = join(root, 'experiment.sqlite');
+      const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: 2, simSpeed: 3 };
+      const graphSpec = buildStackGraphSpec(core, CFG_DEFAULT);
+      const graph = compileGraph(graphSpec);
+      const first = new Array<number>(graph.totalParams).fill(0);
+      const second = new Array<number>(graph.totalParams).fill(0);
+      second[0] = 0.25;
+      const genomes = [first, second].map((weights, slot) => ({
+        archKey: graph.key, brainType: 'mlp', fitness: 10 - slot, weights
+      }));
+      const payload = JSON.stringify({
+        generation: 7,
+        archKey: graph.key,
+        genomes: storage === 'embedded' ? genomes : [],
+        cfgHash: 'legacy-config',
+        worldSeed: 1_234_567,
+        graphSpec,
+        ...(storage === 'embedded' ? {
+          settings: core,
+          updates: [{ path: 'baselineBots.count', value: 0 }]
+        } : {})
+      });
+      const framed = storage === 'gzip' ? gzipSync(Buffer.concat(genomes.flatMap(genome => {
+        const encoded = Buffer.from(JSON.stringify(genome));
+        const prefix = Buffer.alloc(4);
+        prefix.writeUInt32LE(encoded.byteLength);
+        return [prefix, encoded];
+      }))) : null;
+      const sourceDigest = createHash('sha256').update(payload).update(framed ?? Buffer.alloc(0)).digest('hex');
+      const database = new Database(dbPath);
+      try {
+        database.exec(storage === 'gzip' ? `CREATE TABLE population_snapshots (
+          id INTEGER PRIMARY KEY, created_at INTEGER, gen INTEGER, payload_json TEXT,
+          settings_json TEXT, updates_json TEXT, genomes_blob BLOB
+        )` : `CREATE TABLE population_snapshots (
+          id INTEGER PRIMARY KEY, created_at INTEGER, gen INTEGER, payload_json TEXT
+        )`);
+        if (storage === 'gzip') {
+          database.prepare(`INSERT INTO population_snapshots
+            (id, created_at, gen, payload_json, settings_json, updates_json, genomes_blob)
+            VALUES (1, ?, 7, ?, ?, ?, ?)`).run(Date.now(), payload, JSON.stringify(core),
+              JSON.stringify([{ path: 'baselineBots.count', value: 0 }]), framed);
+        } else {
+          database.prepare(`INSERT INTO population_snapshots
+            (id, created_at, gen, payload_json) VALUES (1, ?, 7, ?)`).run(Date.now(), payload);
+        }
+      } finally { database.close(); }
+
+      const { seed: _defaultSeed, ...resumeConfig } = DEFAULT_CONFIG;
+      const server = await startExperimentalRustServer({
+        ...resumeConfig, port: 0, resume: 'latest', dbPath
+      });
+      const peers: Peer[] = [];
+      try {
+        expect(server.startupFault).toBeUndefined();
+        expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+          ok: true, seed: 1_234_567, generation: '0000000000000001'
+        });
+        const viewer = await connect(server.port, 'ui');
+        peers.push(viewer);
+        await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
+        expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
+          worldSeed: 1_234_567, settings: { core: { snakeCount: 2, simSpeed: 3 } }
+        });
+        const retained = new Database(dbPath, { readonly: true });
+        try {
+          const row = retained.prepare(`SELECT payload_json${storage === 'gzip' ? ', genomes_blob' : ''}
+            FROM population_snapshots WHERE id = 1`).get() as { payload_json: string; genomes_blob?: Buffer };
+          expect(createHash('sha256').update(row.payload_json)
+            .update(row.genomes_blob ?? Buffer.alloc(0)).digest('hex')).toBe(sourceDigest);
+          expect((retained.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_current').get() as
+            { count: number }).count).toBe(1);
+        } finally { retained.close(); }
+      } finally {
+        for (const peer of peers) peer.socket.terminate();
+        await server.close();
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    30_000
+  );
 
   it('streams, imports, and atomically activates one exact Rust save', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-export-server-'));

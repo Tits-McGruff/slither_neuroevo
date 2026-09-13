@@ -251,11 +251,16 @@ function validateExistingSchema(database: ReturnType<typeof Database>): 'managed
     }
     return 'managed';
   }
-  if (tables.has('population_snapshots') && tables.has('snapshot_genomes')) {
-    database.prepare(`SELECT id, payload_json, format_version, boundary_kind, population_count
-      FROM population_snapshots LIMIT 0`).all();
-    database.prepare(`SELECT snapshot_id, slot, arch_key, brain_type, fitness, weight_count,
-      weights_blob, weights_checksum FROM snapshot_genomes LIMIT 0`).all();
+  if (tables.has('population_snapshots')) {
+    const parentColumns = new Set((database.prepare('PRAGMA table_info(population_snapshots)').all() as
+      Array<{ name: string }>).map(column => column.name));
+    if (!['id', 'payload_json'].every(column => parentColumns.has(column))) {
+      throw new Error('legacy population_snapshots is missing required base columns');
+    }
+    if (tables.has('snapshot_genomes')) {
+      database.prepare(`SELECT snapshot_id, slot, arch_key, brain_type, fitness, weight_count,
+        weights_blob, weights_checksum FROM snapshot_genomes LIMIT 0`).all();
+    }
     return 'legacy';
   }
   throw new Error('resume requires a managed or TypeScript v2 checkpoint database');
@@ -1300,14 +1305,26 @@ function readBrowserHallOfFame(runId: string, limit: number): ManagedBrowserHall
 /** Select only one bounded TypeScript v2 parent ID; Rust reads every population row. */
 function selectLegacySnapshot(): number | null {
   const available = db.prepare(`SELECT count(*) AS count FROM sqlite_schema
-    WHERE type = 'table' AND name IN ('population_snapshots', 'snapshot_genomes')`)
-    .get() as { count: number };
-  if (available.count !== 2) return null;
+    WHERE type = 'table' AND name = 'population_snapshots'`).get() as { count: number };
+  if (available.count !== 1) return null;
+  const columns = new Set((db.prepare('PRAGMA table_info(population_snapshots)').all() as
+    Array<{ name: string }>).map(column => column.name));
+  if (!['id', 'payload_json'].every(column => columns.has(column))) return null;
+  const conditions = ['length(CAST(payload_json AS BLOB)) BETWEEN 1 AND 536870912'];
+  if (columns.has('format_version')) {
+    conditions.push('(format_version IS NULL OR format_version IN (0, 2))');
+    if (columns.has('population_count')) {
+      conditions.push(`(format_version IS NULL OR format_version = 0 OR
+        population_count BETWEEN 1 AND 300)`);
+    } else {
+      conditions.push('(format_version IS NULL OR format_version = 0)');
+    }
+  }
+  if (columns.has('boundary_kind')) {
+    conditions.push(`(boundary_kind IS NULL OR boundary_kind IN ('run-start', 'generation'))`);
+  }
   const row = db.prepare(`SELECT id FROM population_snapshots
-    WHERE format_version = 2 AND boundary_kind IN ('run-start', 'generation')
-      AND population_count BETWEEN 1 AND 300
-      AND length(CAST(payload_json AS BLOB)) BETWEEN 1 AND 4194304
-    ORDER BY id DESC LIMIT 1`).get() as { id: number } | undefined;
+    WHERE ${conditions.join(' AND ')} ORDER BY id DESC LIMIT 1`).get() as { id: number } | undefined;
   if (!row) return null;
   if (!Number.isSafeInteger(row.id) || row.id <= 0) {
     throw new Error('legacy checkpoint has an invalid SQLite row ID');

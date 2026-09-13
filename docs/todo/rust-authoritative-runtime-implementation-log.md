@@ -437,7 +437,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
 - 2026-09-13 Resume-latest now converts the newest compatible TypeScript v2
   per-genome SQLite checkpoint directly in Rust. It verifies each bounded
   weight row and checksum, commits a new generation-one managed checkpoint,
-  and leaves the source snapshot rows unchanged; combined-blob databases remain
-  the next compatibility case.
+  and leaves the source snapshot rows unchanged.
+
+- 2026-09-13 The same read-only Rust conversion now streams historical combined
+  gzip populations through SQLite's incremental-BLOB API one genome at a time
+  and streams format-null/zero parent JSON directly from SQLite. Real startup
+  tests cover both layouts and prove the source rows remain unchanged.
 
 The next dependency is the remaining compatibility work and Stage 6B gates.

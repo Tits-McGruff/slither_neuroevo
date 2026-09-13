@@ -68,8 +68,10 @@ open a TypeScript reference-runtime database that uses the current per-genome
 checkpoint rows. Rust reads the newest compatible population directly from
 SQLite, preserves its seed, compatible settings, and ASCII-safe graph, and
 writes a new generation-one Rust checkpoint without changing the old snapshot
-rows. Later restarts use that managed Rust checkpoint. The older combined
-`genomes_blob` database format is not converted by this path yet.
+rows. The same path incrementally reads older combined `genomes_blob`
+populations and format-zero populations embedded in parent JSON, without
+loading either complete source value into Node. Later restarts use the managed
+Rust checkpoint.
 
 For a managed Rust database, latest startup validates the current checkpoint
 and, if necessary, recovers from the newest valid retained boundary under a new
@@ -463,8 +465,9 @@ deleting older snapshots, or `--resume <snapshot-id>` to select a specific
 valid checkpoint.
 
 Reference-runtime JSON exports are portable but are not selected for automatic
-exact resume. Its current compatibility checkpoints use per-genome SQLite
-rows; the older combined `genomes_blob` format remains read-only compatibility.
+exact resume. Rust resume-latest converts its current per-genome SQLite rows,
+older combined `genomes_blob` rows, and format-zero parent-JSON populations as
+new generation-one runs while preserving their source rows.
 
 The TypeScript reference runtime's JSON imports reset its simulation to the
 file contents. Imports from older builds may be incompatible with the current

@@ -522,8 +522,9 @@ At startup, `--resume latest --db-path <path>` also accepts a TypeScript v2
 database whose resumable checkpoints use `snapshot_genomes` rows. Rust reads
 the newest compatible population through SQLite and commits it as a new
 generation-one managed checkpoint while retaining the source snapshot rows.
-This startup conversion does not yet accept the older combined `genomes_blob`
-layout.
+The same startup conversion accepts the older combined `genomes_blob` layout
+and format-null/zero populations embedded in `payload_json`; both are read in
+bounded pieces rather than copied into Node.
 
 ### `GET /health`
 

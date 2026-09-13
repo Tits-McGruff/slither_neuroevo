@@ -1238,7 +1238,6 @@ impl Task for InitializeExperimentalFreshRunTask {
                         &self.request.run_id,
                         self.request.memory_ceiling_bytes,
                     )
-                    .map(|prepared| prepared.transition)
                     .map_err(|error| error.to_string())?
                 }
                 FreshRunInitialization::Fresh => prepare_stage6a_p0_fresh_run(self.request.clone())

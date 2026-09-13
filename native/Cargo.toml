@@ -38,10 +38,11 @@ engine-test-hooks = []
 
 [dependencies]
 getrandom = "0.4"
+flate2 = "1"
 napi = { version = "3.0.0", features = ["napi6", "compat-mode"] }
 napi-derive = "3.0.0"
 rustix = { version = "1", features = ["fs"] }
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["blob", "bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
