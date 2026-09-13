@@ -25,6 +25,8 @@ import { AdvancedCharts } from './chartUtils.ts';
 import { FRAME_HEADER_FLOATS, FRAME_HEADER_OFFSETS } from './protocol/frame.ts';
 import {
   createWsClient,
+  formatImportBranchRuntimeStatus,
+  formatLegacyConversionRuntimeStatus,
   formatRecoveryRuntimeStatus,
   formatServerRuntimeStatus,
   resolveServerUrl,
@@ -44,7 +46,11 @@ import { graphKey } from './brains/graph/compiler.ts';
 import { buildStackGraphSpec } from './brains/stackBuilder.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
 import type { FrameStats, GenomeJSON, HallOfFameEntry, VizData } from './protocol/messages.ts';
-import type { RustRecoveryNotice } from './protocol/rustBackground.ts';
+import type {
+  RustImportBranchNotice,
+  RustLegacyConversionNotice,
+  RustRecoveryNotice
+} from './protocol/rustBackground.ts';
 import { SETTINGS_PATHS, coerceSettingsUpdateValue } from './protocol/settings.ts';
 import type {
   CoreSettings,
@@ -134,6 +140,10 @@ let serverWorldSeed: number | null = null;
 let serverInferenceMode: WelcomeInferenceMode | null = null;
 /** Durable recovery provenance advertised for the active branch. */
 let serverRecovery: RustRecoveryNotice | null = null;
+/** Exact archive branch provenance advertised for the active run. */
+let serverImportBranch: RustImportBranchNotice | null = null;
+/** Population-only source advertised for a run converted from old SQLite data. */
+let serverLegacyConversion: RustLegacyConversionNotice | null = null;
 /** Correlation id of the currently pending New Run request. */
 let pendingNewRunRequestId: string | null = null;
 /** Latest tick id observed from server stats. */
@@ -1243,10 +1253,20 @@ function setConnectionStatus(mode: ConnectionMode): void {
     );
     connectionStatus.textContent = serverRecovery
       ? runtime.replace('Server ·', 'Server · recovered ·')
-      : runtime;
+      : serverImportBranch
+        ? runtime.replace('Server ·', 'Server · imported branch ·')
+        : serverLegacyConversion
+          ? runtime.replace('Server ·', 'Server · converted save ·')
+          : runtime;
     connectionStatus.setAttribute(
       'title',
-      serverRecovery ? formatRecoveryRuntimeStatus(serverRecovery) : ''
+      serverRecovery
+        ? formatRecoveryRuntimeStatus(serverRecovery)
+        : serverImportBranch
+          ? formatImportBranchRuntimeStatus(serverImportBranch)
+          : serverLegacyConversion
+            ? formatLegacyConversionRuntimeStatus(serverLegacyConversion)
+            : ''
     );
   } else if (mode === 'server') {
     connectionStatus.textContent = 'Server';
@@ -3570,7 +3590,18 @@ wsClient = createWsClient({
     serverCfgHash = info.configHash;
     serverConfigRevision = info.configRevision;
     serverRecovery = info.recovery ?? null;
+    serverImportBranch = info.importBranch ?? null;
+    serverLegacyConversion = info.legacyConversion ?? null;
     if (serverRecovery) console.warn('[recovery]', formatRecoveryRuntimeStatus(serverRecovery));
+    if (serverImportBranch) {
+      console.info('[import-branch]', formatImportBranchRuntimeStatus(serverImportBranch));
+    }
+    if (serverLegacyConversion) {
+      console.warn(
+        '[legacy-conversion]',
+        formatLegacyConversionRuntimeStatus(serverLegacyConversion)
+      );
+    }
     serverWorldSeed = info.worldSeed;
     serverInferenceMode = info.inferenceMode;
     serverArchiveExport = info.capabilities?.archiveExport === true;
@@ -3628,6 +3659,8 @@ wsClient = createWsClient({
     serverWorldSeed = null;
     serverInferenceMode = null;
     serverRecovery = null;
+    serverImportBranch = null;
+    serverLegacyConversion = null;
     pendingNewRunRequestId = null;
     btnNewRun.disabled = false;
     lastServerTick = 0;
@@ -3791,6 +3824,8 @@ wsClient = createWsClient({
     if (Number.isFinite(msg.worldSeed)) {
       serverWorldSeed = msg.worldSeed!;
       serverRecovery = null;
+      serverImportBranch = null;
+      serverLegacyConversion = null;
       setConnectionStatus('server');
     }
     selectedSnake = null;
@@ -3816,7 +3851,9 @@ wsClient = createWsClient({
     serverCfgHash = info.configHash;
     serverConfigRevision = info.configRevision;
     serverWorldSeed = info.worldSeed;
-    serverRecovery = null;
+    serverRecovery = info.recovery ?? null;
+    serverImportBranch = info.importBranch ?? null;
+    serverLegacyConversion = info.legacyConversion ?? null;
     serverInferenceMode = info.inferenceMode;
     serverArchiveExport = info.capabilities?.archiveExport === true;
     serverArchiveImport = info.capabilities?.archiveImport === true;

@@ -278,6 +278,32 @@ export function formatRecoveryRuntimeStatus(recovery: RustRecoveryNotice): strin
 }
 
 /**
+ * Format the source of an exact archive imported as a new branch.
+ * @param branch - Durable import-branch notice supplied by the Rust server.
+ * @returns Plain source and destination lineage identity.
+ */
+export function formatImportBranchRuntimeStatus(branch: RustImportBranchNotice): string {
+  const generation = BigInt(`0x${branch.sourceGeneration}`).toString(10);
+  return `Imported checkpoint ${branch.sourceCheckpointId} at generation ${generation} from run ${branch.sourceRunId} into branch ${branch.branchRunId}.`;
+}
+
+/**
+ * Format the limits of a run started from an older SQLite population.
+ * @param conversion - Population-only source supplied by the Rust server.
+ * @returns Plain source identity and exact-resume warning.
+ */
+export function formatLegacyConversionRuntimeStatus(
+  conversion: RustLegacyConversionNotice
+): string {
+  const source = conversion.sourceFormat === 'typescript-v2'
+    ? 'TypeScript v2'
+    : conversion.sourceFormat === 'legacy-gzip'
+      ? 'legacy gzip'
+      : 'legacy JSON';
+  return `Started from ${source} snapshot ${conversion.sourceSnapshotId}. The population was converted, but this is a new run rather than an exact continuation.`;
+}
+
+/**
  * Format a host for URL usage, adding brackets for IPv6 literals.
  * @param host - Hostname or IP literal.
  * @returns Host string safe for URL assembly.

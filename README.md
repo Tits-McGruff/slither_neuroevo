@@ -73,7 +73,9 @@ populations and format-zero populations embedded in parent JSON, without
 loading either complete source value into Node. Later restarts use the managed
 Rust checkpoint. Health and WebSocket welcome data keep a durable
 `legacyConversion` notice with the source row and format and explicitly mark
-the result as population-only, not an exact continuation.
+the result as population-only, not an exact continuation. The browser status
+pill also labels converted saves and exact imported branches, with their source
+details in its tooltip.
 
 For a managed Rust database, latest startup validates the current checkpoint
 and, if necessary, recovers from the newest valid retained boundary under a new

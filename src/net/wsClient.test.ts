@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   createWsClient,
+  formatImportBranchRuntimeStatus,
+  formatLegacyConversionRuntimeStatus,
   formatRecoveryRuntimeStatus,
   formatServerRuntimeStatus,
   getDefaultServerUrl,
@@ -111,6 +113,24 @@ describe('wsClient', () => {
       recoveredGeneration: '0000000000000019',
       lostCompletedGenerations: { from: '0000000000000019', through: '000000000000001b' }
     })).toBe(`Recovered checkpoint ${'a'.repeat(64)} at generation 25 from failed run source-run into branch branch-run; failed checkpoint ${'f'.repeat(64)}; abandoned completed generations 25 through 27.`);
+  });
+
+  it('plainly labels converted SQLite populations as non-exact starts', () => {
+    expect(formatLegacyConversionRuntimeStatus({
+      sourceSnapshotId: 17,
+      sourceFormat: 'legacy-gzip',
+      completeness: 'population-only',
+      exactContinuation: false
+    })).toBe('Started from legacy gzip snapshot 17. The population was converted, but this is a new run rather than an exact continuation.');
+  });
+
+  it('formats exact archive branch provenance without narrowing its generation', () => {
+    expect(formatImportBranchRuntimeStatus({
+      sourceRunId: 'source-run',
+      branchRunId: 'branch-run',
+      sourceGeneration: '0000000000000019',
+      sourceCheckpointId: 'c'.repeat(64)
+    })).toBe(`Imported checkpoint ${'c'.repeat(64)} at generation 25 from run source-run into branch branch-run.`);
   });
 
   it('dispatches welcome and frame messages', () => {

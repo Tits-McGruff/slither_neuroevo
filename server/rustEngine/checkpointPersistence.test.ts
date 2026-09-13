@@ -365,6 +365,7 @@ describe(SUITE, { timeout: 30_000 }, () => {
       expect(inspect.prepare('SELECT length(descriptor_json) AS size FROM rust_checkpoint_v3_metadata WHERE checkpoint_id = ?').get(third.logicalRootSha256))
         .toEqual({ size: 32_768 });
     } finally { inspect.close(); }
+
   });
 
   it('rejects a recovery cursor after the pinned source pointer advances', async () => {
@@ -879,6 +880,27 @@ describe(SUITE, { timeout: 30_000 }, () => {
       expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get())
         .toEqual({ count: 51 });
     } finally { inspect.close(); }
+
+    await reopened.close();
+    const guard = new Database(fixture.databasePath);
+    try {
+      guard.exec(`CREATE TRIGGER reject_historical_hof_rewrite
+        BEFORE UPDATE ON rust_hall_of_fame_v1
+        WHEN OLD.generation_hex = '${u64(2n)}' AND OLD.weight_state = 'unselected'
+        BEGIN SELECT RAISE(ABORT, 'rewrote historical unselected Hall-of-Fame row'); END`);
+    } finally { guard.close(); }
+    const incremental = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(incremental);
+    await expect(incremental.commit(createDescriptor(fixture.managedRoot, {
+      operationId: '97'.repeat(16), transitionEpoch: u64(54n), generation: u64(54n),
+      completedStep: u64(53n * 3_600n), boundaryKind: 'generation'
+    }), createGenerationCommit(53n, { bestF64Hex: f64(53) }))).resolves.toMatchObject({
+      runId: expect.any(String), checkpointId: expect.any(String)
+    });
   });
 
   it('exports one weight segment when multiple generations select the same genome', async () => {

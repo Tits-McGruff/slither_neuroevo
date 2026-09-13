@@ -453,4 +453,9 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   files. Any failed verification disables deletion; unknown files and links are
   untouched.
 
+- 2026-09-14 The browser now distinguishes recovered runs, exact imported
+  branches, and population-only legacy conversions in its server status. Normal
+  Hall-of-Fame retention ranks in SQLite and changes only the bounded selected
+  set instead of rereading and rewriting all lifetime history each generation.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

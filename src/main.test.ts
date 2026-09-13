@@ -331,6 +331,51 @@ describe('main.ts startup smoke', () => {
       .toContain('at generation 2 from failed run source-run into branch branch-run');
   });
 
+  it('warns visibly when an old SQLite save supplied only the population', async () => {
+    await import('./main.ts');
+    const socket = activeSocket;
+    if (!socket) throw new Error('missing browser WebSocket');
+    socket.onopen?.();
+    socket.onmessage?.({ data: JSON.stringify({
+      type: 'welcome', protocolVersion: 2, sessionId: 'converted-session', tickRate: 60,
+      worldSeed: 42, runId: 'converted-run', configRevision: 0, configHash: 'cfg-converted',
+      legacyConversion: { sourceSnapshotId: 17, sourceFormat: 'legacy-gzip',
+        completeness: 'population-only', exactContinuation: false },
+      settings: { core: { simSpeed: 1 }, updates: [] },
+      inferenceMode: { requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0 },
+      sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' },
+      serializerVersion: 1, frameByteLength: 28
+    }) });
+    expect(elements.get('connectionStatus')?.textContent)
+      .toBe('Server · converted save · seed 42 · native single-thread');
+    expect(elements.get('connectionStatus')?.getAttribute('title'))
+      .toContain('snapshot 17. The population was converted, but this is a new run');
+  });
+
+  it('makes an exact imported branch visible after live state replacement', async () => {
+    await import('./main.ts');
+    const socket = activeSocket;
+    if (!socket) throw new Error('missing browser WebSocket');
+    socket.onopen?.();
+    const welcome = {
+      type: 'welcome', protocolVersion: 2, sessionId: 'import-session', tickRate: 60,
+      worldSeed: 51, runId: 'branch-run', configRevision: 0, configHash: 'cfg-import',
+      importBranch: { sourceRunId: 'source-run', branchRunId: 'branch-run',
+        sourceGeneration: '0000000000000007', sourceCheckpointId: 'c'.repeat(64) },
+      settings: { core: { simSpeed: 1 }, updates: [] },
+      inferenceMode: { requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0 },
+      sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' },
+      serializerVersion: 1, frameByteLength: 28
+    };
+    socket.onmessage?.({ data: JSON.stringify({
+      type: 'stateReplaced', reason: 'import', checkpointId: 'c'.repeat(64), welcome
+    }) });
+    expect(elements.get('connectionStatus')?.textContent)
+      .toBe('Server · imported branch · seed 51 · native single-thread');
+    expect(elements.get('connectionStatus')?.getAttribute('title'))
+      .toContain('at generation 7 from run source-run into branch branch-run');
+  });
+
   it('sends canvas steering and boost release without another sensor or display frame', async () => {
     vi.useFakeTimers();
     await import('./main.ts');
