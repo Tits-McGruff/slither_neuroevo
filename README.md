@@ -130,20 +130,22 @@ round. The probe is a wire-compatible diagnostic client; it does not replace
 the required unchanged owner trainer or a real browser on another trusted-LAN
 device.
 
-This entry still uses the fixed default graph. Pin, direct archive
-export/import, same-seed **Reset**, and entropy-seeded **New Run** are
+Pin, direct archive export/import, same-seed **Reset**, and entropy-seeded
+**New Run** are
 available. Both run controls write generation one before replacing the live
 game and keep existing WebSocket connections open for a fresh join. Reset can
 apply graph-compatible values from both the main controls and the complete
-settings list; custom graphs and settings that change the fixed graph's shape
-remain unavailable. Settings marked as live apply
+settings list. It also sends the active default-stack or custom graph directly
+to Rust, which independently validates and compiles it before allocating the
+new population. The current Rust route still fixes the evolved population at
+55 and built-in baseline slots at 10. Settings marked as live apply
 atomically at the next Rust step boundary and are preserved by later Reset or
 New Run operations. God Mode move keeps the complete body in bounds, while God
 Mode kill uses the normal corpse-pellet, random-stream, ID-allocation, and
 controller/baseline lifecycle paths. Hall-of-Fame resurrection and focused
 neural visualization are now available in the Rust server; visualization does
 no activation-capture work while no browser is viewing the Visualizer tab.
-Graph and preset actions remain in migration.
+Graph-preset persistence remains in migration.
 `npm run server` remains the separate reference runtime.
 
 ### Architecture

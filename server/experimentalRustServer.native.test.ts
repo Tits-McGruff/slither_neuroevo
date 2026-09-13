@@ -433,17 +433,31 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const beforeReset = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         runId: string; seed: number; startupCheckpointId: string;
       };
+      const replacementGraph = {
+        type: 'graph', nodes: [
+          { id: 'input', type: 'Input', outputSize: 51 },
+          { id: 'features', type: 'MLP', inputSize: 51, hiddenSizes: [8], outputSize: 8 },
+          { id: 'memory', type: 'GRU', inputSize: 8, hiddenSize: 4 },
+          { id: 'head', type: 'Dense', inputSize: 4, outputSize: 2 }
+        ], edges: [
+          { from: 'input', to: 'features' }, { from: 'features', to: 'memory' },
+          { from: 'memory', to: 'head' }
+        ], outputs: [{ nodeId: 'head' }], outputSize: 2
+      };
       viewer.socket.send(JSON.stringify({ type: 'reset', settings: { simSpeed: 2 }, updates: [
         { path: 'worldRadius', value: 4_200 },
         { path: 'generationSeconds', value: 90 },
+        { path: 'sense.bubbleBins', value: 8 },
         { path: 'foodSpawn.edgeFalloffEnabled', value: 0 }
-      ] }));
+      ], graphSpec: replacementGraph }));
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
       const resetNotice = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced');
-      expect(resetNotice).toMatchObject({ reason: 'reset', welcome: { worldSeed: 42, settings: {
+      expect(resetNotice).toMatchObject({ reason: 'reset', welcome: { worldSeed: 42,
+        graphSpec: replacementGraph, inferenceMode: { parameterCount: 654 }, settings: {
         core: { simSpeed: 2 }, updates: expect.arrayContaining([
           { path: 'worldRadius', value: 4_200 },
           { path: 'generationSeconds', value: 90 },
+          { path: 'sense.bubbleBins', value: 8 },
           { path: 'foodSpawn.edgeFalloffEnabled', value: 0 }
         ])
       } } });
@@ -498,6 +512,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const newRunNotice = viewer.packets.findLast(packet =>
         packet['type'] === 'stateReplaced' && packet['reason'] === 'newRun');
       expect(newRunNotice).toMatchObject({ welcome: { configHash: settingsApplied?.['configHash'],
+        graphSpec: replacementGraph, inferenceMode: { parameterCount: 654 },
         settings: { core: { simSpeed: 2 } } } });
     } finally {
       for (const peer of peers) peer.socket.terminate();

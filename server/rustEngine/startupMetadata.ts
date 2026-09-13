@@ -1,4 +1,6 @@
 import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
+import type { GraphSpec } from '../../src/brains/graph/schema.ts';
+import { validateGraph } from '../../src/brains/graph/validate.ts';
 
 /** Maximum encoded response admitted by the matching native metadata method. */
 const MAX_METADATA_BYTES = 1024 * 1024;
@@ -47,10 +49,16 @@ export function parseRustStartupMetadata(encoded: unknown): RustStartupMetadata 
     paths.add(path);
     return { path, value: setting };
   });
+  const rawGraph = record['graphSpec'];
+  if (rawGraph === null || typeof rawGraph !== 'object' || Array.isArray(rawGraph)) {
+    throw new TypeError('invalid Rust startup graphSpec');
+  }
+  const graphSpec = rawGraph as GraphSpec;
+  if (validateGraph(graphSpec).ok !== true) throw new TypeError('invalid Rust startup graphSpec');
   return {
     runId: text('runId', 256), seed: integer('seed', 0, 0xffff_ffff), configRevision,
     configHash: text('configHash', 256), fixedStepSeconds,
-    maximumFrameBytes: integer('maximumFrameBytes', 1), graphKey: text('graphKey', 256 * 1024),
+    maximumFrameBytes: integer('maximumFrameBytes', 1), graphKey: text('graphKey', 256 * 1024), graphSpec,
     parameterCount: integer('parameterCount', 1), mathBackend: text('mathBackend', 128),
     serializerVersion: integer('serializerVersion', 1, 1), sensorVersion: integer('sensorVersion', 3, 3), settings
   };

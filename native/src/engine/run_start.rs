@@ -17,7 +17,7 @@ use super::frame_v1::{
 use super::generation_start::{
     GenerationStartConfig, GenerationStartError, GenerationStartWorkspace,
 };
-use super::graph::{GraphBundle, GraphLimits};
+use super::graph::{GraphBundle, GraphLimits, GraphNodeKind, GraphSpec};
 use super::running_loop::{RunningAuthorityLoop, RunningAuthorityLoopError};
 use super::running_step::{RunningStepCoordinator, RunningStepError, RunningStepProgress};
 use super::scheduler::{
@@ -586,6 +586,7 @@ impl PendingRunStartTransition {
                 serde_json::json!({ "path": setting.path, "value": value })
             })
             .collect::<Vec<_>>();
+        let graph_spec = graph_spec_metadata(self.authority.graph_spec());
         let metadata = serde_json::json!({
             "runId": state.identity.run_id,
             "seed": state.identity.seed,
@@ -594,6 +595,7 @@ impl PendingRunStartTransition {
             "fixedStepSeconds": state.config.fixed_step_seconds,
             "maximumFrameBytes": self.authority.memory_estimate().frame_bytes,
             "graphKey": state.config.graph_architecture_key,
+            "graphSpec": graph_spec,
             "parameterCount": self.authority.graph().total_parameters,
             "mathBackend": state.identity.math_backend,
             "serializerVersion": state.versions.serializer,
@@ -606,6 +608,84 @@ impl PendingRunStartTransition {
         }
         Ok(metadata)
     }
+}
+
+/// Encode the Rust-admitted source graph into the current browser schema.
+fn graph_spec_metadata(spec: &GraphSpec) -> serde_json::Value {
+    let nodes = spec
+        .nodes
+        .iter()
+        .map(|node| match &node.kind {
+            GraphNodeKind::Input { output_size } => {
+                serde_json::json!({ "id": node.id, "type": "Input", "outputSize": output_size })
+            }
+            GraphNodeKind::Dense {
+                input_size,
+                output_size,
+            } => serde_json::json!({
+                "id": node.id, "type": "Dense", "inputSize": input_size, "outputSize": output_size
+            }),
+            GraphNodeKind::Mlp {
+                input_size,
+                hidden_sizes,
+                output_size,
+            } => serde_json::json!({
+                "id": node.id, "type": "MLP", "inputSize": input_size,
+                "hiddenSizes": hidden_sizes, "outputSize": output_size
+            }),
+            GraphNodeKind::Gru {
+                input_size,
+                hidden_size,
+            } => serde_json::json!({
+                "id": node.id, "type": "GRU", "inputSize": input_size, "hiddenSize": hidden_size
+            }),
+            GraphNodeKind::Lstm {
+                input_size,
+                hidden_size,
+            } => serde_json::json!({
+                "id": node.id, "type": "LSTM", "inputSize": input_size, "hiddenSize": hidden_size
+            }),
+            GraphNodeKind::Rru {
+                input_size,
+                hidden_size,
+            } => serde_json::json!({
+                "id": node.id, "type": "RRU", "inputSize": input_size, "hiddenSize": hidden_size
+            }),
+            GraphNodeKind::Concat => serde_json::json!({ "id": node.id, "type": "Concat" }),
+            GraphNodeKind::Split { output_sizes } => serde_json::json!({
+                "id": node.id, "type": "Split", "outputSizes": output_sizes
+            }),
+        })
+        .collect::<Vec<_>>();
+    let edges = spec
+        .edges
+        .iter()
+        .map(|edge| {
+            let mut encoded = serde_json::json!({ "from": edge.from, "to": edge.to });
+            if let Some(port) = edge.from_port {
+                encoded["fromPort"] = serde_json::json!(port);
+            }
+            if let Some(port) = edge.to_port {
+                encoded["toPort"] = serde_json::json!(port);
+            }
+            encoded
+        })
+        .collect::<Vec<_>>();
+    let outputs = spec
+        .outputs
+        .iter()
+        .map(|output| {
+            let mut encoded = serde_json::json!({ "nodeId": output.node_id });
+            if let Some(port) = output.port {
+                encoded["port"] = serde_json::json!(port);
+            }
+            encoded
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "type": "graph", "nodes": nodes, "edges": edges,
+        "outputs": outputs, "outputSize": spec.output_size
+    })
 }
 
 /// Recoverable failure before run-start authority moves into the retained loop.

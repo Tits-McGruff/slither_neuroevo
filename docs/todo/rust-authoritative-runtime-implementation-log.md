@@ -414,7 +414,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
 - 2026-09-13 Reset now sends the complete normalized setting set into private
   Rust construction. Rust applies compatible live and reset-only values before
   deriving configuration identity, writes generation one, and only then swaps
-  the running game; fixed-graph shape changes remain rejected.
+  the running game; population and baseline-count changes remain rejected.
 
-The next dependency is custom-graph fresh construction, then the remaining
-compatibility work and Stage 6B gates.
+- 2026-09-13 Reset now sends an explicit default-stack or custom graph through
+  a bounded private bridge. Rust independently compiles it, checks its sensor
+  width, sizes and initializes every genome, persists the graph in checkpoint
+  v3, and returns the exact admitted source graph for restart and New Run.
+
+The next dependency is the remaining compatibility work and Stage 6B gates.

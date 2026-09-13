@@ -1,8 +1,8 @@
-//! Bounded current-default generation-one population construction.
+//! Bounded generation-one population construction.
 //!
-//! This module implements the first explicit Stage 6A P0 profile. The caller
-//! supplies only the lineage label, root seed, and hard state-memory ceiling.
-//! Rust selects and compiles the fixed current-default graph, constructs the
+//! This module grew from the first explicit Stage 6A P0 profile. The caller
+//! supplies the lineage label, root seed, complete settings and an optional
+//! current graph. Rust independently compiles the graph, constructs the
 //! complete normalized configuration, allocates every population/brain/genome
 //! identity, initializes every differently weighted genome from the isolated
 //! evolution stream, derives baseline streams, and returns a durability-gated
@@ -14,11 +14,15 @@ use super::generation::{derive_baseline_rngs, GenerationTransitionError};
 use super::genome::{
     initialize_random_genome, GenomeInitializationConfig, GenomeInitializationError,
 };
-use super::graph::{typescript_default_graph_spec, GraphBundle, GraphError, GraphLimits};
+use super::graph::{
+    typescript_default_graph_spec, CompiledNodeType, GraphBundle, GraphError, GraphLimits,
+    GraphSpec,
+};
 use super::inference::InferenceMathBackend;
 use super::live_settings::LiveSettingUpdate;
 use super::rng::labelled_stream;
 use super::run_start::{PendingRunStartTransition, RunStartTransitionError};
+use super::sensor_layout::{SENSOR_CHANNEL_COUNT, SENSOR_SCALAR_COUNT};
 use super::state::{
     normalized_config_hash, normalized_settings_schema_hash,
     preflight_generation_boundary_allocation, AllocatorState, AuthorityPhase, BrainHandle,
@@ -100,7 +104,20 @@ pub fn prepare_stage6a_p0_fresh_run_with_settings(
     request: Stage6aP0FreshRunRequest,
     settings: &[FreshRunSettingUpdate],
 ) -> Result<PendingRunStartTransition, FreshRunError> {
-    let prepared = prepare_stage6a_p0_boundary(request, settings)?;
+    prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+        request,
+        settings,
+        typescript_default_graph_spec(),
+    )
+}
+
+/// Build a fresh lineage from one complete setting set and caller-supplied graph.
+pub fn prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let prepared = prepare_stage6a_p0_boundary(request, settings, graph)?;
     PendingRunStartTransition::admit(
         prepared.candidate,
         prepared.graph,
@@ -168,20 +185,11 @@ struct PreparedStage6aP0Boundary {
 fn prepare_stage6a_p0_boundary(
     request: Stage6aP0FreshRunRequest,
     replacement_settings: &[FreshRunSettingUpdate],
+    graph_spec: GraphSpec,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
     let run_id = validated_run_id(&request.run_id)?;
     let graph_limits = stage6a_p0_graph_limits();
-    let graph = Arc::new(GraphBundle::compile(
-        typescript_default_graph_spec(),
-        &graph_limits,
-    )?);
-    if graph.total_parameters != STAGE6A_P0_PARAMETERS_PER_GENOME
-        || graph.total_state_size != STAGE6A_P0_RECURRENT_PER_BRAIN
-    {
-        return Err(FreshRunError::ProfileInvariant {
-            reason: "default graph dimensions changed without a fresh-run profile revision",
-        });
-    }
+    let graph = Arc::new(GraphBundle::compile(graph_spec, &graph_limits)?);
 
     let work_limits = RunningStepWorkLimits::provisional_defaults();
     let mut settings =
@@ -193,13 +201,34 @@ fn prepare_stage6a_p0_boundary(
     config.world_radius = fresh_integer(&config, "worldRadius")? as f64;
     if fresh_integer(&config, "snakeCount")? != STAGE6A_P0_POPULATION_COUNT
         || fresh_integer(&config, "baselineBots.count")? != STAGE6A_P0_BASELINE_COUNT
-        || fresh_integer(&config, "sense.bubbleBins")? != 16
     {
         return Err(FreshRunError::ProfileInvariant {
-            reason: "fixed graph currently requires 55 evolved snakes, 10 baseline bots, and 16 sensor bins",
+            reason: "the current Rust server requires 55 evolved snakes and 10 baseline bots",
         });
     }
     let projected = project_running_step_config(&config, work_limits)?;
+    let graph_input_size = graph
+        .nodes
+        .iter()
+        .find(|node| node.node_type == CompiledNodeType::Input)
+        .map(|node| node.output_size)
+        .ok_or(FreshRunError::ProfileInvariant {
+            reason: "compiled graph omits its input node",
+        })?;
+    let sensor_input_size = projected
+        .sensor
+        .bins
+        .checked_mul(SENSOR_CHANNEL_COUNT)
+        .and_then(|binned| binned.checked_add(SENSOR_SCALAR_COUNT))
+        .ok_or(FreshRunError::ArithmeticOverflow {
+            context: "fresh-run sensor input width",
+        })?;
+    if graph_input_size != sensor_input_size {
+        return Err(FreshRunError::GraphInputMismatch {
+            graph: graph_input_size,
+            sensor: sensor_input_size,
+        });
+    }
     let baseline_config = project_baseline_generation_config(&config)?;
     let config_hash = normalized_config_hash(&config)?;
     let admission_policy =
@@ -548,28 +577,28 @@ fn initialize_population_numeric(
     Ok(())
 }
 
-/// Tight graph ceilings for the one fixed P0 profile.
+/// Production graph ceilings covering current editor graphs without unbounded allocation.
 fn stage6a_p0_graph_limits() -> GraphLimits {
     GraphLimits {
-        max_nodes: 4,
-        max_edges: 3,
-        max_graph_outputs: 1,
-        max_identifier_bytes: 16,
-        max_total_referenced_identifier_bytes: 1_024,
-        max_tensor_width: 83,
-        max_mlp_hidden_layers: 1,
-        max_split_output_ports: 0,
-        max_parameter_floats: STAGE6A_P0_PARAMETERS_PER_GENOME,
-        max_recurrent_state_floats: STAGE6A_P0_RECURRENT_PER_BRAIN,
-        max_canonical_layout_bytes: 16 * 1024,
-        max_architecture_key_bytes: 32 * 1024,
+        max_nodes: 64,
+        max_edges: 128,
+        max_graph_outputs: 8,
+        max_identifier_bytes: 64,
+        max_total_referenced_identifier_bytes: 16 * 1024,
+        max_tensor_width: 512,
+        max_mlp_hidden_layers: 8,
+        max_split_output_ports: 16,
+        max_parameter_floats: 1_000_000,
+        max_recurrent_state_floats: 16_384,
+        max_canonical_layout_bytes: 128 * 1024,
+        max_architecture_key_bytes: 256 * 1024,
     }
 }
 
-/// Managed-checkpoint ceilings for one current-default P0 boundary.
+/// Managed-checkpoint ceilings for the current population and admitted custom graphs.
 fn stage6a_p0_checkpoint_limits() -> CheckpointLimits {
     CheckpointLimits {
-        max_archive_bytes: 64 * MIB_U64,
+        max_archive_bytes: 512 * MIB_U64,
         max_manifest_bytes: MIB,
         max_state_bytes: 4 * MIB,
         max_graph_bytes: MIB,
@@ -579,11 +608,11 @@ fn stage6a_p0_checkpoint_limits() -> CheckpointLimits {
         max_baseline_rng_count: STAGE6A_P0_BASELINE_COUNT,
         max_string_bytes: 256 * 1024,
         max_total_string_bytes: 4 * MIB,
-        max_weight_floats: STAGE6A_P0_POPULATION_COUNT * STAGE6A_P0_PARAMETERS_PER_GENOME,
-        max_recurrent_floats: STAGE6A_P0_POPULATION_COUNT * STAGE6A_P0_RECURRENT_PER_BRAIN,
-        max_numeric_stored_bytes: 16 * MIB_U64,
-        max_numeric_candidate_bytes: 16 * MIB_U64,
-        max_total_decoded_bytes: 32 * MIB_U64,
+        max_weight_floats: STAGE6A_P0_POPULATION_COUNT * 1_000_000,
+        max_recurrent_floats: STAGE6A_P0_POPULATION_COUNT * 16_384,
+        max_numeric_stored_bytes: 256 * MIB_U64,
+        max_numeric_candidate_bytes: 256 * MIB_U64,
+        max_total_decoded_bytes: 512 * MIB_U64,
     }
 }
 
@@ -610,6 +639,8 @@ pub enum FreshRunError {
     InvalidRunId,
     /// Fixed profile dimensions and their versioned constants disagree.
     ProfileInvariant { reason: &'static str },
+    /// The graph input width does not match the selected sensor layout.
+    GraphInputMismatch { graph: usize, sensor: usize },
     /// A supplied complete setting projection was malformed or incompatible.
     Settings(String),
     /// Checked profile arithmetic overflowed.
@@ -619,7 +650,7 @@ pub enum FreshRunError {
         context: &'static str,
         required: usize,
     },
-    /// The fixed graph failed strict compilation.
+    /// The supplied or default graph failed strict compilation.
     Graph(Box<GraphError>),
     /// The complete state shell or final candidate failed admission.
     State(Box<StateError>),
@@ -643,6 +674,10 @@ impl Display for FreshRunError {
             Self::ProfileInvariant { reason } => {
                 write!(formatter, "Stage 6A P0 profile invariant failed: {reason}")
             }
+            Self::GraphInputMismatch { graph, sensor } => write!(
+                formatter,
+                "fresh-run graph input width {graph} does not match sensor width {sensor}"
+            ),
             Self::Settings(detail) => write!(formatter, "fresh-run settings failed: {detail}"),
             Self::ArithmeticOverflow { context } => {
                 write!(formatter, "fresh-run arithmetic overflow in {context}")
@@ -805,6 +840,7 @@ mod tests {
                 ..request(seed)
             },
             &[],
+            typescript_default_graph_spec(),
         )
         .expect("fixed P0 boundary must construct before test-only shortening");
         prepared.candidate.config.fixed_step_seconds = 1.0;
@@ -1174,6 +1210,7 @@ mod tests {
                     value: 0.0,
                 },
             ],
+            typescript_default_graph_spec(),
         )
         .expect("compatible fixed-graph settings must build one private boundary");
         assert_eq!(prepared.candidate.config.world_radius, 4_200.0);
@@ -1197,16 +1234,96 @@ mod tests {
             normalized_config_hash(&prepared.candidate.config).unwrap()
         );
 
-        let error = prepare_stage6a_p0_boundary(
+        let error = match prepare_stage6a_p0_boundary(
             request(44),
             &[FreshRunSettingUpdate {
                 path: "snakeCount".to_owned(),
                 value: 54.0,
             }],
-        )
-        .err()
-        .expect("fixed profile shape changes must remain rejected before publication");
-        assert!(error.to_string().contains("fixed graph currently requires"));
+            typescript_default_graph_spec(),
+        ) {
+            Ok(_) => panic!("fixed profile shape changes must remain rejected before publication"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("requires 55 evolved snakes"));
+    }
+
+    #[test]
+    fn fresh_replacement_compiles_and_initializes_a_supplied_graph() {
+        use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef};
+        let graph = GraphSpec {
+            nodes: vec![
+                GraphNodeSpec {
+                    id: "input".to_owned(),
+                    kind: GraphNodeKind::Input { output_size: 51 },
+                },
+                GraphNodeSpec {
+                    id: "head".to_owned(),
+                    kind: GraphNodeKind::Dense {
+                        input_size: 51,
+                        output_size: 2,
+                    },
+                },
+            ],
+            edges: vec![GraphEdge {
+                from: "input".to_owned(),
+                to: "head".to_owned(),
+                from_port: None,
+                to_port: None,
+            }],
+            outputs: vec![GraphOutputRef {
+                node_id: "head".to_owned(),
+                port: None,
+            }],
+            output_size: 2,
+        };
+        let bins = [FreshRunSettingUpdate {
+            path: "sense.bubbleBins".to_owned(),
+            value: 8.0,
+        }];
+        let transition =
+            prepare_stage6a_p0_fresh_run_with_settings_and_graph(request(45), &bins, graph)
+                .expect("a bounded sensor-compatible graph must build a private boundary");
+        let metadata: serde_json::Value =
+            serde_json::from_str(&transition.startup_metadata_json().unwrap()).unwrap();
+        assert_eq!(metadata["parameterCount"], 104);
+        assert_eq!(metadata["graphSpec"]["nodes"][1]["type"], "Dense");
+
+        let mismatch = GraphSpec {
+            nodes: vec![
+                GraphNodeSpec {
+                    id: "input".to_owned(),
+                    kind: GraphNodeKind::Input { output_size: 50 },
+                },
+                GraphNodeSpec {
+                    id: "head".to_owned(),
+                    kind: GraphNodeKind::Dense {
+                        input_size: 50,
+                        output_size: 2,
+                    },
+                },
+            ],
+            edges: vec![GraphEdge {
+                from: "input".to_owned(),
+                to: "head".to_owned(),
+                from_port: None,
+                to_port: None,
+            }],
+            outputs: vec![GraphOutputRef {
+                node_id: "head".to_owned(),
+                port: None,
+            }],
+            output_size: 2,
+        };
+        let error = match prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+            request(46),
+            &bins,
+            mismatch,
+        ) {
+            Ok(_) => panic!("a graph with the wrong sensor width must reject before publication"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("does not match sensor width"));
     }
 
     fn fixture() -> FreshRunFixture {
@@ -1340,8 +1457,12 @@ mod tests {
             u32::from_str_radix(fixture.seed.trim_start_matches("0x"), 16).unwrap(),
             FIXTURE_SEED
         );
-        let prepared = prepare_stage6a_p0_boundary(request(FIXTURE_SEED), &[])
-            .expect("selected P0 boundary must construct");
+        let prepared = prepare_stage6a_p0_boundary(
+            request(FIXTURE_SEED),
+            &[],
+            typescript_default_graph_spec(),
+        )
+        .expect("selected P0 boundary must construct");
         let candidate = &prepared.candidate;
         assert_eq!(fixture.graph.graph_type, "graph");
         assert_eq!(prepared.graph.spec(), &fixture.graph.to_graph_spec());
@@ -1468,6 +1589,7 @@ mod tests {
                 ..request(7)
             },
             &[],
+            typescript_default_graph_spec(),
         )
         .expect("P0 boundary must construct");
         assert_eq!(prepared.candidate.identity.run_id, opaque_run_id);
@@ -1653,7 +1775,8 @@ mod tests {
     #[test]
     fn restored_generation_activates_without_resetting_its_chronology() {
         let managed = TestDirectory::create("restored-generation");
-        let mut prepared = prepare_stage6a_p0_boundary(request(42), &[]).unwrap();
+        let mut prepared =
+            prepare_stage6a_p0_boundary(request(42), &[], typescript_default_graph_spec()).unwrap();
         prepared.candidate.phase =
             AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::Generation);
         prepared.candidate.generation.generation = 2;
@@ -1715,7 +1838,8 @@ mod tests {
 
     #[test]
     fn recovery_rebinding_preserves_every_state_field_and_moves_population_storage() {
-        let prepared = prepare_stage6a_p0_boundary(request(42), &[]).unwrap();
+        let prepared =
+            prepare_stage6a_p0_boundary(request(42), &[], typescript_default_graph_spec()).unwrap();
         let mut expected = prepared.candidate.clone();
         let population = prepared.candidate.population.as_ptr();
         let state = AuthoritativeState::validate_and_own(

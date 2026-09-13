@@ -105,7 +105,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
     operationId: string,
     runId: string,
     seed: number,
-    settings: readonly RustFreshRunSetting[]
+    settings: readonly RustFreshRunSetting[],
+    graphSpecJson: string
   ): Promise<RustPreparedFreshRun>;
   /** Drop a prepared candidate after a pre-commit failure. */
   discardPreparedImport(): void;

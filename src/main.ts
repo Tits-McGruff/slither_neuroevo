@@ -40,6 +40,8 @@ import {
 import { inferGraphSizes } from './brains/graph/editor.ts';
 import type { GraphSizeState } from './brains/graph/editor.ts';
 import { validateGraph } from './brains/graph/validate.ts';
+import { graphKey } from './brains/graph/compiler.ts';
+import { buildStackGraphSpec } from './brains/stackBuilder.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
 import type { FrameStats, GenomeJSON, HallOfFameEntry, VizData } from './protocol/messages.ts';
 import type { RustRecoveryNotice } from './protocol/rustBackground.ts';
@@ -3443,20 +3445,21 @@ async function resurrectHallOfFameOnServer(entryId: string): Promise<number | nu
 
 /**
  * Validate the applied graph spec against the active sensor input size.
- * @returns Valid graph spec or null if cleared.
+ * @param settings - Core values used to build the ordinary stack graph.
+ * @returns A sensor-compatible explicit graph for authoritative replacement.
  */
-function resolveGraphSpecForReset(): GraphSpec | null {
-  if (!customGraphSpec) return null;
-  const inputSize = getGraphSpecInputSize(customGraphSpec);
+function resolveGraphSpecForReset(settings: CoreSettings): GraphSpec {
+  const graphSpec = customGraphSpec ?? buildStackGraphSpec(settings, CFG);
+  const inputSize = getGraphSpecInputSize(graphSpec);
   if (inputSize == null || inputSize !== CFG.brain.inSize) {
     console.warn('[sensors.layout.reset_fallback]', {
       expected: CFG.brain.inSize,
       actual: inputSize ?? null
     });
     clearCustomGraphSpec('Custom graph cleared due to input size mismatch.');
-    return null;
+    return buildStackGraphSpec(settings, CFG);
   }
-  return customGraphSpec;
+  return graphSpec;
 }
 
 /**
@@ -3467,7 +3470,7 @@ function applyResetToSimulation(): void {
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdatesFromUI();
   if (wsClient && wsClient.isConnected()) {
-    const graphSpec = resolveGraphSpecForReset();
+    const graphSpec = resolveGraphSpecForReset(settings);
     wsClient.sendReset(settings, updates, graphSpec);
     return;
   }
@@ -3523,6 +3526,22 @@ function applyAuthoritativeSettingsState(
   persistBaselineBotSettings();
 }
 
+/** Restore the exact admitted graph, keeping ordinary stack graphs in slider mode. */
+function applyAuthoritativeGraphSpec(spec: GraphSpec | undefined, core: CoreSettings): void {
+  if (!spec) return;
+  const stack = buildStackGraphSpec(core, CFG);
+  if (graphKey(spec) === graphKey(stack)) {
+    customGraphSpec = null;
+    CFG.brain.graphSpec = null;
+    graphDraft = null;
+    try { localStorage.removeItem(GRAPH_SPEC_STORAGE_KEY); } catch { /* Storage is optional. */ }
+    refreshCoreUIState();
+    renderGraphEditor();
+    return;
+  }
+  applyGraphSpec(spec, 'Loaded authoritative server graph.');
+}
+
 /**
  * Apply one authoritative normalized live patch to browser display state.
  * @param updates - Server-normalized live path/value pairs.
@@ -3558,6 +3577,7 @@ wsClient = createWsClient({
     serverArchiveImport = info.capabilities?.archiveImport === true;
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
+    applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     lastServerTick = 0;
     spectatorFollowSnakeId = null;
     currentStats = {
@@ -3801,6 +3821,7 @@ wsClient = createWsClient({
     serverArchiveExport = info.capabilities?.archiveExport === true;
     serverArchiveImport = info.capabilities?.archiveImport === true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
+    applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     setConnectionStatus('server');
     joinPending = rejoinPlayer;
@@ -4475,7 +4496,7 @@ if (btnImport && fileInput) {
             clearCustomGraphSpec('Graph cleared from import.');
           }
         } else {
-          resolveGraphSpecForReset();
+          resolveGraphSpecForReset(readSettingsFromCoreUI());
         }
         persistBaselineBotSettings();
       }
@@ -4483,7 +4504,7 @@ if (btnImport && fileInput) {
         if (shouldReset) {
           const resetSettings = fileSettings ?? readSettingsFromCoreUI();
           const resetUpdates = fileUpdates ?? collectSettingsUpdatesFromUI();
-          const resetGraphSpec = resolveGraphSpecForReset();
+          const resetGraphSpec = resolveGraphSpecForReset(resetSettings);
           wsClient.sendReset(resetSettings, resetUpdates, resetGraphSpec);
           await waitForServerReset();
         }

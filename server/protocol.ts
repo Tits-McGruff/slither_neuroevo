@@ -213,6 +213,8 @@ export interface WelcomeMsg {
   configHash: string;
   /** Current authoritative settings state. */
   settings: AuthoritativeSettingsState;
+  /** Active source graph when the authority can provide it exactly. */
+  graphSpec?: GraphSpec;
   /** Honest active inference-path diagnostics. */
   inferenceMode: InferenceModeRecord;
   /** Active sensor contract. */

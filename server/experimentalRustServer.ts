@@ -129,14 +129,11 @@ function importBranchNotice(value: ManagedImportBranchResult | null): RustImport
     sourceGeneration: value.sourceGeneration, sourceCheckpointId: value.sourceCheckpointId };
 }
 
-/** Build one complete fixed-graph setting request without trusting browser normalization. */
-function fixedGraphReplacementSettings(
+/** Build one complete replacement setting request without trusting browser normalization. */
+function replacementSettings(
   metadata: ExperimentalServerRuntime['metadata'],
   message?: ResetMsg
 ): Array<{ path: string; value: number }> {
-  if (message?.graphSpec !== undefined && message.graphSpec !== null) {
-    throw new Error('the Rust reset does not yet accept a custom graph');
-  }
   const current = createRustWelcome(metadata).settings;
   const core = current.core as unknown as Record<string, number>;
   const replacements = new Map<string, number>();
@@ -145,8 +142,10 @@ function fixedGraphReplacementSettings(
     if (!definition || typeof value !== 'number') throw new Error(`reset setting ${key} is invalid`);
     const normalized = normalizeSettingValue(definition, value);
     if (!metadata.settings.some(setting => setting.path === key)) {
-      if (!Object.is(core[key], normalized)) {
-        throw new Error(`the fixed Rust graph does not yet accept changed setting ${key}`);
+      if (message?.graphSpec === undefined || message.graphSpec === null) {
+        if (!Object.is(core[key], normalized)) {
+          throw new Error(`setting ${key} requires an explicit replacement graph`);
+        }
       }
       continue;
     }
@@ -191,7 +190,7 @@ function applyMetadataSettings(
   };
 }
 
-/** Start the fixed native P0 profile from fresh or retained managed authority. */
+/** Start native authority from fresh or retained managed state. */
 export async function startExperimentalRustServer(config: ServerConfig): Promise<ExperimentalRustServer> {
   if (resolve(config.dbPath) === resolve(DEFAULT_CONFIG.dbPath)) {
     throw new Error('experimental Rust startup requires a dedicated managed --db-path');
@@ -843,7 +842,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     const executeFreshReplacement = async (
       reason: 'reset' | 'newRun',
       seed: number,
-      settings: Array<{ path: string; value: number }>
+      settings: Array<{ path: string; value: number }>,
+      graphSpec: NonNullable<ExperimentalServerRuntime['metadata']['graphSpec']>
     ): Promise<{ runId: string; seed: number; checkpointId: string }> => {
       const operationId = randomBytes(16).toString('hex');
       const runId = randomUUID();
@@ -857,7 +857,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           operationId,
           runId,
           seed,
-          settings
+          settings,
+          JSON.stringify(graphSpec)
         );
         prepared = true;
         const descriptor = parseManagedCheckpointDescriptor(candidate.descriptor);
@@ -915,7 +916,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       reason: 'reset' | 'newRun',
       seed: number,
       newRunMessage?: NewRunMsg,
-      settings: Array<{ path: string; value: number }> = fixedGraphReplacementSettings(activeMetadata)
+      settings: Array<{ path: string; value: number }> = replacementSettings(activeMetadata),
+      graphSpec = activeMetadata.graphSpec
     ): void => {
       if (fault || stopping || importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance) {
         const detail = fault ?? (stopping ? 'server is stopping' : 'another persistence operation is in progress');
@@ -929,7 +931,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         return;
       }
       importAuthorityPublished = false;
-      importOperation = executeFreshReplacement(reason, seed, settings).then(result => {
+      importOperation = executeFreshReplacement(reason, seed, settings, graphSpec).then(result => {
         importOperation = undefined;
         importAuthorityPublished = false;
         if (newRunMessage) {
@@ -987,8 +989,9 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       }); },
       onReset(connection, message) {
         try {
-          const settings = fixedGraphReplacementSettings(activeMetadata, message);
-          startFreshReplacement(connection, 'reset', activeMetadata.seed, undefined, settings);
+          const settings = replacementSettings(activeMetadata, message);
+          const graphSpec = message.graphSpec ?? activeMetadata.graphSpec;
+          startFreshReplacement(connection, 'reset', activeMetadata.seed, undefined, settings, graphSpec);
         } catch (error) {
           sockets.sendJsonTo(connection, {
             type: 'error', message: `reset failed: ${error instanceof Error ? error.message : String(error)}`

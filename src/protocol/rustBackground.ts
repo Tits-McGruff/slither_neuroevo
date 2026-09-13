@@ -1,4 +1,5 @@
 import type { VizData } from './messages.ts';
+import type { GraphSpec } from '../brains/graph/schema.ts';
 
 /** Exact fixed-width unsigned identity emitted by the Rust background bridge. */
 export type RustBackgroundIdentity = string;
@@ -19,6 +20,8 @@ export interface RustStartupMetadata {
   maximumFrameBytes: number;
   /** Native canonical graph identity. */
   graphKey: string;
+  /** Complete Rust-admitted source graph for replacement and browser recovery. */
+  graphSpec: GraphSpec;
   /** Parameters in each evolved genome. */
   parameterCount: number;
   /** Actual authoritative inference implementation. */

@@ -25,20 +25,16 @@ export function nativeSetting(metadata: RustStartupMetadata, path: string): numb
   return raw;
 }
 
-/** Construct the existing browser handshake from the fixed native P0 profile. */
+/** Construct the existing browser handshake from bounded native metadata. */
 export function createRustWelcome(metadata: RustStartupMetadata): WelcomeMsg {
-  if (metadata.parameterCount !== 13_458 || nativeSetting(metadata, 'sense.bubbleBins') !== 16) {
-    throw new Error('unsupported experimental browser graph profile');
-  }
   return {
     type: 'welcome', protocolVersion: 2, serializerVersion: metadata.serializerVersion,
     sessionId: randomUUID(), tickRate: 1 / metadata.fixedStepSeconds,
     worldSeed: metadata.seed, runId: metadata.runId, configHash: metadata.configHash,
     configRevision: wireInteger(metadata.configRevision), frameByteLength: 0,
+    graphSpec: metadata.graphSpec,
     capabilities: { checkpointPinning: true, archiveExport: true, archiveImport: true },
     settings: {
-      // Graph-editor defaults describe the one admitted P0 graph. This route
-      // accepts no graph edits and never constructs native population weights.
       core: { ...DEFAULT_CORE_SETTINGS, snakeCount: nativeSetting(metadata, 'snakeCount'), simSpeed: nativeSetting(metadata, 'simSpeed') },
       updates: SETTINGS_PATHS.filter(path => metadata.settings.some(setting => setting.path === path))
         .map(path => ({ path, value: nativeSetting(metadata, path) }))

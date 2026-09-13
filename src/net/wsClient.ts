@@ -42,6 +42,8 @@ export interface WelcomeMsg {
     core: CoreSettings;
     updates: SettingsUpdate[];
   };
+  /** Active source graph when the authority can provide it exactly. */
+  graphSpec?: GraphSpec;
   inferenceMode: WelcomeInferenceMode;
   sensorSpec: SensorSpec;
   serializerVersion: number;
