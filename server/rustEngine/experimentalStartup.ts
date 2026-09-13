@@ -11,6 +11,7 @@ import type { ExperimentalEngineInit } from './experimentalNativeBridge.ts';
 import { createExperimentalFreshRunSession, validateExperimentalFreshRunBinding, type ExperimentalFreshRunSession } from './experimentalFreshRunSession.ts';
 import { computeNativeSourceIdentity } from './nativeSourceIdentity.ts';
 import type { ManagedCheckpointSelection, ManagedImportBranchResult } from './checkpointPersistenceProtocol.ts';
+import { scavengeStaleArchiveArtifacts } from './archiveScavenger.ts';
 
 /** Bounded production background queues for the first explicit P0 server. */
 const BACKGROUND_INIT: ExperimentalEngineInit = {
@@ -87,9 +88,13 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
   const managedDirectory = resolve(options.managedDirectory);
   const sourceIdentity = computeNativeSourceIdentity(NATIVE_DIRECTORY);
   const binding = validateExperimentalFreshRunBinding(require(resolve(NATIVE_DIRECTORY, 'index.js')) as unknown, sourceIdentity);
+  if (!restoring) await mkdir(managedDirectory, { recursive: true });
+  const scavenged = await scavengeStaleArchiveArtifacts(managedDirectory);
+  if (scavenged.removed > 0) {
+    console.warn(`[rust.startup] removed ${scavenged.removed} stale temporary file(s) (${scavenged.removedBytes} bytes)`);
+  }
   if (!restoring) {
     await mkdir(dirname(databasePath), { recursive: true });
-    await mkdir(managedDirectory, { recursive: true });
     await admitCheckpoint(managedDirectory);
     // Exclusive creation keeps existing reference/legacy databases out of fresh startup.
     const reservation = await open(databasePath, 'wx');

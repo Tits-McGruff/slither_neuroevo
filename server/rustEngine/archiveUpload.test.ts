@@ -48,4 +48,17 @@ describe('raw archive upload spooling', () => {
       maximumBytes: 7n })).rejects.toMatchObject({ code: 'ARCHIVE_TOO_LARGE' });
     expect(readdirSync(directory)).toEqual([]);
   });
+
+  it('terminates and cleans an upload that stops producing chunks', async () => {
+    const directory = fixtureDirectory();
+    /** Produce one chunk, then model a connected peer that never progresses. */
+    async function* stalled(): AsyncIterable<Uint8Array> {
+      yield Buffer.from('started');
+      await new Promise<never>(() => {});
+    }
+    await expect(spoolArchiveUpload({ source: stalled(), contentLength: undefined,
+      scratchDirectory: directory, operationId: '78'.repeat(16) as CheckpointOperationId,
+      maximumBytes: 64n, noProgressTimeoutMs: 10 })).rejects.toMatchObject({ code: 'NO_PROGRESS' });
+    expect(readdirSync(directory)).toEqual([]);
+  });
 });

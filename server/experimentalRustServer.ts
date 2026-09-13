@@ -118,6 +118,9 @@ interface ArchiveImportSuccess {
   sourceRunId?: string;
 }
 
+/** Maximum silence after an attachment body begins transferring. */
+const ARCHIVE_DOWNLOAD_NO_PROGRESS_MS = 60_000;
+
 /** Project durable import lineage for health and welcome messages. */
 function importBranchNotice(value: ManagedImportBranchResult | null): RustImportBranchNotice | undefined {
   if (!value) return undefined;
@@ -303,16 +306,30 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       await new Promise<void>((done, reject) => {
         const stream = createReadStream(readyPath!);
         let settled = false;
+        let noProgress: NodeJS.Timeout | undefined;
+        /** Reset the idle deadline only when source/socket transfer advances. */
+        const armNoProgress = (): void => {
+          if (noProgress) clearTimeout(noProgress);
+          noProgress = setTimeout(() => finish(new Error(
+            `archive download made no progress for ${ARCHIVE_DOWNLOAD_NO_PROGRESS_MS} ms`
+          )), ARCHIVE_DOWNLOAD_NO_PROGRESS_MS);
+          noProgress.unref();
+        };
         const finish = (error?: Error): void => {
           if (settled) return;
           settled = true;
+          if (noProgress) clearTimeout(noProgress);
+          response.off('drain', armNoProgress);
           stream.destroy();
           if (error) reject(error);
           else done();
         };
         stream.once('error', finish);
+        stream.on('data', armNoProgress);
+        response.on('drain', armNoProgress);
         response.once('finish', () => finish());
         response.once('close', () => finish());
+        armNoProgress();
         stream.pipe(response);
       });
     } finally {

@@ -406,4 +406,9 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   complete visible layers after the matching step commits, and stops all
   activation-capture work when the last browser unsubscribes.
 
+- 2026-09-13 Rust-server startup now removes only recognized unreferenced
+  checkpoint/archive scratch files older than 24 hours. Direct upload and
+  download enforce a 60-second no-progress deadline without imposing a total
+  transfer-duration limit, and all terminal paths retain the existing cleanup.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

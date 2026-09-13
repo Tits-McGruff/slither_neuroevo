@@ -4,6 +4,8 @@ import type { CheckpointOperationId, U64Hex } from './checkpointPersistenceProto
 
 /** Four-GiB fixed ceiling for the current experimental save profile. */
 export const P0_ARCHIVE_UPLOAD_LIMIT = 4n * 1024n * 1024n * 1024n;
+/** Default maximum silence between successive upload chunks. */
+export const ARCHIVE_UPLOAD_NO_PROGRESS_MS = 60_000;
 
 /** Inputs for one opaque raw-body upload into the controlled scratch directory. */
 export interface ArchiveUploadOptions {
@@ -17,6 +19,8 @@ export interface ArchiveUploadOptions {
   operationId: CheckpointOperationId;
   /** Maximum accepted wire bytes. */
   maximumBytes?: bigint;
+  /** Maximum silence between chunks; exposed only for focused timing tests. */
+  noProgressTimeoutMs?: number;
 }
 
 /** Exact ready-file facts; the upload body itself never enters this object. */
@@ -34,7 +38,7 @@ export interface SpooledArchiveUpload {
 /** Bounded upload rejection with a stable machine-readable category. */
 export class ArchiveUploadError extends Error {
   /** Stable category suitable for a small HTTP error response. */
-  public readonly code: 'INVALID_LENGTH' | 'ARCHIVE_TOO_LARGE' | 'LENGTH_MISMATCH' | 'EMPTY_ARCHIVE';
+  public readonly code: 'INVALID_LENGTH' | 'ARCHIVE_TOO_LARGE' | 'LENGTH_MISMATCH' | 'EMPTY_ARCHIVE' | 'NO_PROGRESS';
 
   /** Construct one bounded upload rejection. */
   public constructor(
@@ -45,6 +49,27 @@ export class ArchiveUploadError extends Error {
     this.name = 'ArchiveUploadError';
     this.code = code;
   }
+}
+
+/** Await one input chunk with an idle deadline that resets for every successful read. */
+async function nextChunk(
+  iterator: AsyncIterator<Uint8Array>,
+  timeoutMs: number
+): Promise<IteratorResult<Uint8Array>> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new ArchiveUploadError(
+      'NO_PROGRESS',
+      `archive upload made no progress for ${timeoutMs} ms`
+    )), timeoutMs);
+    timer.unref();
+    iterator.next().then(value => {
+      clearTimeout(timer);
+      resolve(value);
+    }, error => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 /** Parse an optional HTTP length before opening an upload spool. */
@@ -77,8 +102,12 @@ function u64Hex(value: bigint): U64Hex {
  */
 export async function spoolArchiveUpload(options: ArchiveUploadOptions): Promise<SpooledArchiveUpload> {
   const maximumBytes = options.maximumBytes ?? P0_ARCHIVE_UPLOAD_LIMIT;
+  const noProgressTimeoutMs = options.noProgressTimeoutMs ?? ARCHIVE_UPLOAD_NO_PROGRESS_MS;
   if (maximumBytes <= 0n || maximumBytes > P0_ARCHIVE_UPLOAD_LIMIT) {
     throw new RangeError('archive upload maximum must be within the fixed P0 limit');
+  }
+  if (!Number.isSafeInteger(noProgressTimeoutMs) || noProgressTimeoutMs < 1) {
+    throw new RangeError('archive upload no-progress timeout must be a positive safe integer');
   }
   if (!/^[0-9a-f]{32}$/u.test(options.operationId)) {
     throw new TypeError('archive upload operation ID must be 32 lowercase hexadecimal digits');
@@ -91,9 +120,13 @@ export async function spoolArchiveUpload(options: ArchiveUploadOptions): Promise
   const readyPath = join(directory, readyName);
   let file: Awaited<ReturnType<typeof open>> | undefined;
   let receivedBytes = 0n;
+  const iterator = options.source[Symbol.asyncIterator]();
   try {
     file = await open(partialPath, 'wx');
-    for await (const chunk of options.source) {
+    for (;;) {
+      const next = await nextChunk(iterator, noProgressTimeoutMs);
+      if (next.done) break;
+      const chunk = next.value;
       if (!(chunk instanceof Uint8Array)) throw new TypeError('archive upload emitted a non-binary chunk');
       receivedBytes += BigInt(chunk.byteLength);
       if (receivedBytes > maximumBytes) {
@@ -123,6 +156,7 @@ export async function spoolArchiveUpload(options: ArchiveUploadOptions): Promise
     return { operationId: options.operationId, relativeFilename: readyName,
       readyPath, storedByteCount: u64Hex(receivedBytes) };
   } catch (error) {
+    void iterator.return?.();
     await file?.close().catch(() => {});
     await unlink(partialPath).catch(() => {});
     await unlink(readyPath).catch(() => {});
