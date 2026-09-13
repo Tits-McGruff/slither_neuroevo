@@ -10,8 +10,10 @@ export const OPERATING_DISK_RESERVE_BYTES = 1024n * 1024n * 1024n;
 export const ARCHIVE_TEMP_QUOTA_BYTES = 9n * 1024n * 1024n * 1024n;
 /** Rust checkpoint-v3 limit plus one winner-object publication allowance. */
 export const CHECKPOINT_PUBLICATION_BYTES = 528n * 1024n * 1024n;
-/** Maximum candidate/output spool retained while an archive import is staged. */
-export const IMPORT_CANDIDATE_BYTES = 4n * 1024n * 1024n * 1024n;
+/** Maximum decoded/checkpoint/inventory work retained while an import is staged. */
+export const IMPORT_CANDIDATE_BYTES = 5n * 1024n * 1024n * 1024n;
+/** Maximum checkpoint plus content objects published by one admitted archive. */
+export const IMPORT_FINAL_MANAGED_BYTES = 5n * 1024n * 1024n * 1024n;
 
 /** Exact additional files one operation may need before old data can be pruned. */
 export interface DiskAdmissionRequest {

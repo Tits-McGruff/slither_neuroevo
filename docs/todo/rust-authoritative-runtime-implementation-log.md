@@ -464,4 +464,9 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   reserve. Import scratch and export inventories use recognizable
   operation-scoped names for safe restart cleanup.
 
+- 2026-09-14 Archive import now decodes the bounded Hall-of-Fame numeric entry
+  directly from the uploaded archive into its validated raw work file. It no
+  longer retains a second complete encoded copy while constructing managed
+  content objects.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

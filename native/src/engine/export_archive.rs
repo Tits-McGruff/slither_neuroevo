@@ -6,7 +6,7 @@
 //! writes one ordinary USTAR download without copying population data through Node.
 
 use super::checkpoint::{
-    decode_adaptive_numeric_file, publication_descriptor_for_restored,
+    decode_adaptive_numeric_reader, publication_descriptor_for_restored,
     publish_hall_of_fame_weights, read_validated_hall_of_fame_weights, rename_noreplace,
     restore_committed_checkpoint, select_adaptive_numeric_file, sync_parent_directory,
     validated_checkpoint_archive_layout, CheckpointDescriptor, CheckpointError, CheckpointLimits,
@@ -2518,27 +2518,16 @@ fn extract_and_validate_import_roles(
     let mut weights_entry = entries.next().transpose()?.ok_or_else(|| {
         CheckpointError::format("IMPORT_USTAR", "Hall-of-Fame weights are missing")
     })?;
-    let encoded_path = stage_directory.join(format!(
-        ".{operation_id}.import-hof-weights.encoded.partial"
-    ));
     let raw_path = stage_directory.join(format!(".{operation_id}.import-hof-weights.raw.partial"));
     let mut weight_scratch = ScratchFiles::new();
-    weight_scratch.track(encoded_path.clone());
-    let mut encoded = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&encoded_path)?;
-    io::copy(&mut weights_entry, &mut encoded)?;
-    encoded.sync_all()?;
-    drop(encoded);
     weight_scratch.track(raw_path.clone());
     let mut raw = OpenOptions::new()
         .create_new(true)
         .write(true)
         .open(&raw_path)?;
     let hof_role = &manifest.roles[7];
-    decode_adaptive_numeric_file(
-        &encoded_path,
+    decode_adaptive_numeric_reader(
+        &mut weights_entry,
         NumericEncoding::parse(&hof_role.encoding)?,
         parse_hex_u64(&hof_role.stored_bytes_hex, "Hall-of-Fame stored bytes")?,
         declared_weight_count,
@@ -2636,7 +2625,6 @@ fn extract_and_validate_import_roles(
     }
     drop(weights);
     fs::remove_file(&raw_path)?;
-    fs::remove_file(&encoded_path)?;
     weight_scratch.paths.clear();
 
     let inventory =

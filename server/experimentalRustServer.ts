@@ -39,8 +39,8 @@ import {
 } from './rustEngine/archiveUpload.ts';
 import {
   admitDiskOperation,
-  CHECKPOINT_PUBLICATION_BYTES,
-  IMPORT_CANDIDATE_BYTES
+  IMPORT_CANDIDATE_BYTES,
+  IMPORT_FINAL_MANAGED_BYTES
 } from './rustEngine/diskAdmission.ts';
 import { parseRustStartupMetadata } from './rustEngine/startupMetadata.ts';
 import type { GodModeMsg, LiveSettingsMsg, NewRunMsg, ResetMsg } from './protocol.ts';
@@ -863,7 +863,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           operation: 'import',
           sourceSpoolBytes: declaredUploadBytes ?? P0_ARCHIVE_UPLOAD_LIMIT,
           candidateSpoolBytes: IMPORT_CANDIDATE_BYTES,
-          finalManagedBytes: CHECKPOINT_PUBLICATION_BYTES
+          finalManagedBytes: IMPORT_FINAL_MANAGED_BYTES
         });
         const upload = await spoolArchiveUpload({
           source: request,

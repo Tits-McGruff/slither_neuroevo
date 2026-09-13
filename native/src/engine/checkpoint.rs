@@ -3562,36 +3562,49 @@ fn preflight_numeric_role(
     Ok(())
 }
 
-/// Fully validate and stream one standalone adaptive numeric file as raw Float32 bytes.
-pub(super) fn decode_adaptive_numeric_file<W: Write>(
-    path: &Path,
+/// Fully validate one bounded adaptive stream while writing raw Float32 bytes.
+pub(super) fn decode_adaptive_numeric_reader<R: Read, W: Write>(
+    input: &mut R,
     encoding: NumericEncoding,
     stored_bytes: u64,
     expected_floats: u64,
     expected_sha256: [u8; 32],
     output: &mut W,
 ) -> Result<(), CheckpointError> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink()
-        || !metadata.file_type().is_file()
-        || metadata.len() != stored_bytes
+    let expected_floats = u64_to_usize(expected_floats, "adaptive numeric float count")?;
+    if encoding == NumericEncoding::RawF32LeV1
+        && stored_bytes
+            != expected_floats
+                .checked_mul(4)
+                .and_then(|bytes| u64::try_from(bytes).ok())
+                .ok_or_else(|| {
+                    CheckpointError::format("COUNT_OVERFLOW", "raw numeric length overflowed")
+                })?
     {
         return Err(CheckpointError::format(
-            "NUMERIC_SOURCE",
-            "adaptive numeric file is not the expected regular file",
+            "NUMERIC_LENGTH",
+            "raw numeric stored length disagrees with count",
         ));
     }
-    let expected_floats = u64_to_usize(expected_floats, "adaptive numeric float count")?;
-    let entry = ScannedEntry {
-        name: path.to_string_lossy().into_owned(),
-        #[cfg(test)]
-        header_offset: 0,
-        data_offset: 0,
-        size: stored_bytes,
-    };
-    let mut file = File::open(path)?;
-    preflight_numeric_role(&mut file, &entry, encoding, expected_floats)?;
-    file.seek(SeekFrom::Start(0))?;
+    decode_adaptive_numeric_reader_inner(
+        input,
+        encoding,
+        stored_bytes,
+        expected_floats,
+        expected_sha256,
+        output,
+    )
+}
+
+/// Shared bounded decoder after file-specific or stream-specific preflight.
+fn decode_adaptive_numeric_reader_inner<R: Read, W: Write>(
+    file: &mut R,
+    encoding: NumericEncoding,
+    stored_bytes: u64,
+    expected_floats: usize,
+    expected_sha256: [u8; 32],
+    output: &mut W,
+) -> Result<(), CheckpointError> {
     let mut hasher = Sha256::new();
     match encoding {
         NumericEncoding::RawF32LeV1 => {
@@ -5836,9 +5849,9 @@ mod tests {
         assert_eq!(candidate.encoding, NumericEncoding::F32LeShuffle4ZstdV1);
     }
 
-    /// A raw file uses the shared adaptive codec and streams back to identical logical bytes.
+    /// An encoded stream decodes directly to identical logical bytes.
     #[test]
-    fn adaptive_numeric_file_round_trips_compressed_bytes() {
+    fn adaptive_numeric_stream_round_trips_compressed_bytes() {
         let directory = TestDirectory::new("adaptive-file");
         let values = vec![f32::from_bits(0x3f12_3456); 4096];
         let raw_bytes = values
@@ -5858,9 +5871,10 @@ mod tests {
         .unwrap();
         assert_eq!(candidate.encoding, NumericEncoding::F32LeShuffle4ZstdV1);
         let compressed_path = candidate.compressed_path.as_ref().unwrap();
+        let mut compressed = File::open(compressed_path).unwrap();
         let mut decoded = Vec::new();
-        decode_adaptive_numeric_file(
-            compressed_path,
+        decode_adaptive_numeric_reader(
+            &mut compressed,
             candidate.encoding,
             candidate.stored_bytes,
             candidate.float_count,
