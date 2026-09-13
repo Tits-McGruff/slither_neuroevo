@@ -137,10 +137,10 @@ game and keep existing WebSocket connections open for a fresh join. Reset can
 apply graph-compatible values from both the main controls and the complete
 settings list. It also sends the active default-stack or custom graph directly
 to Rust, which independently validates and compiles it before allocating the
-new population. The current Rust route still fixes the evolved population at
-55 and built-in baseline slots at 10. Settings marked as live apply
-atomically at the next Rust step boundary and are preserved by later Reset or
-New Run operations. God Mode move keeps the complete body in bounds, while God
+new population. Reset can also change the evolved population and built-in
+baseline-bot counts within their existing UI limits. Settings marked as live
+apply atomically at the next Rust step boundary and are preserved by later
+Reset or New Run operations. God Mode move keeps the complete body in bounds, while God
 Mode kill uses the normal corpse-pellet, random-stream, ID-allocation, and
 controller/baseline lifecycle paths. Hall-of-Fame resurrection and focused
 neural visualization are now available in the Rust server; visualization does

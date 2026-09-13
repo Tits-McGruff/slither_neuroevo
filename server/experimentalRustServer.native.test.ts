@@ -459,20 +459,22 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       )).json()).toMatchObject({
         ok: true, preset: { id: savedPreset.presetId, name: 'Compact memory', spec: replacementGraph }
       });
-      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { simSpeed: 2 }, updates: [
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 2 }, updates: [
         { path: 'worldRadius', value: 4_200 },
         { path: 'generationSeconds', value: 90 },
         { path: 'sense.bubbleBins', value: 8 },
+        { path: 'baselineBots.count', value: 3 },
         { path: 'foodSpawn.edgeFalloffEnabled', value: 0 }
       ], graphSpec: replacementGraph }));
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
       const resetNotice = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced');
       expect(resetNotice).toMatchObject({ reason: 'reset', welcome: { worldSeed: 42,
         graphSpec: replacementGraph, inferenceMode: { parameterCount: 654 }, settings: {
-        core: { simSpeed: 2 }, updates: expect.arrayContaining([
+        core: { snakeCount: 12, simSpeed: 2 }, updates: expect.arrayContaining([
           { path: 'worldRadius', value: 4_200 },
           { path: 'generationSeconds', value: 90 },
           { path: 'sense.bubbleBins', value: 8 },
+          { path: 'baselineBots.count', value: 3 },
           { path: 'foodSpawn.edgeFalloffEnabled', value: 0 }
         ])
       } } });
@@ -528,7 +530,9 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
         packet['type'] === 'stateReplaced' && packet['reason'] === 'newRun');
       expect(newRunNotice).toMatchObject({ welcome: { configHash: settingsApplied?.['configHash'],
         graphSpec: replacementGraph, inferenceMode: { parameterCount: 654 },
-        settings: { core: { simSpeed: 2 } } } });
+        settings: { core: { snakeCount: 12, simSpeed: 2 }, updates: expect.arrayContaining([
+          { path: 'baselineBots.count', value: 3 }
+        ]) } } });
     } finally {
       for (const peer of peers) peer.socket.terminate();
       await server.close();

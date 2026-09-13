@@ -48,6 +48,10 @@ pub const STAGE6A_P0_FRESH_RUN_PROFILE_VERSION: u32 = 1;
 pub const STAGE6A_P0_POPULATION_COUNT: usize = 55;
 /// Durable baseline slots in the approved P0 workload.
 pub const STAGE6A_P0_BASELINE_COUNT: usize = 10;
+/// Largest evolved population admitted by the existing settings contract.
+const MAXIMUM_FRESH_RUN_POPULATION_COUNT: usize = 300;
+/// Largest baseline population admitted by the existing settings contract.
+const MAXIMUM_FRESH_RUN_BASELINE_COUNT: usize = 120;
 /// Exact packed Float32 parameters in the current default graph.
 pub const STAGE6A_P0_PARAMETERS_PER_GENOME: usize = 13_458;
 /// Exact recurrent Float32 values per current default brain.
@@ -195,17 +199,28 @@ fn prepare_stage6a_p0_boundary(
     let mut settings =
         typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
     apply_fresh_run_settings(&mut settings, replacement_settings)?;
+    let population_count = fresh_setting_integer(&settings, "snakeCount")?;
+    let baseline_count = fresh_setting_integer(&settings, "baselineBots.count")?;
+    if population_count == 0 || population_count > MAXIMUM_FRESH_RUN_POPULATION_COUNT {
+        return Err(FreshRunError::Settings(
+            "fresh-run snakeCount must be an integer from 1 to 300".to_owned(),
+        ));
+    }
+    if baseline_count > MAXIMUM_FRESH_RUN_BASELINE_COUNT {
+        return Err(FreshRunError::Settings(
+            "fresh-run baselineBots.count must be an integer from 0 to 120".to_owned(),
+        ));
+    }
     let settings_schema_sha256 = normalized_settings_schema_hash(&settings)?;
-    let mut config = stage6a_p0_config(&graph, settings, settings_schema_sha256.clone());
+    let mut config = stage6a_p0_config(
+        &graph,
+        settings,
+        settings_schema_sha256.clone(),
+        population_count,
+        baseline_count,
+    );
     config.requested_sim_speed = fresh_float(&config, "simSpeed")?;
     config.world_radius = fresh_integer(&config, "worldRadius")? as f64;
-    if fresh_integer(&config, "snakeCount")? != STAGE6A_P0_POPULATION_COUNT
-        || fresh_integer(&config, "baselineBots.count")? != STAGE6A_P0_BASELINE_COUNT
-    {
-        return Err(FreshRunError::ProfileInvariant {
-            reason: "the current Rust server requires 55 evolved snakes and 10 baseline bots",
-        });
-    }
     let projected = project_running_step_config(&config, work_limits)?;
     let graph_input_size = graph
         .nodes
@@ -245,16 +260,16 @@ fn prepare_stage6a_p0_boundary(
         &graph,
         baseline_config,
     )?;
-    let weight_floats = STAGE6A_P0_POPULATION_COUNT
-        .checked_mul(graph.total_parameters)
-        .ok_or(FreshRunError::ArithmeticOverflow {
-            context: "P0 population weight count",
-        })?;
-    let recurrent_floats = STAGE6A_P0_POPULATION_COUNT
-        .checked_mul(graph.total_state_size)
-        .ok_or(FreshRunError::ArithmeticOverflow {
-            context: "P0 population recurrent count",
-        })?;
+    let weight_floats = population_count.checked_mul(graph.total_parameters).ok_or(
+        FreshRunError::ArithmeticOverflow {
+            context: "fresh-run population weight count",
+        },
+    )?;
+    let recurrent_floats = population_count.checked_mul(graph.total_state_size).ok_or(
+        FreshRunError::ArithmeticOverflow {
+            context: "fresh-run population recurrent count",
+        },
+    )?;
     if candidate.population.len() > checkpoint_limits.max_population_count
         || weight_floats > checkpoint_limits.max_weight_floats
         || recurrent_floats > checkpoint_limits.max_recurrent_floats
@@ -359,8 +374,15 @@ fn fresh_float(config: &NormalizedEngineConfig, path: &str) -> Result<f64, Fresh
 
 /// Read one required non-negative integer setting after typed replacement.
 fn fresh_integer(config: &NormalizedEngineConfig, path: &str) -> Result<usize, FreshRunError> {
-    match config
-        .settings
+    fresh_setting_integer(&config.settings, path)
+}
+
+/// Read one required non-negative integer directly from a normalized setting set.
+fn fresh_setting_integer(
+    settings: &[super::state::NormalizedSetting],
+    path: &str,
+) -> Result<usize, FreshRunError> {
+    match settings
         .iter()
         .find(|setting| setting.path == path)
         .map(|setting| &setting.value)
@@ -387,6 +409,8 @@ fn stage6a_p0_config(
     graph: &GraphBundle,
     settings: Vec<super::state::NormalizedSetting>,
     settings_schema_sha256: String,
+    population_count: usize,
+    baseline_count: usize,
 ) -> NormalizedEngineConfig {
     NormalizedEngineConfig {
         version: NORMALIZED_CONFIG_VERSION,
@@ -396,9 +420,9 @@ fn stage6a_p0_config(
         fixed_step_seconds: 1.0 / 60.0,
         requested_sim_speed: 1.0,
         world_radius: 3_500.0,
-        population_count: STAGE6A_P0_POPULATION_COUNT,
-        baseline_count: STAGE6A_P0_BASELINE_COUNT,
-        max_world_snakes: STAGE6A_P0_POPULATION_COUNT + STAGE6A_P0_BASELINE_COUNT + 64,
+        population_count,
+        baseline_count,
+        max_world_snakes: population_count + baseline_count + 64,
         max_non_population_brains: 64,
         max_body_points: 100_000,
         max_pellets: 25_000,
@@ -456,9 +480,11 @@ fn boundary_shell(
     graph: &GraphBundle,
     baseline_config: super::step_config::BaselineGenerationConfig,
 ) -> Result<StateCandidate, FreshRunError> {
-    let mut population = reserve_vec(STAGE6A_P0_POPULATION_COUNT, "P0 population records")?;
-    let mut brains = reserve_vec(STAGE6A_P0_POPULATION_COUNT, "P0 brain records")?;
-    for slot in 0..STAGE6A_P0_POPULATION_COUNT {
+    let population_count = config.population_count;
+    let baseline_count = config.baseline_count;
+    let mut population = reserve_vec(population_count, "fresh-run population records")?;
+    let mut brains = reserve_vec(population_count, "fresh-run brain records")?;
+    for slot in 0..population_count {
         let slot_u32 = u32::try_from(slot).map_err(|_| FreshRunError::ArithmeticOverflow {
             context: "P0 population slot",
         })?;
@@ -488,13 +514,13 @@ fn boundary_shell(
             recurrent: Box::new([]),
         });
     }
-    let next_population_id = u64::try_from(STAGE6A_P0_POPULATION_COUNT)
+    let next_population_id = u64::try_from(population_count)
         .ok()
         .and_then(|value| value.checked_add(1))
         .ok_or(FreshRunError::ArithmeticOverflow {
             context: "next P0 population identity",
         })?;
-    let baselines = derive_baseline_rngs(seed, 1, STAGE6A_P0_BASELINE_COUNT, baseline_config)?;
+    let baselines = derive_baseline_rngs(seed, 1, baseline_count, baseline_config)?;
 
     Ok(StateCandidate {
         versions: ContractVersions {
@@ -603,13 +629,13 @@ fn stage6a_p0_checkpoint_limits() -> CheckpointLimits {
         max_state_bytes: 4 * MIB,
         max_graph_bytes: MIB,
         max_population_index_bytes: MIB,
-        max_population_count: STAGE6A_P0_POPULATION_COUNT,
+        max_population_count: MAXIMUM_FRESH_RUN_POPULATION_COUNT,
         max_setting_count: 128,
-        max_baseline_rng_count: STAGE6A_P0_BASELINE_COUNT,
+        max_baseline_rng_count: MAXIMUM_FRESH_RUN_BASELINE_COUNT,
         max_string_bytes: 256 * 1024,
         max_total_string_bytes: 4 * MIB,
-        max_weight_floats: STAGE6A_P0_POPULATION_COUNT * 1_000_000,
-        max_recurrent_floats: STAGE6A_P0_POPULATION_COUNT * 16_384,
+        max_weight_floats: MAXIMUM_FRESH_RUN_POPULATION_COUNT * 1_000_000,
+        max_recurrent_floats: MAXIMUM_FRESH_RUN_POPULATION_COUNT * 16_384,
         max_numeric_stored_bytes: 256 * MIB_U64,
         max_numeric_candidate_bytes: 256 * MIB_U64,
         max_total_decoded_bytes: 512 * MIB_U64,
@@ -1209,6 +1235,14 @@ mod tests {
                     path: "foodSpawn.edgeFalloffEnabled".to_owned(),
                     value: 0.0,
                 },
+                FreshRunSettingUpdate {
+                    path: "snakeCount".to_owned(),
+                    value: 54.0,
+                },
+                FreshRunSettingUpdate {
+                    path: "baselineBots.count".to_owned(),
+                    value: 2.0,
+                },
             ],
             typescript_default_graph_spec(),
         )
@@ -1233,19 +1267,11 @@ mod tests {
             prepared.candidate.identity.config_hash,
             normalized_config_hash(&prepared.candidate.config).unwrap()
         );
-
-        let error = match prepare_stage6a_p0_boundary(
-            request(44),
-            &[FreshRunSettingUpdate {
-                path: "snakeCount".to_owned(),
-                value: 54.0,
-            }],
-            typescript_default_graph_spec(),
-        ) {
-            Ok(_) => panic!("fixed profile shape changes must remain rejected before publication"),
-            Err(error) => error,
-        };
-        assert!(error.to_string().contains("requires 55 evolved snakes"));
+        assert_eq!(prepared.candidate.config.population_count, 54);
+        assert_eq!(prepared.candidate.population.len(), 54);
+        assert_eq!(prepared.candidate.brains.len(), 54);
+        assert_eq!(prepared.candidate.config.baseline_count, 2);
+        assert_eq!(prepared.candidate.rng.baselines.len(), 2);
     }
 
     #[test]

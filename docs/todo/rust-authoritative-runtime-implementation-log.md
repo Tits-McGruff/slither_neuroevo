@@ -424,4 +424,8 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
 - 2026-09-13 The Rust server now saves, lists and loads bounded graph presets
   through its isolated SQLite metadata worker and existing browser HTTP API.
 
+- 2026-09-13 Fresh Rust construction now derives evolved and baseline-bot
+  population sizes from validated Reset settings instead of fixing them at
+  55 and 10; checkpoint/import limits cover the existing UI ranges.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.
