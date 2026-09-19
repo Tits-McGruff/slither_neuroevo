@@ -405,8 +405,9 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
     const peers: Peer[] = [];
     try {
       const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
-        runId: string; startupCheckpointId: string;
+        runId: string; startupCheckpointId: string; archiveWork: unknown;
       };
+      expect(health.archiveWork).toBeNull();
       const hallOfFame = await fetch(`http://127.0.0.1:${server.port}/api/hof`);
       expect(hallOfFame.status).toBe(200);
       expect(await hallOfFame.json()).toEqual({ hof: [] });
@@ -449,6 +450,11 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
         await new Promise<void>(done => setTimeout(done, 10));
       } while (performance.now() < cleanupDeadline);
       expect(leftovers).toEqual([]);
+      const afterExport = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        archiveWork: { kind: string; started: boolean; finished: boolean; completedBytes: string };
+      };
+      expect(afterExport.archiveWork).toMatchObject({ kind: 'export', started: true, finished: true });
+      expect(BigInt(`0x${afterExport.archiveWork.completedBytes}`)).toBeGreaterThan(0n);
 
       const targetDbPath = join(root, 'target.sqlite');
       target = await startExperimentalRustServer({
@@ -472,6 +478,11 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       expect(await importedResponse.json()).toMatchObject({
         ok: true, runId: health.runId, generation: '0000000000000001', checkpointId: health.startupCheckpointId
       });
+      const importedHealth = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
+        archiveWork: { kind: string; started: boolean; finished: boolean; completedBytes: string };
+      };
+      expect(importedHealth.archiveWork).toMatchObject({ kind: 'import', started: true, finished: true });
+      expect(BigInt(`0x${importedHealth.archiveWork.completedBytes}`)).toBeGreaterThan(0n);
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
       expect(viewer.socket.readyState).toBe(WebSocket.OPEN);
       expect(viewer.packets.find(packet => packet['type'] === 'stateReplaced')).toMatchObject({

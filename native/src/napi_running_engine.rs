@@ -2,8 +2,8 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use napi::bindgen_prelude::{Array, AsyncTask, JsObjectValue, Object, Task};
 use napi::{Env, Error, JsString, JsValue, Result, Status};
@@ -29,6 +29,7 @@ use crate::engine::fresh_run::{
 use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec};
 use crate::engine::run_start::PendingRunStartTransition;
 use crate::engine::runtime::EngineRuntime;
+use crate::engine::work_progress::ProgressScope;
 use crate::napi_engine::{
     background_generation_event_to_napi, background_generation_health_to_napi, bounded_js_string,
     bounded_object_string, checkpoint_descriptor_from_napi_object, checkpoint_descriptor_to_napi,
@@ -171,6 +172,46 @@ pub struct PreparedExportArchive {
     pub logical_root_sha256: String,
 }
 
+/// Read-only snapshot of one native archive job, including a completed one.
+#[napi(object)]
+pub struct ArchiveWorkProgress {
+    pub operation_id: String,
+    pub kind: String,
+    pub completed_bytes: String,
+    pub started: bool,
+    pub finished: bool,
+}
+
+struct ArchiveProgressJob {
+    operation_id: String,
+    kind: &'static str,
+    completed_bytes: Arc<AtomicU64>,
+    started: AtomicBool,
+    finished: AtomicBool,
+}
+
+impl ArchiveProgressJob {
+    fn new(operation_id: String, kind: &'static str) -> Self {
+        Self {
+            operation_id,
+            kind,
+            completed_bytes: Arc::new(AtomicU64::new(0)),
+            started: AtomicBool::new(false),
+            finished: AtomicBool::new(false),
+        }
+    }
+
+    fn snapshot(&self) -> ArchiveWorkProgress {
+        ArchiveWorkProgress {
+            operation_id: self.operation_id.clone(),
+            kind: self.kind.to_owned(),
+            completed_bytes: u64_hex(self.completed_bytes.load(Ordering::Relaxed)),
+            started: self.started.load(Ordering::Acquire),
+            finished: self.finished.load(Ordering::Acquire),
+        }
+    }
+}
+
 /// Small immutable facts returned after a complete untrusted archive validation.
 #[napi(object)]
 pub struct ValidatedImportArchiveResult {
@@ -282,6 +323,7 @@ pub struct PrepareExportArchiveTask {
     operation_id: String,
     checkpoint: crate::engine::checkpoint::CheckpointDescriptor,
     inventory: ExportInventoryDescriptor,
+    progress: Arc<ArchiveProgressJob>,
 }
 
 impl Task for PrepareExportArchiveTask {
@@ -289,6 +331,8 @@ impl Task for PrepareExportArchiveTask {
     type JsValue = PreparedExportArchive;
 
     fn compute(&mut self) -> Result<Self::Output> {
+        self.progress.started.store(true, Ordering::Release);
+        let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
         let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
             Error::new(
                 Status::GenericFailure,
@@ -320,6 +364,11 @@ impl Task for PrepareExportArchiveTask {
             logical_root_sha256: output.logical_root_sha256,
         })
     }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.progress.finished.store(true, Ordering::Release);
+        Ok(())
+    }
 }
 
 /// Libuv task for validating an untrusted upload without touching authority.
@@ -327,6 +376,7 @@ pub struct ValidateImportArchiveTask {
     archive_path: PathBuf,
     scratch_directory: PathBuf,
     operation_id: String,
+    progress: Arc<ArchiveProgressJob>,
 }
 
 /// Libuv preparation task retaining its admitted candidate in the native handle.
@@ -339,6 +389,7 @@ pub struct PrepareImportArchiveTask {
     legacy_seed: u32,
     prepared: PreparedImportSlot,
     active: Arc<AtomicBool>,
+    progress: Arc<ArchiveProgressJob>,
 }
 
 impl Task for PrepareImportArchiveTask {
@@ -346,6 +397,8 @@ impl Task for PrepareImportArchiveTask {
     type JsValue = PreparedImportArchiveResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
+        self.progress.started.store(true, Ordering::Release);
+        let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
         let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
             Error::new(
                 Status::GenericFailure,
@@ -402,6 +455,7 @@ impl Task for PrepareImportArchiveTask {
 
     fn finally(self, _env: Env) -> Result<()> {
         self.active.store(false, Ordering::Release);
+        self.progress.finished.store(true, Ordering::Release);
         Ok(())
     }
 }
@@ -411,6 +465,8 @@ impl Task for ValidateImportArchiveTask {
     type JsValue = ValidatedImportArchiveResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
+        self.progress.started.store(true, Ordering::Release);
+        let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
         let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
             Error::new(
                 Status::GenericFailure,
@@ -443,6 +499,11 @@ impl Task for ValidateImportArchiveTask {
             stored_byte_count: output.stored_byte_count_hex,
         })
     }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.progress.finished.store(true, Ordering::Release);
+        Ok(())
+    }
 }
 
 /// The fresh-run session can create this handle only by transferring its sole
@@ -454,6 +515,7 @@ pub struct ExperimentalRunningAuthority {
     join_scheduled: Arc<AtomicBool>,
     prepared_import: PreparedImportSlot,
     import_active: Arc<AtomicBool>,
+    archive_progress: Mutex<Option<Arc<ArchiveProgressJob>>>,
 }
 
 impl ExperimentalRunningAuthority {
@@ -464,6 +526,7 @@ impl ExperimentalRunningAuthority {
             join_scheduled: Arc::new(AtomicBool::new(false)),
             prepared_import: PreparedImportSlot::new(),
             import_active: Arc::new(AtomicBool::new(false)),
+            archive_progress: Mutex::new(None),
         }
     }
 
@@ -497,10 +560,44 @@ impl ExperimentalRunningAuthority {
             }
         }
     }
+
+    fn begin_archive_job(
+        &self,
+        operation_id: String,
+        kind: &'static str,
+    ) -> Result<Arc<ArchiveProgressJob>> {
+        let mut current = self
+            .archive_progress
+            .lock()
+            .map_err(|_| Error::new(Status::GenericFailure, "archive progress lock is poisoned"))?;
+        if current
+            .as_ref()
+            .is_some_and(|job| !job.finished.load(Ordering::Acquire))
+        {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "another native archive job is still running",
+            ));
+        }
+        let job = Arc::new(ArchiveProgressJob::new(operation_id, kind));
+        *current = Some(Arc::clone(&job));
+        Ok(job)
+    }
 }
 
 #[napi]
 impl ExperimentalRunningAuthority {
+    /// Read native archive bytes completed without waiting on its worker thread.
+    #[napi(catch_unwind)]
+    pub fn archive_work_progress(&self) -> Result<Option<ArchiveWorkProgress>> {
+        self.root(|| {
+            let current = self.archive_progress.lock().map_err(|_| {
+                Error::new(Status::GenericFailure, "archive progress lock is poisoned")
+            })?;
+            Ok(current.as_ref().map(|job| job.snapshot()))
+        })
+    }
+
     /// Start the retained coordinator after Node has attached its output router.
     #[napi(catch_unwind)]
     pub fn start(&self) -> Result<()> {
@@ -553,11 +650,13 @@ impl ExperimentalRunningAuthority {
         )?)?;
         let checkpoint = checkpoint_descriptor_from_napi_object(&checkpoint)?;
         let inventory = parse_export_inventory_descriptor(&inventory, operation_id.as_str())?;
+        let progress = self.begin_archive_job(operation_id.as_str().to_owned(), "export")?;
         Ok(AsyncTask::new(PrepareExportArchiveTask {
             managed_directory,
             operation_id: operation_id.as_str().to_owned(),
             checkpoint,
             inventory,
+            progress,
         }))
     }
 
@@ -587,10 +686,13 @@ impl ExperimentalRunningAuthority {
             32,
             false,
         )?)?;
+        let progress =
+            self.begin_archive_job(operation_id.as_str().to_owned(), "validate-import")?;
         Ok(AsyncTask::new(ValidateImportArchiveTask {
             archive_path,
             scratch_directory,
             operation_id: operation_id.as_str().to_owned(),
+            progress,
         }))
     }
 
@@ -709,6 +811,13 @@ impl ExperimentalRunningAuthority {
                 "another prepared import is awaiting its durability decision",
             ));
         }
+        let progress = match self.begin_archive_job(operation_id.as_str().to_owned(), "import") {
+            Ok(job) => job,
+            Err(error) => {
+                self.import_active.store(false, Ordering::Release);
+                return Err(error);
+            }
+        };
         Ok(AsyncTask::new(PrepareImportArchiveTask {
             archive_path,
             scratch_directory,
@@ -718,6 +827,7 @@ impl ExperimentalRunningAuthority {
             legacy_seed,
             prepared: self.prepared_import.clone(),
             active: Arc::clone(&self.import_active),
+            progress,
         }))
     }
 

@@ -111,6 +111,8 @@ pub mod step_config;
 /// Deterministic Stage 5 complete scalar fixed-step performance evidence.
 #[cfg(feature = "engine-test-hooks")]
 pub mod step_fixture;
+/// Worker-local archive byte counters visible to the Node watchdog.
+pub mod work_progress;
 /// Complete post-control world-step staging before one authority publication.
 pub mod world_step;
 

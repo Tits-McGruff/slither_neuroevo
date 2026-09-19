@@ -46,6 +46,7 @@ import {
   type ManagedDiskDiagnostics
 } from './rustEngine/diskAdmission.ts';
 import { parseRustStartupMetadata } from './rustEngine/startupMetadata.ts';
+import { watchArchiveWork } from './rustEngine/archiveWorkWatchdog.ts';
 import type { GodModeMsg, LiveSettingsMsg, NewRunMsg, ResetMsg } from './protocol.ts';
 import { readJsonBody } from './httpApi.ts';
 import {
@@ -339,6 +340,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   let executeImport: ((request: import('node:http').IncomingMessage,
     resumeAsBranch: boolean) => Promise<ArchiveImportSuccess>) | undefined;
   let executeResurrection: ((entryId: string) => Promise<number>) | undefined;
+  let reportArchiveStall = (error: Error): void => { console.error('[rust.archive-watchdog]', error.message); process.exit(1); };
 
   /** Refresh small storage counters without delaying or overlapping health responses. */
   const refreshStorage = (): void => {
@@ -365,9 +367,13 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     const readyPath = resolve(owner.managedDirectory, `.${lease.operationId}.slither-save.ready`);
     try {
       await admitExportSpace(owner.managedDirectory, lease);
-      const ready = await owner.runtime.prepareExportArchive(
+      const preparation = owner.runtime.prepareExportArchive(
         owner.managedDirectory, lease.operationId, lease.descriptor, lease.inventory
       );
+      const stopWatch = watchArchiveWork(owner.runtime, lease.operationId, 'export', reportArchiveStall);
+      let ready: Awaited<typeof preparation>;
+      try { ready = await preparation; }
+      finally { stopWatch(); }
       if (ready.operationId !== lease.operationId ||
           ready.checkpointId !== lease.descriptor.logicalRootSha256 ||
           ready.relativeFilename !== `.${lease.operationId}.slither-save.ready` ||
@@ -441,11 +447,13 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     if (pathname === '/api/health' || pathname === '/health') {
       refreshStorage();
       const nativeHealth = owner.runtime.health();
+      const archiveWork = owner.runtime.archiveWorkProgress();
       response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: activeMetadata.runId,
         seed: activeMetadata.seed, configRevision: wireInteger(activeMetadata.configRevision),
         configHash: activeMetadata.configHash, startupCheckpointId: activeCheckpointId, ...nativeHealth,
         telemetry: telemetry.snapshot(nativeHealth), outbound: hub?.getOutboundDiagnostics(),
+        archiveWork,
         retention, retentionCleanup, storage: storageHealthPayload(storage, managedDisk),
         ...(storageInspectionFault ? { storageInspectionFault } : {}),
         ...(recovery ? { recovery } : {}), ...(importBranch ? { importBranch } : {}),
@@ -870,6 +878,15 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       fault ??= error instanceof Error ? error.message : String(error);
       owner.runtime.requestStop();
     };
+    reportArchiveStall = (error: Error): void => {
+      console.error('[rust.archive-watchdog]', error.message);
+      fail(error);
+      activeExportResponse?.destroy(error);
+      activeImportRequest?.destroy(error);
+      activeImportResponse?.destroy(error);
+      // A hung in-process native worker cannot be stopped or safely reused.
+      process.exit(1);
+    };
     /** Hold the exact SQLite winner lease until Rust publishes or rejects the new snake. */
     executeResurrection = async (entryId): Promise<number> => {
       const selected = await owner.persistence.selectHallOfFameEntry(
@@ -928,7 +945,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           operationId
         });
         uploadPath = upload.readyPath;
-        const imported = await owner.runtime.prepareImportArchive(
+        const preparation = owner.runtime.prepareImportArchive(
           upload.readyPath,
           owner.managedDirectory,
           owner.managedDirectory,
@@ -936,6 +953,10 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           legacyRunId,
           legacySeed
         );
+        const stopWatch = watchArchiveWork(owner.runtime, operationId, 'import', reportArchiveStall);
+        let imported: Awaited<typeof preparation>;
+        try { imported = await preparation; }
+        finally { stopWatch(); }
         const descriptor = parseManagedCheckpointDescriptor(imported.descriptor);
         const inventory = parseManagedImportInventoryDescriptor(imported.inventory, operationId);
         const metadata = parseRustStartupMetadata(imported.startupMetadata);

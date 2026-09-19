@@ -484,4 +484,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   removes per-float hash/write calls and one redundant complete archive scan
   without changing the save format or removing pre-download validation.
 
+- 2026-09-19 Native export/import tasks now expose their exact operation,
+  start/finish state, and monotonic completed file/codec bytes to Node. The
+  server watches preparation for 60 seconds without progress and exits on a
+  stuck in-process Rust worker; active transfers retain their separate idle
+  limit. Imported Hall-of-Fame weights now verify in bounded chunks. Process
+  restart and injected-hang acceptance remain Stage 7/8 gates.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

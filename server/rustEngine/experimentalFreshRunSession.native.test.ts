@@ -397,6 +397,10 @@ describe('experimental server startup composition', () => {
         paths.managedRoot, lease.operationId, lease.descriptor, lease.inventory
       );
       expect(prepared.relativeFilename).toBe(`.${lease.operationId}.slither-save.ready`);
+      expect(owner.runtime.archiveWorkProgress()).toMatchObject({
+        operationId: lease.operationId, kind: 'export', started: true, finished: true
+      });
+      expect(BigInt(`0x${owner.runtime.archiveWorkProgress()?.completedBytes}`)).toBeGreaterThan(0n);
       await expect(owner.runtime.validateImportArchive(
         readyPath, paths.managedRoot, 'ab'.repeat(16)
       )).resolves.toEqual({
@@ -408,6 +412,9 @@ describe('experimental server startup composition', () => {
         historyCount: '0000000000000000',
         hallOfFameCount: '0000000000000000',
         storedByteCount: prepared.storedByteCount
+      });
+      expect(owner.runtime.archiveWorkProgress()).toMatchObject({
+        operationId: 'ab'.repeat(16), kind: 'validate-import', started: true, finished: true
       });
       const corrupt = readFileSync(readyPath);
       corrupt[512] = (corrupt[512] ?? 0) ^ 0xff;

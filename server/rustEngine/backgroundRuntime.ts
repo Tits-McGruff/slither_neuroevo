@@ -49,6 +49,8 @@ export interface RustNativeVisualization extends Omit<RustBackgroundVisualizatio
 
 /** Coarse production-addon handle created by transferring the durable fresh run. */
 export interface ExperimentalRunningAuthorityNativeHandle {
+  /** Read progress from the native archive worker without waiting for it. */
+  archiveWorkProgress(): RustArchiveWorkProgress | null;
   /** Prepare one fresh assignment without publishing its snake. */
   submitControllerJoin(sequence: U64Hex, request: RustBackgroundJoinRequest): void;
   /** Resolve the exact fresh assignment on its separate delivery barrier. */
@@ -148,6 +150,20 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   join(): Promise<void>;
 }
 
+/** One current or most recently completed native archive job. */
+export interface RustArchiveWorkProgress {
+  /** Exact operation token for matching the server-side request. */
+  operationId: string;
+  /** Export, import, or standalone import validation. */
+  kind: 'export' | 'import' | 'validate-import';
+  /** Monotonic count of completed bounded file/codec work. */
+  completedBytes: string;
+  /** Whether libuv has begun running the native task. */
+  started: boolean;
+  /** Whether the native task reached its terminal callback. */
+  finished: boolean;
+}
+
 /** Small ready-file facts returned by Rust; archive bytes remain on disk. */
 export interface RustPreparedExportArchive {
   /** Exact lease and archive operation. */
@@ -204,6 +220,7 @@ export interface RustPreparedFreshRun {
 
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
+  'archiveWorkProgress',
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
   'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',

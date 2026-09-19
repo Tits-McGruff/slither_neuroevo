@@ -18,6 +18,7 @@ use super::state::{
     PopulationGenome, RngStateBundle, RunIdentity, StateAdmissionPolicy, StateCandidate,
     StateError, WorldState, CHECKPOINT_VERSION,
 };
+use super::work_progress::advance as advance_work_progress;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::error::Error;
@@ -3233,6 +3234,7 @@ fn select_numeric_reader_candidate<R: Read>(
         if (raw.capacity(), shuffled.capacity(), frame.capacity()) != initial_capacities {
             scratch_capacity_growths += 1;
         }
+        advance_work_progress(block_bytes);
     }
     let mut trailing = [0u8; 1];
     if reader.read(&mut trailing)? != 0 || encoded_floats != total_floats {
@@ -3550,6 +3552,7 @@ fn preflight_numeric_role(
                         "SFZ1 envelope contains trailing frame bytes",
                     ));
                 }
+                advance_work_progress(frame_bytes);
             }
             if decoded_total != expected_floats || expected_bytes != (decoded_total as u64) * 4 {
                 return Err(CheckpointError::format(
@@ -3621,6 +3624,7 @@ fn decode_adaptive_numeric_reader_inner<R: Read, W: Write>(
                 file.read_exact(&mut buffer[..take])?;
                 hasher.update(&buffer[..take]);
                 output.write_all(&buffer[..take])?;
+                advance_work_progress(take);
                 remaining -= take as u64;
             }
         }
@@ -3711,6 +3715,7 @@ fn decode_adaptive_numeric_reader_inner<R: Read, W: Write>(
                 }
                 hasher.update(&raw);
                 output.write_all(&raw)?;
+                advance_work_progress(decoded_bytes);
             }
             if decoded_total != expected_floats {
                 return Err(CheckpointError::format(
@@ -3777,6 +3782,7 @@ fn decode_numeric_role(
                 for bytes in buffer[..take].as_chunks::<4>().0 {
                     output.push_bits(u32::from_le_bytes(*bytes))?;
                 }
+                advance_work_progress(take);
                 remaining -= take as u64;
             }
         }
@@ -3885,6 +3891,7 @@ fn decode_numeric_role(
                     hasher.update(bytes);
                     output.push_bits(u32::from_le_bytes(bytes))?;
                 }
+                advance_work_progress(decoded_bytes);
             }
             if decoded_total != expected_floats || expected_bytes != (decoded_total as u64) * 4 {
                 return Err(CheckpointError::format(

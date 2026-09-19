@@ -23,6 +23,7 @@ use super::graph::{
 };
 use super::state::{NormalizedSettingValue, StateAdmissionPolicy};
 use super::step_config::typescript_default_settings;
+use super::work_progress::{advance as advance_work_progress, ProgressReader};
 use flate2::read::MultiGzDecoder;
 use rusqlite::{Connection, OpenFlags, MAIN_DB};
 use serde::de::{self, DeserializeOwned, SeqAccess, Visitor};
@@ -527,7 +528,7 @@ fn prepare_legacy_json_import(
             "legacy JSON must be one nonempty regular file no larger than 512 MiB",
         ));
     }
-    let input = BufReader::new(File::open(archive_path)?);
+    let input = BufReader::new(ProgressReader(File::open(archive_path)?));
     let mut decoder = serde_json::Deserializer::from_reader(input);
     let legacy = LegacyPopulationFile::deserialize(&mut decoder).map_err(|error| {
         CheckpointError::format(
@@ -2060,12 +2061,13 @@ fn build_hall_of_fame_weights(
         // large Hall-of-Fame exports needlessly expensive.
         let mut packed = [0u8; 64 * 1024];
         for chunk in weights.chunks(packed.len() / 4) {
-            for (value, bytes) in chunk.iter().zip(packed.chunks_exact_mut(4)) {
+            for (value, bytes) in chunk.iter().zip(packed.as_chunks_mut::<4>().0) {
                 bytes.copy_from_slice(&value.to_bits().to_le_bytes());
             }
             let used = chunk.len() * 4;
             hasher.update(&packed[..used]);
             output.write_all(&packed[..used])?;
+            advance_work_progress(used);
         }
         total_weights = total_weights.checked_add(weight_count).ok_or_else(|| {
             CheckpointError::format("COUNT_OVERFLOW", "Hall-of-Fame weight count overflowed")
@@ -2545,7 +2547,6 @@ fn extract_and_validate_import_roles(
     raw.sync_all()?;
     drop(raw);
     let mut weights = BufReader::new(File::open(&raw_path)?);
-    let mut bytes = [0u8; 4];
     let parsed_operation_id = CheckpointOperationId::parse(operation_id.to_owned())?;
     for (record, expected_sha256, count) in weight_references {
         let mut hasher = Sha256::new();
@@ -2567,19 +2568,27 @@ fn extract_and_validate_import_roles(
         } else {
             None
         };
-        for _ in 0..count {
-            weights.read_exact(&mut bytes)?;
-            let value = f32::from_bits(u32::from_le_bytes(bytes));
-            if !value.is_finite() {
-                return Err(CheckpointError::format(
-                    "IMPORT_HOF_WEIGHTS",
-                    "Hall-of-Fame weights contain a non-finite value",
-                ));
+        let mut packed = [0u8; 64 * 1024];
+        let mut remaining = count;
+        while remaining > 0 {
+            let take = remaining.min((packed.len() / 4) as u64) as usize;
+            let block = &mut packed[..take * 4];
+            weights.read_exact(block)?;
+            hasher.update(&*block);
+            for bytes in block.chunks_exact(4) {
+                let value = f32::from_bits(u32::from_le_bytes(bytes.try_into().unwrap()));
+                if !value.is_finite() {
+                    return Err(CheckpointError::format(
+                        "IMPORT_HOF_WEIGHTS",
+                        "Hall-of-Fame weights contain a non-finite value",
+                    ));
+                }
+                if let Some(values) = &mut decoded {
+                    values.push(value);
+                }
             }
-            hasher.update(bytes);
-            if let Some(values) = &mut decoded {
-                values.push(value);
-            }
+            advance_work_progress(block.len());
+            remaining -= take as u64;
         }
         if <[u8; 32]>::from(hasher.finalize()) != expected_sha256 {
             return Err(CheckpointError::format(
@@ -2625,7 +2634,7 @@ fn extract_and_validate_import_roles(
                 .write_all(&record)?;
         }
     }
-    if weights.read(&mut bytes[..1])? != 0 {
+    if weights.read(&mut [0u8; 1])? != 0 {
         return Err(CheckpointError::format(
             "IMPORT_HOF_WEIGHTS",
             "Hall-of-Fame weights exceed the indexed segments",
@@ -2785,7 +2794,7 @@ fn append_reader<W: Write, R: Read>(
     header.set_mtime(0);
     header.set_size(size);
     header.set_cksum();
-    archive.append_data(&mut header, path, reader)?;
+    archive.append_data(&mut header, path, ProgressReader(reader))?;
     Ok(())
 }
 
@@ -2807,6 +2816,7 @@ struct HashWriter<'a>(&'a mut Sha256);
 impl Write for HashWriter<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.0.update(bytes);
+        advance_work_progress(bytes.len());
         Ok(bytes.len())
     }
 
