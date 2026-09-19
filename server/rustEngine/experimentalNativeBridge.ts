@@ -1,11 +1,14 @@
 /**
- * Explicit, non-production adapter for the minimum Rust engine spine.
+ * Strict shared addon validator and explicit Stage 3 probe adapter.
  *
  * This deliberately exposes only the Stage 3 probe contract.  It is not a
- * second game API and normal server startup does not import this module.
+ * second game API; Rust-server startup reuses only its build validation.
  */
 
 import { computeNativeSourceIdentity, type NativeSourceIdentity } from './nativeSourceIdentity.ts';
+
+/** Exact coarse engine contract required before any durable startup work. */
+export const EXPERIMENTAL_ENGINE_CONTRACT_VERSION = 1;
 
 /** Native targets admitted by the first supported authoritative-engine builds. */
 const SUPPORTED_NATIVE_TARGETS = new Set([
@@ -233,6 +236,8 @@ export interface ExperimentalEngineNativeHandle {
 
 /** Addon exports required by the explicit experimental adapter. */
 export interface ExperimentalEngineNativeBinding {
+  /** Human-readable identifier embedded in the exact native build. */
+  nativeAddonBuildIdentifier(): string;
   /** Source SHA embedded by the Rust build script. */
   nativeAddonSourceSha256(): string;
   /** Exact Cargo target triple. */
@@ -321,6 +326,7 @@ export function validateExperimentalEngineBinding(
   }
   const binding = candidate as Partial<ExperimentalEngineNativeBinding>;
   const required = [
+    'nativeAddonBuildIdentifier',
     'nativeAddonSourceSha256',
     'nativeAddonBuildTarget',
     'nativeAddonBuildProfile',
@@ -337,6 +343,10 @@ export function validateExperimentalEngineBinding(
     );
   }
   const typed = binding as ExperimentalEngineNativeBinding;
+  const buildIdentifier = checkedText(typed.nativeAddonBuildIdentifier(), 'nativeAddonBuildIdentifier');
+  if (buildIdentifier.length > 256 || !/^slither_native\/[0-9A-Za-z.+-]+$/u.test(buildIdentifier)) {
+    throw new TypeError(`Experimental native addon returned an invalid build identifier. ${BUILD_INSTRUCTION}`);
+  }
   const sourceSha = checkedText(typed.nativeAddonSourceSha256(), 'nativeAddonSourceSha256');
   if (!SOURCE_SHA256.test(sourceSha)) {
     throw new TypeError(`Experimental native addon returned an invalid source SHA. ${BUILD_INSTRUCTION}`);
@@ -364,8 +374,9 @@ export function validateExperimentalEngineBinding(
   )) {
     throw new Error(`Experimental native addon returned an invalid build-contract SHA. ${BUILD_INSTRUCTION}`);
   }
-  if (!Number.isSafeInteger(typed.experimentalEngineContractVersion()) || typed.experimentalEngineContractVersion() <= 0) {
-    throw new Error(`Experimental native addon returned an unsupported engine contract version. ${BUILD_INSTRUCTION}`);
+  const contractVersion = typed.experimentalEngineContractVersion();
+  if (contractVersion !== EXPERIMENTAL_ENGINE_CONTRACT_VERSION) {
+    throw new Error(`Experimental native addon contract ${contractVersion} does not match required ${EXPERIMENTAL_ENGINE_CONTRACT_VERSION}. ${BUILD_INSTRUCTION}`);
   }
   return typed;
 }

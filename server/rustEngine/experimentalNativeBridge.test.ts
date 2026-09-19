@@ -174,6 +174,7 @@ class FakeHandle implements ExperimentalEngineNativeHandle {
 /** Build a fake addon with complete production provenance and a coordinator factory. */
 function createBinding(handle: FakeHandle): ExperimentalEngineNativeBinding {
   return {
+    nativeAddonBuildIdentifier: () => 'slither_native/0.1.0+test.0123456789abcdef',
     nativeAddonSourceSha256: () => SOURCE_IDENTITY.sha256,
     nativeAddonBuildTarget: () => 'x86_64-pc-windows-msvc',
     nativeAddonBuildProfile: () => 'release',
@@ -238,6 +239,22 @@ describe(SUITE, () => {
       init: INIT,
       handlers: { onEvent: () => {}, onFault: () => {} }
     })).toThrow(/missing exports: ExperimentalRustEngine/);
+
+    const missingBuild = { ...createBinding(handle) } as Record<string, unknown>;
+    delete missingBuild['nativeAddonBuildIdentifier'];
+    expect(() => createExperimentalNativeBridge({
+      binding: missingBuild,
+      sourceIdentity: SOURCE_IDENTITY,
+      init: INIT,
+      handlers: { onEvent: () => {}, onFault: () => {} }
+    })).toThrow(/missing exports: nativeAddonBuildIdentifier/);
+
+    expect(() => createExperimentalNativeBridge({
+      binding: { ...createBinding(handle), experimentalEngineContractVersion: () => 2 },
+      sourceIdentity: SOURCE_IDENTITY,
+      init: INIT,
+      handlers: { onEvent: () => {}, onFault: () => {} }
+    })).toThrow(/does not match required 1/);
 
     expect(() => createExperimentalNativeBridge({
       binding: { ...createBinding(handle), nativeAddonSourceSha256: () => 'c'.repeat(64) },

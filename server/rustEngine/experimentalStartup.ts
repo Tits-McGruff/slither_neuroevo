@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import type { ExperimentalRunningAuthorityNativeHandle } from './backgroundRuntime.ts';
 import { CheckpointPersistenceClient, type ManagedCheckpointCommitResult } from './checkpointPersistenceClient.ts';
-import type { ExperimentalEngineInit } from './experimentalNativeBridge.ts';
+import { EXPERIMENTAL_ENGINE_CONTRACT_VERSION, type ExperimentalEngineInit } from './experimentalNativeBridge.ts';
 import { createExperimentalFreshRunSession, validateExperimentalFreshRunBinding, type ExperimentalFreshRunSession } from './experimentalFreshRunSession.ts';
 import { computeNativeSourceIdentity } from './nativeSourceIdentity.ts';
 import type {
@@ -23,7 +23,7 @@ import {
 
 /** Bounded production background queues for the first explicit P0 server. */
 const BACKGROUND_INIT: ExperimentalEngineInit = {
-  contractVersion: 1, maxInboundBatches: 64, maxInboundCommands: 64,
+  contractVersion: EXPERIMENTAL_ENGINE_CONTRACT_VERSION, maxInboundBatches: 64, maxInboundCommands: 64,
   maxInboundOwnedBytes: 4 * 1024 * 1024, maxBatchCommands: 1, maxBatchOwnedBytes: 1024 * 1024,
   maxOutputReliable: 32, maxOutputReliableOwnedBytes: 16 * 1024 * 1024,
   maxOutputDiscrete: 4, maxOutputDiscreteOwnedBytes: 1024 * 1024,
@@ -57,6 +57,8 @@ export interface ExperimentalStartupOptions {
 export interface ExperimentalServerRuntime {
   /** Sole Rust owner, intentionally unstarted until transport setup succeeds. */
   runtime: ExperimentalRunningAuthorityNativeHandle;
+  /** Identifier reported by the source-validated production addon. */
+  nativeBuildIdentifier: string;
   /** Small immutable facts captured from Rust before authority transfer. */
   metadata: RustStartupMetadata;
   /** Durable recovery provenance for health/welcome reporting. */
@@ -100,6 +102,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
   const managedDirectory = resolve(options.managedDirectory);
   const sourceIdentity = computeNativeSourceIdentity(NATIVE_DIRECTORY);
   const binding = validateExperimentalFreshRunBinding(require(resolve(NATIVE_DIRECTORY, 'index.js')) as unknown, sourceIdentity);
+  const nativeBuildIdentifier = binding.nativeAddonBuildIdentifier();
   await mkdir(managedDirectory, { recursive: true });
   const scavenged = await scavengeStaleArchiveArtifacts(managedDirectory);
   if (scavenged.removed > 0) {
@@ -122,11 +125,13 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
       persistence, managedDirectory
     });
     let selection: ManagedCheckpointSelection | null = null;
+    let startupSelectionCompleted = false;
     let legacyConversion: ManagedLegacyConversion | null = null;
     let session: ExperimentalFreshRunSession;
     if (restoring) {
       try {
         selection = await persistence.selectStartup();
+        startupSelectionCompleted = true;
         legacyConversion = selection.legacyConversion;
         if (!selection.descriptor || !selection.runId) {
           if (options.restoreCheckpointId) throw new Error('requested exact checkpoint is not current');
@@ -143,6 +148,10 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
               ? selection.recovery ?? selection.importBranch ?? undefined : undefined);
         }
       } catch (currentError) {
+        // A selected legacy-only database has no managed lineage to scan.
+        // Preserve its conversion error instead of replacing it with a
+        // misleading "no active lineage available for recovery" rejection.
+        if (startupSelectionCompleted && !selection?.descriptor) throw currentError;
         if (!options.restoreLatest && !options.restoreCheckpointId) throw currentError;
         if (options.restoreCheckpointId && selection?.descriptor?.logicalRootSha256 === options.restoreCheckpointId) throw currentError;
         const failedRoot = selection?.descriptor?.logicalRootSha256;
@@ -197,7 +206,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     const owner = runtime;
     let closing: Promise<void> | undefined;
     return {
-      runtime: owner, metadata, recovery: selection?.recovery ?? null,
+      runtime: owner, nativeBuildIdentifier, metadata, recovery: selection?.recovery ?? null,
       importBranch: selection?.importBranch ?? null, legacyConversion,
       persistence, runStart, managedDirectory,
       admitCheckpoint: () => admitCheckpoint(managedDirectory),

@@ -26,7 +26,10 @@ export function nativeSetting(metadata: RustStartupMetadata, path: string): numb
 }
 
 /** Construct the existing browser handshake from bounded native metadata. */
-export function createRustWelcome(metadata: RustStartupMetadata): WelcomeMsg {
+export function createRustWelcome(
+  metadata: RustStartupMetadata,
+  nativeBuildIdentifier: string | null = null
+): WelcomeMsg {
   return {
     type: 'welcome', protocolVersion: 2, serializerVersion: metadata.serializerVersion,
     sessionId: randomUUID(), tickRate: 1 / metadata.fixedStepSeconds,
@@ -43,7 +46,7 @@ export function createRustWelcome(metadata: RustStartupMetadata): WelcomeMsg {
     inferenceMode: {
       requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0,
       poolEpoch: null, weightEpoch: null, graphKey: metadata.graphKey, parameterCount: metadata.parameterCount,
-      seed: metadata.seed, nativeAddonStatus: 'ready', nativeAddonBuildIdentifier: null
+      seed: metadata.seed, nativeAddonStatus: 'ready', nativeAddonBuildIdentifier: nativeBuildIdentifier
     }
   };
 }

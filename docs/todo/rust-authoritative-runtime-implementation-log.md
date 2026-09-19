@@ -491,4 +491,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   limit. Imported Hall-of-Fame weights now verify in bounded chunks. Process
   restart and injected-hang acceptance remain Stage 7/8 gates.
 
+- 2026-09-19 Rust-server startup now rejects a mismatched engine contract
+  before creating or modifying a database. Health and browser welcome report
+  the verified native build identifier instead of a null placeholder.
+
+- 2026-09-19 A copy of the owner's v2 SQLite database now converts through
+  Rust startup. The legacy reader accepts its numeric 0/1 boolean setting;
+  a legacy-only failure no longer gets masked as a managed-recovery error.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

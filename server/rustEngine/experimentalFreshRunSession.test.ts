@@ -238,6 +238,7 @@ class FakeFreshRunSession implements ExperimentalFreshRunNativeHandle {
 /** Build a production-shaped fake addon around one evidence sink. */
 function fakeBinding(evidence: FakeEvidence): unknown {
   return {
+    nativeAddonBuildIdentifier: () => 'slither_native/0.1.0+test.0123456789abcdef',
     nativeAddonSourceSha256: () => SOURCE_IDENTITY.sha256,
     nativeAddonBuildTarget: () => 'x86_64-pc-windows-msvc',
     nativeAddonBuildProfile: () => 'release',

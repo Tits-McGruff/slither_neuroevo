@@ -105,11 +105,15 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
     const peers: Peer[] = [];
     try {
       const before = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
-        runId: string;
+        runId: string; nativeBuildIdentifier: string;
       };
+      expect(before.nativeBuildIdentifier).toMatch(/^slither_native\/[0-9A-Za-z.+-]+$/u);
       const viewer = await connect(server.port, 'ui');
       peers.push(viewer);
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
+      expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
+        inferenceMode: { nativeAddonBuildIdentifier: before.nativeBuildIdentifier }
+      });
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       const weights = new Array<number>(13_458).fill(0);
       const legacyFile = JSON.stringify({
@@ -204,7 +208,10 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       graphSpec,
       populationCount: 2,
       settings: core,
-      updates: [{ path: 'baselineBots.count', value: 0 }],
+      updates: [
+        { path: 'baselineBots.count', value: 0 },
+        { path: 'foodSpawn.edgeFalloffEnabled', value: 1 }
+      ],
       rng: {},
       allocators: {},
       bestFitnessEver: 0,

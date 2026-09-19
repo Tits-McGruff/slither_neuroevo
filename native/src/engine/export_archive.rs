@@ -1375,7 +1375,16 @@ fn legacy_setting_value(
     expected: &NormalizedSettingValue,
 ) -> Option<f64> {
     match expected {
-        NormalizedSettingValue::Bool(_) => value.as_bool().map(u8::from).map(f64::from),
+        NormalizedSettingValue::Bool(_) => value
+            .as_bool()
+            .map(u8::from)
+            .or_else(|| {
+                value
+                    .as_u64()
+                    .and_then(|number| u8::try_from(number).ok())
+                    .filter(|number| *number <= 1)
+            })
+            .map(f64::from),
         NormalizedSettingValue::Integer(_) => {
             value.as_i64().map(|number| number as f64).or_else(|| {
                 value
@@ -2575,8 +2584,8 @@ fn extract_and_validate_import_roles(
             let block = &mut packed[..take * 4];
             weights.read_exact(block)?;
             hasher.update(&*block);
-            for bytes in block.chunks_exact(4) {
-                let value = f32::from_bits(u32::from_le_bytes(bytes.try_into().unwrap()));
+            for bytes in block.as_chunks::<4>().0 {
+                let value = f32::from_bits(u32::from_le_bytes(*bytes));
                 if !value.is_finite() {
                     return Err(CheckpointError::format(
                         "IMPORT_HOF_WEIGHTS",

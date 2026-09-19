@@ -452,6 +452,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: activeMetadata.runId,
         seed: activeMetadata.seed, configRevision: wireInteger(activeMetadata.configRevision),
         configHash: activeMetadata.configHash, startupCheckpointId: activeCheckpointId, ...nativeHealth,
+        nativeBuildIdentifier: owner.nativeBuildIdentifier,
         telemetry: telemetry.snapshot(nativeHealth), outbound: hub?.getOutboundDiagnostics(),
         archiveWork,
         retention, retentionCleanup, storage: storageHealthPayload(storage, managedDisk),
@@ -699,7 +700,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     return closePromise;
   };
   try {
-    hub = new WsHub(server, { ...createRustWelcome(activeMetadata), ...(recovery ? { recovery } : {}),
+    hub = new WsHub(server, { ...createRustWelcome(activeMetadata, owner.nativeBuildIdentifier), ...(recovery ? { recovery } : {}),
       ...(importBranch ? { importBranch } : {}),
       ...(legacyConversion ? { legacyConversion } : {}) }, { maxConnections: 64 });
     const sockets = hub;
@@ -724,7 +725,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
                 event.settingsConfigRevision,
                 event.settingsConfigHash
               );
-              sockets.updateWelcome(createRustWelcome(activeMetadata));
+              sockets.updateWelcome(createRustWelcome(activeMetadata, owner.nativeBuildIdentifier));
               sockets.broadcastJsonToUi({
                 type: 'settingsApplied', requestId: pending.requestId, applied: true,
                 updates: pending.updates,
@@ -987,7 +988,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         routing.resetAfterImport();
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
-        const welcome = { ...createRustWelcome(activeMetadata), ...(importBranch ? { importBranch } : {}) };
+        const welcome = { ...createRustWelcome(activeMetadata, owner.nativeBuildIdentifier), ...(importBranch ? { importBranch } : {}) };
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason: 'import', checkpointId: durable.checkpointId, welcome
@@ -1075,7 +1076,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         routing.resetAfterImport();
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
-        const welcome = createRustWelcome(activeMetadata);
+        const welcome = createRustWelcome(activeMetadata, owner.nativeBuildIdentifier);
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason, checkpointId: durable.checkpointId, welcome
