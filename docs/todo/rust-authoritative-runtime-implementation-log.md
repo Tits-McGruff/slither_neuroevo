@@ -479,4 +479,9 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   and terminates the worker after 60 seconds without progress; health faults
   if subsequent storage inspection cannot use that worker.
 
+- 2026-09-19 Rust export now packs Hall-of-Fame weights in bounded blocks and
+  uses its full import validator as the sole full post-write archive scan. This
+  removes per-float hash/write calls and one redundant complete archive scan
+  without changing the save format or removing pre-download validation.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

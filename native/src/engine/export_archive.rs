@@ -1809,7 +1809,9 @@ pub fn compose_export_archive(
         ));
     }
     drop(output);
-    validate_completed_archive(&partial_path, &manifest, expected_archive_bytes)?;
+    // The full import validator below already rescans every archive role,
+    // checks its hashes and lengths, and restores the checkpoint. A separate
+    // post-write scan would read the entire save a third time.
     let validated = validate_import_archive(
         &partial_path,
         &managed_directory,
@@ -2054,10 +2056,16 @@ fn build_hall_of_fame_weights(
             "Hall-of-Fame weights",
         )?;
         let weights = read_validated_hall_of_fame_weights(&path, &descriptor)?;
-        for value in weights.iter().copied() {
-            let bytes = value.to_bits().to_le_bytes();
-            hasher.update(bytes);
-            output.write_all(&bytes)?;
+        // Hash and write in bounded blocks: per-float SHA/write calls make
+        // large Hall-of-Fame exports needlessly expensive.
+        let mut packed = [0u8; 64 * 1024];
+        for chunk in weights.chunks(packed.len() / 4) {
+            for (value, bytes) in chunk.iter().zip(packed.chunks_exact_mut(4)) {
+                bytes.copy_from_slice(&value.to_bits().to_le_bytes());
+            }
+            let used = chunk.len() * 4;
+            hasher.update(&packed[..used]);
+            output.write_all(&packed[..used])?;
         }
         total_weights = total_weights.checked_add(weight_count).ok_or_else(|| {
             CheckpointError::format("COUNT_OVERFLOW", "Hall-of-Fame weight count overflowed")
@@ -2792,77 +2800,6 @@ fn expected_archive_length(sizes: &[u64]) -> Result<u64, CheckpointError> {
                 CheckpointError::format("COUNT_OVERFLOW", "save archive length overflowed")
             })
     })
-}
-
-fn validate_completed_archive(
-    path: &Path,
-    manifest: &SaveManifest,
-    expected_bytes: u64,
-) -> Result<(), CheckpointError> {
-    if fs::metadata(path)?.len() != expected_bytes {
-        return Err(CheckpointError::format(
-            "EXPORT_POSTWRITE",
-            "save archive length changed before validation",
-        ));
-    }
-    let file = File::open(path)?;
-    let mut archive = TarArchive::new(BufReader::new(file));
-    let mut seen = 0usize;
-    for entry in archive.entries()? {
-        let mut entry = entry?;
-        let expected_path = if seen < manifest.roles.len() {
-            manifest.roles[seen].path.as_str()
-        } else {
-            MANIFEST_PATH
-        };
-        if seen > manifest.roles.len()
-            || !entry.header().entry_type().is_file()
-            || entry.path()?.as_ref() != Path::new(expected_path)
-        {
-            return Err(CheckpointError::format(
-                "EXPORT_POSTWRITE",
-                "save archive entry order or type is invalid",
-            ));
-        }
-        if seen < manifest.roles.len() {
-            let role = &manifest.roles[seen];
-            let mut hasher = Sha256::new();
-            io::copy(&mut entry, &mut HashWriter(&mut hasher))?;
-            if matches!(
-                role.encoding.as_str(),
-                "raw-binary-v1" | "raw-f32le-v1" | "raw-history-v1" | "raw-hof-index-v1"
-            ) && hex_digest(hasher.finalize().into()) != role.logical_sha256
-            {
-                return Err(CheckpointError::format(
-                    "EXPORT_POSTWRITE",
-                    format!("save role {} failed post-write SHA-256", role.role),
-                ));
-            }
-        } else {
-            let mut bytes = Vec::new();
-            entry.read_to_end(&mut bytes)?;
-            let decoded: SaveManifest = serde_json::from_slice(&bytes).map_err(|error| {
-                CheckpointError::format(
-                    "EXPORT_POSTWRITE",
-                    format!("save manifest failed post-write decode: {error}"),
-                )
-            })?;
-            if &decoded != manifest {
-                return Err(CheckpointError::format(
-                    "EXPORT_POSTWRITE",
-                    "save manifest changed during archive publication",
-                ));
-            }
-        }
-        seen += 1;
-    }
-    if seen != manifest.roles.len() + 1 {
-        return Err(CheckpointError::format(
-            "EXPORT_POSTWRITE",
-            "save archive is missing required entries",
-        ));
-    }
-    Ok(())
 }
 
 struct HashWriter<'a>(&'a mut Sha256);
