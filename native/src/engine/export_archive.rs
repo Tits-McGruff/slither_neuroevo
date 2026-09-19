@@ -720,23 +720,25 @@ fn prepare_legacy_sqlite_v2_population_import(
     run_id: &str,
     memory_ceiling_bytes: usize,
 ) -> Result<super::run_start::PendingRunStartTransition, CheckpointError> {
-    let (metadata_json, declared_population): (String, i64) = connection
+    let declared_population: i64 = connection
         .query_row(
-            "SELECT payload_json, population_count FROM population_snapshots \
+            "SELECT population_count FROM population_snapshots \
              WHERE id = ?1 AND format_version = 2 \
              AND boundary_kind IN ('run-start', 'generation') \
              AND length(CAST(payload_json AS BLOB)) BETWEEN 1 AND 4194304",
             [snapshot_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| row.get(0),
         )
         .map_err(legacy_sqlite_error)?;
-    let metadata: LegacyDatabaseMetadata =
-        serde_json::from_str(&metadata_json).map_err(|error| {
-            CheckpointError::format(
-                "LEGACY_SQLITE_METADATA",
-                format!("legacy v2 metadata is invalid: {error}"),
-            )
-        })?;
+    let metadata: LegacyDatabaseMetadata = read_legacy_sqlite_json_column(
+        connection,
+        snapshot_id,
+        "payload_json",
+        MAX_LEGACY_METADATA_BYTES as usize,
+    )?
+    .ok_or_else(|| {
+        CheckpointError::format("LEGACY_SQLITE_METADATA", "legacy v2 metadata is missing")
+    })?;
     if metadata.format_version != 2
         || metadata.boundary_version != 1
         || !metadata.resumable
@@ -758,8 +760,8 @@ fn prepare_legacy_sqlite_v2_population_import(
     }
     let mut statement = connection
         .prepare(
-            "SELECT slot, arch_key, brain_type, fitness, weight_count, \
-                    weights_blob, weights_checksum \
+            "SELECT rowid, slot, arch_key, brain_type, fitness, weight_count, \
+                    length(weights_blob), typeof(weights_blob), weights_checksum \
              FROM snapshot_genomes WHERE snapshot_id = ?1 ORDER BY slot",
         )
         .map_err(legacy_sqlite_error)?;
@@ -780,22 +782,15 @@ fn prepare_legacy_sqlite_v2_population_import(
             ));
         }
         let expected_slot = genomes.len();
-        let slot: i64 = row.get(0).map_err(legacy_sqlite_error)?;
-        let architecture: String = row.get(1).map_err(legacy_sqlite_error)?;
-        let brain_type: String = row.get(2).map_err(legacy_sqlite_error)?;
-        let fitness: f64 = row.get(3).map_err(legacy_sqlite_error)?;
-        let weight_count: i64 = row.get(4).map_err(legacy_sqlite_error)?;
-        let bytes: &[u8] = row
-            .get_ref(5)
-            .map_err(legacy_sqlite_error)?
-            .as_blob()
-            .map_err(|error| {
-                CheckpointError::format(
-                    "LEGACY_SQLITE_POPULATION",
-                    format!("legacy v2 weights are not a BLOB: {error}"),
-                )
-            })?;
-        let checksum: String = row.get(6).map_err(legacy_sqlite_error)?;
+        let row_id: i64 = row.get(0).map_err(legacy_sqlite_error)?;
+        let slot: i64 = row.get(1).map_err(legacy_sqlite_error)?;
+        let architecture: String = row.get(2).map_err(legacy_sqlite_error)?;
+        let brain_type: String = row.get(3).map_err(legacy_sqlite_error)?;
+        let fitness: f64 = row.get(4).map_err(legacy_sqlite_error)?;
+        let weight_count: i64 = row.get(5).map_err(legacy_sqlite_error)?;
+        let stored_bytes: i64 = row.get(6).map_err(legacy_sqlite_error)?;
+        let storage_type: String = row.get(7).map_err(legacy_sqlite_error)?;
+        let checksum: String = row.get(8).map_err(legacy_sqlite_error)?;
         let weight_count = usize::try_from(weight_count).map_err(|_| {
             CheckpointError::format(
                 "LEGACY_SQLITE_POPULATION",
@@ -809,10 +804,10 @@ fn prepare_legacy_sqlite_v2_population_import(
             || !fitness.is_finite()
             || weight_count == 0
             || weight_count > MAX_LEGACY_WEIGHTS_PER_GENOME
-            || bytes.len() != weight_count.saturating_mul(4)
+            || storage_type != "blob"
+            || stored_bytes != (weight_count * 4) as i64
             || checksum.len() != 64
             || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
-            || hex_digest(Sha256::digest(bytes).into()) != checksum.to_ascii_lowercase()
         {
             return Err(CheckpointError::format(
                 "LEGACY_SQLITE_POPULATION",
@@ -823,15 +818,40 @@ fn prepare_legacy_sqlite_v2_population_import(
         weights.try_reserve_exact(weight_count).map_err(|_| {
             CheckpointError::format("ALLOCATION", "legacy v2 genome allocation failed")
         })?;
-        for encoded in bytes.as_chunks::<4>().0 {
-            let weight = f32::from_bits(u32::from_le_bytes(*encoded));
-            if !weight.is_finite() {
-                return Err(CheckpointError::format(
-                    "LEGACY_SQLITE_POPULATION",
-                    format!("legacy v2 genome {expected_slot} contains a non-finite weight"),
-                ));
+        let mut input = connection
+            .blob_open(MAIN_DB, "snapshot_genomes", "weights_blob", row_id, true)
+            .map_err(legacy_sqlite_error)?;
+        if input.len() != stored_bytes as usize {
+            return Err(CheckpointError::format(
+                "LEGACY_SQLITE_READ",
+                format!("legacy v2 genome {expected_slot} changed during conversion"),
+            ));
+        }
+        let mut hasher = Sha256::new();
+        let mut block = [0u8; 64 * 1024];
+        while weights.len() < weight_count {
+            let take = (weight_count - weights.len()).min(block.len() / 4) * 4;
+            input
+                .read_exact(&mut block[..take])
+                .map_err(legacy_sqlite_io_error)?;
+            hasher.update(&block[..take]);
+            advance_work_progress(take);
+            for encoded in block[..take].as_chunks::<4>().0 {
+                let weight = f32::from_bits(u32::from_le_bytes(*encoded));
+                if !weight.is_finite() {
+                    return Err(CheckpointError::format(
+                        "LEGACY_SQLITE_POPULATION",
+                        format!("legacy v2 genome {expected_slot} contains a non-finite weight"),
+                    ));
+                }
+                weights.push(weight);
             }
-            weights.push(weight);
+        }
+        if hex_digest(hasher.finalize().into()) != checksum.to_ascii_lowercase() {
+            return Err(CheckpointError::format(
+                "LEGACY_SQLITE_POPULATION",
+                format!("legacy v2 genome {expected_slot} failed checksum validation"),
+            ));
         }
         genomes.push(LegacyPopulationGenome {
             weights: weights.into_boxed_slice(),

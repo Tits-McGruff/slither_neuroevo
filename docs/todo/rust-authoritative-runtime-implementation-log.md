@@ -499,4 +499,9 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Rust startup. The legacy reader accepts its numeric 0/1 boolean setting;
   a legacy-only failure no longer gets masked as a managed-recovery error.
 
+- 2026-09-19 Rust legacy-v2 conversion now streams parent JSON and genome BLOBs
+  directly from SQLite, hashing and decoding weights in fixed 64 KiB blocks.
+  A multi-block fixture and a fresh copy of the owner's database pass; source
+  rows in the copy still hash exactly like the original after conversion.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

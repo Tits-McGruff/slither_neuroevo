@@ -187,9 +187,10 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
   it('converts the newest TypeScript v2 checkpoint without changing its source rows', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-v2-startup-'));
     const dbPath = join(root, 'experiment.sqlite');
-    const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: 2, simSpeed: 2 };
+    const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: 2, simSpeed: 2, neurons1: 96, neurons2: 96 };
     const graphSpec = buildStackGraphSpec(core, CFG_DEFAULT);
     const graph = compileGraph(graphSpec);
+    expect(graph.totalParams).toBeGreaterThan(64 * 1024 / Float32Array.BYTES_PER_ELEMENT);
     const firstWeights = Buffer.alloc(graph.totalParams * Float32Array.BYTES_PER_ELEMENT);
     const secondWeights = Buffer.from(firstWeights);
     secondWeights.writeFloatLE(0.25, 0);
