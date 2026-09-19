@@ -352,6 +352,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       storageInspectionFault = undefined;
     }).catch(error => {
       storageInspectionFault = error instanceof Error ? error.message : String(error);
+      fault ??= `storage inspection failed: ${storageInspectionFault}`;
+      owner.runtime.requestStop();
     }).finally(() => { storageRefresh = undefined; });
   };
 

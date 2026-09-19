@@ -189,7 +189,8 @@ function decodeHallOfFameReference(record: Buffer): ManagedHallOfFameReference {
  */
 function createFixture(
   workerUrlForTesting?: URL,
-  workerResponseModeForTesting?: 'invalid' | 'mismatched' | 'exit' | 'exit-clean'
+  workerResponseModeForTesting?: 'invalid' | 'mismatched' | 'exit' | 'exit-clean' | 'stall' | 'stall-after-progress' | 'progressing',
+  noProgressTimeoutMs?: number
 ): {
   root: string;
   managedRoot: string;
@@ -205,7 +206,8 @@ function createFixture(
     databasePath,
     managedRootPath: managedRoot,
     ...(workerUrlForTesting ? { workerUrlForTesting } : {}),
-    ...(workerResponseModeForTesting ? { workerResponseModeForTesting } : {})
+    ...(workerResponseModeForTesting ? { workerResponseModeForTesting } : {}),
+    ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {})
   });
   clients.push(client);
   return { root, managedRoot, databasePath, client };
@@ -1370,6 +1372,45 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await expect(commit).rejects.toThrow(/exited cleanly with 1 pending operation/);
     await expect(close).rejects.toThrow(/exited cleanly with 1 pending operation/);
     expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('terminates a persistence worker that stops making observable progress', async () => {
+    const fixture = createFixture(
+      new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url),
+      'stall',
+      100
+    );
+    await expect(fixture.client.commit(createDescriptor(fixture.managedRoot))).rejects.toThrow(
+      /made no progress for 100 ms/
+    );
+    await expect(fixture.client.close()).rejects.toThrow(/made no progress/);
+    expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('terminates a persistence worker that stalls after starting an operation', async () => {
+    const fixture = createFixture(
+      new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url),
+      'stall-after-progress',
+      150
+    );
+    await expect(fixture.client.commit(createDescriptor(fixture.managedRoot))).rejects.toThrow(
+      /made no progress for 150 ms/
+    );
+    await expect(fixture.client.close()).rejects.toThrow(/made no progress/);
+    expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('allows total worker duration to exceed the no-progress limit while counters advance', async () => {
+    const fixture = createFixture(
+      new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url),
+      'progressing',
+      500
+    );
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit(descriptor)).resolves.toMatchObject({
+      operationId: descriptor.operationId,
+      checkpointId: descriptor.logicalRootSha256
+    });
   });
 
   it('accepts any positive first operation epoch because it is an acknowledgement token', async () => {

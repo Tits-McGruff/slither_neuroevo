@@ -56,8 +56,13 @@ export interface CheckpointPersistenceClientOptions {
   /** Test-only worker module override for client protocol/lifecycle tests. */
   workerUrlForTesting?: URL;
   /** Test-only response mode consumed exclusively by a supplied test worker module. */
-  workerResponseModeForTesting?: 'invalid' | 'mismatched' | 'exit' | 'exit-clean';
+  workerResponseModeForTesting?: 'invalid' | 'mismatched' | 'exit' | 'exit-clean' | 'stall' | 'stall-after-progress' | 'progressing';
+  /** No-progress limit for one worker request; production defaults to 60 seconds. */
+  noProgressTimeoutMs?: number;
 }
+
+/** Persistence-worker no-progress deadline selected by the approved runtime plan. */
+const DEFAULT_PERSISTENCE_NO_PROGRESS_MS = 60_000;
 
 /** Matching acknowledgement returned after metadata/current-pointer commit. */
 export interface ManagedCheckpointCommitResult {
@@ -195,8 +200,16 @@ export class CheckpointPersistenceClient {
   private resolveExited!: () => void;
   /** Whether the worker has emitted its exit event. */
   private workerExited = false;
+  /** Whether Node has finished starting the worker thread. */
+  private workerOnline = false;
   /** One best-effort termination request started only for a terminal client failure. */
   private terminationPromise: Promise<void> | null = null;
+  /** Correlated operations currently awaiting a response from the worker. */
+  private readonly watchedOperations = new Map<CheckpointOperationId, bigint | null>();
+  /** Shared deadline refreshed by any validated worker progress. */
+  private watchdog: NodeJS.Timeout | undefined;
+  /** Configured no-progress duration. */
+  private readonly noProgressTimeoutMs: number;
   /** Resolver waiting for the worker's exit after shutdown. */
   private resolveStopped: (() => void) | null = null;
   /** Rejecter waiting for an unsuccessful worker exit after shutdown. */
@@ -212,6 +225,10 @@ export class CheckpointPersistenceClient {
     }
     if (typeof options.managedRootPath !== 'string' || options.managedRootPath.length === 0) {
       throw new TypeError('checkpoint persistence managedRootPath must be a nonempty string');
+    }
+    this.noProgressTimeoutMs = options.noProgressTimeoutMs ?? DEFAULT_PERSISTENCE_NO_PROGRESS_MS;
+    if (!Number.isSafeInteger(this.noProgressTimeoutMs) || this.noProgressTimeoutMs < 1) {
+      throw new RangeError('checkpoint persistence no-progress timeout must be a positive safe integer');
     }
     const limits = parseManagedCheckpointDescriptorLimits(
       options.limits ?? DEFAULT_MANAGED_CHECKPOINT_DESCRIPTOR_LIMITS
@@ -230,6 +247,10 @@ export class CheckpointPersistenceClient {
       }
     });
     this.exitPromise = new Promise<void>(resolve => { this.resolveExited = resolve; });
+    this.worker.on('online', () => {
+      this.workerOnline = true;
+      this.armWatchdog();
+    });
     this.worker.on('message', message => this.onMessage(message));
     this.worker.on('messageerror', error => this.fail(asError(error)));
     this.worker.on('error', error => this.fail(error));
@@ -272,9 +293,9 @@ export class CheckpointPersistenceClient {
     return new Promise<ManagedCheckpointCommitResult>((resolve, reject) => {
       this.pending.set(descriptor.operationId, { descriptor, import: false, branchRunId: null, resolve, reject });
       try {
-        this.worker.postMessage({
+        this.postOperation({
           type: 'commitManagedCheckpoint', descriptor, generationCommit, activateRun, legacyConversion
-        });
+        }, descriptor.operationId);
       } catch (error) {
         this.pending.delete(descriptor.operationId);
         reject(asError(error));
@@ -301,7 +322,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.selection = { operationId, runId, resolve, reject };
-      try { this.worker.postMessage({ type: 'selectManagedCheckpoint', operationId, runId }); }
+      try { this.postOperation({ type: 'selectManagedCheckpoint', operationId, runId }, operationId); }
       catch (error) { this.selection = undefined; reject(asError(error)); }
     });
   }
@@ -314,7 +335,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.scan = { operationId, cursor, resolve, reject };
-      try { this.worker.postMessage({ type: 'scanRecoveryCandidate', operationId, cursor }); }
+      try { this.postOperation({ type: 'scanRecoveryCandidate', operationId, cursor }, operationId); }
       catch (error) { this.scan = undefined; reject(asError(error)); }
     });
   }
@@ -326,7 +347,7 @@ export class CheckpointPersistenceClient {
     const commit = parseRecoveryBranchCommit(value);
     return new Promise((resolve, reject) => {
       this.recovery = { commit, resolve, reject };
-      try { this.worker.postMessage({ type: 'commitRecoveryBranch', commit }); }
+      try { this.postOperation({ type: 'commitRecoveryBranch', commit }, commit.operationId); }
       catch (error) { this.recovery = undefined; reject(asError(error)); }
     });
   }
@@ -358,7 +379,7 @@ export class CheckpointPersistenceClient {
     return new Promise<ManagedCheckpointCommitResult>((resolve, reject) => {
       this.pending.set(descriptor.operationId, { descriptor, import: true, branchRunId, resolve, reject });
       try {
-        this.worker.postMessage({ type: 'commitManagedImport', descriptor, inventory, branchRunId });
+        this.postOperation({ type: 'commitManagedImport', descriptor, inventory, branchRunId }, descriptor.operationId);
       } catch (error) {
         this.pending.delete(descriptor.operationId);
         reject(asError(error));
@@ -373,7 +394,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.retention = { operationId, resolve, reject };
-      try { this.worker.postMessage({ type: 'inspectCheckpointRetention', operationId }); }
+      try { this.postOperation({ type: 'inspectCheckpointRetention', operationId }, operationId); }
       catch (error) { this.retention = undefined; reject(asError(error)); }
     });
   }
@@ -385,7 +406,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.storage = { operationId, resolve, reject };
-      try { this.worker.postMessage({ type: 'inspectManagedStorage', operationId }); }
+      try { this.postOperation({ type: 'inspectManagedStorage', operationId }, operationId); }
       catch (error) { this.storage = undefined; reject(asError(error)); }
     });
   }
@@ -397,7 +418,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.pin = { operationId, resolve, reject };
-      try { this.worker.postMessage({ type: 'pinCurrentCheckpoint', operationId }); }
+      try { this.postOperation({ type: 'pinCurrentCheckpoint', operationId }, operationId); }
       catch (error) { this.pin = undefined; reject(asError(error)); }
     });
   }
@@ -409,7 +430,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.exportLease = { phase: 'acquiring', operationId, resolve, reject };
-      try { this.worker.postMessage({ type: 'acquireCurrentExportLease', operationId }); }
+      try { this.postOperation({ type: 'acquireCurrentExportLease', operationId }, operationId); }
       catch (error) { this.exportLease = undefined; reject(asError(error)); }
     });
   }
@@ -423,7 +444,7 @@ export class CheckpointPersistenceClient {
     }
     return new Promise((resolve, reject) => {
       this.exportLease = { phase: 'releasing', operationId, resolve, reject };
-      try { this.worker.postMessage({ type: 'releaseExportLease', operationId }); }
+      try { this.postOperation({ type: 'releaseExportLease', operationId }, operationId); }
       catch (error) { this.exportLease = { phase: 'active', operationId }; reject(asError(error)); }
     });
   }
@@ -435,7 +456,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.pruning = { operationId, resolve, reject };
-      try { this.worker.postMessage({ type: 'applyCheckpointRetention', operationId }); }
+      try { this.postOperation({ type: 'applyCheckpointRetention', operationId }, operationId); }
       catch (error) { this.pruning = undefined; reject(asError(error)); }
     });
   }
@@ -451,7 +472,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.history = { operationId, runId, resolve, reject };
-      try { this.worker.postMessage({ type: 'readBrowserHistory', operationId, runId, limit }); }
+      try { this.postOperation({ type: 'readBrowserHistory', operationId, runId, limit }, operationId); }
       catch (error) { this.history = undefined; reject(asError(error)); }
     });
   }
@@ -467,7 +488,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.hallOfFame = { operationId, runId, resolve, reject };
-      try { this.worker.postMessage({ type: 'readBrowserHallOfFame', operationId, runId, limit }); }
+      try { this.postOperation({ type: 'readBrowserHallOfFame', operationId, runId, limit }, operationId); }
       catch (error) { this.hallOfFame = undefined; reject(asError(error)); }
     });
   }
@@ -481,7 +502,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.legacySelection = { operationId, resolve, reject };
-      try { this.worker.postMessage({ type: 'selectLegacySnapshot', operationId }); }
+      try { this.postOperation({ type: 'selectLegacySnapshot', operationId }, operationId); }
       catch (error) { this.legacySelection = undefined; reject(asError(error)); }
     });
   }
@@ -498,7 +519,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.hallOfFameSelection = { phase: 'acquiring', operationId, runId, entryId, resolve, reject };
-      try { this.worker.postMessage({ type: 'selectHallOfFameEntry', operationId, runId, entryId }); }
+      try { this.postOperation({ type: 'selectHallOfFameEntry', operationId, runId, entryId }, operationId); }
       catch (error) { this.hallOfFameSelection = undefined; reject(asError(error)); }
     });
   }
@@ -515,7 +536,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.graphPresets.set(operationId, { kind: 'save', resolve, reject });
-      try { this.worker.postMessage({ type: 'saveGraphPreset', operationId, ...normalized }); }
+      try { this.postOperation({ type: 'saveGraphPreset', operationId, ...normalized }, operationId); }
       catch (error) { this.graphPresets.delete(operationId); reject(asError(error)); }
     });
   }
@@ -532,7 +553,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.graphPresets.set(operationId, { kind: 'list', resolve, reject });
-      try { this.worker.postMessage({ type: 'listGraphPresets', operationId, limit }); }
+      try { this.postOperation({ type: 'listGraphPresets', operationId, limit }, operationId); }
       catch (error) { this.graphPresets.delete(operationId); reject(asError(error)); }
     });
   }
@@ -549,7 +570,7 @@ export class CheckpointPersistenceClient {
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.graphPresets.set(operationId, { kind: 'load', resolve, reject });
-      try { this.worker.postMessage({ type: 'loadGraphPreset', operationId, presetId }); }
+      try { this.postOperation({ type: 'loadGraphPreset', operationId, presetId }, operationId); }
       catch (error) { this.graphPresets.delete(operationId); reject(asError(error)); }
     });
   }
@@ -563,9 +584,46 @@ export class CheckpointPersistenceClient {
     }
     return new Promise((resolve, reject) => {
       this.hallOfFameSelection = { ...lease, phase: 'releasing', resolve, reject };
-      try { this.worker.postMessage({ type: 'releaseHallOfFameEntry', operationId }); }
+      try { this.postOperation({ type: 'releaseHallOfFameEntry', operationId }, operationId); }
       catch (error) { this.hallOfFameSelection = lease; reject(asError(error)); }
     });
+  }
+
+  /** Send one correlated request and start its shared no-progress deadline. */
+  private postOperation(message: unknown, operationId: CheckpointOperationId): void {
+    const wasIdle = this.watchedOperations.size === 0;
+    this.watchedOperations.set(operationId, null);
+    if (wasIdle) this.armWatchdog();
+    try {
+      this.worker.postMessage(message);
+    } catch (error) {
+      this.finishWatchedOperation(operationId);
+      throw error;
+    }
+  }
+
+  /** Restart the no-progress deadline while at least one request is pending. */
+  private armWatchdog(): void {
+    if (this.watchdog) clearTimeout(this.watchdog);
+    if (this.watchedOperations.size === 0 || !this.workerOnline) {
+      this.watchdog = undefined;
+      return;
+    }
+    this.watchdog = setTimeout(() => {
+      this.watchdog = undefined;
+      const operationId = this.watchedOperations.keys().next().value as CheckpointOperationId;
+      this.fail(new Error(
+        `checkpoint persistence worker made no progress for ${this.noProgressTimeoutMs} ms ` +
+        `(oldest pending operation ${operationId})`
+      ));
+    }, this.noProgressTimeoutMs);
+    this.watchdog.unref();
+  }
+
+  /** Stop watching one operation after its terminal response. */
+  private finishWatchedOperation(operationId: CheckpointOperationId): void {
+    this.watchedOperations.delete(operationId);
+    this.armWatchdog();
   }
 
   /**
@@ -611,6 +669,25 @@ export class CheckpointPersistenceClient {
   private onMessage(value: unknown): void {
     try {
       const response = parseWorkerResponse(value);
+      if (response.type === 'persistenceProgress') {
+        const previous = this.watchedOperations.get(response.operationId);
+        const completed = BigInt(`0x${response.completedUnits}`);
+        if (previous === undefined) throw new Error('persistence worker reported progress for an unknown operation');
+        if (previous !== null && completed <= previous) {
+          throw new Error('persistence worker reported non-monotonic operation progress');
+        }
+        this.watchedOperations.set(response.operationId, completed);
+        this.armWatchdog();
+        return;
+      }
+      const responseOperationId = response.type === 'recoveryBranchCommitted'
+        ? response.result.operationId
+        : response.type === 'currentExportLeaseAcquired'
+          ? response.lease.operationId
+          : response.type === 'hallOfFameEntrySelected'
+            ? response.selection.operationId
+            : response.operationId;
+      if (responseOperationId !== null) this.finishWatchedOperation(responseOperationId);
       if (response.type === 'hallOfFameEntryReleased') {
         const lease = this.hallOfFameSelection;
         if (!lease || lease.phase !== 'releasing' || lease.operationId !== response.operationId) {
@@ -913,6 +990,9 @@ export class CheckpointPersistenceClient {
     if (this.failure) return;
     this.failure = error;
     this.stopping = true;
+    if (this.watchdog) clearTimeout(this.watchdog);
+    this.watchdog = undefined;
+    this.watchedOperations.clear();
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
     this.scan?.reject(error);
@@ -1064,6 +1144,14 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     throw new TypeError('checkpoint persistence worker sent a non-object response');
   }
   const response = value as Record<string, unknown>;
+  if (response['type'] === 'persistenceProgress') {
+    requireExactKeys(response, ['type', 'operationId', 'completedUnits']);
+    if (!isOperationId(response['operationId']) || !isU64Hex(response['completedUnits'])) {
+      throw new TypeError('invalid persistence progress response');
+    }
+    return { type: 'persistenceProgress', operationId: response['operationId'],
+      completedUnits: response['completedUnits'] };
+  }
   if (response['type'] === 'graphPresetSaved') {
     requireExactKeys(response, ['type', 'operationId', 'presetId']);
     if (!isOperationId(response['operationId']) || !Number.isSafeInteger(response['presetId']) ||

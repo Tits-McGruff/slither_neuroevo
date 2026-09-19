@@ -474,4 +474,9 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   SQLite counters come from the existing isolated metadata owner and never
   inspect population payloads.
 
+- 2026-09-19 The isolated SQLite worker now reports correlated, monotonic
+  progress during bounded file/record work. Its parent rejects pending work
+  and terminates the worker after 60 seconds without progress; health faults
+  if subsequent storage inspection cannot use that worker.
+
 The next dependency is the remaining compatibility work and Stage 6B gates.

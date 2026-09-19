@@ -196,8 +196,30 @@ let activeExportLease: {
 } | undefined;
 /** One packed winner protected while Rust verifies and consumes it. */
 let activeHallOfFameLease: { operationId: CheckpointOperationId; logicalSha256: string } | undefined;
+/** Request currently executing synchronously on this isolated worker. */
+let activeRequestOperationId: CheckpointOperationId | undefined;
+/** Monotonic bounded work counter for the active request. */
+let activeRequestCompletedUnits = 0n;
 /** Existing stores scan once at the explicit startup selection barrier, never beside publication. */
 let startupOrphansScanned = !bootstrap.existingOnly;
+
+/** Publish progress that the parent watchdog can observe while this thread is busy. */
+function reportPersistenceProgress(completedUnits: bigint): void {
+  if (!activeRequestOperationId || completedUnits < 0n || completedUnits > 0xffff_ffff_ffff_ffffn) {
+    throw new RangeError('invalid persistence progress state');
+  }
+  activeRequestCompletedUnits = completedUnits;
+  post({
+    type: 'persistenceProgress',
+    operationId: activeRequestOperationId,
+    completedUnits: completedUnits.toString(16).padStart(16, '0')
+  });
+}
+
+/** Advance and publish one bounded unit of long-running file or row work. */
+function advancePersistenceProgress(): void {
+  reportPersistenceProgress(activeRequestCompletedUnits + 1n);
+}
 
 /**
  * Parse worker bootstrap data without accepting arbitrary nested values.
@@ -862,6 +884,7 @@ function cleanupUnreferencedHallOfFameWeights(): { files: number; storedBytes: b
       decoded_byte_count_hex: string;
       weight_count_hex: string;
     }>;
+  let visited = 0;
   for (const row of rows) {
     if (!/^[0-9a-f]{64}$/u.test(row.logical_sha256) ||
         row.relative_filename !== `${row.logical_sha256}.hof-weights-v1` ||
@@ -892,6 +915,8 @@ function cleanupUnreferencedHallOfFameWeights(): { files: number; storedBytes: b
       WHERE logical_sha256 = ? AND NOT EXISTS (
         SELECT 1 FROM rust_hall_of_fame_v1 WHERE weights_sha256 = ?
       )`).run(row.logical_sha256, row.logical_sha256);
+    visited++;
+    if (visited % 64 === 0) advancePersistenceProgress();
   }
   return result;
 }
@@ -917,6 +942,7 @@ function scavengeUnreferencedManagedFiles(): {
         descriptor_json: string | null;
         retention_kind: string;
       }>;
+    let verifiedCheckpoints = 0;
     for (const row of checkpointRows) {
       if (row.descriptor_json === null ||
           !['automatic', 'pinned', 'pruning', 'pruned'].includes(row.retention_kind)) {
@@ -934,6 +960,8 @@ function scavengeUnreferencedManagedFiles(): {
               (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
         }
       }
+      verifiedCheckpoints++;
+      if (verifiedCheckpoints % 256 === 0) advancePersistenceProgress();
     }
 
     const weightRows = db.prepare(`SELECT weights.logical_sha256, weights.relative_filename,
@@ -949,6 +977,7 @@ function scavengeUnreferencedManagedFiles(): {
         decoded_byte_count_hex: string;
         weight_count_hex: string;
       }>;
+    let verifiedWeights = 0;
     for (const row of weightRows) {
       if (!/^[0-9a-f]{64}$/u.test(row.logical_sha256) ||
           row.relative_filename !== `${row.logical_sha256}.hof-weights-v1` ||
@@ -967,6 +996,8 @@ function scavengeUnreferencedManagedFiles(): {
       }
       verifyManagedDirectFile(row.relative_filename, storedBytes);
       referenced.add(row.relative_filename);
+      verifiedWeights++;
+      if (verifiedWeights % 256 === 0) advancePersistenceProgress();
     }
   } catch {
     // Recovery and repair must remain available; malformed retained metadata disables deletion.
@@ -980,7 +1011,10 @@ function scavengeUnreferencedManagedFiles(): {
     storedBytes: removedWeights.storedBytes
   };
   const finalName = /^[0-9a-f]{64}\.(?<kind>checkpoint-v3|hof-weights-v1)$/u;
+  let scannedFiles = 0;
   for (const entry of readdirSync(managedRootPath, { withFileTypes: true })) {
+    scannedFiles++;
+    if (scannedFiles % 256 === 0) advancePersistenceProgress();
     const match = finalName.exec(entry.name);
     if (!match || !entry.isFile() || entry.isSymbolicLink() || referenced.has(entry.name)) continue;
     const path = resolve(managedRootPath, entry.name);
@@ -1823,6 +1857,7 @@ function publishExportInventory(
     write(header);
 
     let expectedGeneration = 1n;
+    let historyProgress = 0;
     const historyRows = db.prepare(`SELECT generation_hex, record_blob
       FROM rust_generation_history_v1 AS history WHERE ${historyFilter.sql}
       ORDER BY generation_hex`).iterate(...historyFilter.parameters) as Iterable<{
@@ -1835,6 +1870,8 @@ function publishExportInventory(
       }
       write(row.record_blob);
       expectedGeneration++;
+      historyProgress++;
+      if (historyProgress % 4096 === 0) advancePersistenceProgress();
     }
     if (expectedGeneration !== historyCount + 1n) {
       throw new Error('export compact history count changed during inventory publication');
@@ -1877,6 +1914,7 @@ function publishExportInventory(
       record.writeBigUInt64LE(u64HexToBigInt(weights.weightCount), 112);
       write(record);
       previousHallOfFameGeneration = generation;
+      advancePersistenceProgress();
     }
     fsyncSync(file!);
     closeSync(file!);
@@ -2021,6 +2059,7 @@ function applyCheckpointRetention(): {
       if (!(error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
     }
     deletedStoredBytes += u64HexToBigInt(descriptor.storedByteCount);
+    advancePersistenceProgress();
     if (deletedStoredBytes > 0xffff_ffff_ffff_ffffn) throw new RangeError('deleted checkpoint bytes exceed u64');
   }
 
@@ -2173,6 +2212,7 @@ function verifyImportInventory(inventory: ManagedImportInventoryDescriptor): Ver
       if (count === 0) throw new Error('trusted import inventory ended early');
       hasher.update(chunk.subarray(0, count));
       position += count;
+      advancePersistenceProgress();
     }
     if (hasher.digest('hex') !== inventory.sha256) {
       throw new Error('trusted import inventory failed its SHA-256 check');
@@ -2289,6 +2329,7 @@ function commitManagedImport(
             descriptor.runId, generationHex, historyRecord, Date.now()
           );
         }
+        if (generation % 4096n === 0n) advancePersistenceProgress();
       }
 
       const hallRecord = Buffer.alloc(120);
@@ -2346,6 +2387,7 @@ function commitManagedImport(
           );
         }
         previousHallGeneration = generation;
+        advancePersistenceProgress();
       }
       rebuildHallOfFameRetention(descriptor.runId);
       let importBranch: ManagedImportBranchResult | null = null;
@@ -2645,6 +2687,10 @@ port.on('message', (message: unknown) => {
     return;
   }
   const operationId = extractOperationId(message);
+  if (operationId) {
+    activeRequestOperationId = operationId;
+    reportPersistenceProgress(0n);
+  }
   try {
     if (message === null || typeof message !== 'object' || Array.isArray(message)) {
       throw new TypeError('worker request must be an object');
@@ -2815,5 +2861,8 @@ port.on('message', (message: unknown) => {
     post({ type: 'managedCheckpointCommitted', ...committed });
   } catch (error) {
     post({ type: 'managedCheckpointRejected', operationId, reason: rejectionReason(error) });
+  } finally {
+    activeRequestOperationId = undefined;
+    activeRequestCompletedUnits = 0n;
   }
 });

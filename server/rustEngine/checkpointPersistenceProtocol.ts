@@ -489,6 +489,7 @@ export interface ManagedCheckpointRejectedResponse {
 
 /** Worker responses understood by the client. */
 export type CheckpointPersistenceWorkerResponse =
+  | { type: 'persistenceProgress'; operationId: CheckpointOperationId; completedUnits: U64Hex }
   | { type: 'legacySnapshotSelected'; operationId: CheckpointOperationId; selection: ManagedLegacySnapshotSelection | null }
   | { type: 'recoveryCandidate'; operationId: string; result: RecoveryScanResult }
   | { type: 'recoveryBranchCommitted'; result: RecoveryBranchResult }
