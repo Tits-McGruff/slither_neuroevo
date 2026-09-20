@@ -90,6 +90,177 @@ pub struct ValidatedImportArchive {
     pub stored_byte_count_hex: String,
 }
 
+/// Conservative disk terms derived from only bounded archive metadata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImportDiskEstimate {
+    pub candidate_spool_bytes: u64,
+    pub final_managed_bytes: u64,
+}
+
+/// Inspect at most nine USTAR headers and one small final manifest before any
+/// decoded import file is staged. Full integrity validation still follows.
+pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, CheckpointError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() || metadata.len() == 0 {
+        return Err(CheckpointError::format(
+            "IMPORT_DISK_ESTIMATE",
+            "upload is not a nonempty regular file",
+        ));
+    }
+    if upload_looks_like_legacy_json(path)? {
+        if metadata.len() > MAX_LEGACY_JSON_BYTES {
+            return Err(CheckpointError::format(
+                "IMPORT_ARCHIVE_LIMIT",
+                "legacy JSON exceeds 512 MiB",
+            ));
+        }
+        // Legacy JSON builds one managed checkpoint; count both its private
+        // partial and final publication even when rename reuses the blocks.
+        let allowance = 528 * 1024 * 1024;
+        return Ok(ImportDiskEstimate {
+            candidate_spool_bytes: allowance,
+            final_managed_bytes: allowance,
+        });
+    }
+    if metadata.len() > MAX_EXPORT_ARCHIVE_BYTES {
+        return Err(CheckpointError::format(
+            "IMPORT_ARCHIVE_LIMIT",
+            "save exceeds four GiB",
+        ));
+    }
+    let mut file = File::open(path)?;
+    let mut cursor = 0u64;
+    let mut manifest_bytes = None;
+    for ordinal in 0..9 {
+        let header_end = cursor.checked_add(USTAR_BLOCK_BYTES).ok_or_else(|| {
+            CheckpointError::format("IMPORT_DISK_ESTIMATE", "archive header offset overflowed")
+        })?;
+        if header_end > metadata.len() {
+            return Err(CheckpointError::format(
+                "IMPORT_DISK_ESTIMATE",
+                "archive header is truncated",
+            ));
+        }
+        file.seek(SeekFrom::Start(cursor))?;
+        let mut header = [0u8; USTAR_BLOCK_BYTES as usize];
+        file.read_exact(&mut header)?;
+        if &header[257..263] != b"ustar\0" {
+            return Err(CheckpointError::format(
+                "IMPORT_DISK_ESTIMATE",
+                "save requires USTAR headers",
+            ));
+        }
+        let size = parse_ustar_entry_size(&header[124..136])?;
+        let padded = size
+            .checked_add(USTAR_BLOCK_BYTES - 1)
+            .and_then(|value| value.checked_div(USTAR_BLOCK_BYTES))
+            .and_then(|blocks| blocks.checked_mul(USTAR_BLOCK_BYTES))
+            .ok_or_else(|| {
+                CheckpointError::format("IMPORT_DISK_ESTIMATE", "archive entry length overflowed")
+            })?;
+        let next = header_end.checked_add(padded).ok_or_else(|| {
+            CheckpointError::format("IMPORT_DISK_ESTIMATE", "archive entry offset overflowed")
+        })?;
+        if next > metadata.len() {
+            return Err(CheckpointError::format(
+                "IMPORT_DISK_ESTIMATE",
+                "archive entry is truncated",
+            ));
+        }
+        if ordinal == 8 {
+            let name = header[..100]
+                .split(|byte| *byte == 0)
+                .next()
+                .unwrap_or_default();
+            if name != MANIFEST_PATH.as_bytes() || size == 0 || size > 1024 * 1024 {
+                return Err(CheckpointError::format(
+                    "IMPORT_DISK_ESTIMATE",
+                    "final save manifest is missing or too large",
+                ));
+            }
+            let mut bytes = Vec::new();
+            bytes.try_reserve_exact(size as usize).map_err(|_| {
+                CheckpointError::format("ALLOCATION", "unable to reserve bounded save manifest")
+            })?;
+            bytes.resize(size as usize, 0);
+            file.read_exact(&mut bytes)?;
+            manifest_bytes = Some(bytes);
+        }
+        cursor = next;
+    }
+    let manifest: SaveManifest = serde_json::from_slice(&manifest_bytes.ok_or_else(|| {
+        CheckpointError::format("IMPORT_DISK_ESTIMATE", "save manifest is missing")
+    })?)
+    .map_err(|error| CheckpointError::format("IMPORT_MANIFEST_JSON", error.to_string()))?;
+    if manifest.magic != "slither-neuroevo-save"
+        || manifest.archive_version != 1
+        || manifest.roles.len() != 8
+        || manifest.roles[7].role != "hall-of-fame-weights"
+    {
+        return Err(CheckpointError::format(
+            "IMPORT_DISK_ESTIMATE",
+            "save manifest has unsupported roles",
+        ));
+    }
+    let hof_decoded = parse_hex_u64(
+        &manifest.roles[7].decoded_bytes_hex,
+        "Hall-of-Fame decoded bytes",
+    )?;
+    let hof_count = parse_hex_u64(&manifest.hall_of_fame_count_hex, "Hall-of-Fame count")?;
+    if hof_decoded > MAX_EXPORT_ARCHIVE_BYTES || hof_count > MAX_EXPORT_GENERATIONS {
+        return Err(CheckpointError::format(
+            "IMPORT_DISK_ESTIMATE",
+            "save exceeds Hall-of-Fame limits",
+        ));
+    }
+    // Checkpoint reassembly and the fixed inventory fit within the archive's
+    // stored roles plus one MiB. The raw HoF work file adds decoded bytes;
+    // independently published objects add at most their raw bytes plus one
+    // filesystem block each. Count one extra object partial at peak.
+    let checkpoint_and_inventory = metadata.len().checked_add(1024 * 1024).ok_or_else(|| {
+        CheckpointError::format("IMPORT_DISK_ESTIMATE", "checkpoint allowance overflowed")
+    })?;
+    let objects = hof_decoded
+        .checked_add((hof_count + 1).checked_mul(4096).ok_or_else(|| {
+            CheckpointError::format("IMPORT_DISK_ESTIMATE", "object allowance overflowed")
+        })?)
+        .ok_or_else(|| CheckpointError::format("IMPORT_DISK_ESTIMATE", "object size overflowed"))?;
+    let final_managed_bytes = checkpoint_and_inventory
+        .checked_add(objects)
+        .ok_or_else(|| {
+            CheckpointError::format("IMPORT_DISK_ESTIMATE", "final managed allowance overflowed")
+        })?;
+    let candidate_spool_bytes = final_managed_bytes
+        .checked_add(hof_decoded)
+        .ok_or_else(|| {
+            CheckpointError::format("IMPORT_DISK_ESTIMATE", "candidate allowance overflowed")
+        })?;
+    Ok(ImportDiskEstimate {
+        candidate_spool_bytes,
+        final_managed_bytes,
+    })
+}
+
+fn parse_ustar_entry_size(field: &[u8]) -> Result<u64, CheckpointError> {
+    let digits = field
+        .iter()
+        .copied()
+        .skip_while(|byte| *byte == b' ')
+        .take_while(|byte| *byte != 0 && *byte != b' ')
+        .collect::<Vec<_>>();
+    if digits.is_empty() || !digits.iter().all(|byte| (b'0'..=b'7').contains(byte)) {
+        return Err(CheckpointError::format(
+            "IMPORT_DISK_ESTIMATE",
+            "USTAR entry size is invalid",
+        ));
+    }
+    let value = std::str::from_utf8(&digits).map_err(|_| {
+        CheckpointError::format("IMPORT_DISK_ESTIMATE", "USTAR entry size is not ASCII")
+    })?;
+    u64::from_str_radix(value, 8)
+        .map_err(|_| CheckpointError::format("IMPORT_DISK_ESTIMATE", "USTAR entry size overflowed"))
+}
+
 /// Fully admitted private candidate plus its newly published managed descriptor.
 /// Population and world state never cross the native boundary.
 #[derive(Debug)]

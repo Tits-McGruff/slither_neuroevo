@@ -525,5 +525,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   barrier 149 ms, peak RSS 224 MiB; one 779 ms maximum step outlier, archive
   concurrency, actual LAN browsers/trainer, and longer soak remain open.
 
+- 2026-09-20 Import disk admission now uses bounded Rust inspection of the
+  uploaded save's manifest instead of two fixed 5 GiB allowances. A 13.8 MB
+  same-build save round-tripped on the target VM with about 6 GB free and kept
+  its exact checkpoint ID; a different-build save was correctly rejected.
+
 The next dependencies are Stage 6B durability, Stage 7 performance and
 acceptance, then the production cutover gates.

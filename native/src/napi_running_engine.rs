@@ -18,9 +18,9 @@ use crate::engine::contract::{
 use crate::engine::display::{FrameCopyResult, RunningDisplayStatus, RunningVisualizationStatus};
 use crate::engine::error::{EngineError, EngineErrorCode};
 use crate::engine::export_archive::{
-    compose_export_archive, prepare_import_archive, validate_import_archive,
-    ExportArchiveDescriptor, ExportInventoryDescriptor, PreparedImportArchive,
-    ValidatedImportArchive,
+    compose_export_archive, estimate_import_disk_bytes, prepare_import_archive,
+    validate_import_archive, ExportArchiveDescriptor, ExportInventoryDescriptor,
+    ImportDiskEstimate, PreparedImportArchive, ValidatedImportArchive,
 };
 use crate::engine::fresh_run::{
     prepare_stage6a_p0_fresh_run_with_settings_and_graph, stage6a_p0_export_validation_contract,
@@ -225,6 +225,13 @@ pub struct ValidatedImportArchiveResult {
     pub stored_byte_count: String,
 }
 
+/// Conservative manifest-derived disk terms before decoded import staging.
+#[napi(object)]
+pub struct ImportDiskEstimateResult {
+    pub candidate_spool_bytes: String,
+    pub final_managed_bytes: String,
+}
+
 /// Small prepared-import facts. The private candidate remains retained in Rust.
 #[napi(object)]
 pub struct PreparedImportArchiveResult {
@@ -381,6 +388,28 @@ pub struct ValidateImportArchiveTask {
     scratch_directory: PathBuf,
     operation_id: String,
     progress: Arc<ArchiveProgressJob>,
+}
+
+/// Bounded off-loop USTAR-header and final-manifest inspection.
+pub struct EstimateImportDiskTask {
+    archive_path: PathBuf,
+}
+
+impl Task for EstimateImportDiskTask {
+    type Output = ImportDiskEstimate;
+    type JsValue = ImportDiskEstimateResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        estimate_import_disk_bytes(&self.archive_path)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(ImportDiskEstimateResult {
+            candidate_spool_bytes: u64_hex(output.candidate_spool_bytes),
+            final_managed_bytes: u64_hex(output.final_managed_bytes),
+        })
+    }
 }
 
 /// Libuv preparation task retaining its admitted candidate in the native handle.
@@ -706,6 +735,21 @@ impl ExperimentalRunningAuthority {
             operation_id: operation_id.as_str().to_owned(),
             progress,
         }))
+    }
+
+    /// Inspect bounded archive metadata on a worker before admitting disk work.
+    #[napi(catch_unwind)]
+    pub fn estimate_import_disk(
+        &self,
+        archive_path: JsString<'_>,
+    ) -> Result<AsyncTask<EstimateImportDiskTask>> {
+        let archive_path = parse_managed_path(bounded_js_string(
+            archive_path,
+            "archivePath",
+            32 * 1024,
+            false,
+        )?)?;
+        Ok(AsyncTask::new(EstimateImportDiskTask { archive_path }))
     }
 
     /// Construct and publish one private generation-one replacement.

@@ -40,8 +40,6 @@ import {
 } from './rustEngine/archiveUpload.ts';
 import {
   admitDiskOperation,
-  IMPORT_CANDIDATE_BYTES,
-  IMPORT_FINAL_MANAGED_BYTES,
   inspectManagedDisk,
   type ManagedDiskDiagnostics
 } from './rustEngine/diskAdmission.ts';
@@ -937,8 +935,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         await admitDiskOperation(owner.managedDirectory, {
           operation: 'import',
           sourceSpoolBytes: declaredUploadBytes ?? P0_ARCHIVE_UPLOAD_LIMIT,
-          candidateSpoolBytes: IMPORT_CANDIDATE_BYTES,
-          finalManagedBytes: IMPORT_FINAL_MANAGED_BYTES
+          candidateSpoolBytes: 0n,
+          finalManagedBytes: 0n
         });
         const upload = await spoolArchiveUpload({
           source: request,
@@ -947,6 +945,12 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
           operationId
         });
         uploadPath = upload.readyPath;
+        const diskEstimate = await owner.runtime.estimateImportDisk(upload.readyPath);
+        await admitDiskOperation(owner.managedDirectory, {
+          operation: 'import', sourceSpoolBytes: 0n,
+          candidateSpoolBytes: BigInt(`0x${diskEstimate.candidateSpoolBytes}`),
+          finalManagedBytes: BigInt(`0x${diskEstimate.finalManagedBytes}`)
+        });
         const preparation = owner.runtime.prepareImportArchive(
           upload.readyPath,
           owner.managedDirectory,

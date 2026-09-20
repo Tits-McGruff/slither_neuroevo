@@ -94,6 +94,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
     scratchDirectory: string,
     operationId: string
   ): Promise<RustValidatedImportArchive>;
+  /** Inspect only bounded archive metadata before decoded disk staging. */
+  estimateImportDisk(archivePath: string): Promise<RustImportDiskEstimate>;
   /** Validate, publish, and retain one private imported authority for durability. */
   prepareImportArchive(
     archivePath: string,
@@ -200,6 +202,14 @@ export interface RustValidatedImportArchive {
   storedByteCount: U64Hex;
 }
 
+/** Conservative Rust-derived import disk terms, without population payloads. */
+export interface RustImportDiskEstimate {
+  /** Private checkpoint, decoded winner scratch, and object-publication allowance. */
+  candidateSpoolBytes: U64Hex;
+  /** New immutable checkpoint, winner objects, and inventory allowance. */
+  finalManagedBytes: U64Hex;
+}
+
 /** Small prepared-import facts; the complete candidate remains owned by Rust. */
 export interface RustPreparedImportArchive extends RustValidatedImportArchive {
   /** Newly published descriptor awaiting the SQLite import transaction. */
@@ -225,6 +235,7 @@ const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle
   'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',
   'validateImportArchive',
+  'estimateImportDisk',
   'prepareImportArchive',
   'prepareFreshRun',
   'discardPreparedImport',
