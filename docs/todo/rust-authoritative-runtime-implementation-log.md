@@ -530,5 +530,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   same-build save round-tripped on the target VM with about 6 GB free and kept
   its exact checkpoint ID; a different-build save was correctly rejected.
 
+- 2026-09-20 A long 300-snake run exposed winner-object cleanup racing a reused
+  weight hash at generation 159. Cleanup now runs only while Rust holds the
+  committed generation boundary, before the successor starts; the faulted
+  database resumed from its last durable checkpoint. Health now exposes
+  discarded scheduler time, and the Linux launcher preserves a failed-resume
+  database in health-only mode instead of silently starting fresh.
+
 The next dependencies are Stage 6B durability, Stage 7 performance and
 acceptance, then the production cutover gates.

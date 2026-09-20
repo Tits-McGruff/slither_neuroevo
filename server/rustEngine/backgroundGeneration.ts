@@ -23,6 +23,8 @@ export interface BackgroundGenerationOptions {
   send: ControllerDeliveryPorts['send'];
   /** Free-disk admission before publishing this generation. */
   admitCheckpoint(): Promise<void>;
+  /** Reclaim unreferenced files while Rust still holds the generation boundary. */
+  maintainRetention?(): Promise<void>;
   /** Observe the complete transition-to-running durability barrier. */
   observeBarrier?(durationMs: number): void;
 }
@@ -34,7 +36,7 @@ export interface BackgroundGenerationOptions {
  */
 export class BackgroundGenerationRouter {
   /** Node orchestration phase; never a second simulation state. */
-  private phase: 'idle' | 'disk' | 'publication' | 'commit' | 'ack' | 'prepare' | 'delivery' | 'resume' = 'idle';
+  private phase: 'idle' | 'disk' | 'publication' | 'commit' | 'retention' | 'ack' | 'prepare' | 'delivery' | 'resume' = 'idle';
   /** One unadmitted lifecycle command, retaining its exact scalar payload. */
   private pending: ((sequence: RustBackgroundIdentity) => void) | undefined;
   /** Correlate the next lifecycle reply with its admitted command. */
@@ -120,6 +122,8 @@ export class BackgroundGenerationRouter {
         if (!managedCheckpointCommitResultMatchesDescriptor(committed, descriptor)) {
           throw new Error('generation persistence acknowledgement mismatch');
         }
+        this.phase = 'retention';
+        await this.options.maintainRetention?.();
         this.phase = 'ack';
         this.queue(sequence => native.submitGenerationPersistenceAcknowledgement(sequence, descriptor));
         return true;

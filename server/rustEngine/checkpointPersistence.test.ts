@@ -879,6 +879,7 @@ describe(SUITE, { timeout: 30_000 }, () => {
     const lease = await reopened.acquireCurrentExportLease();
     expect(lease.inventory).toMatchObject({ historyCount: u64(52n), hallOfFameCount: u64(51n) });
     await reopened.releaseExportLease(lease.operationId);
+    await reopened.applyRetention();
 
     const inspect = new Database(fixture.databasePath, { readonly: true });
     try {
@@ -1372,6 +1373,28 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await expect(commit).rejects.toThrow(/exited cleanly with 1 pending operation/);
     await expect(close).rejects.toThrow(/exited cleanly with 1 pending operation/);
     expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('does not collect a republished winner before its generation commit', async () => {
+    const fixture = createFixture();
+    await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    for (let generation = 2n; generation <= 52n; generation++) {
+      await fixture.client.commit(createDescriptor(fixture.managedRoot, {
+        operationId: (generation + 200n).toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation), generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n), boundaryKind: 'generation'
+      }), createGenerationCommit(generation - 1n, { bestF64Hex: f64(Number(generation)) }));
+    }
+    const repeated = createGenerationCommit(52n, { bestF64Hex: f64(1_000) });
+    repeated.hallOfFameWeights = createHallOfFameWeights(1n);
+    const repeatedFile = join(fixture.managedRoot, repeated.hallOfFameWeights.relativeFilename);
+    await expect(fixture.client.commit(createDescriptor(fixture.managedRoot, {
+      operationId: 'e3'.repeat(16), transitionEpoch: u64(53n), generation: u64(53n),
+      completedStep: u64(52n * 3_600n), boundaryKind: 'generation'
+    }), repeated)).resolves.toMatchObject({ checkpointId: expect.any(String) });
+    expect(existsSync(repeatedFile)).toBe(true);
+    await fixture.client.applyRetention();
+    expect(existsSync(repeatedFile)).toBe(true);
   });
 
   it('terminates a persistence worker that stops making observable progress', async () => {

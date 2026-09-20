@@ -99,6 +99,10 @@ pub struct RunningAuthorityHealth {
     pub pending_external_deliveries: usize,
     /// Scheduler tickets committed by this retained loop.
     pub scheduler_completed_steps: u64,
+    /// Real-wall scheduling debt discarded, rounded up to whole microseconds.
+    pub scheduler_dropped_wall_micros: u64,
+    /// Whether discarded debt has left a catch-up backlog.
+    pub scheduler_overloaded: bool,
     /// Command-drain boundaries serviced by the scheduler.
     pub command_service_boundaries: u64,
     /// Condition-variable waits entered by the coordinator.
@@ -132,6 +136,8 @@ pub(crate) struct RunningAuthorityMetrics {
     generation_persistence_acknowledged: AtomicBool,
     pending_external_deliveries: AtomicUsize,
     scheduler_completed_steps: AtomicU64,
+    scheduler_dropped_wall_micros: AtomicU64,
+    scheduler_overloaded: AtomicBool,
     command_service_boundaries: AtomicU64,
     wait_calls: AtomicU64,
     blocked_wait_calls: AtomicU64,
@@ -156,6 +162,10 @@ impl RunningAuthorityMetrics {
             generation_persistence_acknowledged: AtomicBool::new(false),
             pending_external_deliveries: AtomicUsize::new(0),
             scheduler_completed_steps: AtomicU64::new(diagnostics.completed_steps),
+            scheduler_dropped_wall_micros: AtomicU64::new(
+                (diagnostics.dropped_wall_seconds * 1_000_000.0).ceil() as u64,
+            ),
+            scheduler_overloaded: AtomicBool::new(diagnostics.overloaded),
             command_service_boundaries: AtomicU64::new(diagnostics.command_service_boundaries),
             wait_calls: AtomicU64::new(0),
             blocked_wait_calls: AtomicU64::new(0),
@@ -199,6 +209,12 @@ impl RunningAuthorityMetrics {
             .store(pending_external_deliveries, Ordering::Release);
         self.scheduler_completed_steps
             .store(diagnostics.completed_steps, Ordering::Release);
+        self.scheduler_dropped_wall_micros.store(
+            (diagnostics.dropped_wall_seconds * 1_000_000.0).ceil() as u64,
+            Ordering::Release,
+        );
+        self.scheduler_overloaded
+            .store(diagnostics.overloaded, Ordering::Release);
         self.command_service_boundaries
             .store(diagnostics.command_service_boundaries, Ordering::Release);
         self.loop_state
@@ -276,6 +292,10 @@ impl RunningAuthorityMetrics {
                 .load(Ordering::Acquire),
             pending_external_deliveries: self.pending_external_deliveries.load(Ordering::Acquire),
             scheduler_completed_steps: self.scheduler_completed_steps.load(Ordering::Acquire),
+            scheduler_dropped_wall_micros: self
+                .scheduler_dropped_wall_micros
+                .load(Ordering::Acquire),
+            scheduler_overloaded: self.scheduler_overloaded.load(Ordering::Acquire),
             command_service_boundaries: self.command_service_boundaries.load(Ordering::Acquire),
             wait_calls: self.wait_calls.load(Ordering::Relaxed),
             blocked_wait_calls: self.blocked_wait_calls.load(Ordering::Relaxed),

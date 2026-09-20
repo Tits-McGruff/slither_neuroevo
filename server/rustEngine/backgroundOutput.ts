@@ -44,6 +44,8 @@ export interface BackgroundOutputOptions {
   maxControllers: number;
   /** Observe one complete generation durability barrier. */
   observeCheckpointBarrier?(durationMs: number): void;
+  /** Reclaim managed files before Rust leaves the held generation boundary. */
+  maintainCheckpointRetention?(): Promise<void>;
 }
 
 /** One bounded output consumer shared by generation and ordinary delivery barriers. */
@@ -95,6 +97,7 @@ export class BackgroundOutputPump {
       native: owner.runtime, admission: this.admission, persistence: owner.persistence,
       managedDirectory: owner.managedDirectory, maxAssignments: maxControllers, send,
       admitCheckpoint: () => owner.admitCheckpoint(),
+      maintainRetention: () => options.maintainCheckpointRetention?.() ?? Promise.resolve(),
       observeBarrier: durationMs => options.observeCheckpointBarrier?.(durationMs)
     });
     this.frames = new BackgroundFramePool(owner.runtime, owner.metadata.maximumFrameBytes);

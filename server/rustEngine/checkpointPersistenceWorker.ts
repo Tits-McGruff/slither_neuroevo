@@ -1801,7 +1801,6 @@ function releaseHallOfFameEntry(operationId: CheckpointOperationId): void {
     throw new Error('Hall-of-Fame selection lease is not active');
   }
   activeHallOfFameLease = undefined;
-  cleanupUnreferencedHallOfFameWeights();
 }
 
 /** Write every byte of one small fixed record to an already-open inventory file. */
@@ -1985,7 +1984,6 @@ function releaseExportLease(operationId: CheckpointOperationId): void {
     if (!(error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
   }
   activeExportLease = undefined;
-  cleanupUnreferencedHallOfFameWeights();
 }
 
 /** Apply one automatic retention decision while preserving all compact metadata. */
@@ -1994,6 +1992,10 @@ function applyCheckpointRetention(): {
   deletedStoredByteCount: U64Hex;
   inventory: CheckpointRetentionInventory;
 } {
+  // The caller holds the generation before Rust can publish another winner.
+  // Never collect at commit entry or lease release: either can race a reused
+  // content hash that Rust has published but SQLite has not referenced yet.
+  cleanupUnreferencedHallOfFameWeights();
   const descriptors = db.transaction(() => {
     db.prepare(`UPDATE rust_checkpoint_retention_v1 SET retention_kind = 'automatic', classified_at_ms = ?
       WHERE retention_kind = 'pruning' AND checkpoint_id IN (
@@ -2455,7 +2457,6 @@ function commitManagedCheckpoint(
   checkpointId: string;
   descriptor: ManagedCheckpointDescriptor;
 } {
-  cleanupUnreferencedHallOfFameWeights();
   assertDescriptorBounds(descriptor);
   const descriptorJson = serializeDescriptor(descriptor);
   const summaryRecord = generationCommit === null

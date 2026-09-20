@@ -832,12 +832,10 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
       wantsVisualization: () => visualizationConnections.size > 0,
       visualization(snapshot) { latestVisualization = snapshot; },
       frame(lease) { lastFrame = performance.now(); sockets.broadcastFrame(lease.bytes, lease.release); },
-      observeCheckpointBarrier: durationMs => {
-        telemetry.observeCheckpointBarrier(durationMs);
+      observeCheckpointBarrier: durationMs => telemetry.observeCheckpointBarrier(durationMs),
+      maintainCheckpointRetention: async () => {
         if (retentionMaintenance) {
-          fault ??= 'checkpoint retention maintenance overlapped a durable generation';
-          owner.runtime.requestStop();
-          return;
+          throw new Error('checkpoint retention maintenance overlapped a durable generation');
         }
         retentionMaintenance = owner.persistence.applyRetention().then(async result => {
           retention = result.inventory;
@@ -845,10 +843,9 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
             deletedStoredByteCount: result.deletedStoredByteCount };
           fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
           hallOfFame = await owner.persistence.readBrowserHallOfFame(activeMetadata.runId);
-        }).catch(error => {
-          fault ??= error instanceof Error ? error.message : String(error);
-          owner.runtime.requestStop();
-        }).finally(() => { retentionMaintenance = undefined; });
+        });
+        try { await retentionMaintenance; }
+        finally { retentionMaintenance = undefined; }
       }
     });
     routing = new ExternalControllerRouting({ native: owner.runtime, admission: output.admission,

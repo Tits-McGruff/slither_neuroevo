@@ -109,20 +109,6 @@ start_server_process() {
   echo "$PORT" >"$PORT_FILE"
 }
 
-archive_unrestorable_state() {
-  _stamp=$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || echo unknown)
-  _archive="${DB_PATH}.unrestorable-${_stamp}-$$"
-  mkdir -p "$_archive"
-  for _path in "$DB_PATH" "${DB_PATH}-wal" "${DB_PATH}-shm" "$MANAGED_DIR"; do
-    if [ -e "$_path" ]; then
-      _name=${_path##*/}
-      mv "$_path" "$_archive/$_name"
-    fi
-  done
-  echo "[WARN] No valid retained checkpoint could be restored."
-  echo "[WARN] Preserved the unusable persistence state at: $_archive"
-}
-
 print_start_failure() {
   echo
   echo "[ERROR] Rust server did not become healthy."
@@ -242,34 +228,17 @@ fi
 start_server_process "$ACTIVE_MODE"
 
 if ! wait_for_health "$SERVER_PID"; then
-  if [ "$START_MODE" = "auto" ] && [ "$ACTIVE_MODE" = "resume" ] && [ "$RESUME_TARGET" = "latest" ] &&
-      grep -Fq 'no valid retained managed checkpoint; startup remains faulted' "$LOG_FILE" 2>/dev/null; then
-    stop_started_process "$SERVER_PID"
-    if ! wait_for_process_exit "$SERVER_PID"; then
-      print_start_failure
-      echo "[ERROR] Could not stop the faulted Rust server safely; persistence state was left untouched."
-      rm -f "$PID_FILE" "$PORT_FILE"
-      exit 1
-    fi
-    rm -f "$PID_FILE" "$PORT_FILE"
-    archive_unrestorable_state
-    ACTIVE_MODE="fresh"
-    echo "[INFO] Auto mode will start a new run from a clean persistence path."
-    start_server_process "$ACTIVE_MODE"
-    if ! wait_for_health "$SERVER_PID"; then
-      print_start_failure
-      stop_started_process "$SERVER_PID"
-      wait_for_process_exit "$SERVER_PID" || true
-      rm -f "$PID_FILE" "$PORT_FILE"
-      exit 1
-    fi
-  else
-    print_start_failure
-    stop_started_process "$SERVER_PID"
-    wait_for_process_exit "$SERVER_PID" || true
-    rm -f "$PID_FILE" "$PORT_FILE"
+  print_start_failure
+  if grep -Fq '[rust.startup-fault]' "$LOG_FILE" 2>/dev/null; then
+    echo "[ERROR] Existing database and managed files were left untouched."
+    echo "[INFO] The server remains health-only at http://127.0.0.1:$PORT/api/health"
+    echo "[INFO] Stop it with: sh shutdown.sh"
     exit 1
   fi
+  stop_started_process "$SERVER_PID"
+  wait_for_process_exit "$SERVER_PID" || true
+  rm -f "$PID_FILE" "$PORT_FILE"
+  exit 1
 fi
 
 echo

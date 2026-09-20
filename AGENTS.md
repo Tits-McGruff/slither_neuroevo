@@ -264,9 +264,11 @@ npm run dev
 ```
 
 Open the Vite URL, normally `http://localhost:5173`. Opening `index.html`
-directly does not work. `play.bat` and `play.sh` install missing dependencies,
-build the mandatory native addon, start the simulation server and Vite, and
-write PID/log files in the repository root.
+directly does not work. `play.bat` installs missing dependencies, builds the
+mandatory native addon, starts the reference server and Vite, and writes
+PID/log files in the repository root. `play.sh` builds the addon and browser
+and starts the Rust server with static assets; failed-resume data stays put
+and the health-only server remains available for diagnosis.
 
 Trusted home-LAN use is supported by setting `host` and `uiHost` to
 `0.0.0.0` or an explicit LAN interface and setting `publicWsUrl` when the

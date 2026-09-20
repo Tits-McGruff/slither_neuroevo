@@ -417,8 +417,11 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
     try {
       const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         runId: string; startupCheckpointId: string; archiveWork: unknown;
+        schedulerDroppedWallMicros: string; schedulerOverloaded: boolean;
       };
       expect(health.archiveWork).toBeNull();
+      expect(health.schedulerDroppedWallMicros).toMatch(/^[0-9a-f]{16}$/u);
+      expect(typeof health.schedulerOverloaded).toBe('boolean');
       const hallOfFame = await fetch(`http://127.0.0.1:${server.port}/api/hof`);
       expect(hallOfFame.status).toBe(200);
       expect(await hallOfFame.json()).toEqual({ hof: [] });

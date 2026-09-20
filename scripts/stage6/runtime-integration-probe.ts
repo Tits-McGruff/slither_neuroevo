@@ -28,6 +28,8 @@ export interface ProbeOptions {
   requireFrameReplacement: boolean;
   /** Optional reset-only population size applied before timing begins. */
   resetSnakeCount?: number;
+  /** Optional reset-only round duration applied before timing begins. */
+  resetGenerationSeconds?: number;
 }
 
 /** Small controller counters retained across the reconnect. */
@@ -237,6 +239,7 @@ function parseOptions(arguments_: readonly string[]): ProbeOptions {
   let playerSuppressionMs = DEFAULT_PLAYER_SUPPRESSION_SECONDS * 1_000;
   let requireFrameReplacement = false;
   let resetSnakeCount: number | undefined;
+  let resetGenerationSeconds: number | undefined;
   for (let index = 0; index < arguments_.length; index++) {
     const option = arguments_[index]!;
     if (option === '--require-generation-transition') requireGenerationTransition = true;
@@ -254,6 +257,12 @@ function parseOptions(arguments_: readonly string[]): ProbeOptions {
       if (!Number.isSafeInteger(resetSnakeCount) || resetSnakeCount > 300) {
         throw new RangeError(`${option} must be an integer from 1 to 300`);
       }
+    } else if (option === '--reset-generation-seconds') {
+      resetGenerationSeconds = positiveNumber(arguments_[++index], option);
+      if (!Number.isSafeInteger(resetGenerationSeconds) || resetGenerationSeconds < 8 ||
+          resetGenerationSeconds > 480) {
+        throw new RangeError(`${option} must be an integer from 8 to 480`);
+      }
     } else throw new Error(`unknown option: ${option}`);
   }
   const parsedUrl = new URL(wsUrl);
@@ -265,12 +274,13 @@ function parseOptions(arguments_: readonly string[]): ProbeOptions {
   }
   return { wsUrl: parsedUrl.href, durationMs, reconnectAfterSensors,
     requireGenerationTransition, playerSuppressionMs, requireFrameReplacement,
-    ...(resetSnakeCount === undefined ? {} : { resetSnakeCount }) };
+    ...(resetSnakeCount === undefined ? {} : { resetSnakeCount }),
+    ...(resetGenerationSeconds === undefined ? {} : { resetGenerationSeconds }) };
 }
 
-/** Apply one reset-only population size before opening timed probe clients. */
-async function resetPopulation(wsUrl: string, snakeCount: number): Promise<void> {
-  const socket = new WebSocket(wsUrl);
+/** Apply selected reset-only workload settings before opening timed probe clients. */
+async function resetWorkload(options: ProbeOptions): Promise<void> {
+  const socket = new WebSocket(options.wsUrl);
   await new Promise<void>((resolvePromise, reject) => {
     let settled = false;
     const timeout = setTimeout(() => finish(new Error('population reset timed out')), 30_000);
@@ -291,11 +301,25 @@ async function resetPopulation(wsUrl: string, snakeCount: number): Promise<void>
         const packet = parseMessage(data);
         if (packet['type'] === 'welcome') {
           socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
-          socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount } }));
+          socket.send(JSON.stringify({ type: 'reset', settings: {
+            ...(options.resetSnakeCount === undefined ? {} : { snakeCount: options.resetSnakeCount })
+          }, ...(options.resetGenerationSeconds === undefined ? {} : {
+            updates: [{ path: 'generationSeconds', value: options.resetGenerationSeconds }]
+          }) }));
         } else if (packet['type'] === 'stateReplaced' && packet['reason'] === 'reset') {
           const welcome = record(packet['welcome'], 'reset welcome');
           const core = record(record(welcome['settings'], 'reset settings')['core'], 'reset core settings');
-          if (core['snakeCount'] !== snakeCount) throw new Error('reset returned a different population size');
+          if (options.resetSnakeCount !== undefined && core['snakeCount'] !== options.resetSnakeCount) {
+            throw new Error('reset returned a different population size');
+          }
+          if (options.resetGenerationSeconds !== undefined) {
+            const updates = record(welcome['settings'], 'reset settings')['updates'];
+            if (!Array.isArray(updates) || !updates.some(update =>
+              typeof update === 'object' && update !== null &&
+              update.path === 'generationSeconds' && update.value === options.resetGenerationSeconds)) {
+              throw new Error('reset returned a different generation duration');
+            }
+          }
           finish();
         } else if (packet['type'] === 'error') {
           finish(new Error(`population reset rejected: ${String(packet['message'])}`));
@@ -652,8 +676,8 @@ async function closeSocket(socket: WebSocket): Promise<void> {
 
 /** Run one scalar live integration probe and enforce its selected gates. */
 export async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
-  if (options.resetSnakeCount !== undefined) {
-    await resetPopulation(options.wsUrl, options.resetSnakeCount);
+  if (options.resetSnakeCount !== undefined || options.resetGenerationSeconds !== undefined) {
+    await resetWorkload(options);
   }
   const startedAt = performance.now();
   const deadline = startedAt + options.durationMs;
@@ -732,6 +756,9 @@ export async function run(options: ProbeOptions): Promise<Record<string, unknown
     const initialStep = nativeCounter(initialHealth['completedStep'], 'completedStep');
     const finalStep = nativeCounter(finalHealth['completedStep'], 'completedStep');
     if (finalStep < initialStep) throw new Error('run step identity changed during the timed probe');
+    const initialDropped = nativeCounter(initialHealth['schedulerDroppedWallMicros'], 'schedulerDroppedWallMicros');
+    const finalDropped = nativeCounter(finalHealth['schedulerDroppedWallMicros'], 'schedulerDroppedWallMicros');
+    if (finalDropped < initialDropped) throw new Error('scheduler debt counter decreased during the timed probe');
     const finalTelemetry = record(finalHealth['telemetry'], 'health telemetry');
     const accumulatedSteps = finalTelemetry['authoritativeSteps'];
     const accumulatedSimulatedSeconds = finalTelemetry['simulatedSeconds'];
@@ -762,9 +789,12 @@ export async function run(options: ProbeOptions): Promise<Record<string, unknown
       measuredWallSeconds,
       intervalSteps,
       intervalSimulatedWallRatio,
+      intervalDroppedWallMicros: (finalDropped - initialDropped).toString(),
+      schedulerOverloaded: finalHealth['schedulerOverloaded'] === true,
       requireGenerationTransition: options.requireGenerationTransition,
       requireFrameReplacement: options.requireFrameReplacement,
       resetSnakeCount: options.resetSnakeCount ?? null,
+      resetGenerationSeconds: options.resetGenerationSeconds ?? null,
       generation: { before: initialGeneration.toString(), after: finalGeneration.toString() },
       controller,
       browserPlayer,

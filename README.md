@@ -41,12 +41,16 @@ npm run build
 ```
 
 The convenience launchers install missing dependencies, build the required
-addon, start both services, and write logs/PID files in the repository root:
+addon, and write logs/PID files in the repository root:
 
 - Windows: `play.bat`
 - macOS/Linux: `play.sh`
 
-Open the local URL printed by Vite (usually `http://localhost:5173`).
+On Windows, open the local URL printed by Vite (usually `http://localhost:5173`).
+On Linux, `play.sh` starts the Rust server with the built browser at its printed
+server URL. If an existing database cannot resume, it leaves the files
+untouched and keeps the health-only server available for diagnosis; it never
+starts a new experiment automatically over that database.
 
 Note: This project uses ES modules, so opening `index.html` directly in a file browser will not work.
 

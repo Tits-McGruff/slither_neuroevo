@@ -106,6 +106,10 @@ export interface RustBackgroundHealth {
   pendingExternalDeliveries: RustBackgroundIdentity;
   /** Retired scheduler tickets. */
   schedulerCompletedSteps: RustBackgroundIdentity;
+  /** Real-wall time discarded by the scheduler, rounded up to microseconds. */
+  schedulerDroppedWallMicros: RustBackgroundIdentity;
+  /** Whether discarded debt has left a catch-up backlog. */
+  schedulerOverloaded: boolean;
   /** Commands whose full replies have entered the output queue. */
   processedCommands: RustBackgroundIdentity;
   /** Successful authoritative step computations represented by timing data. */

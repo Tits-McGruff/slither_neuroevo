@@ -299,6 +299,8 @@ interface Stage6BackgroundGenerationHealth {
   generationPersistenceAcknowledged: boolean;
   pendingExternalDeliveries: string;
   schedulerCompletedSteps: string;
+  schedulerDroppedWallMicros: string;
+  schedulerOverloaded: boolean;
   processedCommands: string;
   stepTimingSamples: string;
   stepTimingTotalMicros: string;
