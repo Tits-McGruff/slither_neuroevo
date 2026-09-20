@@ -518,5 +518,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   VM, but a 25.5 ms p99 outlier and the missing integrated-load test keep the
   Stage 7 performance gate open.
 
+- 2026-09-20 A real Debian-hosted 300-snake Rust server with six workers,
+  browser-player and trainer protocol clients, display delivery, reconnect,
+  and a generation checkpoint advanced 0.989 simulated seconds per wall second
+  over 90 seconds. The native p99 step bucket was at most 16 ms, checkpoint
+  barrier 149 ms, peak RSS 224 MiB; one 779 ms maximum step outlier, archive
+  concurrency, actual LAN browsers/trainer, and longer soak remain open.
+
 The next dependencies are Stage 6B durability, Stage 7 performance and
 acceptance, then the production cutover gates.

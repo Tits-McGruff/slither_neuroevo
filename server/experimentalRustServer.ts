@@ -253,7 +253,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
   }
   if (config.inferenceBackend !== 'native' || config.mtEnabled || config.controllerInputHoldMs !== 500 ||
       config.controllerDisconnectGraceMs !== 30_000 || config.checkpointEveryGenerations !== 1) {
-    throw new Error('experimental Rust startup supports native scalar P0, default controller timing, and every-generation checkpoints');
+    throw new Error('experimental Rust startup requires the native backend, reference MT disabled, default controller timing, and every-generation checkpoints');
   }
   let schedule = (): void => {};
   let owner: ExperimentalServerRuntime;
@@ -1287,7 +1287,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       const authorityHost = isIP(host) === 6 ? `[${host}]` : host;
       const ws = config.publicWsUrl || `ws://${authorityHost}:${server.port}`;
       if (server.startupFault) console.error(`Rust startup fault: ${server.startupFault}. Health: http://${authorityHost}:${server.port}/api/health`);
-      else console.info(`Rust P0: http://${authorityHost}:${server.port}/?server=${encodeURIComponent(ws)} (WebSocket ${ws})`);
+      else console.info(`Rust server: http://${authorityHost}:${server.port}/?server=${encodeURIComponent(ws)} (WebSocket ${ws})`);
     }
     process.once('SIGINT', () => { void server.close(); });
     process.once('SIGTERM', () => { void server.close(); });

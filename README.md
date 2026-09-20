@@ -52,7 +52,7 @@ Note: This project uses ES modules, so opening `index.html` directly in a file b
 
 ### Experimental Rust server
 
-The migration branch exposes a native P0 server with durable fresh-run and
+The migration branch exposes an experimental Rust-authoritative server with durable fresh-run and
 managed-checkpoint restart paths:
 
 ```powershell
@@ -79,8 +79,9 @@ details in its tooltip.
 
 The experimental server defaults to one Rust calculation thread. Use
 `--rust-workers N` (1–7, or `RUST_WORKERS=N`) to try its persistent worker pool;
-currently it parallelizes sensing while keeping brain-state and physics commits
-ordered. This is separate from the reference server's `--mt-workers` option.
+it parallelizes sensing and brain evaluation while keeping brain-state and
+physics commits ordered. This is separate from the reference server's
+`--mt-workers` option.
 
 For a managed Rust database, latest startup validates the current checkpoint
 and, if necessary, recovers from the newest valid retained boundary under a new

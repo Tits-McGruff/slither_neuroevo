@@ -21,7 +21,7 @@ import {
   CHECKPOINT_PUBLICATION_BYTES
 } from './diskAdmission.ts';
 
-/** Bounded production background queues for the first explicit P0 server. */
+/** Bounded background queues for the experimental Rust server. */
 const BACKGROUND_INIT: ExperimentalEngineInit = {
   contractVersion: EXPERIMENTAL_ENGINE_CONTRACT_VERSION, maxInboundBatches: 64, maxInboundCommands: 64,
   maxInboundOwnedBytes: 4 * 1024 * 1024, maxBatchCommands: 1, maxBatchOwnedBytes: 1024 * 1024,

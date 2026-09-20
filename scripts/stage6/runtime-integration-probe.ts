@@ -26,6 +26,8 @@ export interface ProbeOptions {
   playerSuppressionMs: number;
   /** Require the slow browser-player socket to cause observable frame replacement. */
   requireFrameReplacement: boolean;
+  /** Optional reset-only population size applied before timing begins. */
+  resetSnakeCount?: number;
 }
 
 /** Small controller counters retained across the reconnect. */
@@ -234,6 +236,7 @@ function parseOptions(arguments_: readonly string[]): ProbeOptions {
   let requireGenerationTransition = false;
   let playerSuppressionMs = DEFAULT_PLAYER_SUPPRESSION_SECONDS * 1_000;
   let requireFrameReplacement = false;
+  let resetSnakeCount: number | undefined;
   for (let index = 0; index < arguments_.length; index++) {
     const option = arguments_[index]!;
     if (option === '--require-generation-transition') requireGenerationTransition = true;
@@ -246,6 +249,11 @@ function parseOptions(arguments_: readonly string[]): ProbeOptions {
     else if (option === '--reconnect-after-sensors') {
       reconnectAfterSensors = positiveNumber(arguments_[++index], option);
       if (!Number.isSafeInteger(reconnectAfterSensors)) throw new RangeError(`${option} must be an integer`);
+    } else if (option === '--reset-snake-count') {
+      resetSnakeCount = positiveNumber(arguments_[++index], option);
+      if (!Number.isSafeInteger(resetSnakeCount) || resetSnakeCount > 300) {
+        throw new RangeError(`${option} must be an integer from 1 to 300`);
+      }
     } else throw new Error(`unknown option: ${option}`);
   }
   const parsedUrl = new URL(wsUrl);
@@ -256,7 +264,47 @@ function parseOptions(arguments_: readonly string[]): ProbeOptions {
     throw new RangeError('--duration-seconds must leave at least one second after player suppression');
   }
   return { wsUrl: parsedUrl.href, durationMs, reconnectAfterSensors,
-    requireGenerationTransition, playerSuppressionMs, requireFrameReplacement };
+    requireGenerationTransition, playerSuppressionMs, requireFrameReplacement,
+    ...(resetSnakeCount === undefined ? {} : { resetSnakeCount }) };
+}
+
+/** Apply one reset-only population size before opening timed probe clients. */
+async function resetPopulation(wsUrl: string, snakeCount: number): Promise<void> {
+  const socket = new WebSocket(wsUrl);
+  await new Promise<void>((resolvePromise, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => finish(new Error('population reset timed out')), 30_000);
+    const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      socket.terminate();
+      if (error) reject(error);
+      else resolvePromise();
+    };
+    socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' })));
+    socket.on('error', error => finish(error));
+    socket.on('close', () => finish(new Error('population reset socket closed early')));
+    socket.on('message', (data, binary) => {
+      if (binary) return;
+      try {
+        const packet = parseMessage(data);
+        if (packet['type'] === 'welcome') {
+          socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+          socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount } }));
+        } else if (packet['type'] === 'stateReplaced' && packet['reason'] === 'reset') {
+          const welcome = record(packet['welcome'], 'reset welcome');
+          const core = record(record(welcome['settings'], 'reset settings')['core'], 'reset core settings');
+          if (core['snakeCount'] !== snakeCount) throw new Error('reset returned a different population size');
+          finish();
+        } else if (packet['type'] === 'error') {
+          finish(new Error(`population reset rejected: ${String(packet['message'])}`));
+        }
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  });
 }
 
 /** Derive the experimental scalar health endpoint from the socket endpoint. */
@@ -604,6 +652,9 @@ async function closeSocket(socket: WebSocket): Promise<void> {
 
 /** Run one scalar live integration probe and enforce its selected gates. */
 export async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
+  if (options.resetSnakeCount !== undefined) {
+    await resetPopulation(options.wsUrl, options.resetSnakeCount);
+  }
   const startedAt = performance.now();
   const deadline = startedAt + options.durationMs;
   const endpoint = healthUrl(options.wsUrl);
@@ -678,6 +729,20 @@ export async function run(options: ProbeOptions): Promise<Record<string, unknown
     observeOutbound(finalHealth, outbound);
     const initialGeneration = nativeCounter(initialHealth['generation'], 'generation');
     const finalGeneration = nativeCounter(finalHealth['generation'], 'generation');
+    const initialStep = nativeCounter(initialHealth['completedStep'], 'completedStep');
+    const finalStep = nativeCounter(finalHealth['completedStep'], 'completedStep');
+    if (finalStep < initialStep) throw new Error('run step identity changed during the timed probe');
+    const finalTelemetry = record(finalHealth['telemetry'], 'health telemetry');
+    const accumulatedSteps = finalTelemetry['authoritativeSteps'];
+    const accumulatedSimulatedSeconds = finalTelemetry['simulatedSeconds'];
+    if (typeof accumulatedSteps !== 'number' || accumulatedSteps <= 0 ||
+        typeof accumulatedSimulatedSeconds !== 'number' || !Number.isFinite(accumulatedSimulatedSeconds)) {
+      throw new TypeError('health telemetry omitted its fixed-step duration');
+    }
+    const fixedStepSeconds = accumulatedSimulatedSeconds / accumulatedSteps;
+    const measuredWallSeconds = (performance.now() - startedAt) / 1_000;
+    const intervalSteps = Number(finalStep - initialStep);
+    const intervalSimulatedWallRatio = intervalSteps * fixedStepSeconds / measuredWallSeconds;
     if (controller.errors.length > 0 || viewer.errors.length > 0 || browserPlayer.errors.length > 0) {
       throw new Error(`protocol failures: ${JSON.stringify({ controller: controller.errors,
         browserPlayer: browserPlayer.errors, viewer: viewer.errors })}`);
@@ -694,9 +759,12 @@ export async function run(options: ProbeOptions): Promise<Record<string, unknown
       caveat: 'Protocol 2 wire-compatible diagnostic client; not the owner trainer or a browser on another LAN device.',
       capturedAt: new Date().toISOString(),
       wsUrl: options.wsUrl,
-      measuredWallSeconds: (performance.now() - startedAt) / 1_000,
+      measuredWallSeconds,
+      intervalSteps,
+      intervalSimulatedWallRatio,
       requireGenerationTransition: options.requireGenerationTransition,
       requireFrameReplacement: options.requireFrameReplacement,
+      resetSnakeCount: options.resetSnakeCount ?? null,
       generation: { before: initialGeneration.toString(), after: finalGeneration.toString() },
       controller,
       browserPlayer,
@@ -721,7 +789,7 @@ export async function run(options: ProbeOptions): Promise<Record<string, unknown
         playerActionInterval: timings.playerActionInterval.snapshot(),
         playerInboundRecovery: timings.playerInboundRecovery.snapshot()
       },
-      telemetry: record(finalHealth['telemetry'], 'health telemetry')
+      telemetry: finalTelemetry
     };
   } finally {
     player.stop();
