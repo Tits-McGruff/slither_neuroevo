@@ -86,6 +86,8 @@ export type RustBackgroundFrameCopy =
 
 /** Small operational snapshot; no authoritative game arrays cross this boundary. */
 export interface RustBackgroundHealth {
+  /** Persistent Rust calculation threads bound to this authority. */
+  calculationWorkers: number;
   /** Coordinator lifecycle, including orderly and faulted shutdown. */
   lifecycle: string;
   /** Scheduler or retained delivery/generation barrier state. */

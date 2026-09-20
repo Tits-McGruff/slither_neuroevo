@@ -71,6 +71,8 @@ pub struct Stage5StepEvidenceOptions {
     pub scenario: Stage4InferenceScenarioName,
     /// Explicit neural arithmetic implementation bound into run identity.
     pub math_backend: InferenceMathBackend,
+    /// Persistent calculation threads used for the sensing phase.
+    pub calculation_workers: usize,
     /// Untimed stateful fixed steps.
     pub warmup_steps: usize,
     /// Individually timed stateful fixed steps.
@@ -202,7 +204,7 @@ pub struct Stage5StepMemory {
 }
 
 /// Selected complete-step work counts and retained capacities.
-#[derive(Debug, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stage5StepDiagnostics {
     pub controls: usize,
@@ -392,7 +394,11 @@ pub fn run_stage5_step_evidence(
             options.math_backend.label()
         ));
     }
-    let mut fixture = build_fixture(options.scenario, options.math_backend)?;
+    let mut fixture = build_fixture(
+        options.scenario,
+        options.math_backend,
+        options.calculation_workers,
+    )?;
     fixture
         .coordinator
         .set_allocation_snapshot(allocation_snapshot);
@@ -584,23 +590,32 @@ pub fn run_stage5_step_evidence(
     .checked_mul(size_of::<f32>())
     .ok_or_else(|| "recurrent byte count overflowed".to_owned())?;
     let spec = scenario_world_spec(options.scenario);
+    let worker_label = if options.calculation_workers == 1 {
+        "single-worker".to_owned()
+    } else {
+        format!("{}-worker parallel-sensing", options.calculation_workers)
+    };
     let evidence_class = if options.evidence_environment == "owner-target-vm" {
         format!(
-            "new measured target-VM single-worker Rust complete-step result ({})",
-            actual_math_backend.label()
+            "new measured target-VM {worker_label} Rust complete-step result ({})",
+            actual_math_backend.label(),
         )
     } else {
         format!(
-            "new measured development-machine single-worker Rust complete-step result ({})",
-            actual_math_backend.label()
+            "new measured development-machine {worker_label} Rust complete-step result ({})",
+            actual_math_backend.label(),
         )
     };
 
     Ok(Stage5StepEvidence {
-        schema: "slither-stage5-rust-single-worker-complete-step-benchmark-v2",
-        version: 2,
+        schema: if options.calculation_workers == 1 {
+            "slither-stage5-rust-single-worker-complete-step-benchmark-v2"
+        } else {
+            "slither-stage7-rust-parallel-sensing-complete-step-benchmark-v1"
+        },
+        version: if options.calculation_workers == 1 { 2 } else { 1 },
         evidence_class,
-        caveat: "Source-shaped deterministic synthetic single-worker fixed-step benchmark with an explicitly recorded neural math backend. It drives one admitted Rust authority through corrected sensing, distinct stateful population brains, baseline control, movement, food, continuous collision, effects, accounting, and atomic publication. Allocation distributions count allocation operations by measured phase; they do not correlate individual operations with retained-capacity changes and therefore do not prove either a fixed allocation floor or an allocation-free steady state. The benchmark does not include the scheduler pump, N-API/Node bridge, browser or Protocol 2 RL client, frame packing, generation transition/evolution, persistence, a sustained round, the persistent calculation-worker pool, or production cutover.",
+        caveat: "Source-shaped deterministic synthetic fixed-step benchmark with an explicitly recorded neural math backend and worker count. It drives one admitted Rust authority through corrected sensing, distinct stateful population brains, baseline control, movement, food, continuous collision, effects, accounting, and atomic publication. Additional workers parallelize only pure neural sensing; inference and physical commit remain ordered and serial. Allocation distributions count process-wide allocation operations by measured phase and do not prove an allocation-free steady state. The benchmark excludes the scheduler pump, N-API/Node bridge, browser or Protocol 2 RL client, frame packing, generation transition/evolution, persistence, a sustained round, and production cutover.",
         source: Stage5StepSource {
             native_build_identifier: crate::native_addon_build_identifier(),
             native_source_sha256: crate::native_addon_source_sha256(),
@@ -655,7 +670,7 @@ pub fn run_stage5_step_evidence(
             authority_owner: "Rust",
             graph_traversal_owner: "Rust",
             math_backend: actual_math_backend.label(),
-            calculation_workers: 1,
+            calculation_workers: options.calculation_workers,
             napi_calls_per_step: 0,
             complete_corrected_sensing: true,
             complete_heterogeneous_inference: true,
@@ -744,6 +759,9 @@ pub fn run_stage5_step_evidence(
 }
 
 fn validate_options(options: &Stage5StepEvidenceOptions) -> Result<(), String> {
+    if !(1..=7).contains(&options.calculation_workers) {
+        return Err("calculation workers must be from 1 to 7".to_owned());
+    }
     if options.measured_steps == 0 {
         return Err("measured steps must be positive".to_owned());
     }
@@ -767,6 +785,7 @@ fn validate_options(options: &Stage5StepEvidenceOptions) -> Result<(), String> {
 fn build_fixture(
     scenario: Stage4InferenceScenarioName,
     math_backend: InferenceMathBackend,
+    calculation_workers: usize,
 ) -> Result<StepFixture, String> {
     let spec = scenario_world_spec(scenario);
     let mut world = build_world(spec)?;
@@ -1006,9 +1025,14 @@ fn build_fixture(
     };
     let authority = AuthoritativeState::validate_and_own(candidate, graph, &policy)
         .map_err(|error| format!("fixture state admission failed: {error}"))?;
-    let coordinator =
-        RunningStepCoordinator::try_new(&authority, RunningStepWorkLimits::provisional_defaults())
-            .map_err(|error| format!("fixture coordinator construction failed: {error}"))?;
+    let coordinator = RunningStepCoordinator::try_new(
+        &authority,
+        RunningStepWorkLimits {
+            calculation_workers,
+            ..RunningStepWorkLimits::provisional_defaults()
+        },
+    )
+    .map_err(|error| format!("fixture coordinator construction failed: {error}"))?;
     Ok(StepFixture {
         authority,
         coordinator,
@@ -1215,6 +1239,7 @@ mod tests {
             Stage5StepEvidenceOptions {
                 scenario: Stage4InferenceScenarioName::P0,
                 math_backend: InferenceMathBackend::Scalar,
+                calculation_workers: 1,
                 warmup_steps: 1,
                 measured_steps: 2,
                 evidence_environment: "development".to_owned(),
@@ -1234,10 +1259,46 @@ mod tests {
     }
 
     #[test]
+    fn parallel_sensing_keeps_the_complete_step_and_recurrent_identity() {
+        let options = Stage5StepEvidenceOptions {
+            scenario: Stage4InferenceScenarioName::P0,
+            math_backend: InferenceMathBackend::Scalar,
+            calculation_workers: 1,
+            warmup_steps: 1,
+            measured_steps: 2,
+            evidence_environment: "development".to_owned(),
+            command: vec!["test".to_owned()],
+        };
+        let serial = run_stage5_step_evidence(options.clone(), || 0).unwrap();
+        let parallel = run_stage5_step_evidence(
+            Stage5StepEvidenceOptions {
+                calculation_workers: 4,
+                ..options
+            },
+            || 0,
+        )
+        .unwrap();
+        assert_eq!(parallel.path.calculation_workers, 4);
+        assert_eq!(
+            parallel.result.final_world_sha256,
+            serial.result.final_world_sha256
+        );
+        assert_eq!(
+            parallel.result.final_recurrent_sha256,
+            serial.result.final_recurrent_sha256
+        );
+        assert_eq!(
+            parallel.result.first_measured_step,
+            serial.result.first_measured_step
+        );
+    }
+
+    #[test]
     fn fixture_recurrent_digest_and_math_identity_match_the_admitted_source() {
         let fixture = build_fixture(
             Stage4InferenceScenarioName::P0,
             InferenceMathBackend::Scalar,
+            1,
         )
         .unwrap();
         assert_eq!(
@@ -1255,6 +1316,7 @@ mod tests {
         let error = validate_options(&Stage5StepEvidenceOptions {
             scenario: Stage4InferenceScenarioName::P0,
             math_backend: InferenceMathBackend::Scalar,
+            calculation_workers: 1,
             warmup_steps: 1,
             measured_steps: MAXIMUM_TOTAL_STEPS,
             evidence_environment: "development".to_owned(),

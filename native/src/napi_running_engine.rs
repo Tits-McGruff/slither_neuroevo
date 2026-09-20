@@ -271,6 +271,7 @@ pub struct PrepareFreshRunTask {
     managed_directory: PathBuf,
     operation_id: CheckpointOperationId,
     request: Stage6aP0FreshRunRequest,
+    calculation_workers: usize,
     settings: Box<[FreshRunSettingUpdate]>,
     graph: GraphSpec,
     prepared: PreparedImportSlot,
@@ -288,6 +289,9 @@ impl Task for PrepareFreshRunTask {
             self.graph.clone(),
         )
         .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+        transition
+            .configure_calculation_workers(self.calculation_workers)
+            .map_err(|error| Error::new(Status::GenericFailure, error))?;
         let descriptor = transition
             .publish_checkpoint(&self.managed_directory, self.operation_id.clone())
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
@@ -387,6 +391,7 @@ pub struct PrepareImportArchiveTask {
     operation_id: String,
     legacy_run_id: String,
     legacy_seed: u32,
+    calculation_workers: usize,
     prepared: PreparedImportSlot,
     active: Arc<AtomicBool>,
     progress: Arc<ArchiveProgressJob>,
@@ -408,7 +413,7 @@ impl Task for PrepareImportArchiveTask {
         let (checkpoint_limits, graph_limits, admission_policy) =
             stage6a_p0_export_validation_contract(memory_ceiling)
                 .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
-        prepare_import_archive(
+        let mut prepared = prepare_import_archive(
             &self.archive_path,
             &self.scratch_directory,
             &self.managed_directory,
@@ -420,7 +425,12 @@ impl Task for PrepareImportArchiveTask {
             &admission_policy,
             memory_ceiling,
         )
-        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+        prepared
+            .transition
+            .configure_calculation_workers(self.calculation_workers)
+            .map_err(|error| Error::new(Status::GenericFailure, error))?;
+        Ok(prepared)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -511,6 +521,7 @@ impl Task for ValidateImportArchiveTask {
 #[napi]
 pub struct ExperimentalRunningAuthority {
     runtime: Arc<EngineRuntime>,
+    calculation_workers: usize,
     drain_active: AtomicBool,
     join_scheduled: Arc<AtomicBool>,
     prepared_import: PreparedImportSlot,
@@ -519,9 +530,10 @@ pub struct ExperimentalRunningAuthority {
 }
 
 impl ExperimentalRunningAuthority {
-    pub(crate) fn from_runtime(runtime: Arc<EngineRuntime>) -> Self {
+    pub(crate) fn from_runtime(runtime: Arc<EngineRuntime>, calculation_workers: usize) -> Self {
         Self {
             runtime,
+            calculation_workers,
             drain_active: AtomicBool::new(false),
             join_scheduled: Arc::new(AtomicBool::new(false)),
             prepared_import: PreparedImportSlot::new(),
@@ -754,6 +766,7 @@ impl ExperimentalRunningAuthority {
                 seed,
                 memory_ceiling_bytes,
             },
+            calculation_workers: self.calculation_workers,
             settings,
             graph,
             prepared: self.prepared_import.clone(),
@@ -825,6 +838,7 @@ impl ExperimentalRunningAuthority {
             operation_id: operation_id.as_str().to_owned(),
             legacy_run_id,
             legacy_seed,
+            calculation_workers: self.calculation_workers,
             prepared: self.prepared_import.clone(),
             active: Arc::clone(&self.import_active),
             progress,
@@ -1162,7 +1176,7 @@ impl ExperimentalRunningAuthority {
     #[napi(catch_unwind)]
     pub fn health(&self) -> Result<Stage6BackgroundGenerationHealth> {
         self.root(|| {
-            background_generation_health_to_napi(self.runtime.health())
+            background_generation_health_to_napi(self.runtime.health(), self.calculation_workers)
                 .map_err(engine_error_to_napi)
         })
     }

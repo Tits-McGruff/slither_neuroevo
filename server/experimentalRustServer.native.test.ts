@@ -100,19 +100,21 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-legacy-import-'));
     const dbPath = join(root, 'experiment.sqlite');
     const server = await startExperimentalRustServer({
-      ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 41, dbPath
+      ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 41, dbPath, rustCalculationWorkers: 4
     });
     const peers: Peer[] = [];
     try {
       const before = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
-        runId: string; nativeBuildIdentifier: string;
+        runId: string; nativeBuildIdentifier: string; calculationWorkers: number;
       };
       expect(before.nativeBuildIdentifier).toMatch(/^slither_native\/[0-9A-Za-z.+-]+$/u);
+      expect(before.calculationWorkers).toBe(4);
       const viewer = await connect(server.port, 'ui');
       peers.push(viewer);
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
-        inferenceMode: { nativeAddonBuildIdentifier: before.nativeBuildIdentifier }
+        inferenceMode: { nativeAddonBuildIdentifier: before.nativeBuildIdentifier,
+          requestedMt: true, activeWorkerCount: 4 }
       });
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       const weights = new Array<number>(13_458).fill(0);
@@ -149,6 +151,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
         welcome: {
           runId: imported.runId,
           worldSeed: 1_234_567,
+          inferenceMode: { activeWorkerCount: 4 },
           settings: {
             core: { snakeCount: 2, simSpeed: 3 },
             updates: expect.arrayContaining([{ path: 'baselineBots.count', value: 1 }])
@@ -618,13 +621,14 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
   it('serves native welcome, frames, controller observations and same-snake token reclaim', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-server-'));
     const peers: Peer[] = [];
-    const server = await startExperimentalRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42, dbPath: join(root, 'experiment.sqlite') });
+    const server = await startExperimentalRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42,
+      rustCalculationWorkers: 4, dbPath: join(root, 'experiment.sqlite') });
     try {
       const viewer = await connect(server.port, 'ui'); peers.push(viewer);
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       await until(viewer, () => viewer.frames > 0 && viewer.packets.some(packet => packet['type'] === 'stats'));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ protocolVersion: 2, worldSeed: 42,
-        sensorSpec: { sensorCount: 83 }, inferenceMode: { activeBackend: 'native', activeWorkerCount: 0 } });
+        sensorSpec: { sensorCount: 83 }, inferenceMode: { activeBackend: 'native', activeWorkerCount: 4 } });
       viewer.socket.send(JSON.stringify({ type: 'viz', enabled: true }));
       await until(viewer, () => viewer.packets.some(packet => {
         const viz = packet['viz'] as { layers?: unknown[] } | undefined;
@@ -710,6 +714,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       expect(health).toMatchObject({
         ok: true,
         authority: 'rust',
+        calculationWorkers: 4,
         seed: 42,
         outbound: {
           connections: 2,
@@ -821,7 +826,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const afterReset = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         runId: string; seed: number; startupCheckpointId: string;
       };
-      expect(afterReset).toMatchObject({ seed: beforeReset.seed });
+      expect(afterReset).toMatchObject({ seed: beforeReset.seed, calculationWorkers: 4 });
       expect(afterReset.runId).not.toBe(beforeReset.runId);
       expect(afterReset.startupCheckpointId).not.toBe(beforeReset.startupCheckpointId);
 
@@ -863,7 +868,8 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       const afterNewRun = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         runId: string; seed: number; startupCheckpointId: string; configRevision: number; configHash: string;
       };
-      expect(afterNewRun).toMatchObject({ runId: newRunResult?.['runId'], seed: newRunResult?.['worldSeed'] });
+      expect(afterNewRun).toMatchObject({ runId: newRunResult?.['runId'], seed: newRunResult?.['worldSeed'],
+        calculationWorkers: 4 });
       expect(afterNewRun.runId).not.toBe(afterReset.runId);
       expect(afterNewRun).toMatchObject({ configRevision: 1, configHash: settingsApplied?.['configHash'] });
       const newRunNotice = viewer.packets.findLast(packet =>

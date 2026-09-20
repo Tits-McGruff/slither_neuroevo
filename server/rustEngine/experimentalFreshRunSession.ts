@@ -183,12 +183,15 @@ export interface ExperimentalFreshRunNativeBinding extends ExperimentalEngineNat
   ExperimentalStage6aFreshRunSession: new (
     runId: string,
     seedHex: string,
-    memoryCeilingBytesHex: string
+    memoryCeilingBytesHex: string,
+    calculationWorkers?: number
   ) => ExperimentalFreshRunNativeHandle;
 }
 
 /** Dependencies for constructing one isolated experimental fresh-run owner. */
 export interface CreateExperimentalFreshRunSessionOptions {
+  /** Bounded persistent Rust calculation threads. */
+  calculationWorkers?: number;
   /** Loaded addon exports. */
   binding: unknown;
   /** Independently computed identity of the current native source tree. */
@@ -325,11 +328,16 @@ export class ExperimentalFreshRunSession {
       'memoryCeilingBytes'
     );
     const managedDirectory = validateManagedDirectory(options.managedDirectory);
+    const calculationWorkers = options.calculationWorkers ?? 1;
+    if (!Number.isInteger(calculationWorkers) || calculationWorkers < 1 || calculationWorkers > 7) {
+      throw new RangeError('Rust calculation workers must be from 1 to 7');
+    }
     this.managedDirectory = managedDirectory;
     this.native = validateFreshRunHandle(new binding.ExperimentalStage6aFreshRunSession(
       runId,
       seedHex,
-      memoryCeilingBytesHex
+      memoryCeilingBytesHex,
+      calculationWorkers
     ));
     this.persistenceHandoff = new RunStartPersistenceHandoff({
       rust: this.native,

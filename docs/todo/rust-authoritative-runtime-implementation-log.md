@@ -504,4 +504,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   A multi-block fixture and a fresh copy of the owner's database pass; source
   rows in the copy still hash exactly like the original after conversion.
 
-The next dependency is the remaining compatibility work and Stage 6B gates.
+- 2026-09-20 The target VM's one-worker 310-snake step averaged 32.3 ms, of which
+  about 20 ms was sensing. A selectable persistent Rust pool now partitions
+  pure sensing while preserving ordered inference and commits. Four workers
+  averaged 18.6 ms and six 17.6 ms on the same 30-step fixture; world and
+  recurrent-state hashes matched one worker. The heavy case still misses the
+  16.7 ms real-time budget, so further measured optimization remains required.
+
+The next dependencies are Stage 6B durability, Stage 7 performance and
+acceptance, then the production cutover gates.

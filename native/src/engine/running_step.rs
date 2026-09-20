@@ -561,6 +561,7 @@ impl RunningStepCoordinator {
             state.config.max_world_snakes,
             sensor,
             inference,
+            limits.calculation_workers,
             state.config.worker_scratch_bytes,
         )?;
         Ok(Self {

@@ -22,12 +22,17 @@ use super::sensors::{
 };
 use super::spatial::IndexedSensorWorld;
 use super::state::{BrainHandle, BrainOwner, BrainRuntimeState, PopulationGenome, WorldState};
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::error::Error;
 use std::fmt;
 use std::mem::size_of;
 
 /// Authoritative controller output width: turn and boost.
 const CONTROLLER_OUTPUT_SIZE: usize = 2;
+/// Conservative admission allowance for each additional reusable sensor query scratch.
+const PARALLEL_SENSOR_SCRATCH_ALLOWANCE_BYTES: usize = 64 * 1024 * 1024;
+/// Keep calculation threads bounded below the target host's eight logical CPUs.
+const MAX_CALCULATION_WORKERS: usize = 7;
 
 /// One successfully staged batch retained inside [`NeuralControlPipeline`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,6 +44,8 @@ struct ReadyBatch {
 /// Retained capacities used to verify warm sensing-to-inference stability.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NeuralControlCapacityDiagnostics {
+    /// Persistent calculation threads allocated for this pipeline.
+    pub calculation_workers: usize,
     /// Packed observation slots.
     pub observations: usize,
     /// Packed controller-output slots.
@@ -127,6 +134,9 @@ pub struct NeuralControlPipeline {
     sensor: SensorEvaluator,
     inference: GraphExecutionPlan,
     workspace: CalculationWorkspace<()>,
+    calculation_pool: Option<ThreadPool>,
+    parallel_sensor_scratch: Vec<SensorScratch>,
+    parallel_sensor_errors: Vec<Option<SensorError>>,
     observations: Vec<f32>,
     staged_outputs: Vec<f32>,
     staged_recurrent: Vec<f32>,
@@ -145,9 +155,19 @@ impl NeuralControlPipeline {
     pub fn required_staging_bytes(
         max_work: usize,
         inference: &GraphExecutionPlan,
+        calculation_workers: usize,
     ) -> Result<usize, NeuralControlError> {
-        let workspace =
-            CalculationWorkspace::<()>::required_bytes(max_work, 1, inference.scratch_layout())?;
+        if !(1..=MAX_CALCULATION_WORKERS).contains(&calculation_workers) {
+            return Err(NeuralControlError::InvalidCalculationWorkers(
+                calculation_workers,
+            ));
+        }
+        let workspace = CalculationWorkspace::<()>::required_bytes(
+            max_work,
+            calculation_workers,
+            inference.scratch_layout(),
+        )?;
+        let additional_workers = calculation_workers - 1;
         let observations = checked_float_bytes(
             checked_product(max_work, inference.input_size(), "observation count")?,
             "observation bytes",
@@ -167,6 +187,16 @@ impl NeuralControlPipeline {
         checked_sum(&[
             size_of::<Self>(),
             workspace,
+            checked_element_bytes::<SensorScratch>(additional_workers, "parallel sensor scratch")?,
+            checked_element_bytes::<Option<SensorError>>(
+                calculation_workers,
+                "parallel sensor errors",
+            )?,
+            checked_product(
+                additional_workers,
+                PARALLEL_SENSOR_SCRATCH_ALLOWANCE_BYTES,
+                "parallel sensor scratch allowance",
+            )?,
             observations,
             outputs,
             recurrent,
@@ -192,6 +222,7 @@ impl NeuralControlPipeline {
         max_work: usize,
         sensor: SensorEvaluator,
         inference: GraphExecutionPlan,
+        calculation_workers: usize,
         staging_budget_bytes: usize,
     ) -> Result<Self, NeuralControlError> {
         if sensor.layout().input_size != inference.input_size() {
@@ -206,7 +237,7 @@ impl NeuralControlPipeline {
                 required: CONTROLLER_OUTPUT_SIZE,
             });
         }
-        let required = Self::required_staging_bytes(max_work, &inference)?;
+        let required = Self::required_staging_bytes(max_work, &inference, calculation_workers)?;
         if required > staging_budget_bytes {
             return Err(NeuralControlError::StagingBudgetExceeded {
                 required_bytes: required,
@@ -216,10 +247,34 @@ impl NeuralControlPipeline {
 
         let workspace = CalculationWorkspace::try_new(
             max_work,
-            1,
+            calculation_workers,
             inference.scratch_layout(),
             staging_budget_bytes,
         )?;
+        let calculation_pool = if calculation_workers == 1 {
+            None
+        } else {
+            Some(
+                ThreadPoolBuilder::new()
+                    .num_threads(calculation_workers)
+                    .thread_name(|index| format!("slither-calc-{index}"))
+                    .build()
+                    .map_err(|error| NeuralControlError::WorkerPool(error.to_string()))?,
+            )
+        };
+        let parallel_sensor_scratch = try_filled(
+            calculation_workers - 1,
+            SensorScratch::default(),
+            "parallel sensor scratch",
+        )?;
+        let mut parallel_sensor_errors = Vec::new();
+        parallel_sensor_errors
+            .try_reserve_exact(calculation_workers)
+            .map_err(|_| NeuralControlError::AllocationFailed {
+                buffer: "parallel sensor errors",
+                elements: calculation_workers,
+            })?;
+        parallel_sensor_errors.resize_with(calculation_workers, || None);
         let observations = try_filled(
             checked_product(max_work, inference.input_size(), "observation count")?,
             0.0,
@@ -256,6 +311,8 @@ impl NeuralControlPipeline {
         let allocated_staging_bytes = checked_sum(&[
             size_of::<Self>(),
             workspace.allocated_bytes(),
+            checked_capacity_bytes(&parallel_sensor_scratch, "parallel sensor scratch records")?,
+            checked_capacity_bytes(&parallel_sensor_errors, "parallel sensor error records")?,
             checked_capacity_bytes(&observations, "observation capacity")?,
             checked_capacity_bytes(&staged_outputs, "output capacity")?,
             checked_capacity_bytes(&staged_recurrent, "recurrent staging capacity")?,
@@ -277,6 +334,9 @@ impl NeuralControlPipeline {
             sensor,
             inference,
             workspace,
+            calculation_pool,
+            parallel_sensor_scratch,
+            parallel_sensor_errors,
             observations,
             staged_outputs,
             staged_recurrent,
@@ -299,6 +359,7 @@ impl NeuralControlPipeline {
     /// Report every retained top-level capacity without allocating or mutation.
     pub fn capacity_diagnostics(&self) -> NeuralControlCapacityDiagnostics {
         NeuralControlCapacityDiagnostics {
+            calculation_workers: self.workspace.worker_count(),
             observations: self.observations.capacity(),
             outputs: self.staged_outputs.capacity(),
             recurrent: self.staged_recurrent.capacity(),
@@ -366,24 +427,78 @@ impl NeuralControlPipeline {
         self.deliveries[..active].fill(None);
         self.diagnostics[..active].fill(SensorSampleDiagnostics::default());
 
+        let calculation_workers = self.workspace.worker_count();
         let CalculationExecutionBuffers {
             work, scratches, ..
         } = self.workspace.execution_buffers()?;
+        if let Some(pool) = self
+            .calculation_pool
+            .as_ref()
+            .filter(|_| active >= 2 * calculation_workers)
+        {
+            let chunk_work = active.div_ceil(calculation_workers);
+            let chunk_observations = chunk_work * self.inference.input_size();
+            let sensor = &self.sensor;
+            for error in &mut self.parallel_sensor_errors {
+                *error = None;
+            }
+            pool.scope(|scope| {
+                for (((((units, observations), deliveries), diagnostics), scratch), error) in work
+                    .chunks(chunk_work)
+                    .zip(self.observations[..observation_count].chunks_mut(chunk_observations))
+                    .zip(self.deliveries[..active].chunks_mut(chunk_work))
+                    .zip(self.diagnostics[..active].chunks_mut(chunk_work))
+                    .zip(
+                        std::iter::once(sensor_scratch)
+                            .chain(self.parallel_sensor_scratch.iter_mut()),
+                    )
+                    .zip(self.parallel_sensor_errors.iter_mut())
+                {
+                    scope.spawn(move |_| {
+                        for (ordinal, unit) in units.iter().enumerate() {
+                            let offset = ordinal * sensor.layout().input_size;
+                            match sensor.sample(
+                                indexed_world,
+                                generation,
+                                unit.snake_index(),
+                                &mut observations[offset..offset + sensor.layout().input_size],
+                                scratch,
+                            ) {
+                                Ok(sample) => {
+                                    deliveries[ordinal] = Some(sample.delivery);
+                                    diagnostics[ordinal] = sample.diagnostics;
+                                }
+                                Err(failure) => {
+                                    *error = Some(failure);
+                                    break;
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+            for error in &mut self.parallel_sensor_errors {
+                if let Some(failure) = error.take() {
+                    return Err(failure.into());
+                }
+            }
+        } else {
+            for (ordinal, unit) in work.iter().enumerate() {
+                let offset = ordinal * self.inference.input_size();
+                let sample = self.sensor.sample(
+                    indexed_world,
+                    generation,
+                    unit.snake_index(),
+                    &mut self.observations[offset..offset + self.inference.input_size()],
+                    sensor_scratch,
+                )?;
+                self.deliveries[ordinal] = Some(sample.delivery);
+                self.diagnostics[ordinal] = sample.diagnostics;
+            }
+        }
         let graph_scratch = scratches
             .first_mut()
             .ok_or(NeuralControlError::MissingCalculationScratch)?;
-        for (ordinal, unit) in work.iter().enumerate() {
-            let offset = ordinal * self.inference.input_size();
-            let sample = self.sensor.sample(
-                indexed_world,
-                generation,
-                unit.snake_index(),
-                &mut self.observations[offset..offset + self.inference.input_size()],
-                sensor_scratch,
-            )?;
-            self.deliveries[ordinal] = Some(sample.delivery);
-            self.diagnostics[ordinal] = sample.diagnostics;
-        }
         evaluate_heterogeneous_population_with_resets(
             &self.inference,
             work,
@@ -724,6 +839,10 @@ impl NeuralControlPipeline {
 /// Sensing-to-inference staging, identity, or commit failure.
 #[derive(Debug)]
 pub enum NeuralControlError {
+    /// Requested calculation-thread count is outside the supported envelope.
+    InvalidCalculationWorkers(usize),
+    /// The bounded persistent calculation pool could not start.
+    WorkerPool(String),
     /// Canonical calculation-work failure.
     Calculation(Box<CalculationError>),
     /// Corrected sensor-v3 failure.
@@ -821,6 +940,9 @@ impl From<InferenceError> for NeuralControlError {
 impl fmt::Display for NeuralControlError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidCalculationWorkers(count) => write!(formatter,
+                "calculation worker count {count} must be from 1 to {MAX_CALCULATION_WORKERS}"),
+            Self::WorkerPool(detail) => write!(formatter, "calculation worker pool failed: {detail}"),
             Self::Calculation(error) => write!(formatter, "{error}"),
             Self::Sensor(error) => write!(formatter, "{error}"),
             Self::Inference(error) => write!(formatter, "{error}"),
@@ -1228,7 +1350,7 @@ mod tests {
 
     fn pipeline(plan: GraphExecutionPlan) -> NeuralControlPipeline {
         let sensor = SensorEvaluator::new(sensor_config()).unwrap();
-        NeuralControlPipeline::try_new(3, sensor, plan, usize::MAX).unwrap()
+        NeuralControlPipeline::try_new(3, sensor, plan, 1, usize::MAX).unwrap()
     }
 
     #[test]

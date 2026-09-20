@@ -2914,7 +2914,7 @@ mod tests {
             ..SensorConfig::default()
         })
         .unwrap();
-        let neural = NeuralControlPipeline::try_new(8, sensor, plan, usize::MAX).unwrap();
+        let neural = NeuralControlPipeline::try_new(8, sensor, plan, 1, usize::MAX).unwrap();
         ControlPhaseWorkspace::new(neural).unwrap()
     }
 

@@ -33,6 +33,8 @@ export interface ServerConfig {
   mtEnabled: boolean;
   /** Requested worker count (0 for auto). */
   mtWorkers: number;
+  /** Rust calculation threads; independent of the old TypeScript MT pool. */
+  rustCalculationWorkers: number;
   /** Immutable neural math backend selected before brain construction. */
   inferenceBackend: InferenceBackend;
   /** Fresh startup, latest valid checkpoint, or one explicit snapshot id. */
@@ -58,6 +60,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   logLevel: 'info',
   mtEnabled: false,
   mtWorkers: 0,
+  rustCalculationWorkers: 1,
   inferenceBackend: 'native',
   resume: 'latest'
 };
@@ -330,6 +333,8 @@ export function normalizeConfig(
     }
   }
   const mtWorkers = coerceInt('mtWorkers', input.mtWorkers, DEFAULT_CONFIG.mtWorkers, 0, 128, warn);
+  const rustCalculationWorkers = coerceInt('rustCalculationWorkers', input.rustCalculationWorkers,
+    DEFAULT_CONFIG.rustCalculationWorkers, 1, 7, warn);
   let inferenceBackend = DEFAULT_CONFIG.inferenceBackend;
   const rawInferenceBackend =
     typeof input.inferenceBackend === 'string' ? input.inferenceBackend.trim().toLowerCase() : '';
@@ -359,6 +364,7 @@ export function normalizeConfig(
     logLevel,
     mtEnabled,
     mtWorkers,
+    rustCalculationWorkers,
     inferenceBackend,
     resume
   };
@@ -433,6 +439,7 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     seed: data['seed'],
     mtEnabled: data['mtEnabled'],
     mtWorkers: data['mtWorkers'],
+    rustCalculationWorkers: data['rustCalculationWorkers'],
     inferenceBackend: data['inferenceBackend'],
     resume: data['resume']
   };
@@ -524,6 +531,8 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
   const mtWorkers =
     parseIntValue(getArgValue(argv, '--mt-workers')) ?? parseIntValue(env['MT_WORKERS']);
   if (mtWorkers !== undefined) input.mtWorkers = mtWorkers;
+  const rustWorkers = parseIntValue(getArgValue(argv, '--rust-workers')) ?? parseIntValue(env['RUST_WORKERS']);
+  if (rustWorkers !== undefined) input.rustCalculationWorkers = rustWorkers;
   const inferenceBackend = getArgValue(argv, '--backend') ?? env['INFERENCE_BACKEND'];
   if (inferenceBackend !== undefined) input.inferenceBackend = inferenceBackend;
   const hasFresh = hasArgFlag(argv, '--fresh');

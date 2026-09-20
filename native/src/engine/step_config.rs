@@ -47,6 +47,8 @@ const TYPESCRIPT_MINIMUM_FIXED_STEP_SECONDS: f64 = 1.0 / 240.0;
 /// or smaller values without changing experiment configuration identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RunningStepWorkLimits {
+    /// Persistent calculation threads, independent of gameplay identity.
+    pub calculation_workers: usize,
     /// Complete body-cell entries admitted for shared sensing.
     pub sensor_body_entries: usize,
     /// Complete swept segment-to-cell entries admitted per collision substep.
@@ -72,6 +74,7 @@ impl RunningStepWorkLimits {
     #[must_use]
     pub const fn provisional_defaults() -> Self {
         Self {
+            calculation_workers: 1,
             sensor_body_entries: 1_000_000,
             collision_index_entries: 2_000_000,
             collision_query_cells: 262_144,

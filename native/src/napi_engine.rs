@@ -511,6 +511,7 @@ pub struct Stage6BackgroundGenerationDrain {
 /// Small scalar health snapshot from the background Rust authority thread.
 #[napi(object)]
 pub struct Stage6BackgroundGenerationHealth {
+    pub calculation_workers: u32,
     pub lifecycle: String,
     pub loop_state: String,
     pub world_epoch: String,
@@ -652,6 +653,7 @@ struct ExperimentalFreshRunInner {
 #[napi(js_name = "ExperimentalStage6aFreshRunSession")]
 pub struct ExperimentalStage6aFreshRunSession {
     request: Stage6aP0FreshRunRequest,
+    calculation_workers: usize,
     inner: Arc<Mutex<ExperimentalFreshRunInner>>,
     active_operation: Arc<AtomicU8>,
 }
@@ -676,7 +678,15 @@ impl ExperimentalStage6aFreshRunSession {
         run_id: JsString<'_>,
         seed_hex: JsString<'_>,
         memory_ceiling_bytes_hex: JsString<'_>,
+        calculation_workers: Option<u32>,
     ) -> Result<Self> {
+        let calculation_workers = calculation_workers.unwrap_or(1) as usize;
+        if !(1..=7).contains(&calculation_workers) {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "calculation workers must be from 1 to 7",
+            ));
+        }
         let run_id = bounded_js_string(run_id, "runId", MAX_EXPERIMENTAL_RUN_ID_BYTES, false)?;
         if run_id.contains('\0') {
             return Err(Error::new(Status::InvalidArg, "runId must not contain NUL"));
@@ -699,6 +709,7 @@ impl ExperimentalStage6aFreshRunSession {
                 seed,
                 memory_ceiling_bytes,
             },
+            calculation_workers,
             inner: Arc::new(Mutex::new(ExperimentalFreshRunInner::default())),
             active_operation: Arc::new(AtomicU8::new(FRESH_OPERATION_IDLE)),
         })
@@ -715,6 +726,7 @@ impl ExperimentalStage6aFreshRunSession {
         }
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
             request: self.request.clone(),
+            calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::Fresh,
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
@@ -758,6 +770,7 @@ impl ExperimentalStage6aFreshRunSession {
         };
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
             request: self.request.clone(),
+            calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::Checkpoint(Box::new(restore)),
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
@@ -803,6 +816,7 @@ impl ExperimentalStage6aFreshRunSession {
         };
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
             request: self.request.clone(),
+            calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::LegacySqlite(legacy),
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
@@ -1010,6 +1024,7 @@ impl ExperimentalStage6aFreshRunSession {
         self.begin_operation(FRESH_OPERATION_BACKGROUND)?;
         Ok(AsyncTask::new(CreateExperimentalBackgroundTask {
             inner: Arc::clone(&self.inner),
+            calculation_workers: self.calculation_workers,
             active_operation: Arc::clone(&self.active_operation),
             init,
             wake: Arc::new(NapiWakeSink::new(wake)),
@@ -1020,6 +1035,7 @@ impl ExperimentalStage6aFreshRunSession {
 /// Worker-owned exclusive transfer of the existing fresh-run authority.
 pub struct CreateExperimentalBackgroundTask {
     inner: Arc<Mutex<ExperimentalFreshRunInner>>,
+    calculation_workers: usize,
     active_operation: Arc<AtomicU8>,
     init: EngineInit,
     wake: Arc<NapiWakeSink>,
@@ -1085,7 +1101,10 @@ impl Task for CreateExperimentalBackgroundTask {
     }
 
     fn resolve(&mut self, _env: Env, runtime: Self::Output) -> Result<Self::JsValue> {
-        Ok(ExperimentalRunningAuthority::from_runtime(runtime))
+        Ok(ExperimentalRunningAuthority::from_runtime(
+            runtime,
+            self.calculation_workers,
+        ))
     }
 
     fn finally(self, _env: Env) -> Result<()> {
@@ -1201,6 +1220,7 @@ enum FreshRunInitialization {
 
 pub struct InitializeExperimentalFreshRunTask {
     request: Stage6aP0FreshRunRequest,
+    calculation_workers: usize,
     source: FreshRunInitialization,
     inner: Arc<Mutex<ExperimentalFreshRunInner>>,
     active_operation: Arc<AtomicU8>,
@@ -1212,7 +1232,7 @@ impl Task for InitializeExperimentalFreshRunTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         match catch_unwind(AssertUnwindSafe(|| {
-            let transition = match &self.source {
+            let mut transition = match &self.source {
                 FreshRunInitialization::Checkpoint(restore) => {
                     let (directory, descriptor, recovery) = restore.as_ref();
                     prepare_stage6a_p0_checkpoint_restore(
@@ -1243,6 +1263,9 @@ impl Task for InitializeExperimentalFreshRunTask {
                 FreshRunInitialization::Fresh => prepare_stage6a_p0_fresh_run(self.request.clone())
                     .map_err(|error| error.to_string())?,
             };
+            transition
+                .configure_calculation_workers(self.calculation_workers)
+                .map_err(str::to_owned)?;
             let mut inner = lock_recover(&self.inner);
             if let Some(detail) = inner.fault_detail.as_deref() {
                 return Err(format!(
@@ -2112,7 +2135,7 @@ impl Stage6BackgroundGenerationHandoffFixtureSession {
     /// Return only bounded authority/lifecycle scalars.
     #[napi(catch_unwind)]
     pub fn health(&self) -> Result<Stage6BackgroundGenerationHealth> {
-        self.run_faulting_root(|| background_generation_health_to_napi(self.runtime.health()))
+        self.run_faulting_root(|| background_generation_health_to_napi(self.runtime.health(), 1))
     }
 
     /// Request an orderly stop without waiting on Node's event loop.
@@ -3649,6 +3672,7 @@ fn background_step_key_to_napi(key: PhysicsStepKey) -> Stage6BackgroundStepKey {
 
 pub(crate) fn background_generation_health_to_napi(
     health: EngineHealth,
+    calculation_workers: usize,
 ) -> std::result::Result<Stage6BackgroundGenerationHealth, EngineError> {
     let running = health.running_authority.ok_or_else(|| {
         EngineError::new(
@@ -3657,6 +3681,12 @@ pub(crate) fn background_generation_health_to_napi(
         )
     })?;
     Ok(Stage6BackgroundGenerationHealth {
+        calculation_workers: u32::try_from(calculation_workers).map_err(|_| {
+            EngineError::new(
+                EngineErrorCode::Faulted,
+                "calculation worker count exceeds Uint32",
+            )
+        })?,
         lifecycle: lifecycle_name(health.lifecycle).to_owned(),
         loop_state: running_loop_state_name(running.loop_state).to_owned(),
         world_epoch: u64_hex(running.world_epoch),
@@ -5117,6 +5147,7 @@ mod tests {
                 seed: 1,
                 memory_ceiling_bytes: 1,
             },
+            calculation_workers: 1,
             inner: Arc::new(Mutex::new(ExperimentalFreshRunInner::default())),
             active_operation: Arc::new(AtomicU8::new(FRESH_OPERATION_IDLE)),
         };
@@ -5201,6 +5232,7 @@ mod tests {
                 seed: 1,
                 memory_ceiling_bytes: 1,
             },
+            calculation_workers: 1,
             inner: Arc::new(Mutex::new(ExperimentalFreshRunInner::default())),
             active_operation: Arc::new(AtomicU8::new(FRESH_OPERATION_IDLE)),
         };

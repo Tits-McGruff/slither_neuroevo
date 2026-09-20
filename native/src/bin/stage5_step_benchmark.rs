@@ -52,6 +52,7 @@ static GLOBAL_ALLOCATOR: CountingAllocator = CountingAllocator;
 struct CliOptions {
     scenario: Stage4InferenceScenarioName,
     math_backend: InferenceMathBackend,
+    calculation_workers: usize,
     warmup_steps: usize,
     measured_steps: usize,
     evidence_environment: String,
@@ -79,6 +80,7 @@ fn parse_options() -> Result<CliOptions, String> {
     let mut arguments = env::args_os().skip(1);
     let mut scenario = None;
     let mut math_backend = None;
+    let mut calculation_workers = 1;
     let mut warmup_steps = 3;
     let mut measured_steps = 30;
     let mut evidence_environment = "development".to_owned();
@@ -104,6 +106,12 @@ fn parse_options() -> Result<CliOptions, String> {
                     "sse2" => InferenceMathBackend::Sse2,
                     _ => return Err("--math-backend must be scalar or sse2".to_owned()),
                 });
+            }
+            Some("--workers") => {
+                calculation_workers = parse_count(arguments.next(), "--workers", false)?;
+                if calculation_workers > 7 {
+                    return Err("--workers must be from 1 to 7".to_owned());
+                }
             }
             Some("--warmup-steps") => {
                 warmup_steps = parse_count(arguments.next(), "--warmup-steps", true)?;
@@ -137,6 +145,7 @@ fn parse_options() -> Result<CliOptions, String> {
     Ok(CliOptions {
         scenario: scenario.ok_or_else(|| "--scenario is required".to_owned())?,
         math_backend: math_backend.ok_or_else(|| "--math-backend is required".to_owned())?,
+        calculation_workers,
         warmup_steps,
         measured_steps,
         evidence_environment,
@@ -169,6 +178,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Stage5StepEvidenceOptions {
             scenario: options.scenario,
             math_backend: options.math_backend,
+            calculation_workers: options.calculation_workers,
             warmup_steps: options.warmup_steps,
             measured_steps: options.measured_steps,
             evidence_environment: options.evidence_environment,
@@ -179,7 +189,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     .map_err(std::io::Error::other)?;
     write_report(&output_path, &serde_json::to_vec_pretty(&report)?)?;
     println!(
-        "wrote {scenario} {math_backend} single-worker complete-step evidence to {}",
+        "wrote {scenario} {math_backend} {}-worker complete-step evidence to {}",
+        options.calculation_workers,
         output_path.display()
     );
     Ok(())
@@ -195,6 +206,7 @@ mod tests {
             Stage5StepEvidenceOptions {
                 scenario: Stage4InferenceScenarioName::P0,
                 math_backend: InferenceMathBackend::Scalar,
+                calculation_workers: 1,
                 warmup_steps: 1,
                 measured_steps: 1,
                 evidence_environment: "development".to_owned(),

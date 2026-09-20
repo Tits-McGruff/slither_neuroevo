@@ -77,6 +77,11 @@ the result as population-only, not an exact continuation. The browser status
 pill also labels converted saves and exact imported branches, with their source
 details in its tooltip.
 
+The experimental server defaults to one Rust calculation thread. Use
+`--rust-workers N` (1–7, or `RUST_WORKERS=N`) to try its persistent worker pool;
+currently it parallelizes sensing while keeping brain-state and physics commits
+ordered. This is separate from the reference server's `--mt-workers` option.
+
 For a managed Rust database, latest startup validates the current checkpoint
 and, if necessary, recovers from the newest valid retained boundary under a new
 provenance-labelled branch. An exact SHA-256 selector must validate and is

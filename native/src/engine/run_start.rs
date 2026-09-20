@@ -80,6 +80,21 @@ pub struct PendingRunStartTransition {
 }
 
 impl PendingRunStartTransition {
+    /// Select non-gameplay calculation threads before this authority becomes runnable.
+    pub(crate) fn configure_calculation_workers(
+        &mut self,
+        workers: usize,
+    ) -> Result<(), &'static str> {
+        if self.authority_published {
+            return Err("calculation workers cannot change after authority publication");
+        }
+        if !(1..=7).contains(&workers) {
+            return Err("calculation workers must be from 1 to 7");
+        }
+        self.work_limits.calculation_workers = workers;
+        Ok(())
+    }
+
     /// Admit one complete generation-one boundary without making it runnable.
     #[allow(clippy::too_many_arguments)]
     pub fn admit(

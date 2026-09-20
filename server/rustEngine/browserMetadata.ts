@@ -28,7 +28,8 @@ export function nativeSetting(metadata: RustStartupMetadata, path: string): numb
 /** Construct the existing browser handshake from bounded native metadata. */
 export function createRustWelcome(
   metadata: RustStartupMetadata,
-  nativeBuildIdentifier: string | null = null
+  nativeBuildIdentifier: string | null = null,
+  calculationWorkers = 1
 ): WelcomeMsg {
   return {
     type: 'welcome', protocolVersion: 2, serializerVersion: metadata.serializerVersion,
@@ -44,7 +45,8 @@ export function createRustWelcome(
     },
     sensorSpec: getSensorSpec(getSensorLayout(nativeSetting(metadata, 'sense.bubbleBins'))),
     inferenceMode: {
-      requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0,
+      requestedBackend: 'native', activeBackend: 'native', requestedMt: calculationWorkers > 1,
+      activeWorkerCount: calculationWorkers > 1 ? calculationWorkers : 0,
       poolEpoch: null, weightEpoch: null, graphKey: metadata.graphKey, parameterCount: metadata.parameterCount,
       seed: metadata.seed, nativeAddonStatus: 'ready', nativeAddonBuildIdentifier: nativeBuildIdentifier
     }

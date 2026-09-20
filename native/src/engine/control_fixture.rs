@@ -745,7 +745,7 @@ fn build_fixture(scenario: Stage4InferenceScenarioName) -> Result<ControlFixture
     generation
         .update_after_step(&world)
         .map_err(|error| format!("generation sensor initialization failed: {error}"))?;
-    let pipeline = NeuralControlPipeline::try_new(count, sensor, plan, usize::MAX)
+    let pipeline = NeuralControlPipeline::try_new(count, sensor, plan, 1, usize::MAX)
         .map_err(|error| format!("control pipeline construction failed: {error}"))?;
     let world_sha256 = digest_world(&world);
     Ok(ControlFixture {

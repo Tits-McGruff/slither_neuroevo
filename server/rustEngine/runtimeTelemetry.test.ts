@@ -10,7 +10,7 @@ function hex(value: number): string {
 /** Construct one complete native health sample for telemetry projection. */
 function health(completedStep: number): RustBackgroundHealth {
   return {
-    lifecycle: 'running', loopState: 'ready', worldEpoch: hex(1), generation: hex(1),
+    calculationWorkers: 1, lifecycle: 'running', loopState: 'ready', worldEpoch: hex(1), generation: hex(1),
     completedStep: hex(completedStep), generationCheckpointPublished: false,
     generationPersistenceAcknowledged: false, pendingExternalDeliveries: hex(0),
     schedulerCompletedSteps: hex(completedStep), processedCommands: hex(3),

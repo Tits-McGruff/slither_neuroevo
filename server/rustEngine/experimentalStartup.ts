@@ -37,6 +37,8 @@ const require = createRequire(import.meta.url);
 
 /** Explicit storage and identity inputs for experimental startup composition. */
 export interface ExperimentalStartupOptions {
+  /** Bounded persistent Rust calculation threads, independent of old Node MT. */
+  calculationWorkers?: number;
   /** Dedicated managed-metadata database; fresh startup requires a new path. */
   databasePath: string;
   /** Internal exact-current restart prerequisite; automatic latest recovery is separate. */
@@ -98,6 +100,10 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
   // The constructor seed is unused by native restore; welcome comes only from its metadata.
   const seed = restoring ? 0 : (options.seed ?? randomBytes(4).readUInt32LE());
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffff_ffff) throw new RangeError('experimental seed must be a Uint32');
+  const calculationWorkers = options.calculationWorkers ?? 1;
+  if (!Number.isInteger(calculationWorkers) || calculationWorkers < 1 || calculationWorkers > 7) {
+    throw new RangeError('Rust calculation workers must be from 1 to 7');
+  }
   const databasePath = resolve(options.databasePath);
   const managedDirectory = resolve(options.managedDirectory);
   const sourceIdentity = computeNativeSourceIdentity(NATIVE_DIRECTORY);
@@ -122,6 +128,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     /** Construct only a scalar native handle; initialization owns all population allocation. */
     const makeSession = (runId: string): ExperimentalFreshRunSession => createExperimentalFreshRunSession({
       binding, sourceIdentity, runId, seed, memoryCeilingBytes: 4n * 1024n * 1024n * 1024n,
+      calculationWorkers,
       persistence, managedDirectory
     });
     let selection: ManagedCheckpointSelection | null = null;

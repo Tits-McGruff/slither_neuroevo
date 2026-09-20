@@ -261,6 +261,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     if (typeof config.resume === 'number') throw new Error('numeric reference snapshot IDs are not managed checkpoint IDs');
     owner = await createExperimentalServerRuntime({ databasePath: config.dbPath,
       managedDirectory: `${resolve(config.dbPath)}.checkpoints`,
+      calculationWorkers: config.rustCalculationWorkers,
       ...(config.resume === 'latest' ? { restoreLatest: true } : {}),
       ...(config.resume.startsWith('sha256:') ? { restoreCheckpointId: config.resume.slice(7) } : {}),
       ...(config.seed === undefined ? {} : { seed: config.seed }), onWake: () => schedule() });
@@ -700,7 +701,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     return closePromise;
   };
   try {
-    hub = new WsHub(server, { ...createRustWelcome(activeMetadata, owner.nativeBuildIdentifier), ...(recovery ? { recovery } : {}),
+    hub = new WsHub(server, { ...createRustWelcome(activeMetadata, owner.nativeBuildIdentifier, config.rustCalculationWorkers), ...(recovery ? { recovery } : {}),
       ...(importBranch ? { importBranch } : {}),
       ...(legacyConversion ? { legacyConversion } : {}) }, { maxConnections: 64 });
     const sockets = hub;
@@ -725,7 +726,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
                 event.settingsConfigRevision,
                 event.settingsConfigHash
               );
-              sockets.updateWelcome(createRustWelcome(activeMetadata, owner.nativeBuildIdentifier));
+              sockets.updateWelcome(createRustWelcome(activeMetadata, owner.nativeBuildIdentifier, config.rustCalculationWorkers));
               sockets.broadcastJsonToUi({
                 type: 'settingsApplied', requestId: pending.requestId, applied: true,
                 updates: pending.updates,
@@ -988,7 +989,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         routing.resetAfterImport();
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
-        const welcome = { ...createRustWelcome(activeMetadata, owner.nativeBuildIdentifier), ...(importBranch ? { importBranch } : {}) };
+        const welcome = { ...createRustWelcome(activeMetadata, owner.nativeBuildIdentifier, config.rustCalculationWorkers), ...(importBranch ? { importBranch } : {}) };
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason: 'import', checkpointId: durable.checkpointId, welcome
@@ -1076,7 +1077,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         routing.resetAfterImport();
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
-        const welcome = createRustWelcome(activeMetadata, owner.nativeBuildIdentifier);
+        const welcome = createRustWelcome(activeMetadata, owner.nativeBuildIdentifier, config.rustCalculationWorkers);
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason, checkpointId: durable.checkpointId, welcome
