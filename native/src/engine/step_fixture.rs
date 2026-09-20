@@ -1,4 +1,4 @@
-//! Deterministic Stage 5 complete single-worker fixed-step evidence.
+//! Deterministic complete fixed-step evidence for one or more Rust workers.
 //!
 //! This test-hook-only fixture assembles one admitted Rust authority from the
 //! same P0-P3 graph and world shapes used by the Stage 4 measurements, then
@@ -6,7 +6,7 @@
 //! heterogeneous inference, movement, food, collision, accounting, and the
 //! one authoritative publication. It intentionally excludes Node, N-API,
 //! browser/RL delivery, generation transition, frame packing, persistence, and
-//! the later persistent calculation-worker pool.
+//! production network and archive workloads.
 
 use super::baseline::{BaselineLifecycleConfig, BaselineLifecycleState};
 use super::contract::ENGINE_CONTRACT_VERSION;
@@ -15,7 +15,7 @@ use super::inference::InferenceMathBackend;
 use super::inference_fixture::{
     fixture_value, graph_limits, scenario_graph, FixtureValueKind, Stage4InferenceScenarioName,
 };
-use super::physics::PhysicsPhaseAllocations;
+use super::physics::{PhysicsPhaseAllocations, PhysicsPhaseTimings};
 use super::rng::labelled_stream;
 use super::running_step::{
     RunningStepCoordinator, RunningStepInputs, RunningStepPhaseAllocations,
@@ -252,12 +252,13 @@ impl From<WorldStepDiagnostics> for Stage5StepDiagnostics {
     }
 }
 
-/// Measured single-worker-step result and proof of real authority progression.
+/// Measured complete-step result and proof of real authority progression.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stage5StepResult {
     pub complete_fixed_step_ms: Stage4SensingDistribution,
     pub coarse_phase_ms: Stage5StepPhaseDistributions,
+    pub physics_phase_ms: Stage5PhysicsPhaseDistributions,
     pub allocator_operations_per_complete_step: Stage4AllocationDistribution,
     pub coarse_phase_allocator_operations: Stage5StepPhaseAllocationDistributions,
     pub physics_phase_allocator_operations: Stage5PhysicsAllocationDistributions,
@@ -293,6 +294,22 @@ pub struct Stage5StepPhaseDistributions {
     pub generation_guard_ms: Stage4SensingDistribution,
     pub publication_ms: Stage4SensingDistribution,
     pub unattributed_ms: Stage4SensingDistribution,
+}
+
+/// Fine-grained timings within the staged physics substeps.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stage5PhysicsPhaseDistributions {
+    pub pellet_index_ms: Stage4SensingDistribution,
+    pub movement_ms: Stage4SensingDistribution,
+    pub food_ms: Stage4SensingDistribution,
+    pub collision_ms: Stage4SensingDistribution,
+    pub collision_index_ms: Stage4SensingDistribution,
+    pub collision_head_head_ms: Stage4SensingDistribution,
+    pub collision_head_body_ms: Stage4SensingDistribution,
+    pub effects_ms: Stage4SensingDistribution,
+    pub result_application_ms: Stage4SensingDistribution,
+    pub accept_ms: Stage4SensingDistribution,
 }
 
 /// Allocation-operation distributions for the same coarse phase boundaries.
@@ -342,13 +359,14 @@ struct StepSample {
     elapsed_ms: f64,
     allocations: u64,
     phases: RunningStepPhaseTimings,
+    physics_phases: PhysicsPhaseTimings,
     phase_allocations: RunningStepPhaseAllocations,
     physics_phase_allocations: PhysicsPhaseAllocations,
     diagnostics: WorldStepDiagnostics,
     consumed_state: f64,
 }
 
-/// Run one stateful single-worker complete-step benchmark.
+/// Run one stateful complete-step benchmark at the requested worker count.
 pub fn run_stage5_step_evidence(
     options: Stage5StepEvidenceOptions,
     allocation_snapshot: fn() -> u64,
@@ -427,6 +445,17 @@ pub fn run_stage5_step_evidence(
         reserve_f64(options.measured_steps, "generation-guard timings")?;
     let mut publication_samples = reserve_f64(options.measured_steps, "publication timings")?;
     let mut unattributed_samples = reserve_f64(options.measured_steps, "unattributed timings")?;
+    let mut pellet_index_ms = reserve_f64(options.measured_steps, "pellet-index timings")?;
+    let mut movement_ms = reserve_f64(options.measured_steps, "movement timings")?;
+    let mut food_ms = reserve_f64(options.measured_steps, "food timings")?;
+    let mut collision_ms = reserve_f64(options.measured_steps, "collision timings")?;
+    let mut collision_index_ms = reserve_f64(options.measured_steps, "collision-index timings")?;
+    let mut collision_head_head_ms = reserve_f64(options.measured_steps, "head/head timings")?;
+    let mut collision_head_body_ms = reserve_f64(options.measured_steps, "head/body timings")?;
+    let mut effects_ms = reserve_f64(options.measured_steps, "effects timings")?;
+    let mut result_application_ms =
+        reserve_f64(options.measured_steps, "result-application timings")?;
+    let mut accept_ms = reserve_f64(options.measured_steps, "physics-accept timings")?;
     let mut allocation_samples = reserve_u64(options.measured_steps, "step allocations")?;
     let mut authority_begin_allocation_samples =
         reserve_u64(options.measured_steps, "authority allocation samples")?;
@@ -487,6 +516,16 @@ pub fn run_stage5_step_evidence(
         publication_samples.push(sample.phases.publication_ms);
         let attributed = phase_total(sample.phases);
         unattributed_samples.push((sample.elapsed_ms - attributed).max(0.0));
+        pellet_index_ms.push(sample.physics_phases.pellet_index_ms);
+        movement_ms.push(sample.physics_phases.movement_ms);
+        food_ms.push(sample.physics_phases.food_ms);
+        collision_ms.push(sample.physics_phases.collision_ms);
+        collision_index_ms.push(sample.physics_phases.collision_index_ms);
+        collision_head_head_ms.push(sample.physics_phases.collision_head_head_ms);
+        collision_head_body_ms.push(sample.physics_phases.collision_head_body_ms);
+        effects_ms.push(sample.physics_phases.effects_ms);
+        result_application_ms.push(sample.physics_phases.result_application_ms);
+        accept_ms.push(sample.physics_phases.accept_ms);
         allocation_samples.push(sample.allocations);
         authority_begin_allocation_samples.push(sample.phase_allocations.authority_begin);
         prefix_allocation_samples.push(sample.phase_allocations.prefix);
@@ -593,7 +632,10 @@ pub fn run_stage5_step_evidence(
     let worker_label = if options.calculation_workers == 1 {
         "single-worker".to_owned()
     } else {
-        format!("{}-worker parallel-sensing", options.calculation_workers)
+        format!(
+            "{}-worker parallel-calculation",
+            options.calculation_workers
+        )
     };
     let evidence_class = if options.evidence_environment == "owner-target-vm" {
         format!(
@@ -611,11 +653,11 @@ pub fn run_stage5_step_evidence(
         schema: if options.calculation_workers == 1 {
             "slither-stage5-rust-single-worker-complete-step-benchmark-v2"
         } else {
-            "slither-stage7-rust-parallel-sensing-complete-step-benchmark-v1"
+            "slither-stage7-rust-parallel-calculation-complete-step-benchmark-v1"
         },
         version: if options.calculation_workers == 1 { 2 } else { 1 },
         evidence_class,
-        caveat: "Source-shaped deterministic synthetic fixed-step benchmark with an explicitly recorded neural math backend and worker count. It drives one admitted Rust authority through corrected sensing, distinct stateful population brains, baseline control, movement, food, continuous collision, effects, accounting, and atomic publication. Additional workers parallelize only pure neural sensing; inference and physical commit remain ordered and serial. Allocation distributions count process-wide allocation operations by measured phase and do not prove an allocation-free steady state. The benchmark excludes the scheduler pump, N-API/Node bridge, browser or Protocol 2 RL client, frame packing, generation transition/evolution, persistence, a sustained round, and production cutover.",
+        caveat: "Source-shaped deterministic synthetic fixed-step benchmark with an explicitly recorded neural math backend and worker count. It drives one admitted Rust authority through corrected sensing, distinct stateful population brains, baseline control, movement, food, continuous collision, effects, accounting, and atomic publication. Additional workers parallelize sensing and brain evaluation in stable disjoint ranges; physical commit remains ordered and serial. Allocation distributions count process-wide allocation operations by measured phase and do not prove an allocation-free steady state. The benchmark excludes the scheduler pump, N-API/Node bridge, browser or Protocol 2 RL client, frame packing, generation transition/evolution, persistence, a sustained round, and production cutover.",
         source: Stage5StepSource {
             native_build_identifier: crate::native_addon_build_identifier(),
             native_source_sha256: crate::native_addon_source_sha256(),
@@ -702,6 +744,18 @@ pub fn run_stage5_step_evidence(
                 generation_guard_ms: distribution(generation_guard_samples)?,
                 publication_ms: distribution(publication_samples)?,
                 unattributed_ms: distribution(unattributed_samples)?,
+            },
+            physics_phase_ms: Stage5PhysicsPhaseDistributions {
+                pellet_index_ms: distribution(pellet_index_ms)?,
+                movement_ms: distribution(movement_ms)?,
+                food_ms: distribution(food_ms)?,
+                collision_ms: distribution(collision_ms)?,
+                collision_index_ms: distribution(collision_index_ms)?,
+                collision_head_head_ms: distribution(collision_head_head_ms)?,
+                collision_head_body_ms: distribution(collision_head_body_ms)?,
+                effects_ms: distribution(effects_ms)?,
+                result_application_ms: distribution(result_application_ms)?,
+                accept_ms: distribution(accept_ms)?,
             },
             allocator_operations_per_complete_step: allocation_distribution(&allocation_samples)?,
             coarse_phase_allocator_operations: Stage5StepPhaseAllocationDistributions {
@@ -1080,6 +1134,7 @@ fn execute_step(
         }
     };
     let phases = fixture.coordinator.last_phase_timings();
+    let physics_phases = fixture.coordinator.last_physics_phase_timings();
     let phase_allocations = fixture.coordinator.last_phase_allocations();
     let physics_phase_allocations = fixture.coordinator.last_physics_phase_allocations();
     let elapsed = started.elapsed();
@@ -1124,6 +1179,7 @@ fn execute_step(
         elapsed_ms: elapsed.as_secs_f64() * 1_000.0,
         allocations: allocations_after.saturating_sub(allocations_before),
         phases,
+        physics_phases,
         phase_allocations,
         physics_phase_allocations,
         diagnostics,
@@ -1259,7 +1315,7 @@ mod tests {
     }
 
     #[test]
-    fn parallel_sensing_keeps_the_complete_step_and_recurrent_identity() {
+    fn parallel_calculation_keeps_the_complete_step_and_recurrent_identity() {
         let options = Stage5StepEvidenceOptions {
             scenario: Stage4InferenceScenarioName::P0,
             math_backend: InferenceMathBackend::Scalar,

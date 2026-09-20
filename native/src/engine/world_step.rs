@@ -26,12 +26,12 @@ use super::external_replacement::{
 };
 use super::fixed_step::{copy_lifecycle_reusing, FixedStepPrefixConfig, FixedStepPrefixError};
 use super::graph::CompiledGraph;
-#[cfg(feature = "engine-test-hooks")]
-use super::physics::PhysicsPhaseAllocations;
 use super::physics::{
     PhysicsConfig, PhysicsError, PhysicsPipelineWorkspace, PhysicsStepDiagnostics, PhysicsStepKey,
     PhysicsStepWorkspace, PhysicsSubstepDiagnostics,
 };
+#[cfg(feature = "engine-test-hooks")]
+use super::physics::{PhysicsPhaseAllocations, PhysicsPhaseTimings};
 use super::sensors::{SensorError, SensorGenerationState};
 use super::spatial::PelletIndexDiagnostics;
 use super::state::{
@@ -644,6 +644,11 @@ impl WorldStepWorkspace {
     #[cfg(feature = "engine-test-hooks")]
     pub(crate) const fn physics_phase_allocations(&self) -> PhysicsPhaseAllocations {
         self.phases.phase_allocations()
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) const fn physics_phase_timings(&self) -> PhysicsPhaseTimings {
+        self.phases.phase_timings()
     }
 
     /// Canonically ordered controlled-death assignments awaiting local sends.

@@ -29,9 +29,9 @@ use super::generation_start::{
 };
 use super::graph::GraphLimits;
 use super::inference::{GraphExecutionPlan, InferenceError, InferenceMathBackend};
-#[cfg(feature = "engine-test-hooks")]
-use super::physics::PhysicsPhaseAllocations;
 use super::physics::PhysicsStepKey;
+#[cfg(feature = "engine-test-hooks")]
+use super::physics::{PhysicsPhaseAllocations, PhysicsPhaseTimings};
 use super::sensors::{SensorError, SensorEvaluator};
 use super::state::{
     AuthoritativeState, AuthorityPhase, ControllerKind, ControllerLeaseStatus,
@@ -2342,6 +2342,12 @@ impl RunningStepCoordinator {
     #[cfg(feature = "engine-test-hooks")]
     pub(crate) const fn last_physics_phase_allocations(&self) -> PhysicsPhaseAllocations {
         self.world_step.physics_phase_allocations()
+    }
+
+    /// Return the most recent fine-grained physics staging times.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) const fn last_physics_phase_timings(&self) -> PhysicsPhaseTimings {
+        self.world_step.physics_phase_timings()
     }
 }
 

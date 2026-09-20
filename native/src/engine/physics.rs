@@ -27,6 +27,8 @@ use super::state::{
 };
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+#[cfg(feature = "engine-test-hooks")]
+use std::time::Instant;
 
 /// Full identity of one in-process fixed-step proposal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -348,6 +350,22 @@ pub(crate) struct PhysicsPhaseAllocations {
     pub finalize: u64,
 }
 
+/// Test-hook-only elapsed milliseconds inside each prepared physics substep.
+#[cfg(feature = "engine-test-hooks")]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct PhysicsPhaseTimings {
+    pub pellet_index_ms: f64,
+    pub movement_ms: f64,
+    pub food_ms: f64,
+    pub collision_ms: f64,
+    pub collision_index_ms: f64,
+    pub collision_head_head_ms: f64,
+    pub collision_head_body_ms: f64,
+    pub effects_ms: f64,
+    pub result_application_ms: f64,
+    pub accept_ms: f64,
+}
+
 /// Read-only complete physics result for later full-step publication.
 #[derive(Clone, Copy, Debug)]
 pub struct PreparedPhysicsStep<'step> {
@@ -483,6 +501,8 @@ pub struct PhysicsPipelineWorkspace {
     allocation_cursor: Option<u64>,
     #[cfg(feature = "engine-test-hooks")]
     phase_allocations: PhysicsPhaseAllocations,
+    #[cfg(feature = "engine-test-hooks")]
+    phase_timings: PhysicsPhaseTimings,
 }
 
 impl Default for PhysicsPipelineWorkspace {
@@ -500,6 +520,8 @@ impl Default for PhysicsPipelineWorkspace {
             allocation_cursor: None,
             #[cfg(feature = "engine-test-hooks")]
             phase_allocations: PhysicsPhaseAllocations::default(),
+            #[cfg(feature = "engine-test-hooks")]
+            phase_timings: PhysicsPhaseTimings::default(),
         }
     }
 }
@@ -528,6 +550,7 @@ impl PhysicsPipelineWorkspace {
         self.allocation_snapshot = snapshot;
         self.allocation_cursor = snapshot.map(|snapshot| snapshot());
         self.phase_allocations = PhysicsPhaseAllocations::default();
+        self.phase_timings = PhysicsPhaseTimings::default();
     }
 
     #[cfg(feature = "engine-test-hooks")]
@@ -550,6 +573,11 @@ impl PhysicsPipelineWorkspace {
     #[cfg(feature = "engine-test-hooks")]
     pub(crate) const fn phase_allocations(&self) -> PhysicsPhaseAllocations {
         self.phase_allocations
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) const fn phase_timings(&self) -> PhysicsPhaseTimings {
+        self.phase_timings
     }
 }
 
@@ -908,7 +936,11 @@ impl PhysicsStepWorkspace {
                 allocation_cursor,
                 #[cfg(feature = "engine-test-hooks")]
                 phase_allocations,
+                #[cfg(feature = "engine-test-hooks")]
+                phase_timings,
             } = pipeline;
+            #[cfg(feature = "engine-test-hooks")]
+            let phase_started = Instant::now();
             pellet_index.rebuild(
                 world,
                 config.pellet_index_cell_size,
@@ -916,10 +948,13 @@ impl PhysicsStepWorkspace {
             )?;
             #[cfg(feature = "engine-test-hooks")]
             {
+                phase_timings.pellet_index_ms += phase_started.elapsed().as_secs_f64() * 1_000.0;
                 phase_allocations.pellet_index = phase_allocations
                     .pellet_index
                     .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
             }
+            #[cfg(feature = "engine-test-hooks")]
+            let phase_started = Instant::now();
             let movement = movement.prepare(
                 world,
                 config.movement,
@@ -929,6 +964,7 @@ impl PhysicsStepWorkspace {
             )?;
             #[cfg(feature = "engine-test-hooks")]
             {
+                phase_timings.movement_ms += phase_started.elapsed().as_secs_f64() * 1_000.0;
                 phase_allocations.movement = phase_allocations
                     .movement
                     .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
@@ -937,6 +973,8 @@ impl PhysicsStepWorkspace {
                 world,
                 std::mem::replace(pellet_index, PelletSpatialIndex::empty()),
             );
+            #[cfg(feature = "engine-test-hooks")]
+            let phase_started = Instant::now();
             let food_result = food.prepare(
                 &indexed,
                 movement,
@@ -949,17 +987,27 @@ impl PhysicsStepWorkspace {
             let food = food_result?;
             #[cfg(feature = "engine-test-hooks")]
             {
+                phase_timings.food_ms += phase_started.elapsed().as_secs_f64() * 1_000.0;
                 phase_allocations.food = phase_allocations
                     .food
                     .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
             }
+            #[cfg(feature = "engine-test-hooks")]
+            let phase_started = Instant::now();
             let collision = collision.prepare(food, config.collision)?;
             #[cfg(feature = "engine-test-hooks")]
             {
+                let collision_detail = collision.phase_timings();
+                phase_timings.collision_ms += phase_started.elapsed().as_secs_f64() * 1_000.0;
+                phase_timings.collision_index_ms += collision_detail.index_ms;
+                phase_timings.collision_head_head_ms += collision_detail.head_head_ms;
+                phase_timings.collision_head_body_ms += collision_detail.head_body_ms;
                 phase_allocations.collision = phase_allocations
                     .collision
                     .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
             }
+            #[cfg(feature = "engine-test-hooks")]
+            let phase_started = Instant::now();
             let effects = effects.prepare(
                 collision,
                 rng,
@@ -971,21 +1019,29 @@ impl PhysicsStepWorkspace {
             )?;
             #[cfg(feature = "engine-test-hooks")]
             {
+                phase_timings.effects_ms += phase_started.elapsed().as_secs_f64() * 1_000.0;
                 phase_allocations.effects = phase_allocations
                     .effects
                     .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
             }
+            #[cfg(feature = "engine-test-hooks")]
+            let phase_started = Instant::now();
             substep.prepare(effects, world, prepared_key, config)?;
             #[cfg(feature = "engine-test-hooks")]
             {
+                phase_timings.result_application_ms +=
+                    phase_started.elapsed().as_secs_f64() * 1_000.0;
                 phase_allocations.result_application = phase_allocations
                     .result_application
                     .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
             }
         }
+        #[cfg(feature = "engine-test-hooks")]
+        let phase_started = Instant::now();
         self.accept_prepared_substep(&mut pipeline.substep, prepared_key)?;
         #[cfg(feature = "engine-test-hooks")]
         {
+            pipeline.phase_timings.accept_ms += phase_started.elapsed().as_secs_f64() * 1_000.0;
             pipeline.phase_allocations.accept =
                 pipeline
                     .phase_allocations

@@ -1,4 +1,4 @@
-//! Emit retained Stage 5 single-worker complete fixed-step evidence.
+//! Emit complete fixed-step evidence with one or more calculation workers.
 
 use slither_native::engine::inference::InferenceMathBackend;
 use slither_native::engine::inference_fixture::Stage4InferenceScenarioName;

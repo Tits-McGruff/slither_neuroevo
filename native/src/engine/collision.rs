@@ -11,6 +11,8 @@ use super::state::{SnakeState, WorldPoint, WorldState};
 use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+#[cfg(feature = "engine-test-hooks")]
+use std::time::Instant;
 
 const CONTACT_SPACE_TOLERANCE: f64 = 1.0e-9;
 const CONTACT_HULL_TOLERANCE: f64 = CONTACT_SPACE_TOLERANCE * 0.5;
@@ -181,6 +183,17 @@ pub struct PreparedCollision<'collision, 'food, 'world> {
     deaths: &'collision [DeathProposal],
     awards: &'collision [KillAward],
     diagnostics: CollisionDiagnostics,
+    #[cfg(feature = "engine-test-hooks")]
+    phase_timings: CollisionPhaseTimings,
+}
+
+/// Benchmark-only attribution within collision preparation.
+#[cfg(feature = "engine-test-hooks")]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct CollisionPhaseTimings {
+    pub index_ms: f64,
+    pub head_head_ms: f64,
+    pub head_body_ms: f64,
 }
 
 impl<'collision, 'food, 'world> PreparedCollision<'collision, 'food, 'world> {
@@ -218,6 +231,11 @@ impl<'collision, 'food, 'world> PreparedCollision<'collision, 'food, 'world> {
     #[must_use]
     pub const fn diagnostics(self) -> CollisionDiagnostics {
         self.diagnostics
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) const fn phase_timings(self) -> CollisionPhaseTimings {
+        self.phase_timings
     }
 }
 
@@ -426,19 +444,13 @@ impl SweptBodyIndex {
         }
         debug_assert_eq!(self.segments.len(), required_segments);
         debug_assert_eq!(self.entries.len(), required_entries);
+        // Segments were appended in sorted owner-ID and segment-end order, so
+        // their indices are the same canonical tie-breaker without random
+        // segment lookups in the large cell-entry sort.
         self.entries.sort_unstable_by(|left, right| {
             left.key
                 .cmp(&right.key)
-                .then_with(|| {
-                    self.segments[left.segment]
-                        .owner_id
-                        .cmp(&self.segments[right.segment].owner_id)
-                })
-                .then_with(|| {
-                    self.segments[left.segment]
-                        .segment_end
-                        .cmp(&self.segments[right.segment].segment_end)
-                })
+                .then_with(|| left.segment.cmp(&right.segment))
         });
         reserve_for(&mut self.cells, self.entries.len(), "swept occupied cells")?;
         let mut start = 0usize;
@@ -515,16 +527,8 @@ impl SweptBodyIndex {
                 }
             }
         }
-        scratch.candidates.sort_unstable_by(|left, right| {
-            self.segments[*left]
-                .owner_id
-                .cmp(&self.segments[*right].owner_id)
-                .then_with(|| {
-                    self.segments[*left]
-                        .segment_end
-                        .cmp(&self.segments[*right].segment_end)
-                })
-        });
+        // Segment indices already have the canonical owner/segment order.
+        scratch.candidates.sort_unstable();
         Ok((cells_visited, entries_visited))
     }
 }
@@ -552,6 +556,8 @@ pub struct CollisionWorkspace {
     conservative_contacts: usize,
     maximum_contact_intervals: usize,
     ready: bool,
+    #[cfg(feature = "engine-test-hooks")]
+    phase_timings: CollisionPhaseTimings,
 }
 
 impl CollisionWorkspace {
@@ -624,9 +630,27 @@ impl CollisionWorkspace {
             }
         }
 
+        #[cfg(feature = "engine-test-hooks")]
+        let phase_started = Instant::now();
         self.index.rebuild(food, &self.order, config)?;
+        #[cfg(feature = "engine-test-hooks")]
+        {
+            self.phase_timings.index_ms = phase_started.elapsed().as_secs_f64() * 1_000.0;
+        }
+        #[cfg(feature = "engine-test-hooks")]
+        let phase_started = Instant::now();
         self.detect_head_head(food, config)?;
+        #[cfg(feature = "engine-test-hooks")]
+        {
+            self.phase_timings.head_head_ms = phase_started.elapsed().as_secs_f64() * 1_000.0;
+        }
+        #[cfg(feature = "engine-test-hooks")]
+        let phase_started = Instant::now();
         self.detect_head_body(food, config)?;
+        #[cfg(feature = "engine-test-hooks")]
+        {
+            self.phase_timings.head_body_ms = phase_started.elapsed().as_secs_f64() * 1_000.0;
+        }
 
         for &snake_index in &self.order {
             let snake = &food.snakes()[snake_index];
@@ -658,6 +682,8 @@ impl CollisionWorkspace {
             deaths: &self.deaths,
             awards: &self.awards,
             diagnostics,
+            #[cfg(feature = "engine-test-hooks")]
+            phase_timings: self.phase_timings,
         })
     }
 
@@ -666,19 +692,22 @@ impl CollisionWorkspace {
         food: PreparedFood<'_, '_>,
         config: CollisionConfig,
     ) -> Result<(), CollisionError> {
+        for &snake_index in &self.order {
+            if food.source_world().snakes[snake_index].alive {
+                validate_motion(&food.snakes()[snake_index])?;
+            }
+        }
         for left_order in 0..self.order.len() {
             let left_index = self.order[left_order];
             let left = &food.snakes()[left_index];
             if !food.source_world().snakes[left_index].alive {
                 continue;
             }
-            validate_motion(left)?;
             for &right_index in &self.order[left_order + 1..] {
                 let right = &food.snakes()[right_index];
                 if !food.source_world().snakes[right_index].alive {
                     continue;
                 }
-                validate_motion(right)?;
                 let left_movement_radius = food
                     .movement_radius_for_index(left_index)
                     .ok_or(CollisionError::FoodShapeMismatch)?;
@@ -692,6 +721,16 @@ impl CollisionWorkspace {
                 )?;
                 let final_threshold =
                     combined_threshold(left.radius, right.radius, config.hit_scale)?;
+                // A pair cannot meet if even its entire swept axis-aligned
+                // envelopes stay farther apart than the larger legal radius.
+                // Keep the contact tolerance so this only rejects clear misses.
+                if swept_head_envelopes_separate(
+                    left,
+                    right,
+                    movement_threshold.max(final_threshold) + CONTACT_SPACE_TOLERANCE,
+                ) {
+                    continue;
+                }
                 let Some((time, conservative)) = temporal_point_point_contact_time(
                     left.previous_position,
                     left.position,
@@ -825,6 +864,10 @@ impl CollisionWorkspace {
 
     fn clear(&mut self) {
         self.ready = false;
+        #[cfg(feature = "engine-test-hooks")]
+        {
+            self.phase_timings = CollisionPhaseTimings::default();
+        }
         self.order.clear();
         self.head_head_contacts.clear();
         self.head_body_contacts.clear();
@@ -1032,6 +1075,22 @@ fn combined_threshold(first: f64, second: f64, scale: f64) -> Result<f64, Collis
         });
     }
     Ok(threshold)
+}
+
+/// Reject only head trajectories whose full swept envelopes cannot touch.
+fn swept_head_envelopes_separate(first: &SnakeState, second: &SnakeState, radius: f64) -> bool {
+    let first_min_x = first.previous_position.x.min(first.position.x);
+    let first_max_x = first.previous_position.x.max(first.position.x);
+    let second_min_x = second.previous_position.x.min(second.position.x);
+    let second_max_x = second.previous_position.x.max(second.position.x);
+    if first_min_x > second_max_x + radius || second_min_x > first_max_x + radius {
+        return true;
+    }
+    let first_min_y = first.previous_position.y.min(first.position.y);
+    let first_max_y = first.previous_position.y.max(first.position.y);
+    let second_min_y = second.previous_position.y.min(second.position.y);
+    let second_max_y = second.previous_position.y.max(second.position.y);
+    first_min_y > second_max_y + radius || second_min_y > first_max_y + radius
 }
 
 fn swept_point_point_contact_time(
@@ -1591,6 +1650,36 @@ mod tests {
                 len: length,
             },
             skin: 0,
+        }
+    }
+
+    #[test]
+    fn swept_head_envelope_keeps_every_exact_contact_candidate() {
+        let first = snake(1, WorldPoint { x: 0.0, y: 0.0 }, 0.0, 5);
+        for x in (-4..=4).map(|step| f64::from(step) * 10.0) {
+            for y in (-4..=4).map(|step| f64::from(step) * 10.0) {
+                for direction in [0.0, -15.0, 15.0] {
+                    let mut second = snake(2, WorldPoint { x, y }, 0.0, 5);
+                    second.previous_position.x = x + direction;
+                    let threshold = combined_threshold(first.radius, second.radius, 0.82).unwrap();
+                    let exact = temporal_point_point_contact_time(
+                        first.previous_position,
+                        first.position,
+                        second.previous_position,
+                        second.position,
+                        threshold,
+                        threshold,
+                    )
+                    .unwrap();
+                    if exact.is_some() {
+                        assert!(!swept_head_envelopes_separate(
+                            &first,
+                            &second,
+                            threshold + CONTACT_SPACE_TOLERANCE,
+                        ));
+                    }
+                }
+            }
         }
     }
 

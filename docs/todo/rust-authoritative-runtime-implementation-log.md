@@ -511,5 +511,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   recurrent-state hashes matched one worker. The heavy case still misses the
   16.7 ms real-time budget, so further measured optimization remains required.
 
+- 2026-09-20 The same pool now evaluates disjoint brain ranges in parallel.
+  Collision profiling found 5.4 ms in all-pairs head checks; a conservative
+  swept-envelope rejection reduced that to 1.7 ms without changing the world
+  or recurrent hashes. The six-worker P1 step averaged 12.9 ms on the target
+  VM, but a 25.5 ms p99 outlier and the missing integrated-load test keep the
+  Stage 7 performance gate open.
+
 The next dependencies are Stage 6B durability, Stage 7 performance and
 acceptance, then the production cutover gates.

@@ -123,7 +123,7 @@ impl NeuralControlBatchView<'_> {
     }
 }
 
-/// Reusable single-worker Stage 4 sensing-to-inference staging owner.
+/// Reusable bounded-worker sensing-to-inference staging owner.
 ///
 /// Spatial indexes and [`SensorScratch`] are supplied by the owning world and
 /// worker respectively so their separately admitted allocations can be reused.
@@ -137,6 +137,7 @@ pub struct NeuralControlPipeline {
     calculation_pool: Option<ThreadPool>,
     parallel_sensor_scratch: Vec<SensorScratch>,
     parallel_sensor_errors: Vec<Option<SensorError>>,
+    parallel_inference_errors: Vec<Option<InferenceError>>,
     observations: Vec<f32>,
     staged_outputs: Vec<f32>,
     staged_recurrent: Vec<f32>,
@@ -191,6 +192,10 @@ impl NeuralControlPipeline {
             checked_element_bytes::<Option<SensorError>>(
                 calculation_workers,
                 "parallel sensor errors",
+            )?,
+            checked_element_bytes::<Option<InferenceError>>(
+                calculation_workers,
+                "parallel inference errors",
             )?,
             checked_product(
                 additional_workers,
@@ -275,6 +280,14 @@ impl NeuralControlPipeline {
                 elements: calculation_workers,
             })?;
         parallel_sensor_errors.resize_with(calculation_workers, || None);
+        let mut parallel_inference_errors = Vec::new();
+        parallel_inference_errors
+            .try_reserve_exact(calculation_workers)
+            .map_err(|_| NeuralControlError::AllocationFailed {
+                buffer: "parallel inference errors",
+                elements: calculation_workers,
+            })?;
+        parallel_inference_errors.resize_with(calculation_workers, || None);
         let observations = try_filled(
             checked_product(max_work, inference.input_size(), "observation count")?,
             0.0,
@@ -313,6 +326,10 @@ impl NeuralControlPipeline {
             workspace.allocated_bytes(),
             checked_capacity_bytes(&parallel_sensor_scratch, "parallel sensor scratch records")?,
             checked_capacity_bytes(&parallel_sensor_errors, "parallel sensor error records")?,
+            checked_capacity_bytes(
+                &parallel_inference_errors,
+                "parallel inference error records",
+            )?,
             checked_capacity_bytes(&observations, "observation capacity")?,
             checked_capacity_bytes(&staged_outputs, "output capacity")?,
             checked_capacity_bytes(&staged_recurrent, "recurrent staging capacity")?,
@@ -337,6 +354,7 @@ impl NeuralControlPipeline {
             calculation_pool,
             parallel_sensor_scratch,
             parallel_sensor_errors,
+            parallel_inference_errors,
             observations,
             staged_outputs,
             staged_recurrent,
@@ -439,9 +457,7 @@ impl NeuralControlPipeline {
             let chunk_work = active.div_ceil(calculation_workers);
             let chunk_observations = chunk_work * self.inference.input_size();
             let sensor = &self.sensor;
-            for error in &mut self.parallel_sensor_errors {
-                *error = None;
-            }
+            self.parallel_sensor_errors.fill(None);
             pool.scope(|scope| {
                 for (((((units, observations), deliveries), diagnostics), scratch), error) in work
                     .chunks(chunk_work)
@@ -496,25 +512,85 @@ impl NeuralControlPipeline {
                 self.diagnostics[ordinal] = sample.diagnostics;
             }
         }
-        let graph_scratch = scratches
-            .first_mut()
-            .ok_or(NeuralControlError::MissingCalculationScratch)?;
-        evaluate_heterogeneous_population_with_resets(
-            &self.inference,
-            work,
-            population,
-            brains,
-            HeterogeneousRecurrentReset {
-                mask: &self.recurrent_reset_mask[..active],
-                zero_recurrent: &self.zero_recurrent,
-            },
-            HeterogeneousInferenceBuffers {
-                observations: &self.observations[..observation_count],
-                staged_outputs: &mut self.staged_outputs[..output_count],
-                staged_recurrent: &mut self.staged_recurrent[..recurrent_count],
-            },
-            &mut graph_scratch.view(),
-        )?;
+        if let Some(pool) = self
+            .calculation_pool
+            .as_ref()
+            .filter(|_| active >= 2 * calculation_workers)
+        {
+            let chunk_work = active.div_ceil(calculation_workers);
+            let input_size = self.inference.input_size();
+            let output_size = self.inference.output_size();
+            let recurrent_size = self.inference.total_state_size();
+            let mut outputs = &mut self.staged_outputs[..output_count];
+            let mut recurrent = &mut self.staged_recurrent[..recurrent_count];
+            self.parallel_inference_errors.fill(None);
+            pool.scope(|scope| {
+                for (chunk_index, ((units, scratch), error)) in work
+                    .chunks(chunk_work)
+                    .zip(scratches.iter_mut())
+                    .zip(self.parallel_inference_errors.iter_mut())
+                    .enumerate()
+                {
+                    let count = units.len();
+                    let (chunk_outputs, remaining_outputs) =
+                        outputs.split_at_mut(count * output_size);
+                    outputs = remaining_outputs;
+                    let (chunk_recurrent, remaining_recurrent) =
+                        recurrent.split_at_mut(count * recurrent_size);
+                    recurrent = remaining_recurrent;
+                    let start = chunk_index * chunk_work;
+                    let chunk_observations =
+                        &self.observations[start * input_size..(start + count) * input_size];
+                    let chunk_resets = &self.recurrent_reset_mask[start..start + count];
+                    let inference = &self.inference;
+                    let zero_recurrent = &self.zero_recurrent;
+                    scope.spawn(move |_| {
+                        *error = evaluate_heterogeneous_population_with_resets(
+                            inference,
+                            units,
+                            population,
+                            brains,
+                            HeterogeneousRecurrentReset {
+                                mask: chunk_resets,
+                                zero_recurrent,
+                            },
+                            HeterogeneousInferenceBuffers {
+                                observations: chunk_observations,
+                                staged_outputs: chunk_outputs,
+                                staged_recurrent: chunk_recurrent,
+                            },
+                            &mut scratch.view(),
+                        )
+                        .err();
+                    });
+                }
+            });
+            for error in &mut self.parallel_inference_errors {
+                if let Some(failure) = error.take() {
+                    return Err(failure.into());
+                }
+            }
+        } else {
+            let graph_scratch = scratches
+                .first_mut()
+                .ok_or(NeuralControlError::MissingCalculationScratch)?;
+            evaluate_heterogeneous_population_with_resets(
+                &self.inference,
+                work,
+                population,
+                brains,
+                HeterogeneousRecurrentReset {
+                    mask: &self.recurrent_reset_mask[..active],
+                    zero_recurrent: &self.zero_recurrent,
+                },
+                HeterogeneousInferenceBuffers {
+                    observations: &self.observations[..observation_count],
+                    staged_outputs: &mut self.staged_outputs[..output_count],
+                    staged_recurrent: &mut self.staged_recurrent[..recurrent_count],
+                },
+                &mut graph_scratch.view(),
+            )?;
+        }
 
         self.ready = Some(ReadyBatch { key, active });
         self.batch()
