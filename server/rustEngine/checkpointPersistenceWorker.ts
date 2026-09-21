@@ -622,43 +622,63 @@ function initializeHallOfFameWeightsSchema(database: ReturnType<typeof Database>
       .every(name => columns.some(column => column.name === name))) {
       throw new Error('Hall-of-Fame schema migration did not create every retention field');
     }
-    const rows = database.prepare(`SELECT run_id, generation_hex, record_blob, weights_sha256,
-      genome_sha256, fitness_value, weight_state FROM rust_hall_of_fame_v1`).all() as Array<{
-        run_id: string; generation_hex: string; record_blob: Buffer; weights_sha256: string | null;
-        genome_sha256: string | null; fitness_value: number | null; weight_state: string | null;
-      }>;
+    type MigrationRow = {
+      run_id: string; generation_hex: string; record_blob: Buffer; weights_sha256: string | null;
+      genome_sha256: string | null; fitness_value: number | null; weight_state: string | null;
+    };
+    const firstPage = database.prepare(`SELECT run_id, generation_hex, record_blob, weights_sha256,
+      genome_sha256, fitness_value, weight_state FROM rust_hall_of_fame_v1
+      ORDER BY run_id, generation_hex LIMIT 256`);
+    const nextPage = database.prepare(`SELECT run_id, generation_hex, record_blob, weights_sha256,
+      genome_sha256, fitness_value, weight_state FROM rust_hall_of_fame_v1
+      WHERE run_id > ? OR (run_id = ? AND generation_hex > ?)
+      ORDER BY run_id, generation_hex LIMIT 256`);
     const update = database.prepare(`UPDATE rust_hall_of_fame_v1
       SET genome_sha256 = ?, fitness_value = ?, weight_state = ?
       WHERE run_id = ? AND generation_hex = ?`);
-    for (const row of rows) {
-      if (!Buffer.isBuffer(row.record_blob) || row.record_blob.length !== 56) {
-        throw new Error('Hall-of-Fame migration found a malformed compact record');
+    let rows = firstPage.all() as MigrationRow[];
+    while (rows.length > 0) {
+      for (const row of rows) {
+        if (!Buffer.isBuffer(row.record_blob) || row.record_blob.length !== 56) {
+          throw new Error('Hall-of-Fame migration found a malformed compact record');
+        }
+        const fitness = row.record_blob.readDoubleLE(32);
+        if (!Number.isFinite(fitness)) throw new Error('Hall-of-Fame migration found non-finite fitness');
+        const weightState = row.weight_state ?? (row.weights_sha256 === null ? 'legacy' : 'selected');
+        if (!['selected', 'unselected', 'legacy'].includes(weightState)) {
+          throw new Error('Hall-of-Fame migration found an invalid weight state');
+        }
+        const genomeSha256 = row.genome_sha256 ?? row.weights_sha256;
+        if (weightState !== 'legacy' && genomeSha256 === null) {
+          throw new Error('Hall-of-Fame migration found a retained row without genome identity');
+        }
+        if (row.genome_sha256 !== genomeSha256 || row.fitness_value !== fitness ||
+            row.weight_state !== weightState) {
+          update.run(genomeSha256, fitness, weightState, row.run_id, row.generation_hex);
+        }
       }
-      const fitness = row.record_blob.readDoubleLE(32);
-      if (!Number.isFinite(fitness)) throw new Error('Hall-of-Fame migration found non-finite fitness');
-      const weightState = row.weight_state ?? (row.weights_sha256 === null ? 'legacy' : 'selected');
-      if (!['selected', 'unselected', 'legacy'].includes(weightState)) {
-        throw new Error('Hall-of-Fame migration found an invalid weight state');
-      }
-      const genomeSha256 = row.genome_sha256 ?? row.weights_sha256;
-      if (weightState !== 'legacy' && genomeSha256 === null) {
-        throw new Error('Hall-of-Fame migration found a retained row without genome identity');
-      }
-      if (row.genome_sha256 !== genomeSha256 || row.fitness_value !== fitness ||
-          row.weight_state !== weightState) {
-        update.run(genomeSha256, fitness, weightState, row.run_id, row.generation_hex);
-      }
+      const last = rows[rows.length - 1]!;
+      rows = nextPage.all(last.run_id, last.run_id, last.generation_hex) as MigrationRow[];
     }
-    database.exec(`
-      CREATE INDEX IF NOT EXISTS rust_hof_genome_rank_v1
-        ON rust_hall_of_fame_v1(run_id, genome_sha256, pinned, fitness_value DESC, generation_hex);
-      CREATE INDEX IF NOT EXISTS rust_hof_selected_v1
-        ON rust_hall_of_fame_v1(run_id, weight_state, pinned, generation_hex);
-    `);
+    ensureHallOfFameIndexes(database);
     const runs = database.prepare('SELECT DISTINCT run_id FROM rust_hall_of_fame_v1')
       .all() as Array<{ run_id: string }>;
     for (const run of runs) rebuildHallOfFameRetention(run.run_id);
   }).immediate();
+}
+
+/** Restore selection and reference indexes after either Hall-of-Fame schema path. */
+function ensureHallOfFameIndexes(database: ReturnType<typeof Database>): void {
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS rust_hof_genome_rank_v1
+      ON rust_hall_of_fame_v1(run_id, genome_sha256, pinned, fitness_value DESC, generation_hex);
+    CREATE INDEX IF NOT EXISTS rust_hof_selected_v1
+      ON rust_hall_of_fame_v1(run_id, weight_state, pinned, generation_hex);
+    CREATE INDEX IF NOT EXISTS rust_hof_checkpoint_state_v1
+      ON rust_hall_of_fame_v1(checkpoint_id, weight_state);
+    CREATE INDEX IF NOT EXISTS rust_hof_weights_reference_v1
+      ON rust_hall_of_fame_v1(weights_sha256);
+  `);
 }
 
 /** Permit imported history to retain its exact keys without inventing one
@@ -714,6 +734,7 @@ function initializeImportableHistorySchema(database: ReturnType<typeof Database>
         DROP TABLE rust_hall_of_fame_v1_old;
       `);
     }
+    ensureHallOfFameIndexes(database);
   }).immediate();
 }
 
@@ -870,53 +891,60 @@ function assertStoredHallOfFameWeights(descriptor: ManagedHallOfFameWeightsDescr
 function cleanupUnreferencedHallOfFameWeights(): { files: number; storedBytes: bigint } {
   const result = { files: 0, storedBytes: 0n };
   if (activeExportLease || activeHallOfFameLease) return result;
-  const rows = db.prepare(`SELECT logical_sha256, relative_filename, encoding,
+  const nextPage = db.prepare(`SELECT logical_sha256, relative_filename, encoding,
     stored_byte_count_hex, decoded_byte_count_hex, weight_count_hex
     FROM rust_hall_of_fame_weights_v1 AS weights
-    WHERE NOT EXISTS (
+    WHERE logical_sha256 > ? AND NOT EXISTS (
       SELECT 1 FROM rust_hall_of_fame_v1 AS hall
       WHERE hall.weights_sha256 = weights.logical_sha256
-    ) ORDER BY weights.rowid`).all() as Array<{
-      logical_sha256: string;
-      relative_filename: string;
-      encoding: string;
-      stored_byte_count_hex: string;
-      decoded_byte_count_hex: string;
-      weight_count_hex: string;
-    }>;
+    ) ORDER BY logical_sha256 LIMIT 64`);
+  type UnreferencedWeightsRow = {
+    logical_sha256: string;
+    relative_filename: string;
+    encoding: string;
+    stored_byte_count_hex: string;
+    decoded_byte_count_hex: string;
+    weight_count_hex: string;
+  };
   let visited = 0;
-  for (const row of rows) {
-    if (!/^[0-9a-f]{64}$/u.test(row.logical_sha256) ||
-        row.relative_filename !== `${row.logical_sha256}.hof-weights-v1` ||
-        !['raw-f32le-v1', 'f32le-shuffle4-zstd-v1'].includes(row.encoding) ||
-        !/^[0-9a-f]{16}$/u.test(row.stored_byte_count_hex) ||
-        !/^[0-9a-f]{16}$/u.test(row.decoded_byte_count_hex) ||
-        !/^[0-9a-f]{16}$/u.test(row.weight_count_hex)) {
-      throw new Error('unreferenced Hall-of-Fame object has malformed metadata');
-    }
-    const decodedBytes = u64HexToBigInt(row.decoded_byte_count_hex as U64Hex);
-    const weightCount = u64HexToBigInt(row.weight_count_hex as U64Hex);
-    const storedBytes = u64HexToBigInt(row.stored_byte_count_hex as U64Hex);
-    if (decodedBytes !== weightCount * 4n ||
-        (row.encoding === 'raw-f32le-v1' && storedBytes !== decodedBytes)) {
-      throw new Error('unreferenced Hall-of-Fame object has inconsistent counts');
-    }
-    try {
-      const file = verifyManagedDirectFile(row.relative_filename, storedBytes);
-      unlinkSync(file.path);
-      result.files++;
-      result.storedBytes += storedBytes;
-    } catch (error) {
-      if (!(error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'ENOENT')) {
-        continue;
+  let cursor = '';
+  for (;;) {
+    const rows = nextPage.all(cursor) as UnreferencedWeightsRow[];
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      if (!/^[0-9a-f]{64}$/u.test(row.logical_sha256) ||
+          row.relative_filename !== `${row.logical_sha256}.hof-weights-v1` ||
+          !['raw-f32le-v1', 'f32le-shuffle4-zstd-v1'].includes(row.encoding) ||
+          !/^[0-9a-f]{16}$/u.test(row.stored_byte_count_hex) ||
+          !/^[0-9a-f]{16}$/u.test(row.decoded_byte_count_hex) ||
+          !/^[0-9a-f]{16}$/u.test(row.weight_count_hex)) {
+        throw new Error('unreferenced Hall-of-Fame object has malformed metadata');
       }
+      const decodedBytes = u64HexToBigInt(row.decoded_byte_count_hex as U64Hex);
+      const weightCount = u64HexToBigInt(row.weight_count_hex as U64Hex);
+      const storedBytes = u64HexToBigInt(row.stored_byte_count_hex as U64Hex);
+      if (decodedBytes !== weightCount * 4n ||
+          (row.encoding === 'raw-f32le-v1' && storedBytes !== decodedBytes)) {
+        throw new Error('unreferenced Hall-of-Fame object has inconsistent counts');
+      }
+      try {
+        const file = verifyManagedDirectFile(row.relative_filename, storedBytes);
+        unlinkSync(file.path);
+        result.files++;
+        result.storedBytes += storedBytes;
+      } catch (error) {
+        if (!(error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'ENOENT')) {
+          continue;
+        }
+      }
+      db.prepare(`DELETE FROM rust_hall_of_fame_weights_v1
+        WHERE logical_sha256 = ? AND NOT EXISTS (
+          SELECT 1 FROM rust_hall_of_fame_v1 WHERE weights_sha256 = ?
+        )`).run(row.logical_sha256, row.logical_sha256);
+      visited++;
+      if (visited % 64 === 0) advancePersistenceProgress();
     }
-    db.prepare(`DELETE FROM rust_hall_of_fame_weights_v1
-      WHERE logical_sha256 = ? AND NOT EXISTS (
-        SELECT 1 FROM rust_hall_of_fame_v1 WHERE weights_sha256 = ?
-      )`).run(row.logical_sha256, row.logical_sha256);
-    visited++;
-    if (visited % 64 === 0) advancePersistenceProgress();
+    cursor = rows[rows.length - 1]!.logical_sha256;
   }
   return result;
 }
@@ -938,6 +966,7 @@ function scavengeUnreferencedManagedFiles(): {
       retention.retention_kind
       FROM rust_checkpoint_v3_metadata AS metadata
       JOIN rust_checkpoint_retention_v1 AS retention USING(checkpoint_id)
+      WHERE retention.retention_kind IN ('automatic', 'pinned', 'pruning')
       ORDER BY metadata.rowid`).all() as Array<{
         descriptor_json: string | null;
         retention_kind: string;
@@ -945,7 +974,7 @@ function scavengeUnreferencedManagedFiles(): {
     let verifiedCheckpoints = 0;
     for (const row of checkpointRows) {
       if (row.descriptor_json === null ||
-          !['automatic', 'pinned', 'pruning', 'pruned'].includes(row.retention_kind)) {
+          !['automatic', 'pinned', 'pruning'].includes(row.retention_kind)) {
         throw new Error('managed orphan scan found invalid checkpoint metadata');
       }
       const descriptor = parseManagedCheckpointDescriptor(JSON.parse(row.descriptor_json));
@@ -1993,12 +2022,11 @@ function applyCheckpointRetention(): {
         SELECT checkpoint_id FROM rust_hall_of_fame_v1 WHERE weight_state = 'legacy'
       )`).run(Date.now());
     const { activeRunId, decision } = currentCheckpointRetentionDecision();
-    const unbackedHallOfFame = new Set((db.prepare(
-      "SELECT checkpoint_id FROM rust_hall_of_fame_v1 WHERE weight_state = 'legacy'"
-    ).all() as Array<{ checkpoint_id: string }>).map(row => row.checkpoint_id));
+    const hasLegacyWinner = db.prepare(`SELECT 1 FROM rust_hall_of_fame_v1
+      WHERE checkpoint_id = ? AND weight_state = 'legacy' LIMIT 1`);
     const planned = decision.pruned.filter(candidate =>
       candidate.checkpointId !== activeExportLease?.checkpointId &&
-      !unbackedHallOfFame.has(candidate.checkpointId)
+      !hasLegacyWinner.get(candidate.checkpointId)
     );
     // Old runs keep current pointers for convenient resume until their anchor
     // falls outside retention. Detach only those obsolete pointers in the same

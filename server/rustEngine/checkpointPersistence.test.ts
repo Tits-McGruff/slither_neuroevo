@@ -603,6 +603,22 @@ describe(SUITE, { timeout: 30_000 }, () => {
     writeFileSync(orphanCheckpoint, 'orphan checkpoint');
     writeFileSync(orphanWinner, 'orphan winner');
     writeFileSync(unknownFile, 'leave me alone');
+    const unreferenced = new Database(fixture.databasePath);
+    const unusedFiles: string[] = [];
+    try {
+      const insert = unreferenced.prepare(`INSERT INTO rust_hall_of_fame_weights_v1
+        (logical_sha256, relative_filename, encoding, stored_byte_count_hex,
+          decoded_byte_count_hex, weight_count_hex, created_at_ms)
+        VALUES (?, ?, ?, ?, ?, ?, 0)`);
+      unreferenced.transaction(() => {
+        for (let generation = 100n; generation < 170n; generation++) {
+          const weights = createHallOfFameWeights(generation);
+          unusedFiles.push(weights.relativeFilename);
+          insert.run(weights.logicalSha256, weights.relativeFilename, weights.encoding,
+            weights.storedByteCount, weights.decodedByteCount, weights.weightCount);
+        }
+      })();
+    } finally { unreferenced.close(); }
 
     const reopened = new CheckpointPersistenceClient({
       databasePath: fixture.databasePath,
@@ -613,7 +629,13 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await expect(reopened.selectStartup()).resolves.toMatchObject({ descriptor: second });
     expect(existsSync(orphanCheckpoint)).toBe(false);
     expect(existsSync(orphanWinner)).toBe(false);
+    expect(unusedFiles.every(file => !existsSync(join(fixture.managedRoot, file)))).toBe(true);
     expect(existsSync(unknownFile)).toBe(true);
+    const cleaned = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(cleaned.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get())
+        .toEqual({ count: 1 });
+    } finally { cleaned.close(); }
     expect(existsSync(join(fixture.managedRoot, first.relativeFilename))).toBe(true);
     expect(existsSync(join(fixture.managedRoot, second.relativeFilename))).toBe(true);
     expect(existsSync(join(
@@ -708,6 +730,8 @@ describe(SUITE, { timeout: 30_000 }, () => {
       });
       expect(migrated.prepare(`SELECT count(*) AS count FROM sqlite_schema
         WHERE type = 'table' AND name = 'rust_hall_of_fame_weights_v1'`).get()).toEqual({ count: 1 });
+      expect(migrated.prepare(`SELECT count(*) AS count FROM sqlite_schema
+        WHERE type = 'index' AND name = 'rust_hof_weights_reference_v1'`).get()).toEqual({ count: 1 });
     } finally { migrated.close(); }
     const legacyLease = await reopened.acquireCurrentExportLease();
     expect(legacyLease.inventory).toMatchObject({ historyCount: u64(1n), hallOfFameCount: u64(0n) });
@@ -796,6 +820,22 @@ describe(SUITE, { timeout: 30_000 }, () => {
         { retention_kind: 'pruned', count: 2 }
       ]);
     } finally { inspect.close(); }
+
+    const historical = new Database(fixture.databasePath);
+    try {
+      historical.prepare('UPDATE rust_checkpoint_v3_metadata SET descriptor_json = ? WHERE checkpoint_id = ?')
+        .run('invalid old descriptor', descriptors[0]!.logicalRootSha256);
+    } finally { historical.close(); }
+    const stalePrunedFile = join(fixture.managedRoot, descriptors[0]!.relativeFilename);
+    writeFileSync(stalePrunedFile, 'stale pruned file');
+    const restarted = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(restarted);
+    await expect(restarted.selectStartup()).resolves.toMatchObject({ descriptor: descriptors.at(-1) });
+    expect(existsSync(stalePrunedFile)).toBe(false);
   });
 
   it('detaches only expired prior-run pointers when pruning their checkpoint files', async () => {
@@ -831,6 +871,43 @@ describe(SUITE, { timeout: 30_000 }, () => {
       expect(inspect.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 4 });
       expect(inspect.prepare(`SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?`)
         .get(descriptors[0]!.logicalRootSha256)).toEqual({ retention_kind: 'pruned' });
+    } finally { inspect.close(); }
+  });
+
+  it('migrates Hall-of-Fame history beyond one startup page without loading it all at once', async () => {
+    const fixture = createFixture();
+    const current = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(current);
+    await fixture.client.close();
+    const historical = new Database(fixture.databasePath);
+    try {
+      const insert = historical.prepare(`INSERT INTO rust_hall_of_fame_v1
+        (run_id, generation_hex, checkpoint_id, record_version, record_blob,
+          weights_sha256, genome_sha256, fitness_value, pinned, weight_state, created_at_ms)
+        VALUES (?, ?, NULL, 1, ?, NULL, NULL, 0, 0, 'legacy', 0)`);
+      historical.transaction(() => {
+        for (let index = 1; index <= 300; index++) {
+          const record = Buffer.alloc(56);
+          record.writeBigUInt64LE(BigInt(index), 0);
+          record.writeDoubleLE(index + 0.5, 32);
+          insert.run(index <= 150 ? 'legacy-page-a' : 'legacy-page-b', u64(BigInt(index)), record);
+        }
+      })();
+    } finally { historical.close(); }
+    const restarted = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(restarted);
+    await expect(restarted.selectStartup()).resolves.toMatchObject({ descriptor: current });
+    await restarted.close();
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_v1').get()).toEqual({ count: 300 });
+      expect(inspect.prepare(`SELECT fitness_value FROM rust_hall_of_fame_v1
+        WHERE run_id = ? AND generation_hex = ?`).get('legacy-page-b', u64(300n)))
+        .toEqual({ fitness_value: 300.5 });
     } finally { inspect.close(); }
   });
 

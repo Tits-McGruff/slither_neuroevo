@@ -553,5 +553,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   This uses protocol-compatible diagnostic clients, not LAN browsers or the
   owner's trainer.
 
+- 2026-09-21 Startup now scans only physically retained checkpoint files;
+  pruned history no longer increases the managed-file scan. Hall-of-Fame
+  metadata migration reads 256 records at a time instead of loading all
+  generations into Node memory. Unused winner-object cleanup is paged too,
+  with indexed object-reference and legacy-checkpoint lookups; older table
+  upgrades restore those indexes after rebuilding the table. Restart fixtures
+  cover page boundaries and stale files whose checkpoint metadata is pruned.
+
 The next dependencies are Stage 6B durability, Stage 7 performance and
 acceptance, then the production cutover gates.
