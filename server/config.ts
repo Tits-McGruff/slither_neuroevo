@@ -60,7 +60,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   logLevel: 'info',
   mtEnabled: false,
   mtWorkers: 0,
-  rustCalculationWorkers: 1,
+  rustCalculationWorkers: 5,
   inferenceBackend: 'native',
   resume: 'latest'
 };

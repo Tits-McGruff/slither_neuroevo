@@ -81,8 +81,8 @@ the result as population-only, not an exact continuation. The browser status
 pill also labels converted saves and exact imported branches, with their source
 details in its tooltip.
 
-The experimental server defaults to one Rust calculation thread. Use
-`--rust-workers N` (1–7, or `RUST_WORKERS=N`) to try its persistent worker pool;
+The experimental server defaults to five Rust calculation workers on new
+configurations. Use `--rust-workers N` (1–7, or `RUST_WORKERS=N`) to override its persistent worker pool;
 it parallelizes sensing and brain evaluation while keeping brain-state and
 physics commits ordered. This is separate from the reference server's
 `--mt-workers` option.

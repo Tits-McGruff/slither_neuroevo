@@ -48,6 +48,7 @@ afterEach(() => {
 describe(SUITE, () => {
   it('PER-005 defaults bounded automatic checkpoints to every generation', () => {
     expect(DEFAULT_CONFIG.checkpointEveryGenerations).toBe(1);
+    expect(DEFAULT_CONFIG.rustCalculationWorkers).toBe(5);
   });
 
   it('PER-005 commits through the typed boundary path before spawn, pellets, and focus', () => {

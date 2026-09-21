@@ -561,5 +561,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   upgrades restore those indexes after rebuilding the table. Restart fixtures
   cover page boundaries and stale files whose checkpoint metadata is pruned.
 
+- 2026-09-21 On the Debian 300-snake workload, five workers sustained 0.993
+  simulated/wall speed with a 16 ms p99 step bucket; four workers sustained
+  0.995 but had a 24 ms p99 bucket. New configurations therefore default to
+  five Rust calculation workers, while explicit flags and existing config
+  files continue to override that default.
+
 The next dependencies are Stage 6B durability, Stage 7 performance and
 acceptance, then the production cutover gates.
