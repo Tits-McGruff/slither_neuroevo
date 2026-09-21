@@ -719,9 +719,7 @@ fn calculate_summary(
     for &slot in sorted_slots {
         let mut assigned = false;
         for (species_index, &representative) in representatives.iter().enumerate() {
-            if genome_distance_rms(&population[slot], &population[representative])?
-                <= SPECIES_DISTANCE_THRESHOLD
-            {
+            if genomes_share_species(&population[slot], &population[representative])? {
                 species_sizes[species_index] += 1_u64;
                 assigned = true;
                 break;
@@ -785,10 +783,10 @@ fn calculate_summary(
     Ok(summary)
 }
 
-fn genome_distance_rms(
+fn genomes_share_species(
     left: &PopulationGenome,
     right: &PopulationGenome,
-) -> Result<f64, EvolutionError> {
+) -> Result<bool, EvolutionError> {
     if left.weights.len() != right.weights.len() {
         return Err(EvolutionError::PopulationShape {
             reason: "species genomes have incompatible weights",
@@ -798,18 +796,24 @@ fn genome_distance_rms(
         // TypeScript computes `Math.sqrt(0 / 0)`, yielding NaN; its `<=`
         // threshold comparison is then false, so every draw-free genome forms
         // its own diagnostic species without invalidating evolution.
-        return Ok(f64::NAN);
+        return Ok(false);
     }
-    let sum_squared = left
-        .weights
-        .iter()
-        .zip(right.weights.iter())
-        .map(|(left, right)| {
-            let difference = f64::from(*left) - f64::from(*right);
-            difference * difference
-        })
-        .sum::<f64>();
-    Ok((sum_squared / left.weights.len() as f64).sqrt())
+    // Squared differences are nonnegative. Reject distant genomes early, but
+    // leave a generous guard above the threshold so close comparisons still
+    // take the original complete sum and sqrt path in the same weight order.
+    let far_limit = SPECIES_DISTANCE_THRESHOLD
+        * SPECIES_DISTANCE_THRESHOLD
+        * left.weights.len() as f64
+        * 1.000_001;
+    let mut sum_squared = 0.0_f64;
+    for (&left_weight, &right_weight) in left.weights.iter().zip(right.weights.iter()) {
+        let difference = f64::from(left_weight) - f64::from(right_weight);
+        sum_squared += difference * difference;
+        if sum_squared > far_limit {
+            return Ok(false);
+        }
+    }
+    Ok((sum_squared / left.weights.len() as f64).sqrt() <= SPECIES_DISTANCE_THRESHOLD)
 }
 
 fn tournament_pick(
@@ -1568,7 +1572,32 @@ mod tests {
         let mut right = left.clone();
         left.weights = Box::new([]);
         right.weights = Box::new([]);
-        assert!(genome_distance_rms(&left, &right).unwrap().is_nan());
+        assert!(!genomes_share_species(&left, &right).unwrap());
+    }
+
+    #[test]
+    fn species_early_rejection_preserves_complete_distance_decisions() {
+        let mut left = source_state(&fixture()).1.remove(0);
+        let mut right = left.clone();
+        left.weights = vec![0.0; 8_192].into_boxed_slice();
+        for difference in [0.1_f32, 0.35, 0.36, 2.0] {
+            right.weights = vec![difference; left.weights.len()].into_boxed_slice();
+            let sum_squared = left
+                .weights
+                .iter()
+                .zip(right.weights.iter())
+                .map(|(&a, &b)| {
+                    let distance = f64::from(a) - f64::from(b);
+                    distance * distance
+                })
+                .sum::<f64>();
+            let expected =
+                (sum_squared / left.weights.len() as f64).sqrt() <= SPECIES_DISTANCE_THRESHOLD;
+            assert_eq!(genomes_share_species(&left, &right).unwrap(), expected);
+        }
+        right.weights = vec![0.0; left.weights.len()].into_boxed_slice();
+        right.weights[0] = 100.0;
+        assert!(!genomes_share_species(&left, &right).unwrap());
     }
 
     #[test]

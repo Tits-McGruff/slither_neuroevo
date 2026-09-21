@@ -39,7 +39,9 @@ pub const CHECKPOINT_CONTAINER_VERSION: u32 = 1;
 /// Exact decoded bytes in each measured shuffled-Zstandard block.
 pub const SHUFFLED_BLOCK_BYTES: usize = 1024 * 1024;
 /// Zstandard compression level selected by the approved plan.
-const ZSTD_LEVEL: i32 = 3;
+// Level 1 keeps adaptive shuffled encoding while shortening the generation
+// boundary for large brains; raw blocks still win whenever compression grows.
+const ZSTD_LEVEL: i32 = 1;
 /// Zstandard window-log ceiling matching the one-MiB decoded block contract.
 const ZSTD_WINDOW_LOG_MAX: u32 = 20;
 /// Conservative non-payload allowance for tar, buffered I/O, hash, and role-table state.

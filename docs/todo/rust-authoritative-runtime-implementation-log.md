@@ -545,5 +545,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   with the exact checkpoint ID. Its 90-second speed was 0.972, below the 0.98
   target, so the large-brain performance gate remains open.
 
+- 2026-09-21 Early rejection of clearly different species comparisons and
+  faster adaptive checkpoint compression reduced the large-brain checkpoint
+  pause to about 0.53 seconds. The Debian 55-snake large-brain run sustained
+  0.984 simulated/wall speed for 125 seconds across two generations, with no
+  discarded scheduler time, p99 step bucket 12 ms, and peak RSS 486 MB.
+  This uses protocol-compatible diagnostic clients, not LAN browsers or the
+  owner's trainer.
+
 The next dependencies are Stage 6B durability, Stage 7 performance and
 acceptance, then the production cutover gates.
