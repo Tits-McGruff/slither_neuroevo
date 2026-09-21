@@ -10,6 +10,7 @@ import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import WebSocket, { type RawData } from 'ws';
+import { buildStackGraphSpec } from '../../src/brains/stackBuilder.ts';
 import { PlayerActionPump } from '../../src/net/playerActionPump.ts';
 
 /** Validated command-line controls for one bounded probe. */
@@ -30,6 +31,8 @@ export interface ProbeOptions {
   resetSnakeCount?: number;
   /** Optional reset-only round duration applied before timing begins. */
   resetGenerationSeconds?: number;
+  /** Select the approved 55-snake large-brain P2 workload. */
+  resetP2?: boolean;
 }
 
 /** Small controller counters retained across the reconnect. */
@@ -158,7 +161,7 @@ const DEFAULT_DURATION_SECONDS = 30;
 const DEFAULT_PLAYER_SUPPRESSION_SECONDS = 1.5;
 
 /** Inclusive millisecond ceilings for bounded probe-side latency histograms. */
-const LATENCY_BUCKETS_MS = [0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 125, 250,
+const LATENCY_BUCKETS_MS = [0.1, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 40, 48, 64, 125, 250,
   500, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000, Infinity] as const;
 
 /** Fixed-memory client-side latency accumulator. */
@@ -240,10 +243,12 @@ function parseOptions(arguments_: readonly string[]): ProbeOptions {
   let requireFrameReplacement = false;
   let resetSnakeCount: number | undefined;
   let resetGenerationSeconds: number | undefined;
+  let resetP2 = false;
   for (let index = 0; index < arguments_.length; index++) {
     const option = arguments_[index]!;
     if (option === '--require-generation-transition') requireGenerationTransition = true;
     else if (option === '--require-frame-replacement') requireFrameReplacement = true;
+    else if (option === '--reset-p2') resetP2 = true;
     else if (option === '--ws-url') wsUrl = arguments_[++index] ?? '';
     else if (option === '--duration-seconds') durationMs = positiveNumber(arguments_[++index], option) * 1_000;
     else if (option === '--player-suppression-seconds') {
@@ -273,13 +278,18 @@ function parseOptions(arguments_: readonly string[]): ProbeOptions {
     throw new RangeError('--duration-seconds must leave at least one second after player suppression');
   }
   return { wsUrl: parsedUrl.href, durationMs, reconnectAfterSensors,
-    requireGenerationTransition, playerSuppressionMs, requireFrameReplacement,
+    requireGenerationTransition, playerSuppressionMs, requireFrameReplacement, resetP2,
     ...(resetSnakeCount === undefined ? {} : { resetSnakeCount }),
     ...(resetGenerationSeconds === undefined ? {} : { resetGenerationSeconds }) };
 }
 
 /** Apply selected reset-only workload settings before opening timed probe clients. */
 async function resetWorkload(options: ProbeOptions): Promise<void> {
+  const p2Core = { snakeCount: 55, hiddenLayers: 5, neurons1: 256, neurons2: 256,
+    neurons3: 256, neurons4: 256, neurons5: 256 };
+  const p2Graph = options.resetP2 ? buildStackGraphSpec(p2Core, { brain: {
+    inSize: 147, outSize: 2, stack: { gru: 1 }, gruHidden: 96
+  } }) : undefined;
   const socket = new WebSocket(options.wsUrl);
   await new Promise<void>((resolvePromise, reject) => {
     let settled = false;
@@ -302,15 +312,23 @@ async function resetWorkload(options: ProbeOptions): Promise<void> {
         if (packet['type'] === 'welcome') {
           socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
           socket.send(JSON.stringify({ type: 'reset', settings: {
+            ...(options.resetP2 ? p2Core : {}),
             ...(options.resetSnakeCount === undefined ? {} : { snakeCount: options.resetSnakeCount })
-          }, ...(options.resetGenerationSeconds === undefined ? {} : {
-            updates: [{ path: 'generationSeconds', value: options.resetGenerationSeconds }]
-          }) }));
+          }, updates: [
+            ...(options.resetP2 ? [{ path: 'sense.bubbleBins', value: 32 }] : []),
+            ...(options.resetGenerationSeconds === undefined ? [] :
+              [{ path: 'generationSeconds', value: options.resetGenerationSeconds }])
+          ], ...(p2Graph ? { graphSpec: p2Graph } : {}) }));
         } else if (packet['type'] === 'stateReplaced' && packet['reason'] === 'reset') {
           const welcome = record(packet['welcome'], 'reset welcome');
           const core = record(record(welcome['settings'], 'reset settings')['core'], 'reset core settings');
           if (options.resetSnakeCount !== undefined && core['snakeCount'] !== options.resetSnakeCount) {
             throw new Error('reset returned a different population size');
+          }
+          const parameterCount = record(welcome['inferenceMode'], 'reset inference mode')['parameterCount'];
+          if (options.resetP2 && (record(welcome['sensorSpec'], 'reset sensor spec')['sensorCount'] !== 147 ||
+              typeof parameterCount !== 'number' || parameterCount < 400_000)) {
+            throw new Error('reset returned a different large-brain graph or sensor layout');
           }
           if (options.resetGenerationSeconds !== undefined) {
             const updates = record(welcome['settings'], 'reset settings')['updates'];
@@ -676,7 +694,7 @@ async function closeSocket(socket: WebSocket): Promise<void> {
 
 /** Run one scalar live integration probe and enforce its selected gates. */
 export async function run(options: ProbeOptions): Promise<Record<string, unknown>> {
-  if (options.resetSnakeCount !== undefined || options.resetGenerationSeconds !== undefined) {
+  if (options.resetSnakeCount !== undefined || options.resetGenerationSeconds !== undefined || options.resetP2) {
     await resetWorkload(options);
   }
   const startedAt = performance.now();
@@ -795,6 +813,7 @@ export async function run(options: ProbeOptions): Promise<Record<string, unknown
       requireFrameReplacement: options.requireFrameReplacement,
       resetSnakeCount: options.resetSnakeCount ?? null,
       resetGenerationSeconds: options.resetGenerationSeconds ?? null,
+      resetP2: options.resetP2 === true,
       generation: { before: initialGeneration.toString(), after: finalGeneration.toString() },
       controller,
       browserPlayer,

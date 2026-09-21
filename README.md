@@ -48,9 +48,9 @@ addon, and write logs/PID files in the repository root:
 
 On Windows, open the local URL printed by Vite (usually `http://localhost:5173`).
 On Linux, `play.sh` starts the Rust server with the built browser at its printed
-server URL. If an existing database cannot resume, it leaves the files
-untouched and keeps the health-only server available for diagnosis; it never
-starts a new experiment automatically over that database.
+server URL. If an existing database cannot resume, it does not move or replace
+that database; it keeps the health-only server available for diagnosis and
+never starts a new experiment automatically over it.
 
 Note: This project uses ES modules, so opening `index.html` directly in a file browser will not work.
 

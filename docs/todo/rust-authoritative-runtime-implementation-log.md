@@ -537,5 +537,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   discarded scheduler time, and the Linux launcher preserves a failed-resume
   database in health-only mode instead of silently starting fresh.
 
+- 2026-09-21 A ten-minute 300-snake VM run crossed ten checkpoints at 0.986
+  simulated/wall speed with no discarded scheduler time. An expired prior-run
+  pointer then exposed a retention fault; pruning now detaches only obsolete
+  pointers atomically with prune intent. The 55-snake large-brain run resumed,
+  crossed two more generations, and directly exported/imported its 75 MB save
+  with the exact checkpoint ID. Its 90-second speed was 0.972, below the 0.98
+  target, so the large-brain performance gate remains open.
+
 The next dependencies are Stage 6B durability, Stage 7 performance and
 acceptance, then the production cutover gates.

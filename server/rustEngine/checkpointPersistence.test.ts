@@ -798,6 +798,42 @@ describe(SUITE, { timeout: 30_000 }, () => {
     } finally { inspect.close(); }
   });
 
+  it('detaches only expired prior-run pointers when pruning their checkpoint files', async () => {
+    const fixture = createFixture();
+    const descriptors: ManagedCheckpointDescriptor[] = [];
+    for (let index = 1; index <= 4; index++) {
+      const descriptor = createDescriptor(fixture.managedRoot, {
+        runId: `retention-run-${index}`,
+        operationId: index.toString(16).padStart(32, '0')
+      });
+      descriptors.push(descriptor);
+      await fixture.client.commit(descriptor, null, true);
+    }
+    const before = await fixture.client.inspectRetention();
+    expect(before.retained.priorRunAnchor.checkpointCount).toBe(2);
+    expect(before.plannedPrune.checkpointCount).toBe(1);
+
+    const result = await fixture.client.applyRetention();
+    expect(result.deletedCheckpointCount).toBe(1);
+    expect(result.inventory.plannedPrune.checkpointCount).toBe(0);
+    expect(await fixture.client.selectCurrent()).toEqual(descriptors[3]);
+    expect(existsSync(join(fixture.managedRoot, descriptors[0]!.relativeFilename))).toBe(false);
+    for (const descriptor of descriptors.slice(1)) {
+      expect(existsSync(join(fixture.managedRoot, descriptor.relativeFilename))).toBe(true);
+    }
+
+    await fixture.client.close();
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT run_id FROM rust_checkpoint_v3_current ORDER BY run_id').all()).toEqual(
+        descriptors.slice(1).map(descriptor => ({ run_id: descriptor.runId }))
+      );
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 4 });
+      expect(inspect.prepare(`SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?`)
+        .get(descriptors[0]!.logicalRootSha256)).toEqual({ retention_kind: 'pruned' });
+    } finally { inspect.close(); }
+  });
+
   it('keeps one exact export lease alive across later checkpoints and pruning', async () => {
     const fixture = createFixture();
     const descriptors = [createDescriptor(fixture.managedRoot)];
@@ -1395,6 +1431,42 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(existsSync(repeatedFile)).toBe(true);
     await fixture.client.applyRetention();
     expect(existsSync(repeatedFile)).toBe(true);
+  });
+
+  it('pinning a top-50 winner does not promote a deleted rank-51 object', async () => {
+    const fixture = createFixture();
+    await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    for (let generation = 2n; generation <= 52n; generation++) {
+      await fixture.client.commit(createDescriptor(fixture.managedRoot, {
+        operationId: (generation + 300n).toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation), generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n), boundaryKind: 'generation'
+      }), createGenerationCommit(generation - 1n, { bestF64Hex: f64(Number(generation)) }));
+    }
+    await fixture.client.applyRetention();
+    await fixture.client.close();
+    const pinDatabase = new Database(fixture.databasePath);
+    try {
+      pinDatabase.prepare('UPDATE rust_hall_of_fame_v1 SET pinned = 1 WHERE generation_hex = ?')
+        .run(u64(51n));
+    } finally { pinDatabase.close(); }
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath, managedRootPath: fixture.managedRoot, existingOnly: true
+    });
+    clients.push(reopened);
+    await reopened.commit(createDescriptor(fixture.managedRoot, {
+      operationId: 'e4'.repeat(16), transitionEpoch: u64(53n), generation: u64(53n),
+      completedStep: u64(52n * 3_600n), boundaryKind: 'generation'
+    }), createGenerationCommit(52n, { bestF64Hex: f64(0) }));
+    await reopened.applyRetention();
+    const lease = await reopened.acquireCurrentExportLease();
+    expect(lease.inventory.hallOfFameCount).toBe(u64(50n));
+    await reopened.releaseExportLease(lease.operationId);
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get())
+        .toEqual({ count: 50 });
+    } finally { inspect.close(); }
   });
 
   it('terminates a persistence worker that stops making observable progress', async () => {

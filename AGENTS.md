@@ -267,7 +267,7 @@ Open the Vite URL, normally `http://localhost:5173`. Opening `index.html`
 directly does not work. `play.bat` installs missing dependencies, builds the
 mandatory native addon, starts the reference server and Vite, and writes
 PID/log files in the repository root. `play.sh` builds the addon and browser
-and starts the Rust server with static assets; failed-resume data stays put
+and starts the Rust server with static assets; a failed-resume database stays put
 and the health-only server remains available for diagnosis.
 
 Trusted home-LAN use is supported by setting `host` and `uiHost` to

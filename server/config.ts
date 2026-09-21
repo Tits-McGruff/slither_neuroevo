@@ -50,7 +50,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   uiPort: 5173,
   publicWsUrl: '',
   tickRateHz: 60,
-  uiFrameRateHz: 30,
+  uiFrameRateHz: 36,
   maxActionsPerTick: 1,
   maxActionsPerSecond: 120,
   controllerInputHoldMs: 500,

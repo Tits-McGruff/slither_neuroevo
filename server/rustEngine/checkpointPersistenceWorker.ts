@@ -56,7 +56,7 @@ const EXPORT_INVENTORY_HALL_OF_FAME_BYTES = 120;
 /** Practical hard ceiling for complete-generation records in one ordinary export. */
 const MAX_EXPORT_GENERATIONS = 1_000_000n;
 /** Owner-selected number of best unique unpinned Hall-of-Fame genomes. */
-const MAX_UNPINNED_HALL_OF_FAME_GENOMES = 50;
+const MAX_HALL_OF_FAME_UNIQUE_GENOMES = 50;
 /** Largest serialized graph preset admitted by the existing browser contract. */
 const MAX_GRAPH_PRESET_BYTES = 256 * 1024;
 /** Largest UTF-8 preset name retained in SQLite. */
@@ -1131,24 +1131,19 @@ function rebuildHallOfFameRetention(runId: string): void {
   // history size; only selected rows and explicitly pinned rows reach JS.
   const automatic = db.prepare(`WITH ranked AS (
       SELECT candidate.generation_hex, candidate.fitness_value, candidate.genome_sha256,
+        candidate.pinned,
         row_number() OVER (
           PARTITION BY candidate.genome_sha256
           ORDER BY candidate.fitness_value DESC, candidate.generation_hex ASC
         ) AS genome_rank
       FROM rust_hall_of_fame_v1 AS candidate
-      WHERE candidate.run_id = ? AND candidate.pinned = 0
-        AND candidate.weight_state != 'legacy' AND candidate.genome_sha256 IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM rust_hall_of_fame_v1 AS pinned
-          WHERE pinned.run_id = candidate.run_id AND pinned.pinned = 1
-            AND pinned.weight_state != 'legacy'
-            AND pinned.genome_sha256 = candidate.genome_sha256
-        )
+      WHERE candidate.run_id = ? AND candidate.weight_state != 'legacy'
+        AND candidate.genome_sha256 IS NOT NULL
     )
-    SELECT generation_hex, fitness_value, genome_sha256, 0 AS pinned, 'selected' AS weight_state
+    SELECT generation_hex, fitness_value, genome_sha256, pinned, 'selected' AS weight_state
     FROM ranked WHERE genome_rank = 1
     ORDER BY fitness_value DESC, generation_hex ASC
-    LIMIT ?`).all(runId, MAX_UNPINNED_HALL_OF_FAME_GENOMES) as HallOfFameRetentionRow[];
+    LIMIT ?`).all(runId, MAX_HALL_OF_FAME_UNIQUE_GENOMES) as HallOfFameRetentionRow[];
   const pinned = db.prepare(`SELECT generation_hex, fitness_value, genome_sha256, pinned, weight_state
     FROM rust_hall_of_fame_v1
     WHERE run_id = ? AND pinned = 1 AND weight_state != 'legacy'
@@ -1166,27 +1161,23 @@ function applyIncrementalHallOfFameRetention(runId: string, newGenomeSha256: str
     FROM rust_hall_of_fame_v1
     WHERE run_id = ? AND pinned = 1 AND weight_state != 'legacy'
     ORDER BY generation_hex`).all(runId) as HallOfFameRetentionRow[];
-  const pinnedGenomes = new Set(pinned.map(row => row.genome_sha256));
   const candidates = db.prepare(`SELECT generation_hex, fitness_value, genome_sha256, pinned, weight_state
     FROM rust_hall_of_fame_v1
     WHERE run_id = ? AND weight_state = 'selected' AND pinned = 0
     ORDER BY generation_hex`).all(runId) as HallOfFameRetentionRow[];
-  if (!pinnedGenomes.has(newGenomeSha256)) {
-    const bestMatching = db.prepare(`SELECT generation_hex, fitness_value, genome_sha256, pinned, weight_state
-      FROM rust_hall_of_fame_v1
-      WHERE run_id = ? AND genome_sha256 = ? AND pinned = 0 AND weight_state != 'legacy'
-      ORDER BY fitness_value DESC, generation_hex ASC LIMIT 1`)
-      .get(runId, newGenomeSha256) as HallOfFameRetentionRow | undefined;
-    if (!bestMatching) throw new Error('new Hall-of-Fame genome has no ranked metadata');
-    candidates.push(bestMatching);
-  }
+  const bestMatching = db.prepare(`SELECT generation_hex, fitness_value, genome_sha256, pinned, weight_state
+    FROM rust_hall_of_fame_v1
+    WHERE run_id = ? AND genome_sha256 = ? AND weight_state != 'legacy'
+    ORDER BY fitness_value DESC, generation_hex ASC LIMIT 1`)
+    .get(runId, newGenomeSha256) as HallOfFameRetentionRow | undefined;
+  if (!bestMatching) throw new Error('new Hall-of-Fame genome has no ranked metadata');
+  candidates.push(bestMatching, ...pinned);
   const unique = new Map<string, HallOfFameRetentionRow>();
   for (const row of candidates) {
     if (!Number.isFinite(row.fitness_value) || row.genome_sha256 === null ||
-        row.pinned !== 0 || !['selected', 'unselected'].includes(row.weight_state)) {
+        ![0, 1].includes(row.pinned) || !['selected', 'unselected'].includes(row.weight_state)) {
       throw new Error('incremental Hall-of-Fame retention found invalid metadata');
     }
-    if (pinnedGenomes.has(row.genome_sha256)) continue;
     const previous = unique.get(row.genome_sha256);
     if (!previous || row.fitness_value > previous.fitness_value ||
         (row.fitness_value === previous.fitness_value && row.generation_hex < previous.generation_hex)) {
@@ -1196,7 +1187,7 @@ function applyIncrementalHallOfFameRetention(runId: string, newGenomeSha256: str
   const automatic = [...unique.values()]
     .sort((left, right) => right.fitness_value - left.fitness_value ||
       (left.generation_hex < right.generation_hex ? -1 : left.generation_hex > right.generation_hex ? 1 : 0))
-    .slice(0, MAX_UNPINNED_HALL_OF_FAME_GENOMES);
+    .slice(0, MAX_HALL_OF_FAME_UNIQUE_GENOMES);
   reconcileHallOfFameSelection(runId, [...pinned, ...automatic]);
 }
 
@@ -2001,7 +1992,7 @@ function applyCheckpointRetention(): {
       WHERE retention_kind = 'pruning' AND checkpoint_id IN (
         SELECT checkpoint_id FROM rust_hall_of_fame_v1 WHERE weight_state = 'legacy'
       )`).run(Date.now());
-    const { decision } = currentCheckpointRetentionDecision();
+    const { activeRunId, decision } = currentCheckpointRetentionDecision();
     const unbackedHallOfFame = new Set((db.prepare(
       "SELECT checkpoint_id FROM rust_hall_of_fame_v1 WHERE weight_state = 'legacy'"
     ).all() as Array<{ checkpoint_id: string }>).map(row => row.checkpoint_id));
@@ -2009,6 +2000,23 @@ function applyCheckpointRetention(): {
       candidate.checkpointId !== activeExportLease?.checkpointId &&
       !unbackedHallOfFame.has(candidate.checkpointId)
     );
+    // Old runs keep current pointers for convenient resume until their anchor
+    // falls outside retention. Detach only those obsolete pointers in the same
+    // transaction that records prune intent; never detach the active run.
+    for (const candidate of planned) {
+      const pointers = db.prepare(`SELECT run_id FROM rust_checkpoint_v3_current
+        WHERE checkpoint_id = ?`).all(candidate.checkpointId) as Array<{ run_id: string }>;
+      for (const { run_id: runId } of pointers) {
+        if (runId === activeRunId) throw new Error('retention attempted to prune the active run pointer');
+        const current = readCurrentPointer(runId);
+        if (!current || validateCurrentPointerIdentity(runId, current).logicalRootSha256 !== candidate.checkpointId) {
+          throw new Error('retention found a changed prior-run pointer');
+        }
+        const removed = db.prepare(`DELETE FROM rust_checkpoint_v3_current
+          WHERE run_id = ? AND checkpoint_id = ?`).run(runId, candidate.checkpointId);
+        if (removed.changes !== 1) throw new Error('retention could not detach a prior-run pointer');
+      }
+    }
     const targetBytes = new Map(planned.map(candidate => [candidate.checkpointId, candidate.storedBytes]));
     const pending = db.prepare(`SELECT metadata.checkpoint_id
       FROM rust_checkpoint_v3_metadata AS metadata

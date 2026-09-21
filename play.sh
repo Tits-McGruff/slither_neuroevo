@@ -230,7 +230,7 @@ start_server_process "$ACTIVE_MODE"
 if ! wait_for_health "$SERVER_PID"; then
   print_start_failure
   if grep -Fq '[rust.startup-fault]' "$LOG_FILE" 2>/dev/null; then
-    echo "[ERROR] Existing database and managed files were left untouched."
+    echo "[ERROR] The existing database was not moved or replaced; no new run was started."
     echo "[INFO] The server remains health-only at http://127.0.0.1:$PORT/api/health"
     echo "[INFO] Stop it with: sh shutdown.sh"
     exit 1
