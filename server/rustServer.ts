@@ -7,14 +7,14 @@ import type {
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import type { ExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { createServer } from 'node:http';
-import { createReadStream } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { lstat, stat, unlink } from 'node:fs/promises';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { networkInterfaces } from 'node:os';
 import { isIP } from 'node:net';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { DEFAULT_CONFIG, parseConfig, type ServerConfig } from './config.ts';
+import { parseConfig, type ServerConfig } from './config.ts';
 import { WsHub } from './wsHub.ts';
 import { createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
@@ -46,7 +46,7 @@ import {
 import { parseRustStartupMetadata } from './rustEngine/startupMetadata.ts';
 import { watchArchiveWork } from './rustEngine/archiveWorkWatchdog.ts';
 import type { GodModeMsg, LiveSettingsMsg, NewRunMsg, ResetMsg } from './protocol.ts';
-import { readJsonBody } from './httpApi.ts';
+import { readJsonBody } from './readJsonBody.ts';
 import {
   getLiveSettingDefinition,
   normalizeLiveSettingsUpdates,
@@ -106,8 +106,8 @@ async function admitExportSpace(directory: string, lease: ManagedCheckpointExpor
   });
 }
 
-/** Explicit experimental process ownership returned to tests and the CLI. */
-export interface ExperimentalRustServer {
+/** Rust-authoritative process ownership returned to tests and the CLI. */
+export interface RustServer {
   /** Actual bound port, including an OS-selected test port. */
   port: number;
   /** Explicit health-only startup failure, without an active simulation. */
@@ -117,7 +117,7 @@ export interface ExperimentalRustServer {
 }
 
 /** Keep bounded diagnostics reachable after failed restore without starting any game or socket authority. */
-async function startFaultedServer(config: ServerConfig, error: unknown): Promise<ExperimentalRustServer> {
+async function startFaultedServer(config: ServerConfig, error: unknown): Promise<RustServer> {
   const reason = (error instanceof Error ? error.message : String(error)).slice(0, 512);
   const server = createServer((_request, response) => {
     response.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -245,22 +245,20 @@ function applyMetadataSettings(
 }
 
 /** Start native authority from fresh or retained managed state. */
-export async function startExperimentalRustServer(config: ServerConfig): Promise<ExperimentalRustServer> {
-  if (resolve(config.dbPath) === resolve(DEFAULT_CONFIG.dbPath)) {
-    throw new Error('experimental Rust startup requires a dedicated managed --db-path');
-  }
+export async function startRustServer(config: ServerConfig): Promise<RustServer> {
   if (config.inferenceBackend !== 'native' || config.mtEnabled || config.controllerInputHoldMs !== 500 ||
       config.controllerDisconnectGraceMs !== 30_000 || config.checkpointEveryGenerations !== 1) {
-    throw new Error('experimental Rust startup requires the native backend, reference MT disabled, default controller timing, and every-generation checkpoints');
+    throw new Error('Rust startup requires the native backend, reference MT disabled, default controller timing, and every-generation checkpoints');
   }
   let schedule = (): void => {};
   let owner: ExperimentalServerRuntime;
   try {
     if (typeof config.resume === 'number') throw new Error('numeric reference snapshot IDs are not managed checkpoint IDs');
+    const databaseExists = existsSync(resolve(config.dbPath));
     owner = await createExperimentalServerRuntime({ databasePath: config.dbPath,
       managedDirectory: `${resolve(config.dbPath)}.checkpoints`,
       calculationWorkers: config.rustCalculationWorkers,
-      ...(config.resume === 'latest' ? { restoreLatest: true } : {}),
+      ...(config.resume === 'latest' && databaseExists ? { restoreLatest: true } : {}),
       ...(config.resume.startsWith('sha256:') ? { restoreCheckpointId: config.resume.slice(7) } : {}),
       ...(config.seed === undefined ? {} : { seed: config.seed }), onWake: () => schedule() });
   } catch (error) { return startFaultedServer(config, error); }
@@ -657,7 +655,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     }
     if (request.method !== 'GET' || pathname.startsWith('/api/')) {
       response.writeHead(501, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify({ error: 'not available in the experimental P0 runtime' })); return;
+      response.end(JSON.stringify({ error: 'API route is not available in the Rust runtime' })); return;
     }
     void (async () => {
       const path = resolve(CLIENT_ROOT, `.${decodeURIComponent(pathname === '/' ? '/index.html' : pathname)}`);
@@ -1156,8 +1154,8 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
         void draining.then(() => routing.flush()).catch(fail).finally(() => { draining = undefined; });
       });
     };
-    /** Reject secondary commands explicitly until their planned migration slice. */
-    const unsupported = (connection: number): void => { sockets.sendJsonTo(connection, { type: 'error', message: fault ?? 'command unavailable in experimental P0' }); };
+    /** Reject commands while authority is unavailable. */
+    const unsupported = (connection: number): void => { sockets.sendJsonTo(connection, { type: 'error', message: fault ?? 'command unavailable while Rust authority is paused' }); };
     /** Convert unexpected admission failures into a terminal interface fault. */
     const route = (action: () => void): void => { try { action(); } catch (error) { fail(error); } schedule(); };
     sockets.setHandlers({
@@ -1270,7 +1268,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
     });
     await new Promise<void>((done, reject) => { server.once('error', reject); server.listen(config.port, config.host, () => { server.off('error', reject); done(); }); });
     const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('experimental server has no TCP address');
+    if (!address || typeof address === 'string') throw new Error('Rust server has no TCP address');
     owner.runtime.start();
     timer = setInterval(schedule, 16);
     schedule();
@@ -1280,7 +1278,7 @@ export async function startExperimentalRustServer(config: ServerConfig): Promise
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const config = parseConfig(process.argv.slice(2), process.env);
-  void startExperimentalRustServer(config).then(server => {
+  void startRustServer(config).then(server => {
     const hosts = config.host === '0.0.0.0'
       ? ['127.0.0.1', ...Object.values(networkInterfaces()).flatMap(addresses => addresses?.filter(address => address.family === 'IPv4' && !address.internal).map(address => address.address) ?? [])]
       : [config.host];

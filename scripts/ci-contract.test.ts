@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NETWORK_TESTS_OPT_OUT_ENV } from '../server/test/networkSuites.ts';
 
@@ -15,7 +15,36 @@ const README = readFileSync(resolve('README.md'), 'utf8');
 /** Root package manifest. */
 const PACKAGE = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
   engines?: { node?: string };
+  scripts?: Record<string, string>;
 };
+
+/** Repository root used to normalize production dependency paths. */
+const ROOT = resolve('.');
+
+/**
+ * Follow static relative TypeScript imports from one production entry point.
+ * @param entry - Repository-relative TypeScript entry point.
+ * @returns Normalized repository-relative dependency paths, including entry.
+ */
+function staticTypeScriptDependencies(entry: string): Set<string> {
+  const pending = [resolve(entry)];
+  const visited = new Set<string>();
+  const importPattern = /(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?['"](?<path>[^'"]+)['"]/gu;
+  while (pending.length > 0) {
+    const file = pending.pop()!;
+    if (visited.has(file)) continue;
+    visited.add(file);
+    const source = readFileSync(file, 'utf8');
+    for (const match of source.matchAll(importPattern)) {
+      const specifier = match.groups?.['path'];
+      if (!specifier?.startsWith('.')) continue;
+      let candidate = resolve(dirname(file), specifier);
+      if (!existsSync(candidate) && existsSync(`${candidate}.ts`)) candidate = `${candidate}.ts`;
+      if (existsSync(candidate)) pending.push(candidate);
+    }
+  }
+  return new Set([...visited].map(file => relative(ROOT, file).replaceAll('\\', '/')));
+}
 
 /** Native package manifest. */
 const NATIVE_PACKAGE = JSON.parse(readFileSync(resolve('native/package.json'), 'utf8')) as {
@@ -41,6 +70,22 @@ function countOccurrences(value: string): number {
 }
 
 describe(SUITE, () => {
+  it('makes Rust the normal server and isolates the TypeScript reference entry point', () => {
+    expect(PACKAGE.scripts?.['server']).toBe('tsx server/rustServer.ts');
+    expect(PACKAGE.scripts?.['server:reference']).toBe('tsx server/index.ts');
+    const production = staticTypeScriptDependencies('server/rustServer.ts');
+    for (const forbidden of [
+      'server/index.ts',
+      'server/simServer.ts',
+      'server/brainPool.ts',
+      'server/worker/inferWorker.ts',
+      'src/sim/SimCore.ts',
+      'src/world.ts'
+    ]) {
+      expect(production.has(forbidden), `production dependency reached ${forbidden}`).toBe(false);
+    }
+  });
+
   it('keeps Node 24 as the minimum and tests Node 24/26 on Ubuntu and Windows', () => {
     expect(PACKAGE.engines?.node).toBe('>=24');
     expect(NATIVE_PACKAGE.engines?.node).toBe('>=24');

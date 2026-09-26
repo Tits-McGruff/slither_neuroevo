@@ -10,7 +10,7 @@ import { DEFAULT_CONFIG, normalizeConfig } from './config.ts';
 import { PlayerActionPump } from '../src/net/playerActionPump.ts';
 import { createWsClient, type AssignMsg, type SensorsMsg, type WelcomeMsg, type WsClient } from '../src/net/wsClient.ts';
 import { run as runStage6RuntimeProbe } from '../scripts/stage6/runtime-integration-probe.ts';
-import { startExperimentalRustServer } from './experimentalRustServer.ts';
+import { startRustServer } from './rustServer.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import { buildStackGraphSpec } from '../src/brains/stackBuilder.ts';
 import { compileGraph } from '../src/brains/graph/compiler.ts';
@@ -95,11 +95,26 @@ function directionDelta(from: number, to: number): number {
   return Math.atan2(Math.sin(to - from), Math.cos(to - from));
 }
 
-describeNetworkSuite('experimental Rust server real sockets', () => {
+describeNetworkSuite('Rust server real sockets', () => {
+  it('creates the first Rust run when resume-latest targets an absent database', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-first-run-'));
+    const dbPath = join(root, 'slither.sqlite');
+    const server = await startRustServer({
+      ...DEFAULT_CONFIG, port: 0, dbPath, resume: 'latest', seed: 91
+    });
+    try {
+      const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json();
+      expect(health).toMatchObject({ ok: true, authority: 'rust', generation: '0000000000000001' });
+    } finally {
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('imports an old browser JSON population as a new Rust run', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-legacy-import-'));
     const dbPath = join(root, 'experiment.sqlite');
-    const server = await startExperimentalRustServer({
+    const server = await startRustServer({
       ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 41, dbPath, rustCalculationWorkers: 4
     });
     const peers: Peer[] = [];
@@ -253,7 +268,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       }
     } finally { database.close(); }
     const { seed: _defaultSeed, ...resumeConfig } = DEFAULT_CONFIG;
-    let server = await startExperimentalRustServer({
+    let server = await startRustServer({
       ...resumeConfig, port: 0, resume: 'latest', dbPath
     });
     const peers: Peer[] = [];
@@ -282,7 +297,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       });
       viewer.socket.terminate();
       await server.close();
-      server = await startExperimentalRustServer({
+      server = await startRustServer({
         ...resumeConfig, port: 0, resume: 'latest', dbPath
       });
       expect(server.startupFault).toBeUndefined();
@@ -359,7 +374,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       } finally { database.close(); }
 
       const { seed: _defaultSeed, ...resumeConfig } = DEFAULT_CONFIG;
-      const server = await startExperimentalRustServer({
+      const server = await startRustServer({
         ...resumeConfig, port: 0, resume: 'latest', dbPath
       });
       const peers: Peer[] = [];
@@ -409,10 +424,10 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-export-server-'));
     const dbPath = join(root, 'experiment.sqlite');
     const managedDirectory = `${dbPath}.checkpoints`;
-    const server = await startExperimentalRustServer({
+    const server = await startRustServer({
       ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 41, dbPath
     });
-    let target: Awaited<ReturnType<typeof startExperimentalRustServer>> | undefined;
+    let target: Awaited<ReturnType<typeof startRustServer>> | undefined;
     const peers: Peer[] = [];
     try {
       const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
@@ -471,7 +486,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       expect(BigInt(`0x${afterExport.archiveWork.completedBytes}`)).toBeGreaterThan(0n);
 
       const targetDbPath = join(root, 'target.sqlite');
-      target = await startExperimentalRustServer({
+      target = await startRustServer({
         ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42, dbPath: targetDbPath
       });
       const targetBefore = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
@@ -543,7 +558,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
 
       await target.close();
       const { seed: _defaultSeed, ...resumeConfig } = DEFAULT_CONFIG;
-      target = await startExperimentalRustServer({
+      target = await startRustServer({
         ...resumeConfig, port: 0, resume: 'latest', dbPath: targetDbPath
       });
       expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
@@ -574,14 +589,14 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-recovery-server-'));
     const dbPath = join(root, 'experiment.sqlite');
     const config = { ...DEFAULT_CONFIG, port: 0, dbPath };
-    let server = await startExperimentalRustServer({ ...config, resume: 'fresh', seed: 42 });
+    let server = await startRustServer({ ...config, resume: 'fresh', seed: 42 });
     const peers: Peer[] = [];
     try {
       const initial = await (await fetch(`http://127.0.0.1:${server.port}/health`)).json() as { runId: string; startupCheckpointId: string };
       await server.close();
       const exact = normalizeConfig({ ...config, resume: initial.startupCheckpointId });
       expect(exact.resume).toBe(`sha256:${initial.startupCheckpointId}`);
-      server = await startExperimentalRustServer({ ...exact, port: 0 });
+      server = await startRustServer({ ...exact, port: 0 });
       expect(await (await fetch(`http://127.0.0.1:${server.port}/health`)).json()).toMatchObject({ ok: true, runId: initial.runId });
       await server.close();
       const db = new Database(dbPath);
@@ -589,7 +604,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
         db.pragma('foreign_keys = OFF');
         db.prepare('UPDATE rust_checkpoint_v3_current SET checkpoint_id = ?').run('f'.repeat(64));
       } finally { db.close(); }
-      server = await startExperimentalRustServer({ ...config, resume: 'latest' });
+      server = await startRustServer({ ...config, resume: 'latest' });
       const health = await (await fetch(`http://127.0.0.1:${server.port}/health`)).json() as { runId: string; recovery: unknown };
       expect(health.runId).not.toBe(initial.runId);
       expect(health.recovery).toMatchObject({ failedRunId: initial.runId, branchRunId: health.runId,
@@ -601,7 +616,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
       await server.close();
       const files = await readdir(`${dbPath}.checkpoints`);
       for (const file of files.filter(name => name.endsWith('.checkpoint-v3'))) await writeFile(join(`${dbPath}.checkpoints`, file), 'corrupt');
-      server = await startExperimentalRustServer({ ...config, resume: 'latest' });
+      server = await startRustServer({ ...config, resume: 'latest' });
       expect(server.startupFault).toMatch(/no valid retained/);
       const fault = await fetch(`http://127.0.0.1:${server.port}/api/health`);
       expect(fault.status).toBe(503);
@@ -624,7 +639,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
   it('serves native welcome, frames, controller observations and same-snake token reclaim', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-server-'));
     const peers: Peer[] = [];
-    const server = await startExperimentalRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42,
+    const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42,
       rustCalculationWorkers: 4, dbPath: join(root, 'experiment.sqlite') });
     try {
       const viewer = await connect(server.port, 'ui'); peers.push(viewer);
@@ -891,7 +906,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
 
   it('serves the built browser and applies its independent latest-action pump through Rust', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-browser-action-'));
-    const server = await startExperimentalRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 73,
+    const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 73,
       dbPath: join(root, 'experiment.sqlite') });
     let pump: PlayerActionPump | undefined;
     let browser: WsClient | undefined;
@@ -977,7 +992,7 @@ describeNetworkSuite('experimental Rust server real sockets', () => {
 
   it('applies browser-player input while inbound frames and sensors are paused', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-browser-suppression-'));
-    const server = await startExperimentalRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 74,
+    const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 74,
       dbPath: join(root, 'experiment.sqlite') });
     try {
       const report = await runStage6RuntimeProbe({

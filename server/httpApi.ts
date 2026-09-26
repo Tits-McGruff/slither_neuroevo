@@ -10,6 +10,9 @@ import type { SchedulerDiagnostics, SimulationRunIdentity } from '../src/sim/Sim
 import type { AuthoritativeWorldLoadDiagnostics, SimulationFaultStatus } from './simServer.ts';
 import type { SpatialHashDiagnostics } from '../src/spatialHash.ts';
 import type { WsOutboundDiagnostics } from './wsHub.ts';
+import { readJsonBody } from './readJsonBody.ts';
+
+export { readJsonBody } from './readJsonBody.ts';
 
 /** Hard limit for incoming request bodies to avoid memory pressure. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -404,28 +407,6 @@ async function sendJsonChunks(res: ServerResponse, chunks: Iterable<string>): Pr
     next = iterator.next();
   }
   res.end();
-}
-
-/**
- * Reads a JSON payload with a strict size limit.
- * @param req - Incoming request.
- * @param limitBytes - Maximum allowed payload size.
- * @returns Parsed JSON payload.
- */
-export async function readJsonBody(req: IncomingMessage, limitBytes: number): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer);
-    total += buf.length;
-    if (total > limitBytes) {
-      throw new Error('payload too large');
-    }
-    chunks.push(buf);
-  }
-  const text = Buffer.concat(chunks).toString('utf8');
-  if (!text) return {};
-  return JSON.parse(text) as unknown;
 }
 
 /**

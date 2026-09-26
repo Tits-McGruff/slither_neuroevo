@@ -5,8 +5,8 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 ## Key Features
 
 - **Remote browser client**: The browser renders server frames and sends controls; it does not run a second game.
-- **Rust-authoritative migration**: The approved implementation is moving the complete authoritative game—world state, sensing, differently weighted brains, movement, collision, evolution, and frame packing—into Rust behind a thin Node interface.
-- **Current reference runtime**: Until cutover passes its correctness, Debian-VM, LAN-browser, RL-trainer, persistence, and recovery gates, the existing TypeScript `SimCore`/`World` remains available as the selected reference and test oracle.
+- **Rust-authoritative runtime**: The complete authoritative game—world state, sensing, differently weighted brains, movement, collision, evolution, and frame packing—runs in Rust behind a thin Node interface.
+- **Explicit reference runtime**: The former TypeScript `SimCore`/`World` remains available only through `npm run server:reference` as a test oracle; production never falls back to it.
 - **Deep Evolution**: Supports MLP, GRU, LSTM, and RRU architectures with complex genetic operators and a modular graph editor.
 - **Deterministic run controls**: Reset repeats a seed; New Run starts and checkpoints a different seed.
 - **Bounded persistence target**: Managed immutable checkpoint files hold packed binary population data; SQLite holds small metadata/history/indexes. Browser import/export becomes direct file upload/download without population-sized JavaScript objects.
@@ -54,16 +54,16 @@ never starts a new experiment automatically over it.
 
 Note: This project uses ES modules, so opening `index.html` directly in a file browser will not work.
 
-### Experimental Rust server
+### Rust server and persistence
 
-The migration branch exposes an experimental Rust-authoritative server with durable fresh-run and
+Normal startup is Rust-authoritative and supports durable fresh-run and
 managed-checkpoint restart paths:
 
 ```powershell
 npm --prefix native run build
 npm run build:client
-npm run server:rust -- --fresh --db-path ./data/rust-experiment.sqlite
-npm run server:rust -- --resume latest --db-path ./data/rust-experiment.sqlite
+npm run server -- --fresh --db-path ./data/rust-experiment.sqlite
+npm run server -- --resume latest --db-path ./data/rust-experiment.sqlite
 ```
 
 For a new experiment, start once with `--fresh`, then reuse that database with
@@ -81,7 +81,7 @@ the result as population-only, not an exact continuation. The browser status
 pill also labels converted saves and exact imported branches, with their source
 details in its tooltip.
 
-The experimental server defaults to five Rust calculation workers on new
+The server defaults to five Rust calculation workers on new
 configurations. Use `--rust-workers N` (1–7, or `RUST_WORKERS=N`) to override its persistent worker pool;
 it parallelizes sensing and brain evaluation while keeping brain-state and
 physics commits ordered. This is separate from the reference server's
@@ -152,7 +152,7 @@ sends a turn change and boost release during the pause, then requires inbound
 recovery while the telemetry endpoint confirms that Rust applied the actions:
 
 ```powershell
-npm run probe:stage6-runtime -- --ws-url ws://127.0.0.1:3000 --duration-seconds 30
+npm run probe:stage6-runtime -- --ws-url ws://127.0.0.1:5174 --duration-seconds 30
 ```
 
 Use `--player-suppression-seconds N` to change the receive pause. Add
@@ -180,18 +180,16 @@ neural visualization are now available in the Rust server; visualization does
 no activation-capture work while no browser is viewing the Visualizer tab.
 Named graph presets are saved, listed and loaded through the Rust server's
 isolated SQLite metadata worker.
-`npm run server` remains the separate reference runtime.
+Use `npm run server:reference` only when deliberately running the retained
+TypeScript comparison implementation.
 
 ### Architecture
 
 This application uses a pure client/server model. The browser renders binary
 frames and submits controls over Protocol 2 WebSocket messages. There is no
-browser-local World, offline mode, or local simulation worker. The current
-branch still runs the authoritative game in Node/TypeScript while the approved
-Rust-owned engine is implemented and tested beside it. After cutover, Rust
-will own the game and Node will only route HTTP/WebSocket/file traffic and
-small SQLite metadata. The TypeScript game will remain a selected test oracle
-during stabilization, not an automatic production fallback.
+browser-local World, offline mode, or local simulation worker. Rust owns the
+game; Node only routes HTTP/WebSocket/file traffic and small SQLite metadata.
+The TypeScript game remains a selected test oracle, not a production fallback.
 
 Loopback is the default, and deliberate use from a phone or another computer
 on the same trusted home LAN is supported. The project has no accounts,
@@ -201,14 +199,14 @@ forwarding or run it on an untrusted network.
 On first server startup, `server/config.ts` creates the ignored
 `server/config.toml` file from current defaults. Useful fields include the
 server/UI bind addresses and ports, `publicWsUrl`, checkpoint interval,
-native/JS diagnostic backend, and worker settings. `publicWsUrl` is simply the
+worker settings and Rust calculation-worker count. `publicWsUrl` is simply the
 WebSocket address the webpage should use when the simulation server is not at
 the same hostname as the UI; despite the legacy word “public,” it does not make
 the service safe for the public internet. Normal defaults are native,
-single-threaded inference and resume-latest. Use `--mt` (and optionally
-`--mt-workers N`) for native MT, `--backend js` only for diagnosis, `--fresh`
-for a new durable run, or `--resume <snapshot-id>` for one compatible
-checkpoint.
+five calculation workers and resume-latest. Use `--rust-workers N` to override
+the worker count, `--fresh` for a new durable run, or
+`--resume latest|sha256:<checkpoint-id>` for managed recovery. Reference-only
+backend and Node-MT flags belong to `npm run server:reference`.
 
 ### Open it from a phone or another home computer
 
@@ -447,7 +445,7 @@ The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM
 
 ## Import and export
 
-The experimental Rust server's **Export** button opens a direct
+The Rust server's **Export** button opens a direct
 `/api/export/latest` download. Rust validates and packs the exact leased
 checkpoint roles, complete compact history, and run-scoped Hall of Fame into
 one flat `.slither-save` file; Node streams it, and browser JavaScript never
@@ -550,7 +548,7 @@ Use GRU for smoother, more deliberate behavior.
 - **Brain Visualizer**: Shows the focused snake’s network activations. If you don’t see anything, switch to follow mode or select a snake.
 - **Visualizer streaming**: Data is only requested while the Visualizer tab is active.
 - **Fitness Stats**: Switch between Fitness History (min/avg/max), Species Diversity, and Network Complexity.
-- **Hall of Fame**: Lets you resurrect top genomes; Hall of Fame entries are stored in browser storage and included in exports.
+- **Hall of Fame**: Lets you resurrect top genomes; compact entries and packed winner weights are retained by the server and included in exports.
 
 ## Troubleshooting
 
@@ -562,8 +560,9 @@ Use GRU for smoother, more deliberate behavior.
 - **Install fails on Windows**: Use Node 24+ and install the Visual Studio C++
   build tools plus a Windows SDK for `better-sqlite3` and the native addon,
   then re-run `npm install`.
-- **Native startup failure**: Run `npm --prefix native run build`. JavaScript is
-  available only as the explicit `--backend js` diagnostic mode.
+- **Native startup failure**: Run `npm --prefix native run build`. The normal
+  server does not fall back to JavaScript; use `npm run server:reference --
+  --backend js` only for deliberate reference diagnosis.
 - **Worker failure**: The server faults the run instead of switching backends
   or publishing a partial step. Use Apply and reset, New Run, or restart from a
   valid checkpoint after addressing the reported cause.

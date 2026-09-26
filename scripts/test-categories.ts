@@ -79,7 +79,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'src/world.test.ts'
   ],
   integration: [
-    'server/experimentalRustServer.native.test.ts',
+    'server/rustServer.native.test.ts',
     'server/integration.test.ts',
     'server/recoveryPhase0Startup.characterization.test.ts',
     'server/recoveryPhase1.lifecycle.test.ts',
@@ -133,7 +133,7 @@ export const PRIMARY_TEST_CATEGORY_ORDER = [
 
 /** Required-native overlay that must fail when the addon or native MT path is unavailable. */
 export const NATIVE_REQUIRED_TEST_FILES = [
-  'server/experimentalRustServer.native.test.ts',
+  'server/rustServer.native.test.ts',
   'server/rustEngine/nativeSourceIdentity.native.test.ts',
   'server/rustEngine/experimentalNativeBridge.native.test.ts',
   'server/rustEngine/experimentalFreshRunSession.native.test.ts',

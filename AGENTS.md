@@ -3,20 +3,20 @@
 ## Project scope and layout
 
 Slither Neuroevolution is a browser-based neuroevolution sandbox. The browser
-is a rendering and control client. On the current branch, Node/TypeScript still
-owns the authoritative simulation; this is the temporary reference
-implementation during the approved forward migration. The approved target has
-one Rust-owned authoritative game, with Node limited to a thin HTTP,
+is a rendering and control client. Normal startup has one Rust-owned
+authoritative game, with Node limited to a thin HTTP,
 WebSocket, static-file, routing, and SQLite-metadata interface. Loopback is the
 default, and deliberate use from other devices on the owner's trusted home LAN
 is supported. This repository does not provide authentication, TLS, or a
 hardened public deployment mode.
 
 The main browser entry point is `index.html`, with UI behavior in `src/main.ts`,
-rendering in `src/render.ts`, and styling in `styles.css`. Server startup is in
-`server/index.ts`; orchestration is in `server/simServer.ts`; the fixed-step
-engine is `src/sim/SimCore.ts`; and the authoritative model is `src/world.ts`.
-The native neural kernels live under `native/`.
+rendering in `src/render.ts`, and styling in `styles.css`. Production server
+startup is in `server/rustServer.ts`. The retained reference starts in
+`server/index.ts`, with
+orchestration in `server/simServer.ts`, the fixed-step engine in
+`src/sim/SimCore.ts`, and its model in `src/world.ts`. Rust lives under
+`native/`.
 
 `package.json` and `package-lock.json` define the Node toolchain. TypeScript is
 checked through `tsconfig.json`, ESLint through `eslint.config.cjs`, and Vite
@@ -35,10 +35,10 @@ historical material and must not direct implementation. In particular, the
 old claim that the owner selected kernel-only Rust is false. Durable
 architecture choices live in `docs/decisions/`.
 
-## Current reference runtime flow
+## Explicit reference runtime flow
 
-Until the approved Rust cutover passes its gates, the selected TypeScript
-reference/production flow is:
+The TypeScript implementation is selected only with
+`npm run server:reference`; its retained comparison flow is:
 
 ```text
 browser control
@@ -62,9 +62,8 @@ The browser has no local World or simulation worker. Do not reintroduce a
 browser fallback, optimistic authoritative state, or a second simulation loop.
 On disconnect, the UI reconnects and waits for server frames.
 
-The migration keeps this path as a selectable test oracle while Rust replaces
-it subsystem by subsystem. It is not an automatic fallback for the
-Rust-authoritative runtime.
+This path is a selectable test oracle. It is not an automatic fallback for the
+Rust-authoritative runtime and must not be imported by production startup.
 
 ## Fixed-step scheduling and World ordering
 
@@ -96,10 +95,10 @@ environment, completed-step count, and ordered action log. Compare JS and
 native kernels with explicit numeric tolerances; do not promise bit-identical
 long-horizon results across backends or platforms.
 
-## Approved Rust-authoritative migration and transitional native backend
+## Rust-authoritative runtime and retained reference backend
 
-The kernel-only boundary is superseded. The approved destination is one
-Rust-owned authoritative game: persistent world state, fixed-step scheduling,
+The kernel-only boundary is superseded. Normal startup uses one Rust-owned
+authoritative game: persistent world state, fixed-step scheduling,
 sensors, heterogeneous neural inference, recurrent state, movement, food,
 collisions, controllers, evolution, generation transitions, RNG/allocator
 state, checkpoint construction, and binary frame packing all belong in Rust.
@@ -108,23 +107,24 @@ TypeScript remains the renderer, UI, camera presentation, and input collector.
 See `docs/todo/rust-authoritative-runtime-plan.md` and
 `docs/decisions/0002-rust-authoritative-runtime.md`.
 
-The current reference backend still exposes Dense, MLP, GRU, LSTM, and RRU
+The retained TypeScript reference backend still exposes Dense, MLP, GRU, LSTM, and RRU
 kernels from `native/src/simd_kernels.rs` through `native/src/lib.rs`. Keep it
 working for characterization and differential tests, but do not extend the
 per-snake/per-layer N-API boundary as the final architecture.
 
-Normal startup selects the native backend. `src/brains/nativeBridge.ts`
+Reference startup selects the native backend. `src/brains/nativeBridge.ts`
 validates every required export and a source-derived build identifier before
-brains are constructed. A missing or incompatible addon fails normal startup
-with build instructions. `--backend js` is an explicit diagnostic mode, not a
-silent fallback.
+brains are constructed. Production independently validates the complete Rust
+bridge and build identity. A missing or incompatible addon fails startup with
+build instructions. `--backend js` is reference-only diagnostic mode, not a
+production fallback.
 
 Backend and threading are independent axes. `--mt` requests the canonical
 worker pool; `--mt-workers N` requests a bounded count. Native single-thread,
 native MT, JS diagnostic single-thread, and JS diagnostic MT are all tested.
 Enabling or disabling MT must not change the selected math backend.
 
-`server/brainPool.ts` is the sole production pool,
+`server/brainPool.ts` is the sole retained reference pool,
 `server/brainPoolProtocol.ts` is its parent/worker contract, and
 `server/worker/inferWorker.ts` is the sole inference worker. Shared typed
 buffers hold inputs, outputs, population weights, and slot indices. Completion
@@ -247,10 +247,8 @@ population. Keep current/legacy readers until the owner's real databases and
 save files have been inventoried and migrated within the approved limits.
 
 Ordinary exact checkpoints remain generation-boundary saves, not mid-round
-world snapshots. Normal startup eventually uses the latest valid retained
-managed checkpoint and the approved recovery-branch rule. During migration,
-the current flags and readers remain available only as documented by the
-active stage.
+world snapshots. Normal startup uses the latest valid retained managed
+checkpoint and the approved recovery-branch rule.
 
 ## Local and trusted-LAN setup
 
@@ -265,7 +263,7 @@ npm run dev
 
 Open the Vite URL, normally `http://localhost:5173`. Opening `index.html`
 directly does not work. `play.bat` installs missing dependencies, builds the
-mandatory native addon, starts the reference server and Vite, and writes
+mandatory native addon, starts the Rust server and Vite, and writes
 PID/log files in the repository root. `play.sh` builds the addon and browser
 and starts the Rust server with static assets; a failed-resume database stays put
 and the health-only server remains available for diagnosis.
@@ -281,10 +279,11 @@ hardening, and do not advertise router port forwarding or untrusted-network
 exposure as safe.
 
 `server/config.ts` resolves defaults, the generated TOML file, environment
-overrides, and CLI flags. Important experiment/runtime flags include
-`--backend native|js`, `--mt`, `--mt-workers N`, `--seed N`, `--fresh`,
-`--resume latest|N`, `--checkpoint-every N`, and `--db-path PATH`. A configured
-seed conflicts with resume and therefore requires `--fresh`.
+overrides, and CLI flags. Important production flags include
+`--rust-workers N`, `--seed N`, `--fresh`, `--resume latest|sha256:ID`, and
+`--db-path PATH`. A configured seed conflicts with an existing resume and
+therefore requires `--fresh`. Backend and Node-MT flags are retained only for
+`npm run server:reference`.
 
 LAN-related overrides are `--host`, `--ui-host`, and `--public-ws-url`, with
 matching `HOST`, `UI_HOST`, and `PUBLIC_WS_URL` environment variables.

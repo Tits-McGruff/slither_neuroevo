@@ -41,7 +41,7 @@ CORS permits the separate UI and API origins; it is not authentication.
 
 The server writes `server/config.toml` with defaults when the file does not
 exist. Command-line and environment overrides are described by
-`node ./node_modules/tsx/dist/cli.mjs server/index.ts --help` and in
+`node ./node_modules/tsx/dist/cli.mjs server/rustServer.ts --help` and in
 `server/config.ts`.
 
 ## Protocol compatibility
@@ -514,7 +514,7 @@ The HTTP routes share port 5174 with WebSocket upgrade handling. Request bodies
 are JSON and are limited to 50 MiB. These unauthenticated routes are intended
 only for the local UI and local tooling.
 
-The experimental Rust server instead defaults to port 3000. Its
+The Rust server defaults to port 5174. Its
 `GET /api/export/latest` response is a streamed `.slither-save`, and
 `POST /api/import/archive` accepts either that raw archive or an older raw
 browser-exported JSON population. The browser sends the selected file unchanged;

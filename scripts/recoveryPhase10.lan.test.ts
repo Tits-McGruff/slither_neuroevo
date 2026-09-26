@@ -145,7 +145,7 @@ describe(SUITE, () => {
 
     expect(posix).toContain('SLITHER_HOST:-0.0.0.0');
     expect(posix).toContain('npm run build');
-    expect(posix).toContain('npm run server:rust');
+    expect(posix).toContain('npm run server');
     expect(posix).toContain('hostname -I');
     expect(posix).toContain('[LAN] Browser:');
     expect(posix).toContain('[LAN] WebSocket:');

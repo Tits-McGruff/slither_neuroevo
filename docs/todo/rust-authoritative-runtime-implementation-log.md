@@ -43,8 +43,9 @@ is actually needed.
 | 3 | Rust foundation established | Rust state/graph/RNG contracts, coarse bridge, managed checkpoint-v3 codec/metadata worker and Rust→SQLite publication handoff exist. Detailed retained artifacts are under `docs/todo/evidence/stage3/`. |
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
-| 6 | 6A vertical slice exercised; 6B active | The dedicated experimental server owns durable startup/recovery, continuous Rust frames/stats, browser and Protocol 2 routing, generation persistence, managed retention, and direct archive export/import. Remaining secondary commands, compatibility, durability/performance gates, and cutover work continue. |
-| 7–8 | Not yet accepted | Performance/durability acceptance and production cutover remain future gates. |
+| 6 | Rust runtime complete | Rust owns durable startup/recovery, continuous frames/stats, browser and Protocol 2 routing, generation persistence, managed retention, commands, and direct archive export/import. |
+| 7 | Acceptance active | P1/P2 VM performance, exact large archives and bounded persistence pass their measured checkpoints; real LAN browsers/trainer, fault injection and longer durability gates remain. |
+| 8 | Production cutover active | Normal npm and launcher startup selects Rust; the TypeScript game is retained only as `server:reference`. Deployment/service and final acceptance remain. |
 
 ## Milestone index
 
@@ -566,6 +567,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   0.995 but had a 24 ms p99 bucket. New configurations therefore default to
   five Rust calculation workers, while explicit flags and existing config
   files continue to override that default.
+
+- 2026-09-21 Production cutover began: `npm run server`, development watch,
+  and both launchers now select the Rust-authoritative server; the old game is
+  available only as `server:reference`. A recursive static-import test proves
+  production startup does not reach the TypeScript world, scheduler, brain
+  pool, or inference worker. Resume-latest creates a first run only when its
+  database path is absent; existing failed-resume data remains health-only.
 
 The next dependencies are Stage 6B durability, Stage 7 performance and
 acceptance, then the production cutover gates.

@@ -1,5 +1,5 @@
 /**
- * Exercise the experimental Rust server through its real HTTP/WebSocket boundary.
+ * Exercise the Rust server through its real HTTP/WebSocket boundary.
  *
  * This is a Protocol 2 wire-compatible diagnostic client, not a substitute for
  * the owner's unchanged trainer or a browser on another LAN device. It prints
@@ -235,7 +235,7 @@ function positiveNumber(value: string | undefined, option: string): number {
 
 /** Parse the intentionally small Stage 6A probe CLI. */
 function parseOptions(arguments_: readonly string[]): ProbeOptions {
-  let wsUrl = 'ws://127.0.0.1:3000';
+  let wsUrl = 'ws://127.0.0.1:5174';
   let durationMs = DEFAULT_DURATION_SECONDS * 1_000;
   let reconnectAfterSensors = 5;
   let requireGenerationTransition = false;
