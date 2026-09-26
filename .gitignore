@@ -12,6 +12,8 @@ data/*.db-shm
 data/*.db-wal
 
 server/config.toml
+server/systemd.env
+backups/
 
 docs/mermaid/
 docs/api/

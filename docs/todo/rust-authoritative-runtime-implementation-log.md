@@ -575,5 +575,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   pool, or inference worker. Resume-latest creates a first run only when its
   database path is absent; existing failed-resume data remains health-only.
 
-The next dependencies are Stage 6B durability, Stage 7 performance and
-acceptance, then the production cutover gates.
+- 2026-09-27 Debian production operation now has a foreground Rust launcher
+  and an installable per-user systemd unit with bounded restart policy. The
+  online backup command snapshots SQLite, copies and hashes exactly its retained
+  checkpoint and Hall-of-Fame objects, retries pruning races, and restores only
+  to an absent database-plus-managed-directory pair.
+
+The next dependencies are service restart fault injection, unchanged LAN
+browser/trainer acceptance, and the remaining long-duration durability gates.

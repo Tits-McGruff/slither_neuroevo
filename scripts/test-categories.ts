@@ -2,6 +2,7 @@
 export const PRIMARY_TEST_CATEGORIES = {
   unit: [
     'scripts/ci-contract.test.ts',
+    'scripts/production-operations.test.ts',
     'scripts/recoveryPhase10.lan.test.ts',
     'scripts/stage2/fixtures.test.ts',
     'scripts/stage2/managedCheckpointFormat.test.ts',
@@ -79,6 +80,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'src/world.test.ts'
   ],
   integration: [
+    'scripts/managedBackup.test.ts',
     'server/rustServer.native.test.ts',
     'server/integration.test.ts',
     'server/recoveryPhase0Startup.characterization.test.ts',

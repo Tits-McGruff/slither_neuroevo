@@ -183,6 +183,60 @@ isolated SQLite metadata worker.
 Use `npm run server:reference` only when deliberately running the retained
 TypeScript comparison implementation.
 
+### Debian service, updates, and backups
+
+The checked-in service runs the Rust server in the foreground so systemd owns
+the real process and can restart a crash. Build once, optionally copy the
+environment example, then install the per-user unit:
+
+```bash
+npm ci
+npm run build
+cp server/systemd.env.example server/systemd.env
+sh scripts/install-systemd-user.sh
+systemctl --user start slither-neuroevo.service
+systemctl --user status slither-neuroevo.service
+```
+
+The unit waits five seconds before a failed-process restart and stops after
+three starts within two minutes. It does not restart a clean manual stop.
+`journalctl --user -u slither-neuroevo.service -f` follows its logs. For a
+server that must start before the user logs in, enable user lingering once with
+`loginctl enable-linger "$USER"` if the host administrator permits it. The
+manual `play.sh`/`shutdown.sh` pair remains useful for diagnosis, but do not run
+it at the same time as the systemd service.
+
+For an update, stop the service, update the checkout, run `npm ci` and
+`npm run build`, then start the service again. The service start command never
+installs dependencies or rebuilds files.
+
+A complete backup must include SQLite and the immutable files beside it; a
+copy of the `.db` file alone is incomplete. This command is safe while the
+server is running. It takes an online SQLite snapshot, copies exactly the
+checkpoint and Hall-of-Fame objects referenced by that snapshot, verifies
+their byte counts and SHA-256 hashes, and retries if pruning races the copy:
+
+```bash
+npm run backup:production -- \
+  --db-path ./data/rust-authority.db \
+  --output ./backups/slither-2026-09-27
+```
+
+Restore only while the server is stopped and to an absent target path. The
+restore command validates every file and refuses to overwrite an existing
+database or managed directory:
+
+```bash
+npm run restore:production -- \
+  --backup ./backups/slither-2026-09-27 \
+  --db-path ./data/restored.db
+```
+
+Start the restored copy with `SLITHER_DB_PATH=./data/restored.db` or an
+equivalent `server/systemd.env` setting. Keep portable `.slither-save` exports
+as an additional one-experiment backup, not as a replacement for the complete
+server backup set.
+
 ### Architecture
 
 This application uses a pure client/server model. The browser renders binary
