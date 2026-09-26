@@ -77,6 +77,7 @@ pub struct PendingRunStartTransition {
     first_scheduled_step_attempted: bool,
     first_scheduled_frame_published: bool,
     restored_checkpoint: bool,
+    compatible_recovery_branch_required: bool,
 }
 
 impl PendingRunStartTransition {
@@ -126,6 +127,7 @@ impl PendingRunStartTransition {
             first_scheduled_step_attempted: false,
             first_scheduled_frame_published: false,
             restored_checkpoint: false,
+            compatible_recovery_branch_required: false,
         })
     }
 
@@ -140,6 +142,7 @@ impl PendingRunStartTransition {
         graph_limits: GraphLimits,
         work_limits: RunningStepWorkLimits,
     ) -> Result<Self, RunStartTransitionError> {
+        let compatible_recovery_branch_required = !admission_policy.require_exact_build_identity;
         let restored = restore_committed_checkpoint(
             managed_directory,
             descriptor,
@@ -160,6 +163,7 @@ impl PendingRunStartTransition {
             first_scheduled_step_attempted: false,
             first_scheduled_frame_published: false,
             restored_checkpoint: true,
+            compatible_recovery_branch_required,
         })
     }
 
@@ -193,6 +197,7 @@ impl PendingRunStartTransition {
             first_scheduled_step_attempted: false,
             first_scheduled_frame_published: false,
             restored_checkpoint: true,
+            compatible_recovery_branch_required: false,
         })
     }
 
@@ -239,6 +244,8 @@ impl PendingRunStartTransition {
         self.authority = self
             .authority
             .into_recovery_branch(branch_run_id, &self.admission_policy)?;
+        self.admission_policy.require_exact_build_identity = true;
+        self.compatible_recovery_branch_required = false;
         Ok(self)
     }
 
@@ -341,6 +348,9 @@ impl PendingRunStartTransition {
         }
         if !self.persistence_acknowledged {
             return Err(RunStartTransitionError::PersistenceNotAcknowledged);
+        }
+        if self.compatible_recovery_branch_required {
+            return Err(RunStartTransitionError::CompatibleRecoveryBranchNotCommitted);
         }
         let config = GenerationStartConfig::from_work_limits(self.work_limits);
         if !self
@@ -770,6 +780,8 @@ pub enum RunStartTransitionError {
     PersistenceAcknowledgementMismatch { field: &'static str },
     /// Running construction was requested before SQLite commit success.
     PersistenceNotAcknowledged,
+    /// Compatible cross-build state was not yet rebound by a durable branch.
+    CompatibleRecoveryBranchNotCommitted,
     /// A second activation or persistence mutation was attempted.
     AuthorityAlreadyPublished,
     /// Display publication was attempted before running authority existed.
@@ -820,6 +832,10 @@ impl Display for RunStartTransitionError {
             Self::PersistenceNotAcknowledged => write!(
                 formatter,
                 "run-start activation requires a successful persistence acknowledgement"
+            ),
+            Self::CompatibleRecoveryBranchNotCommitted => write!(
+                formatter,
+                "compatible checkpoint activation requires a committed recovery branch"
             ),
             Self::AuthorityAlreadyPublished => {
                 write!(formatter, "run-start authority has already been published")

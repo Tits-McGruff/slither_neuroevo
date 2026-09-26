@@ -271,10 +271,13 @@ export function formatServerRuntimeStatus(
  */
 export function formatRecoveryRuntimeStatus(recovery: RustRecoveryNotice): string {
   const generation = BigInt(`0x${recovery.recoveredGeneration}`).toString(10);
+  const continuation = recovery.compatibleBuild
+    ? ' Compatible application-build continuation; exact replay ends at the source checkpoint.'
+    : '';
   const loss = recovery.lostCompletedGenerations
     ? `abandoned completed generations ${BigInt(`0x${recovery.lostCompletedGenerations.from}`).toString(10)} through ${BigInt(`0x${recovery.lostCompletedGenerations.through}`).toString(10)}`
     : 'no completed generations were lost';
-  return `Recovered checkpoint ${recovery.recoveredCheckpointId} at generation ${generation} from failed run ${recovery.failedRunId} into branch ${recovery.branchRunId}; failed checkpoint ${recovery.failedCheckpointId}; ${loss}.`;
+  return `Recovered checkpoint ${recovery.recoveredCheckpointId} at generation ${generation} from failed run ${recovery.failedRunId} into branch ${recovery.branchRunId}; failed checkpoint ${recovery.failedCheckpointId}; ${loss}.${continuation}`;
 }
 
 /**

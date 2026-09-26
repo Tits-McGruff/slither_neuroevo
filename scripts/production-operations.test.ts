@@ -40,5 +40,7 @@ describe('production service operations', () => {
     expect(INSTALLER).toContain('systemctl --user enable slither-neuroevo.service');
     expect(INSTALLER).not.toContain('enable --now');
     expect(INSTALLER).not.toMatch(/^\s*systemctl --user start(?:\s|$)/mu);
+    expect(INSTALLER).toContain('loginctl show-user "$USER" -p Linger');
+    expect(INSTALLER).toContain('sudo loginctl enable-linger $USER');
   });
 });

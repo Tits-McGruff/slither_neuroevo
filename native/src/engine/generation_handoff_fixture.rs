@@ -616,6 +616,7 @@ pub(super) fn fixture_run_start(
         .ok_or_else(|| "generation handoff memory ceiling overflowed".to_owned())?;
     let policy = StateAdmissionPolicy {
         memory_ceiling_bytes,
+        require_exact_build_identity: true,
         expected_source_revision: build_identifier.clone(),
         expected_engine_build_id: build_identifier,
         expected_source_sha256: source_sha256,

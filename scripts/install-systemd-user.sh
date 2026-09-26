@@ -38,3 +38,9 @@ echo "[OK] Installed and enabled $UNIT_PATH"
 echo "[INFO] Review server/systemd.env if this host needs overrides."
 echo "[INFO] Start now: systemctl --user start slither-neuroevo.service"
 echo "[INFO] Logs:      journalctl --user -u slither-neuroevo.service -f"
+
+linger=$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || true)
+if [ "$linger" != "yes" ]; then
+  echo "[WARN] User lingering is disabled; this service will stop after the last login session ends."
+  echo "[WARN] An administrator must run: sudo loginctl enable-linger $USER"
+fi

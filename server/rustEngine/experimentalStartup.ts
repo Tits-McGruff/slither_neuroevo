@@ -134,7 +134,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     let selection: ManagedCheckpointSelection | null = null;
     let startupSelectionCompleted = false;
     let legacyConversion: ManagedLegacyConversion | null = null;
-    let session: ExperimentalFreshRunSession;
+    let session: ExperimentalFreshRunSession | undefined;
     if (restoring) {
       try {
         selection = await persistence.selectStartup();
@@ -161,44 +161,78 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
         if (startupSelectionCompleted && !selection?.descriptor) throw currentError;
         if (!options.restoreLatest && !options.restoreCheckpointId) throw currentError;
         if (options.restoreCheckpointId && selection?.descriptor?.logicalRootSha256 === options.restoreCheckpointId) throw currentError;
-        const failedRoot = selection?.descriptor?.logicalRootSha256;
-        let cursor: RecoveryScanCursor | null = null;
-        for (;;) {
-          const candidate = await persistence.scanRecoveryCandidate(cursor);
-          cursor = candidate.cursor;
-          if (candidate.exhausted) {
-            throw new Error(options.restoreCheckpointId ? 'requested exact managed checkpoint is not valid in the retained active lineage' : 'no valid retained managed checkpoint; startup remains faulted', { cause: currentError });
+        let compatibleRestored = false;
+        if (options.restoreLatest && selection?.descriptor && selection.runId) {
+          const descriptor = selection.descriptor;
+          const restored = makeSession(selection.runId);
+          let admitted = false;
+          try {
+            await restored.initializeFromCheckpoint(
+              descriptor,
+              descriptor.runId !== selection.runId
+                ? selection.recovery ?? selection.importBranch ?? undefined : undefined,
+              true
+            );
+            admitted = true;
+          } catch {
+            // Corrupt or version/target/math-incompatible current files continue
+            // through ordinary newest-valid retained-boundary recovery below.
           }
-          if (options.restoreCheckpointId && candidate.cursor.checkpointId !== options.restoreCheckpointId) continue;
-          const descriptor = candidate.descriptor;
-          if (options.restoreCheckpointId && !descriptor) throw new Error('requested exact managed checkpoint has invalid metadata');
-          if (!descriptor || (!options.restoreCheckpointId && descriptor.logicalRootSha256 === failedRoot)) continue;
-          const restored = makeSession(descriptor.runId);
-          try { await restored.initializeFromCheckpoint(descriptor); }
-          catch (error) {
-            if (options.restoreCheckpointId) throw error;
-            continue; // Failed native admission retains no candidate population.
+          if (admitted) {
+            const recovery = await persistence.commitRecoveryBranch({
+              operationId: randomBytes(16).toString('hex'), branchRunId: randomUUID(),
+              sourceRunId: selection.runId, failedCheckpointId: descriptor.logicalRootSha256,
+              recoveredDescriptor: descriptor, compatibleBuild: true
+            });
+            await restored.adoptRecoveryBranch(recovery);
+            session = restored;
+            selection = { descriptor, runId: recovery.branchRunId, recovery, importBranch: null,
+              legacyConversion: null };
+            legacyConversion = null;
+            compatibleRestored = true;
           }
-          const recovery = await persistence.commitRecoveryBranch({
-            operationId: randomBytes(16).toString('hex'), branchRunId: randomUUID(),
-            sourceRunId: cursor.sourceRunId, failedCheckpointId: cursor.failedCheckpointId,
-            recoveredDescriptor: descriptor
-          });
-          // Commit failures escape; an older candidate must never hide a durability failure.
-          await restored.adoptRecoveryBranch(recovery);
-          session = restored;
-          selection = {
-            descriptor, runId: recovery.branchRunId, recovery, importBranch: null,
-            legacyConversion: null
-          };
-          legacyConversion = null;
-          break;
+        }
+        if (!compatibleRestored) {
+          const failedRoot = selection?.descriptor?.logicalRootSha256;
+          let cursor: RecoveryScanCursor | null = null;
+          for (;;) {
+            const candidate = await persistence.scanRecoveryCandidate(cursor);
+            cursor = candidate.cursor;
+            if (candidate.exhausted) {
+              throw new Error(options.restoreCheckpointId ? 'requested exact managed checkpoint is not valid in the retained active lineage' : 'no valid retained managed checkpoint; startup remains faulted', { cause: currentError });
+            }
+            if (options.restoreCheckpointId && candidate.cursor.checkpointId !== options.restoreCheckpointId) continue;
+            const descriptor = candidate.descriptor;
+            if (options.restoreCheckpointId && !descriptor) throw new Error('requested exact managed checkpoint has invalid metadata');
+            if (!descriptor || (!options.restoreCheckpointId && descriptor.logicalRootSha256 === failedRoot)) continue;
+            const restored = makeSession(descriptor.runId);
+            try { await restored.initializeFromCheckpoint(descriptor); }
+            catch (error) {
+              if (options.restoreCheckpointId) throw error;
+              continue; // Failed native admission retains no candidate population.
+            }
+            const recovery = await persistence.commitRecoveryBranch({
+              operationId: randomBytes(16).toString('hex'), branchRunId: randomUUID(),
+              sourceRunId: cursor.sourceRunId, failedCheckpointId: cursor.failedCheckpointId,
+              recoveredDescriptor: descriptor
+            });
+            // Commit failures escape; an older candidate must never hide a durability failure.
+            await restored.adoptRecoveryBranch(recovery);
+            session = restored;
+            selection = {
+              descriptor, runId: recovery.branchRunId, recovery, importBranch: null,
+              legacyConversion: null
+            };
+            legacyConversion = null;
+            break;
+          }
         }
       }
     } else {
       session = makeSession(randomUUID());
       await session.initialize();
     }
+    if (!session) throw new Error('startup completed without an admitted Rust session');
     const selected = selection?.descriptor ?? null;
     const metadata = session.startupMetadata();
     if (selected && metadata.runId !== selection?.runId) throw new Error('restored startup identity differs from selected checkpoint');

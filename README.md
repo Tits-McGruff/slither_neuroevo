@@ -89,9 +89,13 @@ physics commits ordered. This is separate from the reference server's
 
 For a managed Rust database, latest startup validates the current checkpoint
 and, if necessary, recovers from the newest valid retained boundary under a new
-provenance-labelled branch. An exact SHA-256 selector must validate and is
-never silently replaced. If latest startup finds no valid retained boundary,
-the process serves only a failing health endpoint and refuses game WebSockets
+provenance-labelled branch. After an application rebuild, `--resume latest`
+may continue a checkpoint whose versioned state, target, release profile,
+settings schema, and math backend remain compatible. It records that
+cross-build continuation as a new branch before changing the live game. An
+exact SHA-256 selector still requires the producing build identity and is never
+silently replaced. If latest startup finds no valid retained boundary, the
+process serves only a failing health endpoint and refuses game WebSockets
 instead of starting a new game.
 
 The server prints a browser URL and supports the existing Protocol 2
@@ -201,9 +205,10 @@ systemctl --user status slither-neuroevo.service
 The unit waits five seconds before a failed-process restart and stops after
 three starts within two minutes. It does not restart a clean manual stop.
 `journalctl --user -u slither-neuroevo.service -f` follows its logs. For a
-server that must start before the user logs in, enable user lingering once with
-`loginctl enable-linger "$USER"` if the host administrator permits it. The
-manual `play.sh`/`shutdown.sh` pair remains useful for diagnosis, but do not run
+server that must survive logout and start before the user logs in, an
+administrator must enable user lingering once with
+`sudo loginctl enable-linger "$USER"`. The installer warns when it is disabled.
+The manual `play.sh`/`shutdown.sh` pair remains useful for diagnosis, but do not run
 it at the same time as the systemd service.
 
 For an update, stop the service, update the checkout, run `npm ci` and
@@ -535,7 +540,10 @@ reconstructed from the saved generation-start boundary instead of being
 restored from the middle of a tick. Normal startup resumes the latest valid
 checkpoint; use `--fresh` to start and durably record a new run without
 deleting older snapshots, or `--resume <snapshot-id>` to select a specific
-valid checkpoint.
+valid checkpoint. Exact replay remains tied to the producing build. Normal
+`--resume latest` can instead make a durable, provenance-labelled continuation
+branch when a newer build still supports every stored state contract; it does
+not claim that the post-upgrade run is an exact replay of the old binary.
 
 Reference-runtime JSON exports are portable but are not selected for automatic
 exact resume. Rust resume-latest converts its current per-genome SQLite rows,

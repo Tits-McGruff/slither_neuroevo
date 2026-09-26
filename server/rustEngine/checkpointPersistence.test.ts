@@ -412,7 +412,8 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await fixture.client.commit(third, createGenerationCommit(2n));
     const originalFile = readFileSync(join(fixture.managedRoot, third.relativeFilename));
     const request = { operationId: '44'.repeat(16), branchRunId: 'recovered-lineage',
-      sourceRunId: first.runId, failedCheckpointId: third.logicalRootSha256, recoveredDescriptor: second };
+      sourceRunId: first.runId, failedCheckpointId: third.logicalRootSha256,
+      recoveredDescriptor: second, compatibleBuild: true as const };
     const result = await fixture.client.commitRecoveryBranch(request);
     expect(result).toEqual({ ...request, abandonedThroughGeneration: u64(3n) });
     expect(await fixture.client.commitRecoveryBranch(request)).toEqual(result);
@@ -458,6 +459,8 @@ describe(SUITE, { timeout: 30_000 }, () => {
       expect(db.prepare('SELECT run_id FROM rust_active_run_v1').get()).toEqual({ run_id: request.branchRunId });
       expect(db.prepare('SELECT source_run_id, recovered_checkpoint_id, history_through_generation_hex FROM rust_recovery_branches_v1').get())
         .toEqual({ source_run_id: first.runId, recovered_checkpoint_id: second.logicalRootSha256, history_through_generation_hex: u64(1n) });
+      expect(JSON.parse((db.prepare('SELECT provenance_json FROM rust_recovery_branches_v1').get() as { provenance_json: string }).provenance_json))
+        .toMatchObject({ compatibleBuild: true });
       expect(db.prepare('SELECT count(*) AS count FROM rust_generation_history_v1 WHERE run_id = ?').get(first.runId)).toEqual({ count: 2 });
     } finally { db.close(); }
     expect(readFileSync(join(fixture.managedRoot, third.relativeFilename))).toEqual(originalFile);

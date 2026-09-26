@@ -160,7 +160,8 @@ export interface ExperimentalFreshRunNativeHandle extends RustRunStartPersistenc
   /** Construct and admit the complete fixed P0 boundary off the Node loop. */
   initialize(): Promise<unknown>;
   /** Stream and validate the worker-selected immutable boundary off-loop. */
-  initializeFromCheckpoint(managedDirectory: string, descriptor: ManagedCheckpointDescriptor, recoveryBranch?: boolean): Promise<unknown>;
+  initializeFromCheckpoint(managedDirectory: string, descriptor: ManagedCheckpointDescriptor,
+    recoveryBranch?: boolean, compatibleBuild?: boolean): Promise<unknown>;
   /** Read one selected TypeScript v2 population without crossing the main Node isolate. */
   initializeFromLegacySqlite(databasePath: string, snapshotIdHex: U64Hex): Promise<unknown>;
   /** Construct and publish the running world off the Node loop. */
@@ -354,7 +355,8 @@ export class ExperimentalFreshRunSession {
   /** Restore exactly the committed descriptor selected by the persistence worker. */
   public async initializeFromCheckpoint(
     descriptor: ManagedCheckpointDescriptor,
-    branch?: RecoveryBranchResult | ManagedImportBranchResult
+    branch?: RecoveryBranchResult | ManagedImportBranchResult,
+    compatibleBuild = false
   ): Promise<ExperimentalFreshRunSnapshot> {
     const selected = parseManagedCheckpointDescriptor(descriptor);
     const provenance = branch === undefined ? undefined : 'sourceGeneration' in branch
@@ -363,7 +365,12 @@ export class ExperimentalFreshRunSession {
         !managedCheckpointDescriptorsEqual(provenance.recoveredDescriptor, selected))) {
       throw new Error('branch provenance differs from selected checkpoint or branch');
     }
-    const result = await this.native.initializeFromCheckpoint(this.managedDirectory, selected, provenance !== undefined);
+    const result = await this.native.initializeFromCheckpoint(
+      this.managedDirectory,
+      selected,
+      provenance !== undefined,
+      compatibleBuild
+    );
     this.restoredBoundary = selected;
     return parseFreshRunSnapshot(result, selected);
   }

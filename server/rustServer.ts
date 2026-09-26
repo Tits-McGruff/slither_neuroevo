@@ -144,6 +144,7 @@ function recoveryNotice(owner: ExperimentalServerRuntime): RustRecoveryNotice | 
   return { failedRunId: recovery.sourceRunId, branchRunId: recovery.branchRunId,
     failedCheckpointId: recovery.failedCheckpointId, recoveredCheckpointId: recovery.recoveredDescriptor.logicalRootSha256,
     recoveredGeneration: recovery.recoveredDescriptor.generation,
+    ...(recovery.compatibleBuild ? { compatibleBuild: true as const } : {}),
     lostCompletedGenerations: through >= recovered ? { from: recovery.recoveredDescriptor.generation,
       through: through.toString(16).padStart(16, '0') } : null };
 }

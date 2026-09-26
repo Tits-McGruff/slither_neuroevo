@@ -1208,6 +1208,7 @@ mod tests {
     fn policy(source: &StateCandidate) -> StateAdmissionPolicy {
         StateAdmissionPolicy {
             memory_ceiling_bytes: usize::MAX,
+            require_exact_build_identity: true,
             expected_source_revision: source.identity.source_revision.clone(),
             expected_engine_build_id: source.identity.engine_build_id.clone(),
             expected_source_sha256: source.identity.source_sha256.clone(),

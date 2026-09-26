@@ -579,7 +579,15 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   and an installable per-user systemd unit with bounded restart policy. The
   online backup command snapshots SQLite, copies and hashes exactly its retained
   checkpoint and Hall-of-Fame objects, retries pruning races, and restores only
-  to an absent database-plus-managed-directory pair.
+  to an absent database-plus-managed-directory pair. On the target VM a fresh
+  service resumed the same run after `SIGABRT`; the owner's PyRL client then
+  discovered 83 v3 inputs and delivered live trainer actions. Unattended user
+  service operation still needs an administrator to enable lingering, so the
+  manual launcher remains active there meanwhile. Resume-latest now admits a
+  checkpoint across application rebuilds only when its versioned state,
+  target, profile, settings schema, and math backend remain compatible; SQLite
+  must commit a provenance-labelled branch before Rust can activate it. Exact
+  checkpoint selection continues to require the producing build identity.
 
 The next dependencies are service restart fault injection, unchanged LAN
 browser/trainer acceptance, and the remaining long-duration durability gates.

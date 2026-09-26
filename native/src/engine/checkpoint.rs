@@ -5209,6 +5209,7 @@ mod tests {
     fn admission_policy(settings_schema_sha256: String) -> StateAdmissionPolicy {
         StateAdmissionPolicy {
             memory_ceiling_bytes: 128 * 1024 * 1024,
+            require_exact_build_identity: true,
             expected_source_revision: "test-revision".into(),
             expected_engine_build_id: "test-engine-build".into(),
             expected_source_sha256: "1".repeat(64),

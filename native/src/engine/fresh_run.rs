@@ -208,7 +208,28 @@ pub fn prepare_stage6a_p0_checkpoint_restore(
     PendingRunStartTransition::restore_committed(
         managed_directory,
         descriptor,
-        current_build_policy(memory_ceiling_bytes, schema),
+        current_build_policy(memory_ceiling_bytes, schema, true),
+        stage6a_p0_checkpoint_limits(),
+        stage6a_p0_graph_limits(),
+        RunningStepWorkLimits::provisional_defaults(),
+    )
+    .map_err(FreshRunError::from)
+}
+
+/// Restore one version/target/math-compatible checkpoint from another exact
+/// build before immediately rebinding it to a durable recovery branch.
+pub fn prepare_stage6a_p0_compatible_checkpoint_restore(
+    managed_directory: &std::path::Path,
+    descriptor: &super::checkpoint::CheckpointDescriptor,
+    memory_ceiling_bytes: usize,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let settings =
+        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
+    let schema = normalized_settings_schema_hash(&settings)?;
+    PendingRunStartTransition::restore_committed(
+        managed_directory,
+        descriptor,
+        current_build_policy(memory_ceiling_bytes, schema, false),
         stage6a_p0_checkpoint_limits(),
         stage6a_p0_graph_limits(),
         RunningStepWorkLimits::provisional_defaults(),
@@ -229,7 +250,7 @@ pub(crate) fn prepare_stage6a_p0_validated_import(
     PendingRunStartTransition::restore_validated_import(
         restored,
         descriptor,
-        current_build_policy(memory_ceiling_bytes, schema),
+        current_build_policy(memory_ceiling_bytes, schema, true),
         stage6a_p0_checkpoint_limits(),
         stage6a_p0_graph_limits(),
         RunningStepWorkLimits::provisional_defaults(),
@@ -309,7 +330,7 @@ fn prepare_stage6a_p0_boundary(
     let baseline_config = project_baseline_generation_config(&config)?;
     let config_hash = normalized_config_hash(&config)?;
     let admission_policy =
-        current_build_policy(request.memory_ceiling_bytes, settings_schema_sha256);
+        current_build_policy(request.memory_ceiling_bytes, settings_schema_sha256, true);
     let checkpoint_limits = stage6a_p0_checkpoint_limits();
 
     let build_identifier = crate::native_addon_build_identifier();
@@ -500,10 +521,12 @@ fn stage6a_p0_config(
 fn current_build_policy(
     memory_ceiling_bytes: usize,
     settings_schema_sha256: String,
+    require_exact_build_identity: bool,
 ) -> StateAdmissionPolicy {
     let build_identifier = crate::native_addon_build_identifier();
     StateAdmissionPolicy {
         memory_ceiling_bytes,
+        require_exact_build_identity,
         expected_source_revision: build_identifier.clone(),
         expected_engine_build_id: build_identifier,
         expected_source_sha256: crate::native_addon_source_sha256(),
@@ -527,7 +550,7 @@ pub(crate) fn stage6a_p0_export_validation_contract(
     Ok((
         stage6a_p0_checkpoint_limits(),
         stage6a_p0_graph_limits(),
-        current_build_policy(memory_ceiling_bytes, settings_schema_sha256),
+        current_build_policy(memory_ceiling_bytes, settings_schema_sha256, true),
     ))
 }
 
@@ -1955,7 +1978,7 @@ mod tests {
             )
             .unwrap();
         let restore = || {
-            prepare_stage6a_p0_checkpoint_restore(
+            prepare_stage6a_p0_compatible_checkpoint_restore(
                 managed.path(),
                 &descriptor,
                 request(42).memory_ceiling_bytes,
@@ -1964,6 +1987,11 @@ mod tests {
         };
         let restored = restore();
         let before_rejection = restored.startup_metadata_json().unwrap();
+        let mut uncommitted = restore();
+        assert!(matches!(
+            uncommitted.publish_running_authority(),
+            Err(RunStartTransitionError::CompatibleRecoveryBranchNotCommitted)
+        ));
         let mut wrong = descriptor.clone();
         wrong.generation_hex = "0000000000000002".into();
         assert!(restored

@@ -95,6 +95,9 @@ pub struct StateAdmissionPolicy {
     /// Remaining hard peak ceiling after the caller accounts for the current
     /// engine, Node, transfer spools, and any simultaneously staged state.
     pub memory_ceiling_bytes: usize,
+    /// Whether producer source/compiler identity must match rather than only
+    /// the versioned state, target, build class/profile, and math contracts.
+    pub require_exact_build_identity: bool,
     /// Source revision of the currently loaded native addon.
     pub expected_source_revision: String,
     /// Source-derived engine ABI/build identity of the loaded addon.
@@ -1384,6 +1387,16 @@ impl AuthoritativeState {
             );
         }
         self.candidate.identity.run_id = run_id;
+        self.candidate.identity.source_revision = policy.expected_source_revision.clone();
+        self.candidate.identity.engine_build_id = policy.expected_engine_build_id.clone();
+        self.candidate.identity.source_sha256 = policy.expected_source_sha256.clone();
+        self.candidate.identity.target_triple = policy.expected_target_triple.clone();
+        self.candidate.identity.build_profile = policy.expected_build_profile.clone();
+        self.candidate.identity.build_class = policy.expected_build_class.clone();
+        self.candidate.identity.rustc_version = policy.expected_rustc_version.clone();
+        self.candidate.identity.build_contract_sha256 =
+            policy.expected_build_contract_sha256.clone();
+        self.candidate.identity.math_backend = policy.expected_math_backend.clone();
         Self::validate_and_own(self.candidate, self.graph, policy)
     }
 
@@ -2319,6 +2332,7 @@ fn successor_admission_policy(
 ) -> StateAdmissionPolicy {
     StateAdmissionPolicy {
         memory_ceiling_bytes: remaining_memory_ceiling_bytes,
+        require_exact_build_identity: true,
         expected_source_revision: source.identity.source_revision.clone(),
         expected_engine_build_id: source.identity.engine_build_id.clone(),
         expected_source_sha256: source.identity.source_sha256.clone(),
@@ -3560,19 +3574,19 @@ fn validate_identity(
         &identity.build_contract_sha256,
     )?;
     validate_text("identity.math_backend", &identity.math_backend)?;
-    if identity.source_revision != policy.expected_source_revision
-        || identity.engine_build_id != policy.expected_engine_build_id
-        || identity.source_sha256 != policy.expected_source_sha256
-        || identity.target_triple != policy.expected_target_triple
+    let incompatible = identity.target_triple != policy.expected_target_triple
         || identity.build_profile != policy.expected_build_profile
         || identity.build_class != policy.expected_build_class
+        || identity.math_backend != policy.expected_math_backend;
+    let not_exact = identity.source_revision != policy.expected_source_revision
+        || identity.engine_build_id != policy.expected_engine_build_id
+        || identity.source_sha256 != policy.expected_source_sha256
         || identity.rustc_version != policy.expected_rustc_version
-        || identity.build_contract_sha256 != policy.expected_build_contract_sha256
-        || identity.math_backend != policy.expected_math_backend
-    {
+        || identity.build_contract_sha256 != policy.expected_build_contract_sha256;
+    if incompatible || (policy.require_exact_build_identity && not_exact) {
         return invalid(
             "identity",
-            "source/build/compiler/target/math identity does not match the loaded engine",
+            "checkpoint build identity is not admitted by the loaded engine",
         );
     }
     Ok(())
@@ -5367,6 +5381,7 @@ mod tests {
     fn policy(memory_ceiling_bytes: usize) -> StateAdmissionPolicy {
         StateAdmissionPolicy {
             memory_ceiling_bytes,
+            require_exact_build_identity: true,
             expected_source_revision: "test-source".into(),
             expected_engine_build_id: "test-engine".into(),
             expected_source_sha256:
@@ -6229,6 +6244,56 @@ mod tests {
             own(wrong_hash, graph, usize::MAX),
             Err(StateError::InvalidField {
                 field: "identity.config_hash",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn compatible_build_admission_rebinds_only_after_a_distinct_recovery_branch() {
+        let graph = default_graph();
+        let mut compatible = policy(usize::MAX);
+        compatible.require_exact_build_identity = false;
+        compatible.expected_source_revision = "next-source".into();
+        compatible.expected_engine_build_id = "next-engine".into();
+        compatible.expected_source_sha256 = "2".repeat(64);
+        compatible.expected_rustc_version = "rustc next".into();
+        compatible.expected_build_contract_sha256 = format!("sha256:{}", "4".repeat(64));
+
+        let source = candidate(&graph, 2);
+        let original_run = source.identity.run_id.clone();
+        let admitted =
+            AuthoritativeState::validate_and_own(source, Arc::clone(&graph), &compatible)
+                .expect("version/target/math-compatible state must admit privately");
+        assert_eq!(admitted.state().identity.run_id, original_run);
+        assert_ne!(
+            admitted.state().identity.source_revision,
+            compatible.expected_source_revision
+        );
+
+        let branch = admitted
+            .into_recovery_branch("compatible-build-branch".into(), &compatible)
+            .expect("durable branch adoption must rebind producer identity");
+        assert_eq!(branch.state().identity.run_id, "compatible-build-branch");
+        assert_eq!(
+            branch.state().identity.source_revision,
+            compatible.expected_source_revision
+        );
+        assert_eq!(
+            branch.state().identity.engine_build_id,
+            compatible.expected_engine_build_id
+        );
+        assert_eq!(
+            branch.state().identity.source_sha256,
+            compatible.expected_source_sha256
+        );
+
+        let mut incompatible = compatible;
+        incompatible.expected_target_triple = "different-target".into();
+        assert!(matches!(
+            AuthoritativeState::validate_and_own(candidate(&graph, 2), graph, &incompatible),
+            Err(StateError::InvalidField {
+                field: "identity",
                 ..
             })
         ));

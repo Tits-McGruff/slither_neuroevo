@@ -38,7 +38,8 @@ use crate::engine::error::{truncate_utf8, EngineError, EngineErrorCode, MAX_ERRO
 use crate::engine::export_archive::prepare_legacy_sqlite_population_import;
 use crate::engine::frame_v1::FrameV1Metadata;
 use crate::engine::fresh_run::{
-    prepare_stage6a_p0_checkpoint_restore, prepare_stage6a_p0_fresh_run, Stage6aP0FreshRunRequest,
+    prepare_stage6a_p0_checkpoint_restore, prepare_stage6a_p0_compatible_checkpoint_restore,
+    prepare_stage6a_p0_fresh_run, Stage6aP0FreshRunRequest,
 };
 use crate::engine::generation::GenerationCommitRecord;
 use crate::engine::physics::PhysicsStepKey;
@@ -742,6 +743,7 @@ impl ExperimentalStage6aFreshRunSession {
         managed_directory: JsString<'_>,
         descriptor: Object<'_>,
         recovery_branch: Option<bool>,
+        compatible_build: Option<bool>,
     ) -> Result<AsyncTask<InitializeExperimentalFreshRunTask>> {
         self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
         let parsed = (|| {
@@ -753,6 +755,7 @@ impl ExperimentalStage6aFreshRunSession {
             )?)?;
             let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
             let recovery = recovery_branch.unwrap_or(false);
+            let compatible = compatible_build.unwrap_or(false);
             if (descriptor.run_id != self.request.run_id) != recovery {
                 return Err(Error::new(
                     Status::InvalidArg,
@@ -760,7 +763,7 @@ impl ExperimentalStage6aFreshRunSession {
                 ));
             }
             ensure_fresh_transition_absent(&self.inner)?;
-            Ok((directory, descriptor, recovery))
+            Ok((directory, descriptor, recovery, compatible))
         })();
         let restore = match parsed {
             Ok(restore) => restore,
@@ -1216,7 +1219,7 @@ impl Task for AdoptRecoveryBranchTask {
 /// Async complete fixed-profile construction for one experimental lineage.
 enum FreshRunInitialization {
     Fresh,
-    Checkpoint(Box<(PathBuf, CheckpointDescriptor, bool)>),
+    Checkpoint(Box<(PathBuf, CheckpointDescriptor, bool, bool)>),
     LegacySqlite((PathBuf, i64)),
 }
 
@@ -1236,22 +1239,31 @@ impl Task for InitializeExperimentalFreshRunTask {
         match catch_unwind(AssertUnwindSafe(|| {
             let mut transition = match &self.source {
                 FreshRunInitialization::Checkpoint(restore) => {
-                    let (directory, descriptor, recovery) = restore.as_ref();
-                    prepare_stage6a_p0_checkpoint_restore(
-                        directory,
-                        descriptor,
-                        self.request.memory_ceiling_bytes,
-                    )
-                    .and_then(|transition| {
-                        if *recovery {
-                            transition
-                                .into_committed_recovery_branch(self.request.run_id.clone())
-                                .map_err(crate::engine::fresh_run::FreshRunError::from)
-                        } else {
-                            Ok(transition)
-                        }
-                    })
-                    .map_err(|error| error.to_string())?
+                    let (directory, descriptor, recovery, compatible) = restore.as_ref();
+                    let restored = if *compatible {
+                        prepare_stage6a_p0_compatible_checkpoint_restore(
+                            directory,
+                            descriptor,
+                            self.request.memory_ceiling_bytes,
+                        )
+                    } else {
+                        prepare_stage6a_p0_checkpoint_restore(
+                            directory,
+                            descriptor,
+                            self.request.memory_ceiling_bytes,
+                        )
+                    };
+                    restored
+                        .and_then(|transition| {
+                            if *recovery {
+                                transition
+                                    .into_committed_recovery_branch(self.request.run_id.clone())
+                                    .map_err(crate::engine::fresh_run::FreshRunError::from)
+                            } else {
+                                Ok(transition)
+                            }
+                        })
+                        .map_err(|error| error.to_string())?
                 }
                 FreshRunInitialization::LegacySqlite((database_path, snapshot_id)) => {
                     prepare_legacy_sqlite_population_import(

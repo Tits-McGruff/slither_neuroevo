@@ -396,6 +396,8 @@ export interface RustRecoveryNotice {
   recoveredGeneration: string;
   /** Completed generations lost relative to the newest retained boundary. */
   lostCompletedGenerations: { from: string; through: string } | null;
+  /** True when a compatible upgrade, not corruption fallback, caused this branch. */
+  compatibleBuild?: true;
 }
 
 /** Compact provenance for an owner-selected older-checkpoint import branch. */

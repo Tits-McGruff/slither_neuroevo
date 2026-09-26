@@ -118,6 +118,13 @@ interface FakeEvidence {
   published: unknown[];
   /** Exact descriptors acknowledged back into Rust. */
   acknowledged: ManagedCheckpointDescriptor[];
+  /** Checkpoint inputs and admission mode forwarded to native Rust. */
+  restored: Array<{
+    directory: string;
+    descriptor: ManagedCheckpointDescriptor;
+    recoveryBranch: boolean | undefined;
+    compatibleBuild: boolean | undefined;
+  }>;
 }
 
 /** Minimal fake native owner with the exact production class surface. */
@@ -145,7 +152,13 @@ class FakeFreshRunSession implements ExperimentalFreshRunNativeHandle {
   }
 
   /** Retain a selected scalar boundary without constructing a fresh population. */
-  public async initializeFromCheckpoint(_directory: string, selected: ManagedCheckpointDescriptor): Promise<unknown> {
+  public async initializeFromCheckpoint(
+    directory: string,
+    selected: ManagedCheckpointDescriptor,
+    recoveryBranch?: boolean,
+    compatibleBuild?: boolean
+  ): Promise<unknown> {
+    this.evidence.restored.push({ directory, descriptor: selected, recoveryBranch, compatibleBuild });
     this.current = snapshot('durableBoundary', {
       generation: selected.generation, completedStep: selected.completedStep,
       checkpointPublished: true, persistenceAcknowledged: true
@@ -258,7 +271,7 @@ function fakeBinding(evidence: FakeEvidence): unknown {
 
 /** Create a fresh empty evidence sink. */
 function createEvidence(): FakeEvidence {
-  return { constructed: [], published: [], acknowledged: [] };
+  return { constructed: [], published: [], acknowledged: [], restored: [] };
 }
 
 describe('experimental fixed-P0 fresh-run session', () => {
@@ -272,9 +285,13 @@ describe('experimental fixed-P0 fresh-run session', () => {
     });
     const selected = { ...descriptor(), boundaryKind: 'generation' as const,
       generation: '0000000000000002', completedStep: '000000000000003c' };
-    await expect(session.initializeFromCheckpoint(selected)).resolves.toMatchObject({
+    await expect(session.initializeFromCheckpoint(selected, undefined, true)).resolves.toMatchObject({
       phase: 'durableBoundary', generation: selected.generation, completedStep: selected.completedStep
     });
+    expect(evidence.restored).toEqual([{
+      directory: 'checkpoint-v3', descriptor: selected,
+      recoveryBranch: false, compatibleBuild: true
+    }]);
     await expect(session.activateRunningAuthority()).resolves.toMatchObject({
       generation: selected.generation, completedStep: selected.completedStep
     });

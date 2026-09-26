@@ -113,6 +113,12 @@ describe('wsClient', () => {
       recoveredGeneration: '0000000000000019',
       lostCompletedGenerations: { from: '0000000000000019', through: '000000000000001b' }
     })).toBe(`Recovered checkpoint ${'a'.repeat(64)} at generation 25 from failed run source-run into branch branch-run; failed checkpoint ${'f'.repeat(64)}; abandoned completed generations 25 through 27.`);
+    expect(formatRecoveryRuntimeStatus({
+      failedRunId: 'old-build', branchRunId: 'new-build',
+      failedCheckpointId: 'b'.repeat(64), recoveredCheckpointId: 'b'.repeat(64),
+      recoveredGeneration: '0000000000000007', lostCompletedGenerations: null,
+      compatibleBuild: true
+    })).toContain('Compatible application-build continuation; exact replay ends at the source checkpoint.');
   });
 
   it('plainly labels converted SQLite populations as non-exact starts', () => {

@@ -314,6 +314,7 @@ pub(crate) fn publish_stage3_fixture(
     };
     let policy = StateAdmissionPolicy {
         memory_ceiling_bytes: 256 * 1024 * 1024,
+        require_exact_build_identity: true,
         expected_source_revision: build_identifier.clone(),
         expected_engine_build_id: build_identifier,
         expected_source_sha256: source_sha256,
@@ -831,6 +832,7 @@ fn build_round_trip_state(
     };
     let policy = StateAdmissionPolicy {
         memory_ceiling_bytes: 768 * 1024 * 1024,
+        require_exact_build_identity: true,
         expected_source_revision: build_identifier.clone(),
         expected_engine_build_id: build_identifier,
         expected_source_sha256: source_sha256,

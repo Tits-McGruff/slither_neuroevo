@@ -13,6 +13,8 @@ export interface RecoveryBranchCommit {
   failedCheckpointId: string;
   /** Original immutable descriptor, including its original lineage. */
   recoveredDescriptor: ManagedCheckpointDescriptor;
+  /** True when compatibility, rather than exact build identity, admitted the source. */
+  compatibleBuild?: true;
 }
 
 /** Durable recovery provenance; history references stop before the recovered round. */
@@ -35,7 +37,10 @@ export function parseRecoveryBranchCommit(value: unknown): RecoveryBranchCommit 
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid recovery commit');
   const raw = value as Record<string, unknown>;
   const keys = ['operationId', 'branchRunId', 'sourceRunId', 'failedCheckpointId', 'recoveredDescriptor'];
-  if (Object.keys(raw).length !== keys.length || keys.some(key => !Object.hasOwn(raw, key))) {
+  const actualKeys = Object.keys(raw);
+  if (keys.some(key => !Object.hasOwn(raw, key)) ||
+      actualKeys.some(key => !keys.includes(key) && key !== 'compatibleBuild') ||
+      (raw['compatibleBuild'] !== undefined && raw['compatibleBuild'] !== true)) {
     throw new TypeError('invalid recovery commit fields');
   }
   const branchRunId = runId(raw['branchRunId']);
@@ -48,7 +53,8 @@ export function parseRecoveryBranchCommit(value: unknown): RecoveryBranchCommit 
     throw new TypeError('invalid failed checkpoint identity');
   }
   return { operationId: parseCheckpointOperationId(raw['operationId']), branchRunId, sourceRunId,
-    failedCheckpointId: raw['failedCheckpointId'], recoveredDescriptor };
+    failedCheckpointId: raw['failedCheckpointId'], recoveredDescriptor,
+    ...(raw['compatibleBuild'] === true ? { compatibleBuild: true as const } : {}) };
 }
 
 /** Validate a complete durable branch acknowledgement, preserving exact chronology. */
