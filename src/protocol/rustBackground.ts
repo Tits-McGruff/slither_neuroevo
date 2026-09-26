@@ -110,6 +110,8 @@ export interface RustBackgroundHealth {
   schedulerDroppedWallMicros: RustBackgroundIdentity;
   /** Whether discarded debt has left a catch-up backlog. */
   schedulerOverloaded: boolean;
+  /** Completed Rust scheduler service boundaries, including idle wakes. */
+  commandServiceBoundaries: RustBackgroundIdentity;
   /** Commands whose full replies have entered the output queue. */
   processedCommands: RustBackgroundIdentity;
   /** Successful authoritative step computations represented by timing data. */

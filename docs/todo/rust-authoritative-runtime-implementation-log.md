@@ -589,5 +589,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   must commit a provenance-labelled branch before Rust can activate it. Exact
   checkpoint selection continues to require the producing build identity.
 
-The next dependencies are service restart fault injection, unchanged LAN
-browser/trainer acceptance, and the remaining long-duration durability gates.
+- 2026-09-27 The resumed Debian run also served a real LAN browser: spectator
+  frames, visible Play, steering/boost actions, and reconnect worked against
+  Rust; the server accepted 471 player actions during the first play session.
+  Production now samples Rust's completed scheduler boundaries from Node and
+  exits on a five-second ready-state stall so the supervisor can restart from
+  a committed checkpoint. Intentional persistence/controller barriers and a
+  paused Node event loop do not count as a Rust calculation stall.
+
+The next dependencies are service restart fault injection and the remaining
+long-duration durability gates.

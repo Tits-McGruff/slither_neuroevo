@@ -105,6 +105,9 @@ describeNetworkSuite('Rust server real sockets', () => {
     try {
       const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json();
       expect(health).toMatchObject({ ok: true, authority: 'rust', generation: '0000000000000001' });
+      const firstBoundary = BigInt(`0x${(health as { commandServiceBoundaries: string }).commandServiceBoundaries}`);
+      await healthUntil(server.port, sample =>
+        BigInt(`0x${sample['commandServiceBoundaries'] as string}`) > firstBoundary);
     } finally {
       await server.close();
       await rm(root, { recursive: true, force: true });

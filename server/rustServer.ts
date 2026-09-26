@@ -45,6 +45,7 @@ import {
 } from './rustEngine/diskAdmission.ts';
 import { parseRustStartupMetadata } from './rustEngine/startupMetadata.ts';
 import { watchArchiveWork } from './rustEngine/archiveWorkWatchdog.ts';
+import { watchRunningAuthority } from './rustEngine/authorityProgressWatchdog.ts';
 import type { GodModeMsg, LiveSettingsMsg, NewRunMsg, ResetMsg } from './protocol.ts';
 import { readJsonBody } from './readJsonBody.ts';
 import {
@@ -293,6 +294,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   let stopping = false;
   let scheduled: NodeJS.Immediate | undefined;
   let timer: NodeJS.Timeout | undefined;
+  let stopAuthorityWatch: (() => void) | undefined;
   let draining: Promise<boolean> | undefined;
   let lastFrame = 0;
   let lastStats = 0;
@@ -677,6 +679,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     closePromise ??= (async () => {
       stopping = true;
       if (timer) clearInterval(timer);
+      stopAuthorityWatch?.();
       activeImportRequest?.destroy();
       activeImportResponse?.destroy();
       activeExportResponse?.destroy();
@@ -1271,6 +1274,12 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('Rust server has no TCP address');
     owner.runtime.start();
+    stopAuthorityWatch = watchRunningAuthority(owner.runtime, error => {
+      console.error('[rust.authority-watchdog]', error.message);
+      fail(error);
+      // The stalled in-process coordinator cannot be safely stopped or reused.
+      process.exit(1);
+    });
     timer = setInterval(schedule, 16);
     schedule();
     return { port: address.port, close };

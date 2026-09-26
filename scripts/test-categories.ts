@@ -17,6 +17,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'server/hash.test.ts',
     'server/rustEngine/archiveUpload.test.ts',
     'server/rustEngine/archiveWorkWatchdog.test.ts',
+    'server/rustEngine/authorityProgressWatchdog.test.ts',
     'server/rustEngine/archiveScavenger.test.ts',
     'server/rustEngine/backgroundFrames.test.ts',
     'server/rustEngine/controllerDelivery.test.ts',
