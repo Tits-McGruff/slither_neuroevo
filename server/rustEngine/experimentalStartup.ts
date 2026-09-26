@@ -205,16 +205,25 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
             const descriptor = candidate.descriptor;
             if (options.restoreCheckpointId && !descriptor) throw new Error('requested exact managed checkpoint has invalid metadata');
             if (!descriptor || (!options.restoreCheckpointId && descriptor.logicalRootSha256 === failedRoot)) continue;
-            const restored = makeSession(descriptor.runId);
+            let restored = makeSession(descriptor.runId);
+            let compatibleBuild = false;
             try { await restored.initializeFromCheckpoint(descriptor); }
             catch (error) {
               if (options.restoreCheckpointId) throw error;
-              continue; // Failed native admission retains no candidate population.
+              // A different application build may have produced an older valid
+              // boundary too. The failed private session cannot be reused.
+              restored = makeSession(descriptor.runId);
+              try {
+                await restored.initializeFromCheckpoint(descriptor, undefined, true);
+                compatibleBuild = true;
+              } catch {
+                continue; // Neither validator admitted this candidate.
+              }
             }
             const recovery = await persistence.commitRecoveryBranch({
               operationId: randomBytes(16).toString('hex'), branchRunId: randomUUID(),
               sourceRunId: cursor.sourceRunId, failedCheckpointId: cursor.failedCheckpointId,
-              recoveredDescriptor: descriptor
+              recoveredDescriptor: descriptor, ...(compatibleBuild ? { compatibleBuild: true } : {})
             });
             // Commit failures escape; an older candidate must never hide a durability failure.
             await restored.adoptRecoveryBranch(recovery);
