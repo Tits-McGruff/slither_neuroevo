@@ -29,6 +29,9 @@ pid_belongs_to_repo() {
     case "$_cwd" in
       "$SCRIPT_DIR"|"$SCRIPT_DIR"/*) return 0 ;;
     esac
+    if [ -n "$_cwd" ] && { [ "$_cwd" -ef "$SCRIPT_DIR" ] || [ "$(dirname -- "$_cwd")" -ef "$SCRIPT_DIR" ]; } 2>/dev/null; then
+      return 0
+    fi
   fi
   _args=$(ps -o args= -p "$_pid" 2>/dev/null || true)
   printf '%s\n' "$_args" | grep -F "$SCRIPT_DIR" >/dev/null 2>&1
@@ -127,20 +130,21 @@ if [ -f "$PORT_FILE" ]; then
 fi
 
 SERVER_PID=$(read_pid "$PID_FILE")
+STOP_FAILED=0
 if [ -n "$SERVER_PID" ]; then
-  stop_pid_and_group "Rust server" "$SERVER_PID" || true
+  stop_pid_and_group "Rust server" "$SERVER_PID" || STOP_FAILED=1
 fi
 
 # One-time compatibility with the old launcher, which also started Vite.
 LEGACY_DEV_PID=$(read_pid "$LEGACY_DEV_PID_FILE")
 if [ -n "$LEGACY_DEV_PID" ]; then
-  stop_pid_and_group "legacy Vite server" "$LEGACY_DEV_PID" || true
+  stop_pid_and_group "legacy Vite server" "$LEGACY_DEV_PID" || STOP_FAILED=1
 fi
 
 LISTENER_PIDS=$(pids_listening_on_port "$PORT" || true)
 for _pid in $LISTENER_PIDS; do
   if pid_belongs_to_repo "$_pid"; then
-    stop_pid_and_group "server listener on port $PORT" "$_pid" || true
+    stop_pid_and_group "server listener on port $PORT" "$_pid" || STOP_FAILED=1
   fi
 done
 
@@ -151,7 +155,7 @@ for _pid in $(pids_listening_on_port "$PORT" || true); do
   fi
 done
 
-if [ -n "$LEFT" ]; then
+if [ -n "$LEFT" ] || [ "$STOP_FAILED" -ne 0 ]; then
   echo "[ERROR] Repo-owned process still listening on port $PORT:$LEFT"
   echo "[INFO] Keeping PID metadata so shutdown can be retried."
   exit 1

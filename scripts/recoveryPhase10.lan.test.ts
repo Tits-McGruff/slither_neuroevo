@@ -136,6 +136,7 @@ describe(SUITE, () => {
   it('keeps trusted-LAN discovery in the Windows launcher and Rust authority in the Debian launcher', () => {
     const powershell = fs.readFileSync(path.resolve('scripts/slither.ps1'), 'utf8');
     const posix = fs.readFileSync(path.resolve('play.sh'), 'utf8');
+    const shutdown = fs.readFileSync(path.resolve('shutdown.sh'), 'utf8');
 
     expect(powershell).toContain('publicWsUrl');
     expect(powershell).toContain('UI Network:');
@@ -150,5 +151,7 @@ describe(SUITE, () => {
     expect(posix).toContain('[LAN] Browser:');
     expect(posix).toContain('[LAN] WebSocket:');
     expect(posix).not.toContain('npm run dev -- --force');
+    expect(shutdown).toContain('-ef "$SCRIPT_DIR"');
+    expect(shutdown).toContain('STOP_FAILED=1');
   });
 });

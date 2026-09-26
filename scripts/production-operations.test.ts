@@ -18,7 +18,11 @@ describe('production service operations', () => {
     expect(RUNNER).toContain('--fresh');
     expect(RUNNER).not.toMatch(/^\s*npm run build(?:\s|$)/mu);
     expect(RUNNER).not.toContain('server/index.ts');
-    expect(RUNNER).not.toContain('--backend');
+    expect(RUNNER).toContain('--backend native');
+    expect(RUNNER).toContain('--mt=false');
+    expect(RUNNER).toContain('--input-hold-ms 500');
+    expect(RUNNER).toContain('--disconnect-grace-ms 30000');
+    expect(RUNNER).toContain('--checkpoint-every 1');
   });
 
   it('uses bounded restart policy and graceful termination', () => {
