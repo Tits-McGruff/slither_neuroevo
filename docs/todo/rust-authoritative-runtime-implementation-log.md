@@ -675,3 +675,36 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   10.5 MiB, but the browser diagnostic channel could not sample during the
   download response. Peak heap, browser-process memory, responsiveness and
   small-versus-large comparisons remain open, as does the target-VM P2 gate.
+
+- 2026-09-28 The live Debian Rust run remained ready after 43,156 seconds
+  (about 12 hours), at generation 550 with 383 completed checkpoint barriers,
+  20 retained automatic checkpoints, one pinned checkpoint, a 2.1 MB SQLite
+  database, and a 4.3 MB WAL. Its automatic retained payloads occupied about
+  35 MB under the 4 GiB cap. A hot online backup copied and verified one SQLite
+  snapshot plus 176 managed objects (21 checkpoints and 155 Hall-of-Fame weight
+  objects across four runs, 45,027,334 managed bytes); restore verified the same
+  set. The restored current checkpoint started ready at its exact saved ID.
+  Compact Hall-of-Fame rows remain for older generations, while each run had
+  at most 50 selected unique genomes and no unreferenced weight objects in
+  the snapshot. On a second disposable restore, selecting the older pinned
+  generation-165 checkpoint as current exercised compatible-build recovery:
+  exact-build resume correctly rejected it, then latest recovery branched from
+  that exact pinned ID and started ready. The live run continued to generation
+  555. A timed live backup racing prune and full performance/memory gates remain
+  open.
+
+- 2026-09-28 A disposable copy of that backup resumed all 20 retained
+  automatic checkpoints, generations 250–551, by exact ID. Each server
+  exported a direct archive whose manifest matched the checkpoint's saved
+  generation and logical root. The older pinned checkpoint exposed two export
+  admission defects after compatible-build recovery: the client rejected the
+  valid source-run descriptor on the new recovery lineage, and Rust export
+  required exact build identity despite compatible restore admitting the
+  source. The client now relies on the worker's durable lineage validation;
+  Rust export uses compatible build admission while import remains exact.
+  A rebuilt Debian addon in a disposable checkout resumed the pinned
+  generation-165 checkpoint as a compatible recovery branch and exported its
+  4.9 MB archive with the matching checkpoint ID, generation, and logical root.
+  Local gates passed: 453 Rust release tests plus one doc test, 594 JavaScript
+  tests, 78 native-required tests, TypeScript, ESLint, Vite, rustfmt, and Clippy.
+  The full A9 volume/budget fixture remains open.

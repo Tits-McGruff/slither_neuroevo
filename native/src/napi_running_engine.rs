@@ -23,7 +23,7 @@ use crate::engine::export_archive::{
     ImportDiskEstimate, PreparedImportArchive, ValidatedImportArchive,
 };
 use crate::engine::fresh_run::{
-    prepare_stage6a_p0_fresh_run_with_settings_and_graph, stage6a_p0_export_validation_contract,
+    prepare_stage6a_p0_fresh_run_with_settings_and_graph, stage6a_p0_archive_validation_contract,
     FreshRunSettingUpdate, Stage6aP0FreshRunRequest,
 };
 use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec};
@@ -380,7 +380,7 @@ impl Task for PrepareExportArchiveTask {
                 )
             })?;
             let (checkpoint_limits, graph_limits, admission_policy) =
-                stage6a_p0_export_validation_contract(memory_ceiling)
+                stage6a_p0_archive_validation_contract(memory_ceiling, false)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
             compose_export_archive(
                 &self.managed_directory,
@@ -476,7 +476,7 @@ impl Task for PrepareImportArchiveTask {
                 )
             })?;
             let (checkpoint_limits, graph_limits, admission_policy) =
-                stage6a_p0_export_validation_contract(memory_ceiling)
+                stage6a_p0_archive_validation_contract(memory_ceiling, true)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
             let mut prepared = prepare_import_archive(
                 &self.archive_path,
@@ -551,7 +551,7 @@ impl Task for ValidateImportArchiveTask {
                 )
             })?;
             let (checkpoint_limits, graph_limits, admission_policy) =
-                stage6a_p0_export_validation_contract(memory_ceiling)
+                stage6a_p0_archive_validation_contract(memory_ceiling, true)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
             validate_import_archive(
                 &self.archive_path,

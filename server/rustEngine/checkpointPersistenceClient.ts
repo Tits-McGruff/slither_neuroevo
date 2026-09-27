@@ -1203,7 +1203,8 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
       throw new TypeError('invalid checkpoint export lease identity');
     }
     const descriptor = parseManagedCheckpointDescriptor(lease['descriptor']);
-    if (descriptor.runId !== lease['runId']) throw new TypeError('checkpoint export lease run identity mismatch');
+    // A recovery or import branch may still point at its source checkpoint.
+    // The worker validates that alias against durable lineage provenance.
     const inventory = parseManagedExportInventoryDescriptor(lease['inventory'], lease['operationId']);
     return { type: 'currentExportLeaseAcquired', lease: {
       operationId: lease['operationId'],

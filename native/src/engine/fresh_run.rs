@@ -540,9 +540,10 @@ fn current_build_policy(
     }
 }
 
-/// Rebuild the fixed P0 restore contract without allocating a second population.
-pub(crate) fn stage6a_p0_export_validation_contract(
+/// Rebuild the fixed P0 archive validation contract without a second population.
+pub(crate) fn stage6a_p0_archive_validation_contract(
     memory_ceiling_bytes: usize,
+    require_exact_build_identity: bool,
 ) -> Result<(CheckpointLimits, GraphLimits, StateAdmissionPolicy), FreshRunError> {
     let settings =
         typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
@@ -550,7 +551,11 @@ pub(crate) fn stage6a_p0_export_validation_contract(
     Ok((
         stage6a_p0_checkpoint_limits(),
         stage6a_p0_graph_limits(),
-        current_build_policy(memory_ceiling_bytes, settings_schema_sha256, true),
+        current_build_policy(
+            memory_ceiling_bytes,
+            settings_schema_sha256,
+            require_exact_build_identity,
+        ),
     ))
 }
 

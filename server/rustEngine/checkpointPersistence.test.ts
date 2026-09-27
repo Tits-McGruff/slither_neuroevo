@@ -459,6 +459,10 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(result).toEqual({ ...request, abandonedThroughGeneration: u64(3n) });
     expect(await fixture.client.commitRecoveryBranch(request)).toEqual(result);
     await expect(fixture.client.selectCurrent(request.branchRunId)).rejects.toThrow(/provenance-aware/);
+    const branchLease = await fixture.client.acquireCurrentExportLease();
+    expect(branchLease).toMatchObject({ runId: request.branchRunId, descriptor: second,
+      inventory: { historyCount: u64(1n), hallOfFameCount: u64(1n) } });
+    await fixture.client.releaseExportLease(branchLease.operationId);
     const successor = createDescriptor(fixture.managedRoot, { operationId: '55'.repeat(16),
       runId: request.branchRunId, generation: u64(3n), completedStep: u64(121n), boundaryKind: 'generation' });
     await fixture.client.commit(successor, createGenerationCommit(2n, { bestF64Hex: f64(20) }));
