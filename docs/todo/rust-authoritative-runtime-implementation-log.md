@@ -615,3 +615,19 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   commands. Operation-specific injected panics, cleanup checks, the
   administrator-enabled unattended user service, and longer durability gates
   remain open.
+
+- 2026-09-27 Parallel sensing and inference worker roots now attach phase and
+  partition identity to a panic before the coordinator faults authority. A
+  release test panicked one real Rayon inference partition and verified that
+  world and recurrent state were not committed. End-to-end release server
+  injection and target-VM performance remeasurement remain open.
+
+- 2026-09-27 A release test injected a synchronous production N-API root panic;
+  it returned an error, faulted the retained engine, and joined cleanly.
+
+- 2026-09-27 The manually launched Debian recovery branch remained ready at
+  generation 231 after about 100 minutes of process uptime, with 64 generation
+  checkpoint barriers, retention cleanup, and 223 MiB maximum RSS reported by
+  health. That observation supports continued durability but does not close the
+  longer soak or performance gate; the current speed setting reported scheduler
+  overload and discarded wall-time debt.

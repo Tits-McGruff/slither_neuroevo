@@ -26,6 +26,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::error::Error;
 use std::fmt;
 use std::mem::size_of;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 /// Authoritative controller output width: turn and boost.
 const CONTROLLER_OUTPUT_SIZE: usize = 2;
@@ -33,6 +34,18 @@ const CONTROLLER_OUTPUT_SIZE: usize = 2;
 const PARALLEL_SENSOR_SCRATCH_ALLOWANCE_BYTES: usize = 64 * 1024 * 1024;
 /// Keep calculation threads bounded below the target host's eight logical CPUs.
 const MAX_CALCULATION_WORKERS: usize = 7;
+
+/// Carry calculation phase and partition identity to the coordinator's panic root.
+fn run_calculation_worker<T>(
+    phase: &'static str,
+    partition: usize,
+    operation: impl FnOnce() -> T,
+) -> T {
+    match catch_unwind(AssertUnwindSafe(operation)) {
+        Ok(result) => result,
+        Err(_) => panic!("calculation {phase} worker partition {partition} panicked"),
+    }
+}
 
 /// One successfully staged batch retained inside [`NeuralControlPipeline`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,6 +162,8 @@ pub struct NeuralControlPipeline {
     zero_recurrent: Vec<f32>,
     allocated_staging_bytes: usize,
     ready: Option<ReadyBatch>,
+    #[cfg(test)]
+    panic_inference_partition_once: Option<usize>,
 }
 
 impl NeuralControlPipeline {
@@ -366,6 +381,8 @@ impl NeuralControlPipeline {
             zero_recurrent,
             allocated_staging_bytes,
             ready: None,
+            #[cfg(test)]
+            panic_inference_partition_once: None,
         })
     }
 
@@ -459,7 +476,10 @@ impl NeuralControlPipeline {
             let sensor = &self.sensor;
             self.parallel_sensor_errors.fill(None);
             pool.scope(|scope| {
-                for (((((units, observations), deliveries), diagnostics), scratch), error) in work
+                for (
+                    partition,
+                    (((((units, observations), deliveries), diagnostics), scratch), error),
+                ) in work
                     .chunks(chunk_work)
                     .zip(self.observations[..observation_count].chunks_mut(chunk_observations))
                     .zip(self.deliveries[..active].chunks_mut(chunk_work))
@@ -469,27 +489,30 @@ impl NeuralControlPipeline {
                             .chain(self.parallel_sensor_scratch.iter_mut()),
                     )
                     .zip(self.parallel_sensor_errors.iter_mut())
+                    .enumerate()
                 {
                     scope.spawn(move |_| {
-                        for (ordinal, unit) in units.iter().enumerate() {
-                            let offset = ordinal * sensor.layout().input_size;
-                            match sensor.sample(
-                                indexed_world,
-                                generation,
-                                unit.snake_index(),
-                                &mut observations[offset..offset + sensor.layout().input_size],
-                                scratch,
-                            ) {
-                                Ok(sample) => {
-                                    deliveries[ordinal] = Some(sample.delivery);
-                                    diagnostics[ordinal] = sample.diagnostics;
-                                }
-                                Err(failure) => {
-                                    *error = Some(failure);
-                                    break;
+                        run_calculation_worker("sensing", partition, || {
+                            for (ordinal, unit) in units.iter().enumerate() {
+                                let offset = ordinal * sensor.layout().input_size;
+                                match sensor.sample(
+                                    indexed_world,
+                                    generation,
+                                    unit.snake_index(),
+                                    &mut observations[offset..offset + sensor.layout().input_size],
+                                    scratch,
+                                ) {
+                                    Ok(sample) => {
+                                        deliveries[ordinal] = Some(sample.delivery);
+                                        diagnostics[ordinal] = sample.diagnostics;
+                                    }
+                                    Err(failure) => {
+                                        *error = Some(failure);
+                                        break;
+                                    }
                                 }
                             }
-                        }
+                        });
                     });
                 }
             });
@@ -524,6 +547,8 @@ impl NeuralControlPipeline {
             let mut outputs = &mut self.staged_outputs[..output_count];
             let mut recurrent = &mut self.staged_recurrent[..recurrent_count];
             self.parallel_inference_errors.fill(None);
+            #[cfg(test)]
+            let panic_partition = self.panic_inference_partition_once.take();
             pool.scope(|scope| {
                 for (chunk_index, ((units, scratch), error)) in work
                     .chunks(chunk_work)
@@ -545,23 +570,29 @@ impl NeuralControlPipeline {
                     let inference = &self.inference;
                     let zero_recurrent = &self.zero_recurrent;
                     scope.spawn(move |_| {
-                        *error = evaluate_heterogeneous_population_with_resets(
-                            inference,
-                            units,
-                            population,
-                            brains,
-                            HeterogeneousRecurrentReset {
-                                mask: chunk_resets,
-                                zero_recurrent,
-                            },
-                            HeterogeneousInferenceBuffers {
-                                observations: chunk_observations,
-                                staged_outputs: chunk_outputs,
-                                staged_recurrent: chunk_recurrent,
-                            },
-                            &mut scratch.view(),
-                        )
-                        .err();
+                        run_calculation_worker("inference", chunk_index, || {
+                            #[cfg(test)]
+                            if panic_partition == Some(chunk_index) {
+                                panic!("test-only calculation worker panic");
+                            }
+                            *error = evaluate_heterogeneous_population_with_resets(
+                                inference,
+                                units,
+                                population,
+                                brains,
+                                HeterogeneousRecurrentReset {
+                                    mask: chunk_resets,
+                                    zero_recurrent,
+                                },
+                                HeterogeneousInferenceBuffers {
+                                    observations: chunk_observations,
+                                    staged_outputs: chunk_outputs,
+                                    staged_recurrent: chunk_recurrent,
+                                },
+                                &mut scratch.view(),
+                            )
+                            .err();
+                        });
                     });
                 }
             });
@@ -1320,11 +1351,19 @@ mod tests {
         plan: &GraphExecutionPlan,
         epoch: u64,
     ) -> (WorldState, Vec<BrainRuntimeState>, Vec<PopulationGenome>) {
+        fixture_with_count(plan, epoch, 3)
+    }
+
+    fn fixture_with_count(
+        plan: &GraphExecutionPlan,
+        epoch: u64,
+        count: usize,
+    ) -> (WorldState, Vec<BrainRuntimeState>, Vec<PopulationGenome>) {
         let mut body_points = Vec::new();
         let mut snakes = Vec::new();
         let mut brains = Vec::new();
         let mut population = Vec::new();
-        for index in 0..3usize {
+        for index in 0..count {
             let handle = BrainHandle {
                 id: 400 + index as u64,
                 epoch,
@@ -1427,6 +1466,46 @@ mod tests {
     fn pipeline(plan: GraphExecutionPlan) -> NeuralControlPipeline {
         let sensor = SensorEvaluator::new(sensor_config()).unwrap();
         NeuralControlPipeline::try_new(3, sensor, plan, 1, usize::MAX).unwrap()
+    }
+
+    #[test]
+    fn release_calculation_worker_panic_preserves_uncommitted_world_and_names_partition() {
+        let plan = graph_plan(51);
+        let (world, brains, population) = fixture_with_count(&plan, EPOCH, 4);
+        let original_world = world.clone();
+        let original_brains = brains.clone();
+        let indexed_world = indexed(&world);
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(&world).unwrap();
+        let sensor = SensorEvaluator::new(sensor_config()).unwrap();
+        let mut pipeline = NeuralControlPipeline::try_new(4, sensor, plan, 2, usize::MAX).unwrap();
+        pipeline.panic_inference_partition_once = Some(1);
+        let candidates = (0..4)
+            .map(|index| CalculationCandidateIndex::new(index, index))
+            .collect::<Vec<_>>();
+        let mut sensor_scratch = SensorScratch::default();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = pipeline.prepare_and_evaluate(
+                NeuralControlBatchInputs {
+                    key: CalculationBatchKey::new(4, 99, EPOCH),
+                    candidates: &candidates,
+                    indexed_world: &indexed_world,
+                    generation: &generation,
+                    population: &population,
+                    brains: &brains,
+                    reset_brains: &[],
+                },
+                &mut sensor_scratch,
+            );
+        }))
+        .expect_err("injected worker panic must reach the coordinator boundary");
+        let detail = panic
+            .downcast_ref::<String>()
+            .expect("worker root must attach a bounded string diagnostic");
+        assert!(detail.contains("calculation inference worker partition 1 panicked"));
+        assert_eq!(world, original_world);
+        assert_eq!(brains, original_brains);
+        assert!(pipeline.ready.is_none());
     }
 
     #[test]

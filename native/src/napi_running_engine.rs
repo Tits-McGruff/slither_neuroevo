@@ -1948,7 +1948,7 @@ pub(crate) fn parse_controller_receipt(receipt: &Object<'_>) -> Result<ExternalD
 
 #[cfg(test)]
 mod task_panic_tests {
-    use super::catch_background_task_panic;
+    use super::{catch_background_task_panic, ExperimentalRunningAuthority};
     use crate::engine::contract::{
         CommandBatch, EngineCommand, EngineInit, InboundLimits, OutputLimits, SequencedCommand,
         ENGINE_CONTRACT_VERSION,
@@ -1958,8 +1958,7 @@ mod task_panic_tests {
     use napi::{Error, Status};
     use std::sync::Arc;
 
-    #[test]
-    fn libuv_task_panic_faults_the_retained_engine() {
+    fn running_test_runtime() -> Arc<EngineRuntime> {
         let runtime = EngineRuntime::new_experimental_probe(
             EngineInit {
                 contract_version: ENGINE_CONTRACT_VERSION,
@@ -1984,6 +1983,12 @@ mod task_panic_tests {
         )
         .expect("valid test runtime");
         runtime.start().expect("coordinator must start");
+        Arc::new(runtime)
+    }
+
+    #[test]
+    fn libuv_task_panic_faults_the_retained_engine() {
+        let runtime = running_test_runtime();
         let result: napi::Result<()> =
             catch_background_task_panic("archive export", Some(&runtime), || {
                 panic!("archive worker panic")
@@ -2008,6 +2013,24 @@ mod task_panic_tests {
                 .into_boxed_slice(),
             })
             .is_err());
+        runtime
+            .join()
+            .expect("faulted coordinator must join cleanly");
+    }
+
+    #[test]
+    fn synchronous_napi_root_panic_faults_the_retained_engine() {
+        let runtime = running_test_runtime();
+        let handle = ExperimentalRunningAuthority::from_runtime(Arc::clone(&runtime), 1);
+        let result: napi::Result<()> = handle.root(|| panic!("synchronous N-API root panic"));
+        let error = result.expect_err("root panic must become an N-API error");
+        assert_eq!(error.status, Status::GenericFailure);
+        assert!(runtime.health().fault.is_some());
+        assert!(runtime
+            .health()
+            .fault
+            .as_ref()
+            .is_some_and(|fault| fault.detail().contains("N-API boundary")));
         runtime
             .join()
             .expect("faulted coordinator must join cleanly");
