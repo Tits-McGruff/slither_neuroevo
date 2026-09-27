@@ -61,4 +61,20 @@ describe('raw archive upload spooling', () => {
       maximumBytes: 64n, noProgressTimeoutMs: 10 })).rejects.toMatchObject({ code: 'NO_PROGRESS' });
     expect(readdirSync(directory)).toEqual([]);
   });
+
+  it('does not count empty chunks as upload progress', async () => {
+    const directory = fixtureDirectory();
+    /** A connected source may keep yielding without delivering another byte. */
+    async function* emptyChunks(): AsyncIterable<Uint8Array> {
+      yield Buffer.from('started');
+      for (let index = 0; index < 100; index++) {
+        await new Promise<void>(done => setTimeout(done, 2));
+        yield Buffer.alloc(0);
+      }
+    }
+    await expect(spoolArchiveUpload({ source: emptyChunks(), contentLength: undefined,
+      scratchDirectory: directory, operationId: '9a'.repeat(16) as CheckpointOperationId,
+      maximumBytes: 64n, noProgressTimeoutMs: 20 })).rejects.toMatchObject({ code: 'NO_PROGRESS' });
+    expect(readdirSync(directory)).toEqual([]);
+  });
 });

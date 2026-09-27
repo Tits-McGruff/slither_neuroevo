@@ -54,12 +54,13 @@ export class ArchiveUploadError extends Error {
 /** Await one input chunk with an idle deadline that resets for every successful read. */
 async function nextChunk(
   iterator: AsyncIterator<Uint8Array>,
-  timeoutMs: number
+  timeoutMs: number,
+  noProgressTimeoutMs: number
 ): Promise<IteratorResult<Uint8Array>> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new ArchiveUploadError(
       'NO_PROGRESS',
-      `archive upload made no progress for ${timeoutMs} ms`
+      `archive upload made no progress for ${noProgressTimeoutMs} ms`
     )), timeoutMs);
     timer.unref();
     iterator.next().then(value => {
@@ -123,14 +124,21 @@ export async function spoolArchiveUpload(options: ArchiveUploadOptions): Promise
   const readyPath = join(directory, readyName);
   let file: Awaited<ReturnType<typeof open>> | undefined;
   let receivedBytes = 0n;
+  let lastProgressAt = performance.now();
   const iterator = options.source[Symbol.asyncIterator]();
   try {
     file = await open(partialPath, 'wx');
     for (;;) {
-      const next = await nextChunk(iterator, noProgressTimeoutMs);
+      const remainingMs = noProgressTimeoutMs - (performance.now() - lastProgressAt);
+      if (remainingMs <= 0) {
+        throw new ArchiveUploadError('NO_PROGRESS',
+          `archive upload made no progress for ${noProgressTimeoutMs} ms`);
+      }
+      const next = await nextChunk(iterator, Math.ceil(remainingMs), noProgressTimeoutMs);
       if (next.done) break;
       const chunk = next.value;
       if (!(chunk instanceof Uint8Array)) throw new TypeError('archive upload emitted a non-binary chunk');
+      if (chunk.byteLength === 0) continue;
       receivedBytes += BigInt(chunk.byteLength);
       if (receivedBytes > maximumBytes) {
         throw new ArchiveUploadError(
@@ -144,6 +152,7 @@ export async function spoolArchiveUpload(options: ArchiveUploadOptions): Promise
         if (result.bytesWritten === 0) throw new Error('archive upload spool stopped making write progress');
         written += result.bytesWritten;
       }
+      lastProgressAt = performance.now();
     }
     if (receivedBytes === 0n) throw new ArchiveUploadError('EMPTY_ARCHIVE', 'archive upload is empty');
     if (declaredBytes !== undefined && receivedBytes !== declaredBytes) {
@@ -159,7 +168,7 @@ export async function spoolArchiveUpload(options: ArchiveUploadOptions): Promise
     return { operationId: options.operationId, relativeFilename: readyName,
       readyPath, storedByteCount: u64Hex(receivedBytes) };
   } catch (error) {
-    void iterator.return?.();
+    void Promise.resolve().then(() => iterator.return?.()).catch(() => {});
     await file?.close().catch(() => {});
     await unlink(partialPath).catch(() => {});
     await unlink(readyPath).catch(() => {});

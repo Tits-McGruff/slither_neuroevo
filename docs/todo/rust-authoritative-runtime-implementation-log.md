@@ -650,5 +650,6 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   a concurrent import receives 409, then aborted the first request. Its staged
   upload was removed, a fresh request reached archive validation, and the
   active run/checkpoint identity remained intact. The separate focused spooler
-  test covers the 60-second no-progress rule with a shortened test deadline;
+  tests cover the 60-second no-progress rule with shortened test deadlines,
+  including a source that emits empty chunks without delivering bytes;
   full-duration connected-peer acceptance remains open.
