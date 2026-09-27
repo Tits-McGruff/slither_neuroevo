@@ -645,3 +645,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   upload function for population reads or JSON/Blob reconstruction while
   permitting the small import-result JSON. Real large-file browser heap and
   responsiveness measurements remain open.
+
+- 2026-09-27 A real HTTP test held a chunked Rust archive import open, verified
+  a concurrent import receives 409, then aborted the first request. Its staged
+  upload was removed, a fresh request reached archive validation, and the
+  active run/checkpoint identity remained intact. The separate focused spooler
+  test covers the 60-second no-progress rule with a shortened test deadline;
+  full-duration connected-peer acceptance remains open.

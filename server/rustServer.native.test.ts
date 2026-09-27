@@ -2,6 +2,7 @@ import { mkdtemp, rm, readdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { request as httpRequest } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
@@ -96,6 +97,71 @@ function directionDelta(from: number, to: number): number {
 }
 
 describeNetworkSuite('Rust server real sockets', () => {
+  it('rejects a second import while a chunked client is connected and cleans an aborted upload', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-aborted-import-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    const server = await startRustServer({
+      ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42, dbPath
+    });
+    const first = httpRequest(`http://127.0.0.1:${server.port}/api/import/archive`, {
+      method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save',
+        'Transfer-Encoding': 'chunked' }
+    });
+    first.on('error', () => { /* Destroying the deliberately incomplete request is expected. */ });
+    try {
+      const before = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        runId: string; startupCheckpointId: string;
+      };
+      first.write(Buffer.from('incomplete-archive'));
+      const managedDirectory = `${dbPath}.checkpoints`;
+      const uploadDeadline = performance.now() + 5000;
+      let uploadFiles: string[] = [];
+      do {
+        uploadFiles = (await readdir(managedDirectory)).filter(name => name.includes('upload.partial'));
+        if (uploadFiles.length === 1) break;
+        await new Promise<void>(done => setTimeout(done, 10));
+      } while (performance.now() < uploadDeadline);
+      expect(uploadFiles).toHaveLength(1);
+
+      const busy = await fetch(`http://127.0.0.1:${server.port}/api/import/archive`, {
+        method: 'POST', body: 'another-import'
+      });
+      expect(busy.status).toBe(409);
+      expect(await busy.json()).toMatchObject({ ok: false,
+        message: 'another archive operation is in progress' });
+
+      first.destroy();
+      const cleanupDeadline = performance.now() + 5000;
+      let leftovers: string[] = [];
+      do {
+        leftovers = (await readdir(managedDirectory)).filter(name => name.includes('upload'));
+        if (leftovers.length === 0) break;
+        await new Promise<void>(done => setTimeout(done, 10));
+      } while (performance.now() < cleanupDeadline);
+      expect(leftovers).toEqual([]);
+      const retryDeadline = performance.now() + 5000;
+      let retryStatus = 409;
+      do {
+        const retry = await fetch(`http://127.0.0.1:${server.port}/api/import/archive`, {
+          method: 'POST', body: 'invalid-but-complete-archive'
+        });
+        retryStatus = retry.status;
+        await retry.body?.cancel();
+        if (retryStatus !== 409) break;
+        await new Promise<void>(done => setTimeout(done, 10));
+      } while (performance.now() < retryDeadline);
+      expect(retryStatus).toBe(400);
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: before.runId, startupCheckpointId: before.startupCheckpointId
+      });
+      expect((await readdir(managedDirectory)).filter(name => name.includes('upload'))).toEqual([]);
+    } finally {
+      first.destroy();
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   it('creates the first Rust run when resume-latest targets an absent database', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-first-run-'));
     const dbPath = join(root, 'slither.sqlite');
