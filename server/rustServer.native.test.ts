@@ -97,6 +97,51 @@ function directionDelta(from: number, to: number): number {
 }
 
 describeNetworkSuite('Rust server real sockets', () => {
+  it.runIf(process.env['SLITHER_FULL_UPLOAD_TIMEOUT_TEST'] === '1')(
+    'rejects a connected chunked import after the full no-progress deadline', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'slither-rust-stalled-import-'));
+      const dbPath = join(root, 'experiment.sqlite');
+      const server = await startRustServer({
+        ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42, dbPath
+      });
+      const request = httpRequest(`http://127.0.0.1:${server.port}/api/import/archive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save',
+          'Transfer-Encoding': 'chunked' }
+      });
+      try {
+        const before = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+          runId: string; startupCheckpointId: string;
+        };
+        const startedAt = performance.now();
+        const terminal = new Promise<{ status: number; body: string }>((resolve, reject) => {
+          request.once('error', reject);
+          request.once('response', response => {
+            const chunks: Buffer[] = [];
+            response.on('data', chunk => chunks.push(chunk as Buffer));
+            response.once('error', reject);
+            response.once('end', () => resolve({ status: response.statusCode ?? 0,
+              body: Buffer.concat(chunks).toString() }));
+          });
+        });
+        request.write(Buffer.from('started-but-incomplete'));
+        const result = await terminal;
+        const elapsedMs = performance.now() - startedAt;
+        expect(result.status).toBe(400);
+        expect(result.body).toContain('archive upload made no progress for 60000 ms');
+        expect(elapsedMs).toBeGreaterThanOrEqual(59_000);
+        request.destroy();
+        expect((await readdir(`${dbPath}.checkpoints`)).filter(name => name.includes('upload'))).toEqual([]);
+        expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+          ok: true, runId: before.runId, startupCheckpointId: before.startupCheckpointId
+        });
+      } finally {
+        request.destroy();
+        await server.close();
+        await rm(root, { recursive: true, force: true });
+      }
+    }, 90_000
+  );
+
   it('rejects a second import while a chunked client is connected and cleans an aborted upload', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-aborted-import-'));
     const dbPath = join(root, 'experiment.sqlite');

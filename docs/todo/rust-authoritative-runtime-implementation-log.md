@@ -651,8 +651,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   upload was removed, a fresh request reached archive validation, and the
   active run/checkpoint identity remained intact. The separate focused spooler
   tests cover the 60-second no-progress rule with shortened test deadlines,
-  including a source that emits empty chunks without delivering bytes;
-  full-duration connected-peer acceptance remains open.
+  including a source that emits empty chunks without delivering bytes. An
+  opt-in real-socket test exercised the full 60-second connected-peer deadline:
+  HTTP rejected the upload, removed its staged file, and preserved the current
+  run/checkpoint identity.
 
 - 2026-09-27 A deterministic online-backup test pruned a managed file just
   after SQLite copied its first snapshot. Backup retried from a new snapshot,
