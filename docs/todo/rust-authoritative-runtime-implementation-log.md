@@ -653,3 +653,9 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   tests cover the 60-second no-progress rule with shortened test deadlines,
   including a source that emits empty chunks without delivering bytes;
   full-duration connected-peer acceptance remains open.
+
+- 2026-09-27 A deterministic online-backup test pruned a managed file just
+  after SQLite copied its first snapshot. Backup retried from a new snapshot,
+  restored the retained file and pruned row, and left no partial directory.
+  A still-referenced missing file exhausted bounded retries without publishing
+  a backup. A live target-VM prune race remains to be exercised.

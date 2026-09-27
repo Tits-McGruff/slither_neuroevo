@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createManagedBackup,
   restoreManagedBackup,
@@ -29,6 +29,75 @@ afterEach(() => {
 });
 
 describe('managed production backup', () => {
+  it('retries from a new SQLite snapshot when pruning removes a selected file', async () => {
+    const root = temporaryRoot();
+    const databasePath = join(root, 'source.db');
+    const managedRoot = `${databasePath}.checkpoints`;
+    const backupRoot = join(root, 'backup');
+    const restoredPath = join(root, 'restored.db');
+    const retainedName = `${'1'.repeat(64)}.checkpoint-v3`;
+    const pruningName = `${'2'.repeat(64)}.checkpoint-v3`;
+    const database = new Database(databasePath);
+    database.pragma('journal_mode = WAL');
+    database.exec(`
+      CREATE TABLE rust_checkpoint_v3_metadata (
+        checkpoint_id TEXT PRIMARY KEY,
+        relative_filename TEXT NOT NULL,
+        stored_byte_count_hex TEXT NOT NULL
+      );
+      CREATE TABLE rust_checkpoint_retention_v1 (
+        checkpoint_id TEXT PRIMARY KEY,
+        retention_kind TEXT NOT NULL
+      );
+    `);
+    mkdirSync(managedRoot);
+    for (const [id, name] of [['retained', retainedName], ['pruning', pruningName]]) {
+      database.prepare('INSERT INTO rust_checkpoint_v3_metadata VALUES (?, ?, ?)')
+        .run(id, name, byteCount(4));
+      database.prepare('INSERT INTO rust_checkpoint_retention_v1 VALUES (?, ?)')
+        .run(id, 'automatic');
+      writeFileSync(join(managedRoot, name), Buffer.from('data'));
+    }
+
+    const originalBackup = Database.prototype.backup;
+    let snapshots = 0;
+    const backupSpy = vi.spyOn(Database.prototype, 'backup').mockImplementation(async function(destinationFile: string) {
+      const result = await originalBackup.call(this, destinationFile);
+      snapshots++;
+      if (snapshots === 1) {
+        database.prepare('UPDATE rust_checkpoint_retention_v1 SET retention_kind = ? WHERE checkpoint_id = ?')
+          .run('pruned', 'pruning');
+        unlinkSync(join(managedRoot, pruningName));
+      }
+      return result;
+    });
+    try {
+      const manifest = await createManagedBackup({ databasePath, outputDirectory: backupRoot });
+      expect(snapshots).toBe(2);
+      expect(manifest.managedFiles.map(file => file.name)).toEqual([retainedName]);
+      expect((await validateManagedBackup(backupRoot)).managedFiles).toEqual(manifest.managedFiles);
+      expect(readdirSync(root).filter(name => name.startsWith('backup.partial-'))).toEqual([]);
+      await restoreManagedBackup({ backupDirectory: backupRoot, databasePath: restoredPath });
+      expect(readFileSync(join(`${restoredPath}.checkpoints`, retainedName))).toEqual(Buffer.from('data'));
+      expect(existsSync(join(`${restoredPath}.checkpoints`, pruningName))).toBe(false);
+      const restored = new Database(restoredPath, { readonly: true });
+      try {
+        expect(restored.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+          .pluck().get('pruning')).toBe('pruned');
+      } finally { restored.close(); }
+
+      unlinkSync(join(managedRoot, retainedName));
+      const missingBackup = join(root, 'missing-backup');
+      await expect(createManagedBackup({ databasePath, outputDirectory: missingBackup, maxAttempts: 2 }))
+        .rejects.toThrow(/managed object disappeared during backup/u);
+      expect(existsSync(missingBackup)).toBe(false);
+      expect(readdirSync(root).filter(name => name.startsWith('missing-backup.partial-'))).toEqual([]);
+    } finally {
+      backupSpy.mockRestore();
+      database.close();
+    }
+  });
+
   it('backs up a live SQLite snapshot with exactly its retained immutable files and restores it', async () => {
     const root = temporaryRoot();
     const databasePath = join(root, 'source.db');
