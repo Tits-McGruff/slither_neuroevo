@@ -925,7 +925,9 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       let inventoryPath: string | undefined;
       let prepared = false;
       let staged = false;
+      let commitAttempted = false;
       let committed = false;
+      let previousCurrent: { runId: string; checkpointId: string } | undefined;
       try {
         const declaredUploadBytes = parseArchiveContentLength(
           request.headers['content-length'],
@@ -976,6 +978,13 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         inventoryPath = resolve(owner.managedDirectory, inventory.relativeFilename);
         await output.stagePreparedImport();
         staged = true;
+        const selected = await owner.persistence.selectStartup();
+        if (!selected.descriptor || selected.runId !== activeMetadata.runId) {
+          throw new Error('staged import found no matching current checkpoint');
+        }
+        previousCurrent = { runId: selected.runId,
+          checkpointId: selected.descriptor.logicalRootSha256 };
+        commitAttempted = true;
         const durable = await owner.persistence.commitImport(descriptor, inventory, branchRunId);
         committed = true;
         if ((durable.importBranch?.branchRunId ?? null) !== branchRunId) {
@@ -1009,14 +1018,25 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           ...(branchRunId === null ? {} : { sourceRunId: descriptor.runId })
         };
       } catch (error) {
-        if (staged && !committed) await output.cancelPreparedImport().catch(fail);
+        if (staged && !committed) {
+          let oldPointerStillCurrent = !commitAttempted;
+          if (commitAttempted) {
+            try {
+              const selected = await owner.persistence.selectStartup();
+              oldPointerStillCurrent = selected.runId === previousCurrent?.runId &&
+                selected.descriptor?.logicalRootSha256 === previousCurrent?.checkpointId;
+            } catch { /* An unreadable commit outcome cannot release the old authority. */ }
+          }
+          if (oldPointerStillCurrent) await output.cancelPreparedImport().catch(fail);
+          else fail(error);
+        }
         else if (prepared && !staged) {
           try { owner.runtime.discardPreparedImport(); } catch { /* Candidate may already be gone. */ }
         }
         if (!committed) {
           for (const connection of disconnectedDuringImport) routing.disconnect(connection);
           disconnectedDuringImport.clear();
-          routing.flush();
+          if (!fault) routing.flush();
         }
         if (committed) fail(error);
         throw error;

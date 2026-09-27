@@ -708,3 +708,20 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Local gates passed: 453 Rust release tests plus one doc test, 594 JavaScript
   tests, 78 native-required tests, TypeScript, ESLint, Vite, rustfmt, and Clippy.
   The full A9 volume/budget fixture remains open.
+
+- 2026-09-28 Managed import publication now reconciles an uncertain commit
+  reply with the durable active pointer before releasing the staged old Rust
+  world. If the worker cannot answer or the pointer has changed, the server
+  faults and stops authority; a confirmed unchanged pointer permits cancel.
+  Real-worker one-shot failpoints proved full rollback before the import commit
+  and restart/replay after worker exit following FULL commit but before reply.
+  Real HTTP/server tests dropped a successful reply and injected errors before
+  and after the Rust swap: each left the newly committed pointer durable,
+  returned health-only failure, and restarted from that checkpoint. The
+  pre-commit comparison now captures SQLite's actual current pointer after
+  Rust staging, not the older startup checkpoint ID. A fast real generation
+  advanced that pointer, rejected its older exact import with the expected
+  branch-required response, and stayed ready. Focused
+  server/persistence tests, 599 JavaScript tests, 81 native-required tests,
+  TypeScript, and ESLint passed. Process-death and hang-injection coverage
+  beyond these phases remains open.

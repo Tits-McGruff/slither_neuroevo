@@ -59,6 +59,8 @@ export interface CheckpointPersistenceClientOptions {
   workerResponseModeForTesting?: 'invalid' | 'mismatched' | 'exit' | 'exit-clean' | 'stall' | 'stall-after-progress' | 'progressing';
   /** Test-only one-shot fault at a real SQLite checkpoint transaction boundary. */
   checkpointCommitFailpointForTesting?: 'before-commit' | 'after-commit-before-reply';
+  /** Test-only one-shot fault at a real SQLite managed-import transaction boundary. */
+  importCommitFailpointForTesting?: 'before-commit' | 'after-commit-before-reply';
   /** No-progress limit for one worker request; production defaults to 60 seconds. */
   noProgressTimeoutMs?: number;
 }
@@ -245,6 +247,9 @@ export class CheckpointPersistenceClient {
         existingOnly: options.existingOnly ?? false,
         ...(options.checkpointCommitFailpointForTesting
           ? { checkpointCommitFailpointForTesting: options.checkpointCommitFailpointForTesting }
+          : {}),
+        ...(options.importCommitFailpointForTesting
+          ? { importCommitFailpointForTesting: options.importCommitFailpointForTesting }
           : {}),
         ...(options.workerUrlForTesting && options.workerResponseModeForTesting
           ? { checkpointPersistenceTestMode: options.workerResponseModeForTesting }

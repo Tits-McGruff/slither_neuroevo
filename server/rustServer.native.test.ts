@@ -12,6 +12,8 @@ import { PlayerActionPump } from '../src/net/playerActionPump.ts';
 import { createWsClient, type AssignMsg, type SensorsMsg, type WelcomeMsg, type WsClient } from '../src/net/wsClient.ts';
 import { run as runStage6RuntimeProbe } from '../scripts/stage6/runtime-integration-probe.ts';
 import { startRustServer } from './rustServer.ts';
+import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
+import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import { buildStackGraphSpec } from '../src/brains/stackBuilder.ts';
 import { compileGraph } from '../src/brains/graph/compiler.ts';
@@ -694,6 +696,203 @@ describeNetworkSuite('Rust server real sockets', () => {
     } finally {
       for (const peer of peers) peer.socket.terminate();
       await target?.close();
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('faults the old authority when an import commits but its reply is lost', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-lost-import-reply-'));
+    const sourceDbPath = join(root, 'source.sqlite');
+    const targetDbPath = join(root, 'target.sqlite');
+    const source = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+      resume: 'fresh', seed: 41, dbPath: sourceDbPath });
+    let target: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    let importSpy: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      const sourceHealth = await (await fetch(`http://127.0.0.1:${source.port}/api/health`)).json() as {
+        runId: string; startupCheckpointId: string;
+      };
+      const archive = Buffer.from(await (await fetch(
+        `http://127.0.0.1:${source.port}/api/export/latest`
+      )).arrayBuffer());
+      target = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+        resume: 'fresh', seed: 42, dbPath: targetDbPath });
+      const oldHealth = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
+        runId: string; startupCheckpointId: string;
+      };
+      const originalCommit = CheckpointPersistenceClient.prototype.commitImport;
+      /** Lose one reply after the real worker has committed the new pointer. */
+      importSpy = vi.spyOn(CheckpointPersistenceClient.prototype, 'commitImport')
+        .mockImplementationOnce(async function (this: CheckpointPersistenceClient,
+          ...args: Parameters<CheckpointPersistenceClient['commitImport']>) {
+          await originalCommit.apply(this, args);
+          throw new Error('injected lost import commit reply');
+        });
+      const response = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: archive
+      });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ ok: false, message: 'injected lost import commit reply' });
+      const faulted = await healthUntil(target.port, health => health['ok'] === false);
+      expect(faulted).toMatchObject({ runId: oldHealth.runId,
+        startupCheckpointId: oldHealth.startupCheckpointId,
+        interfaceFault: 'injected lost import commit reply' });
+      expect(['stopRequested', 'stopped']).toContain(faulted['lifecycle']);
+      await new Promise<void>(done => setTimeout(done, 50));
+      expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+        completedStep: faulted['completedStep']
+      });
+      const database = new Database(targetDbPath, { readonly: true });
+      try {
+        expect(database.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1').get())
+          .toEqual({ run_id: sourceHealth.runId });
+      } finally { database.close(); }
+      await target.close();
+      target = undefined;
+      const { seed: _seed, ...resumeConfig } = DEFAULT_CONFIG;
+      target = await startRustServer({ ...resumeConfig, port: 0,
+        resume: 'latest', dbPath: targetDbPath });
+      expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: sourceHealth.runId, startupCheckpointId: sourceHealth.startupCheckpointId
+      });
+    } finally {
+      importSpy?.mockRestore();
+      await target?.close();
+      await source.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('recovers the committed import across both sides of the Rust swap', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-import-swap-fault-'));
+    const source = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+      resume: 'fresh', seed: 41, dbPath: join(root, 'source.sqlite') });
+    try {
+      const sourceHealth = await (await fetch(`http://127.0.0.1:${source.port}/api/health`)).json() as {
+        runId: string; startupCheckpointId: string;
+      };
+      const archive = Buffer.from(await (await fetch(
+        `http://127.0.0.1:${source.port}/api/export/latest`
+      )).arrayBuffer());
+      for (const phase of ['before-swap', 'after-swap'] as const) {
+        const dbPath = join(root, `${phase}.sqlite`);
+        let target: Awaited<ReturnType<typeof startRustServer>> | undefined;
+        let publishSpy: ReturnType<typeof vi.spyOn> | undefined;
+        try {
+          target = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+            resume: 'fresh', seed: 42, dbPath });
+          const oldHealth = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
+            runId: string; startupCheckpointId: string;
+          };
+          const originalPublish = BackgroundOutputPump.prototype.publishPreparedImport;
+          /** Fail once immediately before or after the real native publication. */
+          publishSpy = vi.spyOn(BackgroundOutputPump.prototype, 'publishPreparedImport')
+            .mockImplementationOnce(async function (this: BackgroundOutputPump,
+              ...args: Parameters<BackgroundOutputPump['publishPreparedImport']>) {
+              if (phase === 'after-swap') await originalPublish.apply(this, args);
+              throw new Error(`injected import ${phase} failure`);
+            });
+          const response = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+            method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: archive
+          });
+          expect(response.status).toBe(503);
+          expect(await response.json()).toMatchObject({ ok: false,
+            message: `injected import ${phase} failure` });
+          const faulted = await healthUntil(target.port, health => health['ok'] === false);
+          expect(faulted).toMatchObject({
+            runId: oldHealth.runId, startupCheckpointId: oldHealth.startupCheckpointId,
+            interfaceFault: `injected import ${phase} failure`
+          });
+          expect(['stopRequested', 'stopped']).toContain(faulted['lifecycle']);
+          await new Promise<void>(done => setTimeout(done, 50));
+          expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+            completedStep: faulted['completedStep']
+          });
+          const database = new Database(dbPath, { readonly: true });
+          try {
+            expect(database.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1').get())
+              .toEqual({ run_id: sourceHealth.runId });
+          } finally { database.close(); }
+          await target.close();
+          target = undefined;
+          const { seed: _seed, ...resumeConfig } = DEFAULT_CONFIG;
+          target = await startRustServer({ ...resumeConfig, port: 0, resume: 'latest', dbPath });
+          expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+            ok: true, runId: sourceHealth.runId, startupCheckpointId: sourceHealth.startupCheckpointId
+          });
+        } finally {
+          publishSpy?.mockRestore();
+          await target?.close();
+        }
+      }
+    } finally {
+      await source.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('keeps a later-generation Rust world ready after rejecting its older exact import', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-later-import-reject-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+      resume: 'fresh', seed: 42, dbPath });
+    let viewer: Peer | undefined;
+    try {
+      viewer = await connect(server.port, 'ui');
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 1 },
+        updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 0 }] }));
+      await until(viewer, () => viewer!.packets.some(packet =>
+        packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
+      const resetHealth = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        runId: string; startupCheckpointId: string;
+      };
+      const archived = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+      expect(archived.status).toBe(200);
+      expect(archived.headers.get('x-slither-checkpoint-id')).toBe(resetHealth.startupCheckpointId);
+      const archive = Buffer.from(await archived.arrayBuffer());
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'accelerate-generation',
+        updates: [{ path: 'simSpeed', value: 12 }] }));
+      await until(viewer, () => viewer!.packets.some(packet =>
+        packet['type'] === 'settingsApplied' && packet['requestId'] === 'accelerate-generation'));
+      expect(viewer.packets.findLast(packet => packet['requestId'] === 'accelerate-generation'))
+        .toMatchObject({ applied: true });
+      const database = new Database(dbPath, { readonly: true });
+      let currentCheckpointId = resetHealth.startupCheckpointId;
+      try {
+        const deadline = performance.now() + 10_000;
+        while (currentCheckpointId === resetHealth.startupCheckpointId && performance.now() < deadline) {
+          currentCheckpointId = (database.prepare(`SELECT checkpoint_id FROM rust_checkpoint_v3_current
+            WHERE run_id = ?`).get(resetHealth.runId) as { checkpoint_id: string }).checkpoint_id;
+          if (currentCheckpointId === resetHealth.startupCheckpointId) {
+            await new Promise<void>(done => setTimeout(done, 20));
+          }
+        }
+        expect(currentCheckpointId).not.toBe(resetHealth.startupCheckpointId);
+        viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'hold-later-generation',
+          updates: [{ path: 'simSpeed', value: 0.1 }] }));
+        await until(viewer, () => viewer!.packets.some(packet =>
+          packet['type'] === 'settingsApplied' && packet['requestId'] === 'hold-later-generation'));
+        expect(viewer.packets.findLast(packet => packet['requestId'] === 'hold-later-generation'))
+          .toMatchObject({ applied: true });
+        currentCheckpointId = (database.prepare(`SELECT checkpoint_id FROM rust_checkpoint_v3_current
+          WHERE run_id = ?`).get(resetHealth.runId) as { checkpoint_id: string }).checkpoint_id;
+        const rejected = await fetch(`http://127.0.0.1:${server.port}/api/import/archive`, {
+          method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: archive
+        });
+        expect(rejected.status).toBe(409);
+        expect(await rejected.json()).toMatchObject({ ok: false, code: 'IMPORT_REQUIRES_BRANCH' });
+        expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+          ok: true, runId: resetHealth.runId, lifecycle: 'running'
+        });
+        expect((database.prepare(`SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?`)
+          .get(resetHealth.runId) as { checkpoint_id: string }).checkpoint_id).toBe(currentCheckpointId);
+      } finally { database.close(); }
+    } finally {
+      viewer?.socket.terminate();
       await server.close();
       await rm(root, { recursive: true, force: true });
     }

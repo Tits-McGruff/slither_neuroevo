@@ -74,6 +74,8 @@ interface CheckpointPersistenceWorkerData {
   limits: ManagedCheckpointDescriptorLimits;
   /** One-shot test fault around the real FULL-commit transaction. */
   checkpointCommitFailpointForTesting?: 'before-commit' | 'after-commit-before-reply';
+  /** One-shot test fault around a managed-import FULL-commit transaction. */
+  importCommitFailpointForTesting?: 'before-commit' | 'after-commit-before-reply';
 }
 
 /** Current pointer row needed for exact monotonic transition checks. */
@@ -166,6 +168,8 @@ const port = parentPort;
 const bootstrap = parseWorkerData(workerData);
 /** One-shot injected failure, never supplied by normal production startup. */
 let checkpointCommitFailpoint = bootstrap.checkpointCommitFailpointForTesting;
+/** Test-only one-shot managed-import transaction fault. */
+let importCommitFailpoint = bootstrap.importCommitFailpointForTesting;
 /** Canonical real managed root used to reject traversal and symlinks. */
 const managedRootPath = resolveManagedRoot(bootstrap.managedRootPath);
 /** Immutable bounded descriptor limits selected before this worker accepts messages. */
@@ -236,9 +240,9 @@ function parseWorkerData(value: unknown): CheckpointPersistenceWorkerData {
   }
   const data = value as Record<string, unknown>;
   const keys = Object.keys(data);
-  if ((keys.length !== 4 && keys.length !== 5) ||
+  if (keys.length < 4 || keys.length > 6 ||
     keys.some(key => !['databasePath', 'managedRootPath', 'limits', 'existingOnly',
-      'checkpointCommitFailpointForTesting'].includes(key)) ||
+      'checkpointCommitFailpointForTesting', 'importCommitFailpointForTesting'].includes(key)) ||
     !Object.hasOwn(data, 'databasePath') || !Object.hasOwn(data, 'managedRootPath') ||
     !Object.hasOwn(data, 'limits') || typeof data['existingOnly'] !== 'boolean') {
     throw new TypeError('checkpoint persistence worker data has unknown or missing fields');
@@ -247,6 +251,11 @@ function parseWorkerData(value: unknown): CheckpointPersistenceWorkerData {
     data['checkpointCommitFailpointForTesting'] !== 'before-commit' &&
     data['checkpointCommitFailpointForTesting'] !== 'after-commit-before-reply') {
     throw new TypeError('invalid checkpoint commit test failpoint');
+  }
+  if (Object.hasOwn(data, 'importCommitFailpointForTesting') &&
+    data['importCommitFailpointForTesting'] !== 'before-commit' &&
+    data['importCommitFailpointForTesting'] !== 'after-commit-before-reply') {
+    throw new TypeError('invalid import commit test failpoint');
   }
   if (typeof data['databasePath'] !== 'string' || data['databasePath'].length === 0) {
     throw new TypeError('checkpoint persistence databasePath must be a nonempty string');
@@ -261,6 +270,10 @@ function parseWorkerData(value: unknown): CheckpointPersistenceWorkerData {
     limits: parseManagedCheckpointDescriptorLimits(data['limits']),
     ...(data['checkpointCommitFailpointForTesting']
       ? { checkpointCommitFailpointForTesting: data['checkpointCommitFailpointForTesting'] as
+          'before-commit' | 'after-commit-before-reply' }
+      : {}),
+    ...(data['importCommitFailpointForTesting']
+      ? { importCommitFailpointForTesting: data['importCommitFailpointForTesting'] as
           'before-commit' | 'after-commit-before-reply' }
       : {})
   };
@@ -2309,7 +2322,7 @@ function commitManagedImport(
   }
   const file = openSync(inventoryFile.path, 'r');
   try {
-    return db.transaction(() => {
+    const committed = db.transaction(() => {
       recheckManagedFile(managedFile);
       recheckManagedFile(inventoryFile);
       const futureCheckpoint = db.prepare(`SELECT 1 FROM rust_checkpoint_v3_metadata
@@ -2474,6 +2487,10 @@ function commitManagedImport(
       }
       db.prepare(`INSERT INTO rust_active_run_v1 (singleton, run_id) VALUES (1, ?)
         ON CONFLICT(singleton) DO UPDATE SET run_id = excluded.run_id`).run(effectiveRunId);
+      if (importCommitFailpoint === 'before-commit') {
+        importCommitFailpoint = undefined;
+        throw new Error('injected managed import failure before SQLite commit');
+      }
       return {
         operationId: descriptor.operationId,
         transitionEpoch: committedDescriptor.transitionEpoch,
@@ -2483,6 +2500,11 @@ function commitManagedImport(
         importBranch
       };
     }).immediate();
+    if (importCommitFailpoint === 'after-commit-before-reply') {
+      importCommitFailpoint = undefined;
+      process.exit(87);
+    }
+    return committed;
   } finally {
     closeSync(file);
     try { unlinkSync(inventoryFile.path); } catch { /* Rust inventory is operation-local. */ }

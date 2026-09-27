@@ -191,7 +191,8 @@ function createFixture(
   workerUrlForTesting?: URL,
   workerResponseModeForTesting?: 'invalid' | 'mismatched' | 'exit' | 'exit-clean' | 'stall' | 'stall-after-progress' | 'progressing',
   noProgressTimeoutMs?: number,
-  checkpointCommitFailpointForTesting?: 'before-commit' | 'after-commit-before-reply'
+  checkpointCommitFailpointForTesting?: 'before-commit' | 'after-commit-before-reply',
+  importCommitFailpointForTesting?: 'before-commit' | 'after-commit-before-reply'
 ): {
   root: string;
   managedRoot: string;
@@ -209,7 +210,8 @@ function createFixture(
     ...(workerUrlForTesting ? { workerUrlForTesting } : {}),
     ...(workerResponseModeForTesting ? { workerResponseModeForTesting } : {}),
     ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
-    ...(checkpointCommitFailpointForTesting ? { checkpointCommitFailpointForTesting } : {})
+    ...(checkpointCommitFailpointForTesting ? { checkpointCommitFailpointForTesting } : {}),
+    ...(importCommitFailpointForTesting ? { importCommitFailpointForTesting } : {})
   });
   clients.push(client);
   return { root, managedRoot, databasePath, client };
@@ -1171,6 +1173,56 @@ describe(SUITE, { timeout: 30_000 }, () => {
     } finally { inspect.close(); }
     await source.client.releaseExportLease(lease.operationId);
   });
+
+  it.each(['before-commit', 'after-commit-before-reply'] as const)(
+    'reconciles a managed import worker failure %s', async phase => {
+      const source = createFixture();
+      await source.client.commit(createDescriptor(source.managedRoot));
+      const lease = await source.client.acquireCurrentExportLease();
+      const target = createFixture(undefined, undefined, undefined, undefined, phase);
+      copyFileSync(join(source.managedRoot, lease.descriptor.relativeFilename),
+        join(target.managedRoot, lease.descriptor.relativeFilename));
+      const operationId = 'f0'.repeat(16);
+      const relativeFilename = `.${operationId}.import-inventory-v1`;
+      const descriptor = { ...lease.descriptor, operationId };
+      /** Recreate the exact import inventory after an attempted transaction. */
+      const copyInventory = (): ManagedImportInventoryDescriptor => {
+        copyFileSync(join(source.managedRoot, lease.inventory.relativeFilename),
+          join(target.managedRoot, relativeFilename));
+        return { ...lease.inventory, relativeFilename };
+      };
+      await expect(target.client.commitImport(descriptor, copyInventory())).rejects.toThrow(
+        phase === 'before-commit' ? /injected managed import failure before SQLite commit/u : /worker|exit|stopped/u
+      );
+      if (phase === 'before-commit') {
+        expect(readCurrentPointer(target.databasePath, descriptor.runId)).toBeUndefined();
+        await expect(target.client.commitImport(descriptor, copyInventory())).resolves.toMatchObject({
+          checkpointId: descriptor.logicalRootSha256
+        });
+      } else {
+        expect(readCurrentPointer(target.databasePath, descriptor.runId)).toMatchObject({
+          checkpoint_id: descriptor.logicalRootSha256
+        });
+        const reopened = new CheckpointPersistenceClient({ databasePath: target.databasePath,
+          managedRootPath: target.managedRoot, existingOnly: true });
+        clients.push(reopened);
+        await expect(reopened.selectStartup()).resolves.toMatchObject({
+          runId: descriptor.runId, descriptor
+        });
+        await expect(reopened.commitImport(descriptor, copyInventory())).resolves.toMatchObject({
+          checkpointId: descriptor.logicalRootSha256
+        });
+      }
+      const database = new Database(target.databasePath, { readonly: true });
+      try {
+        expect(database.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get())
+          .toEqual({ count: 1 });
+        expect(database.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1').get())
+          .toEqual({ run_id: descriptor.runId });
+      } finally { database.close(); }
+      await source.client.releaseExportLease(lease.operationId);
+    }
+  );
 
   it('resumes an older exact import as a durable branch without replacing its future', async () => {
     const fixture = createFixture();
