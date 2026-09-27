@@ -14,6 +14,16 @@ interface SmokeElement {
   textContent: string;
   /** HTML content. */
   innerHTML: string;
+  /** Anchor destination or other URL-valued field. */
+  href: string;
+  /** Browser download hint. */
+  download: string;
+  /** Whether the element is hidden. */
+  hidden: boolean;
+  /** Whether a synthetic click was requested. */
+  clicked: boolean;
+  /** Selected browser files for the import input. */
+  files: FileList | null;
   /** Mutable inline style. */
   style: Record<string, string>;
   /** Mutable data attributes. */
@@ -30,6 +40,10 @@ interface SmokeElement {
   dispatch: (type: string, event: Event) => void;
   /** Append a child node. */
   appendChild: () => void;
+  /** Append one or more direct-download elements. */
+  append: (...children: SmokeElement[]) => void;
+  /** Remove a temporary direct-download element. */
+  remove: () => void;
   /** Set one attribute. */
   setAttribute: (name: string, value: string) => void;
   /** Read one attribute. */
@@ -78,6 +92,11 @@ function makeElement(id: string): SmokeElement {
     disabled: false,
     textContent: '',
     innerHTML: '',
+    href: '',
+    download: '',
+    hidden: false,
+    clicked: false,
+    files: null,
     style: {},
     dataset: {},
     classList,
@@ -92,6 +111,8 @@ function makeElement(id: string): SmokeElement {
       for (const listener of listeners.get(type) ?? []) listener(event);
     },
     appendChild() { },
+    append() { },
+    remove() { },
     setAttribute(name, value) { attributes.set(name, value); },
     getAttribute(name) { return attributes.get(name) ?? null; },
     querySelectorAll: () => [],
@@ -109,6 +130,7 @@ function makeElement(id: string): SmokeElement {
       toJSON: () => ({})
     } as DOMRect),
     click() {
+      this.clicked = true;
       for (const listener of listeners.get('click') ?? []) {
         listener(new Event('click'));
       }
@@ -156,12 +178,15 @@ describe('main.ts startup smoke', () => {
   let activeSocket: StubSocketSurface | null;
   /** Window listeners registered by the application. */
   let windowListeners: Map<string, Array<(event: Event) => void>>;
+  /** Temporary DOM elements created during the current startup import. */
+  let createdElements: SmokeElement[];
 
   beforeEach(() => {
     vi.resetModules();
     connectedUrl = '';
     activeSocket = null;
     elements = new Map<string, SmokeElement>();
+    createdElements = [];
     windowListeners = new Map<string, Array<(event: Event) => void>>();
     const getElement = (id: string): SmokeElement => {
       const existing = elements.get(id);
@@ -175,7 +200,11 @@ describe('main.ts startup smoke', () => {
       getElementById: (id: string) => getElement(id),
       querySelectorAll: () => [],
       querySelector: () => null,
-      createElement: () => makeElement('created'),
+      createElement: () => {
+        const created = makeElement('created');
+        createdElements.push(created);
+        return created;
+      },
       createElementNS: () => makeElement('created-ns')
     } as unknown as Document;
     const windowStub = {
@@ -251,6 +280,86 @@ describe('main.ts startup smoke', () => {
     await import('./main.ts');
 
     expect(connectedUrl).toBe('ws://localhost:5174');
+  });
+
+  it('downloads the Rust archive through one direct link without fetching population JSON', async () => {
+    await import('./main.ts');
+    const socket = activeSocket;
+    if (!socket) throw new Error('missing browser WebSocket');
+    socket.onopen?.();
+    socket.onmessage?.({ data: JSON.stringify({
+      type: 'welcome', protocolVersion: 2, sessionId: 'archive-session', tickRate: 60,
+      worldSeed: 42, runId: 'archive-run', configRevision: 0, configHash: 'cfg-archive',
+      settings: { core: { simSpeed: 1 }, updates: [] },
+      inferenceMode: { requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0 },
+      sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' },
+      serializerVersion: 1, frameByteLength: 28,
+      capabilities: { archiveExport: true, archiveImport: true }
+    }) });
+
+    elements.get('btnExport')?.click();
+    const link = createdElements.find(element => element.href.endsWith('/api/export/latest'));
+    expect(link).toMatchObject({
+      href: 'http://localhost:5174/api/export/latest',
+      download: '', hidden: true, clicked: true
+    });
+    const fetchCalls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+    expect(fetchCalls.filter(url => url.includes('/api/save') || url.includes('/api/export/latest'))).toEqual([]);
+  });
+
+  it('uploads the selected Rust archive File unchanged', async () => {
+    await import('./main.ts');
+    const socket = activeSocket;
+    if (!socket) throw new Error('missing browser WebSocket');
+    socket.onopen?.();
+    socket.onmessage?.({ data: JSON.stringify({
+      type: 'welcome', protocolVersion: 2, sessionId: 'archive-import-session', tickRate: 60,
+      worldSeed: 42, runId: 'archive-run', configRevision: 0, configHash: 'cfg-archive',
+      settings: { core: { simSpeed: 1 }, updates: [] },
+      inferenceMode: { requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0 },
+      sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' },
+      serializerVersion: 1, frameByteLength: 28,
+      capabilities: { archiveExport: true, archiveImport: true }
+    }) });
+
+    let uploadUrl = '';
+    let sentBody: unknown;
+    class StubArchiveRequest {
+      /** Browser upload progress hook installed by the UI. */
+      upload = { onprogress: null as (() => void) | null };
+      /** Complete response callback installed by the UI. */
+      onload: (() => void) | null = null;
+      /** Connection error callback installed by the UI. */
+      onerror: (() => void) | null = null;
+      /** Cancellation callback installed by the UI. */
+      onabort: (() => void) | null = null;
+      /** Upload timeout selected by the UI. */
+      timeout = 0;
+      /** Successful small result status. */
+      status = 200;
+      /** Small scalar result; no population bytes. */
+      responseText = JSON.stringify({ ok: true, runId: 'archive-run',
+        generation: '0000000000000001', checkpointId: 'a'.repeat(64) });
+      /** Capture the direct archive endpoint. */
+      open(_method: string, url: string): void { uploadUrl = url; }
+      /** Accept the archive media type. */
+      setRequestHeader(): void { }
+      /** Record exact object identity and resolve the small response. */
+      send(body: unknown): void { sentBody = body; this.onload?.(); }
+    }
+    vi.stubGlobal('XMLHttpRequest', StubArchiveRequest);
+    vi.stubGlobal('FileReader', class { constructor() { throw new Error('FileReader must not inspect Rust archives'); } });
+    vi.stubGlobal('alert', vi.fn());
+    const file = new File([new Uint8Array([1, 2, 3])], 'checkpoint.save',
+      { type: 'application/vnd.slither-neuroevo.save' });
+    const input = elements.get('fileInput');
+    if (!input) throw new Error('missing archive file input');
+    input.files = { length: 1, item: () => file } as unknown as FileList;
+    input.dispatch('change', { target: input } as unknown as Event);
+    await vi.waitFor(() => expect(sentBody).toBe(file));
+    expect(uploadUrl).toBe('http://localhost:5174/api/import/archive');
+    const fetchCalls = vi.mocked(fetch).mock.calls.map(([request]) => String(request));
+    expect(fetchCalls.filter(url => url.includes('/api/import'))).toEqual([]);
   });
 
   it('sends New Run and refreshes the visible seed after acknowledgement', async () => {

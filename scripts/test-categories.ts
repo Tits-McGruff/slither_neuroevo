@@ -106,6 +106,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/stage2/retention-baseline.test.ts',
     'scripts/stage2/sqlite-legacy-slice.test.ts',
     'scripts/stage3/experimental-bridge-evidence.test.ts',
+    'src/archiveTransferPath.test.ts',
     'src/brains/graph.integration.test.ts',
     'src/main.test.ts'
   ],

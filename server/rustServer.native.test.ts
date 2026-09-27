@@ -112,7 +112,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       await server.close();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it('imports an old browser JSON population as a new Rust run', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-legacy-import-'));

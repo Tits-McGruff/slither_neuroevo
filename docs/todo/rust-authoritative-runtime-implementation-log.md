@@ -638,3 +638,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   worker, restarts on the committed database, and replays the same descriptor
   with one current pointer and one metadata row. Post-reply Rust swap and
   public-success fault phases remain open.
+
+- 2026-09-27 Browser integration tests now drive the Rust archive capability:
+  export clicks a direct download link and import sends the selected `File`
+  unchanged. A source-level guard checks those negotiated branches and the
+  upload function for population reads or JSON/Blob reconstruction while
+  permitting the small import-result JSON. Real large-file browser heap and
+  responsiveness measurements remain open.
