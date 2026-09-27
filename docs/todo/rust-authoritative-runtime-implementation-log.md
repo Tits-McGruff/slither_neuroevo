@@ -597,5 +597,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   a committed checkpoint. Intentional persistence/controller barriers and a
   paused Node event loop do not count as a Rust calculation stall.
 
-The next dependencies are service restart fault injection and the remaining
-long-duration durability gates.
+- 2026-09-27 The Debian run reached generation 91 with 11 retained checkpoints
+  and a roughly 4 MiB SQLite WAL. An online backup verified 67 managed files;
+  its disposable restore restarted from the same checkpoint after `SIGABRT`.
+  Corrupting only that copy's newest file exposed that older cross-build
+  recovery candidates were tried only as exact-build restores. They now get a
+  private compatible-build validation before SQLite branches; the same copy
+  recovered the next valid checkpoint, reported one lost generation, and kept
+  the damaged file. The live run stayed healthy and directly exported a 3.6 MB
+  flat-role save. Pausing one calculation thread in the disposable service
+  triggered the five-second watchdog; systemd restarted it from the same valid
+  checkpoint. The live lineage has since reached generation 100.
+
+- 2026-09-27 The libuv fresh-run and archive preparation/validation task roots
+  now catch Rust panics, return bounded errors, and fault the retained engine.
+  Release tests exercise panic containment and rejection of subsequent engine
+  commands. Operation-specific injected panics, cleanup checks, the
+  administrator-enabled unattended user service, and longer durability gates
+  remain open.

@@ -273,8 +273,33 @@ pub struct PreparedFreshRun {
     startup_metadata_json: String,
 }
 
+/// Keep a Rust panic inside one libuv task instead of unwinding through N-API.
+/// The task's `finally` hook still releases its busy/progress marker.
+fn catch_background_task_panic<T>(
+    task: &'static str,
+    runtime: Option<&EngineRuntime>,
+    operation: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    match catch_unwind(AssertUnwindSafe(operation)) {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(runtime) = runtime {
+                runtime.report_bridge_fault(EngineError::new(
+                    EngineErrorCode::Faulted,
+                    format!("{task} panicked at the background task root"),
+                ));
+            }
+            Err(Error::new(
+                Status::GenericFailure,
+                format!("{task} panicked; background authority faulted"),
+            ))
+        }
+    }
+}
+
 /// Libuv task for constructing and publishing a private generation-one run.
 pub struct PrepareFreshRunTask {
+    runtime: Arc<EngineRuntime>,
     managed_directory: PathBuf,
     operation_id: CheckpointOperationId,
     request: Stage6aP0FreshRunRequest,
@@ -290,25 +315,27 @@ impl Task for PrepareFreshRunTask {
     type JsValue = PreparedFreshRunResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut transition = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
-            self.request.clone(),
-            &self.settings,
-            self.graph.clone(),
-        )
-        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
-        transition
-            .configure_calculation_workers(self.calculation_workers)
-            .map_err(|error| Error::new(Status::GenericFailure, error))?;
-        let descriptor = transition
-            .publish_checkpoint(&self.managed_directory, self.operation_id.clone())
+        catch_background_task_panic("fresh-run preparation", Some(&self.runtime), || {
+            let mut transition = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+                self.request.clone(),
+                &self.settings,
+                self.graph.clone(),
+            )
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
-        let startup_metadata_json = transition
-            .startup_metadata_json()
-            .map_err(|error| Error::new(Status::GenericFailure, error))?;
-        Ok(PreparedFreshRun {
-            transition,
-            descriptor,
-            startup_metadata_json,
+            transition
+                .configure_calculation_workers(self.calculation_workers)
+                .map_err(|error| Error::new(Status::GenericFailure, error))?;
+            let descriptor = transition
+                .publish_checkpoint(&self.managed_directory, self.operation_id.clone())
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            let startup_metadata_json = transition
+                .startup_metadata_json()
+                .map_err(|error| Error::new(Status::GenericFailure, error))?;
+            Ok(PreparedFreshRun {
+                transition,
+                descriptor,
+                startup_metadata_json,
+            })
         })
     }
 
@@ -330,6 +357,7 @@ impl Task for PrepareFreshRunTask {
 
 /// Libuv task for file/codec work that must not block the Node event loop.
 pub struct PrepareExportArchiveTask {
+    runtime: Arc<EngineRuntime>,
     managed_directory: PathBuf,
     operation_id: String,
     checkpoint: crate::engine::checkpoint::CheckpointDescriptor,
@@ -342,27 +370,29 @@ impl Task for PrepareExportArchiveTask {
     type JsValue = PreparedExportArchive;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        self.progress.started.store(true, Ordering::Release);
-        let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
-        let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
-            Error::new(
-                Status::GenericFailure,
-                "P0 export memory ceiling exceeds usize",
+        catch_background_task_panic("archive export", Some(&self.runtime), || {
+            self.progress.started.store(true, Ordering::Release);
+            let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
+            let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
+                Error::new(
+                    Status::GenericFailure,
+                    "P0 export memory ceiling exceeds usize",
+                )
+            })?;
+            let (checkpoint_limits, graph_limits, admission_policy) =
+                stage6a_p0_export_validation_contract(memory_ceiling)
+                    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            compose_export_archive(
+                &self.managed_directory,
+                &self.operation_id,
+                &self.checkpoint,
+                &self.inventory,
+                &checkpoint_limits,
+                &graph_limits,
+                &admission_policy,
             )
-        })?;
-        let (checkpoint_limits, graph_limits, admission_policy) =
-            stage6a_p0_export_validation_contract(memory_ceiling)
-                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
-        compose_export_archive(
-            &self.managed_directory,
-            &self.operation_id,
-            &self.checkpoint,
-            &self.inventory,
-            &checkpoint_limits,
-            &graph_limits,
-            &admission_policy,
-        )
-        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -384,6 +414,7 @@ impl Task for PrepareExportArchiveTask {
 
 /// Libuv task for validating an untrusted upload without touching authority.
 pub struct ValidateImportArchiveTask {
+    runtime: Arc<EngineRuntime>,
     archive_path: PathBuf,
     scratch_directory: PathBuf,
     operation_id: String,
@@ -392,6 +423,7 @@ pub struct ValidateImportArchiveTask {
 
 /// Bounded off-loop USTAR-header and final-manifest inspection.
 pub struct EstimateImportDiskTask {
+    runtime: Arc<EngineRuntime>,
     archive_path: PathBuf,
 }
 
@@ -400,8 +432,10 @@ impl Task for EstimateImportDiskTask {
     type JsValue = ImportDiskEstimateResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        estimate_import_disk_bytes(&self.archive_path)
-            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+        catch_background_task_panic("import disk estimate", Some(&self.runtime), || {
+            estimate_import_disk_bytes(&self.archive_path)
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -414,6 +448,7 @@ impl Task for EstimateImportDiskTask {
 
 /// Libuv preparation task retaining its admitted candidate in the native handle.
 pub struct PrepareImportArchiveTask {
+    runtime: Arc<EngineRuntime>,
     archive_path: PathBuf,
     scratch_directory: PathBuf,
     managed_directory: PathBuf,
@@ -431,35 +466,37 @@ impl Task for PrepareImportArchiveTask {
     type JsValue = PreparedImportArchiveResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        self.progress.started.store(true, Ordering::Release);
-        let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
-        let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
-            Error::new(
-                Status::GenericFailure,
-                "P0 import memory ceiling exceeds usize",
+        catch_background_task_panic("archive import preparation", Some(&self.runtime), || {
+            self.progress.started.store(true, Ordering::Release);
+            let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
+            let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
+                Error::new(
+                    Status::GenericFailure,
+                    "P0 import memory ceiling exceeds usize",
+                )
+            })?;
+            let (checkpoint_limits, graph_limits, admission_policy) =
+                stage6a_p0_export_validation_contract(memory_ceiling)
+                    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            let mut prepared = prepare_import_archive(
+                &self.archive_path,
+                &self.scratch_directory,
+                &self.managed_directory,
+                &self.operation_id,
+                &self.legacy_run_id,
+                self.legacy_seed,
+                &checkpoint_limits,
+                &graph_limits,
+                &admission_policy,
+                memory_ceiling,
             )
-        })?;
-        let (checkpoint_limits, graph_limits, admission_policy) =
-            stage6a_p0_export_validation_contract(memory_ceiling)
-                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
-        let mut prepared = prepare_import_archive(
-            &self.archive_path,
-            &self.scratch_directory,
-            &self.managed_directory,
-            &self.operation_id,
-            &self.legacy_run_id,
-            self.legacy_seed,
-            &checkpoint_limits,
-            &graph_limits,
-            &admission_policy,
-            memory_ceiling,
-        )
-        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
-        prepared
-            .transition
-            .configure_calculation_workers(self.calculation_workers)
-            .map_err(|error| Error::new(Status::GenericFailure, error))?;
-        Ok(prepared)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            prepared
+                .transition
+                .configure_calculation_workers(self.calculation_workers)
+                .map_err(|error| Error::new(Status::GenericFailure, error))?;
+            Ok(prepared)
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -504,26 +541,28 @@ impl Task for ValidateImportArchiveTask {
     type JsValue = ValidatedImportArchiveResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        self.progress.started.store(true, Ordering::Release);
-        let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
-        let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
-            Error::new(
-                Status::GenericFailure,
-                "P0 import memory ceiling exceeds usize",
+        catch_background_task_panic("archive import validation", Some(&self.runtime), || {
+            self.progress.started.store(true, Ordering::Release);
+            let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
+            let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
+                Error::new(
+                    Status::GenericFailure,
+                    "P0 import memory ceiling exceeds usize",
+                )
+            })?;
+            let (checkpoint_limits, graph_limits, admission_policy) =
+                stage6a_p0_export_validation_contract(memory_ceiling)
+                    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            validate_import_archive(
+                &self.archive_path,
+                &self.scratch_directory,
+                &self.operation_id,
+                &checkpoint_limits,
+                &graph_limits,
+                &admission_policy,
             )
-        })?;
-        let (checkpoint_limits, graph_limits, admission_policy) =
-            stage6a_p0_export_validation_contract(memory_ceiling)
-                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
-        validate_import_archive(
-            &self.archive_path,
-            &self.scratch_directory,
-            &self.operation_id,
-            &checkpoint_limits,
-            &graph_limits,
-            &admission_policy,
-        )
-        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -693,6 +732,7 @@ impl ExperimentalRunningAuthority {
         let inventory = parse_export_inventory_descriptor(&inventory, operation_id.as_str())?;
         let progress = self.begin_archive_job(operation_id.as_str().to_owned(), "export")?;
         Ok(AsyncTask::new(PrepareExportArchiveTask {
+            runtime: Arc::clone(&self.runtime),
             managed_directory,
             operation_id: operation_id.as_str().to_owned(),
             checkpoint,
@@ -730,6 +770,7 @@ impl ExperimentalRunningAuthority {
         let progress =
             self.begin_archive_job(operation_id.as_str().to_owned(), "validate-import")?;
         Ok(AsyncTask::new(ValidateImportArchiveTask {
+            runtime: Arc::clone(&self.runtime),
             archive_path,
             scratch_directory,
             operation_id: operation_id.as_str().to_owned(),
@@ -749,7 +790,10 @@ impl ExperimentalRunningAuthority {
             32 * 1024,
             false,
         )?)?;
-        Ok(AsyncTask::new(EstimateImportDiskTask { archive_path }))
+        Ok(AsyncTask::new(EstimateImportDiskTask {
+            runtime: Arc::clone(&self.runtime),
+            archive_path,
+        }))
     }
 
     /// Construct and publish one private generation-one replacement.
@@ -803,6 +847,7 @@ impl ExperimentalRunningAuthority {
             }
         };
         Ok(AsyncTask::new(PrepareFreshRunTask {
+            runtime: Arc::clone(&self.runtime),
             managed_directory,
             operation_id,
             request: Stage6aP0FreshRunRequest {
@@ -876,6 +921,7 @@ impl ExperimentalRunningAuthority {
             }
         };
         Ok(AsyncTask::new(PrepareImportArchiveTask {
+            runtime: Arc::clone(&self.runtime),
             archive_path,
             scratch_directory,
             managed_directory,
@@ -1898,4 +1944,92 @@ pub(crate) fn parse_controller_receipt(receipt: &Object<'_>) -> Result<ExternalD
             .get::<bool>("accepted")?
             .ok_or_else(|| Error::new(Status::InvalidArg, "receipt omits accepted"))?,
     })
+}
+
+#[cfg(test)]
+mod task_panic_tests {
+    use super::catch_background_task_panic;
+    use crate::engine::contract::{
+        CommandBatch, EngineCommand, EngineInit, InboundLimits, OutputLimits, SequencedCommand,
+        ENGINE_CONTRACT_VERSION,
+    };
+    use crate::engine::queues::NoopWakeSink;
+    use crate::engine::runtime::EngineRuntime;
+    use napi::{Error, Status};
+    use std::sync::Arc;
+
+    #[test]
+    fn libuv_task_panic_faults_the_retained_engine() {
+        let runtime = EngineRuntime::new_experimental_probe(
+            EngineInit {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                inbound: InboundLimits {
+                    max_batches: 4,
+                    max_commands: 8,
+                    max_owned_bytes: 64,
+                    max_batch_commands: 4,
+                    max_batch_owned_bytes: 32,
+                },
+                output: OutputLimits {
+                    max_reliable: 8,
+                    max_reliable_owned_bytes: 64,
+                    max_discrete: 4,
+                    max_discrete_owned_bytes: 64,
+                    max_total_owned_bytes: 128,
+                    max_event_owned_bytes: 64,
+                    max_frame_connections: 4,
+                },
+            },
+            Arc::new(NoopWakeSink),
+        )
+        .expect("valid test runtime");
+        runtime.start().expect("coordinator must start");
+        let result: napi::Result<()> =
+            catch_background_task_panic("archive export", Some(&runtime), || {
+                panic!("archive worker panic")
+            });
+        assert!(result.is_err());
+        let health = runtime.health();
+        assert!(health.fault.is_some());
+        assert!(health
+            .fault
+            .as_ref()
+            .is_some_and(|error| error.detail().contains("archive export")));
+        assert!(runtime
+            .try_submit(CommandBatch {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                commands: vec![SequencedCommand {
+                    sequence: 1,
+                    command: EngineCommand::Probe {
+                        correlation_id: 1,
+                        payload: vec![1],
+                    },
+                }]
+                .into_boxed_slice(),
+            })
+            .is_err());
+        runtime
+            .join()
+            .expect("faulted coordinator must join cleanly");
+    }
+
+    #[test]
+    fn libuv_task_root_contains_panics_and_preserves_ordinary_errors() {
+        let panic_result: napi::Result<()> =
+            catch_background_task_panic("archive export", None, || {
+                panic!("sensitive panic payload")
+            });
+        let panic_error = panic_result.expect_err("panic must become a task failure");
+        assert_eq!(panic_error.status, Status::GenericFailure);
+        assert!(panic_error.reason.contains("archive export panicked"));
+        assert!(!panic_error.reason.contains("sensitive panic payload"));
+
+        let ordinary_result: napi::Result<()> =
+            catch_background_task_panic("archive export", None, || {
+                Err(Error::new(Status::InvalidArg, "bad archive"))
+            });
+        let ordinary_error = ordinary_result.expect_err("ordinary errors must survive");
+        assert_eq!(ordinary_error.status, Status::InvalidArg);
+        assert_eq!(ordinary_error.reason, "bad archive");
+    }
 }
