@@ -190,7 +190,8 @@ function decodeHallOfFameReference(record: Buffer): ManagedHallOfFameReference {
 function createFixture(
   workerUrlForTesting?: URL,
   workerResponseModeForTesting?: 'invalid' | 'mismatched' | 'exit' | 'exit-clean' | 'stall' | 'stall-after-progress' | 'progressing',
-  noProgressTimeoutMs?: number
+  noProgressTimeoutMs?: number,
+  checkpointCommitFailpointForTesting?: 'before-commit' | 'after-commit-before-reply'
 ): {
   root: string;
   managedRoot: string;
@@ -207,7 +208,8 @@ function createFixture(
     managedRootPath: managedRoot,
     ...(workerUrlForTesting ? { workerUrlForTesting } : {}),
     ...(workerResponseModeForTesting ? { workerResponseModeForTesting } : {}),
-    ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {})
+    ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
+    ...(checkpointCommitFailpointForTesting ? { checkpointCommitFailpointForTesting } : {})
   });
   clients.push(client);
   return { root, managedRoot, databasePath, client };
@@ -317,6 +319,45 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(pageCount).toBeGreaterThan(0n);
     expect(freePages).toBeLessThanOrEqual(pageCount);
     expect(BigInt(`0x${diagnostics.usedPageByteCount}`)).toBe((pageCount - freePages) * pageSize);
+  });
+
+  it('rolls back every metadata row when the real checkpoint transaction fails before commit', async () => {
+    const fixture = createFixture(undefined, undefined, undefined, 'before-commit');
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit(descriptor)).rejects.toThrow(/injected checkpoint failure before SQLite commit/u);
+    expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toBeUndefined();
+    const database = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(database.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 0 });
+    } finally { database.close(); }
+    await expect(fixture.client.commit(descriptor)).resolves.toMatchObject({
+      operationId: descriptor.operationId,
+      checkpointId: descriptor.logicalRootSha256
+    });
+  });
+
+  it('replays the exact committed checkpoint after its worker exits before acknowledgement', async () => {
+    const fixture = createFixture(undefined, undefined, undefined, 'after-commit-before-reply');
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit(descriptor)).rejects.toThrow(/worker|exit|stopped/u);
+    expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toMatchObject({
+      checkpoint_id: descriptor.logicalRootSha256,
+      operation_id: descriptor.operationId
+    });
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    await expect(reopened.commit(descriptor)).resolves.toMatchObject({
+      operationId: descriptor.operationId,
+      checkpointId: descriptor.logicalRootSha256
+    });
+    const database = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(database.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 1 });
+    } finally { database.close(); }
   });
 
   it('keeps validated graph presets across metadata-worker restarts', async () => {

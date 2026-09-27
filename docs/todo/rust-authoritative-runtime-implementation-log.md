@@ -631,3 +631,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   health. That observation supports continued durability but does not close the
   longer soak or performance gate; the current speed setting reported scheduler
   overload and discarded wall-time debt.
+
+- 2026-09-27 The real SQLite FULL-commit worker now has disposable one-shot
+  failpoints before commit and after commit/before reply. The pre-commit test
+  rolls back every metadata row and retries; the lost-reply test exits the
+  worker, restarts on the committed database, and replays the same descriptor
+  with one current pointer and one metadata row. Post-reply Rust swap and
+  public-success fault phases remain open.

@@ -72,6 +72,8 @@ interface CheckpointPersistenceWorkerData {
   managedRootPath: string;
   /** Exact bounded descriptor limits selected before the worker starts. */
   limits: ManagedCheckpointDescriptorLimits;
+  /** One-shot test fault around the real FULL-commit transaction. */
+  checkpointCommitFailpointForTesting?: 'before-commit' | 'after-commit-before-reply';
 }
 
 /** Current pointer row needed for exact monotonic transition checks. */
@@ -162,6 +164,8 @@ if (!parentPort) throw new Error('checkpointPersistenceWorker requires parentPor
 const port = parentPort;
 /** Immutable bootstrap data supplied by the client. */
 const bootstrap = parseWorkerData(workerData);
+/** One-shot injected failure, never supplied by normal production startup. */
+let checkpointCommitFailpoint = bootstrap.checkpointCommitFailpointForTesting;
 /** Canonical real managed root used to reject traversal and symlinks. */
 const managedRootPath = resolveManagedRoot(bootstrap.managedRootPath);
 /** Immutable bounded descriptor limits selected before this worker accepts messages. */
@@ -232,9 +236,17 @@ function parseWorkerData(value: unknown): CheckpointPersistenceWorkerData {
   }
   const data = value as Record<string, unknown>;
   const keys = Object.keys(data);
-  if (keys.length !== 4 || !Object.hasOwn(data, 'databasePath') || !Object.hasOwn(data, 'managedRootPath') ||
+  if ((keys.length !== 4 && keys.length !== 5) ||
+    keys.some(key => !['databasePath', 'managedRootPath', 'limits', 'existingOnly',
+      'checkpointCommitFailpointForTesting'].includes(key)) ||
+    !Object.hasOwn(data, 'databasePath') || !Object.hasOwn(data, 'managedRootPath') ||
     !Object.hasOwn(data, 'limits') || typeof data['existingOnly'] !== 'boolean') {
     throw new TypeError('checkpoint persistence worker data has unknown or missing fields');
+  }
+  if (Object.hasOwn(data, 'checkpointCommitFailpointForTesting') &&
+    data['checkpointCommitFailpointForTesting'] !== 'before-commit' &&
+    data['checkpointCommitFailpointForTesting'] !== 'after-commit-before-reply') {
+    throw new TypeError('invalid checkpoint commit test failpoint');
   }
   if (typeof data['databasePath'] !== 'string' || data['databasePath'].length === 0) {
     throw new TypeError('checkpoint persistence databasePath must be a nonempty string');
@@ -246,7 +258,11 @@ function parseWorkerData(value: unknown): CheckpointPersistenceWorkerData {
     databasePath: data['databasePath'],
     existingOnly: data['existingOnly'],
     managedRootPath: data['managedRootPath'],
-    limits: parseManagedCheckpointDescriptorLimits(data['limits'])
+    limits: parseManagedCheckpointDescriptorLimits(data['limits']),
+    ...(data['checkpointCommitFailpointForTesting']
+      ? { checkpointCommitFailpointForTesting: data['checkpointCommitFailpointForTesting'] as
+          'before-commit' | 'after-commit-before-reply' }
+      : {})
   };
 }
 
@@ -2647,8 +2663,16 @@ function commitManagedCheckpoint(
       db.prepare(`INSERT INTO rust_active_run_v1 (singleton, run_id) VALUES (1, ?)
         ON CONFLICT(singleton) DO UPDATE SET run_id = excluded.run_id`).run(candidate.runId);
     }
+    if (checkpointCommitFailpoint === 'before-commit') {
+      checkpointCommitFailpoint = undefined;
+      throw new Error('injected checkpoint failure before SQLite commit');
+    }
   });
   commit(descriptor);
+  if (checkpointCommitFailpoint === 'after-commit-before-reply') {
+    checkpointCommitFailpoint = undefined;
+    process.exit(86);
+  }
   return {
     operationId: descriptor.operationId,
     transitionEpoch: descriptor.transitionEpoch,
