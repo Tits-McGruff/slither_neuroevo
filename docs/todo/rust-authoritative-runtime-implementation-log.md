@@ -661,3 +661,17 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   restored the retained file and pruned row, and left no partial directory.
   A still-referenced missing file exhausted bounded retries without publishing
   a backup. A live target-VM prune race remains to be exercised.
+
+- 2026-09-28 A disposable Windows Rust server accepted the approved P2
+  55-snake, 402,914-parameter graph through Reset. A 15-second Protocol 2
+  probe advanced 899 fixed steps at 0.998 simulated/wall speed with no dropped
+  wall debt. Direct HTTP export produced a 74,514,432-byte archive. The in-app
+  browser later downloaded a 109,900,288-byte generation-31 archive as one
+  ordinary file; an independent TAR reader listed its nine USTAR entries.
+  Selecting that exact downloaded file in a second disposable server's browser
+  Import control restored seed 42, generation 31, and checkpoint
+  `52b729e8558c9508ffe6449363d7f9b68c57695e3b38adb33d612358d561fd0e`;
+  the UI reported “Imported run ready.” Renderer heap after import was about
+  10.5 MiB, but the browser diagnostic channel could not sample during the
+  download response. Peak heap, browser-process memory, responsiveness and
+  small-versus-large comparisons remain open, as does the target-VM P2 gate.
