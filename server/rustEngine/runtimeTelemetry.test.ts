@@ -14,7 +14,8 @@ function health(completedStep: number): RustBackgroundHealth {
     completedStep: hex(completedStep), generationCheckpointPublished: false,
     generationPersistenceAcknowledged: false, pendingExternalDeliveries: hex(0),
     schedulerCompletedSteps: hex(completedStep), schedulerDroppedWallMicros: hex(0),
-    schedulerOverloaded: false, commandServiceBoundaries: hex(completedStep), processedCommands: hex(3),
+    schedulerOverloaded: false, commandServiceBoundaries: hex(completedStep),
+    coordinatorWorkBytes: hex(0), processedCommands: hex(3),
     stepTimingSamples: hex(4), stepTimingTotalMicros: hex(1_000),
     stepTimingMaxMicros: hex(600), stepTimingP95Micros: hex(750),
     stepTimingP99Micros: hex(1_000)

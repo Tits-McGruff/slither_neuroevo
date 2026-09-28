@@ -747,3 +747,15 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   abandoned file beyond its documented 24-hour grace, and proves startup
   cleanup retains the original pointer. Kill injection during checkpoint,
   export, import commit and prune remains open.
+
+- 2026-09-28 A production-path A9 runner now resets a disposable Rust server to
+  the approved P0/P2/P3 graph and settings, advances short eight-second rounds,
+  and measures managed files plus live SQLite/WAL, compact metadata and retention.
+  Windows probes completed ten P0 generations with three files pruned, one P2
+  generation, and one P3 generation. P3 exposed a 256 MiB numeric-role ceiling
+  below its 461 MiB raw-weight envelope; the production limit is now 512 MiB.
+  Its terminal evolution also outlasted the five-second watchdog, so Rust now
+  reports completed coordinator work during evolution and checkpoint encoding.
+  The P3 generation completed with a 1.22 GB observed transient peak and 817 MB
+  final physical storage. The full 480-generation target-VM fixture and every
+  retained-anchor restore/export remain open.

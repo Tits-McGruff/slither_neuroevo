@@ -21,6 +21,7 @@ use super::running_step::{
     ExternalDeliveryEventKind, ExternalObservationBatch, GenerationReassignmentProgress,
 };
 use super::scheduler::SchedulerServiceMode;
+use super::work_progress::ProgressScope;
 use super::world_step::ExternalDeliveryStatus;
 
 /// Inclusive microsecond ceilings for the allocation-free production step histogram.
@@ -105,6 +106,8 @@ pub struct RunningAuthorityHealth {
     pub scheduler_overloaded: bool,
     /// Command-drain boundaries serviced by the scheduler.
     pub command_service_boundaries: u64,
+    /// Completed evolution/codec work bytes while the coordinator owns a long barrier.
+    pub coordinator_work_bytes: u64,
     /// Condition-variable waits entered by the coordinator.
     pub wait_calls: u64,
     /// Waits entered while authoritative work was externally blocked.
@@ -139,6 +142,7 @@ pub(crate) struct RunningAuthorityMetrics {
     scheduler_dropped_wall_micros: AtomicU64,
     scheduler_overloaded: AtomicBool,
     command_service_boundaries: AtomicU64,
+    coordinator_work_bytes: Arc<AtomicU64>,
     wait_calls: AtomicU64,
     blocked_wait_calls: AtomicU64,
     timeout_wakes: AtomicU64,
@@ -167,6 +171,7 @@ impl RunningAuthorityMetrics {
             ),
             scheduler_overloaded: AtomicBool::new(diagnostics.overloaded),
             command_service_boundaries: AtomicU64::new(diagnostics.command_service_boundaries),
+            coordinator_work_bytes: Arc::new(AtomicU64::new(0)),
             wait_calls: AtomicU64::new(0),
             blocked_wait_calls: AtomicU64::new(0),
             timeout_wakes: AtomicU64::new(0),
@@ -297,6 +302,7 @@ impl RunningAuthorityMetrics {
                 .load(Ordering::Acquire),
             scheduler_overloaded: self.scheduler_overloaded.load(Ordering::Acquire),
             command_service_boundaries: self.command_service_boundaries.load(Ordering::Acquire),
+            coordinator_work_bytes: self.coordinator_work_bytes.load(Ordering::Acquire),
             wait_calls: self.wait_calls.load(Ordering::Relaxed),
             blocked_wait_calls: self.blocked_wait_calls.load(Ordering::Relaxed),
             timeout_wakes: self.timeout_wakes.load(Ordering::Relaxed),
@@ -452,6 +458,10 @@ pub(crate) fn run_running_coordinator(
             format!("invalid background authority handoff: {error}"),
         )
     })?;
+    // Evolution advances this counter per complete genome and the checkpoint
+    // codec advances it block by block. Health can sample both long phases
+    // without waiting for the coordinator to finish the retained barrier.
+    let _progress_scope = ProgressScope::enter(Arc::clone(&metrics.coordinator_work_bytes));
     output.push_reliable(ReliableEvent::Started)?;
 
     let wall_origin = Instant::now();

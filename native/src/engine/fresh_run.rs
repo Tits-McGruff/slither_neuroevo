@@ -209,7 +209,7 @@ pub fn prepare_stage6a_p0_checkpoint_restore(
         managed_directory,
         descriptor,
         current_build_policy(memory_ceiling_bytes, schema, true),
-        stage6a_p0_checkpoint_limits(),
+        production_checkpoint_limits(),
         stage6a_p0_graph_limits(),
         RunningStepWorkLimits::provisional_defaults(),
     )
@@ -230,7 +230,7 @@ pub fn prepare_stage6a_p0_compatible_checkpoint_restore(
         managed_directory,
         descriptor,
         current_build_policy(memory_ceiling_bytes, schema, false),
-        stage6a_p0_checkpoint_limits(),
+        production_checkpoint_limits(),
         stage6a_p0_graph_limits(),
         RunningStepWorkLimits::provisional_defaults(),
     )
@@ -251,7 +251,7 @@ pub(crate) fn prepare_stage6a_p0_validated_import(
         restored,
         descriptor,
         current_build_policy(memory_ceiling_bytes, schema, true),
-        stage6a_p0_checkpoint_limits(),
+        production_checkpoint_limits(),
         stage6a_p0_graph_limits(),
         RunningStepWorkLimits::provisional_defaults(),
     )
@@ -331,7 +331,7 @@ fn prepare_stage6a_p0_boundary(
     let config_hash = normalized_config_hash(&config)?;
     let admission_policy =
         current_build_policy(request.memory_ceiling_bytes, settings_schema_sha256, true);
-    let checkpoint_limits = stage6a_p0_checkpoint_limits();
+    let checkpoint_limits = production_checkpoint_limits();
 
     let build_identifier = crate::native_addon_build_identifier();
     let mut candidate = boundary_shell(
@@ -549,7 +549,7 @@ pub(crate) fn stage6a_p0_archive_validation_contract(
         typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
     let settings_schema_sha256 = normalized_settings_schema_hash(&settings)?;
     Ok((
-        stage6a_p0_checkpoint_limits(),
+        production_checkpoint_limits(),
         stage6a_p0_graph_limits(),
         current_build_policy(
             memory_ceiling_bytes,
@@ -712,7 +712,7 @@ fn stage6a_p0_graph_limits() -> GraphLimits {
 }
 
 /// Managed-checkpoint ceilings for the current population and admitted custom graphs.
-fn stage6a_p0_checkpoint_limits() -> CheckpointLimits {
+fn production_checkpoint_limits() -> CheckpointLimits {
     CheckpointLimits {
         max_archive_bytes: 512 * MIB_U64,
         max_manifest_bytes: MIB,
@@ -726,8 +726,8 @@ fn stage6a_p0_checkpoint_limits() -> CheckpointLimits {
         max_total_string_bytes: 4 * MIB,
         max_weight_floats: MAXIMUM_FRESH_RUN_POPULATION_COUNT * 1_000_000,
         max_recurrent_floats: MAXIMUM_FRESH_RUN_POPULATION_COUNT * 16_384,
-        max_numeric_stored_bytes: 256 * MIB_U64,
-        max_numeric_candidate_bytes: 256 * MIB_U64,
+        max_numeric_stored_bytes: 512 * MIB_U64,
+        max_numeric_candidate_bytes: 512 * MIB_U64,
         max_total_decoded_bytes: 512 * MIB_U64,
     }
 }
@@ -897,6 +897,18 @@ mod tests {
     const TEST_MEMORY_CEILING: usize = 2 * 1024 * MIB;
     /// Selected TypeScript seed retained by the compact compatibility fixture.
     const FIXTURE_SEED: u32 = 0x1234_5678;
+
+    #[test]
+    fn production_checkpoint_limits_admit_approved_p3_raw_weight_envelope() {
+        // P3 has 300 evolved genomes and the approved large GRU has 402,914 weights.
+        // Raw fallback must remain admissible even when shuffle/Zstandard saves nothing.
+        const P3_RAW_WEIGHT_BYTES: u64 = 300 * 402_914 * 4;
+        let limits = production_checkpoint_limits();
+        assert!(limits.max_numeric_stored_bytes >= P3_RAW_WEIGHT_BYTES);
+        assert!(limits.max_numeric_candidate_bytes >= P3_RAW_WEIGHT_BYTES);
+        assert!(limits.max_total_decoded_bytes >= P3_RAW_WEIGHT_BYTES);
+        assert!(limits.max_archive_bytes >= P3_RAW_WEIGHT_BYTES);
+    }
 
     /// Automatically removes one process-unique managed-checkpoint test root.
     struct TestDirectory(PathBuf);

@@ -9,6 +9,7 @@
 use super::graph::{CompiledGraph, CompiledNode, CompiledNodeType};
 use super::rng::{RngError, SerializedRngState, StatefulRng};
 use super::state::{PopulationGenome, SnakeKind, WorldState};
+use super::work_progress::advance as advance_work_progress;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -503,6 +504,7 @@ pub fn prepare_evolution<'source>(
             fitness: source_fitness[source_slot],
             weights: clone_weights(&source.weights, "elite weights")?,
         });
+        advance_work_progress(source.weights.len() * std::mem::size_of::<f32>());
     }
     while next_population.len() < count {
         let parent_a_slot = tournament_pick(&sorted_source_slots, &source_fitness, &mut rng)?;
@@ -515,6 +517,7 @@ pub fn prepare_evolution<'source>(
             &mut rng,
         )?;
         mutate(&mut weights, graph, config, &mut rng)?;
+        let completed_weight_bytes = weights.len() * std::mem::size_of::<f32>();
         let new_slot = next_population.len();
         next_population.push(NextGenerationGenome {
             slot: u32::try_from(new_slot).map_err(|_| EvolutionError::ArithmeticOverflow {
@@ -527,6 +530,7 @@ pub fn prepare_evolution<'source>(
             fitness: 0.0,
             weights,
         });
+        advance_work_progress(completed_weight_bytes);
     }
 
     Ok(PreparedEvolution {
@@ -729,6 +733,7 @@ fn calculate_summary(
             representatives.push(slot);
             species_sizes.push(1_u64);
         }
+        advance_work_progress(population[slot].weights.len() * std::mem::size_of::<f32>());
     }
     let mut sum_absolute = 0.0_f64;
     let mut sum_absolute_squared = 0.0_f64;
@@ -745,6 +750,7 @@ fn calculate_summary(
                         context: "network statistic weight count",
                     })?;
         }
+        advance_work_progress(population[slot].weights.len() * std::mem::size_of::<f32>());
     }
     let (average_weight, weight_variance) = if weight_count == 0 {
         (0.0, 0.0)
@@ -1050,7 +1056,10 @@ mod tests {
     };
     use crate::engine::rng::StatefulRng;
     use crate::engine::state::{BodyRange, BrainHandle, GenomeLineage, SnakeState, WorldPoint};
+    use crate::engine::work_progress::ProgressScope;
     use serde::Deserialize;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -1385,6 +1394,8 @@ mod tests {
         let source_world = world.clone();
         let source_population = population.clone();
         let source_rng = rng.clone();
+        let work_bytes = Arc::new(AtomicU64::new(0));
+        let progress_scope = ProgressScope::enter(Arc::clone(&work_bytes));
         let prepared = prepare_evolution(
             &world,
             &population,
@@ -1395,6 +1406,8 @@ mod tests {
             config(&fixture.evolution, &graph, population.len()),
         )
         .expect("fixture evolution prepares");
+        drop(progress_scope);
+        assert!(work_bytes.load(Ordering::Relaxed) > 0);
 
         assert_eq!(world, source_world);
         assert_eq!(population, source_population);

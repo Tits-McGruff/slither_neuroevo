@@ -9,28 +9,36 @@ const AUTHORITY_POLL_MS = 500;
 /** Detect a stuck Rust coordinator without confusing durable or external barriers for work. */
 export class AuthorityProgressDeadline {
   private boundary: bigint | undefined;
+  private workBytes: bigint | undefined;
   private worldEpoch: string | undefined;
   private progressAtMs = 0;
   private sampledAtMs = 0;
 
   /** Observe only small, lock-free native health fields. */
   public observe(health: Pick<RustBackgroundHealth,
-    'lifecycle' | 'loopState' | 'worldEpoch' | 'commandServiceBoundaries'>,
+    'lifecycle' | 'loopState' | 'worldEpoch' | 'commandServiceBoundaries' | 'coordinatorWorkBytes'>,
   nowMs: number, noProgressMs = AUTHORITY_NO_PROGRESS_MS): Error | null {
     if (!Number.isFinite(nowMs) || !Number.isFinite(noProgressMs) || noProgressMs <= 0 ||
-        !/^[0-9a-f]{16}$/u.test(health.commandServiceBoundaries)) {
+        !/^[0-9a-f]{16}$/u.test(health.commandServiceBoundaries) ||
+        !/^[0-9a-f]{16}$/u.test(health.coordinatorWorkBytes)) {
       return new Error('Rust authority watchdog received invalid progress');
     }
     if (health.lifecycle !== 'running' || health.loopState !== 'ready') {
       this.boundary = undefined;
+      this.workBytes = undefined;
       this.worldEpoch = undefined;
       return null;
     }
     const boundary = BigInt(`0x${health.commandServiceBoundaries}`);
+    const workBytes = BigInt(`0x${health.coordinatorWorkBytes}`);
+    if (this.workBytes !== undefined && health.worldEpoch === this.worldEpoch &&
+        workBytes < this.workBytes) return new Error('Rust coordinator work counter moved backwards');
     if (this.boundary === undefined || health.worldEpoch !== this.worldEpoch ||
-        boundary !== this.boundary || nowMs - this.sampledAtMs > noProgressMs) {
+        boundary !== this.boundary || workBytes !== this.workBytes ||
+        nowMs - this.sampledAtMs > noProgressMs) {
       // A long pause in Node's own event loop cannot establish a Rust-only stall.
       this.boundary = boundary;
+      this.workBytes = workBytes;
       this.worldEpoch = health.worldEpoch;
       this.progressAtMs = nowMs;
       this.sampledAtMs = nowMs;

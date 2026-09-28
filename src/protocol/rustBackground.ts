@@ -112,6 +112,8 @@ export interface RustBackgroundHealth {
   schedulerOverloaded: boolean;
   /** Completed Rust scheduler service boundaries, including idle wakes. */
   commandServiceBoundaries: RustBackgroundIdentity;
+  /** Completed evolution/codec work bytes during long coordinator-owned work. */
+  coordinatorWorkBytes: RustBackgroundIdentity;
   /** Commands whose full replies have entered the output queue. */
   processedCommands: RustBackgroundIdentity;
   /** Successful authoritative step computations represented by timing data. */
