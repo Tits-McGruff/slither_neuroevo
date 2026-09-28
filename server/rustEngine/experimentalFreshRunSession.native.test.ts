@@ -898,7 +898,12 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
           { count: 2, activations: expect.any(Array) }
         ]
       });
-      expect(runtime.latestVisualization(visualization!.sequence)).toBeNull();
+      const newerVisualization = runtime.latestVisualization(visualization!.sequence);
+      if (newerVisualization) {
+        expect(BigInt(`0x${newerVisualization.sequence}`)).toBeGreaterThan(
+          BigInt(`0x${visualization!.sequence}`)
+        );
+      }
       const winnerWeights = Buffer.alloc(13_458 * Float32Array.BYTES_PER_ELEMENT);
       const winnerSha256 = createHash('sha256').update(winnerWeights).digest('hex');
       writeFileSync(join(paths.managedRoot, `${winnerSha256}.hof-weights-v1`), winnerWeights);

@@ -811,3 +811,17 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   the former single-file calculation; startup, TypeScript, and lint checks
   passed. This protects low-disk publication but does not itself lower the
   observed A9 physical peak.
+
+- 2026-09-29 Production generation admission now prunes eligible automatic
+  checkpoints before Rust writes its codec candidate and final archive. The
+  worker measures managed files plus SQLite sidecars, excludes pinned bytes,
+  reserves the simultaneous publication and WAL allowance, and refuses a
+  transition if protected anchors cannot fit. A real-worker test preserved
+  the current, predecessor, and pin while pruning to a small physical cap.
+  A stopped copy of the saturated P3 generation-481 store advanced to 482;
+  100-ms sampling found a 4,145,633,827-byte peak excluding its pin under
+  the 4,294,967,296-byte limit. All 60 final managed files matched live
+  references, and isolated production restart and direct export verified
+  all 10 retained anchors, including the pin and prior-run anchor. The full
+  A9 gate remains open pending the complete configured-budget and backup
+  acceptance scope.
