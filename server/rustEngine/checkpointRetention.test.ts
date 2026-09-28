@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  automaticCapWithPhysicalReserve,
   buildCheckpointRetentionInventory,
   OWNER_CHECKPOINT_RETENTION_DEFAULTS,
   selectManagedCheckpointRetention,
@@ -38,6 +39,21 @@ function overnight(storedBytes: bigint): CheckpointRetentionCandidate[] {
 }
 
 describe('production managed checkpoint retention selection', () => {
+  it('prunes before publication against physical bytes while preserving protected anchors', () => {
+    const effectiveCap = automaticCapWithPhysicalReserve(800n, 1_200n, 1_000n, 100n, 300n);
+    expect(effectiveCap).toBe(400n);
+    const pin = candidate(11n, 1n, 100n, { pinned: true });
+    const decision = selectManagedCheckpointRetention([
+      ...Array.from({ length: 10 }, (_unused, index) => candidate(BigInt(index + 1))), pin
+    ], 'current', { ...OWNER_CHECKPOINT_RETENTION_DEFAULTS, automaticByteCap: effectiveCap });
+    expect(decision.automaticBytes).toBe(400n);
+    expect(decision.kept.filter(item => !item.pinned).map(item => item.generation))
+      .toEqual([7n, 8n, 9n, 10n]);
+    expect(decision.kept).toContainEqual(expect.objectContaining({ checkpointId: pin.checkpointId }));
+    expect(() => automaticCapWithPhysicalReserve(800n, 1_200n, 1_000n, 100n, 800n))
+      .toThrow(/no publication headroom/);
+  });
+
   it('keeps eight recent boundaries, twelve milestones, and two prior-run anchors', () => {
     const result = selectManagedCheckpointRetention(overnight(100n), 'current');
     expect(result.kept.filter(item => item.retentionClass === 'latest' || item.retentionClass === 'recent')

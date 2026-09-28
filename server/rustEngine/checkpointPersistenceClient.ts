@@ -459,14 +459,19 @@ export class CheckpointPersistenceClient {
     });
   }
 
-  /** Apply the owner retention rule to verified unpinned managed files. */
-  applyRetention(): Promise<CheckpointPruneResult> {
+  /** Apply retention, optionally reserving physical space before publication. */
+  applyRetention(physicalReserveBytes: bigint | null = null): Promise<CheckpointPruneResult> {
     if (this.failure) return Promise.reject(this.failure);
     if (this.stopping || this.pruning) return Promise.reject(new Error('checkpoint retention pruning is busy or stopping'));
+    if (physicalReserveBytes !== null &&
+        (physicalReserveBytes < 0n || physicalReserveBytes > 0xffff_ffff_ffff_ffffn)) {
+      return Promise.reject(new RangeError('physical retention reserve must fit u64'));
+    }
     const operationId = randomBytes(16).toString('hex');
     return new Promise((resolve, reject) => {
       this.pruning = { operationId, resolve, reject };
-      try { this.postOperation({ type: 'applyCheckpointRetention', operationId }, operationId); }
+      try { this.postOperation({ type: 'applyCheckpointRetention', operationId,
+        physicalReserveBytes: physicalReserveBytes?.toString(16).padStart(16, '0') ?? null }, operationId); }
       catch (error) { this.pruning = undefined; reject(asError(error)); }
     });
   }

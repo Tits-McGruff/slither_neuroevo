@@ -306,7 +306,8 @@ export type CheckpointPersistenceWorkerRequest =
   | { type: 'inspectCheckpointRetention'; operationId: CheckpointOperationId }
   | { type: 'inspectManagedStorage'; operationId: CheckpointOperationId }
   | { type: 'pinCurrentCheckpoint'; operationId: CheckpointOperationId }
-  | { type: 'applyCheckpointRetention'; operationId: CheckpointOperationId }
+  | { type: 'applyCheckpointRetention'; operationId: CheckpointOperationId;
+      physicalReserveBytes: U64Hex | null }
   | { type: 'acquireCurrentExportLease'; operationId: CheckpointOperationId }
   | { type: 'releaseExportLease'; operationId: CheckpointOperationId }
   | { type: 'readBrowserHistory'; operationId: CheckpointOperationId; runId: string; limit: number }

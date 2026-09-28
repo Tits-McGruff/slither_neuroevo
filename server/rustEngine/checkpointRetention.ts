@@ -141,6 +141,30 @@ export const OWNER_CHECKPOINT_RETENTION_DEFAULTS: CheckpointRetentionSettings = 
   automaticByteCap: 4n * 1024n * 1024n * 1024n
 };
 
+/** Bound automatic files so measured nonautomatic bytes and the next publication fit. */
+export function automaticCapWithPhysicalReserve(
+  selectedCap: bigint,
+  physicalBytes: bigint,
+  automaticBytes: bigint,
+  pinnedBytes: bigint,
+  reserveBytes: bigint
+): bigint {
+  for (const [label, value] of [
+    ['selected cap', selectedCap], ['physical bytes', physicalBytes],
+    ['automatic bytes', automaticBytes], ['pinned bytes', pinnedBytes],
+    ['reserve bytes', reserveBytes]
+  ] as const) {
+    if (value < 0n || value > MAX_U64) throw new RangeError(`${label} must fit u64`);
+  }
+  if (physicalBytes < automaticBytes + pinnedBytes) {
+    throw new Error('physical checkpoint store is smaller than retained metadata');
+  }
+  const otherPhysicalBytes = physicalBytes - automaticBytes - pinnedBytes;
+  const available = selectedCap - reserveBytes - otherPhysicalBytes;
+  if (available < 1n) throw new Error('physical checkpoint budget has no publication headroom');
+  return available < selectedCap ? available : selectedCap;
+}
+
 /** Validate one candidate before ordering or byte arithmetic. */
 function validateCandidate(candidate: CheckpointRetentionCandidate): void {
   if (!/^[0-9a-f]{64}$/u.test(candidate.checkpointId)) throw new TypeError('invalid retention checkpoint ID');

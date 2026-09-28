@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { validateGraph } from '../../src/brains/graph/validate.ts';
 import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 import {
+  automaticCapWithPhysicalReserve,
   buildCheckpointRetentionInventory,
   OWNER_CHECKPOINT_RETENTION_DEFAULTS,
   selectManagedCheckpointRetention,
@@ -1379,8 +1380,9 @@ function selectManagedCheckpoint(runId: string | null): ManagedCheckpointSelecti
 }
 
 /** Build the current decision inside a caller-owned SQLite read or write transaction. */
-function currentCheckpointRetentionDecision(): {
+function currentCheckpointRetentionDecision(automaticByteCap = OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap): {
   activeRunId: string;
+  candidates: CheckpointRetentionCandidate[];
   decision: CheckpointRetentionDecision;
 } {
     const activeRunId = resolveSelectedRun(null);
@@ -1435,8 +1437,8 @@ function currentCheckpointRetentionDecision(): {
         recurrentStateEncoding: descriptor.recurrentStateEncoding
       };
     });
-    return { activeRunId, decision: selectManagedCheckpointRetention(
-      candidates, activeRunId, OWNER_CHECKPOINT_RETENTION_DEFAULTS
+    return { activeRunId, candidates, decision: selectManagedCheckpointRetention(
+      candidates, activeRunId, { ...OWNER_CHECKPOINT_RETENTION_DEFAULTS, automaticByteCap }
     ) };
 }
 
@@ -1491,6 +1493,38 @@ function inspectManagedStorage(): ManagedStorageDiagnostics {
     freelistPageCount: storageU64(freelistPageCount, 'freelist page count'),
     usedPageByteCount: storageU64((pageCount - freelistPageCount) * pageSize, 'used page bytes')
   };
+}
+
+/** Count actual managed files and SQLite sidecars before a bounded publication. */
+function physicalCheckpointStoreBytes(): bigint {
+  let total = sqliteFileByteCount(bootstrap.databasePath, false) +
+    sqliteFileByteCount(`${bootstrap.databasePath}-wal`, true) +
+    sqliteFileByteCount(`${bootstrap.databasePath}-shm`, true);
+  for (const entry of readdirSync(managedRootPath, { withFileTypes: true })) {
+    if (!entry.isFile() || entry.isSymbolicLink()) {
+      throw new Error('managed checkpoint directory contains a non-file during budget admission');
+    }
+    const metadata = lstatSync(resolve(managedRootPath, entry.name), { bigint: true });
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      throw new Error('managed checkpoint file changed during budget admission');
+    }
+    total += metadata.size;
+  }
+  return total;
+}
+
+/** Leave physical room for codec, archive, winner, and WAL before writing any of them. */
+function prepublicationAutomaticCap(reserveBytes: bigint): bigint {
+  const { candidates } = currentCheckpointRetentionDecision();
+  let automaticBytes = 0n;
+  let pinnedBytes = 0n;
+  for (const candidate of candidates) {
+    if (candidate.pinned) pinnedBytes += candidate.storedBytes;
+    else automaticBytes += candidate.storedBytes;
+  }
+  const physicalBytes = physicalCheckpointStoreBytes();
+  return automaticCapWithPhysicalReserve(OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap,
+    physicalBytes, automaticBytes, pinnedBytes, reserveBytes);
 }
 
 /** Pin the exact current immutable file in one worker-owned transaction. */
@@ -2036,7 +2070,7 @@ function releaseExportLease(operationId: CheckpointOperationId): void {
 }
 
 /** Apply one automatic retention decision while preserving all compact metadata. */
-function applyCheckpointRetention(): {
+function applyCheckpointRetention(physicalReserveBytes: bigint | null = null): {
   deletedCheckpointCount: number;
   deletedStoredByteCount: U64Hex;
   inventory: CheckpointRetentionInventory;
@@ -2045,12 +2079,15 @@ function applyCheckpointRetention(): {
   // Never collect at commit entry or lease release: either can race a reused
   // content hash that Rust has published but SQLite has not referenced yet.
   cleanupUnreferencedHallOfFameWeights();
+  const automaticByteCap = physicalReserveBytes === null
+    ? OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap
+    : prepublicationAutomaticCap(physicalReserveBytes);
   const descriptors = db.transaction(() => {
     db.prepare(`UPDATE rust_checkpoint_retention_v1 SET retention_kind = 'automatic', classified_at_ms = ?
       WHERE retention_kind = 'pruning' AND checkpoint_id IN (
         SELECT checkpoint_id FROM rust_hall_of_fame_v1 WHERE weight_state = 'legacy'
       )`).run(Date.now());
-    const { activeRunId, decision } = currentCheckpointRetentionDecision();
+    const { activeRunId, decision } = currentCheckpointRetentionDecision(automaticByteCap);
     const hasLegacyWinner = db.prepare(`SELECT 1 FROM rust_hall_of_fame_v1
       WHERE checkpoint_id = ? AND weight_state = 'legacy' LIMIT 1`);
     const planned = decision.pruned.filter(candidate =>
@@ -2140,10 +2177,19 @@ function applyCheckpointRetention(): {
       if (changed.changes !== 1) throw new Error('retention prune target became protected before classification');
     }
   }).immediate();
+  const inventory = inspectCheckpointRetention();
+  if (physicalReserveBytes !== null) {
+    const physicalBytes = physicalCheckpointStoreBytes();
+    const pinnedBytes = u64HexToBigInt(inventory.pinnedStoredByteCount);
+    if (physicalBytes < pinnedBytes ||
+        physicalBytes - pinnedBytes + physicalReserveBytes > OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap) {
+      throw new Error('physical checkpoint budget remains above the publication limit after retention');
+    }
+  }
   return {
     deletedCheckpointCount: descriptors.length,
     deletedStoredByteCount: deletedStoredBytes.toString(16).padStart(16, '0'),
-    inventory: inspectCheckpointRetention()
+    inventory
   };
 }
 
@@ -2791,8 +2837,13 @@ port.on('message', (message: unknown) => {
       return;
     }
     if (request['type'] === 'applyCheckpointRetention') {
-      if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid retention apply request');
-      post({ type: 'checkpointRetentionApplied', operationId, result: applyCheckpointRetention() });
+      const reserve = request['physicalReserveBytes'];
+      if (!operationId || Object.keys(request).length !== 3 ||
+          (reserve !== null && (typeof reserve !== 'string' || !/^[0-9a-f]{16}$/u.test(reserve)))) {
+        throw new TypeError('invalid retention apply request');
+      }
+      post({ type: 'checkpointRetentionApplied', operationId,
+        result: applyCheckpointRetention(reserve === null ? null : u64HexToBigInt(reserve as U64Hex)) });
       return;
     }
     if (request['type'] === 'pinCurrentCheckpoint') {

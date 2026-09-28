@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -886,6 +886,60 @@ describe(SUITE, { timeout: 30_000 }, () => {
     clients.push(restarted);
     await expect(restarted.selectStartup()).resolves.toMatchObject({ descriptor: descriptors.at(-1) });
     expect(existsSync(stalePrunedFile)).toBe(false);
+  });
+
+  it('preprunes measured physical storage before a bounded checkpoint publication', async () => {
+    const fixture = createFixture();
+    const fileBytes = 1024 * 1024;
+    const descriptors: ManagedCheckpointDescriptor[] = [];
+    for (let generation = 1n; generation <= 10n; generation++) {
+      const bytes = Buffer.alloc(fileBytes, Number(generation));
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      const filename = `${digest}.checkpoint-v3`;
+      writeFileSync(join(fixture.managedRoot, filename), bytes);
+      const descriptor = createDescriptor(fixture.managedRoot, {
+        operationId: generation.toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation),
+        generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n),
+        boundaryKind: generation === 1n ? 'run-start' : 'generation',
+        logicalRootSha256: digest,
+        relativeFilename: filename,
+        storedByteCount: u64(BigInt(fileBytes)),
+        decodedByteCount: u64(BigInt(fileBytes))
+      });
+      descriptors.push(descriptor);
+      await fixture.client.commit(descriptor,
+        generation === 1n ? null : createGenerationCommit(generation - 1n));
+      if (generation === 2n) await fixture.client.pinCurrentCheckpoint();
+    }
+    await fixture.client.applyRetention();
+    const before = await fixture.client.inspectRetention();
+    /** Count the same managed files and SQLite sidecars charged by production. */
+    const physicalBytes = (): bigint => {
+      let total = BigInt(statSync(fixture.databasePath).size);
+      for (const suffix of ['-wal', '-shm']) {
+        const path = `${fixture.databasePath}${suffix}`;
+        if (existsSync(path)) total += BigInt(statSync(path).size);
+      }
+      for (const name of readdirSync(fixture.managedRoot)) {
+        total += BigInt(statSync(join(fixture.managedRoot, name)).size);
+      }
+      return total;
+    };
+    const automatic = BigInt(`0x${before.automaticStoredByteCount}`);
+    const pinned = BigInt(`0x${before.pinnedStoredByteCount}`);
+    const other = physicalBytes() - automatic - pinned;
+    const cap = BigInt(`0x${before.automaticByteCap}`);
+    const reserve = cap - other - BigInt(3 * fileBytes + fileBytes / 2);
+    const result = await fixture.client.applyRetention(reserve);
+    expect(result.inventory.retained.pinned.checkpointCount).toBe(1);
+    expect(result.inventory.automaticStoredByteCount).toBe(u64(BigInt(3 * fileBytes)));
+    expect(await fixture.client.selectCurrent()).toEqual(descriptors.at(-1));
+    expect(physicalBytes() - pinned + reserve).toBeLessThanOrEqual(cap);
+    expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(true);
+    expect(existsSync(join(fixture.managedRoot, descriptors[6]!.relativeFilename))).toBe(false);
+    expect(existsSync(join(fixture.managedRoot, descriptors[7]!.relativeFilename))).toBe(true);
   });
 
   it('detaches only expired prior-run pointers when pruning their checkpoint files', async () => {

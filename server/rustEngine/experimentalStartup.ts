@@ -18,7 +18,8 @@ import type {
 import { scavengeStaleArchiveArtifacts } from './archiveScavenger.ts';
 import {
   admitDiskOperation,
-  CHECKPOINT_DISK_ADMISSION_REQUEST
+  CHECKPOINT_DISK_ADMISSION_REQUEST,
+  SQLITE_WAL_ALLOWANCE_BYTES
 } from './diskAdmission.ts';
 
 /** Bounded background queues for the experimental Rust server. */
@@ -254,7 +255,11 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
       runtime: owner, nativeBuildIdentifier, metadata, recovery: selection?.recovery ?? null,
       importBranch: selection?.importBranch ?? null, legacyConversion,
       persistence, runStart, managedDirectory,
-      admitCheckpoint: () => admitCheckpoint(managedDirectory),
+      admitCheckpoint: async () => {
+        await persistence.applyRetention(CHECKPOINT_DISK_ADMISSION_REQUEST.candidateSpoolBytes +
+          CHECKPOINT_DISK_ADMISSION_REQUEST.finalManagedBytes + SQLITE_WAL_ALLOWANCE_BYTES);
+        await admitCheckpoint(managedDirectory);
+      },
       close(): Promise<void> {
         closing ??= (async () => {
           try { owner.requestStop(); await owner.join(); }
