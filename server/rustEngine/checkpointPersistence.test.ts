@@ -940,6 +940,12 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(true);
     expect(existsSync(join(fixture.managedRoot, descriptors[6]!.relativeFilename))).toBe(false);
     expect(existsSync(join(fixture.managedRoot, descriptors[7]!.relativeFilename))).toBe(true);
+    const afterOther = physicalBytes() - BigInt(3 * fileBytes) - pinned;
+    const unsafeReserve = cap - afterOther - BigInt(2 * fileBytes) + 1n;
+    await expect(fixture.client.applyRetention(unsafeReserve)).rejects.toThrow(/protected automatic checkpoints/);
+    expect(await fixture.client.selectCurrent()).toEqual(descriptors.at(-1));
+    expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(true);
+    expect(existsSync(join(fixture.managedRoot, descriptors[8]!.relativeFilename))).toBe(true);
   });
 
   it('detaches only expired prior-run pointers when pruning their checkpoint files', async () => {

@@ -289,12 +289,29 @@ export async function run(options: Options): Promise<Record<string, unknown>> {
   let pinnedCheckpoint: FixturePin | undefined;
   const startedAt = performance.now();
   let finalHealth: FixtureHealth | undefined;
+  let sampling = false;
+  let samplingFailure: unknown;
+  let sampler: Promise<void> | undefined;
   try {
     if (!options.resumeExisting) {
       await configureWorkload(server.port, options);
       pinnedCheckpoint = await pinCheckpoint(server.port);
     }
+    sampling = true;
+    sampler = (async () => {
+      while (sampling) {
+        try {
+          const storage = await sampleStorage(options.databasePath);
+          if (!peak || storage.totalBytes > peak.totalBytes) peak = storage;
+        } catch (error) {
+          samplingFailure = error;
+          return;
+        }
+        await new Promise<void>(done => setTimeout(done, 100));
+      }
+    })();
     for (;;) {
+      if (samplingFailure) throw samplingFailure;
       const response = await fetch(`http://127.0.0.1:${server.port}/api/health`, {
         signal: AbortSignal.timeout(5000)
       });
@@ -317,7 +334,12 @@ export async function run(options: Options): Promise<Record<string, unknown>> {
       if (generation >= options.generations + 1) { finalHealth = health; break; }
       await new Promise<void>(done => setTimeout(done, 1000));
     }
-  } finally { await server.close(); }
+  } finally {
+    sampling = false;
+    await sampler;
+    await server.close();
+  }
+  if (samplingFailure) throw samplingFailure;
   const finalStorage = await sampleStorage(options.databasePath);
   const persistence = new CheckpointPersistenceClient({ databasePath: options.databasePath,
     managedRootPath: `${options.databasePath}.checkpoints`, existingOnly: true });
@@ -339,17 +361,23 @@ export async function run(options: Options): Promise<Record<string, unknown>> {
       Number(metadata['checkpointRows']) < options.generations + 2) {
     throw new Error('fixture omitted durable generation history, Hall of Fame, or checkpoint metadata');
   }
+  const peakExcludingPinned = (peak?.totalBytes ?? 0) - Number.parseInt(retention.pinnedStoredByteCount, 16);
+  const physicalBudgetMet = BigInt(peakExcludingPinned) <= BigInt(`0x${retention.automaticByteCap}`);
   return { scenario: options.scenario, seed: options.seed, requestedCompletedGenerations: options.generations,
     resumedFromExisting: options.resumeExisting, startedGeneration, pinnedCheckpoint,
     runId: finalHealth?.runId, generation: finalHealth?.generation,
     completedStep: finalHealth?.completedStep, elapsedWallSeconds: (performance.now() - startedAt) / 1000,
-    peakObservedStorage: peak, finalStorage,
+    peakObservedStorage: peak, peakObservedExcludingPinnedBytes: peakExcludingPinned,
+    physicalBudgetMet, finalStorage,
     finalPhysicalExcludingPinnedBytes: finalStorage.totalBytes - Number.parseInt(retention.pinnedStoredByteCount, 16),
     retention, metadata, managedFileAudit };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   void run(parseOptions(process.argv.slice(2)))
-    .then(result => process.stdout.write(`${JSON.stringify(result, null, 2)}\n`))
+    .then(result => {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      if (result['physicalBudgetMet'] !== true) process.exitCode = 1;
+    })
     .catch(error => { console.error(error); process.exitCode = 1; });
 }
