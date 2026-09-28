@@ -110,7 +110,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'src/brains/graph.integration.test.ts',
     'src/main.test.ts'
   ],
-  system: ['server/system.test.ts'],
+  system: ['server/system.test.ts', 'server/rustServer.processDeath.native.test.ts'],
   acceptance: ['server/acceptance.test.ts'],
   regression: [
     'src/stack.regression.test.ts',
@@ -148,7 +148,8 @@ export const NATIVE_REQUIRED_TEST_FILES = [
   'server/recoveryPhase3.native.test.ts',
   'server/recoveryPhase4.brainPool.test.ts',
   'server/recoveryPhase4.simServer.test.ts',
-  'server/system.test.ts'
+  'server/system.test.ts',
+  'server/rustServer.processDeath.native.test.ts'
 ] as const;
 
 /** Complete category registry, including aggregate and required-native overlays. */

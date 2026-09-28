@@ -736,3 +736,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   file-disappearance retry remains covered by the existing backup test. This
   live prune-window observation does not close the full A9 volume/budget
   fixture.
+
+- 2026-09-28 A disposable Debian server resumed the generation-750 hot-backup
+  checkpoint, advanced live Rust steps, and was killed at the OS process boundary.
+  A new process selected the same last fully committed checkpoint and served
+  its 6,887,936-byte direct archive; the separate live server stayed ready.
+  A cross-platform native system test now kills a child during real steps,
+  checks SQLite's committed pointer, then restarts and exports that boundary.
+  Kill injection during checkpoint, export, import and prune remains open.
