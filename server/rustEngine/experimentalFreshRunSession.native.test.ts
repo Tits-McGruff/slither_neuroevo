@@ -358,6 +358,11 @@ describe('experimental server startup composition', () => {
       const reclaimed = events.find(event => event.controllerReclaimAssignment)?.controllerReclaimAssignment;
       expect(reclaimed?.snakeId).toBe(assignment.snakeId);
       expect(reclaimed?.resumeToken).not.toBe(assignment.resumeToken);
+      const frameDeadline = performance.now() + 2_000;
+      while (frameCount === 0 && performance.now() < frameDeadline) {
+        await pump.drain();
+        await new Promise<void>(done => setImmediate(done));
+      }
       expect(frameCount).toBeGreaterThan(0);
       expect(owner.runtime.health().faultCode).toBeUndefined();
     } finally { await owner.close(); }

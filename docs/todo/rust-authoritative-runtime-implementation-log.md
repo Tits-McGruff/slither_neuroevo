@@ -725,3 +725,14 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   server/persistence tests, 599 JavaScript tests, 81 native-required tests,
   TypeScript, and ESLint passed. Process-death and hang-injection coverage
   beyond these phases remains open.
+
+- 2026-09-28 A preloaded hot backup on the live Debian Rust run was triggered
+  ten steps before its durable generation boundary. A separate monitor saw
+  both generations 750 and 751 while the backup call was active; the consistent
+  SQLite snapshot retained generation 750, and all 176 referenced managed files
+  verified. Restoring that set into a disposable database resumed the exact
+  generation-750 checkpoint and directly re-exported a 6,887,936-byte archive
+  with matching ID, generation, and logical root. The deterministic
+  file-disappearance retry remains covered by the existing backup test. This
+  live prune-window observation does not close the full A9 volume/budget
+  fixture.
