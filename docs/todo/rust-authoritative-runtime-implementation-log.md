@@ -849,3 +849,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   referenced Hall-of-Fame file while accepting an unreferenced extra file.
   The deterministic prune-during-copy and interrupted-backup cases remain
   open.
+
+- 2026-09-29 A target-VM process kill interrupted a P3 backup after it had
+  copied 782 MB. Only an unpublished `.partial` directory remained; no final
+  backup directory or manifest was created. A new backup from the unchanged
+  source completed with 57 managed files, restored into a fresh database, and
+  its generation-484 current checkpoint started and directly exported. The
+  abandoned partial directory still occupies disk and needs a safe stale-set
+  cleanup path. A deterministic live-pruning collision remains untested.
