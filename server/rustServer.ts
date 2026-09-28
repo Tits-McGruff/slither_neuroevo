@@ -16,7 +16,7 @@ import { isIP } from 'node:net';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { parseConfig, type ServerConfig } from './config.ts';
 import { WsHub } from './wsHub.ts';
-import { createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
+import { assertReplacementCheckpointBudget, createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { createRustStats, createRustWelcome, wireInteger } from './rustEngine/browserMetadata.ts';
@@ -1086,6 +1086,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             !settingsMatch) {
           throw new Error('prepared fresh-run identity is internally inconsistent');
         }
+        assertReplacementCheckpointBudget(descriptor,
+          await owner.persistence.inspectRetention(), await owner.persistence.inspectStorage());
         await output.stagePreparedImport();
         staged = true;
         const durable = await owner.persistence.commit(descriptor, null, true);

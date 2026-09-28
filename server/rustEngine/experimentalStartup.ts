@@ -109,6 +109,20 @@ export function assertStartupCheckpointBudget(
   }
 }
 
+/** Include the proposed replacement boundary before its SQLite current-pointer swap. */
+export function assertReplacementCheckpointBudget(
+  descriptor: Pick<ManagedCheckpointDescriptor, 'storedByteCount'>,
+  retention: Pick<CheckpointRetentionInventory, 'protectedAutomaticStoredByteCount' | 'automaticByteCap'>,
+  storage: Pick<ManagedStorageDiagnostics, 'databaseByteCount' | 'walByteCount' | 'shmByteCount'>
+): void {
+  const requiredAnchors = BigInt(`0x${retention.protectedAutomaticStoredByteCount}`) +
+    BigInt(`0x${descriptor.storedByteCount}`);
+  assertStartupCheckpointBudget({
+    automaticByteCap: retention.automaticByteCap,
+    protectedAutomaticStoredByteCount: requiredAnchors.toString(16).padStart(16, '0')
+  }, storage);
+}
+
 /** Admit one already-published fresh boundary before SQLite commits its current pointer. */
 export async function admitPendingRunStartCheckpoint(
   descriptor: Pick<ManagedCheckpointDescriptor, 'storedByteCount' | 'relativeFilename'>,

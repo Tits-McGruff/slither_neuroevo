@@ -10,7 +10,11 @@ import {
   type CheckpointRetentionCandidate
 } from './checkpointRetention.ts';
 import { CHECKPOINT_DISK_ADMISSION_REQUEST, SQLITE_WAL_ALLOWANCE_BYTES } from './diskAdmission.ts';
-import { admitPendingRunStartCheckpoint, assertStartupCheckpointBudget } from './experimentalStartup.ts';
+import {
+  admitPendingRunStartCheckpoint,
+  assertReplacementCheckpointBudget,
+  assertStartupCheckpointBudget
+} from './experimentalStartup.ts';
 
 /** Encode a bounded test byte count in the worker's unsigned wire form. */
 function u64(value: bigint): string {
@@ -82,6 +86,19 @@ describe('production managed checkpoint retention selection', () => {
         3072n * 1024n * 1024n)).resolves.toBeUndefined();
       expect(existsSync(path)).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('counts the proposed reset boundary before replacing the current run', () => {
+    const storage = { databaseByteCount: u64(2n * 1024n * 1024n), walByteCount: u64(0n),
+      shmByteCount: u64(0n) };
+    const previousProtected = 10n * 1024n * 1024n;
+    const newCheckpoint = 400n * 1024n * 1024n;
+    const retention = { protectedAutomaticStoredByteCount: u64(previousProtected),
+      automaticByteCap: u64(1280n * 1024n * 1024n) };
+    expect(() => assertReplacementCheckpointBudget({ storedByteCount: u64(newCheckpoint) },
+      retention, storage)).toThrow(/cannot preserve the protected checkpoints/u);
+    expect(() => assertReplacementCheckpointBudget({ storedByteCount: u64(newCheckpoint) },
+      { ...retention, automaticByteCap: u64(2048n * 1024n * 1024n) }, storage)).not.toThrow();
   });
 
   it('prunes before publication against physical bytes while preserving protected anchors', () => {
