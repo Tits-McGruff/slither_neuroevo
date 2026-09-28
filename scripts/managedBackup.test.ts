@@ -206,6 +206,15 @@ describe('managed production backup', () => {
         restored.close();
       }
 
+      const manifestPath = join(backupRoot, 'manifest.json');
+      const incomplete = { ...manifest, managedFiles: manifest.managedFiles.filter(file => file.name !== hallName) };
+      writeFileSync(manifestPath, JSON.stringify(incomplete));
+      await expect(validateManagedBackup(backupRoot))
+        .rejects.toThrow('backup manifest does not match the SQLite managed-file inventory');
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      writeFileSync(join(backupRoot, 'managed', prunedName), Buffer.from('harmless orphan'));
+      expect(await validateManagedBackup(backupRoot)).toEqual(manifest);
+
       writeFileSync(join(backupRoot, 'managed', automaticName), Buffer.from('corrupt'));
       await expect(validateManagedBackup(backupRoot)).rejects.toThrow('backup validation failed');
     } finally {

@@ -825,3 +825,27 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   all 10 retained anchors, including the pin and prior-run anchor. The full
   A9 gate remains open pending the complete configured-budget and backup
   acceptance scope.
+
+- 2026-09-29 The automatic checkpoint budget is now configurable from 1280
+  through 65536 MiB at production startup. On the target VM, a stopped copy
+  of the saturated P3 store resumed under a selected 3072 MiB limit and
+  committed generation 481. At 100-ms sampling, managed files plus SQLite/WAL
+  peaked at 2,923,808,419 bytes excluding the unchanged pin, below the
+  3,221,225,472-byte limit. The closed copy had 57 referenced and 57 physical
+  managed files, with all 481 history and Hall-of-Fame rows. An isolated
+  restart and direct export verified all seven surviving anchors, including
+  the pin and prior-run anchor. A repeated probe corrected the fixture report
+  to use the selected budget and confirmed the same peak and 3072 MiB
+  retention cap. The remaining A9 work covers backup races and copied-set
+  recovery.
+
+- 2026-09-29 A hot backup copied a running disposable P3 store at generation
+  481 while that source later advanced to 484 under the 3072 MiB limit. The
+  backup included 56 managed files and a consistent SQLite snapshot. Restoring
+  it to a new database succeeded; isolated production startup and direct
+  export verified all six retained checkpoints in that copied set. Backup
+  validation now also compares its manifest to the SQLite snapshot's exact
+  managed-file inventory. A focused test rejects a manifest missing a
+  referenced Hall-of-Fame file while accepting an unreferenced extra file.
+  The deterministic prune-during-copy and interrupted-backup cases remain
+  open.

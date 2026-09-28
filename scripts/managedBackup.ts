@@ -204,6 +204,12 @@ export async function validateManagedBackup(backupDirectory: string): Promise<Ma
       throw new Error(`backup validation failed for ${file.name}`);
     }
   }
+  const inventory = readSnapshotInventory(join(root, BACKUP_DATABASE_NAME));
+  const listed = new Map(manifest.managedFiles.map(file => [file.name, file.bytes]));
+  if (inventory.length !== listed.size ||
+      inventory.some(file => listed.get(file.name) !== file.bytes)) {
+    throw new Error('backup manifest does not match the SQLite managed-file inventory');
+  }
   return manifest;
 }
 
