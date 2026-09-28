@@ -771,3 +771,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   disposable metadata copy because exact-ID startup scans only the active
   lineage. P2/P3 volume, legacy compaction, and that prior-run selector gap
   remain open.
+
+- 2026-09-28 An explicit offline legacy compaction command now takes and
+  validates a complete backup, admits SQLite temporary-copy disk space, runs
+  `VACUUM`, and checks the result. A target-VM fixture used 480 measured-size
+  old population BLOB rows, then removed the migrated predecessors. Its
+  verified pre-compaction database was 1.215 GB; `VACUUM` reduced the source
+  database to 2.54 MB in 11.8 seconds with the newest row retained and no
+  freelist pages. The operator must stop the server before invoking this
+  command. P2/P3 volume and the prior-run exact-ID selector remain open.
