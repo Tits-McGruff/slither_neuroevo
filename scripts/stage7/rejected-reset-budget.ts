@@ -26,7 +26,8 @@ async function health(port: number): Promise<Health> {
   });
   const value = await response.json() as Health;
   if (!response.ok || !value.ok) throw new Error(`health fault: ${value.faultCode ?? response.status}`);
-  return value;
+  return { ok: value.ok, runId: value.runId, completedStep: value.completedStep,
+    startupCheckpointId: value.startupCheckpointId };
 }
 
 /** Submit the approved P3 workload as Reset and require its budget error. */
@@ -122,14 +123,20 @@ export async function run(databasePath: string): Promise<Record<string, unknown>
     throw new Error(`server startup failed: ${server.startupFault}`);
   }
   let before: Health;
+  let atRejection: Health;
   let after: Health;
   let rejection: string;
   try {
     before = await health(server.port);
     rejection = await rejectedReset(server.port);
-    after = await resumedHealth(server.port, before);
+    atRejection = await health(server.port);
+    if (atRejection.runId !== before.runId ||
+        atRejection.startupCheckpointId !== before.startupCheckpointId) {
+      throw new Error('P3 Reset changed the original authority before its rejection reply');
+    }
+    after = await resumedHealth(server.port, atRejection);
   } finally { await server.close(); }
-  return { rejection, before, after, durable: await durableState(databasePath) };
+  return { rejection, before, atRejection, after, durable: await durableState(databasePath) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
