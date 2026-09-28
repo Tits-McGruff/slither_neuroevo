@@ -349,7 +349,8 @@ export async function run(options: Options): Promise<Record<string, unknown>> {
   if (samplingFailure) throw samplingFailure;
   const finalStorage = await sampleStorage(options.databasePath);
   const persistence = new CheckpointPersistenceClient({ databasePath: options.databasePath,
-    managedRootPath: `${options.databasePath}.checkpoints`, existingOnly: true });
+    managedRootPath: `${options.databasePath}.checkpoints`, existingOnly: true,
+    automaticByteCapBytes: BigInt(options.checkpointBudgetMiB) * 1024n * 1024n });
   let retention;
   try { retention = await persistence.inspectRetention(); }
   finally { await persistence.close(); }
