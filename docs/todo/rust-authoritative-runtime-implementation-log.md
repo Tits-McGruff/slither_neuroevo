@@ -759,3 +759,15 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   The P3 generation completed with a 1.22 GB observed transient peak and 817 MB
   final physical storage. The full 480-generation target-VM fixture and every
   retained-anchor restore/export remain open.
+
+- 2026-09-28 The target-VM P0 fixture committed 480 generations after a safe
+  runner resume at generation 63. It retained 22 checkpoint files, including
+  one owner pin and one prior-run anchor, and pruned 460; all 480 history and
+  Hall-of-Fame rows remained. Peak observed managed-plus-SQLite/WAL storage
+  was 54.6 MB, falling to 45.1 MB after shutdown. The reference audit found
+  exactly 72 physical managed files for 72 live references, and isolated
+  production startup plus direct archive export verified all 22 retained
+  checkpoints. The prior-run anchor required selecting that run in the
+  disposable metadata copy because exact-ID startup scans only the active
+  lineage. P2/P3 volume, legacy compaction, and that prior-run selector gap
+  remain open.
