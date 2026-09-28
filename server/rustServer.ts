@@ -8,7 +8,7 @@ import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import type { ExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { createServer } from 'node:http';
 import { createReadStream, existsSync } from 'node:fs';
-import { lstat, stat, unlink } from 'node:fs/promises';
+import { lstat, readdir, stat, unlink } from 'node:fs/promises';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { networkInterfaces } from 'node:os';
@@ -1061,8 +1061,10 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       let prepared = false;
       let staged = false;
       let committed = false;
+      let newlyPublishedBudgetRejectedFile: string | undefined;
       try {
         await owner.admitCheckpoint();
+        const preexistingManagedNames = new Set(await readdir(owner.managedDirectory));
         const candidate = await owner.runtime.prepareFreshRun(
           owner.managedDirectory,
           operationId,
@@ -1086,8 +1088,15 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             !settingsMatch) {
           throw new Error('prepared fresh-run identity is internally inconsistent');
         }
-        assertReplacementCheckpointBudget(descriptor,
-          await owner.persistence.inspectRetention(), await owner.persistence.inspectStorage());
+        try {
+          assertReplacementCheckpointBudget(descriptor,
+            await owner.persistence.inspectRetention(), await owner.persistence.inspectStorage());
+        } catch (error) {
+          if (error instanceof RangeError && !preexistingManagedNames.has(descriptor.relativeFilename)) {
+            newlyPublishedBudgetRejectedFile = resolve(owner.managedDirectory, descriptor.relativeFilename);
+          }
+          throw error;
+        }
         await output.stagePreparedImport();
         staged = true;
         const durable = await owner.persistence.commit(descriptor, null, true);
@@ -1113,7 +1122,14 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       } catch (error) {
         if (staged && !committed) await output.cancelPreparedImport().catch(fail);
         else if (prepared && !staged) {
-          try { owner.runtime.discardPreparedImport(); } catch { /* Candidate may already be gone. */ }
+          let discarded = false;
+          try { owner.runtime.discardPreparedImport(); discarded = true; }
+          catch { /* Candidate may already be gone. */ }
+          if (discarded && newlyPublishedBudgetRejectedFile) {
+            await unlink(newlyPublishedBudgetRejectedFile).catch(unlinkError => {
+              if ((unlinkError as NodeJS.ErrnoException).code !== 'ENOENT') throw unlinkError;
+            });
+          }
         }
         if (!committed) {
           for (const connection of disconnectedDuringImport) routing.disconnect(connection);
