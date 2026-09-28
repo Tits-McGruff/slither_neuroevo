@@ -18,7 +18,7 @@ import type {
 import { scavengeStaleArchiveArtifacts } from './archiveScavenger.ts';
 import {
   admitDiskOperation,
-  CHECKPOINT_PUBLICATION_BYTES
+  CHECKPOINT_DISK_ADMISSION_REQUEST
 } from './diskAdmission.ts';
 
 /** Bounded background queues for the experimental Rust server. */
@@ -83,12 +83,7 @@ export interface ExperimentalServerRuntime {
 
 /** Admit bounded publication against current free disk without deleting retained saves. */
 async function admitCheckpoint(directory: string): Promise<void> {
-  await admitDiskOperation(directory, {
-    operation: 'checkpoint',
-    sourceSpoolBytes: 0n,
-    candidateSpoolBytes: 0n,
-    finalManagedBytes: CHECKPOINT_PUBLICATION_BYTES
-  });
+  await admitDiskOperation(directory, CHECKPOINT_DISK_ADMISSION_REQUEST);
 }
 
 /** Construct or restore a durable Rust boundary and transfer its sole running authority. */

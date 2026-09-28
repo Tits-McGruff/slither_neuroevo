@@ -8,6 +8,8 @@ export const SQLITE_WAL_ALLOWANCE_BYTES = 64n * 1024n * 1024n;
 export const OPERATING_DISK_RESERVE_BYTES = 1024n * 1024n * 1024n;
 /** Aggregate private transfer/work-file quota selected by the approved plan. */
 export const ARCHIVE_TEMP_QUOTA_BYTES = 9n * 1024n * 1024n * 1024n;
+/** Decoded numeric ceiling plus codec framing headroom during adaptive selection. */
+export const CHECKPOINT_CANDIDATE_BYTES = 528n * 1024n * 1024n;
 /** Rust checkpoint-v3 limit plus one winner-object publication allowance. */
 export const CHECKPOINT_PUBLICATION_BYTES = 528n * 1024n * 1024n;
 
@@ -22,6 +24,14 @@ export interface DiskAdmissionRequest {
   /** New immutable managed bytes that must commit before pruning may run. */
   finalManagedBytes: bigint;
 }
+
+/** Peak checkpoint publication reserves the codec candidate beside the final file. */
+export const CHECKPOINT_DISK_ADMISSION_REQUEST: Readonly<DiskAdmissionRequest> = {
+  operation: 'checkpoint',
+  sourceSpoolBytes: 0n,
+  candidateSpoolBytes: CHECKPOINT_CANDIDATE_BYTES,
+  finalManagedBytes: CHECKPOINT_PUBLICATION_BYTES
+};
 
 /** Complete scalar terms used to decide one disk admission. */
 export interface DiskAdmissionDecision extends DiskAdmissionRequest {

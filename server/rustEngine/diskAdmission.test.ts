@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   ARCHIVE_TEMP_QUOTA_BYTES,
+  CHECKPOINT_CANDIDATE_BYTES,
+  CHECKPOINT_DISK_ADMISSION_REQUEST,
   DiskAdmissionError,
   OPERATING_DISK_RESERVE_BYTES,
   SQLITE_WAL_ALLOWANCE_BYTES,
@@ -20,6 +22,17 @@ afterEach(() => {
 });
 
 describe('managed disk admission', () => {
+  it('reserves both checkpoint codec and final-file bytes before publication', () => {
+    const oldSingleFileAllowance = 528n * 1024n * 1024n;
+    const formerlyAcceptedFreeBytes = oldSingleFileAllowance + SQLITE_WAL_ALLOWANCE_BYTES +
+      OPERATING_DISK_RESERVE_BYTES;
+    expect(() => evaluateDiskAdmission(CHECKPOINT_DISK_ADMISSION_REQUEST, 0n,
+      formerlyAcceptedFreeBytes)).toThrow(DiskAdmissionError);
+    const required = formerlyAcceptedFreeBytes + CHECKPOINT_CANDIDATE_BYTES;
+    expect(evaluateDiskAdmission(CHECKPOINT_DISK_ADMISSION_REQUEST, 0n, required)
+      .requiredFreeBytes).toBe(required);
+  });
+
   it('charges every formula term and admits an exact-fit operation', () => {
     const request = {
       operation: 'export' as const,

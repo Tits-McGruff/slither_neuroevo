@@ -802,3 +802,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   P3's sampled transient physical peak reached 5.37 GB (about 4.96 GB
   excluding the pin), so the A9 physical disk-budget gate remains open even
   though post-prune automatic retention met its cap.
+
+- 2026-09-29 The P3 peak led to a disk-admission correction: checkpoint
+  publication can hold an adaptive numeric codec candidate beside its final
+  archive. Prepublication free-space admission now reserves 528 MiB for that
+  candidate in addition to the existing 528 MiB final/winner allowance, WAL,
+  and operating reserve. A focused regression rejects free space that met
+  the former single-file calculation; startup, TypeScript, and lint checks
+  passed. This protects low-disk publication but does not itself lower the
+  observed A9 physical peak.
