@@ -242,6 +242,19 @@ equivalent `server/systemd.env` setting. Keep portable `.slither-save` exports
 as an additional one-experiment backup, not as a replacement for the complete
 server backup set.
 
+After migrating old population rows, reclaim their unused SQLite pages only
+while the server is stopped. This explicit maintenance command creates and
+validates a separate complete backup before running SQLite `VACUUM`; the
+backup directory must be new, and the source volume needs room for a temporary
+database copy. It leaves the backup in place:
+
+```bash
+npm run compact:legacy -- \
+  --db-path ./data/rust-authority.db \
+  --backup ./backups/pre-compact-2026-09-28 \
+  --offline
+```
+
 ### Architecture
 
 This application uses a pure client/server model. The browser renders binary

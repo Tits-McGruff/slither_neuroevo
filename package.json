@@ -32,6 +32,7 @@
     "server:reference:dev": "tsx watch server/index.ts",
     "backup:production": "tsx scripts/backup-production.ts",
     "restore:production": "tsx scripts/restore-production.ts",
+    "compact:legacy": "tsx scripts/stage7/compact-legacy-database.ts",
     "postinstall": ".\\\\scripts\\\\postinstall.cmd || ./scripts/postinstall",
     "build:docs": "typedoc"
   },

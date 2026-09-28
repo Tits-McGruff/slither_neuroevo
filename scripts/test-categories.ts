@@ -82,6 +82,7 @@ export const PRIMARY_TEST_CATEGORIES = {
   ],
   integration: [
     'scripts/managedBackup.test.ts',
+    'scripts/stage7/compact-legacy-database.test.ts',
     'server/rustServer.native.test.ts',
     'server/integration.test.ts',
     'server/recoveryPhase0Startup.characterization.test.ts',
