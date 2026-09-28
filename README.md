@@ -219,7 +219,9 @@ A complete backup must include SQLite and the immutable files beside it; a
 copy of the `.db` file alone is incomplete. This command is safe while the
 server is running. It takes an online SQLite snapshot, copies exactly the
 checkpoint and Hall-of-Fame objects referenced by that snapshot, verifies
-their byte counts and SHA-256 hashes, and retries if pruning races the copy:
+their byte counts and SHA-256 hashes, and retries if pruning races the copy.
+The next backup in the same parent directory removes this tool's abandoned
+partial sets after 24 hours when their creating process has exited:
 
 ```bash
 npm run backup:production -- \

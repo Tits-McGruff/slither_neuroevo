@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createManagedBackup,
   restoreManagedBackup,
+  scavengeStaleManagedBackupPartials,
   validateManagedBackup
 } from './managedBackup.ts';
 
@@ -29,6 +31,28 @@ afterEach(() => {
 });
 
 describe('managed production backup', () => {
+  it('reclaims only old private partial sets from processes that have exited', () => {
+    const root = temporaryRoot();
+    const exited = spawnSync(process.execPath, ['-e', '']);
+    expect(exited.status).toBe(0);
+    expect(exited.pid).toBeGreaterThan(0);
+    const abandoned = `.slither-backup-partial-${exited.pid}-1-${'a'.repeat(16)}`;
+    const fresh = `.slither-backup-partial-${exited.pid}-2-${'b'.repeat(16)}`;
+    const active = `.slither-backup-partial-${process.pid}-1-${'c'.repeat(16)}`;
+    for (const name of [abandoned, fresh, active, 'completed-backup']) {
+      mkdirSync(join(root, name));
+      writeFileSync(join(root, name, 'data'), Buffer.from('partial'));
+    }
+    const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    utimesSync(join(root, abandoned), old, old);
+    utimesSync(join(root, active), old, old);
+    expect(scavengeStaleManagedBackupPartials(root)).toBe(1);
+    expect(existsSync(join(root, abandoned))).toBe(false);
+    for (const name of [fresh, active, 'completed-backup']) {
+      expect(existsSync(join(root, name))).toBe(true);
+    }
+  });
+
   it('selects a retained prior-run current only in the restored copy', async () => {
     const root = temporaryRoot();
     const databasePath = join(root, 'source.db');

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   constants,
   closeSync,
@@ -10,6 +10,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -73,6 +74,46 @@ const BACKUP_DATABASE_NAME = 'slither.db';
 
 /** Managed-object subdirectory inside a portable backup directory. */
 const BACKUP_MANAGED_DIRECTORY = 'managed';
+
+/** Time allowed for an interrupted backup to be resumed or inspected before cleanup. */
+export const BACKUP_PARTIAL_GRACE_MS = 24 * 60 * 60 * 1000;
+
+/** Private names used only while one backup set is being assembled. */
+const BACKUP_PARTIAL_NAME = /^\.slither-backup-partial-([1-9][0-9]*)-([1-9][0-9]*)-[0-9a-f]{16}$/u;
+
+/** Check whether a local process still owns a partial backup directory. */
+function backupProcessIsGone(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid < 1 || pid === process.pid) return false;
+  try { process.kill(pid, 0); return false; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === 'ESRCH'; }
+}
+
+/** Remove old private partial backup directories whose creating process is gone. */
+export function scavengeStaleManagedBackupPartials(parentDirectory: string, nowMs = Date.now()): number {
+  if (!Number.isFinite(nowMs) || nowMs < BACKUP_PARTIAL_GRACE_MS) {
+    throw new RangeError('backup scavenger clock must be a finite post-grace timestamp');
+  }
+  const parent = realpathSync(parentDirectory);
+  let removed = 0;
+  for (const entry of readdirSync(parent, { withFileTypes: true })) {
+    const match = BACKUP_PARTIAL_NAME.exec(entry.name);
+    if (!match || !entry.isDirectory() || !backupProcessIsGone(Number(match[1]))) continue;
+    const target = resolve(parent, entry.name);
+    if (dirname(target) !== parent) throw new Error('backup partial escaped its parent directory');
+    let metadata: ReturnType<typeof lstatSync>;
+    try { metadata = lstatSync(target); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
+    }
+    if (!metadata.isDirectory() || metadata.isSymbolicLink() || metadata.mtimeMs > nowMs - BACKUP_PARTIAL_GRACE_MS) {
+      continue;
+    }
+    rmSync(target, { recursive: true, force: true });
+    removed++;
+  }
+  return removed;
+}
 
 /** Parse an exact unsigned 64-bit hexadecimal byte count into a safe file size. */
 function parseStoredBytes(value: string): number {
@@ -225,11 +266,13 @@ export async function createManagedBackup(options: CreateManagedBackupOptions): 
   if (!existsSync(databasePath)) throw new Error(`database does not exist: ${databasePath}`);
   if (existsSync(output)) throw new Error(`backup output already exists: ${output}`);
   mkdirSync(dirname(output), { recursive: true });
+  scavengeStaleManagedBackupPartials(dirname(output));
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const temporary = `${output}.partial-${process.pid}-${attempt}`;
-    rmSync(temporary, { recursive: true, force: true });
-    mkdirSync(join(temporary, BACKUP_MANAGED_DIRECTORY), { recursive: true });
+    const temporary = join(dirname(output),
+      `.slither-backup-partial-${process.pid}-${attempt}-${randomBytes(8).toString('hex')}`);
+    mkdirSync(temporary);
+    mkdirSync(join(temporary, BACKUP_MANAGED_DIRECTORY));
     try {
       const snapshot = join(temporary, BACKUP_DATABASE_NAME);
       const source = new Database(databasePath, { readonly: true, fileMustExist: true });

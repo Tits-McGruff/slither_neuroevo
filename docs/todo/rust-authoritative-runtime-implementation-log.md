@@ -857,3 +857,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   its generation-484 current checkpoint started and directly exported. The
   abandoned partial directory still occupies disk and needs a safe stale-set
   cleanup path. A deterministic live-pruning collision remains untested.
+
+- 2026-09-29 Future backup attempts now use private partial-directory names.
+  Starting another backup in the same parent directory removes only such
+  partial sets older than 24 hours whose creating local process has exited.
+  Completed backups, fresh attempts and live-process attempts are untouched;
+  a focused Windows test covers those boundaries. The older interrupted test
+  artifact used the previous name and remains outside this new scavenger's
+  recognized set.
