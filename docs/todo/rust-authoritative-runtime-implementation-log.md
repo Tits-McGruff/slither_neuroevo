@@ -780,3 +780,25 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   database to 2.54 MB in 11.8 seconds with the newest row retained and no
   freelist pages. The operator must stop the server before invoking this
   command. P2/P3 volume and the prior-run exact-ID selector remain open.
+
+- 2026-09-29 A validated backup restore can now select an exact retained
+  prior-run current checkpoint only in its new database copy. The completed
+  480-generation P0 backup copied all 72 referenced managed files; selecting
+  its prior-run checkpoint in the restored copy started the production Rust
+  authority and directly exported an archive with the matching checkpoint
+  ID and manifest. The original database kept its active pointer. Direct
+  exact-ID startup on an inactive lineage remains a separate gap.
+
+- 2026-09-29 Target-VM P2 and P3 accelerated fixtures each committed 480
+  generations and retained all 480 compact history and Hall-of-Fame rows.
+  P2 retained 21 automatic checkpoints and one pin, pruned 460, and ended
+  with 1.50 GB of automatic files and 1.64 GB of total managed-plus-SQLite
+  storage. P3 retained 11 automatic checkpoints and one pin, pruned 470,
+  and ended with 4.08 GB of automatic files under the 4 GiB cap; its total
+  physical storage was 4.55 GB, including the 406 MB pin. Closed-store
+  audits found 72/72 P2 and 62/62 P3 managed files matched live references.
+  Isolated production startup and direct archive export verified every
+  retained anchor (22/22 P2 and 12/12 P3), including each prior-run anchor.
+  P3's sampled transient physical peak reached 5.37 GB (about 4.96 GB
+  excluding the pin), so the A9 physical disk-budget gate remains open even
+  though post-prune automatic retention met its cap.
