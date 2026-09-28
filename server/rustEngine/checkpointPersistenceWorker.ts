@@ -71,6 +71,8 @@ interface CheckpointPersistenceWorkerData {
   existingOnly: boolean;
   /** Existing server-controlled root containing immutable checkpoint-v3 files. */
   managedRootPath: string;
+  /** Selected unpinned automatic and physical store cap. */
+  automaticByteCapBytes: bigint;
   /** Exact bounded descriptor limits selected before the worker starts. */
   limits: ManagedCheckpointDescriptorLimits;
   /** One-shot test fault around the real FULL-commit transaction. */
@@ -175,6 +177,9 @@ let importCommitFailpoint = bootstrap.importCommitFailpointForTesting;
 const managedRootPath = resolveManagedRoot(bootstrap.managedRootPath);
 /** Immutable bounded descriptor limits selected before this worker accepts messages. */
 const descriptorLimits = bootstrap.limits;
+/** Owner-selected cap shared by retention inventory and physical admission. */
+const retentionSettings = { ...OWNER_CHECKPOINT_RETENTION_DEFAULTS,
+  automaticByteCap: bootstrap.automaticByteCapBytes };
 /** Single synchronous SQLite connection owned exclusively by this worker. */
 const db = new Database(bootstrap.databasePath, { fileMustExist: bootstrap.existingOnly });
 const existingDatabaseKind = bootstrap.existingOnly ? (() => {
@@ -241,11 +246,13 @@ function parseWorkerData(value: unknown): CheckpointPersistenceWorkerData {
   }
   const data = value as Record<string, unknown>;
   const keys = Object.keys(data);
-  if (keys.length < 4 || keys.length > 6 ||
-    keys.some(key => !['databasePath', 'managedRootPath', 'limits', 'existingOnly',
+  if (keys.length < 5 || keys.length > 7 ||
+    keys.some(key => !['databasePath', 'managedRootPath', 'limits', 'existingOnly', 'automaticByteCapBytes',
       'checkpointCommitFailpointForTesting', 'importCommitFailpointForTesting'].includes(key)) ||
     !Object.hasOwn(data, 'databasePath') || !Object.hasOwn(data, 'managedRootPath') ||
-    !Object.hasOwn(data, 'limits') || typeof data['existingOnly'] !== 'boolean') {
+    !Object.hasOwn(data, 'limits') || typeof data['existingOnly'] !== 'boolean' ||
+    typeof data['automaticByteCapBytes'] !== 'bigint' ||
+    data['automaticByteCapBytes'] < 1n || data['automaticByteCapBytes'] > 0xffff_ffff_ffff_ffffn) {
     throw new TypeError('checkpoint persistence worker data has unknown or missing fields');
   }
   if (Object.hasOwn(data, 'checkpointCommitFailpointForTesting') &&
@@ -268,6 +275,7 @@ function parseWorkerData(value: unknown): CheckpointPersistenceWorkerData {
     databasePath: data['databasePath'],
     existingOnly: data['existingOnly'],
     managedRootPath: data['managedRootPath'],
+    automaticByteCapBytes: data['automaticByteCapBytes'],
     limits: parseManagedCheckpointDescriptorLimits(data['limits']),
     ...(data['checkpointCommitFailpointForTesting']
       ? { checkpointCommitFailpointForTesting: data['checkpointCommitFailpointForTesting'] as
@@ -1380,7 +1388,7 @@ function selectManagedCheckpoint(runId: string | null): ManagedCheckpointSelecti
 }
 
 /** Build the current decision inside a caller-owned SQLite read or write transaction. */
-function currentCheckpointRetentionDecision(automaticByteCap = OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap): {
+function currentCheckpointRetentionDecision(automaticByteCap = retentionSettings.automaticByteCap): {
   activeRunId: string;
   candidates: CheckpointRetentionCandidate[];
   decision: CheckpointRetentionDecision;
@@ -1438,7 +1446,7 @@ function currentCheckpointRetentionDecision(automaticByteCap = OWNER_CHECKPOINT_
       };
     });
     return { activeRunId, candidates, decision: selectManagedCheckpointRetention(
-      candidates, activeRunId, { ...OWNER_CHECKPOINT_RETENTION_DEFAULTS, automaticByteCap }
+      candidates, activeRunId, { ...retentionSettings, automaticByteCap }
     ) };
 }
 
@@ -1446,7 +1454,7 @@ function currentCheckpointRetentionDecision(automaticByteCap = OWNER_CHECKPOINT_
 function inspectCheckpointRetention(): CheckpointRetentionInventory {
   return db.transaction(() => {
     const { activeRunId, decision } = currentCheckpointRetentionDecision();
-    return buildCheckpointRetentionInventory(decision, activeRunId, OWNER_CHECKPOINT_RETENTION_DEFAULTS);
+    return buildCheckpointRetentionInventory(decision, activeRunId, retentionSettings);
   }).deferred();
 }
 
@@ -1523,7 +1531,7 @@ function prepublicationAutomaticCap(reserveBytes: bigint): bigint {
     else automaticBytes += candidate.storedBytes;
   }
   const physicalBytes = physicalCheckpointStoreBytes();
-  return automaticCapWithPhysicalReserve(OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap,
+  return automaticCapWithPhysicalReserve(retentionSettings.automaticByteCap,
     physicalBytes, automaticBytes, pinnedBytes, reserveBytes);
 }
 
@@ -2080,7 +2088,7 @@ function applyCheckpointRetention(physicalReserveBytes: bigint | null = null): {
   // content hash that Rust has published but SQLite has not referenced yet.
   cleanupUnreferencedHallOfFameWeights();
   const automaticByteCap = physicalReserveBytes === null
-    ? OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap
+    ? retentionSettings.automaticByteCap
     : prepublicationAutomaticCap(physicalReserveBytes);
   const descriptors = db.transaction(() => {
     db.prepare(`UPDATE rust_checkpoint_retention_v1 SET retention_kind = 'automatic', classified_at_ms = ?
@@ -2182,7 +2190,7 @@ function applyCheckpointRetention(physicalReserveBytes: bigint | null = null): {
     const physicalBytes = physicalCheckpointStoreBytes();
     const pinnedBytes = u64HexToBigInt(inventory.pinnedStoredByteCount);
     if (physicalBytes < pinnedBytes ||
-        physicalBytes - pinnedBytes + physicalReserveBytes > OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap) {
+        physicalBytes - pinnedBytes + physicalReserveBytes > retentionSettings.automaticByteCap) {
       throw new Error('physical checkpoint budget remains above the publication limit after retention');
     }
   }

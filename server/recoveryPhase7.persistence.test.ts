@@ -478,6 +478,7 @@ describe(SUITE, () => {
     const freshConfig = path.join(root, 'fresh.toml');
     const idConfig = path.join(root, 'id.toml');
     const latestConfig = path.join(root, 'latest.toml');
+    const budgetConfig = path.join(root, 'budget.toml');
     try {
       expect(parseConfig(['--config', freshConfig, '--fresh'], {})).toMatchObject({
         resume: 'fresh',
@@ -487,8 +488,20 @@ describe(SUITE, () => {
         resume: 42
       });
       expect(parseConfig(['--config', latestConfig, '--resume', 'latest'], {})).toMatchObject({
-        resume: 'latest'
+        resume: 'latest', checkpointBudgetMiB: 4096
       });
+      fs.writeFileSync(budgetConfig, 'checkpointBudgetMiB = 2048\n');
+      expect(parseConfig(['--config', budgetConfig], {})).toMatchObject({ checkpointBudgetMiB: 2048 });
+      expect(parseConfig(['--config', budgetConfig], { CHECKPOINT_BUDGET_MIB: '1536' }))
+        .toMatchObject({ checkpointBudgetMiB: 1536 });
+      expect(parseConfig(['--config', budgetConfig, '--checkpoint-budget-mib', '3072'],
+        { CHECKPOINT_BUDGET_MIB: '1536' })).toMatchObject({ checkpointBudgetMiB: 3072 });
+      expect(() => parseConfig(['--config', budgetConfig, '--checkpoint-budget-mib', '1279'], {}))
+        .toThrow(/checkpointBudgetMiB/);
+      expect(() => parseConfig(['--config', budgetConfig, '--checkpoint-budget-mib', '1.5'], {}))
+        .toThrow(/checkpointBudgetMiB/);
+      expect(() => parseConfig(['--config', budgetConfig, '--checkpoint-budget-mib'],
+        { CHECKPOINT_BUDGET_MIB: '2048' })).toThrow(/requires a value/);
       expect(parseConfig(['--config', latestConfig, '--resume', 'a'.repeat(64)], {})).toMatchObject({
         resume: `sha256:${'a'.repeat(64)}`
       });

@@ -285,6 +285,14 @@ the worker count, `--fresh` for a new durable run, or
 `--resume latest|sha256:<checkpoint-id>` for managed recovery. Reference-only
 backend and Node-MT flags belong to `npm run server:reference`.
 
+`checkpointBudgetMiB` defaults to 4096 MiB and bounds unpinned automatic
+checkpoints and the managed directory plus SQLite/WAL during checkpoint
+publication. Set it in `server/config.toml`, with `CHECKPOINT_BUDGET_MIB`, or
+with `--checkpoint-budget-mib N` (1280–65536 MiB). Explicitly pinned checkpoints
+and downloaded exports are outside this cap. A budget too small for the
+protected current and prior-run anchors stops the next durable transition
+instead of deleting them.
+
 ### Open it from a phone or another home computer
 
 On the Windows computer running Slither Neuroevolution:

@@ -227,6 +227,24 @@ describeNetworkSuite('Rust server real sockets', () => {
     }
   }, 15_000);
 
+  it('passes the selected checkpoint budget through production health and retention', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-budget-'));
+    const dbPath = join(root, 'slither.sqlite');
+    const server = await startRustServer({
+      ...DEFAULT_CONFIG, port: 0, dbPath, resume: 'fresh', seed: 42,
+      checkpointBudgetMiB: 2048
+    });
+    try {
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+        ok: true,
+        retention: { automaticByteCap: '0000000080000000' }
+      });
+    } finally {
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it('imports an old browser JSON population as a new Rust run', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-legacy-import-'));
     const dbPath = join(root, 'experiment.sqlite');

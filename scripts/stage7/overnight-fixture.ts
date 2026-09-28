@@ -21,6 +21,7 @@ interface Options {
   generations: number;
   seed: number;
   rustWorkers: number;
+  checkpointBudgetMiB: number;
   resumeExisting: boolean;
 }
 
@@ -77,7 +78,8 @@ function parseOptions(argv: readonly string[]): Options {
       continue;
     }
     const value = argv[++index];
-    if (!name || !value || !['--scenario', '--db-path', '--generations', '--seed', '--rust-workers'].includes(name) ||
+    if (!name || !value || !['--scenario', '--db-path', '--generations', '--seed', '--rust-workers',
+        '--checkpoint-budget-mib'].includes(name) ||
         values.has(name)) throw new Error(`invalid or duplicate fixture option: ${name}`);
     values.set(name, value);
   }
@@ -92,12 +94,16 @@ function parseOptions(argv: readonly string[]): Options {
   if (resumeExisting ? !exists : existsSync(databasePath) || existsSync(`${databasePath}.checkpoints`)) {
     throw new Error(`fixture destination has the wrong existence state: ${databasePath}`);
   }
+  const checkpointBudgetMiB = unsigned(values.get('--checkpoint-budget-mib') ?? '4096',
+    '--checkpoint-budget-mib', 65_536);
+  if (checkpointBudgetMiB < 1_280) throw new RangeError('--checkpoint-budget-mib must be at least 1280');
   return {
     scenario,
     databasePath,
     generations: unsigned(values.get('--generations') ?? '480', '--generations', 1000),
     seed: unsigned(values.get('--seed') ?? '1511506142', '--seed', 0xffff_ffff),
     rustWorkers: unsigned(values.get('--rust-workers') ?? '5', '--rust-workers', 7),
+    checkpointBudgetMiB,
     resumeExisting
   };
 }
@@ -276,6 +282,7 @@ async function pinCheckpoint(port: number): Promise<FixturePin> {
 export async function run(options: Options): Promise<Record<string, unknown>> {
   await mkdir(dirname(options.databasePath), { recursive: true });
   const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: options.databasePath,
+    checkpointBudgetMiB: options.checkpointBudgetMiB,
     resume: options.resumeExisting ? 'latest' : 'fresh',
     ...(!options.resumeExisting ? { seed: options.seed } : {}),
     rustCalculationWorkers: options.rustWorkers, logLevel: 'error' });
@@ -363,7 +370,8 @@ export async function run(options: Options): Promise<Record<string, unknown>> {
   }
   const peakExcludingPinned = (peak?.totalBytes ?? 0) - Number.parseInt(retention.pinnedStoredByteCount, 16);
   const physicalBudgetMet = BigInt(peakExcludingPinned) <= BigInt(`0x${retention.automaticByteCap}`);
-  return { scenario: options.scenario, seed: options.seed, requestedCompletedGenerations: options.generations,
+  return { scenario: options.scenario, seed: options.seed, checkpointBudgetMiB: options.checkpointBudgetMiB,
+    requestedCompletedGenerations: options.generations,
     resumedFromExisting: options.resumeExisting, startedGeneration, pinnedCheckpoint,
     runId: finalHealth?.runId, generation: finalHealth?.generation,
     completedStep: finalHealth?.completedStep, elapsedWallSeconds: (performance.now() - startedAt) / 1000,

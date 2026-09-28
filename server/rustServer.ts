@@ -260,6 +260,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     owner = await createExperimentalServerRuntime({ databasePath: config.dbPath,
       managedDirectory: `${resolve(config.dbPath)}.checkpoints`,
       calculationWorkers: config.rustCalculationWorkers,
+      checkpointBudgetMiB: config.checkpointBudgetMiB,
       ...(config.resume === 'latest' && databaseExists ? { restoreLatest: true } : {}),
       ...(config.resume.startsWith('sha256:') ? { restoreCheckpointId: config.resume.slice(7) } : {}),
       ...(config.seed === undefined ? {} : { seed: config.seed }), onWake: () => schedule() });

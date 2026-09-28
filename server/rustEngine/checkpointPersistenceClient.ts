@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { validateGraph } from '../../src/brains/graph/validate.ts';
 import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 import {
+  OWNER_CHECKPOINT_RETENTION_DEFAULTS,
   parseCheckpointPruneResult,
   parseCheckpointRetentionInventory,
   type CheckpointPruneResult,
@@ -51,6 +52,8 @@ export interface CheckpointPersistenceClientOptions {
   existingOnly?: boolean;
   /** Existing controlled root containing final immutable checkpoint-v3 files. */
   managedRootPath: string;
+  /** Selected cap for unpinned automatic files and the physical store. */
+  automaticByteCapBytes?: bigint;
   /** Explicit bounded descriptor limits, defaulting only to the provisional Stage 3 envelope. */
   limits?: ManagedCheckpointDescriptorLimits;
   /** Test-only worker module override for client protocol/lifecycle tests. */
@@ -237,6 +240,11 @@ export class CheckpointPersistenceClient {
     const limits = parseManagedCheckpointDescriptorLimits(
       options.limits ?? DEFAULT_MANAGED_CHECKPOINT_DESCRIPTOR_LIMITS
     );
+    const automaticByteCapBytes = options.automaticByteCapBytes ??
+      OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap;
+    if (automaticByteCapBytes < 1n || automaticByteCapBytes > 0xffff_ffff_ffff_ffffn) {
+      throw new RangeError('checkpoint automatic byte cap must fit positive u64');
+    }
     const workerUrl = options.workerUrlForTesting ??
       new URL('./checkpointPersistenceWorker.ts', import.meta.url);
     this.worker = new Worker(workerUrl, {
@@ -244,6 +252,7 @@ export class CheckpointPersistenceClient {
         databasePath: options.databasePath,
         managedRootPath: options.managedRootPath,
         limits,
+        automaticByteCapBytes,
         existingOnly: options.existingOnly ?? false,
         ...(options.checkpointCommitFailpointForTesting
           ? { checkpointCommitFailpointForTesting: options.checkpointCommitFailpointForTesting }

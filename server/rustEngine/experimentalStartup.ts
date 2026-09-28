@@ -21,6 +21,7 @@ import {
   CHECKPOINT_DISK_ADMISSION_REQUEST,
   SQLITE_WAL_ALLOWANCE_BYTES
 } from './diskAdmission.ts';
+import { OWNER_CHECKPOINT_RETENTION_DEFAULTS } from './checkpointRetention.ts';
 
 /** Bounded background queues for the experimental Rust server. */
 const BACKGROUND_INIT: ExperimentalEngineInit = {
@@ -40,6 +41,8 @@ const require = createRequire(import.meta.url);
 export interface ExperimentalStartupOptions {
   /** Bounded persistent Rust calculation threads, independent of old Node MT. */
   calculationWorkers?: number;
+  /** Owner-selected physical checkpoint budget in MiB. */
+  checkpointBudgetMiB?: number;
   /** Dedicated managed-metadata database; fresh startup requires a new path. */
   databasePath: string;
   /** Internal exact-current restart prerequisite; automatic latest recovery is separate. */
@@ -100,6 +103,11 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
   if (!Number.isInteger(calculationWorkers) || calculationWorkers < 1 || calculationWorkers > 7) {
     throw new RangeError('Rust calculation workers must be from 1 to 7');
   }
+  const checkpointBudgetMiB = options.checkpointBudgetMiB ??
+    Number(OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap / (1024n * 1024n));
+  if (!Number.isSafeInteger(checkpointBudgetMiB) || checkpointBudgetMiB < 1_280 || checkpointBudgetMiB > 65_536) {
+    throw new RangeError('checkpoint budget must be from 1280 to 65536 MiB');
+  }
   const databasePath = resolve(options.databasePath);
   const managedDirectory = resolve(options.managedDirectory);
   const sourceIdentity = computeNativeSourceIdentity(NATIVE_DIRECTORY);
@@ -118,7 +126,8 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     await reservation.close();
   }
   const persistence = new CheckpointPersistenceClient({ databasePath,
-    managedRootPath: managedDirectory, existingOnly: restoring });
+    managedRootPath: managedDirectory, existingOnly: restoring,
+    automaticByteCapBytes: BigInt(checkpointBudgetMiB) * 1024n * 1024n });
   let runtime: ExperimentalRunningAuthorityNativeHandle | undefined;
   try {
     /** Construct only a scalar native handle; initialization owns all population allocation. */

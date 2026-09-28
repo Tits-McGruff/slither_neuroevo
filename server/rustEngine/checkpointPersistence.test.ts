@@ -948,6 +948,35 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(existsSync(join(fixture.managedRoot, descriptors[8]!.relativeFilename))).toBe(true);
   });
 
+  it('uses the selected automatic byte cap in the worker inventory and pruning decision', async () => {
+    const fixture = createFixture();
+    await fixture.client.close();
+    const budgeted = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath, managedRootPath: fixture.managedRoot,
+      existingOnly: true, automaticByteCapBytes: 96n
+    });
+    clients.push(budgeted);
+    const descriptors: ManagedCheckpointDescriptor[] = [];
+    for (let generation = 1n; generation <= 4n; generation++) {
+      const descriptor = createDescriptor(fixture.managedRoot, {
+        operationId: generation.toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation), generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n),
+        boundaryKind: generation === 1n ? 'run-start' : 'generation'
+      });
+      descriptors.push(descriptor);
+      await budgeted.commit(descriptor,
+        generation === 1n ? null : createGenerationCommit(generation - 1n));
+    }
+    const before = await budgeted.inspectRetention();
+    expect(before.automaticByteCap).toBe(u64(96n));
+    expect(before.plannedPrune.checkpointCount).toBe(1);
+    const result = await budgeted.applyRetention();
+    expect(result.inventory.automaticStoredByteCount).toBe(u64(96n));
+    expect(existsSync(join(fixture.managedRoot, descriptors[0]!.relativeFilename))).toBe(false);
+    expect(await budgeted.selectCurrent()).toEqual(descriptors.at(-1));
+  });
+
   it('detaches only expired prior-run pointers when pruning their checkpoint files', async () => {
     const fixture = createFixture();
     const descriptors: ManagedCheckpointDescriptor[] = [];

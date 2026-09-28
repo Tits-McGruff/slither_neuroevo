@@ -28,6 +28,8 @@ export interface ServerConfig {
   controllerDisconnectGraceMs: number;
   dbPath: string;
   checkpointEveryGenerations: number;
+  /** Managed-store physical budget in MiB, excluding owner-pinned checkpoints. */
+  checkpointBudgetMiB: number;
   logLevel: LogLevel;
   /** Enable server-side MT inference. */
   mtEnabled: boolean;
@@ -57,6 +59,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   controllerDisconnectGraceMs: 30_000,
   dbPath: './data/slither.db',
   checkpointEveryGenerations: 1,
+  checkpointBudgetMiB: 4096,
   logLevel: 'info',
   mtEnabled: false,
   mtWorkers: 0,
@@ -206,6 +209,18 @@ function coerceInt(
   return clamped;
 }
 
+/** Require an exact configured storage budget rather than silently clamping it. */
+function checkpointBudgetMiB(value: unknown): number {
+  if (value === undefined) return DEFAULT_CONFIG.checkpointBudgetMiB;
+  const parsed = typeof value === 'number' ? value :
+    typeof value === 'string' && /^(?:0|[1-9][0-9]*)$/u.test(value)
+      ? Number(value) : Number.NaN;
+  if (!Number.isSafeInteger(parsed) || parsed < 1_280 || parsed > 65_536) {
+    throw new RangeError('checkpointBudgetMiB must be an integer from 1280 to 65536');
+  }
+  return parsed;
+}
+
 /**
  * Normalize raw config input into a validated server config object.
  * @param input - Raw config data to normalize.
@@ -294,6 +309,7 @@ export function normalizeConfig(
     100000,
     warn
   );
+  const selectedCheckpointBudgetMiB = checkpointBudgetMiB(input.checkpointBudgetMiB);
   const rawDbPath = typeof input.dbPath === 'string' ? input.dbPath : '';
   const dbPath = rawDbPath.trim() ? rawDbPath : DEFAULT_CONFIG.dbPath;
   if (input.dbPath !== undefined && !rawDbPath.trim()) {
@@ -361,6 +377,7 @@ export function normalizeConfig(
     controllerDisconnectGraceMs,
     dbPath,
     checkpointEveryGenerations,
+    checkpointBudgetMiB: selectedCheckpointBudgetMiB,
     logLevel,
     mtEnabled,
     mtWorkers,
@@ -435,6 +452,7 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     controllerDisconnectGraceMs: data['controllerDisconnectGraceMs'],
     dbPath: data['dbPath'],
     checkpointEveryGenerations: data['checkpointEveryGenerations'],
+    checkpointBudgetMiB: data['checkpointBudgetMiB'],
     logLevel: data['logLevel'],
     seed: data['seed'],
     mtEnabled: data['mtEnabled'],
@@ -517,6 +535,11 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
     parseIntValue(getArgValue(argv, '--checkpoint-every')) ??
     parseIntValue(env['CHECKPOINT_EVERY']);
   if (checkpointEvery !== undefined) input.checkpointEveryGenerations = checkpointEvery;
+  const cliCheckpointBudget = getArgValue(argv, '--checkpoint-budget-mib');
+  if (argv.some(arg => arg === '--checkpoint-budget-mib' || arg.startsWith('--checkpoint-budget-mib=')) &&
+      cliCheckpointBudget === undefined) throw new Error('--checkpoint-budget-mib requires a value');
+  const checkpointBudget = cliCheckpointBudget ?? env['CHECKPOINT_BUDGET_MIB'];
+  if (checkpointBudget !== undefined) input.checkpointBudgetMiB = checkpointBudget;
   const logLevel = (getArgValue(argv, '--log') ?? env['LOG_LEVEL']) as
     | LogLevel
     | undefined;
