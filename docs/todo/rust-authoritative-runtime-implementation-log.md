@@ -893,4 +893,19 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   and leaves the handoff unacknowledged. Focused tests prove the check precedes
   commit and acknowledgement, reject the too-small budget, preserve an
   admitted file, and cover the production fresh-start path. A full-sized
-  rejected fresh P3 process remains to be exercised end to end.
+  rejected fresh P3 process remains to be exercised end to end. A target-VM
+  default P0 fresh start succeeded at the minimum 1280 MiB setting.
+
+- 2026-09-29 Reset and New Run now check the proposed managed file plus the
+  existing protected anchors before swapping authority. A target-VM P3 Reset
+  at 1280 MiB was rejected before commit with a 1,583,519,704-byte minimum.
+  The old P0 current pointer and sole metadata row remained. The first probe
+  left an unreferenced proposed file, which restart reclaimed; a follow-up
+  correction now removes a newly published budget-rejected file immediately
+  after discarding Rust's private candidate. A second stopped probe retained
+  exactly one current pointer, one metadata row and one managed file without
+  restarting for cleanup. A repeatable target-VM probe then held the same
+  production process open after the rejected P3 Reset: health remained good,
+  the run and checkpoint identities remained unchanged, and completed steps
+  advanced from hexadecimal `0140` at the rejection reply to `0146` afterward.
+  On shutdown it still had one current pointer, metadata row, and managed file.
