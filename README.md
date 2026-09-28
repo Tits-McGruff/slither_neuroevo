@@ -237,6 +237,11 @@ npm run restore:production -- \
   --db-path ./data/restored.db
 ```
 
+To start a new restored copy from a retained prior run's latest checkpoint,
+add `--checkpoint-id` with its 64-character ID. The command selects that
+run only in the new copy; it rejects pruned checkpoints and older boundaries
+that are not their run's current pointer. Start the copy with `--resume latest`.
+
 Start the restored copy with `SLITHER_DB_PATH=./data/restored.db` or an
 equivalent `server/systemd.env` setting. Keep portable `.slither-save` exports
 as an additional one-experiment backup, not as a replacement for the complete

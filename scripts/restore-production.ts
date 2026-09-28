@@ -18,13 +18,17 @@ const backupDirectory = option(args, '--backup');
 /** New SQLite target path; existing databases are never overwritten. */
 const databasePath = option(args, '--db-path') ?? process.env['SLITHER_DB_PATH'];
 
+/** Optional retained prior-run current boundary selected only in the new restored copy. */
+const checkpointId = option(args, '--checkpoint-id');
+
 if (!backupDirectory || !databasePath) {
   console.error('[ERROR] Usage: npm run restore:production -- --backup DIR --db-path NEW_DB_PATH');
   process.exitCode = 1;
 } else {
   void restoreManagedBackup({
     backupDirectory: resolve(backupDirectory),
-    databasePath: resolve(databasePath)
+    databasePath: resolve(databasePath),
+    ...(checkpointId ? { checkpointId } : {})
   }).then(manifest => {
     console.info(`[OK] Restored ${manifest.managedFiles.length} managed files and SQLite to ${resolve(databasePath)}`);
   }).catch(error => {

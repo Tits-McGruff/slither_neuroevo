@@ -18,16 +18,17 @@ interface Anchor {
   retentionKind: string;
 }
 
-/** Ensure the caller names an existing, quiescent production fixture database. */
-function fixturePath(argv: readonly string[]): string {
-  if (argv.length !== 2 || argv[0] !== '--db-path' || !argv[1]) {
-    throw new Error('usage: verify-retained-anchors.ts --db-path EXISTING_FIXTURE_DB');
+/** Ensure the caller names an existing fixture and an optional exact target. */
+function fixtureOptions(argv: readonly string[]): { databasePath: string; checkpointId?: string } {
+  if ((argv.length !== 2 && argv.length !== 4) || argv[0] !== '--db-path' || !argv[1] ||
+      (argv.length === 4 && (argv[2] !== '--checkpoint-id' || !/^[0-9a-f]{64}$/u.test(argv[3] ?? '')))) {
+    throw new Error('usage: verify-retained-anchors.ts --db-path EXISTING_FIXTURE_DB [--checkpoint-id SHA256]');
   }
   const path = resolve(argv[1]);
   if (!existsSync(path) || !existsSync(`${path}.checkpoints`)) {
     throw new Error('fixture database and managed directory must exist');
   }
-  return path;
+  return { databasePath: path, ...(argv.length === 4 ? { checkpointId: argv[3] } : {}) };
 }
 
 /** Select every live retention row, including current, milestone, pinned, and prior-run anchors. */
@@ -128,8 +129,10 @@ async function exportCheckpoint(port: number, anchor: Anchor, path: string): Pro
 }
 
 /** Independently restore and re-export every exact retained boundary. */
-export async function verifyRetainedAnchors(sourcePath: string): Promise<Record<string, unknown>> {
-  const anchors = retainedAnchors(sourcePath);
+export async function verifyRetainedAnchors(sourcePath: string, checkpointId?: string): Promise<Record<string, unknown>> {
+  const allAnchors = retainedAnchors(sourcePath);
+  const anchors = checkpointId ? allAnchors.filter(anchor => anchor.checkpointId === checkpointId) : allAnchors;
+  if (anchors.length === 0) throw new Error('requested checkpoint is not retained');
   const original = new Database(sourcePath, { readonly: true, fileMustExist: true });
   let activeRunId: string;
   try {
@@ -172,11 +175,13 @@ export async function verifyRetainedAnchors(sourcePath: string): Promise<Record<
       } finally { await rm(workRoot, { recursive: true, force: true }); }
     }
   } finally { await rm(scratchRoot, { recursive: true, force: true }); }
-  return { sourcePath, retainedAnchors: anchors.length, verified: results.length, results };
+  return { sourcePath, retainedAnchors: allAnchors.length, selectedAnchors: anchors.length,
+    verified: results.length, results };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  void verifyRetainedAnchors(fixturePath(process.argv.slice(2)))
+  const options = fixtureOptions(process.argv.slice(2));
+  void verifyRetainedAnchors(options.databasePath, options.checkpointId)
     .then(result => process.stdout.write(`${JSON.stringify(result, null, 2)}\n`))
     .catch(error => { console.error(error); process.exitCode = 1; });
 }

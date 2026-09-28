@@ -29,6 +29,52 @@ afterEach(() => {
 });
 
 describe('managed production backup', () => {
+  it('selects a retained prior-run current only in the restored copy', async () => {
+    const root = temporaryRoot();
+    const databasePath = join(root, 'source.db');
+    const backupRoot = join(root, 'backup');
+    const restoredPath = join(root, 'restored.db');
+    const olderId = '1'.repeat(64);
+    const activeId = '2'.repeat(64);
+    const db = new Database(databasePath);
+    try {
+      db.exec(`CREATE TABLE rust_checkpoint_v3_metadata (
+          checkpoint_id TEXT PRIMARY KEY, run_id TEXT NOT NULL,
+          relative_filename TEXT NOT NULL, stored_byte_count_hex TEXT NOT NULL
+        );
+        CREATE TABLE rust_checkpoint_retention_v1 (
+          checkpoint_id TEXT PRIMARY KEY, retention_kind TEXT NOT NULL
+        );
+        CREATE TABLE rust_checkpoint_v3_current (run_id TEXT PRIMARY KEY, checkpoint_id TEXT NOT NULL);
+        CREATE TABLE rust_active_run_v1 (singleton INTEGER PRIMARY KEY, run_id TEXT NOT NULL);
+        INSERT INTO rust_active_run_v1 VALUES (1, 'active');`);
+      mkdirSync(`${databasePath}.checkpoints`);
+      for (const [id, runId] of [[olderId, 'older'], [activeId, 'active']]) {
+        const filename = `${id}.checkpoint-v3`;
+        db.prepare('INSERT INTO rust_checkpoint_v3_metadata VALUES (?, ?, ?, ?)')
+          .run(id, runId, filename, byteCount(4));
+        db.prepare('INSERT INTO rust_checkpoint_retention_v1 VALUES (?, ?)').run(id, 'automatic');
+        db.prepare('INSERT INTO rust_checkpoint_v3_current VALUES (?, ?)').run(runId, id);
+        writeFileSync(join(`${databasePath}.checkpoints`, filename), Buffer.from('data'));
+      }
+    } finally { db.close(); }
+    await createManagedBackup({ databasePath, outputDirectory: backupRoot });
+    await restoreManagedBackup({ backupDirectory: backupRoot, databasePath: restoredPath,
+      checkpointId: olderId });
+    const source = new Database(databasePath, { readonly: true });
+    const restored = new Database(restoredPath, { readonly: true });
+    try {
+      expect(source.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1').get())
+        .toEqual({ run_id: 'active' });
+      expect(restored.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1').get())
+        .toEqual({ run_id: 'older' });
+    } finally { source.close(); restored.close(); }
+    const rejectedPath = join(root, 'rejected.db');
+    await expect(restoreManagedBackup({ backupDirectory: backupRoot, databasePath: rejectedPath,
+      checkpointId: '3'.repeat(64) })).rejects.toThrow(/not a backed-up retained per-run current/u);
+    expect(existsSync(rejectedPath)).toBe(false);
+  });
+
   it('retries from a new SQLite snapshot when pruning removes a selected file', async () => {
     const root = temporaryRoot();
     const databasePath = join(root, 'source.db');

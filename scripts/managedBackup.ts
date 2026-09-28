@@ -49,6 +49,8 @@ export interface CreateManagedBackupOptions {
 export interface RestoreManagedBackupOptions {
   backupDirectory: string;
   databasePath: string;
+  /** Optional retained per-run current boundary to activate in the new copy. */
+  checkpointId?: string;
 }
 
 /** Minimal immutable-file row read from the copied SQLite snapshot. */
@@ -278,6 +280,9 @@ export async function restoreManagedBackup(options: RestoreManagedBackupOptions)
   const backup = resolve(options.backupDirectory);
   const databasePath = resolve(options.databasePath);
   const managedRoot = resolve(`${databasePath}.checkpoints`);
+  if (options.checkpointId !== undefined && !/^[0-9a-f]{64}$/u.test(options.checkpointId)) {
+    throw new Error('restored checkpoint ID must be a SHA-256 digest');
+  }
   if (existsSync(databasePath) || existsSync(managedRoot)) {
     throw new Error('restore target database and managed directory must both be absent');
   }
@@ -296,6 +301,9 @@ export async function restoreManagedBackup(options: RestoreManagedBackupOptions)
       copyFileSync(join(backup, BACKUP_MANAGED_DIRECTORY, file.name), target, constants.COPYFILE_EXCL);
       flushAndCloseFile(target);
     }
+    if (options.checkpointId !== undefined) {
+      selectRestoredRetainedCurrent(temporaryDatabase, options.checkpointId, manifest);
+    }
     renameSync(temporaryManaged, managedRoot);
     renameSync(temporaryDatabase, databasePath);
     return manifest;
@@ -304,4 +312,35 @@ export async function restoreManagedBackup(options: RestoreManagedBackupOptions)
     if (!existsSync(managedRoot)) rmSync(temporaryManaged, { recursive: true, force: true });
     throw error;
   }
+}
+
+/** Select one retained per-run current pointer only inside an unpublished restored copy. */
+function selectRestoredRetainedCurrent(
+  databasePath: string,
+  checkpointId: string,
+  manifest: ManagedBackupManifest
+): void {
+  if (!/^[0-9a-f]{64}$/u.test(checkpointId)) throw new Error('restored checkpoint ID must be a SHA-256 digest');
+  const database = new Database(databasePath, { fileMustExist: true });
+  try {
+    database.pragma('journal_mode = DELETE');
+    const rows = database.prepare(`SELECT current.run_id AS runId,
+      metadata.run_id AS originalRunId, metadata.relative_filename AS filename
+      FROM rust_checkpoint_v3_metadata AS metadata
+      JOIN rust_checkpoint_retention_v1 AS retention USING (checkpoint_id)
+      JOIN rust_checkpoint_v3_current AS current
+        ON current.checkpoint_id = metadata.checkpoint_id
+      WHERE metadata.checkpoint_id = ? AND retention.retention_kind IN ('automatic', 'pinned')`)
+      .all(checkpointId) as Array<{ runId: string; originalRunId: string; filename: string }>;
+    const row = rows.find(candidate => candidate.runId === candidate.originalRunId) ??
+      (rows.length === 1 ? rows[0] : undefined);
+    if (!row || !row.runId || row.runId.includes('\0') || Buffer.byteLength(row.runId) > 256 ||
+        !MANAGED_FINAL_NAME.test(row.filename) ||
+        !manifest.managedFiles.some(file => file.name === row.filename)) {
+      throw new Error('checkpoint is not a backed-up retained per-run current boundary');
+    }
+    const result = database.prepare('UPDATE rust_active_run_v1 SET run_id = ? WHERE singleton = 1')
+      .run(row.runId);
+    if (result.changes !== 1) throw new Error('restored database has no active-run pointer to select');
+  } finally { database.close(); }
 }
