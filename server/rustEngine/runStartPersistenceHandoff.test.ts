@@ -75,6 +75,29 @@ function createCommitResult(
 }
 
 describe('run-start persistence handoff', () => {
+  it('rejects an unsafe published boundary before SQLite makes it current', async () => {
+    const descriptor = createDescriptor();
+    const events: string[] = [];
+    const handoff = new RunStartPersistenceHandoff({
+      rust: {
+        async publishRunStartCheckpoint() { events.push('publish'); return descriptor; },
+        acknowledgeRunStartPersistence() { events.push('acknowledge'); }
+      },
+      persistence: {
+        async commit() { events.push('commit'); return createCommitResult(descriptor); }
+      },
+      managedDirectory: 'managed',
+      async beforeCommit(value) {
+        expect(value).toEqual(descriptor);
+        events.push('budget');
+        throw new RangeError('checkpoint budget is unsafe');
+      }
+    });
+    await expect(handoff.commitPendingRunStart(descriptor.operationId))
+      .rejects.toThrow('checkpoint budget is unsafe');
+    expect(events).toEqual(['publish', 'budget']);
+  });
+
   it('accepts only an operation token and forwards Rust descriptor authority unchanged', async () => {
     const descriptor = createDescriptor();
     const publishOptions: RustRunStartCheckpointPublishOptions[] = [];

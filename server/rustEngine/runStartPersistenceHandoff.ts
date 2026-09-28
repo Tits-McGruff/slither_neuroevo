@@ -55,6 +55,8 @@ export interface RunStartPersistenceHandoffOptions {
   persistence: RunStartCheckpointCommitter;
   /** Controlled managed root passed to Rust's file publisher. */
   managedDirectory: string;
+  /** Optional admission check after publication but before the current pointer commits. */
+  beforeCommit?: (descriptor: ManagedCheckpointDescriptor) => Promise<void>;
 }
 
 /** One coalesced in-flight operation; a different operation cannot overlap it. */
@@ -83,6 +85,8 @@ export class RunStartPersistenceHandoff {
   private readonly persistence: RunStartCheckpointCommitter;
   /** Controlled directory receiving Rust's immutable file. */
   private readonly managedDirectory: string;
+  /** Optional precommit admission for the published run-start boundary. */
+  private readonly beforeCommit: ((descriptor: ManagedCheckpointDescriptor) => Promise<void>) | undefined;
   /** At most one currently executing publication/commit/acknowledgement. */
   private active: ActiveRunStartPersistence | null = null;
 
@@ -102,9 +106,13 @@ export class RunStartPersistenceHandoff {
       options.managedDirectory.includes('\0')) {
       throw new TypeError('run-start persistence managedDirectory must be a nonempty path');
     }
+    if (options.beforeCommit !== undefined && typeof options.beforeCommit !== 'function') {
+      throw new TypeError('run-start precommit admission must be a function');
+    }
     this.rust = options.rust;
     this.persistence = options.persistence;
     this.managedDirectory = options.managedDirectory;
+    this.beforeCommit = options.beforeCommit;
   }
 
   /**
@@ -163,6 +171,7 @@ export class RunStartPersistenceHandoff {
     if (descriptor.boundaryKind !== 'run-start') {
       throw new Error('Rust run-start checkpoint returned a non-run-start boundary');
     }
+    await this.beforeCommit?.(descriptor);
     const committed = legacyConversion === null
       ? await this.persistence.commit(descriptor)
       : await this.persistence.commit(descriptor, null, false, legacyConversion);

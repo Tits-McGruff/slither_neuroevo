@@ -207,6 +207,8 @@ export interface CreateExperimentalFreshRunSessionOptions {
   persistence: RunStartCheckpointCommitter;
   /** Server-controlled directory receiving immutable files. */
   managedDirectory: string;
+  /** Optional published-file admission before SQLite makes a fresh run current. */
+  beforeRunStartCommit?: (descriptor: ManagedCheckpointDescriptor) => Promise<void>;
 }
 
 /** Real-addon loader dependencies for an explicitly requested session. */
@@ -343,7 +345,8 @@ export class ExperimentalFreshRunSession {
     this.persistenceHandoff = new RunStartPersistenceHandoff({
       rust: this.native,
       persistence: options.persistence,
-      managedDirectory
+      managedDirectory,
+      ...(options.beforeRunStartCommit ? { beforeCommit: options.beforeRunStartCommit } : {})
     });
   }
 

@@ -876,3 +876,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   verified all nine retained anchors, including the pin and prior-run anchor.
   This covers the prune-during-copy race; live Rust stepping during a separate
   hot backup was verified above.
+
+- 2026-09-29 Startup now checks the selected checkpoint budget against the
+  protected automatic anchors, live SQLite sidecars, and one bounded
+  publication allowance before Rust activates running authority. On a copied
+  saturated P3 store, 1280 MiB produced a health-only startup fault requiring
+  at least 1,993,406,464 bytes; its active checkpoint pointer and 482 metadata
+  rows remained in place. The same copy started successfully at 2048 MiB.
+  This protects resumed startup; a fresh run's initial checkpoint is still
+  committed before this check, so precommit admission for that case remains
+  open.
+
+- 2026-09-29 Fresh startup now also checks the actual Rust-published
+  generation-one file against the selected budget before SQLite commits the
+  new current pointer. An unsafe boundary removes its still-unreferenced file
+  and leaves the handoff unacknowledged. Focused tests prove the check precedes
+  commit and acknowledgement, reject the too-small budget, preserve an
+  admitted file, and cover the production fresh-start path. A full-sized
+  rejected fresh P3 process remains to be exercised end to end.

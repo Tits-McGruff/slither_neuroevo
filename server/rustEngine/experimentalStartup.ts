@@ -1,8 +1,8 @@
 import type { RecoveryBranchResult, RecoveryScanCursor } from './recoveryProtocol.ts';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdir, open } from 'node:fs/promises';
+import { mkdir, open, unlink } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import type { ExperimentalRunningAuthorityNativeHandle } from './backgroundRuntime.ts';
@@ -12,6 +12,7 @@ import { createExperimentalFreshRunSession, validateExperimentalFreshRunBinding,
 import { computeNativeSourceIdentity } from './nativeSourceIdentity.ts';
 import type {
   ManagedCheckpointSelection,
+  ManagedCheckpointDescriptor,
   ManagedImportBranchResult,
   ManagedLegacyConversion,
   ManagedStorageDiagnostics
@@ -108,6 +109,28 @@ export function assertStartupCheckpointBudget(
   }
 }
 
+/** Admit one already-published fresh boundary before SQLite commits its current pointer. */
+export async function admitPendingRunStartCheckpoint(
+  descriptor: Pick<ManagedCheckpointDescriptor, 'storedByteCount' | 'relativeFilename'>,
+  inspectStorage: () => Promise<ManagedStorageDiagnostics>,
+  managedDirectory: string,
+  automaticCapBytes: bigint
+): Promise<void> {
+  if (!/^[0-9a-f]{64}\.checkpoint-v3$/u.test(descriptor.relativeFilename)) {
+    throw new TypeError('pending run-start checkpoint filename must be digest-derived');
+  }
+  const storage = await inspectStorage();
+  try {
+    assertStartupCheckpointBudget({
+      protectedAutomaticStoredByteCount: descriptor.storedByteCount,
+      automaticByteCap: automaticCapBytes.toString(16).padStart(16, '0')
+    }, storage);
+  } catch (error) {
+    if (error instanceof RangeError) await unlink(join(managedDirectory, descriptor.relativeFilename));
+    throw error;
+  }
+}
+
 /** Construct or restore a durable Rust boundary and transfer its sole running authority. */
 export async function createExperimentalServerRuntime(options: ExperimentalStartupOptions): Promise<ExperimentalServerRuntime> {
   if ([options.restoreCurrent === true, options.restoreLatest === true, options.restoreCheckpointId !== undefined].filter(Boolean).length > 1) throw new Error('choose one checkpoint startup selector');
@@ -152,7 +175,9 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     const makeSession = (runId: string): ExperimentalFreshRunSession => createExperimentalFreshRunSession({
       binding, sourceIdentity, runId, seed, memoryCeilingBytes: 4n * 1024n * 1024n * 1024n,
       calculationWorkers,
-      persistence, managedDirectory
+      persistence, managedDirectory,
+      beforeRunStartCommit: descriptor => admitPendingRunStartCheckpoint(descriptor,
+        () => persistence.inspectStorage(), managedDirectory, BigInt(checkpointBudgetMiB) * 1024n * 1024n)
     });
     let selection: ManagedCheckpointSelection | null = null;
     let startupSelectionCompleted = false;

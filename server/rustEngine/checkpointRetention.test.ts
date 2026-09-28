@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   automaticCapWithPhysicalReserve,
@@ -7,7 +10,7 @@ import {
   type CheckpointRetentionCandidate
 } from './checkpointRetention.ts';
 import { CHECKPOINT_DISK_ADMISSION_REQUEST, SQLITE_WAL_ALLOWANCE_BYTES } from './diskAdmission.ts';
-import { assertStartupCheckpointBudget } from './experimentalStartup.ts';
+import { admitPendingRunStartCheckpoint, assertStartupCheckpointBudget } from './experimentalStartup.ts';
 
 /** Encode a bounded test byte count in the worker's unsigned wire form. */
 function u64(value: bigint): string {
@@ -58,6 +61,27 @@ describe('production managed checkpoint retention selection', () => {
       automaticByteCap: u64(required) }, storage)).not.toThrow();
     expect(() => assertStartupCheckpointBudget({ protectedAutomaticStoredByteCount: u64(protectedBytes),
       automaticByteCap: u64(required - 1n) }, storage)).toThrow(/cannot preserve the protected checkpoints/u);
+  });
+
+  it('removes an unpublished fresh checkpoint when budget admission rejects it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'slither-startup-budget-'));
+    const name = `${'a'.repeat(64)}.checkpoint-v3`;
+    const path = join(root, name);
+    const descriptor = { relativeFilename: name, storedByteCount: u64(800n * 1024n * 1024n) };
+    const inspectStorage = async () => ({ schemaVersion: 1 as const,
+      databaseByteCount: u64(2n * 1024n * 1024n), walByteCount: u64(0n), shmByteCount: u64(0n),
+      pageSizeByteCount: u64(4096n), pageCount: u64(512n), freelistPageCount: u64(0n),
+      usedPageByteCount: u64(2n * 1024n * 1024n) });
+    try {
+      writeFileSync(path, 'uncommitted');
+      await expect(admitPendingRunStartCheckpoint(descriptor, inspectStorage, root,
+        1280n * 1024n * 1024n)).rejects.toThrow(/cannot preserve the protected checkpoints/u);
+      expect(existsSync(path)).toBe(false);
+      writeFileSync(path, 'admitted');
+      await expect(admitPendingRunStartCheckpoint(descriptor, inspectStorage, root,
+        3072n * 1024n * 1024n)).resolves.toBeUndefined();
+      expect(existsSync(path)).toBe(true);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   it('prunes before publication against physical bytes while preserving protected anchors', () => {
