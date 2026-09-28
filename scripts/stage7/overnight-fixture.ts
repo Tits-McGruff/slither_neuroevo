@@ -21,6 +21,7 @@ interface Options {
   generations: number;
   seed: number;
   rustWorkers: number;
+  resumeExisting: boolean;
 }
 
 /** One physical allocation sample including live SQLite sidecars. */
@@ -37,6 +38,7 @@ interface StorageSample {
 interface FixtureHealth {
   ok: boolean;
   runId: string;
+  seed: number;
   generation: string;
   completedStep: string;
   startupCheckpointId: string;
@@ -59,9 +61,15 @@ function unsigned(value: string | undefined, name: string, maximum: number): num
 /** Require an absent disposable destination and explicit workload selection. */
 function parseOptions(argv: readonly string[]): Options {
   const values = new Map<string, string>();
-  for (let index = 0; index < argv.length; index += 2) {
+  let resumeExisting = false;
+  for (let index = 0; index < argv.length; index++) {
     const name = argv[index];
-    const value = argv[index + 1];
+    if (name === '--resume') {
+      if (resumeExisting) throw new Error('duplicate --resume option');
+      resumeExisting = true;
+      continue;
+    }
+    const value = argv[++index];
     if (!name || !value || !['--scenario', '--db-path', '--generations', '--seed', '--rust-workers'].includes(name) ||
         values.has(name)) throw new Error(`invalid or duplicate fixture option: ${name}`);
     values.set(name, value);
@@ -73,15 +81,17 @@ function parseOptions(argv: readonly string[]): Options {
   const db = values.get('--db-path');
   if (!db) throw new Error('--db-path is required');
   const databasePath = resolve(db);
-  if (existsSync(databasePath) || existsSync(`${databasePath}.checkpoints`)) {
-    throw new Error(`fixture destination already exists: ${databasePath}`);
+  const exists = existsSync(databasePath) && existsSync(`${databasePath}.checkpoints`);
+  if (resumeExisting ? !exists : existsSync(databasePath) || existsSync(`${databasePath}.checkpoints`)) {
+    throw new Error(`fixture destination has the wrong existence state: ${databasePath}`);
   }
   return {
     scenario,
     databasePath,
     generations: unsigned(values.get('--generations') ?? '480', '--generations', 1000),
     seed: unsigned(values.get('--seed') ?? '1511506142', '--seed', 0xffff_ffff),
-    rustWorkers: unsigned(values.get('--rust-workers') ?? '5', '--rust-workers', 7)
+    rustWorkers: unsigned(values.get('--rust-workers') ?? '5', '--rust-workers', 7),
+    resumeExisting
   };
 }
 
@@ -182,8 +192,14 @@ async function sampleStorage(databasePath: string): Promise<StorageSample> {
   let managedFiles = 0;
   for (const entry of await readdir(managedRoot, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
+    let length: number;
+    try { length = (await stat(resolve(managedRoot, entry.name))).size; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
+    }
     managedFiles++;
-    managedBytes += (await stat(resolve(managedRoot, entry.name))).size;
+    managedBytes += length;
   }
   const databaseBytes = await fileBytes(databasePath);
   const walBytes = await fileBytes(`${databasePath}-wal`);
@@ -212,25 +228,30 @@ function inspectMetadata(databasePath: string): Record<string, unknown> {
 export async function run(options: Options): Promise<Record<string, unknown>> {
   await mkdir(dirname(options.databasePath), { recursive: true });
   const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: options.databasePath,
-    resume: 'fresh', seed: options.seed, rustCalculationWorkers: options.rustWorkers, logLevel: 'error' });
+    resume: options.resumeExisting ? 'latest' : 'fresh',
+    ...(!options.resumeExisting ? { seed: options.seed } : {}),
+    rustCalculationWorkers: options.rustWorkers, logLevel: 'error' });
   if (server.startupFault) {
     await server.close();
     throw new Error(`Rust fixture startup failed: ${server.startupFault}`);
   }
   let peak: StorageSample | undefined;
   let lastGeneration = 0;
+  let startedGeneration: number | undefined;
   const startedAt = performance.now();
   let finalHealth: FixtureHealth | undefined;
   try {
-    await configureWorkload(server.port, options);
+    if (!options.resumeExisting) await configureWorkload(server.port, options);
     for (;;) {
       const response = await fetch(`http://127.0.0.1:${server.port}/api/health`, {
         signal: AbortSignal.timeout(5000)
       });
       const health = await response.json() as FixtureHealth;
       if (!health.ok) throw new Error(`Rust fixture fault: ${health.faultCode ?? 'unknown'}`);
+      if (health.seed !== options.seed) throw new Error('resumed fixture seed differs from the requested fixture');
       const generation = Number.parseInt(health.generation, 16);
       if (!Number.isSafeInteger(generation) || generation < 1) throw new Error('invalid Rust generation');
+      startedGeneration ??= generation;
       const storage = await sampleStorage(options.databasePath);
       if (!peak || storage.totalBytes > peak.totalBytes) peak = storage;
       if (options.scenario === 'P3' && generation === 1) {
@@ -262,6 +283,7 @@ export async function run(options: Options): Promise<Record<string, unknown>> {
     throw new Error('fixture omitted durable generation history, Hall of Fame, or checkpoint metadata');
   }
   return { scenario: options.scenario, seed: options.seed, requestedCompletedGenerations: options.generations,
+    resumedFromExisting: options.resumeExisting, startedGeneration,
     runId: finalHealth?.runId, generation: finalHealth?.generation,
     completedStep: finalHealth?.completedStep, elapsedWallSeconds: (performance.now() - startedAt) / 1000,
     peakObservedStorage: peak, finalStorage, retention, metadata };
