@@ -48,6 +48,13 @@ interface FixtureHealth {
   faultCode?: string;
 }
 
+/** Immutable checkpoint protected from automatic pruning during the fixture. */
+interface FixturePin {
+  ok: boolean;
+  checkpointId: string;
+  generation: string;
+}
+
 /** Parse one named unsigned integer without silently accepting partial text. */
 function unsigned(value: string | undefined, name: string, maximum: number): number {
   if (!value || !/^(?:0|[1-9][0-9]*)$/u.test(value)) throw new Error(`${name} must be an integer`);
@@ -224,6 +231,47 @@ function inspectMetadata(databasePath: string): Record<string, unknown> {
   } finally { database.close(); }
 }
 
+/** Prove managed files exactly match live checkpoint and Hall-of-Fame references. */
+async function auditManagedFiles(databasePath: string): Promise<Record<string, unknown>> {
+  const database = new Database(databasePath, { readonly: true, fileMustExist: true });
+  const expected = new Set<string>();
+  try {
+    const checkpoints = database.prepare(`SELECT metadata.relative_filename AS filename
+      FROM rust_checkpoint_v3_metadata AS metadata
+      JOIN rust_checkpoint_retention_v1 AS retention USING (checkpoint_id)
+      WHERE retention.retention_kind IN ('automatic', 'pinned')`).all() as Array<{ filename: string }>;
+    const winners = database.prepare(`SELECT DISTINCT weights.relative_filename AS filename
+      FROM rust_hall_of_fame_weights_v1 AS weights
+      JOIN rust_hall_of_fame_v1 AS hall ON hall.weights_sha256 = weights.logical_sha256`).all() as Array<{ filename: string }>;
+    for (const row of [...checkpoints, ...winners]) expected.add(row.filename);
+  } finally { database.close(); }
+  const actual = new Set<string>();
+  for (const entry of await readdir(`${databasePath}.checkpoints`, { withFileTypes: true })) {
+    if (!entry.isFile()) throw new Error(`managed directory contains a non-file: ${entry.name}`);
+    actual.add(entry.name);
+  }
+  const missing = [...expected].filter(filename => !actual.has(filename));
+  const unreferenced = [...actual].filter(filename => !expected.has(filename));
+  if (missing.length > 0 || unreferenced.length > 0) {
+    throw new Error(`managed file references mismatch: ${missing.length} missing, ${unreferenced.length} unreferenced`);
+  }
+  return { referencedFiles: expected.size, physicalFiles: actual.size,
+    missingFiles: missing.length, unreferencedFiles: unreferenced.length };
+}
+
+/** Protect one early checkpoint so the long fixture exercises owner-pinned retention. */
+async function pinCheckpoint(port: number): Promise<FixturePin> {
+  const response = await fetch(`http://127.0.0.1:${port}/api/checkpoints/current/pin`, {
+    method: 'POST', signal: AbortSignal.timeout(60_000)
+  });
+  const pinned = await response.json() as FixturePin;
+  if (!response.ok || pinned.ok !== true || !/^[0-9a-f]{64}$/u.test(pinned.checkpointId) ||
+      !/^[0-9a-f]{16}$/u.test(pinned.generation)) {
+    throw new Error('Rust fixture failed to pin its early checkpoint');
+  }
+  return pinned;
+}
+
 /** Execute one fresh production-path workload and retain its disposable evidence on disk. */
 export async function run(options: Options): Promise<Record<string, unknown>> {
   await mkdir(dirname(options.databasePath), { recursive: true });
@@ -238,10 +286,14 @@ export async function run(options: Options): Promise<Record<string, unknown>> {
   let peak: StorageSample | undefined;
   let lastGeneration = 0;
   let startedGeneration: number | undefined;
+  let pinnedCheckpoint: FixturePin | undefined;
   const startedAt = performance.now();
   let finalHealth: FixtureHealth | undefined;
   try {
-    if (!options.resumeExisting) await configureWorkload(server.port, options);
+    if (!options.resumeExisting) {
+      await configureWorkload(server.port, options);
+      pinnedCheckpoint = await pinCheckpoint(server.port);
+    }
     for (;;) {
       const response = await fetch(`http://127.0.0.1:${server.port}/api/health`, {
         signal: AbortSignal.timeout(5000)
@@ -276,17 +328,24 @@ export async function run(options: Options): Promise<Record<string, unknown>> {
       retention.plannedPrune.checkpointCount !== 0) {
     throw new Error('fixture stopped without every generation commit and retention cleanup');
   }
+  if (BigInt(`0x${retention.automaticStoredByteCount}`) >
+      BigInt(`0x${retention.automaticByteCap}`)) {
+    throw new Error('automatic retained checkpoint bytes exceeded the selected budget');
+  }
   const metadata = inspectMetadata(options.databasePath);
+  const managedFileAudit = await auditManagedFiles(options.databasePath);
   if (Number(metadata['historyRows']) < options.generations ||
       Number(metadata['hallOfFameRows']) < options.generations ||
       Number(metadata['checkpointRows']) < options.generations + 2) {
     throw new Error('fixture omitted durable generation history, Hall of Fame, or checkpoint metadata');
   }
   return { scenario: options.scenario, seed: options.seed, requestedCompletedGenerations: options.generations,
-    resumedFromExisting: options.resumeExisting, startedGeneration,
+    resumedFromExisting: options.resumeExisting, startedGeneration, pinnedCheckpoint,
     runId: finalHealth?.runId, generation: finalHealth?.generation,
     completedStep: finalHealth?.completedStep, elapsedWallSeconds: (performance.now() - startedAt) / 1000,
-    peakObservedStorage: peak, finalStorage, retention, metadata };
+    peakObservedStorage: peak, finalStorage,
+    finalPhysicalExcludingPinnedBytes: finalStorage.totalBytes - Number.parseInt(retention.pinnedStoredByteCount, 16),
+    retention, metadata, managedFileAudit };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
