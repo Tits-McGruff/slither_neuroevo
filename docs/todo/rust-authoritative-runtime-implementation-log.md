@@ -743,4 +743,7 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   its 6,887,936-byte direct archive; the separate live server stayed ready.
   A cross-platform native system test now kills a child during real steps,
   checks SQLite's committed pointer, then restarts and exports that boundary.
-  Kill injection during checkpoint, export, import and prune remains open.
+  A second test kills the process during chunked import spooling, ages the
+  abandoned file beyond its documented 24-hour grace, and proves startup
+  cleanup retains the original pointer. Kill injection during checkpoint,
+  export, import commit and prune remains open.

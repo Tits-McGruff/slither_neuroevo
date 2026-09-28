@@ -1,11 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, utimes } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import { describeNetworkSuite } from './test/networkSuites.ts';
+import { ARCHIVE_ARTIFACT_GRACE_MS } from './rustEngine/archiveScavenger.ts';
 
 /** One scalar health response needed by the process-death contract. */
 interface ProcessHealth {
@@ -65,6 +67,18 @@ async function readyHealth(
   throw new Error(`Rust child did not start: ${output()}`);
 }
 
+/** Wait for one deliberately incomplete import to create its private spool file. */
+async function pendingUpload(managedRoot: string): Promise<string> {
+  const deadline = performance.now() + 5000;
+  while (performance.now() < deadline) {
+    const names = await readdir(managedRoot);
+    const pending = names.find(name => name.endsWith('.upload.partial'));
+    if (pending) return pending;
+    await new Promise<void>(done => setTimeout(done, 10));
+  }
+  throw new Error('archive upload never created its partial spool');
+}
+
 /** Wait for a child to terminate after an explicit signal. */
 async function terminate(child: ChildProcess, signal: NodeJS.Signals): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
@@ -110,6 +124,53 @@ describeNetworkSuite('Rust process-death recovery', () => {
       expect(Number(exported.headers.get('content-length'))).toBeGreaterThan(0);
       await exported.arrayBuffer();
     } finally {
+      if (restarted) await terminate(restarted.child, 'SIGTERM');
+      await terminate(first.child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 45_000);
+
+  it('cleans a partial import upload after an OS kill without changing the committed run', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-upload-death-'));
+    const databasePath = join(root, 'experiment.sqlite');
+    const managedRoot = `${databasePath}.checkpoints`;
+    const port = await availablePort();
+    const first = spawnRustServer(port, databasePath, 'fresh');
+    let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    let upload: ReturnType<typeof httpRequest> | undefined;
+    try {
+      const before = await readyHealth(port, first.child, first.output);
+      upload = httpRequest(`http://127.0.0.1:${port}/api/import/archive`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/vnd.slither-neuroevo.save',
+          'Transfer-Encoding': 'chunked'
+        }
+      });
+      upload.on('error', () => { /* Killing the receiving process closes this upload. */ });
+      upload.write(Buffer.from('incomplete-archive-body'));
+      const partial = await pendingUpload(managedRoot);
+      await terminate(first.child, 'SIGKILL');
+      upload.destroy();
+      expect(await readdir(managedRoot)).toContain(partial);
+
+      // Restart cleanup deliberately preserves fresh artifacts for its documented grace.
+      const stale = new Date(Date.now() - ARCHIVE_ARTIFACT_GRACE_MS - 60_000);
+      await utimes(join(managedRoot, partial), stale, stale);
+
+      restarted = spawnRustServer(port, databasePath, 'latest');
+      const after = await readyHealth(port, restarted.child, restarted.output);
+      expect(after.runId).toBe(before.runId);
+      expect(after.startupCheckpointId).toBe(before.startupCheckpointId);
+      expect(await readdir(managedRoot)).not.toContain(partial);
+      const database = new Database(databasePath, { readonly: true });
+      try {
+        const current = database.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+          .get(before.runId) as { checkpoint_id: string } | undefined;
+        expect(current?.checkpoint_id).toBe(before.startupCheckpointId);
+      } finally { database.close(); }
+    } finally {
+      upload?.destroy();
       if (restarted) await terminate(restarted.child, 'SIGTERM');
       await terminate(first.child, 'SIGKILL');
       await rm(root, { recursive: true, force: true });
