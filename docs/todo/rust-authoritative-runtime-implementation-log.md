@@ -865,3 +865,14 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   a focused Windows test covers those boundaries. The older interrupted test
   artifact used the previous name and remains outside this new scavenger's
   recognized set.
+
+- 2026-09-29 A deterministic target-VM backup race used the real persistence
+  worker on a stopped copy of the saturated P3 store. Immediately after the
+  first consistent SQLite backup, the worker pruned three automatic
+  checkpoints under a selected 3072 MiB cap. The file copy detected the
+  missing objects, discarded its partial set, took a second SQLite snapshot,
+  and published a validated backup with 59 managed files. Restoring that set
+  to a new database succeeded. Isolated production startup and direct export
+  verified all nine retained anchors, including the pin and prior-run anchor.
+  This covers the prune-during-copy race; live Rust stepping during a separate
+  hot backup was verified above.
