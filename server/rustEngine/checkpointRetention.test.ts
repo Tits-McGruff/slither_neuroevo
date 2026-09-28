@@ -6,6 +6,13 @@ import {
   selectManagedCheckpointRetention,
   type CheckpointRetentionCandidate
 } from './checkpointRetention.ts';
+import { CHECKPOINT_DISK_ADMISSION_REQUEST, SQLITE_WAL_ALLOWANCE_BYTES } from './diskAdmission.ts';
+import { assertStartupCheckpointBudget } from './experimentalStartup.ts';
+
+/** Encode a bounded test byte count in the worker's unsigned wire form. */
+function u64(value: bigint): string {
+  return value.toString(16).padStart(16, '0');
+}
 
 /** Build one exact production-shaped retention candidate. */
 function candidate(
@@ -39,6 +46,20 @@ function overnight(storedBytes: bigint): CheckpointRetentionCandidate[] {
 }
 
 describe('production managed checkpoint retention selection', () => {
+  it('rejects a startup budget that cannot fit protected files and one publication', () => {
+    const reserve = CHECKPOINT_DISK_ADMISSION_REQUEST.candidateSpoolBytes +
+      CHECKPOINT_DISK_ADMISSION_REQUEST.finalManagedBytes + SQLITE_WAL_ALLOWANCE_BYTES;
+    const protectedBytes = 800n * 1024n * 1024n;
+    const databaseBytes = 2n * 1024n * 1024n;
+    const storage = { databaseByteCount: u64(databaseBytes), walByteCount: u64(0n),
+      shmByteCount: u64(0n) };
+    const required = protectedBytes + databaseBytes + reserve;
+    expect(() => assertStartupCheckpointBudget({ protectedAutomaticStoredByteCount: u64(protectedBytes),
+      automaticByteCap: u64(required) }, storage)).not.toThrow();
+    expect(() => assertStartupCheckpointBudget({ protectedAutomaticStoredByteCount: u64(protectedBytes),
+      automaticByteCap: u64(required - 1n) }, storage)).toThrow(/cannot preserve the protected checkpoints/u);
+  });
+
   it('prunes before publication against physical bytes while preserving protected anchors', () => {
     const effectiveCap = automaticCapWithPhysicalReserve(800n, 1_200n, 1_000n, 100n, 300n);
     expect(effectiveCap).toBe(400n);

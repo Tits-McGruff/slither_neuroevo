@@ -13,7 +13,8 @@ import { computeNativeSourceIdentity } from './nativeSourceIdentity.ts';
 import type {
   ManagedCheckpointSelection,
   ManagedImportBranchResult,
-  ManagedLegacyConversion
+  ManagedLegacyConversion,
+  ManagedStorageDiagnostics
 } from './checkpointPersistenceProtocol.ts';
 import { scavengeStaleArchiveArtifacts } from './archiveScavenger.ts';
 import {
@@ -21,7 +22,7 @@ import {
   CHECKPOINT_DISK_ADMISSION_REQUEST,
   SQLITE_WAL_ALLOWANCE_BYTES
 } from './diskAdmission.ts';
-import { OWNER_CHECKPOINT_RETENTION_DEFAULTS } from './checkpointRetention.ts';
+import { OWNER_CHECKPOINT_RETENTION_DEFAULTS, type CheckpointRetentionInventory } from './checkpointRetention.ts';
 
 /** Bounded background queues for the experimental Rust server. */
 const BACKGROUND_INIT: ExperimentalEngineInit = {
@@ -88,6 +89,23 @@ export interface ExperimentalServerRuntime {
 /** Admit bounded publication against current free disk without deleting retained saves. */
 async function admitCheckpoint(directory: string): Promise<void> {
   await admitDiskOperation(directory, CHECKPOINT_DISK_ADMISSION_REQUEST);
+}
+
+/** Reject a budget that cannot protect the minimum retained set through one publication. */
+export function assertStartupCheckpointBudget(
+  retention: Pick<CheckpointRetentionInventory, 'protectedAutomaticStoredByteCount' | 'automaticByteCap'>,
+  storage: Pick<ManagedStorageDiagnostics, 'databaseByteCount' | 'walByteCount' | 'shmByteCount'>
+): void {
+  const protectedBytes = BigInt(`0x${retention.protectedAutomaticStoredByteCount}`);
+  const sqliteBytes = BigInt(`0x${storage.databaseByteCount}`) +
+    BigInt(`0x${storage.walByteCount}`) + BigInt(`0x${storage.shmByteCount}`);
+  const publicationReserve = CHECKPOINT_DISK_ADMISSION_REQUEST.candidateSpoolBytes +
+    CHECKPOINT_DISK_ADMISSION_REQUEST.finalManagedBytes + SQLITE_WAL_ALLOWANCE_BYTES;
+  const required = protectedBytes + sqliteBytes + publicationReserve;
+  const cap = BigInt(`0x${retention.automaticByteCap}`);
+  if (required > cap) {
+    throw new RangeError(`checkpoint budget ${cap} bytes cannot preserve the protected checkpoints and one publication; requires at least ${required} bytes`);
+  }
 }
 
 /** Construct or restore a durable Rust boundary and transfer its sole running authority. */
@@ -256,6 +274,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     } : await session.commitPendingRunStart(
       randomBytes(16).toString('hex'), legacyConversion
     );
+    assertStartupCheckpointBudget(await persistence.inspectRetention(), await persistence.inspectStorage());
     await session.activateRunningAuthority();
     runtime = await session.createBackgroundRuntime(BACKGROUND_INIT, options.onWake);
     const owner = runtime;
