@@ -532,6 +532,10 @@ pub struct Stage6BackgroundGenerationHealth {
     pub step_timing_max_micros: String,
     pub step_timing_p95_micros: String,
     pub step_timing_p99_micros: String,
+    pub slow_step_samples: String,
+    pub slow_step_control_micros: String,
+    pub slow_step_world_micros: String,
+    pub slow_step_other_micros: String,
     pub fault_code: Option<String>,
     pub fault_detail: Option<String>,
 }
@@ -3725,6 +3729,10 @@ pub(crate) fn background_generation_health_to_napi(
         step_timing_max_micros: u64_hex(running.step_timing_max_micros),
         step_timing_p95_micros: u64_hex(running.step_timing_p95_micros),
         step_timing_p99_micros: u64_hex(running.step_timing_p99_micros),
+        slow_step_samples: u64_hex(running.slow_step_samples),
+        slow_step_control_micros: u64_hex(running.slow_step_control_micros),
+        slow_step_world_micros: u64_hex(running.slow_step_world_micros),
+        slow_step_other_micros: u64_hex(running.slow_step_other_micros),
         fault_code: health
             .fault
             .as_ref()

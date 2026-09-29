@@ -307,6 +307,14 @@ interface Stage6BackgroundGenerationHealth {
   stepTimingMaxMicros: string;
   stepTimingP95Micros: string;
   stepTimingP99Micros: string;
+  /** Ordinary steps above the real-time gate with phase attribution. */
+  slowStepSamples: string;
+  /** Control-selection time within those slow steps. */
+  slowStepControlMicros: string;
+  /** World-step time within those slow steps. */
+  slowStepWorldMicros: string;
+  /** Remaining service time within those slow steps. */
+  slowStepOtherMicros: string;
   faultCode?: string;
   faultDetail?: string;
 }
@@ -1425,6 +1433,15 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         expect(BigInt(`0x${timedHealth.stepTimingP99Micros}`)).toBeGreaterThanOrEqual(
           BigInt(`0x${timedHealth.stepTimingP95Micros}`)
         );
+        expect(BigInt(`0x${timedHealth.slowStepSamples}`)).toBeLessThanOrEqual(
+          BigInt(`0x${timedHealth.stepTimingSamples}`)
+        );
+        for (const cost of [
+          timedHealth.slowStepControlMicros, timedHealth.slowStepWorldMicros,
+          timedHealth.slowStepOtherMicros
+        ]) {
+          expect(cost).toMatch(/^[0-9a-f]{16}$/);
+        }
 
         const nextOrdinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages');
         const nextObservation = nextOrdinary.controllerMessages![0]!;

@@ -21,7 +21,7 @@ use super::run_start::RunStartTransitionError;
 use super::running_step::{
     ExternalDeliveryResult, ExternalDeliveryState, ExternalObservationBatch,
     GenerationReassignmentProgress, GenerationTransitionBatch, GenerationTransitionReason,
-    RunningStepCoordinator, RunningStepError, RunningStepProgress,
+    RunningStepCoordinator, RunningStepCostMicros, RunningStepError, RunningStepProgress,
 };
 use super::scheduler::{
     FixedStepScheduler, FixedStepSchedulerDiagnostics, FixedStepSchedulerPolicy, ScheduledStep,
@@ -687,6 +687,11 @@ impl RunningAuthorityLoop {
     #[must_use]
     pub fn completed_step(&self) -> u64 {
         self.authority.state().generation.completed_step
+    }
+
+    /// Coarse production costs for the last attempted ordinary step.
+    pub(crate) const fn last_step_cost(&self) -> RunningStepCostMicros {
+        self.coordinator.last_step_cost()
     }
 
     /// Current authoritative pellet count as bounded runtime metadata.

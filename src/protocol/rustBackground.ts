@@ -126,6 +126,14 @@ export interface RustBackgroundHealth {
   stepTimingP95Micros: RustBackgroundIdentity;
   /** Conservative histogram ceiling containing the 99th percentile. */
   stepTimingP99Micros: RustBackgroundIdentity;
+  /** Ordinary steps above the 16.667 ms gate with coarse phase attribution. */
+  slowStepSamples: RustBackgroundIdentity;
+  /** Control-selection microseconds accumulated across attributed slow steps. */
+  slowStepControlMicros: RustBackgroundIdentity;
+  /** World-step microseconds accumulated across attributed slow steps. */
+  slowStepWorldMicros: RustBackgroundIdentity;
+  /** Remaining service microseconds accumulated across attributed slow steps. */
+  slowStepOtherMicros: RustBackgroundIdentity;
   /** First terminal fault category. */
   faultCode?: string;
   /** First bounded terminal fault detail. */

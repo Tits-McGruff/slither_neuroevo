@@ -18,7 +18,8 @@ function health(completedStep: number): RustBackgroundHealth {
     coordinatorWorkBytes: hex(0), processedCommands: hex(3),
     stepTimingSamples: hex(4), stepTimingTotalMicros: hex(1_000),
     stepTimingMaxMicros: hex(600), stepTimingP95Micros: hex(750),
-    stepTimingP99Micros: hex(1_000)
+    stepTimingP99Micros: hex(1_000), slowStepSamples: hex(0),
+    slowStepControlMicros: hex(0), slowStepWorldMicros: hex(0), slowStepOtherMicros: hex(0)
   };
 }
 

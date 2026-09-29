@@ -48,7 +48,6 @@ use super::world_step::{
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
-#[cfg(feature = "engine-test-hooks")]
 use std::time::Instant;
 
 /// First complete nonterminal phase-chain coordinator contract.
@@ -68,6 +67,13 @@ pub(crate) struct RunningStepPhaseTimings {
     pub world_step_ms: f64,
     pub generation_guard_ms: f64,
     pub publication_ms: f64,
+}
+
+/// Allocation-free coarse costs used to explain ordinary steps above the timing gate.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RunningStepCostMicros {
+    pub control_selection: u64,
+    pub world_step: u64,
 }
 
 /// Test-hook-only allocation-operation counts for coarse fixed-step phases.
@@ -520,6 +526,7 @@ pub struct RunningStepCoordinator {
     pending_preflight: Option<RunningStepPreflight>,
     pending_delivery_context: Option<PendingDeliveryContext>,
     last_published_diagnostics: WorldStepDiagnostics,
+    last_step_cost: RunningStepCostMicros,
     pending_events: Vec<ExternalObservationEvent>,
     pending_statuses: Vec<ExternalDeliveryStatus>,
     pending_sources: Vec<PendingExternalSource>,
@@ -584,6 +591,7 @@ impl RunningStepCoordinator {
             pending_preflight: None,
             pending_delivery_context: None,
             last_published_diagnostics: WorldStepDiagnostics::default(),
+            last_step_cost: RunningStepCostMicros::default(),
             pending_events: Vec::new(),
             pending_statuses: Vec::new(),
             pending_sources: Vec::new(),
@@ -620,6 +628,7 @@ impl RunningStepCoordinator {
         replacement.last_wall_now_ms = self.last_wall_now_ms;
         replacement.next_external_event_sequence = self.next_external_event_sequence;
         replacement.last_published_diagnostics = self.last_published_diagnostics;
+        replacement.last_step_cost = self.last_step_cost;
         replacement
             .control
             .set_visualization_enabled(self.control.visualization_enabled());
@@ -666,6 +675,7 @@ impl RunningStepCoordinator {
         authority: &mut AuthoritativeState,
         inputs: RunningStepInputs,
     ) -> Result<RunningStepProgress<'workspace>, RunningStepError> {
+        self.last_step_cost = RunningStepCostMicros::default();
         #[cfg(feature = "engine-test-hooks")]
         {
             self.last_phase_timings = RunningStepPhaseTimings::default();
@@ -730,7 +740,6 @@ impl RunningStepCoordinator {
                 self.last_phase_allocations.prefix =
                     allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
             }
-            #[cfg(feature = "engine-test-hooks")]
             let control_started = Instant::now();
             let selected = self.control.prepare(ControlPhaseInputs {
                 prefix,
@@ -740,6 +749,8 @@ impl RunningStepCoordinator {
                 wall_now_ms: inputs.wall_now_ms,
                 config: self.projection.world_step.control,
             })?;
+            self.last_step_cost.control_selection =
+                u64::try_from(control_started.elapsed().as_micros()).unwrap_or(u64::MAX);
             #[cfg(feature = "engine-test-hooks")]
             {
                 self.last_phase_timings.control_selection_ms = elapsed_ms(control_started);
@@ -755,11 +766,12 @@ impl RunningStepCoordinator {
                 self.last_phase_allocations.control_commit =
                     allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
             }
-            #[cfg(feature = "engine-test-hooks")]
             let world_step_started = Instant::now();
             let prepared = self
                 .world_step
                 .prepare_deferred_external_replacement(committed, self.projection.world_step)?;
+            self.last_step_cost.world_step =
+                u64::try_from(world_step_started.elapsed().as_micros()).unwrap_or(u64::MAX);
             #[cfg(feature = "engine-test-hooks")]
             {
                 self.last_phase_timings.world_step_ms = elapsed_ms(world_step_started);
@@ -810,7 +822,6 @@ impl RunningStepCoordinator {
                 self.last_phase_allocations.generation_guard =
                     allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
             }
-            #[cfg(feature = "engine-test-hooks")]
             let replacement_started = Instant::now();
             let prepared = self.world_step.complete_deferred_external_replacement(
                 committed,
@@ -818,6 +829,9 @@ impl RunningStepCoordinator {
                 authority.graph(),
                 inputs.wall_now_ms,
             )?;
+            self.last_step_cost.world_step = self.last_step_cost.world_step.saturating_add(
+                u64::try_from(replacement_started.elapsed().as_micros()).unwrap_or(u64::MAX),
+            );
             #[cfg(feature = "engine-test-hooks")]
             {
                 self.last_phase_timings.world_step_ms += elapsed_ms(replacement_started);
@@ -2315,6 +2329,11 @@ impl RunningStepCoordinator {
             });
         }
         Ok(())
+    }
+
+    /// Return coarse costs for the last attempted ordinary step.
+    pub(crate) const fn last_step_cost(&self) -> RunningStepCostMicros {
+        self.last_step_cost
     }
 
     /// Return the most recent coarse phase timings from a test-hook build.

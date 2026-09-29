@@ -19,6 +19,7 @@ use super::running_loop::{
 };
 use super::running_step::{
     ExternalDeliveryEventKind, ExternalObservationBatch, GenerationReassignmentProgress,
+    RunningStepCostMicros,
 };
 use super::scheduler::SchedulerServiceMode;
 use super::work_progress::ProgressScope;
@@ -127,6 +128,14 @@ pub struct RunningAuthorityHealth {
     pub step_timing_p95_micros: u64,
     /// Conservative inclusive histogram ceiling containing the 99th percentile.
     pub step_timing_p99_micros: u64,
+    /// Ordinary steps above the 16.667 ms gate with phase attribution.
+    pub slow_step_samples: u64,
+    /// Sum of control-selection time within attributed slow steps.
+    pub slow_step_control_micros: u64,
+    /// Sum of world-step time within attributed slow steps.
+    pub slow_step_world_micros: u64,
+    /// Sum of remaining service time within attributed slow steps.
+    pub slow_step_other_micros: u64,
 }
 
 /// Atomics updated only by the authority thread and read by health callers.
@@ -152,6 +161,10 @@ pub(crate) struct RunningAuthorityMetrics {
     step_timing_total_micros: AtomicU64,
     step_timing_max_micros: AtomicU64,
     step_timing_buckets: [AtomicU64; STEP_TIMING_BUCKET_UPPER_MICROS.len()],
+    slow_step_samples: AtomicU64,
+    slow_step_control_micros: AtomicU64,
+    slow_step_world_micros: AtomicU64,
+    slow_step_other_micros: AtomicU64,
 }
 
 impl RunningAuthorityMetrics {
@@ -181,6 +194,10 @@ impl RunningAuthorityMetrics {
             step_timing_total_micros: AtomicU64::new(0),
             step_timing_max_micros: AtomicU64::new(0),
             step_timing_buckets: std::array::from_fn(|_| AtomicU64::new(0)),
+            slow_step_samples: AtomicU64::new(0),
+            slow_step_control_micros: AtomicU64::new(0),
+            slow_step_world_micros: AtomicU64::new(0),
+            slow_step_other_micros: AtomicU64::new(0),
         }
     }
 
@@ -245,7 +262,7 @@ impl RunningAuthorityMetrics {
     }
 
     /// Retain bounded production timing without allocating or crossing authority ownership.
-    fn record_step_duration(&self, duration: Duration) {
+    fn record_step_duration(&self, duration: Duration, cost: Option<RunningStepCostMicros>) {
         let micros = u64::try_from(duration.as_micros()).unwrap_or(u64::MAX);
         saturating_increment(&self.step_timing_samples, 1);
         saturating_increment(&self.step_timing_total_micros, micros);
@@ -258,6 +275,14 @@ impl RunningAuthorityMetrics {
             .partition_point(|upper| *upper < micros)
             .min(STEP_TIMING_BUCKET_UPPER_MICROS.len() - 1);
         saturating_increment(&self.step_timing_buckets[bucket], 1);
+        if let Some(cost) = cost.filter(|_| micros > 16_667) {
+            let control = cost.control_selection.min(micros);
+            let world = cost.world_step.min(micros - control);
+            saturating_increment(&self.slow_step_samples, 1);
+            saturating_increment(&self.slow_step_control_micros, control);
+            saturating_increment(&self.slow_step_world_micros, world);
+            saturating_increment(&self.slow_step_other_micros, micros - control - world);
+        }
     }
 
     /// Return the conservative inclusive bucket ceiling for one percentile.
@@ -313,6 +338,10 @@ impl RunningAuthorityMetrics {
             step_timing_max_micros: self.step_timing_max_micros.load(Ordering::Relaxed),
             step_timing_p95_micros: self.step_percentile_micros(step_timing_samples, 95),
             step_timing_p99_micros: self.step_percentile_micros(step_timing_samples, 99),
+            slow_step_samples: self.slow_step_samples.load(Ordering::Relaxed),
+            slow_step_control_micros: self.slow_step_control_micros.load(Ordering::Relaxed),
+            slow_step_world_micros: self.slow_step_world_micros.load(Ordering::Relaxed),
+            slow_step_other_micros: self.slow_step_other_micros.load(Ordering::Relaxed),
         }
     }
 }
@@ -589,7 +618,11 @@ pub(crate) fn run_running_coordinator(
                     | RunningAuthorityLoopProgress::GenerationTransitionPending { .. }
             )
         {
-            metrics.record_step_duration(service_started.elapsed());
+            let cost = match progress {
+                RunningAuthorityLoopProgress::GenerationTransitionPending { .. } => None,
+                _ => Some(running.last_step_cost()),
+            };
+            metrics.record_step_duration(service_started.elapsed(), cost);
         }
         metrics.observe(running);
         wait = match progress {
@@ -1425,12 +1458,12 @@ mod tests {
         let running = background_generation_handoff_fixture().unwrap().running;
         let metrics = RunningAuthorityMetrics::new(&running);
         for _ in 0..95 {
-            metrics.record_step_duration(Duration::from_micros(150));
+            metrics.record_step_duration(Duration::from_micros(150), None);
         }
         for _ in 0..4 {
-            metrics.record_step_duration(Duration::from_micros(900));
+            metrics.record_step_duration(Duration::from_micros(900), None);
         }
-        metrics.record_step_duration(Duration::from_micros(300_000));
+        metrics.record_step_duration(Duration::from_micros(300_000), None);
 
         let health = metrics.snapshot();
         assert_eq!(health.step_timing_samples, 100);
@@ -1445,13 +1478,40 @@ mod tests {
         let running = background_generation_handoff_fixture().unwrap().running;
         let metrics = RunningAuthorityMetrics::new(&running);
         for _ in 0..99 {
-            metrics.record_step_duration(Duration::from_micros(16_600));
+            metrics.record_step_duration(Duration::from_micros(16_600), None);
         }
-        metrics.record_step_duration(Duration::from_micros(20_000));
+        metrics.record_step_duration(Duration::from_micros(20_000), None);
 
         let health = metrics.snapshot();
         assert_eq!(health.step_timing_p99_micros, 16_667);
         assert_eq!(health.step_timing_max_micros, 20_000);
+    }
+
+    #[test]
+    fn slow_step_costs_exclude_fast_and_generation_steps_and_bound_the_remainder() {
+        let running = background_generation_handoff_fixture().unwrap().running;
+        let metrics = RunningAuthorityMetrics::new(&running);
+        let cost = RunningStepCostMicros {
+            control_selection: 7_000,
+            world_step: 8_000,
+        };
+        metrics.record_step_duration(Duration::from_micros(16_667), Some(cost));
+        metrics.record_step_duration(Duration::from_micros(50_000), None);
+        metrics.record_step_duration(Duration::from_micros(20_000), Some(cost));
+        metrics.record_step_duration(
+            Duration::from_micros(18_000),
+            Some(RunningStepCostMicros {
+                control_selection: 19_000,
+                world_step: 20_000,
+            }),
+        );
+
+        let health = metrics.snapshot();
+        assert_eq!(health.step_timing_samples, 4);
+        assert_eq!(health.slow_step_samples, 2);
+        assert_eq!(health.slow_step_control_micros, 25_000);
+        assert_eq!(health.slow_step_world_micros, 8_000);
+        assert_eq!(health.slow_step_other_micros, 5_000);
     }
 
     /// Resume the existing connected-controller fixture into a normal generation.
