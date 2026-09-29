@@ -105,7 +105,7 @@ function assertWorkload(welcome: Record<string, unknown>, scenario: Scenario, wo
   }
 }
 
-/** Configure P1/P2 by Reset and return the resulting authoritative welcome. */
+/** Configure the approved 60-second workload by Reset and verify its welcome. */
 async function configure(port: number, scenario: Scenario, workers: number): Promise<void> {
   const socket = new WebSocket(`ws://127.0.0.1:${port}`);
   await new Promise<void>((resolveReady, reject) => {
@@ -128,7 +128,6 @@ async function configure(port: number, scenario: Scenario, workers: number): Pro
       try {
         const message = packet(data);
         if (message['type'] === 'welcome') {
-          if (scenario === 'P0') { assertWorkload(message, scenario, workers); finish(); return; }
           socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
           socket.send(JSON.stringify({ type: 'reset',
             settings: { snakeCount: scenario === 'P1' ? 300 : 55, simSpeed: 1 },
