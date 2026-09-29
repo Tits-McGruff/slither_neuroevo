@@ -167,6 +167,8 @@ const PLAYER_RESUME_TOKEN_KEY = 'slither_neuroevo_player_resume_token';
 let playerResumeToken = '';
 /** Whether the next successful handshake should immediately request reclaim. */
 let resumePlayerAfterReconnect = false;
+/** Whether an explicitly selected spectator session should resume after reconnect. */
+let resumeSpectatorAfterReconnect = false;
 /** Timer id for reconnect scheduling. */
 let reconnectTimer: number | null = null;
 /** Whether settings controls are locked. */
@@ -1330,6 +1332,7 @@ function enterSpectatorMode(): void {
   pointerScreen = null;
   boostHeld = false;
   resumePlayerAfterReconnect = false;
+  resumeSpectatorAfterReconnect = true;
   playerResumeToken = '';
   playerActionPump.stop();
   try {
@@ -1350,6 +1353,7 @@ function enterSpectatorMode(): void {
  */
 function enterPlayerMode(): void {
   if (!wsClient?.isConnected()) return;
+  resumeSpectatorAfterReconnect = false;
   const fallbackName = 'player';
   const name = joinName?.value.trim() || lastPlayerName || fallbackName;
   if (joinName && !joinName.value.trim()) {
@@ -3633,8 +3637,8 @@ wsClient = createWsClient({
     } else {
       joinPending = false;
       wsClient?.sendJoin('spectator');
-      setJoinOverlayVisible(true);
-      setJoinStatus('Enter a nickname to play');
+      setJoinOverlayVisible(!resumeSpectatorAfterReconnect);
+      setJoinStatus(resumeSpectatorAfterReconnect ? 'Spectating' : 'Enter a nickname to play');
     }
     wsClient?.sendViz(activeTab === 'tab-viz');
     updateJoinControls();

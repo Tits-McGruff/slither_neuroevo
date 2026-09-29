@@ -68,11 +68,17 @@ interface SmokeElement {
 function makeElement(id: string): SmokeElement {
   const attributes = new Map<string, string>();
   const listeners = new Map<string, Array<(event: Event) => void>>();
+  const classes = new Set<string>();
   const classList = {
-    add() { },
-    remove() { },
-    toggle() { return false; },
-    contains() { return false; }
+    add(...tokens: string[]) { for (const token of tokens) classes.add(token); },
+    remove(...tokens: string[]) { for (const token of tokens) classes.delete(token); },
+    toggle(token: string, force?: boolean) {
+      const enabled = force ?? !classes.has(token);
+      if (enabled) classes.add(token);
+      else classes.delete(token);
+      return enabled;
+    },
+    contains(token: string) { return classes.has(token); }
   } as unknown as DOMTokenList;
   const context = {
     setTransform() { },
@@ -212,6 +218,8 @@ describe('main.ts startup smoke', () => {
       innerWidth: 800,
       innerHeight: 600,
       location: { search: '', hostname: 'localhost', protocol: 'http:' },
+      /** Delegate browser timers to Vitest's controllable timer surface. */
+      setTimeout(handler: () => void, delay: number) { return setTimeout(handler, delay); },
       addEventListener(type: string, listener: EventListener) {
         const registered = windowListeners.get(type) ?? [];
         registered.push(listener);
@@ -280,6 +288,41 @@ describe('main.ts startup smoke', () => {
     await import('./main.ts');
 
     expect(connectedUrl).toBe('ws://localhost:5174');
+  });
+
+  it('restores an explicitly selected spectator session after reconnect', async () => {
+    vi.useFakeTimers();
+    await import('./main.ts');
+    const first = activeSocket;
+    if (!first) throw new Error('missing browser WebSocket');
+    const welcome = {
+      type: 'welcome', protocolVersion: 2, sessionId: 'spectator-session', tickRate: 60,
+      worldSeed: 42, runId: 'spectator-run', configRevision: 0, configHash: 'cfg-spectator',
+      settings: { core: { simSpeed: 1 }, updates: [] },
+      inferenceMode: { requestedBackend: 'native', activeBackend: 'native',
+        requestedMt: false, activeWorkerCount: 1 },
+      sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' },
+      serializerVersion: 1, frameByteLength: 28
+    };
+    first.onopen?.();
+    first.onmessage?.({ data: JSON.stringify(welcome) });
+    expect(elements.get('joinOverlay')?.classList.contains('hidden')).toBe(false);
+
+    elements.get('joinSpectate')?.click();
+    expect(elements.get('joinOverlay')?.classList.contains('hidden')).toBe(true);
+    first.onclose?.();
+    expect(elements.get('joinOverlay')?.classList.contains('hidden')).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const second = activeSocket;
+    if (!second || second === first) throw new Error('browser did not reconnect');
+    second.onopen?.();
+    second.onmessage?.({ data: JSON.stringify(welcome) });
+    expect(second.sent.map(payload => JSON.parse(payload) as Record<string, unknown>)
+      .filter(message => message['type'] === 'join'))
+      .toEqual([{ type: 'join', mode: 'spectator' }]);
+    expect(elements.get('joinOverlay')?.classList.contains('hidden')).toBe(true);
+    expect(elements.get('joinStatus')?.textContent).toBe('Spectating');
   });
 
   it('downloads the Rust archive through one direct link without fetching population JSON', async () => {
