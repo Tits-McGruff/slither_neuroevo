@@ -966,3 +966,34 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   bound and 835 ms observed maximum. The speed margin above the 0.98 target is
   narrow; restart-isolated measurement and real browser/trainer load remain to
   be checked before calling the full P2 gate complete.
+
+- 2026-09-29 A restart-isolated P1 ten-minute run from an evolved checkpoint
+  reproduced 0.9927 speed, zero dropped time, and short generation/checkpoint
+  intervals, but its five-worker step p99 exceeded the precise 16.667 ms gate
+  bucket and remains a failed P1 timing target. Short restart-isolated
+  six-worker P1 and P2 runs measured 0.9937 and 0.9869 speed respectively,
+  zero dropped time, and step p99 at or below 16.667 and 16 ms. Longer six-worker
+  runs and real-client load are required before changing the default.
+
+- 2026-09-29 Four isolated continuations from the same stopped evolved P2
+  generation-eleven checkpoint used one, four, five and six Rust workers. All
+  four committed the exact same generation-twelve checkpoint, history record,
+  Hall-of-Fame record, winner weight hash and fitness. The one-worker run
+  discarded 5.31 seconds of scheduler wall debt, so this proves one boundary's
+  discrete result but does not make one worker a real-time P2 configuration.
+
+- 2026-09-29 The restart-isolated six-worker P1 run then sustained ten minutes
+  at 0.9926 simulated/wall speed with zero dropped time, nine checkpoint
+  barriers below 243 ms, and complete generation intervals below 60.73 seconds.
+  Step p99 nonetheless landed above 16.667 ms in the 24 ms upper bucket,
+  unlike its earlier two-minute result, so the required P1 p99 gate remains
+  open. The target VM's separate existing game server on port 5174 used about
+  1–2 CPU cores during these measurements; no causal attribution or clean-VM
+  pass is claimed.
+
+- 2026-09-29 A restart-isolated six-worker P2 run sustained ten minutes at
+  0.9810 simulated/wall speed with zero dropped time, step p99 at or below
+  16 ms, nine checkpoint barriers below 798 ms, and complete generation
+  intervals between 61.21 and 61.44 seconds. Peak RSS was 550 MB. This is
+  only a small improvement over the five-worker P2 run and does not establish
+  a better default; real browser/trainer load and the P1 timing issue remain.

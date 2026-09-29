@@ -154,6 +154,8 @@ pub struct CollisionDiagnostics {
     pub segment_capacity: usize,
     /// Retained stable snake-order capacity.
     pub order_capacity: usize,
+    /// Retained per-snake swept head-envelope capacity.
+    pub head_envelope_capacity: usize,
     /// Retained cell-entry capacity.
     pub entry_capacity: usize,
     /// Retained occupied-cell capacity.
@@ -540,10 +542,36 @@ struct DeathFlags {
     body_owner_id: Option<u64>,
 }
 
+/// One immutable swept head bound and its two collision radii for pair checks.
+#[derive(Clone, Copy, Debug, Default)]
+struct SweptHeadEnvelope {
+    min_x: f64,
+    max_x: f64,
+    min_y: f64,
+    max_y: f64,
+    movement_radius: f64,
+    final_radius: f64,
+}
+
+impl SweptHeadEnvelope {
+    /// Cache pair-invariant geometry after the staged motion has been validated.
+    fn from_snake(snake: &SnakeState, movement_radius: f64) -> Self {
+        Self {
+            min_x: snake.previous_position.x.min(snake.position.x),
+            max_x: snake.previous_position.x.max(snake.position.x),
+            min_y: snake.previous_position.y.min(snake.position.y),
+            max_y: snake.previous_position.y.max(snake.position.y),
+            movement_radius,
+            final_radius: snake.radius,
+        }
+    }
+}
+
 /// Reusable collision index, query, and deterministic outcome scratch.
 #[derive(Clone, Debug, Default)]
 pub struct CollisionWorkspace {
     order: Vec<usize>,
+    head_envelopes: Vec<SweptHeadEnvelope>,
     index: SweptBodyIndex,
     query_scratch: CandidateScratch,
     head_head_contacts: Vec<HeadHeadContact>,
@@ -582,6 +610,11 @@ impl CollisionWorkspace {
             return Err(CollisionError::FoodShapeMismatch);
         }
         reserve_for(&mut self.order, food.snakes().len(), "collision order")?;
+        reserve_for(
+            &mut self.head_envelopes,
+            food.snakes().len(),
+            "collision head envelopes",
+        )?;
         reserve_for(
             &mut self.death_flags,
             food.snakes().len(),
@@ -697,36 +730,46 @@ impl CollisionWorkspace {
                 validate_motion(&food.snakes()[snake_index])?;
             }
         }
+        self.head_envelopes
+            .resize(food.snakes().len(), SweptHeadEnvelope::default());
+        for &snake_index in &self.order {
+            if food.source_world().snakes[snake_index].alive {
+                let movement_radius = food
+                    .movement_radius_for_index(snake_index)
+                    .ok_or(CollisionError::FoodShapeMismatch)?;
+                self.head_envelopes[snake_index] =
+                    SweptHeadEnvelope::from_snake(&food.snakes()[snake_index], movement_radius);
+            }
+        }
         for left_order in 0..self.order.len() {
             let left_index = self.order[left_order];
             let left = &food.snakes()[left_index];
             if !food.source_world().snakes[left_index].alive {
                 continue;
             }
+            let left_envelope = self.head_envelopes[left_index];
             for &right_index in &self.order[left_order + 1..] {
                 let right = &food.snakes()[right_index];
                 if !food.source_world().snakes[right_index].alive {
                     continue;
                 }
-                let left_movement_radius = food
-                    .movement_radius_for_index(left_index)
-                    .ok_or(CollisionError::FoodShapeMismatch)?;
-                let right_movement_radius = food
-                    .movement_radius_for_index(right_index)
-                    .ok_or(CollisionError::FoodShapeMismatch)?;
+                let right_envelope = self.head_envelopes[right_index];
                 let movement_threshold = combined_threshold(
-                    left_movement_radius,
-                    right_movement_radius,
+                    left_envelope.movement_radius,
+                    right_envelope.movement_radius,
                     config.hit_scale,
                 )?;
-                let final_threshold =
-                    combined_threshold(left.radius, right.radius, config.hit_scale)?;
+                let final_threshold = combined_threshold(
+                    left_envelope.final_radius,
+                    right_envelope.final_radius,
+                    config.hit_scale,
+                )?;
                 // A pair cannot meet if even its entire swept axis-aligned
                 // envelopes stay farther apart than the larger legal radius.
                 // Keep the contact tolerance so this only rejects clear misses.
                 if swept_head_envelopes_separate(
-                    left,
-                    right,
+                    left_envelope,
+                    right_envelope,
                     movement_threshold.max(final_threshold) + CONTACT_SPACE_TOLERANCE,
                 ) {
                     continue;
@@ -844,6 +887,7 @@ impl CollisionWorkspace {
             maximum_contact_intervals: self.maximum_contact_intervals,
             segment_capacity: self.index.segments.capacity(),
             order_capacity: self.order.capacity(),
+            head_envelope_capacity: self.head_envelopes.capacity(),
             entry_capacity: self.index.entries.capacity(),
             cell_capacity: self.index.cells.capacity(),
             candidate_capacity: self.query_scratch.candidates.capacity(),
@@ -869,6 +913,7 @@ impl CollisionWorkspace {
             self.phase_timings = CollisionPhaseTimings::default();
         }
         self.order.clear();
+        self.head_envelopes.clear();
         self.head_head_contacts.clear();
         self.head_body_contacts.clear();
         self.death_flags.clear();
@@ -1078,19 +1123,15 @@ fn combined_threshold(first: f64, second: f64, scale: f64) -> Result<f64, Collis
 }
 
 /// Reject only head trajectories whose full swept envelopes cannot touch.
-fn swept_head_envelopes_separate(first: &SnakeState, second: &SnakeState, radius: f64) -> bool {
-    let first_min_x = first.previous_position.x.min(first.position.x);
-    let first_max_x = first.previous_position.x.max(first.position.x);
-    let second_min_x = second.previous_position.x.min(second.position.x);
-    let second_max_x = second.previous_position.x.max(second.position.x);
-    if first_min_x > second_max_x + radius || second_min_x > first_max_x + radius {
+fn swept_head_envelopes_separate(
+    first: SweptHeadEnvelope,
+    second: SweptHeadEnvelope,
+    radius: f64,
+) -> bool {
+    if first.min_x > second.max_x + radius || second.min_x > first.max_x + radius {
         return true;
     }
-    let first_min_y = first.previous_position.y.min(first.position.y);
-    let first_max_y = first.previous_position.y.max(first.position.y);
-    let second_min_y = second.previous_position.y.min(second.position.y);
-    let second_max_y = second.previous_position.y.max(second.position.y);
-    first_min_y > second_max_y + radius || second_min_y > first_max_y + radius
+    first.min_y > second.max_y + radius || second.min_y > first.max_y + radius
 }
 
 fn swept_point_point_contact_time(
@@ -1673,8 +1714,8 @@ mod tests {
                     .unwrap();
                     if exact.is_some() {
                         assert!(!swept_head_envelopes_separate(
-                            &first,
-                            &second,
+                            SweptHeadEnvelope::from_snake(&first, first.radius),
+                            SweptHeadEnvelope::from_snake(&second, second.radius),
                             threshold + CONTACT_SPACE_TOLERANCE,
                         ));
                     }
@@ -2592,6 +2633,7 @@ mod tests {
                 .diagnostics();
             assert_eq!(next.segment_capacity, first.segment_capacity);
             assert_eq!(next.order_capacity, first.order_capacity);
+            assert_eq!(next.head_envelope_capacity, first.head_envelope_capacity);
             assert_eq!(next.entry_capacity, first.entry_capacity);
             assert_eq!(next.cell_capacity, first.cell_capacity);
             assert_eq!(next.candidate_capacity, first.candidate_capacity);
