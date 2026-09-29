@@ -185,17 +185,29 @@ async function warmToGenerationTwo(port: number): Promise<Health> {
 /** Measure one evolved 1× Rust run through real HTTP health and generation commits. */
 export async function run(request: Options): Promise<Record<string, unknown>> {
   await mkdir(dirname(request.databasePath), { recursive: true });
-  const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+  const warmup = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
     dbPath: request.databasePath, resume: 'fresh', seed: 1511506142,
+    rustCalculationWorkers: request.rustWorkers, logLevel: 'error' });
+  if (warmup.startupFault) {
+    await warmup.close();
+    throw new Error(`Rust startup failed: ${warmup.startupFault}`);
+  }
+  try {
+    await configure(warmup.port, request.scenario, request.rustWorkers);
+    await warmToGenerationTwo(warmup.port);
+  } finally { await warmup.close(); }
+  const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+    dbPath: request.databasePath, resume: 'latest',
     rustCalculationWorkers: request.rustWorkers, logLevel: 'error' });
   if (server.startupFault) {
     await server.close();
-    throw new Error(`Rust startup failed: ${server.startupFault}`);
+    throw new Error(`Rust evolved-checkpoint restart failed: ${server.startupFault}`);
   }
   try {
-    await configure(server.port, request.scenario, request.rustWorkers);
-    await warmToGenerationTwo(server.port);
     const initial = await readHealth(server.port);
+    if (BigInt(`0x${initial.health.generation}`) !== 2n) {
+      throw new Error('evolved-checkpoint restart did not begin at generation two');
+    }
     const startedAt = performance.now();
     const startedCpu = process.cpuUsage();
     const endAt = startedAt + request.measureSeconds * 1000;
@@ -228,7 +240,8 @@ export async function run(request: Options): Promise<Record<string, unknown>> {
       transition.wallSeconds - transitions[index]!.wallSeconds);
     const simulatedWallRatio = Number(deltaSteps) / 60 / wallSeconds;
     return { scenario: request.scenario, rustWorkers: request.rustWorkers,
-      measuredEvolvedPopulation: true, requestedMeasureSeconds: request.measureSeconds,
+      measuredEvolvedPopulation: true, measurementStartedFromCheckpoint: true,
+      requestedMeasureSeconds: request.measureSeconds,
       wallSeconds, deltaSteps: deltaSteps.toString(), simulatedWallRatio,
       droppedWallMicros: droppedWallMicros.toString(), schedulerOverloadedAtEnd: final.schedulerOverloaded,
       startGeneration: initial.health.generation, endGeneration: final.generation,

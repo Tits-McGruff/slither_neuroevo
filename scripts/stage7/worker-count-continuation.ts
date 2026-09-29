@@ -1,4 +1,4 @@
-/** Compare one exact generation continuation under one and five Rust workers. */
+/** Compare one exact generation continuation across production Rust worker counts. */
 
 import { existsSync } from 'node:fs';
 import { link, mkdir, readdir } from 'node:fs/promises';
@@ -17,6 +17,23 @@ interface Boundary {
   /** Content identity of the current population checkpoint. */
   checkpointId: string;
 }
+
+/** Discrete generation result retained apart from the successor population. */
+interface GenerationResult {
+  /** Packed eight-field generation history. */
+  historyHex: string;
+  /** Packed eight-field Hall-of-Fame result. */
+  hallOfFameHex: string;
+  /** Selected winner weight identity, if this generation retained it. */
+  weightsSha256: string | null;
+  /** Winner genome identity. */
+  genomeSha256: string | null;
+  /** Exact persisted fitness. */
+  fitnessValue: number;
+}
+
+/** Worker counts accepted by the current production runtime. */
+const WORKER_COUNTS = [1, 4, 5, 6] as const;
 
 /** Small production health projection needed to await one full generation. */
 interface Health {
@@ -68,6 +85,29 @@ function activeBoundary(databasePath: string): Boundary {
   } finally { database.close(); }
 }
 
+/** Read committed history and winner records for the completed source round. */
+function generationResult(databasePath: string, source: Boundary): GenerationResult {
+  const database = new Database(databasePath, { readonly: true, fileMustExist: true });
+  try {
+    const history = database.prepare(`SELECT record_blob AS recordBlob
+      FROM rust_generation_history_v1 WHERE run_id = ? AND generation_hex = ?`)
+      .get(source.runId, source.generation) as { recordBlob: Buffer } | undefined;
+    const hall = database.prepare(`SELECT record_blob AS recordBlob,
+      weights_sha256 AS weightsSha256, genome_sha256 AS genomeSha256,
+      fitness_value AS fitnessValue FROM rust_hall_of_fame_v1
+      WHERE run_id = ? AND generation_hex = ?`)
+      .get(source.runId, source.generation) as {
+        recordBlob: Buffer; weightsSha256: string | null;
+        genomeSha256: string | null; fitnessValue: number
+      } | undefined;
+    if (!history || !hall) throw new Error('continuation omitted durable generation records');
+    return { historyHex: history.recordBlob.toString('hex'),
+      hallOfFameHex: hall.recordBlob.toString('hex'),
+      weightsSha256: hall.weightsSha256, genomeSha256: hall.genomeSha256,
+      fitnessValue: hall.fitnessValue };
+  } finally { database.close(); }
+}
+
 /** Copy metadata consistently and hard-link only immutable managed objects. */
 async function copyFixture(sourcePath: string, targetPath: string): Promise<void> {
   const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
@@ -96,7 +136,8 @@ async function health(port: number): Promise<Health> {
 
 /** Advance exactly one complete generation under one requested worker count. */
 async function continueGeneration(databasePath: string, workers: number, source: Boundary): Promise<{
-  workers: number; boundary: Boundary; wallSeconds: number; completedSteps: string;
+  workers: number; boundary: Boundary; generationResult: GenerationResult;
+  wallSeconds: number; completedSteps: string;
   droppedWallMicros: string
 }> {
   const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: databasePath,
@@ -131,19 +172,20 @@ async function continueGeneration(databasePath: string, workers: number, source:
       BigInt(`0x${boundary.generation}`) !== BigInt(`0x${source.generation}`) + 1n) {
     throw new Error(`${workers}-worker copy did not commit the next population`);
   }
-  return { workers, boundary, wallSeconds: (performance.now() - startedAt) / 1000,
+  return { workers, boundary, generationResult: generationResult(databasePath, source),
+    wallSeconds: (performance.now() - startedAt) / 1000,
     completedSteps: (BigInt(`0x${last.completedStep}`) - BigInt(`0x${first.completedStep}`)).toString(),
     droppedWallMicros: (BigInt(`0x${last.schedulerDroppedWallMicros}`) -
       BigInt(`0x${first.schedulerDroppedWallMicros}`)).toString() };
 }
 
-/** Run two isolated continuations sequentially to avoid target-VM contention. */
+/** Run isolated continuations sequentially to avoid target-VM contention. */
 export async function run(sourcePath: string, outputRoot: string): Promise<Record<string, unknown>> {
   if (existsSync(outputRoot)) throw new Error(`output already exists: ${outputRoot}`);
   await mkdir(outputRoot, { recursive: true });
   const source = activeBoundary(sourcePath);
   const results: Array<Awaited<ReturnType<typeof continueGeneration>>> = [];
-  for (const workers of [1, 5]) {
+  for (const workers of WORKER_COUNTS) {
     const databasePath = resolve(outputRoot, `workers-${workers}.sqlite`);
     await copyFixture(sourcePath, databasePath);
     if (JSON.stringify(activeBoundary(databasePath)) !== JSON.stringify(source)) {
@@ -154,12 +196,19 @@ export async function run(sourcePath: string, outputRoot: string): Promise<Recor
     process.stderr.write(`workers=${workers} generation=${BigInt(`0x${result.boundary.generation}`)} checkpoint=${result.boundary.checkpointId}\n`);
   }
   return { sourcePath, outputRoot, source, results,
-    exactNextCheckpointMatch: results[0]!.boundary.checkpointId === results[1]!.boundary.checkpointId };
+    exactNextCheckpointMatch: results.every(result =>
+      result.boundary.checkpointId === results[0]!.boundary.checkpointId),
+    exactGenerationRecordsMatch: results.every(result =>
+      JSON.stringify(result.generationResult) === JSON.stringify(results[0]!.generationResult)) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const request = options(process.argv.slice(2));
   void run(request.sourcePath, request.outputRoot)
-    .then(result => process.stdout.write(`${JSON.stringify(result)}\n`))
+    .then(result => {
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+      if (result['exactNextCheckpointMatch'] !== true ||
+          result['exactGenerationRecordsMatch'] !== true) process.exitCode = 1;
+    })
     .catch(error => { process.stderr.write(`${String(error)}\n`); process.exitCode = 1; });
 }

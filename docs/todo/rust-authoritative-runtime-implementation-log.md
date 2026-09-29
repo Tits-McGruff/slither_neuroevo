@@ -957,3 +957,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   the 16–24 ms histogram bucket, which cannot resolve the 16.67 ms target;
   the timing histogram now adds an exact gate boundary for a repeat run.
   Real browser/trainer load, action latency and display rate remain open.
+
+- 2026-09-29 The evolved P2 large-brain production server sustained a measured
+  ten minutes at 1x with five Rust workers: 0.9807 simulated/wall speed, zero
+  dropped time, eight complete generation intervals between 61.17 and 61.47
+  seconds, step p99 at or below 16 ms, event-loop delay p99 11.64 ms, and peak
+  RSS 399 MB. Ten complete checkpoint barriers had a conservative 1000 ms p95
+  bound and 835 ms observed maximum. The speed margin above the 0.98 target is
+  narrow; restart-isolated measurement and real browser/trainer load remain to
+  be checked before calling the full P2 gate complete.
