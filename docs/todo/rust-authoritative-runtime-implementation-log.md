@@ -1020,3 +1020,24 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   5180 was closed afterward. This covers one real browser/player lifecycle
   slice, not P0/P2, delayed display/sensors, browser frame budgets, or the
   separate desktop trainer under load.
+
+- 2026-09-29 The owner's actual PyRL trainer connected two actors to a
+  disposable evolved P1 server over the LAN, discovered the 83-input v3
+  sensor contract, received death replacements, and kept learning across an
+  intentional server SIGTERM and latest-checkpoint restart. A browser
+  spectator was connected during the restarted run. After 1,398 seconds the
+  server reported 0.9917 simulated/wall speed, 158,127 Rust-applied trainer
+  actions at 16 ms receipt-to-application p95, 11.98 ms Node event-loop p99,
+  and 205 MB peak RSS. P1 still failed its complete loaded timing gate: native
+  step p99 was in the 16.667–24 ms bucket and the scheduler reported 39.667 ms
+  dropped wall debt. The VM's separate existing game server remained active;
+  no clean-host capacity or cause is inferred from this run.
+
+- 2026-09-29 The same server restart revealed that the browser rejoined as a
+  spectator but displayed the welcome overlay again. `8be3b59` now remembers
+  an explicit Spectate choice across reconnects while retaining the initial
+  join prompt. A focused browser-state regression, TypeScript, ESLint, Vite,
+  and CI passed. After rebuilding browser assets on the target VM, a real LAN
+  browser returned automatically to visible Spectating and fresh Rust frames
+  across another disposable server restart. The temporary server was stopped
+  afterward; the owner's port-5174 game was untouched.
