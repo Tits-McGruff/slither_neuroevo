@@ -931,3 +931,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   browser initiated both large and small download requests but canceled each
   at zero bytes; its direct archive URL was also blocked by the browser
   surface. Browser download and memory acceptance remain unproven.
+
+- 2026-09-29 The evolved P0 production server sustained a measured ten minutes
+  at 1x on the target VM with five Rust workers and the configured 60-second
+  generation: 0.9978 simulated/wall speed, zero dropped scheduler time, and
+  eight complete measured transition intervals between 59.95 and 60.22 seconds.
+  Health p95 was 2.16 ms, step p99 12 ms, event-loop delay p95 10.72 ms,
+  and peak RSS 206 MB. This clears the measured P0 ratio/debt/round/step/health
+  portions; browser action latency, display rate, checkpoint-barrier timing,
+  real-client load, and the P1/P2 ten-minute gates remain open.
