@@ -940,3 +940,20 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   and peak RSS 206 MB. This clears the measured P0 ratio/debt/round/step/health
   portions; browser action latency, display rate, checkpoint-barrier timing,
   real-client load, and the P1/P2 ten-minute gates remain open.
+
+- 2026-09-29 A stopped evolved P0 generation-three checkpoint was copied into
+  two isolated stores on the target VM. Sequential continuation with one and
+  five Rust calculation workers committed the same generation-four checkpoint
+  ID with zero dropped scheduler time in both runs. This is an exact
+  next-population check for one P0 boundary; broader worker-count and
+  discrete-outcome comparison remains open.
+
+- 2026-09-29 The evolved P1 300-snake production server sustained a measured
+  ten minutes at 1x with five Rust workers: 0.9927 simulated/wall speed, zero
+  additional dropped time after warm-up, and eight complete measured
+  generation intervals between 60.44 and 60.49 seconds. Health p95 was
+  2.17 ms, peak RSS 244 MB, and ten checkpoint barriers had a 250 ms
+  conservative p95 bound and 244 ms observed maximum. Native step p99 was in
+  the 16–24 ms histogram bucket, which cannot resolve the 16.67 ms target;
+  the timing histogram now adds an exact gate boundary for a repeat run.
+  Real browser/trainer load, action latency and display rate remain open.

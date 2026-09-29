@@ -21,6 +21,8 @@ export interface ExperimentalProcessTelemetry {
   eventLoopDelayMeanMs: number;
   /** Event-loop-delay 95th percentile since server start. */
   eventLoopDelayP95Ms: number;
+  /** Event-loop-delay 99th percentile since server start. */
+  eventLoopDelayP99Ms: number;
   /** Largest event-loop delay since server start. */
   eventLoopDelayMaxMs: number;
 }
@@ -281,6 +283,7 @@ export class ExperimentalRuntimeTelemetry {
         maxRssBytes: process.resourceUsage().maxRSS * 1_024,
         eventLoopDelayMeanMs: delayMilliseconds(this.eventLoopDelay.mean),
         eventLoopDelayP95Ms: delayMilliseconds(this.eventLoopDelay.percentile(95)),
+        eventLoopDelayP99Ms: delayMilliseconds(this.eventLoopDelay.percentile(99)),
         eventLoopDelayMaxMs: delayMilliseconds(this.eventLoopDelay.max)
       },
       frame: { latestBytes: this.latestFrameBytes, maximumObservedBytes: this.maximumFrameBytes },

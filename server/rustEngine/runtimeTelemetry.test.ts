@@ -61,6 +61,9 @@ describe('experimental runtime telemetry', () => {
       });
       expect(snapshot.process.rssBytes).toBeGreaterThan(0);
       expect(snapshot.process.eventLoopDelayP95Ms).toBeGreaterThanOrEqual(0);
+      expect(snapshot.process.eventLoopDelayP99Ms).toBeGreaterThanOrEqual(
+        snapshot.process.eventLoopDelayP95Ms
+      );
     } finally {
       telemetry.close();
     }

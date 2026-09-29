@@ -30,7 +30,7 @@ use super::world_step::ExternalDeliveryStatus;
 /// conservative bucket upper bounds, while maximum and mean use exact sampled
 /// microseconds. The denser sub-frame buckets preserve useful P0/P1 resolution
 /// without retaining one record per authoritative step.
-const STEP_TIMING_BUCKET_UPPER_MICROS: [u64; 24] = [
+const STEP_TIMING_BUCKET_UPPER_MICROS: [u64; 25] = [
     100,
     200,
     300,
@@ -46,6 +46,7 @@ const STEP_TIMING_BUCKET_UPPER_MICROS: [u64; 24] = [
     8_000,
     12_000,
     16_000,
+    16_667,
     24_000,
     32_000,
     48_000,
@@ -1437,6 +1438,20 @@ mod tests {
         assert_eq!(health.step_timing_max_micros, 300_000);
         assert_eq!(health.step_timing_p95_micros, 200);
         assert_eq!(health.step_timing_p99_micros, 1_000);
+    }
+
+    #[test]
+    fn production_step_histogram_distinguishes_the_realtime_gate() {
+        let running = background_generation_handoff_fixture().unwrap().running;
+        let metrics = RunningAuthorityMetrics::new(&running);
+        for _ in 0..99 {
+            metrics.record_step_duration(Duration::from_micros(16_600));
+        }
+        metrics.record_step_duration(Duration::from_micros(20_000));
+
+        let health = metrics.snapshot();
+        assert_eq!(health.step_timing_p99_micros, 16_667);
+        assert_eq!(health.step_timing_max_micros, 20_000);
     }
 
     /// Resume the existing connected-controller fixture into a normal generation.

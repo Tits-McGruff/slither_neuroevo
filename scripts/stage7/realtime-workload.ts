@@ -39,9 +39,11 @@ interface Health {
   /** Public fault if the authority stopped. */
   interfaceFault?: string;
   /** Aggregated runtime timings and process memory from production health. */
-  telemetry: { step: { p95Ms: number; p99Ms: number }; process: {
-    rssBytes: number; maxRssBytes: number; eventLoopDelayP95Ms: number
-  } };
+  telemetry: { step: { samples: number; p95Ms: number; p99Ms: number; maxMs: number }; process: {
+    rssBytes: number; maxRssBytes: number; eventLoopDelayP95Ms: number;
+    eventLoopDelayP99Ms: number; eventLoopDelayMaxMs: number
+  }; checkpointBarrier: { samples: number; p95Ms: number; maxMs: number };
+  frame: { latestBytes: number; maximumObservedBytes: number } };
 }
 
 /** Parse one bounded positive integer without accepting a partial string. */
@@ -232,8 +234,14 @@ export async function run(request: Options): Promise<Record<string, unknown>> {
       startGeneration: initial.health.generation, endGeneration: final.generation,
       transitions, transitionIntervals,
       healthLatencyP95Ms: percentile(latencies, 0.95), healthLatencyMaxMs: Math.max(...latencies),
+      stepSamples: final.telemetry.step.samples,
       stepP95Ms: final.telemetry.step.p95Ms, stepP99Ms: final.telemetry.step.p99Ms,
+      stepMaxMs: final.telemetry.step.maxMs,
       eventLoopDelayP95Ms: final.telemetry.process.eventLoopDelayP95Ms,
+      eventLoopDelayP99Ms: final.telemetry.process.eventLoopDelayP99Ms,
+      eventLoopDelayMaxMs: final.telemetry.process.eventLoopDelayMaxMs,
+      checkpointBarrier: final.telemetry.checkpointBarrier,
+      frame: final.telemetry.frame,
       maxRssBytes: final.telemetry.process.maxRssBytes,
       cpuUserSeconds: cpu.user / 1_000_000, cpuSystemSeconds: cpu.system / 1_000_000,
       meetsMeasuredRatioAndDebtGate: simulatedWallRatio >= 0.98 && droppedWallMicros === 0n };
