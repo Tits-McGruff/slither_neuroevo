@@ -1055,3 +1055,16 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   capacity limit or prove AVX would help. Focused Rust control/phase tests,
   Clippy, TypeScript, ESLint and the native integration overlay passed. The
   disposable trainer/server stopped afterward; port 5180 was closed.
+
+- 2026-09-30 `534821e` separated sensing from graph inference inside the
+  production neural-batch timing. A disposable six-worker evolved P1 server
+  with two real PyRL actors then measured 5,518 further steps, including 44
+  above 16.667 ms, with zero dropped scheduler debt. Sensing accounted for
+  84% of neural-batch time in those slow steps; graph inference accounted for
+  16%, or about 7% of their complete step time. This makes wider SIMD math an
+  unlikely standalone P1 timing fix and points the next profiling/optimization
+  slice at sensing and worker waits. The interval is too short and spans a
+  changing population, so it does not establish the final p99 gate. Focused
+  Rust tests, Clippy, TypeScript, ESLint and the native integration overlay
+  passed. The disposable trainer/server stopped; port 5180 closed while the
+  owner's port-5174 game remained active.
