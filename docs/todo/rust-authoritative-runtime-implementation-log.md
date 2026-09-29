@@ -918,3 +918,16 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   restart selected the same checkpoint. This proves the large HTTP archive
   path, while real browser download/upload memory and responsiveness remain
   open for A1–A3/A10 acceptance.
+
+- 2026-09-29 A target-VM P3 export overlapping a generation exposed a
+  checkpoint-budget fault: export's post-write validator briefly extracts a
+  checkpoint into its private `.import-validation` directory, which the
+  persistence worker had treated as an illegal non-file. The worker now counts
+  that directory and its regular child files in physical budget admission,
+  while rejecting unknown directories and links. A focused real-worker test
+  verifies the exact byte boundary. A repeated 420,241,408-byte export on the
+  target VM completed while the same Rust process advanced through subsequent
+  generations with healthy status. The latest CI matrix passed. The in-app
+  browser initiated both large and small download requests but canceled each
+  at zero bytes; its direct archive URL was also blocked by the browser
+  surface. Browser download and memory acceptance remain unproven.
