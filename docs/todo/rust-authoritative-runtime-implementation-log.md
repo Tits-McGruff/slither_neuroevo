@@ -1079,3 +1079,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   pinned-core runs showed no reliable whole-pass improvement, so `305a9e7`
   reverted it. The next optimization should be measured against the pellet
   query or accumulation cost and then the complete loaded step.
+
+- 2026-09-30 The real Rust generation-handoff fixture now injects a failure
+  after the SQLite worker replies but before Rust acknowledges the committed
+  descriptor. The database has one committed successor pointer while Rust
+  remains at the old pending boundary; retry replays that exact commit and
+  completes acknowledgement and the single successor swap. The isolated
+  production/test-hook addon suite passed. Process-death injection at this
+  point and the post-swap/pre-success boundary remain separate acceptance work.

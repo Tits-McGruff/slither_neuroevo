@@ -971,11 +971,36 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
 
       const runStartCommit = await client.commit(runStart);
       expect(runStartCommit.descriptor).toEqual(runStart);
-      const generationCommit = await client.commit(
-        firstPublication.descriptor,
-        firstPublication.generationCommit
-      );
+      let repliedCommit: Awaited<ReturnType<CheckpointPersistenceClient['commit']>> | undefined;
+      const failAfterReply = new GenerationPersistenceHandoff({
+        rust: session,
+        persistence: {
+          async commit(descriptor, generationCommit) {
+            repliedCommit = await client.commit(descriptor, generationCommit);
+            throw new Error('injected after SQLite reply before Rust acknowledgement');
+          }
+        },
+        managedDirectory: paths.managedRoot
+      });
+      await expect(failAfterReply.commitPendingGeneration(
+        firstPublication.descriptor.operationId
+      )).rejects.toThrow(/injected after SQLite reply before Rust acknowledgement/u);
+      const generationCommit = repliedCommit;
+      if (!generationCommit) throw new Error('injected post-reply commit did not finish');
       expect(generationCommit.descriptor).toEqual(firstPublication.descriptor);
+      expect(countMetadataRows(paths.databasePath)).toBe(2);
+      expect(readCurrentPointer(paths.databasePath, runStart.runId)).toEqual({
+        checkpoint_id: firstPublication.descriptor.logicalRootSha256,
+        transition_epoch: firstPublication.descriptor.transitionEpoch,
+        operation_id: firstPublication.descriptor.operationId
+      });
+      expect(session.snapshot()).toMatchObject({
+        generation: '0000000000000001',
+        completedStep: '0000000000000000',
+        transitionPending: true,
+        persistenceAcknowledged: false,
+        authorityPublications: 0
+      });
       expect(() => session.prepareGenerationAssignment()).toThrow(
         /requires a successful persistence acknowledgement/i
       );
