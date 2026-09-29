@@ -1,5 +1,5 @@
 import { parseRecoveryScanCursor, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
-import { closeSync, fsyncSync, lstatSync, openSync, readdirSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, lstatSync, openSync, readdirSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, type Dirent } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, resolve, sep } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
@@ -1505,18 +1505,46 @@ function inspectManagedStorage(): ManagedStorageDiagnostics {
 
 /** Count actual managed files and SQLite sidecars before a bounded publication. */
 function physicalCheckpointStoreBytes(): bigint {
+  /** Export validation briefly extracts one checkpoint into this private directory. */
+  const importValidationDirectory = /^\.[0-9a-f]{32}\.import-validation$/u;
   let total = sqliteFileByteCount(bootstrap.databasePath, false) +
     sqliteFileByteCount(`${bootstrap.databasePath}-wal`, true) +
     sqliteFileByteCount(`${bootstrap.databasePath}-shm`, true);
   for (const entry of readdirSync(managedRootPath, { withFileTypes: true })) {
-    if (!entry.isFile() || entry.isSymbolicLink()) {
-      throw new Error(`managed checkpoint directory contains a non-file during budget admission: ${entry.name}`);
+    const path = resolve(managedRootPath, entry.name);
+    let metadata: ReturnType<typeof lstatSync>;
+    try { metadata = lstatSync(path, { bigint: true }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
     }
-    const metadata = lstatSync(resolve(managedRootPath, entry.name), { bigint: true });
-    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+    if (metadata.isSymbolicLink()) {
       throw new Error(`managed checkpoint file changed during budget admission: ${entry.name}`);
     }
+    if (metadata.isFile()) { total += metadata.size; continue; }
+    if (!metadata.isDirectory() || !importValidationDirectory.test(entry.name)) {
+      throw new Error(`managed checkpoint directory contains a non-file during budget admission: ${entry.name}`);
+    }
+    let children: Dirent[];
+    try { children = readdirSync(path, { withFileTypes: true }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
+    }
     total += metadata.size;
+    for (const child of children) {
+      const childPath = resolve(path, child.name);
+      let childMetadata: ReturnType<typeof lstatSync>;
+      try { childMetadata = lstatSync(childPath, { bigint: true }); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw error;
+      }
+      if (!childMetadata.isFile() || childMetadata.isSymbolicLink()) {
+        throw new Error(`managed import validation directory contains a non-file: ${child.name}`);
+      }
+      total += childMetadata.size;
+    }
   }
   return total;
 }

@@ -948,6 +948,39 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(existsSync(join(fixture.managedRoot, descriptors[8]!.relativeFilename))).toBe(true);
   });
 
+  it('charges an in-flight export validation directory without faulting the checkpoint', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(descriptor, null);
+    const validationDirectory = join(fixture.managedRoot,
+      `.${'a'.repeat(32)}.import-validation`);
+    mkdirSync(validationDirectory);
+    writeFileSync(join(validationDirectory, `${'b'.repeat(64)}.checkpoint-v3`), Buffer.alloc(1024 * 1024));
+    const before = await fixture.client.inspectRetention();
+    let physicalBytes = BigInt(statSync(fixture.databasePath).size);
+    for (const suffix of ['-wal', '-shm']) {
+      const path = `${fixture.databasePath}${suffix}`;
+      if (existsSync(path)) physicalBytes += BigInt(statSync(path).size);
+    }
+    physicalBytes += BigInt(statSync(join(fixture.managedRoot, descriptor.relativeFilename)).size) +
+      BigInt(statSync(validationDirectory).size) +
+      BigInt(statSync(join(validationDirectory, `${'b'.repeat(64)}.checkpoint-v3`)).size);
+    const automatic = BigInt(`0x${before.automaticStoredByteCount}`);
+    const pinned = BigInt(`0x${before.pinnedStoredByteCount}`);
+    const cap = BigInt(`0x${before.automaticByteCap}`);
+    const reserve = cap - (physicalBytes - automatic - pinned) - automatic;
+    expect(reserve).toBeGreaterThan(0n);
+    await expect(fixture.client.applyRetention(reserve)).resolves.toMatchObject({
+      inventory: { automaticStoredByteCount: before.automaticStoredByteCount }
+    });
+    await expect(fixture.client.applyRetention(reserve + 1n))
+      .rejects.toThrow(/protected automatic checkpoints/);
+    expect(await fixture.client.selectCurrent()).toEqual(descriptor);
+    mkdirSync(join(fixture.managedRoot, 'unknown-directory'));
+    await expect(fixture.client.applyRetention(0n))
+      .rejects.toThrow(/non-file during budget admission: unknown-directory/);
+  });
+
   it('uses the selected automatic byte cap in the worker inventory and pruning decision', async () => {
     const fixture = createFixture();
     await fixture.client.close();
