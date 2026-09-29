@@ -45,6 +45,7 @@ use super::state::{
 };
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::time::Instant;
 
 /// First joined controller-selection algorithm identity.
 pub const CONTROL_PHASE_VERSION: u32 = 1;
@@ -54,6 +55,13 @@ const NEURAL_BOOST_THRESHOLD: f32 = 0.35;
 const MINIMUM_NEURAL_CONTROL_INTERVAL_SECONDS: f64 = 0.008;
 /// Largest admitted interval and versioned pending-first-action sentinel.
 const MAXIMUM_NEURAL_CONTROL_INTERVAL_SECONDS: f64 = 0.06;
+
+/// Coarse control-selection costs retained without per-step allocations.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ControlPhaseCostMicros {
+    pub spatial_index: u64,
+    pub neural_batch: u64,
+}
 
 /// Complete projected settings and bounds for one control boundary.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -504,6 +512,7 @@ pub struct PreparedControlPhase<'workspace, 'prefix, 'source> {
     external_events: &'workspace [PreparedExternalObservation],
     external_observations: &'workspace [f32],
     diagnostics: ControlPhaseDiagnostics,
+    cost_micros: ControlPhaseCostMicros,
 }
 
 impl PreparedControlPhase<'_, '_, '_> {
@@ -517,6 +526,11 @@ impl PreparedControlPhase<'_, '_, '_> {
     #[must_use]
     pub const fn calculation_key(&self) -> CalculationBatchKey {
         self.calculation_key
+    }
+
+    /// Coarse index and neural costs from the prepared control boundary.
+    pub(crate) const fn cost_micros(&self) -> ControlPhaseCostMicros {
+        self.cost_micros
     }
 }
 
@@ -1260,6 +1274,7 @@ pub struct ControlPhaseWorkspace {
     lease_order: Vec<usize>,
     ready: bool,
     diagnostics: ControlPhaseDiagnostics,
+    last_cost: ControlPhaseCostMicros,
 }
 
 impl ControlPhaseWorkspace {
@@ -1302,6 +1317,7 @@ impl ControlPhaseWorkspace {
             lease_order: Vec::new(),
             ready: false,
             diagnostics: ControlPhaseDiagnostics::default(),
+            last_cost: ControlPhaseCostMicros::default(),
         })
     }
 
@@ -1335,6 +1351,7 @@ impl ControlPhaseWorkspace {
         inputs: ControlPhaseInputs<'prefix, 'source>,
     ) -> Result<PreparedControlPhase<'workspace, 'prefix, 'source>, ControlPhaseError> {
         self.clear_active();
+        self.last_cost = ControlPhaseCostMicros::default();
         inputs.config.validate()?;
         let prefix_config = inputs.prefix.config();
         if prefix_config.maximum_snakes != inputs.config.maximum_snakes {
@@ -1390,6 +1407,7 @@ impl ControlPhaseWorkspace {
             "external observation values",
         )?;
 
+        let index_started = Instant::now();
         self.body_index.rebuild(
             world,
             inputs.config.sensor_index.body_cell_size,
@@ -1400,6 +1418,8 @@ impl ControlPhaseWorkspace {
             inputs.config.sensor_index.pellet_cell_size,
             inputs.config.sensor_index.maximum_pellet_entries,
         )?;
+        self.last_cost.spatial_index =
+            u64::try_from(index_started.elapsed().as_micros()).unwrap_or(u64::MAX);
         let indexed = IndexedSensorWorld::from_indexes(
             world,
             std::mem::replace(&mut self.body_index, BodySpatialIndex::empty()),
@@ -1464,6 +1484,7 @@ impl ControlPhaseWorkspace {
 
         self.reset_brains.sort_unstable();
         let neural_output_size = self.neural.inference().output_size();
+        let neural_started = Instant::now();
         let batch = self.neural.prepare_and_evaluate(
             NeuralControlBatchInputs {
                 key: calculation_key,
@@ -1476,6 +1497,8 @@ impl ControlPhaseWorkspace {
             },
             &mut self.sensor_scratch,
         )?;
+        self.last_cost.neural_batch =
+            u64::try_from(neural_started.elapsed().as_micros()).unwrap_or(u64::MAX);
         for (ordinal, unit) in batch.work().iter().copied().enumerate() {
             let output_offset = ordinal.checked_mul(neural_output_size).ok_or(
                 ControlPhaseError::ArithmeticOverflow {
@@ -1917,6 +1940,7 @@ impl ControlPhaseWorkspace {
             external_events: &self.external_events,
             external_observations: &self.external_observations,
             diagnostics: self.diagnostics,
+            cost_micros: self.last_cost,
         })
     }
 

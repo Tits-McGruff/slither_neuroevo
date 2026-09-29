@@ -132,6 +132,10 @@ pub struct RunningAuthorityHealth {
     pub slow_step_samples: u64,
     /// Sum of control-selection time within attributed slow steps.
     pub slow_step_control_micros: u64,
+    /// Spatial-index rebuild time within attributed slow control steps.
+    pub slow_step_control_index_micros: u64,
+    /// Neural batch time within attributed slow control steps.
+    pub slow_step_control_neural_micros: u64,
     /// Sum of world-step time within attributed slow steps.
     pub slow_step_world_micros: u64,
     /// Sum of remaining service time within attributed slow steps.
@@ -163,6 +167,8 @@ pub(crate) struct RunningAuthorityMetrics {
     step_timing_buckets: [AtomicU64; STEP_TIMING_BUCKET_UPPER_MICROS.len()],
     slow_step_samples: AtomicU64,
     slow_step_control_micros: AtomicU64,
+    slow_step_control_index_micros: AtomicU64,
+    slow_step_control_neural_micros: AtomicU64,
     slow_step_world_micros: AtomicU64,
     slow_step_other_micros: AtomicU64,
 }
@@ -196,6 +202,8 @@ impl RunningAuthorityMetrics {
             step_timing_buckets: std::array::from_fn(|_| AtomicU64::new(0)),
             slow_step_samples: AtomicU64::new(0),
             slow_step_control_micros: AtomicU64::new(0),
+            slow_step_control_index_micros: AtomicU64::new(0),
+            slow_step_control_neural_micros: AtomicU64::new(0),
             slow_step_world_micros: AtomicU64::new(0),
             slow_step_other_micros: AtomicU64::new(0),
         }
@@ -277,9 +285,13 @@ impl RunningAuthorityMetrics {
         saturating_increment(&self.step_timing_buckets[bucket], 1);
         if let Some(cost) = cost.filter(|_| micros > 16_667) {
             let control = cost.control_selection.min(micros);
+            let index = cost.control_index.min(control);
+            let neural = cost.control_neural.min(control - index);
             let world = cost.world_step.min(micros - control);
             saturating_increment(&self.slow_step_samples, 1);
             saturating_increment(&self.slow_step_control_micros, control);
+            saturating_increment(&self.slow_step_control_index_micros, index);
+            saturating_increment(&self.slow_step_control_neural_micros, neural);
             saturating_increment(&self.slow_step_world_micros, world);
             saturating_increment(&self.slow_step_other_micros, micros - control - world);
         }
@@ -340,6 +352,12 @@ impl RunningAuthorityMetrics {
             step_timing_p99_micros: self.step_percentile_micros(step_timing_samples, 99),
             slow_step_samples: self.slow_step_samples.load(Ordering::Relaxed),
             slow_step_control_micros: self.slow_step_control_micros.load(Ordering::Relaxed),
+            slow_step_control_index_micros: self
+                .slow_step_control_index_micros
+                .load(Ordering::Relaxed),
+            slow_step_control_neural_micros: self
+                .slow_step_control_neural_micros
+                .load(Ordering::Relaxed),
             slow_step_world_micros: self.slow_step_world_micros.load(Ordering::Relaxed),
             slow_step_other_micros: self.slow_step_other_micros.load(Ordering::Relaxed),
         }
@@ -1493,6 +1511,8 @@ mod tests {
         let metrics = RunningAuthorityMetrics::new(&running);
         let cost = RunningStepCostMicros {
             control_selection: 7_000,
+            control_index: 2_000,
+            control_neural: 4_000,
             world_step: 8_000,
         };
         metrics.record_step_duration(Duration::from_micros(16_667), Some(cost));
@@ -1502,6 +1522,8 @@ mod tests {
             Duration::from_micros(18_000),
             Some(RunningStepCostMicros {
                 control_selection: 19_000,
+                control_index: 20_000,
+                control_neural: 20_000,
                 world_step: 20_000,
             }),
         );
@@ -1510,6 +1532,8 @@ mod tests {
         assert_eq!(health.step_timing_samples, 4);
         assert_eq!(health.slow_step_samples, 2);
         assert_eq!(health.slow_step_control_micros, 25_000);
+        assert_eq!(health.slow_step_control_index_micros, 20_000);
+        assert_eq!(health.slow_step_control_neural_micros, 4_000);
         assert_eq!(health.slow_step_world_micros, 8_000);
         assert_eq!(health.slow_step_other_micros, 5_000);
     }

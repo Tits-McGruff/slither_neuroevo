@@ -130,6 +130,10 @@ export interface RustBackgroundHealth {
   slowStepSamples: RustBackgroundIdentity;
   /** Control-selection microseconds accumulated across attributed slow steps. */
   slowStepControlMicros: RustBackgroundIdentity;
+  /** Spatial-index rebuilding within attributed slow control steps. */
+  slowStepControlIndexMicros: RustBackgroundIdentity;
+  /** Neural batch evaluation within attributed slow control steps. */
+  slowStepControlNeuralMicros: RustBackgroundIdentity;
   /** World-step microseconds accumulated across attributed slow steps. */
   slowStepWorldMicros: RustBackgroundIdentity;
   /** Remaining service microseconds accumulated across attributed slow steps. */

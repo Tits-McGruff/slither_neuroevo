@@ -311,6 +311,10 @@ interface Stage6BackgroundGenerationHealth {
   slowStepSamples: string;
   /** Control-selection time within those slow steps. */
   slowStepControlMicros: string;
+  /** Spatial-index time within attributed slow control steps. */
+  slowStepControlIndexMicros: string;
+  /** Neural batch time within attributed slow control steps. */
+  slowStepControlNeuralMicros: string;
   /** World-step time within those slow steps. */
   slowStepWorldMicros: string;
   /** Remaining service time within those slow steps. */
@@ -1438,7 +1442,8 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         );
         for (const cost of [
           timedHealth.slowStepControlMicros, timedHealth.slowStepWorldMicros,
-          timedHealth.slowStepOtherMicros
+          timedHealth.slowStepOtherMicros, timedHealth.slowStepControlIndexMicros,
+          timedHealth.slowStepControlNeuralMicros
         ]) {
           expect(cost).toMatch(/^[0-9a-f]{16}$/);
         }
