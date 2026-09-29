@@ -986,6 +986,18 @@ impl PelletSpatialIndex {
             .iter()
             .map(|candidate| &self.pellets[candidate.pellet])
     }
+
+    /// Iterate ordered sensor candidates with the exact distance already
+    /// calculated during their bounded spatial query.
+    pub(crate) fn sensor_candidates<'a>(
+        &'a self,
+        scratch: &'a PelletQueryScratch,
+    ) -> impl ExactSizeIterator<Item = (&'a IndexedPellet, f64)> + 'a {
+        scratch
+            .candidates
+            .iter()
+            .map(|candidate| (&self.pellets[candidate.pellet], candidate.distance_squared))
+    }
 }
 
 /// Build limits for the derived indexes owned by one stable sensor view.
