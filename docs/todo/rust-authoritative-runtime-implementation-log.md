@@ -997,3 +997,14 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   intervals between 61.21 and 61.44 seconds. Peak RSS was 550 MB. This is
   only a small improvement over the five-worker P2 run and does not establish
   a better default; real browser/trainer load and the P1 timing issue remain.
+
+- 2026-09-29 After `20a66b7` cached swept head bounds for collision pairs,
+  a restart-isolated evolved P1 production run with six workers sustained ten
+  minutes at 0.9926 simulated/wall speed with zero dropped time. Step p99 was
+  in the at-or-below-16.667-ms bucket, nine checkpoint barriers stayed below
+  242 ms, and complete generation intervals were 60.25–60.72 seconds. Event
+  loop delay p99 was 11.59 ms, health p95 was 2.25 ms, and peak RSS was 298 MB.
+  The preceding ten-minute six-worker P1 run missed the step p99 target; this
+  isolated run clears that measurement but does not attribute the entire
+  improvement to the collision change or prove the real-client load gate.
+  CI for `20a66b7` passed.
