@@ -944,7 +944,12 @@ fn clamp(value: f64, minimum: f64, maximum: f64) -> f64 {
 }
 
 fn normalize_angle(mut angle: f64) -> f64 {
-    angle %= TAU;
+    // IEEE remainder returns the dividend unchanged within (-TAU, TAU).
+    // Nearly every pellet/head direction is already in that interval; avoid
+    // the costly floating remainder without changing the boundary behavior.
+    if angle <= -TAU || angle >= TAU {
+        angle %= TAU;
+    }
     while angle > PI {
         angle -= TAU;
     }
@@ -1069,6 +1074,40 @@ mod tests {
     use crate::engine::spatial::SensorIndexConfig;
     use crate::engine::state::{BodyRange, PelletState, SnakeKind};
     use serde::Deserialize;
+
+    #[test]
+    fn normalized_angles_keep_the_previous_remainder_bits() {
+        let boundary = TAU.to_bits();
+        let mut angles = vec![
+            0.0,
+            -0.0,
+            PI,
+            -PI,
+            TAU,
+            -TAU,
+            f64::from_bits(boundary - 1),
+            -f64::from_bits(boundary - 1),
+            f64::from_bits(boundary + 1),
+            -f64::from_bits(boundary + 1),
+            1.0e30,
+            -1.0e30,
+        ];
+        angles.extend((-1_000..=1_000).map(|index| f64::from(index) * TAU / 137.0));
+        for angle in angles {
+            let mut previous = angle % TAU;
+            while previous > PI {
+                previous -= TAU;
+            }
+            while previous < -PI {
+                previous += TAU;
+            }
+            assert_eq!(
+                normalize_angle(angle).to_bits(),
+                previous.to_bits(),
+                "{angle}"
+            );
+        }
+    }
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "camelCase")]
