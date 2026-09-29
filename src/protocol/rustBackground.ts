@@ -134,6 +134,10 @@ export interface RustBackgroundHealth {
   slowStepControlIndexMicros: RustBackgroundIdentity;
   /** Neural batch evaluation within attributed slow control steps. */
   slowStepControlNeuralMicros: RustBackgroundIdentity;
+  /** Sensing within attributed slow neural batches. */
+  slowStepControlSensingMicros: RustBackgroundIdentity;
+  /** Graph inference within attributed slow neural batches. */
+  slowStepControlInferenceMicros: RustBackgroundIdentity;
   /** World-step microseconds accumulated across attributed slow steps. */
   slowStepWorldMicros: RustBackgroundIdentity;
   /** Remaining service microseconds accumulated across attributed slow steps. */

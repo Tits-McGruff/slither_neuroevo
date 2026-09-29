@@ -61,6 +61,8 @@ const MAXIMUM_NEURAL_CONTROL_INTERVAL_SECONDS: f64 = 0.06;
 pub(crate) struct ControlPhaseCostMicros {
     pub spatial_index: u64,
     pub neural_batch: u64,
+    pub neural_sensing: u64,
+    pub neural_inference: u64,
 }
 
 /// Complete projected settings and bounds for one control boundary.
@@ -1499,6 +1501,8 @@ impl ControlPhaseWorkspace {
         )?;
         self.last_cost.neural_batch =
             u64::try_from(neural_started.elapsed().as_micros()).unwrap_or(u64::MAX);
+        self.last_cost.neural_sensing = batch.cost_micros().sensing;
+        self.last_cost.neural_inference = batch.cost_micros().inference;
         for (ordinal, unit) in batch.work().iter().copied().enumerate() {
             let output_offset = ordinal.checked_mul(neural_output_size).ok_or(
                 ControlPhaseError::ArithmeticOverflow {

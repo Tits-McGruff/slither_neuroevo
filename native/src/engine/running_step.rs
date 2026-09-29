@@ -75,6 +75,8 @@ pub(crate) struct RunningStepCostMicros {
     pub control_selection: u64,
     pub control_index: u64,
     pub control_neural: u64,
+    pub control_sensing: u64,
+    pub control_inference: u64,
     pub world_step: u64,
 }
 
@@ -755,6 +757,8 @@ impl RunningStepCoordinator {
                 u64::try_from(control_started.elapsed().as_micros()).unwrap_or(u64::MAX);
             self.last_step_cost.control_index = selected.cost_micros().spatial_index;
             self.last_step_cost.control_neural = selected.cost_micros().neural_batch;
+            self.last_step_cost.control_sensing = selected.cost_micros().neural_sensing;
+            self.last_step_cost.control_inference = selected.cost_micros().neural_inference;
             #[cfg(feature = "engine-test-hooks")]
             {
                 self.last_phase_timings.control_selection_ms = elapsed_ms(control_started);

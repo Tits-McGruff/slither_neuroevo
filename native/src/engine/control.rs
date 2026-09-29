@@ -27,6 +27,7 @@ use std::error::Error;
 use std::fmt;
 use std::mem::size_of;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::time::Instant;
 
 /// Authoritative controller output width: turn and boost.
 const CONTROLLER_OUTPUT_SIZE: usize = 2;
@@ -34,6 +35,13 @@ const CONTROLLER_OUTPUT_SIZE: usize = 2;
 const PARALLEL_SENSOR_SCRATCH_ALLOWANCE_BYTES: usize = 64 * 1024 * 1024;
 /// Keep calculation threads bounded below the target host's eight logical CPUs.
 const MAX_CALCULATION_WORKERS: usize = 7;
+
+/// Wall time around the two worker-pool phases in one neural batch.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct NeuralBatchCostMicros {
+    pub sensing: u64,
+    pub inference: u64,
+}
 
 /// Carry calculation phase and partition identity to the coordinator's panic root.
 fn run_calculation_worker<T>(
@@ -89,6 +97,7 @@ pub struct NeuralControlBatchView<'a> {
     observations: &'a [f32],
     outputs: &'a [f32],
     diagnostics: &'a [SensorSampleDiagnostics],
+    cost_micros: NeuralBatchCostMicros,
 }
 
 /// Immutable inputs for one stable corrected-sensing and inference boundary.
@@ -134,6 +143,11 @@ impl NeuralControlBatchView<'_> {
     pub const fn diagnostics(&self) -> &[SensorSampleDiagnostics] {
         self.diagnostics
     }
+
+    /// Coarse sensing and inference wall time for this staged batch.
+    pub(crate) const fn cost_micros(&self) -> NeuralBatchCostMicros {
+        self.cost_micros
+    }
 }
 
 /// Reusable bounded-worker sensing-to-inference staging owner.
@@ -162,6 +176,7 @@ pub struct NeuralControlPipeline {
     zero_recurrent: Vec<f32>,
     allocated_staging_bytes: usize,
     ready: Option<ReadyBatch>,
+    last_cost: NeuralBatchCostMicros,
     #[cfg(test)]
     panic_inference_partition_once: Option<usize>,
 }
@@ -381,6 +396,7 @@ impl NeuralControlPipeline {
             zero_recurrent,
             allocated_staging_bytes,
             ready: None,
+            last_cost: NeuralBatchCostMicros::default(),
             #[cfg(test)]
             panic_inference_partition_once: None,
         })
@@ -437,6 +453,7 @@ impl NeuralControlPipeline {
             reset_brains,
         } = inputs;
         self.ready = None;
+        self.last_cost = NeuralBatchCostMicros::default();
         self.workspace.begin(key);
         for candidate in candidates {
             self.workspace
@@ -466,6 +483,7 @@ impl NeuralControlPipeline {
         let CalculationExecutionBuffers {
             work, scratches, ..
         } = self.workspace.execution_buffers()?;
+        let sensing_started = Instant::now();
         if let Some(pool) = self
             .calculation_pool
             .as_ref()
@@ -535,6 +553,9 @@ impl NeuralControlPipeline {
                 self.diagnostics[ordinal] = sample.diagnostics;
             }
         }
+        self.last_cost.sensing =
+            u64::try_from(sensing_started.elapsed().as_micros()).unwrap_or(u64::MAX);
+        let inference_started = Instant::now();
         if let Some(pool) = self
             .calculation_pool
             .as_ref()
@@ -623,6 +644,8 @@ impl NeuralControlPipeline {
             )?;
         }
 
+        self.last_cost.inference =
+            u64::try_from(inference_started.elapsed().as_micros()).unwrap_or(u64::MAX);
         self.ready = Some(ReadyBatch { key, active });
         self.batch()
     }
@@ -680,6 +703,7 @@ impl NeuralControlPipeline {
             observations: &self.observations[..observation_count],
             outputs: &self.staged_outputs[..output_count],
             diagnostics: &self.diagnostics[..ready.active],
+            cost_micros: self.last_cost,
         })
     }
 
