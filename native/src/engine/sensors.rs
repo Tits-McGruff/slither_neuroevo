@@ -637,12 +637,13 @@ impl SensorEvaluator {
         let mut found_food = false;
         #[cfg(feature = "engine-test-hooks")]
         let pellet_accumulation_started = scratch.phase_profile.as_ref().map(|_| Instant::now());
-        for (pellet, distance_squared) in indexed_world
+        for pellet in indexed_world
             .pellet_index()
-            .sensor_candidates(&scratch.pellet_query)
+            .candidates(&scratch.pellet_query)
         {
             let dx = pellet.position.x - snake.position.x;
             let dy = pellet.position.y - snake.position.y;
+            let distance_squared = dx * dx + dy * dy;
             let distance = distance_squared.sqrt();
             if !found_food || distance < nearest_food_distance {
                 nearest_food_distance = distance;
