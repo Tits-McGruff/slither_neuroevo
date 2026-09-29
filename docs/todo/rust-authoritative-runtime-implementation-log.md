@@ -1041,3 +1041,17 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   browser returned automatically to visible Spectating and fresh Rust frames
   across another disposable server restart. The temporary server was stopped
   afterward; the owner's port-5174 game was untouched.
+
+- 2026-09-30 `b568fb5` and `24c60c7` added allocation-free phase attribution
+  for ordinary steps above 16.667 ms. In a disposable evolved P1 continuation
+  with six workers and two actors from the owner's actual PyRL trainer, the
+  second build measured 9,967 steps: 113 exceeded the boundary, native step
+  p99 remained in the 16.667–24 ms bucket, and no scheduler wall debt was
+  dropped. Of time in those slow steps, 58% was control selection, 38% world
+  update and 4% other service. Neural batch evaluation was 81% of slow control
+  time (about 47% of slow-step time); spatial-index rebuilding was 5% of slow
+  control time. The target VM's separate port-5174 game remained active, so
+  this isolates a likely optimization target but does not establish an unloaded
+  capacity limit or prove AVX would help. Focused Rust control/phase tests,
+  Clippy, TypeScript, ESLint and the native integration overlay passed. The
+  disposable trainer/server stopped afterward; port 5180 was closed.
