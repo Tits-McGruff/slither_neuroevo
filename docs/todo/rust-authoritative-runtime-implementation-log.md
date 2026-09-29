@@ -1008,3 +1008,15 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   isolated run clears that measurement but does not attribute the entire
   improvement to the collision change or prove the real-client load gate.
   CI for `20a66b7` passed.
+
+- 2026-09-29 A disposable six-worker P1 production server on the target VM
+  served the current UI to the Windows in-app browser over the trusted LAN.
+  The browser rendered live Rust frames, joined as a player, sent pointer and
+  held-button input, and reconnected within the grace period to the same
+  lease. Rust-confirmed telemetry recorded four fresh assignments, one
+  applied disconnect, one successful reclaim, more than 8,800 applied player
+  actions, 16 ms action-to-application p95, and zero dropped scheduler time.
+  Closing the browser and sending SIGTERM stopped the disposable server; port
+  5180 was closed afterward. This covers one real browser/player lifecycle
+  slice, not P0/P2, delayed display/sensors, browser frame budgets, or the
+  separate desktop trainer under load.
