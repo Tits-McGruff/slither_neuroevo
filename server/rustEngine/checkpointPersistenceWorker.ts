@@ -1510,11 +1510,11 @@ function physicalCheckpointStoreBytes(): bigint {
     sqliteFileByteCount(`${bootstrap.databasePath}-shm`, true);
   for (const entry of readdirSync(managedRootPath, { withFileTypes: true })) {
     if (!entry.isFile() || entry.isSymbolicLink()) {
-      throw new Error('managed checkpoint directory contains a non-file during budget admission');
+      throw new Error(`managed checkpoint directory contains a non-file during budget admission: ${entry.name}`);
     }
     const metadata = lstatSync(resolve(managedRootPath, entry.name), { bigint: true });
     if (!metadata.isFile() || metadata.isSymbolicLink()) {
-      throw new Error('managed checkpoint file changed during budget admission');
+      throw new Error(`managed checkpoint file changed during budget admission: ${entry.name}`);
     }
     total += metadata.size;
   }
