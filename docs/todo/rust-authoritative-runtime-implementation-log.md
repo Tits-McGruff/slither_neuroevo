@@ -1068,3 +1068,14 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Rust tests, Clippy, TypeScript, ESLint and the native integration overlay
   passed. The disposable trainer/server stopped; port 5180 closed while the
   owner's port-5174 game remained active.
+
+- 2026-09-30 `6312d82` and `32ac41f` added test-hook-only sensor-phase timing
+  to the offline P1 fixture. On the target Ryzen VM, a 310-snake proof pass
+  spent about 7.8 ms collecting pellet candidates and 8.2 ms evaluating them;
+  together they were about 80% of sensing time. The 30-pass single-worker
+  sensing mean was 21.2 ms. This synthetic fixture identifies both pellet
+  stages as candidates for focused work; it does not prove loaded production
+  timing. An exact-output angle-remainder shortcut was tried, but paired
+  pinned-core runs showed no reliable whole-pass improvement, so `305a9e7`
+  reverted it. The next optimization should be measured against the pellet
+  query or accumulation cost and then the complete loaded step.
