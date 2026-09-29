@@ -388,6 +388,10 @@ pub struct SensorPhaseProfileReport {
     pub scalar_nanos: u128,
     /// Pellet query and food-bin time.
     pub pellet_nanos: u128,
+    /// Pellet spatial candidate collection time.
+    pub pellet_query_nanos: u128,
+    /// Detailed pellet accumulation time.
+    pub pellet_accumulation_nanos: u128,
     /// Body query and hazard-bin time.
     pub body_nanos: u128,
     /// Other-head scan and head-bin time.
@@ -402,6 +406,8 @@ impl From<SensorPhaseProfile> for SensorPhaseProfileReport {
             samples: source.samples,
             scalar_nanos: source.scalar_nanos,
             pellet_nanos: source.pellet_nanos,
+            pellet_query_nanos: source.pellet_query_nanos,
+            pellet_accumulation_nanos: source.pellet_accumulation_nanos,
             body_nanos: source.body_nanos,
             head_nanos: source.head_nanos,
             wall_nanos: source.wall_nanos,
@@ -1408,6 +1414,8 @@ mod tests {
         assert_eq!(report.sensing.proof_pass_phases.samples, 65);
         assert!(report.sensing.proof_pass_phases.scalar_nanos > 0);
         assert!(report.sensing.proof_pass_phases.pellet_nanos > 0);
+        assert!(report.sensing.proof_pass_phases.pellet_query_nanos > 0);
+        assert!(report.sensing.proof_pass_phases.pellet_accumulation_nanos > 0);
         assert!(report.sensing.proof_pass_phases.body_nanos > 0);
         assert!(report.sensing.proof_pass_phases.head_nanos > 0);
         assert!(report.sensing.proof_pass_phases.wall_nanos > 0);

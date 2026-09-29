@@ -327,6 +327,10 @@ pub struct SensorPhaseProfile {
     pub scalar_nanos: u128,
     /// Pellet query, accumulation, and food-bin normalization.
     pub pellet_nanos: u128,
+    /// Spatial candidate collection within the pellet phase.
+    pub pellet_query_nanos: u128,
+    /// Detailed nearest-first pellet accumulation within the pellet phase.
+    pub pellet_accumulation_nanos: u128,
     /// Body query and hazard-bin normalization.
     pub body_nanos: u128,
     /// Other-head scan and head-bin normalization.
@@ -397,6 +401,19 @@ impl SensorScratch {
         if matches!(phase, SensorPhase::Wall) {
             profile.samples = profile.samples.saturating_add(1);
         }
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    fn record_pellet_subphase(&mut self, started: Option<Instant>, query: bool) {
+        let (Some(profile), Some(start)) = (self.phase_profile.as_mut(), started) else {
+            return;
+        };
+        let total = if query {
+            &mut profile.pellet_query_nanos
+        } else {
+            &mut profile.pellet_accumulation_nanos
+        };
+        *total = total.saturating_add(start.elapsed().as_nanos());
     }
 
     /// Report owned capacities without allocating or changing query state.
@@ -603,17 +620,23 @@ impl SensorEvaluator {
         scratch.record_phase(&mut phase_started, SensorPhase::Scalar);
 
         let effective_pellet_limit = self.effective_pellet_limit();
+        #[cfg(feature = "engine-test-hooks")]
+        let pellet_query_started = scratch.phase_profile.as_ref().map(|_| Instant::now());
         let pellet_query = indexed_world.pellet_index().collect_sensor_candidates(
             snake.position,
             radii.far,
             effective_pellet_limit,
             &mut scratch.pellet_query,
         )?;
+        #[cfg(feature = "engine-test-hooks")]
+        scratch.record_pellet_subphase(pellet_query_started, true);
         let pellet_checks = pellet_query.candidates;
         let pellet_capped = pellet_query.candidate_limit_reached;
         let mut nearest_food_distance = radii.far;
         let mut nearest_food_delta = WorldPoint { x: 0.0, y: 0.0 };
         let mut found_food = false;
+        #[cfg(feature = "engine-test-hooks")]
+        let pellet_accumulation_started = scratch.phase_profile.as_ref().map(|_| Instant::now());
         for pellet in indexed_world
             .pellet_index()
             .candidates(&scratch.pellet_query)
@@ -637,6 +660,8 @@ impl SensorEvaluator {
             scratch.food_bins[bin] =
                 (f64::from(scratch.food_bins[bin]) + distance_weight * value_weight) as f32;
         }
+        #[cfg(feature = "engine-test-hooks")]
+        scratch.record_pellet_subphase(pellet_accumulation_started, false);
         output[13] = clamp(
             2.0 * (1.0 - nearest_food_distance / radii.far) - 1.0,
             -1.0,
