@@ -807,7 +807,34 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
       expect(countMetadataRows(paths.databasePath)).toBe(0);
 
       const client = createClient(paths);
-      const committed = await client.commit(descriptor);
+      let repliedRunStart: Awaited<ReturnType<CheckpointPersistenceClient['commit']>> | undefined;
+      const failAfterReply = new RunStartPersistenceHandoff({
+        rust: session,
+        persistence: {
+          async commit(published) {
+            repliedRunStart = await client.commit(published);
+            throw new Error('injected after run-start SQLite reply before Rust acknowledgement');
+          }
+        },
+        managedDirectory: paths.managedRoot
+      });
+      await expect(failAfterReply.commitPendingRunStart(operationId)).rejects.toThrow(
+        /injected after run-start SQLite reply before Rust acknowledgement/u
+      );
+      const committed = repliedRunStart;
+      if (!committed) throw new Error('injected post-reply run-start commit did not finish');
+      expect(readCurrentPointer(paths.databasePath, descriptor.runId)).toEqual({
+        checkpoint_id: descriptor.logicalRootSha256,
+        transition_epoch: descriptor.transitionEpoch,
+        operation_id: descriptor.operationId
+      });
+      expect(countMetadataRows(paths.databasePath)).toBe(1);
+      expect(session.snapshot()).toMatchObject({
+        persistenceAcknowledged: false,
+        authorityPublished: false,
+        checkpointPublications: 1,
+        authorityPublications: 0
+      });
       const mismatchedLogicalRoot = committed.descriptor.logicalRootSha256.endsWith('0')
         ? `${committed.descriptor.logicalRootSha256.slice(0, -1)}1`
         : `${committed.descriptor.logicalRootSha256.slice(0, -1)}0`;
