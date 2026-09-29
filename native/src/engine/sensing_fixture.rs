@@ -6,8 +6,8 @@
 //! allocation-stable whole-population sensing.
 
 use super::sensors::{
-    SensorConfig, SensorEvaluator, SensorGenerationState, SensorSampleDiagnostics, SensorScratch,
-    SensorScratchDiagnostics,
+    SensorConfig, SensorEvaluator, SensorGenerationState, SensorPhaseProfile,
+    SensorSampleDiagnostics, SensorScratch, SensorScratchDiagnostics,
 };
 use super::spatial::{
     BodyIndexDiagnostics, IndexedSensorWorld, PelletIndexDiagnostics, SensorIndexConfig,
@@ -366,6 +366,8 @@ pub struct Stage4SensingResult {
     pub scratch_capacity_stable: bool,
     /// Work diagnostics from one untimed proof pass.
     pub proof_pass_work: SensorWorkReport,
+    /// Diagnostic nanoseconds by phase from the untimed proof pass.
+    pub proof_pass_phases: SensorPhaseProfileReport,
     /// SHA-256 of every Float32 observation in the proof pass.
     pub observations_sha256: String,
     /// Finite output accumulator consumed across timed and proof passes.
@@ -374,6 +376,37 @@ pub struct Stage4SensingResult {
     pub delivery_markers_produced: bool,
     /// Pure benchmark samples do not advance authoritative score boundaries.
     pub delivery_markers_committed: bool,
+}
+
+/// Test-hook-only phase timing; these totals are separate from measured pass latency.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SensorPhaseProfileReport {
+    /// Number of complete samples timed.
+    pub samples: u64,
+    /// Scalar state and normalization time.
+    pub scalar_nanos: u128,
+    /// Pellet query and food-bin time.
+    pub pellet_nanos: u128,
+    /// Body query and hazard-bin time.
+    pub body_nanos: u128,
+    /// Other-head scan and head-bin time.
+    pub head_nanos: u128,
+    /// Wall rays and output validation time.
+    pub wall_nanos: u128,
+}
+
+impl From<SensorPhaseProfile> for SensorPhaseProfileReport {
+    fn from(source: SensorPhaseProfile) -> Self {
+        Self {
+            samples: source.samples,
+            scalar_nanos: source.scalar_nanos,
+            pellet_nanos: source.pellet_nanos,
+            body_nanos: source.body_nanos,
+            head_nanos: source.head_nanos,
+            wall_nanos: source.wall_nanos,
+        }
+    }
 }
 
 /// Serializable sensor scratch capacities.
@@ -707,6 +740,7 @@ pub fn run_stage4_sensing_evidence(
 
     let mut proof_work = SensorWorkReport::default();
     let mut observation_hasher = Sha256::new();
+    scratch.begin_phase_profile();
     consumed_output += execute_sensor_pass(
         &evaluator,
         &indexed,
@@ -716,8 +750,14 @@ pub fn run_stage4_sensing_evidence(
         Some(&mut proof_work),
         Some(&mut observation_hasher),
     )?;
+    let proof_pass_phases = scratch
+        .take_phase_profile()
+        .ok_or_else(|| "proof-pass sensor phase timing is absent".to_owned())?;
     if proof_work.samples != spec.total_snakes() {
         return Err("proof pass did not sample every live fixture snake".to_owned());
+    }
+    if proof_pass_phases.samples != spec.total_snakes() as u64 {
+        return Err("proof-pass phase timing omitted sensor samples".to_owned());
     }
     let sensing_distribution = distribution(sensing_samples)?;
     let mean_microseconds_per_snake =
@@ -738,7 +778,7 @@ pub fn run_stage4_sensing_evidence(
 
     Ok(Stage4SensingEvidence {
         schema: "slither-stage4-rust-sensing-benchmark",
-        version: 1,
+        version: 2,
         evidence_class: evidence_class.to_owned(),
         caveat: "Source-shaped deterministic synthetic sensing-only benchmark. It exercises corrected Rust sensor formulas and complete Rust indexes, but it is not an owner save, evolved population, complete brain pass, movement/collision step, frame, Node bridge, browser, RL client, or final real-time acceptance result.",
         source: Stage4SensingSource {
@@ -810,6 +850,7 @@ pub fn run_stage4_sensing_evidence(
             scratch_after_measurement,
             scratch_capacity_stable,
             proof_pass_work: proof_work,
+            proof_pass_phases: proof_pass_phases.into(),
             observations_sha256: hex_bytes(observation_hasher.finalize()),
             consumed_output,
             delivery_markers_produced: true,
@@ -1364,6 +1405,12 @@ mod tests {
         .expect("P0 evidence should run");
         assert_eq!(report.workload.total_snakes, 65);
         assert_eq!(report.sensing.proof_pass_work.samples, 65);
+        assert_eq!(report.sensing.proof_pass_phases.samples, 65);
+        assert!(report.sensing.proof_pass_phases.scalar_nanos > 0);
+        assert!(report.sensing.proof_pass_phases.pellet_nanos > 0);
+        assert!(report.sensing.proof_pass_phases.body_nanos > 0);
+        assert!(report.sensing.proof_pass_phases.head_nanos > 0);
+        assert!(report.sensing.proof_pass_phases.wall_nanos > 0);
         assert!(report.sensing.scratch_capacity_stable);
         assert_eq!(report.sensing.observations_sha256.len(), 64);
         assert_eq!(report.indexes.body.segments, 65 * 4);

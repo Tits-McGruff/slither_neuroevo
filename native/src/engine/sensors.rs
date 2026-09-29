@@ -16,6 +16,8 @@ use super::state::{SnakeKind, SnakeState, WorldPoint, WorldState};
 use std::error::Error;
 use std::f64::consts::{PI, TAU};
 use std::fmt;
+#[cfg(feature = "engine-test-hooks")]
+use std::time::Instant;
 
 /// Saturating divisor for score changes since the prior delivered sample.
 const POINTS_DELTA_SCALE: f64 = 10.0;
@@ -311,6 +313,36 @@ pub struct SensorScratch {
     pub body_query: BodySensorQueryScratch,
     /// Reusable pellet-query ordering storage.
     pub pellet_query: PelletQueryScratch,
+    #[cfg(feature = "engine-test-hooks")]
+    phase_profile: Option<SensorPhaseProfile>,
+}
+
+/// Test-hook-only elapsed sensing phases from complete delivered-shape samples.
+#[cfg(feature = "engine-test-hooks")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SensorPhaseProfile {
+    /// Number of complete samples included in the totals.
+    pub samples: u64,
+    /// Scalar state and normalization before spatial queries.
+    pub scalar_nanos: u128,
+    /// Pellet query, accumulation, and food-bin normalization.
+    pub pellet_nanos: u128,
+    /// Body query and hazard-bin normalization.
+    pub body_nanos: u128,
+    /// Other-head scan and head-bin normalization.
+    pub head_nanos: u128,
+    /// Wall rays and final output validation.
+    pub wall_nanos: u128,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+#[derive(Clone, Copy)]
+enum SensorPhase {
+    Scalar,
+    Pellet,
+    Body,
+    Head,
+    Wall,
 }
 
 /// Reusable sensor-scratch capacities used to prove warm-path stability.
@@ -331,6 +363,42 @@ pub struct SensorScratchDiagnostics {
 }
 
 impl SensorScratch {
+    /// Enable phase timing for an untimed diagnostic pass in a test-hook build.
+    #[cfg(feature = "engine-test-hooks")]
+    pub fn begin_phase_profile(&mut self) {
+        self.phase_profile = Some(SensorPhaseProfile::default());
+    }
+
+    /// Stop phase timing and return its complete-sample totals.
+    #[cfg(feature = "engine-test-hooks")]
+    pub fn take_phase_profile(&mut self) -> Option<SensorPhaseProfile> {
+        self.phase_profile.take()
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    fn record_phase(&mut self, started: &mut Option<Instant>, phase: SensorPhase) {
+        let Some(start) = started.as_mut() else {
+            return;
+        };
+        let elapsed = start.elapsed().as_nanos();
+        *start = Instant::now();
+        let profile = self
+            .phase_profile
+            .as_mut()
+            .expect("enabled phase timer has a profile");
+        let total = match phase {
+            SensorPhase::Scalar => &mut profile.scalar_nanos,
+            SensorPhase::Pellet => &mut profile.pellet_nanos,
+            SensorPhase::Body => &mut profile.body_nanos,
+            SensorPhase::Head => &mut profile.head_nanos,
+            SensorPhase::Wall => &mut profile.wall_nanos,
+        };
+        *total = total.saturating_add(elapsed);
+        if matches!(phase, SensorPhase::Wall) {
+            profile.samples = profile.samples.saturating_add(1);
+        }
+    }
+
     /// Report owned capacities without allocating or changing query state.
     #[must_use]
     pub fn diagnostics(&self) -> SensorScratchDiagnostics {
@@ -449,6 +517,8 @@ impl SensorEvaluator {
         output: &mut [f32],
         scratch: &mut SensorScratch,
     ) -> Result<SensorSample, SensorError> {
+        #[cfg(feature = "engine-test-hooks")]
+        let mut phase_started = scratch.phase_profile.as_ref().map(|_| Instant::now());
         if output.len() != self.layout.input_size {
             return Err(SensorError::OutputLength {
                 expected: self.layout.input_size,
@@ -529,6 +599,8 @@ impl SensorEvaluator {
             -1.0,
             1.0,
         ) as f32;
+        #[cfg(feature = "engine-test-hooks")]
+        scratch.record_phase(&mut phase_started, SensorPhase::Scalar);
 
         let effective_pellet_limit = self.effective_pellet_limit();
         let pellet_query = indexed_world.pellet_index().collect_sensor_candidates(
@@ -581,6 +653,8 @@ impl SensorEvaluator {
             let fraction = strength / (strength + self.config.food_saturation.max(0.1));
             output[self.layout.offsets.food + index] = ratio_to_bipolar(fraction) as f32;
         }
+        #[cfg(feature = "engine-test-hooks")]
+        scratch.record_phase(&mut phase_started, SensorPhase::Pellet);
 
         scratch.hazard_bins.fill(radii.near as f32);
         let broad_body_radius = radii.near
@@ -645,6 +719,8 @@ impl SensorEvaluator {
             output[self.layout.offsets.hazard + index] =
                 ratio_to_bipolar(f64::from(clearance) / radii.near) as f32;
         }
+        #[cfg(feature = "engine-test-hooks")]
+        scratch.record_phase(&mut phase_started, SensorPhase::Body);
 
         let mut nearest_head_distance = radii.near;
         scratch.head_bins.fill(radii.near as f32);
@@ -685,6 +761,8 @@ impl SensorEvaluator {
             output[self.layout.offsets.head + index] =
                 ratio_to_bipolar(f64::from(clearance) / radii.near) as f32;
         }
+        #[cfg(feature = "engine-test-hooks")]
+        scratch.record_phase(&mut phase_started, SensorPhase::Head);
 
         let target_outside_world = distance_to_center > self.config.world_radius;
         for index in 0..self.layout.bins {
@@ -704,6 +782,8 @@ impl SensorEvaluator {
         if output.iter().any(|value| !value.is_finite()) {
             return Err(SensorError::NonFiniteOutput { snake_id: snake.id });
         }
+        #[cfg(feature = "engine-test-hooks")]
+        scratch.record_phase(&mut phase_started, SensorPhase::Wall);
         Ok(SensorSample {
             delivery: ObservationDeliveryMarker {
                 snake_id: snake.id,
