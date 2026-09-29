@@ -757,9 +757,10 @@ describeNetworkSuite('Rust server real sockets', () => {
         startupCheckpointId: oldHealth.startupCheckpointId,
         interfaceFault: 'injected lost import commit reply' });
       expect(['stopRequested', 'stopped']).toContain(faulted['lifecycle']);
+      const stopped = await healthUntil(target.port, health => health['lifecycle'] === 'stopped');
       await new Promise<void>(done => setTimeout(done, 50));
       expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
-        completedStep: faulted['completedStep']
+        completedStep: stopped['completedStep']
       });
       const database = new Database(targetDbPath, { readonly: true });
       try {
@@ -823,9 +824,10 @@ describeNetworkSuite('Rust server real sockets', () => {
             interfaceFault: `injected import ${phase} failure`
           });
           expect(['stopRequested', 'stopped']).toContain(faulted['lifecycle']);
+          const stopped = await healthUntil(target.port, health => health['lifecycle'] === 'stopped');
           await new Promise<void>(done => setTimeout(done, 50));
           expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
-            completedStep: faulted['completedStep']
+            completedStep: stopped['completedStep']
           });
           const database = new Database(dbPath, { readonly: true });
           try {

@@ -909,3 +909,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   the run and checkpoint identities remained unchanged, and completed steps
   advanced from hexadecimal `0140` at the rejection reply to `0146` afterward.
   On shutdown it still had one current pointer, metadata row, and managed file.
+
+- 2026-09-29 A current-build P3 generation-two fixture on the target VM
+  produced a 407,724,032-byte direct archive, above the former 50 MiB JSON
+  limit. A repeatable probe streamed that file into a fresh production Rust
+  server without a Node population buffer. Import selected the exact source
+  run, generation, checkpoint ID, and save root; latest-resume after process
+  restart selected the same checkpoint. This proves the large HTTP archive
+  path, while real browser download/upload memory and responsiveness remain
+  open for A1–A3/A10 acceptance.
