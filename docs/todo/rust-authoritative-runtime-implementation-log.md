@@ -1142,3 +1142,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Windows after resuming; the unchanged combined process-death file previously
   passed all twelve cases, with TypeScript and focused ESLint passing. This
   does not cover death inside the native encoder or retention pruning.
+
+- 2026-09-30 Pruning recovery now kills a separate real server in its
+  persistence worker after committed deletion intent and immediately after
+  the actual managed-file unlink, before final classification. Each restart
+  completes the pending deletion, resumes the exact current checkpoint and
+  preserves the pinned checkpoint, every retained file, compact generation
+  history and Hall-of-Fame rows. The combined Windows process-death and
+  server-lifecycle files passed all fifteen cases; TypeScript and focused
+  ESLint passed. Cross-platform CI remains the Linux confirmation; native
+  encoder death and supervised service restart remain separate acceptance work.

@@ -1,9 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, readdir, rm, utimes } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import WebSocket from 'ws';
@@ -26,7 +28,8 @@ type ReplacementCrashPoint = 'afterCommit' | 'afterSwap';
 /** Exact fixture and boundary selected for one disposable child. */
 type ProcessCrashFixture =
   | { kind: 'replacement' | 'generation'; point: ReplacementCrashPoint }
-  | { kind: 'export'; point: 'afterReady' | 'duringDownload' };
+  | { kind: 'export'; point: 'afterReady' | 'duringDownload' }
+  | { kind: 'pruning'; point: 'afterIntent' | 'afterDelete' };
 
 /** Owner-visible operations that publish a complete replacement authority. */
 const REPLACEMENT_OPERATIONS = ['newRun', 'reset', 'import'] as const;
@@ -55,7 +58,7 @@ function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | '
   child: ChildProcess;
   output: () => string;
 } {
-  const args = crashFixture
+  const args = crashFixture && crashFixture.kind !== 'pruning'
     ? ['--import', 'tsx', resolve(crashFixture.kind === 'replacement'
       ? 'server/test/killDuringAuthorityReplacement.ts'
       : crashFixture.kind === 'generation' ? 'server/test/killDuringGenerationHandoff.ts'
@@ -68,7 +71,12 @@ function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | '
       '--backend', 'native', '--rust-workers', '1',
       ...(resume === 'fresh' ? ['--fresh', '--seed', '42'] : ['--resume', 'latest'])
     ];
-  const child = spawn(process.execPath, args, { cwd: resolve(), stdio: ['ignore', 'pipe', 'pipe'] });
+  if (crashFixture?.kind === 'pruning') {
+    args.splice(2, 0, '--import', pathToFileURL(resolve('server/test/killDuringCheckpointPruning.ts')).href);
+  }
+  const child = spawn(process.execPath, args, { cwd: resolve(), stdio: ['ignore', 'pipe', 'pipe'],
+    ...(crashFixture?.kind === 'pruning'
+      ? { env: { ...process.env, SLITHER_PRUNE_CRASH_POINT: crashFixture.point } } : {}) });
   let transcript = '';
   child.stdout?.on('data', bytes => { transcript = `${transcript}${String(bytes)}`.slice(-4096); });
   child.stderr?.on('data', bytes => { transcript = `${transcript}${String(bytes)}`.slice(-4096); });
@@ -135,7 +143,7 @@ async function terminate(child: ChildProcess, signal: NodeJS.Signals): Promise<v
 }
 
 /** Wait for the injected child death without retaining a test timer afterward. */
-async function waitForReplacementDeath(child: ChildProcess, output: () => string): Promise<void> {
+async function waitForReplacementDeath(child: ChildProcess, output: () => string, timeoutMs = 15_000): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -143,13 +151,103 @@ async function waitForReplacementDeath(child: ChildProcess, output: () => string
       new Promise<void>(resolveExit => child.once('exit', () => resolveExit())),
       new Promise<never>((_, rejectExit) => {
         timer = setTimeout(() => rejectExit(new Error(
-          `Server did not reach the requested death point: ${output()}`)), 15_000);
+          `Server did not reach the requested death point: ${output()}`)), timeoutMs);
       })
     ]);
   } finally { if (timer) clearTimeout(timer); }
 }
 
 describeNetworkSuite('Rust process-death recovery', () => {
+  it.each(['afterIntent', 'afterDelete'] as const)('finishes pruning after an OS kill $0', async point => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-pruning-death-'));
+    const databasePath = join(root, 'experiment.sqlite');
+    const managedRoot = `${databasePath}.checkpoints`;
+    const port = await availablePort();
+    const first = spawnRustServer(port, databasePath, 'fresh', { kind: 'pruning', point });
+    let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    let viewer: WebSocket | undefined;
+    try {
+      await readyHealth(port, first.child, first.output);
+      viewer = new WebSocket(`ws://127.0.0.1:${port}`);
+      const packets: Array<Record<string, unknown>> = [];
+      viewer.on('message', (bytes, binary) => {
+        if (!binary) packets.push(JSON.parse(bytes.toString()) as Record<string, unknown>);
+      });
+      await new Promise<void>((resolveOpen, rejectOpen) => {
+        viewer!.once('open', resolveOpen);
+        viewer!.once('error', rejectOpen);
+      });
+      /** Await a bounded real lifecycle reply before sending another command. */
+      const untilPacket = async (predicate: (packet: Record<string, unknown>) => boolean): Promise<void> => {
+        const deadline = performance.now() + 5000;
+        while (!packets.some(predicate) && performance.now() < deadline) {
+          await new Promise<void>(done => setTimeout(done, 10));
+        }
+        expect(packets.some(predicate), JSON.stringify(packets)).toBe(true);
+      };
+      viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
+      await untilPacket(packet => packet['type'] === 'welcome');
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 1 },
+        updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 0 }] }));
+      await untilPacket(packet => packet['type'] === 'stateReplaced');
+      const before = await readyHealth(port, first.child, first.output);
+      const pinned = await fetch(`http://127.0.0.1:${port}/api/checkpoints/current/pin`, { method: 'POST',
+        signal: AbortSignal.timeout(5000) });
+      expect(pinned.status).toBe(200);
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.send(JSON.stringify({ type: 'settings', requestId: 'pruning-speed',
+        updates: [{ path: 'simSpeed', value: 4 }] }));
+      await untilPacket(packet => packet['type'] === 'settingsApplied' && packet['requestId'] === 'pruning-speed');
+      await waitForReplacementDeath(first.child, first.output, 45_000);
+      const markerLine = first.output().split(/\r?\n/u).find(line => line.startsWith('{"type":"pruningCrashPoint"'));
+      expect(markerLine, first.output()).toBeDefined();
+      const marker = JSON.parse(markerLine!) as { checkpointId: string; filename: string; fileExists: boolean };
+      expect(marker.fileExists).toBe(point === 'afterIntent');
+      expect(existsSync(marker.filename)).toBe(point === 'afterIntent');
+      const database = new Database(databasePath, { readonly: true });
+      let current: { checkpoint_id: string; completed_step_hex: string };
+      let history: unknown;
+      let winners: unknown;
+      let retained: Array<{ checkpoint_id: string; relative_filename: string }>;
+      try {
+        expect(database.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+          .get(marker.checkpointId)).toEqual({ retention_kind: 'pruning' });
+        current = database.prepare(`SELECT current.checkpoint_id, metadata.completed_step_hex
+          FROM rust_checkpoint_v3_current AS current JOIN rust_checkpoint_v3_metadata AS metadata USING(checkpoint_id)
+          WHERE current.run_id = ?`).get(before.runId) as typeof current;
+        expect(current.checkpoint_id).not.toBe(marker.checkpointId);
+        history = database.prepare('SELECT * FROM rust_generation_history_v1 ORDER BY run_id, generation_hex').all();
+        winners = database.prepare('SELECT * FROM rust_hall_of_fame_v1 ORDER BY run_id, generation_hex').all();
+        expect((history as unknown[]).length).toBeGreaterThanOrEqual(8);
+        retained = database.prepare(`SELECT metadata.checkpoint_id,
+          json_extract(metadata.descriptor_json, '$.relativeFilename') AS relative_filename
+          FROM rust_checkpoint_v3_metadata AS metadata JOIN rust_checkpoint_retention_v1 AS retention USING(checkpoint_id)
+          WHERE retention.retention_kind IN ('automatic', 'pinned')`).all() as typeof retained;
+        expect(database.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+          .get(before.startupCheckpointId)).toEqual({ retention_kind: 'pinned' });
+      } finally { database.close(); }
+      viewer.terminate();
+      restarted = spawnRustServer(port, databasePath, 'latest');
+      const after = await readyHealth(port, restarted.child, restarted.output, BigInt(`0x${current!.completed_step_hex}`));
+      expect(after).toMatchObject({ runId: before.runId, startupCheckpointId: current!.checkpoint_id });
+      expect(existsSync(marker.filename)).toBe(false);
+      for (const record of retained!) expect(existsSync(join(managedRoot, record.relative_filename))).toBe(true);
+      const recovered = new Database(databasePath, { readonly: true });
+      try {
+        expect(recovered.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+          .get(marker.checkpointId)).toEqual({ retention_kind: 'pruned' });
+        expect(recovered.prepare('SELECT * FROM rust_generation_history_v1 ORDER BY run_id, generation_hex').all()).toEqual(history);
+        expect(recovered.prepare('SELECT * FROM rust_hall_of_fame_v1 ORDER BY run_id, generation_hex').all()).toEqual(winners);
+      } finally { recovered.close(); }
+    } finally {
+      viewer?.terminate();
+      if (restarted) await terminate(restarted.child, 'SIGTERM');
+      await terminate(first.child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 65_000);
+
   it.each(REPLACEMENT_CRASH_CASES)('resumes $operation killed $description', async ({ operation, point: crashPoint }) => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-replacement-death-'));
     const databasePath = join(root, 'experiment.sqlite');
