@@ -1,0 +1,3182 @@
+{
+  "scenario": "P1",
+  "rustWorkers": 6,
+  "sourceRevision": "a22f04bf07167595b57695c772eaddaa7420682e",
+  "startedAtUtc": "2026-09-30T10:53:26.974Z",
+  "requestedSeconds": 1800,
+  "wallSeconds": 1800.3538276499999,
+  "measuredScope": "Production server with two independent real PyRL actors; connected-player timings are server receipt-to-application measurements. Browser rendering requires separate evidence.",
+  "histogramScope": "Native and interface histograms cover this server process lifetime, including pre-window trainer warm-up.",
+  "healthLatencyScope": "Sampler-to-server route; loopback only if URL is loopback.",
+  "workloadWelcome": {
+    "type": "welcome",
+    "protocolVersion": 2,
+    "serializerVersion": 1,
+    "sessionId": "771a5bbe-95a4-477a-8ae8-cab1e7d68085",
+    "tickRate": 60,
+    "worldSeed": 1511506142,
+    "runId": "cd74f58f-f206-4b8b-a647-6119b37833c4",
+    "configHash": "sha256:a44b32f8f35477f6dce440836014af6b552298eaccd3dde759f3b5b0d0269ec4",
+    "configRevision": 1,
+    "frameByteLength": 79688,
+    "graphSpec": {
+      "edges": [
+        {
+          "from": "input",
+          "to": "mlp"
+        },
+        {
+          "from": "mlp",
+          "to": "gru"
+        },
+        {
+          "from": "gru",
+          "to": "head"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "input",
+          "outputSize": 83,
+          "type": "Input"
+        },
+        {
+          "hiddenSizes": [
+            64
+          ],
+          "id": "mlp",
+          "inputSize": 83,
+          "outputSize": 64,
+          "type": "MLP"
+        },
+        {
+          "hiddenSize": 16,
+          "id": "gru",
+          "inputSize": 64,
+          "type": "GRU"
+        },
+        {
+          "id": "head",
+          "inputSize": 16,
+          "outputSize": 2,
+          "type": "Dense"
+        }
+      ],
+      "outputSize": 2,
+      "outputs": [
+        {
+          "nodeId": "head"
+        }
+      ],
+      "type": "graph"
+    },
+    "capabilities": {
+      "checkpointPinning": true,
+      "archiveExport": true,
+      "archiveImport": true
+    },
+    "settings": {
+      "core": {
+        "snakeCount": 300,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "updates": [
+        {
+          "path": "worldRadius",
+          "value": 3500
+        },
+        {
+          "path": "pelletCountTarget",
+          "value": 3500
+        },
+        {
+          "path": "pelletSpawnPerSecond",
+          "value": 170
+        },
+        {
+          "path": "foodValue",
+          "value": 1
+        },
+        {
+          "path": "growPerFood",
+          "value": 1
+        },
+        {
+          "path": "foodSpawn.edgeFalloffEnabled",
+          "value": 1
+        },
+        {
+          "path": "foodSpawn.edgeFadeStart",
+          "value": 0.35
+        },
+        {
+          "path": "foodSpawn.edgeFadePower",
+          "value": 2.6
+        },
+        {
+          "path": "foodSpawn.filamentPower",
+          "value": 4.2
+        },
+        {
+          "path": "foodSpawn.warpFreq",
+          "value": 0.0013
+        },
+        {
+          "path": "foodSpawn.warpScale",
+          "value": 0.08
+        },
+        {
+          "path": "foodSpawn.freqLarge",
+          "value": 0.0026
+        },
+        {
+          "path": "foodSpawn.freqMedium",
+          "value": 0.0042
+        },
+        {
+          "path": "foodSpawn.freqSmall",
+          "value": 0.0068
+        },
+        {
+          "path": "foodSpawn.dustStrength",
+          "value": 0.35
+        },
+        {
+          "path": "sense.layoutVersion",
+          "value": 3
+        },
+        {
+          "path": "sense.bubbleBins",
+          "value": 16
+        },
+        {
+          "path": "sense.rNearBase",
+          "value": 520
+        },
+        {
+          "path": "sense.rNearScale",
+          "value": 260
+        },
+        {
+          "path": "sense.rNearMin",
+          "value": 420
+        },
+        {
+          "path": "sense.rNearMax",
+          "value": 1100
+        },
+        {
+          "path": "sense.rFarBase",
+          "value": 1200
+        },
+        {
+          "path": "sense.rFarScale",
+          "value": 520
+        },
+        {
+          "path": "sense.rFarMin",
+          "value": 900
+        },
+        {
+          "path": "sense.rFarMax",
+          "value": 2400
+        },
+        {
+          "path": "sense.foodKBase",
+          "value": 4
+        },
+        {
+          "path": "sense.maxPelletChecks",
+          "value": 900
+        },
+        {
+          "path": "sense.maxSegmentChecks",
+          "value": 2200
+        },
+        {
+          "path": "baselineBots.count",
+          "value": 10
+        },
+        {
+          "path": "baselineBots.seed",
+          "value": 1
+        },
+        {
+          "path": "baselineBots.randomizeSeedPerGen",
+          "value": 0
+        },
+        {
+          "path": "baselineBots.respawnDelay",
+          "value": 20
+        },
+        {
+          "path": "snakeBaseSpeed",
+          "value": 165
+        },
+        {
+          "path": "snakeBoostSpeed",
+          "value": 500
+        },
+        {
+          "path": "snakeTurnRate",
+          "value": 3.2
+        },
+        {
+          "path": "snakeRadius",
+          "value": 9
+        },
+        {
+          "path": "snakeRadiusMax",
+          "value": 18
+        },
+        {
+          "path": "snakeThicknessScale",
+          "value": 2.9
+        },
+        {
+          "path": "snakeThicknessLogDiv",
+          "value": 30
+        },
+        {
+          "path": "snakeSpacing",
+          "value": 7.5
+        },
+        {
+          "path": "snakeStartLen",
+          "value": 5
+        },
+        {
+          "path": "snakeMaxLen",
+          "value": 10000
+        },
+        {
+          "path": "snakeMinLen",
+          "value": 4
+        },
+        {
+          "path": "snakeSizeSpeedPenalty",
+          "value": 0.18
+        },
+        {
+          "path": "snakeBoostSizePenalty",
+          "value": 0.28
+        },
+        {
+          "path": "boost.minPointsToBoost",
+          "value": 1.2
+        },
+        {
+          "path": "boost.pointsCostPerSecond",
+          "value": 7
+        },
+        {
+          "path": "boost.pointsCostSizeFactor",
+          "value": 1.1
+        },
+        {
+          "path": "boost.lenLossPerPoint",
+          "value": 0.16
+        },
+        {
+          "path": "boost.pelletValueFactor",
+          "value": 0.65
+        },
+        {
+          "path": "boost.pelletJitter",
+          "value": 10
+        },
+        {
+          "path": "collision.substepMaxDt",
+          "value": 0.006
+        },
+        {
+          "path": "collision.skipSegments",
+          "value": 0
+        },
+        {
+          "path": "collision.hitScale",
+          "value": 0.82
+        },
+        {
+          "path": "collision.cellSize",
+          "value": 70
+        },
+        {
+          "path": "collision.neighborRange",
+          "value": 1
+        },
+        {
+          "path": "generationSeconds",
+          "value": 60
+        },
+        {
+          "path": "eliteFrac",
+          "value": 0.12
+        },
+        {
+          "path": "mutationRate",
+          "value": 0.03
+        },
+        {
+          "path": "mutationStd",
+          "value": 0.35
+        },
+        {
+          "path": "crossoverRate",
+          "value": 0.85
+        },
+        {
+          "path": "observer.earlyEndMinSeconds",
+          "value": 8
+        },
+        {
+          "path": "observer.earlyEndAliveThreshold",
+          "value": 2
+        },
+        {
+          "path": "reward.pointsPerFood",
+          "value": 20
+        },
+        {
+          "path": "reward.pointsPerKill",
+          "value": 400
+        },
+        {
+          "path": "reward.pointsPerSecondAlive",
+          "value": 0.6
+        },
+        {
+          "path": "reward.fitnessSurvivalPerSecond",
+          "value": 0.7
+        },
+        {
+          "path": "reward.fitnessFood",
+          "value": 80
+        },
+        {
+          "path": "reward.fitnessLengthPerSegment",
+          "value": 100
+        },
+        {
+          "path": "reward.fitnessKill",
+          "value": 400
+        },
+        {
+          "path": "reward.fitnessPointsNorm",
+          "value": 42
+        },
+        {
+          "path": "reward.fitnessTopPointsBonus",
+          "value": 600
+        },
+        {
+          "path": "brain.controlDt",
+          "value": 0.016666666666666666
+        },
+        {
+          "path": "brain.gruMutationRate",
+          "value": 0.025
+        },
+        {
+          "path": "brain.gruMutationStd",
+          "value": 0.22
+        },
+        {
+          "path": "brain.gruCrossoverMode",
+          "value": 1
+        },
+        {
+          "path": "brain.gruInitUpdateBias",
+          "value": -0.7
+        },
+        {
+          "path": "brain.lstmInitForgetBias",
+          "value": 0.6
+        },
+        {
+          "path": "brain.rruInitGateBias",
+          "value": 0.1
+        }
+      ]
+    },
+    "sensorSpec": {
+      "sensorCount": 83,
+      "order": [
+        "heading_sin",
+        "heading_cos",
+        "size_norm",
+        "boost_margin",
+        "points_pct",
+        "speed_norm",
+        "boost_state",
+        "points_norm",
+        "points_delta_norm",
+        "length_norm",
+        "boost_points_frac",
+        "boost_cost_norm",
+        "wall_dist_norm",
+        "nearest_food_dist_norm",
+        "nearest_food_dir_sin",
+        "nearest_food_dir_cos",
+        "nearest_body_dist_norm",
+        "nearest_head_dist_norm",
+        "age_norm",
+        "food_0",
+        "food_1",
+        "food_2",
+        "food_3",
+        "food_4",
+        "food_5",
+        "food_6",
+        "food_7",
+        "food_8",
+        "food_9",
+        "food_10",
+        "food_11",
+        "food_12",
+        "food_13",
+        "food_14",
+        "food_15",
+        "hazard_0",
+        "hazard_1",
+        "hazard_2",
+        "hazard_3",
+        "hazard_4",
+        "hazard_5",
+        "hazard_6",
+        "hazard_7",
+        "hazard_8",
+        "hazard_9",
+        "hazard_10",
+        "hazard_11",
+        "hazard_12",
+        "hazard_13",
+        "hazard_14",
+        "hazard_15",
+        "wall_0",
+        "wall_1",
+        "wall_2",
+        "wall_3",
+        "wall_4",
+        "wall_5",
+        "wall_6",
+        "wall_7",
+        "wall_8",
+        "wall_9",
+        "wall_10",
+        "wall_11",
+        "wall_12",
+        "wall_13",
+        "wall_14",
+        "wall_15",
+        "head_0",
+        "head_1",
+        "head_2",
+        "head_3",
+        "head_4",
+        "head_5",
+        "head_6",
+        "head_7",
+        "head_8",
+        "head_9",
+        "head_10",
+        "head_11",
+        "head_12",
+        "head_13",
+        "head_14",
+        "head_15"
+      ],
+      "layoutVersion": "v3"
+    },
+    "inferenceMode": {
+      "requestedBackend": "native",
+      "activeBackend": "native",
+      "requestedMt": true,
+      "activeWorkerCount": 6,
+      "poolEpoch": null,
+      "weightEpoch": null,
+      "graphKey": "slither-graph-layout-v1:hex:736c69746865722d6e6575726f65766f2f67726170682d6c61796f75742f7631000100000004000000000000000500000000000000696e70757400530000000000000053000000000000000100000000000000530000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000006d6c7002530000000000000040000000000000000100000000000000400000000000000001000000000000004000000000000000000000000000000000402500000000000000000000000000000001000000000000000500000000000000696e70757400000000000000000000000000000000030000000000000067727503400000000000000010000000000000000100000000000000100000000000000000000000000000000110000000000000004025000000000000300f0000000000000100000000000000001000000000000000010000000000000003000000000000006d6c700000000000000000000000000000000004000000000000006865616401100000000000000002000000000000000100000000000000020000000000000000000000000000000070340000000000002200000000000000000000000000000000010000000000000003000000000000006772750000000000000000000000000000000001000000000000000400000000000000686561640000000000000000923400000000000010000000000000000200000000000000",
+      "parameterCount": 13458,
+      "seed": 1511506142,
+      "nativeAddonStatus": "ready",
+      "nativeAddonBuildIdentifier": "slither_native/0.1.0+a22f04bf0716.1885d340b774b081"
+    }
+  },
+  "initialHealth": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "cd74f58f-f206-4b8b-a647-6119b37833c4",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:a44b32f8f35477f6dce440836014af6b552298eaccd3dde759f3b5b0d0269ec4",
+    "startupCheckpointId": "838df57acfd9855026fa349ff0cadcd03320bcf25441c6e5ae98c4fcf046c08a",
+    "calculationWorkers": 6,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "0000000000000002",
+    "generation": "0000000000000003",
+    "completedStep": "0000000000001fce",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "00000000000011bd",
+    "schedulerDroppedWallMicros": "0000000000000000",
+    "schedulerOverloaded": false,
+    "commandServiceBoundaries": "00000000000042f9",
+    "coordinatorWorkBytes": "0000000003dc6175",
+    "processedCommands": "000000000000387f",
+    "stepTimingSamples": "00000000000011bd",
+    "stepTimingTotalMicros": "0000000001d1752a",
+    "stepTimingMaxMicros": "000000000003a5f2",
+    "stepTimingP95Micros": "0000000000002ee0",
+    "stepTimingP99Micros": "0000000000003e80",
+    "slowStepSamples": "0000000000000012",
+    "slowStepControlMicros": "000000000004218a",
+    "slowStepControlIndexMicros": "0000000000002861",
+    "slowStepControlNeuralMicros": "0000000000036a6a",
+    "slowStepControlSensingMicros": "000000000002b6b1",
+    "slowStepControlInferenceMicros": "000000000000af8b",
+    "slowStepWorldMicros": "00000000000252df",
+    "slowStepOtherMicros": "0000000000002d8a",
+    "nativeBuildIdentifier": "slither_native/0.1.0+a22f04bf0716.1885d340b774b081",
+    "telemetry": {
+      "uptimeSeconds": 76.157622169,
+      "authoritativeSteps": 4541,
+      "simulatedSeconds": 75.68333333333334,
+      "simulatedWallRatio": 0.9937722735799946,
+      "step": {
+        "samples": 4541,
+        "meanMs": 6.717514644351464,
+        "p95Ms": 12,
+        "p99Ms": 16,
+        "maxMs": 239.09,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 189026304,
+        "heapUsedBytes": 16885464,
+        "externalBytes": 9823473,
+        "maxRssBytes": 189157376,
+        "eventLoopDelayMeanMs": 10.119382490164805,
+        "eventLoopDelayP95Ms": 10.772479,
+        "eventLoopDelayP99Ms": 11.010047,
+        "eventLoopDelayMaxMs": 17.678335
+      },
+      "frame": {
+        "latestBytes": 79688,
+        "maximumObservedBytes": 92496
+      },
+      "checkpointBarrier": {
+        "samples": 1,
+        "meanMs": 205.7426759999944,
+        "p95Ms": 250,
+        "maxMs": 205.7426759999944
+      },
+      "playerAction": {
+        "samples": 9,
+        "meanMs": 4.249552777780789,
+        "p95Ms": 8,
+        "maxMs": 5.668630000000121
+      },
+      "trainerAction": {
+        "samples": 7058,
+        "meanMs": 0.4538283420232587,
+        "p95Ms": 0.25,
+        "maxMs": 58.36984799999482
+      },
+      "controllerLifecycle": {
+        "samples": 3,
+        "meanMs": 5.93708866666869,
+        "p95Ms": 16,
+        "maxMs": 9.483426000006148
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 1,
+          "successfulReclaims": 0,
+          "appliedActions": 9,
+          "appliedDisconnects": 0
+        },
+        "trainer": {
+          "freshAssignments": 2,
+          "successfulReclaims": 0,
+          "appliedActions": 7058,
+          "appliedDisconnects": 0
+        }
+      }
+    },
+    "outbound": {
+      "connections": 3,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0
+    },
+    "archiveWork": null,
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "cd74f58f-f206-4b8b-a647-6119b37833c4",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "0000000002950000",
+      "protectedAutomaticStoredByteCount": "0000000001c4ee00",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000cf4200",
+          "decodedByteCount": "0000000000f74ddc",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "recent": {
+          "checkpointCount": 2,
+          "storedByteCount": "00000000019f5800",
+          "decodedByteCount": "0000000001ee9bb8",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 2,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 2
+          }
+        },
+        "milestone": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2c",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 0,
+      "deletedStoredByteCount": "0000000000000000"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "151552",
+        "walBytes": "0",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "37",
+        "freelistPageCount": "0",
+        "usedPageBytes": "151552"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "172710674432",
+        "operatingReserveBytes": "1073741824"
+      }
+    }
+  },
+  "finalHealth": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "cd74f58f-f206-4b8b-a647-6119b37833c4",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:a44b32f8f35477f6dce440836014af6b552298eaccd3dde759f3b5b0d0269ec4",
+    "startupCheckpointId": "838df57acfd9855026fa349ff0cadcd03320bcf25441c6e5ae98c4fcf046c08a",
+    "calculationWorkers": 6,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "0000000000000020",
+    "generation": "0000000000000021",
+    "completedStep": "000000000001c286",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "000000000001b475",
+    "schedulerDroppedWallMicros": "0000000000000000",
+    "schedulerOverloaded": false,
+    "commandServiceBoundaries": "0000000000079499",
+    "coordinatorWorkBytes": "0000000077b00333",
+    "processedCommands": "0000000000091c55",
+    "stepTimingSamples": "000000000001b475",
+    "stepTimingTotalMicros": "000000002c349184",
+    "stepTimingMaxMicros": "0000000000046edf",
+    "stepTimingP95Micros": "0000000000002ee0",
+    "stepTimingP99Micros": "0000000000003e80",
+    "slowStepSamples": "00000000000000e0",
+    "slowStepControlMicros": "00000000002fdbd4",
+    "slowStepControlIndexMicros": "000000000002c6ae",
+    "slowStepControlNeuralMicros": "0000000000260202",
+    "slowStepControlSensingMicros": "00000000001bde3c",
+    "slowStepControlInferenceMicros": "000000000009ec47",
+    "slowStepWorldMicros": "00000000002ab2f2",
+    "slowStepOtherMicros": "000000000005eddc",
+    "nativeBuildIdentifier": "slither_native/0.1.0+a22f04bf0716.1885d340b774b081",
+    "telemetry": {
+      "uptimeSeconds": 1876.521398516,
+      "authoritativeSteps": 111733,
+      "simulatedSeconds": 1862.2166666666667,
+      "simulatedWallRatio": 0.9923769950821526,
+      "step": {
+        "samples": 111733,
+        "meanMs": 6.637632821100302,
+        "p95Ms": 12,
+        "p99Ms": 16,
+        "maxMs": 290.527,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 235741184,
+        "heapUsedBytes": 25172656,
+        "externalBytes": 8791911,
+        "maxRssBytes": 238669824,
+        "eventLoopDelayMeanMs": 10.118054603393706,
+        "eventLoopDelayP95Ms": 10.805247,
+        "eventLoopDelayP99Ms": 11.034623,
+        "eventLoopDelayMaxMs": 24.952831
+      },
+      "frame": {
+        "latestBytes": 87128,
+        "maximumObservedBytes": 92568
+      },
+      "checkpointBarrier": {
+        "samples": 31,
+        "meanMs": 216.31746751613935,
+        "p95Ms": 250,
+        "maxMs": 239.8636309999274
+      },
+      "playerAction": {
+        "samples": 53722,
+        "meanMs": 1.884797158538432,
+        "p95Ms": 8,
+        "maxMs": 80.67446700006258
+      },
+      "trainerAction": {
+        "samples": 214039,
+        "meanMs": 0.30115220469167264,
+        "p95Ms": 0.25,
+        "maxMs": 61.484175999998115
+      },
+      "controllerLifecycle": {
+        "samples": 62,
+        "meanMs": 2.173650967728258,
+        "p95Ms": 8,
+        "maxMs": 9.483426000006148
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 1,
+          "successfulReclaims": 59,
+          "appliedActions": 53722,
+          "appliedDisconnects": 34
+        },
+        "trainer": {
+          "freshAssignments": 2,
+          "successfulReclaims": 0,
+          "appliedActions": 214039,
+          "appliedDisconnects": 0
+        }
+      }
+    },
+    "outbound": {
+      "connections": 2,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0
+    },
+    "archiveWork": null,
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "cd74f58f-f206-4b8b-a647-6119b37833c4",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "0000000007521800",
+      "protectedAutomaticStoredByteCount": "0000000001bd4200",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000cc7600",
+          "decodedByteCount": "0000000000f74ddc",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "recent": {
+          "checkpointCount": 7,
+          "storedByteCount": "0000000005927200",
+          "decodedByteCount": "0000000006c32146",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 7,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 7
+          }
+        },
+        "milestone": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000ccca00",
+          "decodedByteCount": "0000000000f74df2",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2c",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 0,
+      "deletedStoredByteCount": "0000000000000000"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "151552",
+        "walBytes": "2916992",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "61",
+        "freelistPageCount": "0",
+        "usedPageBytes": "249856"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "172613058560",
+        "operatingReserveBytes": "1073741824"
+      }
+    }
+  },
+  "deltaSteps": "107192",
+  "simulatedWallRatio": 0.9923234565870275,
+  "droppedWallMicros": "0",
+  "overloadedDuringSamples": false,
+  "trainerAppliedActionsDelta": 206981,
+  "transitions": [
+    {
+      "generation": "0000000000000004",
+      "wallSeconds": 45.174003516999996
+    },
+    {
+      "generation": "0000000000000005",
+      "wallSeconds": 105.38775424399999
+    },
+    {
+      "generation": "0000000000000006",
+      "wallSeconds": 166.08373220700003
+    },
+    {
+      "generation": "0000000000000007",
+      "wallSeconds": 226.282976208
+    },
+    {
+      "generation": "0000000000000008",
+      "wallSeconds": 286.481487378
+    },
+    {
+      "generation": "0000000000000009",
+      "wallSeconds": 347.173380328
+    },
+    {
+      "generation": "000000000000000a",
+      "wallSeconds": 407.868824671
+    },
+    {
+      "generation": "000000000000000b",
+      "wallSeconds": 468.062982745
+    },
+    {
+      "generation": "000000000000000c",
+      "wallSeconds": 528.745154305
+    },
+    {
+      "generation": "000000000000000d",
+      "wallSeconds": 588.921259379
+    },
+    {
+      "generation": "000000000000000e",
+      "wallSeconds": 649.597399431
+    },
+    {
+      "generation": "000000000000000f",
+      "wallSeconds": 709.7741304829999
+    },
+    {
+      "generation": "0000000000000010",
+      "wallSeconds": 770.450701443
+    },
+    {
+      "generation": "0000000000000011",
+      "wallSeconds": 830.621566807
+    },
+    {
+      "generation": "0000000000000012",
+      "wallSeconds": 891.2952408689999
+    },
+    {
+      "generation": "0000000000000013",
+      "wallSeconds": 951.9617684049999
+    },
+    {
+      "generation": "0000000000000014",
+      "wallSeconds": 1012.1327193970001
+    },
+    {
+      "generation": "0000000000000015",
+      "wallSeconds": 1072.8009466539997
+    },
+    {
+      "generation": "0000000000000016",
+      "wallSeconds": 1133.4868522589998
+    },
+    {
+      "generation": "0000000000000017",
+      "wallSeconds": 1193.6542265409998
+    },
+    {
+      "generation": "0000000000000018",
+      "wallSeconds": 1254.3324332739999
+    },
+    {
+      "generation": "0000000000000019",
+      "wallSeconds": 1314.997139974
+    },
+    {
+      "generation": "000000000000001a",
+      "wallSeconds": 1375.1544818389998
+    },
+    {
+      "generation": "000000000000001b",
+      "wallSeconds": 1435.8304720009999
+    },
+    {
+      "generation": "000000000000001c",
+      "wallSeconds": 1496.4983678539998
+    },
+    {
+      "generation": "000000000000001d",
+      "wallSeconds": 1556.669230048
+    },
+    {
+      "generation": "000000000000001e",
+      "wallSeconds": 1617.3413063929997
+    },
+    {
+      "generation": "000000000000001f",
+      "wallSeconds": 1678.013286442
+    },
+    {
+      "generation": "0000000000000020",
+      "wallSeconds": 1738.178153192
+    },
+    {
+      "generation": "0000000000000021",
+      "wallSeconds": 1798.850558148
+    }
+  ],
+  "generationIntervalsSeconds": [
+    60.213750727,
+    60.69597796300003,
+    60.19924400099998,
+    60.19851116999999,
+    60.69189295000001,
+    60.69544434300002,
+    60.19415807399997,
+    60.68217156000003,
+    60.17610507400002,
+    60.67614005199994,
+    60.17673105199992,
+    60.67657096000005,
+    60.170865364000065,
+    60.67367406199992,
+    60.66652753599999,
+    60.170950992000144,
+    60.66822725699967,
+    60.685905605000016,
+    60.16737428200008,
+    60.678206733000025,
+    60.664706700000124,
+    60.15734186499981,
+    60.67599016200006,
+    60.66789585299989,
+    60.170862194000165,
+    60.67207634499982,
+    60.67198004900024,
+    60.1648667500001,
+    60.67240495599981
+  ],
+  "observationFailures": [],
+  "resourceSamples": [
+    {
+      "wallSeconds": 0,
+      "rssBytes": 189026304,
+      "trainerAppliedActions": 7058,
+      "generation": "0000000000000003",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "0",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "37",
+          "freelistPageCount": "0",
+          "usedPageBytes": "151552"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172710674432",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "43319296",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 30.119276578999997,
+      "rssBytes": 183111680,
+      "trainerAppliedActions": 10541,
+      "generation": "0000000000000003",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "82432",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "37",
+          "freelistPageCount": "0",
+          "usedPageBytes": "151552"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172696948736",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "43319296",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 60.227099062,
+      "rssBytes": 198995968,
+      "trainerAppliedActions": 13969,
+      "generation": "0000000000000004",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "173072",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "38",
+          "freelistPageCount": "0",
+          "usedPageBytes": "155648"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172683251712",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "56869888",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 90.338089815,
+      "rssBytes": 201162752,
+      "trainerAppliedActions": 17419,
+      "generation": "0000000000000004",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "173072",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "38",
+          "freelistPageCount": "0",
+          "usedPageBytes": "155648"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172683251712",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "56869888",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 120.435181707,
+      "rssBytes": 203440128,
+      "trainerAppliedActions": 20816,
+      "generation": "0000000000000005",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "255472",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "38",
+          "freelistPageCount": "0",
+          "usedPageBytes": "155648"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172669612032",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "70377984",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 150.031644016,
+      "rssBytes": 202080256,
+      "trainerAppliedActions": 24237,
+      "generation": "0000000000000005",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "255472",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "38",
+          "freelistPageCount": "0",
+          "usedPageBytes": "155648"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172669612032",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "70377984",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 180.14197887000003,
+      "rssBytes": 205279232,
+      "trainerAppliedActions": 27648,
+      "generation": "0000000000000006",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "346112",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "39",
+          "freelistPageCount": "0",
+          "usedPageBytes": "159744"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172656123904",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "83719168",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 210.23665751400003,
+      "rssBytes": 190853120,
+      "trainerAppliedActions": 31077,
+      "generation": "0000000000000006",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "346112",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "39",
+          "freelistPageCount": "0",
+          "usedPageBytes": "159744"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172656123904",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "83719168",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 240.32889737600001,
+      "rssBytes": 195207168,
+      "trainerAppliedActions": 34471,
+      "generation": "0000000000000007",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "428512",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "39",
+          "freelistPageCount": "0",
+          "usedPageBytes": "159744"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172642504704",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "97203200",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 270.429026008,
+      "rssBytes": 198090752,
+      "trainerAppliedActions": 37939,
+      "generation": "0000000000000007",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "428512",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "39",
+          "freelistPageCount": "0",
+          "usedPageBytes": "159744"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172642504704",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "97203200",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 300.02459336100003,
+      "rssBytes": 192475136,
+      "trainerAppliedActions": 41260,
+      "generation": "0000000000000008",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "519152",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "40",
+          "freelistPageCount": "0",
+          "usedPageBytes": "163840"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628893696",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110667264",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 330.11859614800005,
+      "rssBytes": 192495616,
+      "trainerAppliedActions": 44756,
+      "generation": "0000000000000008",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "519152",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "40",
+          "freelistPageCount": "0",
+          "usedPageBytes": "163840"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628893696",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110667264",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 360.216353034,
+      "rssBytes": 197136384,
+      "trainerAppliedActions": 48155,
+      "generation": "0000000000000009",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "609792",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "40",
+          "freelistPageCount": "0",
+          "usedPageBytes": "163840"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629024768",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110395904",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 390.31260520300003,
+      "rssBytes": 196427776,
+      "trainerAppliedActions": 51624,
+      "generation": "0000000000000009",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "609792",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "40",
+          "freelistPageCount": "0",
+          "usedPageBytes": "163840"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629024768",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110395904",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 420.410825489,
+      "rssBytes": 198770688,
+      "trainerAppliedActions": 55082,
+      "generation": "000000000000000a",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "708672",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "41",
+          "freelistPageCount": "0",
+          "usedPageBytes": "167936"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629225472",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110039552",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 450.003869995,
+      "rssBytes": 205586432,
+      "trainerAppliedActions": 58529,
+      "generation": "000000000000000a",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "708672",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "41",
+          "freelistPageCount": "0",
+          "usedPageBytes": "167936"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629225472",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110039552",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 480.10564730400006,
+      "rssBytes": 207065088,
+      "trainerAppliedActions": 61948,
+      "generation": "000000000000000b",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "799312",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "41",
+          "freelistPageCount": "0",
+          "usedPageBytes": "167936"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629299200",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109822464",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 510.195189205,
+      "rssBytes": 207589376,
+      "trainerAppliedActions": 65428,
+      "generation": "000000000000000b",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "799312",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "41",
+          "freelistPageCount": "0",
+          "usedPageBytes": "167936"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629299200",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109822464",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 540.280293076,
+      "rssBytes": 207806464,
+      "trainerAppliedActions": 68823,
+      "generation": "000000000000000c",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "898192",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "42",
+          "freelistPageCount": "0",
+          "usedPageBytes": "172032"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629364736",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109607936",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 570.3673600550001,
+      "rssBytes": 207806464,
+      "trainerAppliedActions": 72296,
+      "generation": "000000000000000c",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "898192",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "42",
+          "freelistPageCount": "0",
+          "usedPageBytes": "172032"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629364736",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109607936",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 600.452228746,
+      "rssBytes": 208269312,
+      "trainerAppliedActions": 75687,
+      "generation": "000000000000000d",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1001192",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "44",
+          "freelistPageCount": "0",
+          "usedPageBytes": "180224"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629344256",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109470208",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 630.042625111,
+      "rssBytes": 211546112,
+      "trainerAppliedActions": 79118,
+      "generation": "000000000000000d",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1001192",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "44",
+          "freelistPageCount": "0",
+          "usedPageBytes": "180224"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629344256",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109470208",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 660.12881761,
+      "rssBytes": 212914176,
+      "trainerAppliedActions": 82560,
+      "generation": "000000000000000e",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1100072",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "45",
+          "freelistPageCount": "0",
+          "usedPageBytes": "184320"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629155840",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109510144",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 690.218358615,
+      "rssBytes": 212914176,
+      "trainerAppliedActions": 86047,
+      "generation": "000000000000000e",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1100072",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "45",
+          "freelistPageCount": "0",
+          "usedPageBytes": "184320"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629155840",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109510144",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 720.302399937,
+      "rssBytes": 214159360,
+      "trainerAppliedActions": 89495,
+      "generation": "000000000000000f",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1190712",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "45",
+          "freelistPageCount": "0",
+          "usedPageBytes": "184320"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629106688",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109415424",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 750.388211523,
+      "rssBytes": 221237248,
+      "trainerAppliedActions": 92962,
+      "generation": "000000000000000f",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1190712",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "45",
+          "freelistPageCount": "0",
+          "usedPageBytes": "184320"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629106688",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109415424",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 780.477574569,
+      "rssBytes": 228712448,
+      "trainerAppliedActions": 96397,
+      "generation": "0000000000000010",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1289592",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "46",
+          "freelistPageCount": "0",
+          "usedPageBytes": "188416"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629078016",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109296128",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 810.064727928,
+      "rssBytes": 226324480,
+      "trainerAppliedActions": 99833,
+      "generation": "0000000000000010",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1289592",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "46",
+          "freelistPageCount": "0",
+          "usedPageBytes": "188416"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172629078016",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109296128",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 840.145553443,
+      "rssBytes": 226856960,
+      "trainerAppliedActions": 103234,
+      "generation": "0000000000000011",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1380232",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "46",
+          "freelistPageCount": "0",
+          "usedPageBytes": "188416"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628996096",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109232640",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 870.235790727,
+      "rssBytes": 227119104,
+      "trainerAppliedActions": 106720,
+      "generation": "0000000000000011",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1380232",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "46",
+          "freelistPageCount": "0",
+          "usedPageBytes": "188416"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628996096",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109232640",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 900.31573587,
+      "rssBytes": 227254272,
+      "trainerAppliedActions": 110174,
+      "generation": "0000000000000012",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1479112",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "47",
+          "freelistPageCount": "0",
+          "usedPageBytes": "192512"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628688896",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109386752",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 930.395728565,
+      "rssBytes": 227254272,
+      "trainerAppliedActions": 113652,
+      "generation": "0000000000000012",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1479112",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "47",
+          "freelistPageCount": "0",
+          "usedPageBytes": "192512"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628688896",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109386752",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 960.483050299,
+      "rssBytes": 227688448,
+      "trainerAppliedActions": 117114,
+      "generation": "0000000000000013",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1582112",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "49",
+          "freelistPageCount": "0",
+          "usedPageBytes": "200704"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628574208",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109346816",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 990.071856797,
+      "rssBytes": 227688448,
+      "trainerAppliedActions": 120559,
+      "generation": "0000000000000013",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1582112",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "49",
+          "freelistPageCount": "0",
+          "usedPageBytes": "200704"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628574208",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109346816",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1020.15586436,
+      "rssBytes": 228401152,
+      "trainerAppliedActions": 124010,
+      "generation": "0000000000000014",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1680992",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "50",
+          "freelistPageCount": "0",
+          "usedPageBytes": "204800"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628402176",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109366784",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1050.238296611,
+      "rssBytes": 228532224,
+      "trainerAppliedActions": 127513,
+      "generation": "0000000000000014",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1680992",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "50",
+          "freelistPageCount": "0",
+          "usedPageBytes": "204800"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628402176",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109366784",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1080.3316265409999,
+      "rssBytes": 229199872,
+      "trainerAppliedActions": 130961,
+      "generation": "0000000000000015",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1771632",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "50",
+          "freelistPageCount": "0",
+          "usedPageBytes": "204800"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628262912",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109365248",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1110.415685296,
+      "rssBytes": 229490688,
+      "trainerAppliedActions": 134518,
+      "generation": "0000000000000015",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1771632",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "50",
+          "freelistPageCount": "0",
+          "usedPageBytes": "204800"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628262912",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109365248",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1140.003860588,
+      "rssBytes": 229568512,
+      "trainerAppliedActions": 137948,
+      "generation": "0000000000000016",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1870512",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "51",
+          "freelistPageCount": "0",
+          "usedPageBytes": "208896"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628131840",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109344256",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1170.084696784,
+      "rssBytes": 229830656,
+      "trainerAppliedActions": 141496,
+      "generation": "0000000000000016",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1870512",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "51",
+          "freelistPageCount": "0",
+          "usedPageBytes": "208896"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172628131840",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109344256",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1200.1729102979998,
+      "rssBytes": 230510592,
+      "trainerAppliedActions": 144972,
+      "generation": "0000000000000017",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1973512",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "53",
+          "freelistPageCount": "0",
+          "usedPageBytes": "217088"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627943424",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109376512",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1230.267276443,
+      "rssBytes": 231165952,
+      "trainerAppliedActions": 148509,
+      "generation": "0000000000000017",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1973512",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "53",
+          "freelistPageCount": "0",
+          "usedPageBytes": "217088"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627943424",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109376512",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1260.3475451339998,
+      "rssBytes": 231358464,
+      "trainerAppliedActions": 151958,
+      "generation": "0000000000000018",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2076512",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "55",
+          "freelistPageCount": "0",
+          "usedPageBytes": "225280"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627820544",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109341696",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1290.4310158229998,
+      "rssBytes": 231358464,
+      "trainerAppliedActions": 155441,
+      "generation": "0000000000000018",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2076512",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "55",
+          "freelistPageCount": "0",
+          "usedPageBytes": "225280"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627820544",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109341696",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1320.009321031,
+      "rssBytes": 231702528,
+      "trainerAppliedActions": 158810,
+      "generation": "0000000000000019",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2167152",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "55",
+          "freelistPageCount": "0",
+          "usedPageBytes": "225280"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627554304",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109461504",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1350.0868273219999,
+      "rssBytes": 231833600,
+      "trainerAppliedActions": 162325,
+      "generation": "0000000000000019",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2167152",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "55",
+          "freelistPageCount": "0",
+          "usedPageBytes": "225280"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627554304",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109461504",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1380.1692663009999,
+      "rssBytes": 232058880,
+      "trainerAppliedActions": 165748,
+      "generation": "000000000000001a",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2266032",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "56",
+          "freelistPageCount": "0",
+          "usedPageBytes": "229376"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627439616",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109424640",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1410.256960059,
+      "rssBytes": 232189952,
+      "trainerAppliedActions": 169251,
+      "generation": "000000000000001a",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2266032",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "56",
+          "freelistPageCount": "0",
+          "usedPageBytes": "229376"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627439616",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109424640",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1440.3431288729998,
+      "rssBytes": 232607744,
+      "trainerAppliedActions": 172683,
+      "generation": "000000000000001b",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2356672",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "56",
+          "freelistPageCount": "0",
+          "usedPageBytes": "229376"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627173376",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109547520",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1470.4273198729998,
+      "rssBytes": 232607744,
+      "trainerAppliedActions": 176134,
+      "generation": "000000000000001b",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2356672",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "56",
+          "freelistPageCount": "0",
+          "usedPageBytes": "229376"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627173376",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109547520",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1500.008633095,
+      "rssBytes": 232841216,
+      "trainerAppliedActions": 179500,
+      "generation": "000000000000001c",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2455552",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "57",
+          "freelistPageCount": "0",
+          "usedPageBytes": "233472"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627034112",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109533696",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1530.095625901,
+      "rssBytes": 232841216,
+      "trainerAppliedActions": 182994,
+      "generation": "000000000000001c",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2455552",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "57",
+          "freelistPageCount": "0",
+          "usedPageBytes": "233472"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172627034112",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109533696",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1560.1783014659998,
+      "rssBytes": 233156608,
+      "trainerAppliedActions": 186413,
+      "generation": "000000000000001d",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2546192",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "57",
+          "freelistPageCount": "0",
+          "usedPageBytes": "233472"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172626907136",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109515264",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1590.267072637,
+      "rssBytes": 233156608,
+      "trainerAppliedActions": 189893,
+      "generation": "000000000000001d",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2546192",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "57",
+          "freelistPageCount": "0",
+          "usedPageBytes": "233472"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172626907136",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109515264",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1620.3501941939999,
+      "rssBytes": 233832448,
+      "trainerAppliedActions": 193319,
+      "generation": "000000000000001e",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2645072",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "58",
+          "freelistPageCount": "0",
+          "usedPageBytes": "237568"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172626759680",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109512192",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1650.4289330779998,
+      "rssBytes": 233963520,
+      "trainerAppliedActions": 196800,
+      "generation": "000000000000001e",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2645072",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "58",
+          "freelistPageCount": "0",
+          "usedPageBytes": "237568"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172626759680",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109512192",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1680.0186948839998,
+      "rssBytes": 234123264,
+      "trainerAppliedActions": 200192,
+      "generation": "000000000000001f",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2748072",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "60",
+          "freelistPageCount": "0",
+          "usedPageBytes": "245760"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172626649088",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109466624",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1710.101753242,
+      "rssBytes": 234192896,
+      "trainerAppliedActions": 203703,
+      "generation": "000000000000001f",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2748072",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "60",
+          "freelistPageCount": "0",
+          "usedPageBytes": "245760"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172626649088",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109466624",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1740.183357389,
+      "rssBytes": 234758144,
+      "trainerAppliedActions": 207154,
+      "generation": "0000000000000020",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2834592",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "61",
+          "freelistPageCount": "0",
+          "usedPageBytes": "249856"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172626595840",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109421056",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1770.26523801,
+      "rssBytes": 234758144,
+      "trainerAppliedActions": 210648,
+      "generation": "0000000000000020",
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2834592",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "61",
+          "freelistPageCount": "0",
+          "usedPageBytes": "249856"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172626595840",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109421056",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 1800.3538276499999,
+      "rssBytes": 235741184,
+      "trainerAppliedActions": 214039,
+      "generation": "0000000000000021",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "2916992",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "61",
+          "freelistPageCount": "0",
+          "usedPageBytes": "249856"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172613058560",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "122820608",
+      "automaticByteCap": "4294967296"
+    }
+  ],
+  "memorySoak": {
+    "warmSamples": 20,
+    "measuredSamples": 41,
+    "warmMedianBytes": 198883328,
+    "finalRssBytes": 235741184,
+    "finalAboveWarmMedianBytes": 36857856,
+    "slopeMiBPerMinute": 0.9266920833119705,
+    "warmSeconds": 600,
+    "measuredSeconds": 1200.3538276499999,
+    "meetsMemoryGate": true
+  },
+  "healthLatencyP95Ms": 1.7281379999985802,
+  "healthLatencyMaxMs": 9.437301999976626,
+  "meetsMeasuredGates": true
+}

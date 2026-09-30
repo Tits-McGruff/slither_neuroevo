@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import WebSocket from 'ws';
 import type { RustBackgroundHealth } from '../../src/protocol/rustBackground.ts';
 import type { ExperimentalRuntimeTelemetrySnapshot } from '../../server/rustEngine/runtimeTelemetry.ts';
+import { summarizeRssSoak } from './rss-soak-summary.ts';
 
 /** Mandatory real-time workloads in the approved migration plan. */
 type Scenario = 'P0' | 'P1' | 'P2';
@@ -20,6 +21,14 @@ interface Health extends RustBackgroundHealth {
   nativeBuildIdentifier: string;
   /** Process-lifetime distributions and controller receipts. */
   telemetry: ExperimentalRuntimeTelemetrySnapshot;
+  /** Bounded WebSocket output occupancy, independent from replaceable frames. */
+  outbound: { connections: number; reliableQueuedMessages: number; reliableQueuedBytes: number;
+    pendingFrames: number; replacedFrames: number; reliableFailures: number };
+  /** Cached scalar durable-file and SQLite diagnostics. */
+  storage: { sqlite: { databaseBytes: string; walBytes: string; shmBytes: string };
+    managed: { temporaryBytes: string; freeBytes: string; operatingReserveBytes: string } };
+  /** Current automatic pruning envelope. */
+  retention: { automaticByteCap: string; automaticStoredByteCount: string };
 }
 
 /** Decode an exact native counter without silently truncating large values. */
@@ -113,7 +122,18 @@ async function run(): Promise<void> {
   const transitions: Array<{ generation: string; wallSeconds: number }> = [];
   const observationFailures: Array<{ wallSeconds: number; error: string }> = [];
   const latencies: number[] = [];
-  const resourceSamples: Array<{ wallSeconds: number; rssBytes: number; trainerAppliedActions: number }> = [];
+  const resourceSamples: Array<{ wallSeconds: number; rssBytes: number; trainerAppliedActions: number;
+    generation: string; outbound: Health['outbound']; storage: Health['storage'];
+    automaticStoredBytes: string; automaticByteCap: string }> = [];
+  /** Keep actual resident memory, output occupancy and durable bytes at the same boundary. */
+  const recordResources = (health: Health, wallSeconds: number): void => {
+    resourceSamples.push({ wallSeconds, rssBytes: health.telemetry.process.rssBytes,
+      trainerAppliedActions: health.telemetry.controllerActivity.trainer.appliedActions,
+      generation: health.generation, outbound: health.outbound, storage: health.storage,
+      automaticStoredBytes: counter(health.retention.automaticStoredByteCount).toString(),
+      automaticByteCap: counter(health.retention.automaticByteCap).toString() });
+  };
+  recordResources(initial, 0);
   let final = initial;
   let previous = initial;
   let overloaded = initial.schedulerOverloaded;
@@ -146,14 +166,16 @@ async function run(): Promise<void> {
       if (final.generation !== previous.generation) transitions.push({ generation: final.generation, wallSeconds: elapsed });
       previous = final;
       if (elapsed >= nextProgress) {
-        resourceSamples.push({ wallSeconds: elapsed, rssBytes: final.telemetry.process.rssBytes,
-          trainerAppliedActions: final.telemetry.controllerActivity.trainer.appliedActions });
-        process.stderr.write(`elapsed=${elapsed.toFixed(1)}s generation=${counter(final.generation)} p99=${final.telemetry.step.p99Ms}ms dropped=${counter(final.schedulerDroppedWallMicros)} trainerActions=${final.telemetry.controllerActivity.trainer.appliedActions}\n`);
+        recordResources(final, elapsed);
+        process.stderr.write(`elapsed=${elapsed.toFixed(1)}s generation=${counter(final.generation)} p99=${final.telemetry.step.p99Ms}ms dropped=${counter(final.schedulerDroppedWallMicros)} rssMiB=${(final.telemetry.process.rssBytes / 1024 ** 2).toFixed(1)} trainerActions=${final.telemetry.controllerActivity.trainer.appliedActions}\n`);
         nextProgress += 30;
       }
     } while ((performance.now() - started) / 1000 < seconds);
   } catch (error) { failure = String(error); }
   const wallSeconds = (performance.now() - started) / 1000;
+  if (wallSeconds - resourceSamples.at(-1)!.wallSeconds >= 1) recordResources(final, wallSeconds);
+  else resourceSamples.at(-1)!.wallSeconds = wallSeconds;
+  const memorySoak = seconds >= 1800 && wallSeconds >= 1800 ? summarizeRssSoak(resourceSamples) : undefined;
   const deltaSteps = counter(final.completedStep) - counter(initial.completedStep);
   const dropped = counter(final.schedulerDroppedWallMicros) - counter(initial.schedulerDroppedWallMicros);
   const ratio = Number(deltaSteps) / 60 / wallSeconds;
@@ -165,7 +187,8 @@ async function run(): Promise<void> {
     timing.checkpointBarrier.samples > 0 && timing.checkpointBarrier.p95Ms <= 1000 && timing.checkpointBarrier.maxMs <= 2000 &&
     timing.process.eventLoopDelayP95Ms <= 20 && timing.process.eventLoopDelayP99Ms <= 50 &&
     timing.process.maxRssBytes < 12 * 1024 ** 3 &&
-    trainerActions > 0 && timing.trainerAction.p95Ms <= 100;
+    trainerActions > 0 && timing.trainerAction.p95Ms <= 100 &&
+    (seconds < 1800 || memorySoak?.meetsMemoryGate === true);
   const report = { scenario, rustWorkers: workers, sourceRevision, startedAtUtc, requestedSeconds: seconds, wallSeconds,
     measuredScope: 'Production server with two independent real PyRL actors; connected-player timings are server receipt-to-application measurements. Browser rendering requires separate evidence.',
     histogramScope: 'Native and interface histograms cover this server process lifetime, including pre-window trainer warm-up.',
@@ -173,13 +196,13 @@ async function run(): Promise<void> {
     workloadWelcome: metadata, initialHealth: initial, finalHealth: final,
     deltaSteps: deltaSteps.toString(), simulatedWallRatio: ratio, droppedWallMicros: dropped.toString(),
     overloadedDuringSamples: overloaded, trainerAppliedActionsDelta: trainerActions,
-    transitions, generationIntervalsSeconds: intervals, observationFailures, resourceSamples,
+    transitions, generationIntervalsSeconds: intervals, observationFailures, resourceSamples, memorySoak,
     healthLatencyP95Ms: latencies.length ? percentile(latencies, 0.95) : null,
     healthLatencyMaxMs: latencies.length ? Math.max(...latencies) : null,
     failure, meetsMeasuredGates };
   await writeFile(resolve(output), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
   process.stdout.write(`${JSON.stringify({ wallSeconds, simulatedWallRatio: ratio,
-    droppedWallMicros: dropped.toString(), trainerActions, meetsMeasuredGates, failure })}\n`);
+    droppedWallMicros: dropped.toString(), trainerActions, memorySoak, meetsMeasuredGates, failure })}\n`);
   if (!meetsMeasuredGates) process.exitCode = 1;
 }
 

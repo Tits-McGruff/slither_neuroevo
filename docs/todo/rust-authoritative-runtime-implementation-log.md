@@ -1241,3 +1241,23 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   unit and checkout/build/database were removed and ports 5174/5180/5181 stayed
   closed. Earlier abort/watchdog service evidence remains separate; unattended
   startup still requires administrator-enabled user lingering.
+
+- 2026-09-30 The `a22f04b` production P1 workload with six workers, two real
+  PyRL actors and a programmatic frame-receiving player completed 1,800.35
+  seconds at 0.9923 simulated/wall with 107,192 steps, zero dropped debt and
+  16 ms step p99. After ten minutes of warm-up, the twenty-minute RSS slope
+  was 0.927 MiB/minute; final RSS was 224.8 MiB, 35.2 MiB above the warm median,
+  clearing the 1 MiB/minute and 64 MiB limits with limited slope headroom.
+  Loopback health p95 was 1.73 ms, complete generation intervals 60.16–60.70
+  seconds, and checkpoint-barrier maximum 239.9 ms. The window applied 206,981
+  trainer actions; the player received 53,319 frames and completed 59 successful
+  same-snake reclaims across 60 connections. Sampled temporary managed bytes
+  stayed zero, automatic checkpoint bytes stayed below the configured cap,
+  and WAL stayed below 2.8 MiB. Raw reports are retained as
+  `evidence/stage7/oxygen-ryzen2700/p7-p1-*-a22f04b-20260930.json`.
+  The reusable sampler now computes the exact RSS gates; its summary/category
+  tests, TypeScript and focused ESLint passed, and `a22f04b` full CI passed.
+  All disposable processes and source/build/database/trainer scratch were
+  removed with ports 5174/5180/5181 closed. This proves the measured P1 memory,
+  loopback-health and programmatic lifecycle slice; browser rendering/heap and
+  complete queue/backpressure acceptance remain separate.

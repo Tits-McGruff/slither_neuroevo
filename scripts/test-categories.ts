@@ -12,6 +12,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/stage6/evolutionFixture.test.ts',
     'scripts/stage6/freshRunFixture.test.ts',
     'scripts/stage6/frameV1Fixture.test.ts',
+    'scripts/stage7/rss-soak-summary.test.ts',
     'scripts/test-categories.test.ts',
     'server/authoritativeWorldDigest.test.ts',
     'server/hash.test.ts',
