@@ -1,6 +1,7 @@
 /** Kill a real server after archive publication or during its first body write. */
-import { writeSync } from 'node:fs';
+import { existsSync, statSync, writeSync } from 'node:fs';
 import { ServerResponse } from 'node:http';
+import { join } from 'node:path';
 import { ExperimentalRunningAuthority } from '../../native/index.js';
 import { DEFAULT_CONFIG } from '../config.ts';
 import { startRustServer } from '../rustServer.ts';
@@ -12,7 +13,7 @@ const dbPath = process.argv[3];
 /** Exact export boundary at which to stop without cleanup. */
 const point = process.argv[4];
 if (!Number.isInteger(port) || port <= 0 || port > 65535 || !dbPath ||
-    (point !== 'afterReady' && point !== 'duringDownload')) {
+    (point !== 'afterReady' && point !== 'duringDownload' && point !== 'duringEncoding')) {
   throw new Error('expected loopback port, disposable database path and export crash point');
 }
 
@@ -38,6 +39,29 @@ ExperimentalRunningAuthority.prototype.prepareExportArchive = async function (
   this: ExperimentalRunningAuthority,
   ...args: Parameters<ExperimentalRunningAuthority['prepareExportArchive']>
 ) {
+  if (point === 'duringEncoding') {
+    const checkpoint = args[2] as { logicalRootSha256: string };
+    const filename = `.${args[1]}.slither-save.partial`;
+    const partial = join(args[0], filename);
+    const pending = originalPrepare.apply(this, args);
+    const watch = setInterval(() => {
+      const progress = this.archiveWorkProgress();
+      if (!progress || progress.operationId !== args[1] || !progress.started || progress.finished ||
+          BigInt(`0x${progress.completedBytes}`) === 0n || !existsSync(partial)) return;
+      const bytes = statSync(partial).size;
+      if (bytes === 0) return;
+      writeSync(1, `${JSON.stringify({ type: 'exportCrashPoint', point,
+        checkpointId: checkpoint.logicalRootSha256, relativeFilename: filename,
+        storedByteCount: BigInt(bytes).toString(16).padStart(16, '0'), offeredBytes: 0,
+        progress })}\n`);
+      process.kill(process.pid, 'SIGKILL');
+      throw new Error('SIGKILL unexpectedly returned');
+    }, 1);
+    try {
+      await pending;
+      throw new Error('encoder completed before the fixture observed a nonempty unfinished archive');
+    } finally { clearInterval(watch); }
+  }
   const result = await originalPrepare.apply(this, args);
   ready = result as NonNullable<typeof ready>;
   if (point === 'afterReady') killAtBoundary();

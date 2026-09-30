@@ -11,6 +11,7 @@ import { expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import { ARCHIVE_ARTIFACT_GRACE_MS, isRecognizedArchiveArtifact } from './rustEngine/archiveScavenger.ts';
+import { buildLargeBrainGraph } from '../scripts/stage2/fixtures.ts';
 
 /** One scalar health response needed by the process-death contract. */
 interface ProcessHealth {
@@ -28,7 +29,7 @@ type ReplacementCrashPoint = 'afterCommit' | 'afterSwap';
 /** Exact fixture and boundary selected for one disposable child. */
 type ProcessCrashFixture =
   | { kind: 'replacement' | 'generation'; point: ReplacementCrashPoint }
-  | { kind: 'export'; point: 'afterReady' | 'duringDownload' }
+  | { kind: 'export'; point: 'afterReady' | 'duringDownload' | 'duringEncoding' }
   | { kind: 'pruning'; point: 'afterIntent' | 'afterDelete' };
 
 /** Owner-visible operations that publish a complete replacement authority. */
@@ -360,14 +361,43 @@ describeNetworkSuite('Rust process-death recovery', () => {
     }
   }, 45_000);
 
-  it.each(['afterReady', 'duringDownload'] as const)('recovers export death %s and permits a fresh download', async (point) => {
+  it.each(['afterReady', 'duringDownload', 'duringEncoding'] as const)('recovers export death %s and permits a fresh download', async (point) => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-export-death-'));
     const databasePath = join(root, 'experiment.sqlite');
     const managedRoot = `${databasePath}.checkpoints`;
     const port = await availablePort();
     const first = spawnRustServer(port, databasePath, 'fresh', { kind: 'export', point });
     let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    let setup: WebSocket | undefined;
     try {
+      if (point === 'duringEncoding') {
+        await readyHealth(port, first.child, first.output);
+        setup = new WebSocket(`ws://127.0.0.1:${port}`);
+        await new Promise<void>((resolveSetup, rejectSetup) => {
+          const timer = setTimeout(() => finish(new Error('large export setup timed out')), 15_000);
+          /** Release the setup socket and deadline on every terminal reply. */
+          function finish(error?: Error): void {
+            clearTimeout(timer);
+            setup!.terminate();
+            if (error) rejectSetup(error);
+            else resolveSetup();
+          }
+          setup!.on('error', finish);
+          setup!.on('open', () => setup!.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' })));
+          setup!.on('message', (bytes, binary) => {
+            if (binary) return;
+            const message = JSON.parse(bytes.toString()) as { type: string };
+            if (message.type === 'welcome') {
+              setup!.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+              setup!.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(83) }));
+            } else if (message.type === 'stateReplaced') {
+              finish();
+            } else if (message.type === 'error') {
+              finish(new Error(JSON.stringify(message)));
+            }
+          });
+        });
+      }
       const before = await readyHealth(port, first.child, first.output);
       const interrupted = fetch(`http://127.0.0.1:${port}/api/export/latest`, {
         signal: AbortSignal.timeout(15_000)
@@ -384,9 +414,17 @@ describeNetworkSuite('Rust process-death recovery', () => {
       expect(markerLine, first.output()).toBeDefined();
       const marker = JSON.parse(markerLine!) as {
         point: string; checkpointId: string; relativeFilename: string; storedByteCount: string; offeredBytes: number;
+        progress?: { started: boolean; finished: boolean; completedBytes: string };
       };
       expect(marker).toMatchObject({ point, checkpointId: before.startupCheckpointId });
-      expect(marker.relativeFilename).toMatch(/^\.[0-9a-f]{32}\.slither-save\.ready$/u);
+      expect(marker.relativeFilename).toMatch(point === 'duringEncoding'
+        ? /^\.[0-9a-f]{32}\.slither-save\.partial$/u : /^\.[0-9a-f]{32}\.slither-save\.ready$/u);
+      if (point === 'duringEncoding') {
+        expect(marker.progress).toMatchObject({ started: true, finished: false });
+        expect(BigInt(`0x${marker.progress!.completedBytes}`)).toBeGreaterThan(0n);
+        expect(BigInt(`0x${marker.storedByteCount}`)).toBeGreaterThan(0n);
+        expect((await readdir(managedRoot)).some(name => name.endsWith('.slither-save.ready'))).toBe(false);
+      }
       if (point === 'duringDownload') {
         expect(marker.offeredBytes).toBeGreaterThan(0);
         expect(BigInt(marker.offeredBytes)).toBeLessThan(BigInt(`0x${marker.storedByteCount}`));
@@ -410,9 +448,12 @@ describeNetworkSuite('Rust process-death recovery', () => {
       });
       expect(exported.status).toBe(200);
       expect(exported.headers.get('x-slither-checkpoint-id')).toBe(before.startupCheckpointId);
-      expect((await exported.arrayBuffer()).byteLength).toBe(Number(exported.headers.get('content-length')));
+      const exportedBytes = (await exported.arrayBuffer()).byteLength;
+      expect(exportedBytes).toBe(Number(exported.headers.get('content-length')));
+      if (point === 'duringEncoding') expect(BigInt(exportedBytes)).toBeGreaterThan(BigInt(`0x${marker.storedByteCount}`));
       await waitForArchiveCleanup(managedRoot);
     } finally {
+      setup?.terminate();
       if (restarted) await terminate(restarted.child, 'SIGTERM');
       await terminate(first.child, 'SIGKILL');
       await rm(root, { recursive: true, force: true });

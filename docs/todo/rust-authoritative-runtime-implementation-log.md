@@ -1168,3 +1168,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   The sampler passed TypeScript and ESLint. The trainer and disposable server
   stopped, ports 5180/5174 were closed, and their checkout/database/build and
   trainer checkpoint scratch were removed. No other chat's results were used.
+
+- 2026-09-30 Export process-death coverage now includes a kill inside the real
+  native encoder. A large-brain checkpoint gives the observer a nonempty
+  `.partial` archive while native progress is started and unfinished; no
+  `.ready` archive exists. Restart keeps the exact selected checkpoint,
+  cleans stale recognized scratch, and produces a complete fresh archive
+  larger than the interrupted file. All three focused export-death cases
+  passed on Windows, with TypeScript and focused ESLint passing. Linux CI
+  remains the cross-platform confirmation; supervised service restart remains
+  separate acceptance work.
