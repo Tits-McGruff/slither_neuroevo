@@ -1,0 +1,82 @@
+{
+  "sourceRevision": "d0c70a62437bb52cc5293d475bc2e34784b9db4b",
+  "scope": "Real in-app LAN browser player; deliberate suppression gaps excluded from normal delivered-frame intervals. Animation callbacks remained throttled around 1 Hz even when the tab was presented, so this does not prove the rendering/display gate.",
+  "observations": {
+    "actions": 30905,
+    "animationIntervals": {
+      "fractionAtMost40Ms": 0.035919540229885055,
+      "maxMs": 1016.3999999999652,
+      "p95Ms": 1000.9000000000232,
+      "samples": 696
+    },
+    "boostActions": 4244,
+    "foregroundCheck": {
+      "animation": {
+        "fractionAtMost40Ms": 0.00684931506849315,
+        "maxMs": 1001,
+        "p95Ms": 1000.9000000000232,
+        "samples": 146
+      },
+      "frames": {
+        "fractionAtMost40Ms": 0.9801183431952664,
+        "maxMs": 1083.300000011921,
+        "p95Ms": 36.80000001192093,
+        "samples": 4225
+      },
+      "wallSeconds": 144.93910000002384
+    },
+    "frames": 14600,
+    "networkFrameIntervals": {
+      "fractionAtMost40Ms": 0.9819825991642118,
+      "maxMs": 1232,
+      "p95Ms": 36.40000003576279,
+      "samples": 14597
+    },
+    "releaseActions": 26661,
+    "suppressedFrames": 4998,
+    "suppressedSensors": 10078,
+    "suppressionHeld": {
+      "actions": 3197,
+      "atMs": 237711,
+      "boostActions": 1146,
+      "lastAction": {
+        "atMs": 237681.5,
+        "boost": 1,
+        "tick": 22672,
+        "turn": -6.9725360002011e-8
+      },
+      "releaseActions": 2051,
+      "suppressedFrames": 712,
+      "suppressedSensors": 1428
+    },
+    "suppressionReleased": {
+      "actions": 6835,
+      "atMs": 317006.90000003576,
+      "boostActions": 1193,
+      "lastAction": {
+        "atMs": 317004,
+        "boost": 0,
+        "tick": 27361,
+        "turn": -6.543213109670718e-8
+      },
+      "releaseActions": 5642,
+      "suppressedFrames": 3043,
+      "suppressedSensors": 6113
+    },
+    "suppressionStart": {
+      "actions": 2051,
+      "atMs": 212617.10000002384,
+      "boostActions": 0,
+      "lastAction": {
+        "atMs": 212599.70000004768,
+        "boost": 0,
+        "tick": 21242,
+        "turn": -0.8975175085012722
+      },
+      "releaseActions": 2051
+    },
+    "visibility": "visible",
+    "visibilityChanges": [],
+    "wallSeconds": 670.7911999999881
+  }
+}

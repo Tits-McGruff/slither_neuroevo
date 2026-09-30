@@ -1178,3 +1178,24 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   passed on Windows, with TypeScript and focused ESLint passing. Linux CI
   remains the cross-platform confirmation; supervised service restart remains
   separate acceptance work.
+
+- 2026-09-30 An isolated Oxygen `d0c70a6` P2 run with six workers, two real
+  PyRL actors and one real LAN browser player measured 600.02 seconds and
+  35,292 steps at 0.9803 simulated/wall speed, with zero dropped debt or
+  sampled overload. Complete generation intervals were 60.99–61.71 seconds,
+  native step p99 16 ms, checkpoint-barrier maximum 903.93 ms, Node event-loop
+  p99 11.07 ms and peak RSS 371.64 MB. The window applied 66,913 trainer and
+  27,241 player actions; server receipt-to-application p95 was 0.25/8 ms.
+  A wire trace under suppressed browser sensors/frames shows held boost and
+  release on the same snake, with a boost-off frame 51.13 ms after the release
+  send; this single trace does not prove a latency percentile. Delivered
+  network-frame p95 was 36.4 ms, but animation callbacks stayed near 1 Hz even
+  with the in-app tab presented, so the browser rendering gate remains open.
+  Raw reports and a screenshot are retained under
+  `evidence/stage7/oxygen-ryzen2700/p2-*-d0c70a6-20260930.*`. The source build,
+  both fixture copies and trainer scratch were removed after stopping all
+  disposable processes and verifying ports 5180/5174 closed. Sampler/observer
+  lint and sampler TypeScript passed. The `d0c70a6` Windows/Linux CI matrix
+  passed. The measured P2 ratio is close to the minimum and establishes little
+  additional capacity; rendering, loopback-health and longer RSS gates remain
+  separate work.
