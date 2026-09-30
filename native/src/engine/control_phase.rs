@@ -1280,6 +1280,12 @@ pub struct ControlPhaseWorkspace {
 }
 
 impl ControlPhaseWorkspace {
+    /// Forward the isolated test-build injection into the actual inference pipeline.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn arm_calculation_panic_for_test(&mut self) -> Result<(), &'static str> {
+        self.neural.arm_calculation_panic_for_test()
+    }
+
     /// Construct empty retained join scratch around one admitted neural pipeline.
     pub fn new(neural: NeuralControlPipeline) -> Result<Self, ControlPhaseError> {
         let visualization_plan = neural

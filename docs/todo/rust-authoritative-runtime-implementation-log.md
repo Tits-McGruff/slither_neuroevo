@@ -1209,3 +1209,17 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   later commands and joins cleanly. The release Rust suite and Clippy passed.
   These injection points compile only into Rust unit tests. Full Node/server
   panic injection and supervised service recovery remain separate acceptance.
+
+- 2026-09-30 A real release-addon Rayon inference-partition panic now passes
+  through the production HTTP/WebSocket router in an isolated startup fixture.
+  Health stays reachable with HTTP 503 and the partition fault; settings receive
+  an unapplied result. Completed-step counters stay at zero, emitted frame/stats
+  state never advances past the valid startup boundary, and the current SQLite
+  pointer, managed-file inventory and selected checkpoint bytes stay unchanged.
+  Closing and restarting from that exact checkpoint advances normally. The
+  separate source-checked test-hooks addon exposes injection only before start;
+  normal production startup rejects it and the production addon has no trigger.
+  Both server cases, the native-required overlay, release Rust feature suite,
+  Clippy, rustfmt, TypeScript, ESLint and browser build passed on Windows. Linux
+  CI remains the cross-platform confirmation. This closes the calculation-panic
+  transport slice; supervised service recovery remains separate acceptance.

@@ -315,7 +315,9 @@ export class ExperimentalFreshRunSession {
   private readonly persistenceHandoff: RunStartPersistenceHandoff;
 
   /**
-   * Construct only from a fully identity-validated production addon.
+   * Construct from a binding checked by the composition root. The production
+   * factory enforces production provenance; isolated fault tests check their
+   * separate test-build provenance before using this lower-level constructor.
    * @param binding - Validated native binding.
    * @param options - Bounded identity and persistence dependencies.
    */

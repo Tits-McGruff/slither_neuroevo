@@ -142,6 +142,34 @@ impl std::fmt::Debug for EngineRuntime {
 }
 
 impl EngineRuntime {
+    /// Serialize test-only injection against start; never access live coordinator state.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn arm_calculation_panic_for_test(&self) -> Result<(), EngineError> {
+        let _thread = lock_recover(&self.thread);
+        if self.health().lifecycle != LifecycleState::Created {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidLifecycle,
+                "calculation panic fixture must be armed before coordinator start",
+            ));
+        }
+        let RuntimeMode::RunningAuthority { loop_slot, .. } = &self.mode else {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidLifecycle,
+                "calculation panic fixture requires retained running authority",
+            ));
+        };
+        lock_recover(loop_slot)
+            .as_mut()
+            .ok_or_else(|| {
+                EngineError::new(
+                    EngineErrorCode::InvalidLifecycle,
+                    "running loop is unavailable",
+                )
+            })?
+            .arm_calculation_panic_for_test()
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidConfiguration, detail))
+    }
+
     /// Validate configuration and create an unstarted runtime that already owns authority.
     pub fn new_authoritative(
         init: EngineInit,

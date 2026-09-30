@@ -234,6 +234,12 @@ pub(crate) struct PreparedRunningAuthorityLoop {
 }
 
 impl RunningAuthorityLoop {
+    /// Arm a calculation failure while the test runtime still owns an unstarted loop.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn arm_calculation_panic_for_test(&mut self) -> Result<(), &'static str> {
+        self.coordinator.arm_calculation_panic_for_test()
+    }
+
     /// Complete every fallible handoff check while the prior owner remains intact.
     ///
     /// `wall_origin_ms` excludes asynchronous durability and startup time from

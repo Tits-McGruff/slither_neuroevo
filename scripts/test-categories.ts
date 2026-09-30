@@ -84,6 +84,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/managedBackup.test.ts',
     'scripts/stage7/compact-legacy-database.test.ts',
     'server/rustServer.native.test.ts',
+    'server/rustServer.panic.native.test.ts',
     'server/integration.test.ts',
     'server/recoveryPhase0Startup.characterization.test.ts',
     'server/recoveryPhase1.lifecycle.test.ts',
@@ -139,6 +140,7 @@ export const PRIMARY_TEST_CATEGORY_ORDER = [
 /** Required-native overlay that must fail when the addon or native MT path is unavailable. */
 export const NATIVE_REQUIRED_TEST_FILES = [
   'server/rustServer.native.test.ts',
+  'server/rustServer.panic.native.test.ts',
   'server/rustEngine/nativeSourceIdentity.native.test.ts',
   'server/rustEngine/experimentalNativeBridge.native.test.ts',
   'server/rustEngine/experimentalFreshRunSession.native.test.ts',

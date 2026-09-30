@@ -19,8 +19,18 @@ const vitestBin = resolve('node_modules', 'vitest', 'vitest.mjs');
 /** Additional Vitest arguments forwarded after the category name. */
 const forwardedArgs = process.argv.slice(3);
 
-/** Keep real-server timing diagnostics isolated from other suites' durable disk workloads. */
-const isolationArgs = category === 'integration' ? ['--maxWorkers=1'] : [];
+/** Prepare the separate test-hooks addon only for layers that exercise real Rust panics. */
+if (files.includes(resolve('server/rustServer.panic.native.test.ts'))) {
+  const prepare = spawnSync(process.execPath, [resolve('node_modules/tsx/dist/cli.mjs'),
+    resolve('scripts/prepare-panic-test-addon.ts')], { stdio: 'inherit' });
+  if (prepare.error) throw prepare.error;
+  if (prepare.status !== 0) process.exit(prepare.status ?? 1);
+}
+
+/** Keep real-server timing diagnostics isolated from other files' durable disk workloads.
+ * Native MT remains exercised inside each file; only independent files run serially.
+ */
+const isolationArgs = category === 'integration' || category === 'native-required' ? ['--maxWorkers=1'] : [];
 
 const result = spawnSync(process.execPath, [vitestBin, 'run', ...files, ...isolationArgs, ...forwardedArgs], {
   stdio: 'inherit'

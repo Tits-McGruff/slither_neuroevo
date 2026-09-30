@@ -550,6 +550,12 @@ pub struct RunningStepCoordinator {
 }
 
 impl RunningStepCoordinator {
+    /// Arm the next real parallel calculation in an explicit test build.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn arm_calculation_panic_for_test(&mut self) -> Result<(), &'static str> {
+        self.control.arm_calculation_panic_for_test()
+    }
+
     /// Build every persistent phase workspace from one admitted authority.
     ///
     /// A later config revision, graph replacement, Reset, New Run, or import

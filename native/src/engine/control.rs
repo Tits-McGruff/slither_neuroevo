@@ -177,11 +177,21 @@ pub struct NeuralControlPipeline {
     allocated_staging_bytes: usize,
     ready: Option<ReadyBatch>,
     last_cost: NeuralBatchCostMicros,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "engine-test-hooks"))]
     panic_inference_partition_once: Option<usize>,
 }
 
 impl NeuralControlPipeline {
+    /// Arm a real Rayon partition only in an explicit test build.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn arm_calculation_panic_for_test(&mut self) -> Result<(), &'static str> {
+        if self.calculation_pool.is_none() || self.parallel_inference_errors.len() < 2 {
+            return Err("calculation panic fixture requires at least two workers");
+        }
+        self.panic_inference_partition_once = Some(1);
+        Ok(())
+    }
+
     /// Calculate fixed calculation and packed-staging bytes for one pipeline.
     pub fn required_staging_bytes(
         max_work: usize,
@@ -397,7 +407,7 @@ impl NeuralControlPipeline {
             allocated_staging_bytes,
             ready: None,
             last_cost: NeuralBatchCostMicros::default(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "engine-test-hooks"))]
             panic_inference_partition_once: None,
         })
     }
@@ -568,7 +578,7 @@ impl NeuralControlPipeline {
             let mut outputs = &mut self.staged_outputs[..output_count];
             let mut recurrent = &mut self.staged_recurrent[..recurrent_count];
             self.parallel_inference_errors.fill(None);
-            #[cfg(test)]
+            #[cfg(any(test, feature = "engine-test-hooks"))]
             let panic_partition = self.panic_inference_partition_once.take();
             pool.scope(|scope| {
                 for (chunk_index, ((units, scratch), error)) in work
@@ -592,7 +602,7 @@ impl NeuralControlPipeline {
                     let zero_recurrent = &self.zero_recurrent;
                     scope.spawn(move |_| {
                         run_calculation_worker("inference", chunk_index, || {
-                            #[cfg(test)]
+                            #[cfg(any(test, feature = "engine-test-hooks"))]
                             if panic_partition == Some(chunk_index) {
                                 panic!("test-only calculation worker panic");
                             }

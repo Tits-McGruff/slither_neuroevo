@@ -665,6 +665,20 @@ impl ExperimentalRunningAuthority {
     }
 }
 
+#[cfg(feature = "engine-test-hooks")]
+#[napi]
+impl ExperimentalRunningAuthority {
+    /// Test-addon-only trigger; production addons expose no panic injection method.
+    #[napi(catch_unwind)]
+    pub fn arm_calculation_panic_for_test(&self) -> Result<()> {
+        self.root(|| {
+            self.runtime
+                .arm_calculation_panic_for_test()
+                .map_err(engine_error_to_napi)
+        })
+    }
+}
+
 #[napi]
 impl ExperimentalRunningAuthority {
     /// Read native archive bytes completed without waiting on its worker thread.

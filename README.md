@@ -333,6 +333,11 @@ manifest. Focused commands are:
 - `test:native-required`: additive native and multi-thread contracts that fail
   rather than skip when the addon is unavailable.
 
+Server panic tests use a separate release addon with test hooks. The full,
+integration and required-native commands prepare it under `native/target` and
+reuse it while its source identity matches. Normal server startup requires the
+production addon and rejects the test build.
+
 ## Controls
 
 - `V`: Toggle between Play and Spectate camera modes.
