@@ -518,6 +518,22 @@ pub struct OutputMetrics {
     pub high_water_count: usize,
     /// Highest normal owned bytes.
     pub high_water_owned_bytes: usize,
+    /// Highest reliable event count, retained after drain.
+    pub high_water_reliable: usize,
+    /// Highest reliable owned bytes, retained after drain.
+    pub high_water_reliable_owned_bytes: usize,
+    /// Highest discrete event count, retained after drain.
+    pub high_water_discrete: usize,
+    /// Highest discrete owned bytes, retained after drain.
+    pub high_water_discrete_owned_bytes: usize,
+    /// Highest replaceable frame connection count.
+    pub high_water_frames: usize,
+    /// Highest replaceable frame owned bytes.
+    pub high_water_frame_owned_bytes: usize,
+    /// Highest replaceable stats slot occupancy, zero or one.
+    pub high_water_stats: usize,
+    /// Highest replaceable stats owned bytes.
+    pub high_water_stats_owned_bytes: usize,
     /// Reliable/discrete overflow attempts.
     pub priority_overflows: u64,
     /// Stats replacements.
@@ -556,6 +572,14 @@ struct OutputState {
     total_owned_bytes: usize,
     high_water_count: usize,
     high_water_owned_bytes: usize,
+    high_water_reliable: usize,
+    high_water_reliable_owned_bytes: usize,
+    high_water_discrete: usize,
+    high_water_discrete_owned_bytes: usize,
+    high_water_frames: usize,
+    high_water_frame_owned_bytes: usize,
+    high_water_stats: usize,
+    high_water_stats_owned_bytes: usize,
     priority_overflows: u64,
     stats_replacements: u64,
     frame_replacements: u64,
@@ -674,6 +698,14 @@ impl OutputQueue {
                 total_owned_bytes: 0,
                 high_water_count: 0,
                 high_water_owned_bytes: 0,
+                high_water_reliable: 0,
+                high_water_reliable_owned_bytes: 0,
+                high_water_discrete: 0,
+                high_water_discrete_owned_bytes: 0,
+                high_water_frames: 0,
+                high_water_frame_owned_bytes: 0,
+                high_water_stats: 0,
+                high_water_stats_owned_bytes: 0,
                 priority_overflows: 0,
                 stats_replacements: 0,
                 frame_replacements: 0,
@@ -1254,6 +1286,14 @@ impl OutputQueue {
             high_water_count: state.high_water_count,
             high_water_owned_bytes: state.high_water_owned_bytes,
             priority_overflows: state.priority_overflows,
+            high_water_reliable: state.high_water_reliable,
+            high_water_reliable_owned_bytes: state.high_water_reliable_owned_bytes,
+            high_water_discrete: state.high_water_discrete,
+            high_water_discrete_owned_bytes: state.high_water_discrete_owned_bytes,
+            high_water_frames: state.high_water_frames,
+            high_water_frame_owned_bytes: state.high_water_frame_owned_bytes,
+            high_water_stats: state.high_water_stats,
+            high_water_stats_owned_bytes: state.high_water_stats_owned_bytes,
             stats_replacements: state.stats_replacements,
             frame_replacements: state.frame_replacements,
             stale_stats: state.stale_stats,
@@ -1410,6 +1450,30 @@ fn evict_replaceable_for(state: &mut OutputState, incoming: usize, limit: usize)
 }
 
 fn update_output_high_water(state: &mut OutputState) {
+    let stats_bytes = state
+        .stats
+        .as_ref()
+        .map_or(0, ReplaceableStats::owned_bytes);
+    // The normal total is exactly reliable + discrete + stats + frame payload capacities.
+    // Derive frame bytes from those maintained scalars without scanning the frame map.
+    let frame_bytes = state.total_owned_bytes
+        - state.reliable_owned_bytes
+        - state.discrete_owned_bytes
+        - stats_bytes;
+    state.high_water_reliable = state.high_water_reliable.max(state.reliable.len());
+    state.high_water_reliable_owned_bytes = state
+        .high_water_reliable_owned_bytes
+        .max(state.reliable_owned_bytes);
+    state.high_water_discrete = state.high_water_discrete.max(state.discrete.len());
+    state.high_water_discrete_owned_bytes = state
+        .high_water_discrete_owned_bytes
+        .max(state.discrete_owned_bytes);
+    state.high_water_frames = state.high_water_frames.max(state.frames.len());
+    state.high_water_frame_owned_bytes = state.high_water_frame_owned_bytes.max(frame_bytes);
+    state.high_water_stats = state
+        .high_water_stats
+        .max(usize::from(state.stats.is_some()));
+    state.high_water_stats_owned_bytes = state.high_water_stats_owned_bytes.max(stats_bytes);
     let count = state.reliable.len()
         + state.discrete.len()
         + usize::from(state.stats.is_some())
@@ -1997,6 +2061,67 @@ mod tests {
         ));
         assert_eq!(queue.metrics().stats_replacements, 1);
         assert_eq!(queue.metrics().frame_replacements, 1);
+    }
+
+    #[test]
+    fn separate_output_class_peaks_survive_drain_and_different_peak_boundaries() {
+        let queue = OutputQueue::new(
+            OutputLimits {
+                max_reliable: 4,
+                max_reliable_owned_bytes: 32,
+                max_discrete: 4,
+                max_discrete_owned_bytes: 32,
+                max_total_owned_bytes: 64,
+                max_event_owned_bytes: 32,
+                max_frame_connections: 4,
+            },
+            Arc::new(NoopWakeSink),
+        );
+        for sequence in 1..=2 {
+            queue
+                .push_reliable(ReliableEvent::ProbeResult {
+                    sequence,
+                    correlation_id: sequence,
+                    payload: vec![1; 8],
+                })
+                .assert_ok();
+        }
+        assert_eq!(queue.drain(8, 64).events.len(), 2);
+        for (connection_id, bytes) in [(1, 12), (2, 4)] {
+            queue
+                .replace_frame(FrameEvent {
+                    connection_id,
+                    sequence: 3,
+                    payload: vec![2; bytes],
+                })
+                .assert_ok();
+        }
+        queue
+            .replace_stats(StatsEvent {
+                sequence: 4,
+                payload: vec![3; 8],
+            })
+            .assert_ok();
+        queue
+            .push_discrete(DiscreteEvent {
+                sequence: 5,
+                payload: vec![4; 4],
+            })
+            .assert_ok();
+        queue.push_reliable(ReliableEvent::Started).assert_ok();
+        assert_eq!(queue.drain(8, 64).events.len(), 5);
+        let metrics = queue.metrics();
+        assert_eq!(metrics.total_owned_bytes, 0);
+        assert_eq!(metrics.high_water_count, 5);
+        assert_eq!(metrics.high_water_owned_bytes, 28);
+        assert_eq!(metrics.high_water_reliable, 2);
+        assert_eq!(metrics.high_water_reliable_owned_bytes, 16);
+        assert_eq!(metrics.high_water_discrete, 1);
+        assert_eq!(metrics.high_water_discrete_owned_bytes, 4);
+        assert_eq!(metrics.high_water_frames, 2);
+        assert_eq!(metrics.high_water_frame_owned_bytes, 16);
+        assert_eq!(metrics.high_water_stats, 1);
+        assert_eq!(metrics.high_water_stats_owned_bytes, 8);
     }
 
     #[test]

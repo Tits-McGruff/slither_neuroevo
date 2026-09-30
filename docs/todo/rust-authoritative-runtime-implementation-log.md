@@ -1280,3 +1280,17 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   full upload-deadline test remains opt-in. Test scratch was removed and Oxygen
   ports 5174/5180/5181 were closed. This is scoped transport/diagnostic evidence;
   sustained queue acceptance and browser rendering/heap gates remain open.
+
+- 2026-10-01 Native output diagnostics now retain count/byte peaks separately
+  for reliable messages, discrete events, frames and stats. The loaded sampler
+  checks each class against its own immutable capacity and rejects incomplete
+  or regressed evidence; the Rust drain regression proves peaks survive after
+  occupancy reaches zero. The `c67e395` P1 programmatic player completed 1,830
+  seconds, 61 connections and 60 actual successful same-snake reclaim replies
+  with rotated tokens and no missing replies. Raw client and final-health
+  reports plus scoped provenance are retained as `p7-queue-p1-*-c67e395-*`.
+  The full queue/RSS sampler was not started because the former combined peak
+  could not establish each class's peak; a corrected sustained run remains open.
+  Release Rust, native/MT, queue/RSS summary, TypeScript, lint and browser build
+  checks passed. All disposable processes and copied source/build/database/
+  trainer state were removed; Oxygen ports 5174/5180/5181 remain closed.

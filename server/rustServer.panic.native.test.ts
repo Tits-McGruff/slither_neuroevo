@@ -93,7 +93,7 @@ async function fixtureProcess(databasePath: string): Promise<{ child: ChildProce
 /** Ask the child to join its real engine/worker before process termination. */
 async function stopFixture(child: ChildProcess | undefined): Promise<void> {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  const exited = once(child, 'exit', { signal: AbortSignal.timeout(5000) });
+  const exited = once(child, 'close', { signal: AbortSignal.timeout(5000) });
   child.send('stop');
   try { expect((await exited)[0]).toBe(0); }
   finally { if (child.exitCode === null && child.signalCode === null) child.kill(); }
@@ -226,7 +226,9 @@ describeNetworkSuite('Rust server caught calculation panic', () => {
       expect(durableState(databasePath)).toEqual(retained);
     } finally {
       try { await stopFixture(child); }
-      finally { await rm(root, { recursive: true, force: true }); }
+      // Windows can briefly retain the SQLite shared-memory mapping after
+      // process close. Retry only this owned fixture removal, within 750 ms.
+      finally { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
     }
   }, 15_000);
 });

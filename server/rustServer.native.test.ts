@@ -1407,6 +1407,7 @@ describeNetworkSuite('Rust server real sockets', () => {
   it('delivers fresh assignment and same-snake reclaim while display frames remain backpressured', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-frame-pressure-'));
     const peers: Peer[] = [];
+    const sendErrors = vi.spyOn(console, 'error');
     const bufferedAmount = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'bufferedAmount')?.get;
     if (!bufferedAmount) throw new Error('real ws transport has no buffered-amount getter');
     /** Induce only the server display admission condition; real TCP JSON sends still execute. */
@@ -1427,10 +1428,12 @@ describeNetworkSuite('Rust server real sockets', () => {
         return outbound.replacedFrames >= 3 && outbound.pendingFrames === 1;
       });
       expect(first.frames).toBe(0);
+      expect((initial['outbound'] as WsOutboundDiagnostics).reliableFailures).toBe(0);
       expect(first.packets.filter(packet => packet['type'] === 'assign')).toHaveLength(1);
       expect((initial['telemetry'] as { controllerActivity: { player: { freshAssignments: number } } })
         .controllerActivity.player.freshAssignments).toBe(1);
       await new Promise<void>(done => { first.socket.once('close', done); first.socket.close(); });
+      await healthUntil(server.port, value => (value['outbound'] as WsOutboundDiagnostics).connections === 0);
       const resumed = await connect(server.port, 'ui'); peers.push(resumed);
       resumed.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'frame-pressure-player',
         resumeToken: assignment['resumeToken'] }));
@@ -1449,9 +1452,16 @@ describeNetworkSuite('Rust server real sockets', () => {
           outbound.pendingFrames === 1 && BigInt(`0x${String(value['completedStep'])}`) > BigInt(`0x${String(initial['completedStep'])}`);
       });
       expect(resumed.frames).toBe(0);
-      expect(measured).toMatchObject({ ok: true, outbound: { connections: 1, pendingFrames: 1, reliableFailures: 0 },
+      expect(measured).toMatchObject({ ok: true, outbound: { connections: 1, pendingFrames: 1 },
         telemetry: { controllerActivity: { player: { freshAssignments: 1, successfulReclaims: 1 } } } });
       const outbound = measured['outbound'] as WsOutboundDiagnostics;
+      // A racing observation may fail on the deliberately closed first peer.
+      // Preserve the lifetime count and reject any failure on the reclaimed peer.
+      const reliableErrors = sendErrors.mock.calls.filter(([label]) => label === '[ws.reliable_send_failed]');
+      expect(outbound.reliableFailures).toBe(reliableErrors.length);
+      for (const [, details] of reliableErrors) {
+        expect(details).toMatchObject({ connId: 1, reason: expect.stringMatching(/not open|closed/iu) });
+      }
       expect(outbound.highWaterReliableMessagesPerConnection).toBeGreaterThan(0);
       expect(outbound.highWaterReliableMessagesPerConnection).toBeLessThanOrEqual(outbound.maxReliableMessagesPerConnection);
       expect(outbound.highWaterReliableBytesPerConnection).toBeLessThanOrEqual(outbound.maxReliableBytesPerConnection);
@@ -1464,6 +1474,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(frameDirection(resumed.latestFrame, Number(assignment['snakeId']))).toBeDefined();
     } finally {
       pressure.mockRestore();
+      sendErrors.mockRestore();
       for (const peer of peers) peer.socket.terminate();
       await server?.close();
       await rm(root, { recursive: true, force: true });

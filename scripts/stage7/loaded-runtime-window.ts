@@ -6,6 +6,7 @@ import type { RustBackgroundHealth, RustQueueDiagnostics } from '../../src/proto
 import type { ExperimentalRuntimeTelemetrySnapshot } from '../../server/rustEngine/runtimeTelemetry.ts';
 import type { WsOutboundDiagnostics } from '../../server/wsHub.ts';
 import { summarizeRssSoak } from './rss-soak-summary.ts';
+import { summarizeQueueSoak } from './queue-soak-summary.ts';
 
 /** Mandatory real-time workloads in the approved migration plan. */
 type Scenario = 'P0' | 'P1' | 'P2';
@@ -178,6 +179,9 @@ async function run(): Promise<void> {
   if (wallSeconds - resourceSamples.at(-1)!.wallSeconds >= 1) recordResources(final, wallSeconds);
   else resourceSamples.at(-1)!.wallSeconds = wallSeconds;
   const memorySoak = seconds >= 1800 && wallSeconds >= 1800 ? summarizeRssSoak(resourceSamples) : undefined;
+  let queueSoak: ReturnType<typeof summarizeQueueSoak> | undefined;
+  try { queueSoak = summarizeQueueSoak(resourceSamples); }
+  catch (error) { failure ??= String(error); }
   const deltaSteps = counter(final.completedStep) - counter(initial.completedStep);
   const dropped = counter(final.schedulerDroppedWallMicros) - counter(initial.schedulerDroppedWallMicros);
   const ratio = Number(deltaSteps) / 60 / wallSeconds;
@@ -190,7 +194,7 @@ async function run(): Promise<void> {
     timing.process.eventLoopDelayP95Ms <= 20 && timing.process.eventLoopDelayP99Ms <= 50 &&
     timing.process.maxRssBytes < 12 * 1024 ** 3 &&
     trainerActions > 0 && timing.trainerAction.p95Ms <= 100 &&
-    (seconds < 1800 || memorySoak?.meetsMemoryGate === true);
+    (seconds < 1800 || memorySoak?.meetsMemoryGate === true) && queueSoak?.meetsQueueGate === true;
   const report = { scenario, rustWorkers: workers, sourceRevision, startedAtUtc, requestedSeconds: seconds, wallSeconds,
     measuredScope: 'Production server with two independent real PyRL actors; connected-player timings are server receipt-to-application measurements. Browser rendering requires separate evidence.',
     histogramScope: 'Native and interface histograms cover this server process lifetime, including pre-window trainer warm-up.',
@@ -198,13 +202,13 @@ async function run(): Promise<void> {
     workloadWelcome: metadata, initialHealth: initial, finalHealth: final,
     deltaSteps: deltaSteps.toString(), simulatedWallRatio: ratio, droppedWallMicros: dropped.toString(),
     overloadedDuringSamples: overloaded, trainerAppliedActionsDelta: trainerActions,
-    transitions, generationIntervalsSeconds: intervals, observationFailures, resourceSamples, memorySoak,
+    transitions, generationIntervalsSeconds: intervals, observationFailures, resourceSamples, memorySoak, queueSoak,
     healthLatencyP95Ms: latencies.length ? percentile(latencies, 0.95) : null,
     healthLatencyMaxMs: latencies.length ? Math.max(...latencies) : null,
     failure, meetsMeasuredGates };
   await writeFile(resolve(output), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
   process.stdout.write(`${JSON.stringify({ wallSeconds, simulatedWallRatio: ratio,
-    droppedWallMicros: dropped.toString(), trainerActions, memorySoak, meetsMeasuredGates, failure })}\n`);
+    droppedWallMicros: dropped.toString(), trainerActions, memorySoak, queueSoak, meetsMeasuredGates, failure })}\n`);
   if (!meetsMeasuredGates) process.exitCode = 1;
 }
 

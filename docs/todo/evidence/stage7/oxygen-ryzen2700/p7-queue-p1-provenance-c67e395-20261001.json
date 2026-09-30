@@ -1,0 +1,22 @@
+{
+  "sourceRevision": "c67e395692bca228ea89ca636ce1f79fd29a8242",
+  "nativeBuildIdentifier": "slither_native/0.1.0+c67e395692bc.1e728b7b5675ef54",
+  "workload": "P1, six Rust workers, two actual owner PyRL actors and one programmatic loopback player",
+  "trainerRevision": "7240da036df6f4cfb606b1f20d6dc1c3561399a2",
+  "playerSource": "scripts/stage7/soak-player.ts with explicit reclaim-result and token-rotation checks",
+  "executedPlayerSourceSha256": "84f74e54039ff074def4e3c4a935a3306296683b3ae30bb35f4ba56555fb36ce",
+  "reports": [
+    {
+      "file": "p7-queue-p1-player-c67e395-20260930.json",
+      "sha256": "22b089dc3e9c53a625d4ee2e8a0b29e87c42c96c190f6a7fb228fb3feccf7bdd",
+      "scope": "1830-second programmatic client lifecycle: received frames, actions, actual reclaim replies, same-snake identity and token rotation; no browser rendering measurement"
+    },
+    {
+      "file": "p7-queue-p1-preflight-health-c67e395-20261001.json",
+      "sha256": "8138eabb513849df0c030322f6f21e5070d6d28868b80c83398c5a0839c11d19",
+      "scope": "One final health observation before stopping; no sampled timing or RSS window"
+    }
+  ],
+  "queueGateStatus": "Not measured. The loaded sampler was not started because the combined output peak cannot establish separate class peaks. Corrected per-class diagnostics require a new sustained run.",
+  "cleanup": "Disposable server, player and local trainer stopped; task-owned Oxygen checkout/build/database and local trainer scratch removed; ports 5174, 5180 and 5181 closed."
+}

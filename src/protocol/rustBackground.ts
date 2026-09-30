@@ -55,6 +55,22 @@ export interface RustQueueDiagnostics {
     highWaterCount: RustBackgroundIdentity;
     /** Largest combined retained payload byte count. */
     highWaterOwnedBytes: RustBackgroundIdentity;
+    /** Largest reliable queue count, retained across drains. */
+    highWaterReliable: RustBackgroundIdentity;
+    /** Largest reliable payload byte count, retained across drains. */
+    highWaterReliableOwnedBytes: RustBackgroundIdentity;
+    /** Largest discrete queue count, retained across drains. */
+    highWaterDiscrete: RustBackgroundIdentity;
+    /** Largest discrete payload byte count, retained across drains. */
+    highWaterDiscreteOwnedBytes: RustBackgroundIdentity;
+    /** Largest replaceable frame connection count, retained across drains. */
+    highWaterFrames: RustBackgroundIdentity;
+    /** Largest replaceable frame payload byte count, retained across drains. */
+    highWaterFrameOwnedBytes: RustBackgroundIdentity;
+    /** Largest stats slot occupancy, zero or one. */
+    highWaterStats: RustBackgroundIdentity;
+    /** Largest stats payload byte count, retained across drains. */
+    highWaterStatsOwnedBytes: RustBackgroundIdentity;
     /** Immutable reliable event capacity. */
     maxReliable: RustBackgroundIdentity;
     /** Immutable reliable payload byte capacity. */

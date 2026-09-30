@@ -25,11 +25,15 @@ const started = performance.now();
 const report = { startedAtUtc: new Date().toISOString(), requestedSeconds: seconds,
   clientScope: 'Programmatic player; measures received frames and reconnects, not browser rendering.',
   connections: 0, frames: 0, frameBytes: 0, actions: 0, assignments: 0,
-  reclaimed: 0, failedReclaims: 0, errors: [] as string[],
+  reclaimed: 0, reclaimResults: 0, failedReclaims: 0, errors: [] as string[],
   reconnects: [] as Array<{ wallSeconds: number; reclaimed: boolean; snakeId?: number }> };
 
 /** Connect using the real prior token and handle every actual server assignment. */
 async function connect(): Promise<void> {
+  const requestedToken = resumeToken;
+  const requestedSnakeId = snakeId;
+  let assigned: { snakeId: number; tokenChanged: boolean } | undefined;
+  let reclaimResult: { reclaimed: boolean; snakeId?: number } | undefined;
   const socket = new WebSocket(base!);
   peer = socket;
   snakeId = undefined;
@@ -40,12 +44,16 @@ async function connect(): Promise<void> {
     if (message['type'] === 'assign') {
       snakeId = Number(message['snakeId']);
       resumeToken = String(message['resumeToken']);
+      assigned ??= { snakeId, tokenChanged: resumeToken !== requestedToken };
       report.assignments++;
       if (message['reclaimed'] === true) report.reclaimed++;
       report.reconnects.push({ wallSeconds: (performance.now() - started) / 1000,
         reclaimed: message['reclaimed'] === true, snakeId });
-    } else if (message['type'] === 'reclaimResult' && message['reclaimed'] !== true) {
-      report.failedReclaims++;
+    } else if (message['type'] === 'reclaimResult') {
+      report.reclaimResults++;
+      reclaimResult = { reclaimed: message['reclaimed'] === true,
+        ...(typeof message['snakeId'] === 'number' ? { snakeId: message['snakeId'] } : {}) };
+      if (!reclaimResult.reclaimed) report.failedReclaims++;
     } else if (message['type'] === 'error') {
       if (report.errors.length >= 16) throw new Error('too many player protocol errors');
       report.errors.push(String(message['message']));
@@ -55,12 +63,15 @@ async function connect(): Promise<void> {
   report.connections++;
   socket.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
   socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'Stage7SoakPlayer',
-    ...(resumeToken ? { resumeToken } : {}) }));
+    ...(requestedToken ? { resumeToken: requestedToken } : {}) }));
   const deadline = performance.now() + 5000;
-  while (snakeId === undefined && socket.readyState === WebSocket.OPEN && performance.now() < deadline) {
+  while ((!assigned || (requestedToken && !reclaimResult)) && socket.readyState === WebSocket.OPEN && performance.now() < deadline) {
     await new Promise<void>(done => setTimeout(done, 10));
   }
-  if (snakeId === undefined) throw new Error('real player assignment was not delivered');
+  if (!assigned) throw new Error('real player assignment was not delivered');
+  if (requestedToken && !reclaimResult) throw new Error('real player reclaim result was not delivered');
+  if (reclaimResult?.reclaimed && (!assigned.tokenChanged || assigned.snakeId !== requestedSnakeId ||
+      reclaimResult.snakeId !== requestedSnakeId)) throw new Error('reclaim did not preserve the snake and rotate its token');
 }
 
 /** Independent action clock: incoming sensor/frame traffic never starts or stops it. */
@@ -93,7 +104,8 @@ finally { clearInterval(sender); peer?.terminate(); }
 const wallSeconds = (performance.now() - started) / 1000;
 /** Lifecycle evidence must include actual frames, traffic and successful same-snake reclaim. */
 const passed = !failure && wallSeconds >= seconds && report.connections >= 30 &&
-  report.frames >= 1000 && report.actions > 1000 && report.reclaimed > 0 && report.errors.length === 0;
+  report.frames >= 1000 && report.actions > 1000 && report.reclaimed > 0 &&
+  report.reclaimResults === report.connections - 1 && report.errors.length === 0;
 await writeFile(resolve(destination), `${JSON.stringify({ ...report, wallSeconds, passed, failure }, null, 2)}\n`, { flag: 'wx' });
 console.info(JSON.stringify({ wallSeconds, connections: report.connections, frames: report.frames,
   actions: report.actions, reclaimed: report.reclaimed, passed, failure }));
