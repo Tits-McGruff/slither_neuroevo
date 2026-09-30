@@ -1139,3 +1139,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   restart. The Windows process-death file passed all eight cases; TypeScript
   and focused ESLint passed. Generation-transition, export and pruning death
   coverage remain separate work.
+
+- 2026-09-30 Ordinary generation handoff now has separate-process kills after
+  the real SQLite reply/before Rust acknowledgement and after Rust's final
+  successor swap/before a successor frame or stats reaches the viewer. Both
+  resume the exact evolved checkpoint and advance beyond its saved step;
+  generation-one history and Hall-of-Fame rows remain unchanged and unique.
+  The Windows process-death file passed all ten cases. TypeScript and focused
+  ESLint passed; cross-platform CI supplies the Linux confirmation. Export
+  and pruning process-death checks remain open.

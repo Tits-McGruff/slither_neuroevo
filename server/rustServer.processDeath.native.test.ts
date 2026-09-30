@@ -17,6 +17,7 @@ interface ProcessHealth {
   startupCheckpointId: string;
   completedStep: string;
   worldEpoch: string;
+  generation: string;
 }
 
 /** Replacement boundaries reached by the real child process. */
@@ -45,12 +46,14 @@ async function availablePort(): Promise<number> {
 
 /** Start the server or its replacement-death fixture in a distinct OS process. */
 function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | 'latest',
-  crashPoint?: ReplacementCrashPoint): {
+  crashFixture?: { kind: 'replacement' | 'generation'; point: ReplacementCrashPoint }): {
   child: ChildProcess;
   output: () => string;
 } {
-  const args = crashPoint
-    ? ['--import', 'tsx', resolve('server/test/killDuringAuthorityReplacement.ts'), String(port), databasePath, crashPoint]
+  const args = crashFixture
+    ? ['--import', 'tsx', resolve(crashFixture.kind === 'replacement'
+      ? 'server/test/killDuringAuthorityReplacement.ts' : 'server/test/killDuringGenerationHandoff.ts'),
+    String(port), databasePath, crashFixture.point]
     : [
       '--import', 'tsx', resolve('server/rustServer.ts'),
       '--host', '127.0.0.1', '--port', String(port),
@@ -65,18 +68,19 @@ function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | '
   return { child, output: () => transcript };
 }
 
-/** Poll until the child publishes healthy Rust authority and at least one step. */
+/** Poll until healthy Rust authority advances beyond the requested saved boundary. */
 async function readyHealth(
   port: number,
   child: ChildProcess,
-  output: () => string
+  output: () => string,
+  minimumCompletedStep = 0n
 ): Promise<ProcessHealth> {
   const deadline = performance.now() + 15_000;
   while (performance.now() < deadline && child.exitCode === null && child.signalCode === null) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1000) });
       const health = await response.json() as ProcessHealth;
-      if (health.ok && BigInt(`0x${health.completedStep}`) > 0n) return health;
+      if (health.ok && BigInt(`0x${health.completedStep}`) > minimumCompletedStep) return health;
     } catch { /* Child has not bound its socket yet. */ }
     await new Promise<void>(done => setTimeout(done, 25));
   }
@@ -132,7 +136,7 @@ describeNetworkSuite('Rust process-death recovery', () => {
     const databasePath = join(root, 'experiment.sqlite');
     const managedRoot = `${databasePath}.checkpoints`;
     const port = await availablePort();
-    const first = spawnRustServer(port, databasePath, 'fresh', crashPoint);
+    const first = spawnRustServer(port, databasePath, 'fresh', { kind: 'replacement', point: crashPoint });
     let restarted: ReturnType<typeof spawnRustServer> | undefined;
     let viewer: WebSocket | undefined;
     try {
@@ -231,6 +235,101 @@ describeNetworkSuite('Rust process-death recovery', () => {
       expect(after.startupCheckpointId).toBe(marker.checkpointId);
       expect(after.completedStep).not.toBe('0000000000000000');
       expect((await readdir(managedRoot)).filter(isRecognizedArchiveArtifact)).toEqual([]);
+    } finally {
+      viewer?.terminate();
+      if (restarted) await terminate(restarted.child, 'SIGTERM');
+      await terminate(first.child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 45_000);
+
+  it.each(['afterCommit', 'afterSwap'] as const)('resumes the evolved checkpoint after generation death %s', async (point) => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-generation-death-'));
+    const databasePath = join(root, 'experiment.sqlite');
+    const port = await availablePort();
+    const first = spawnRustServer(port, databasePath, 'fresh', { kind: 'generation', point });
+    let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    let viewer: WebSocket | undefined;
+    try {
+      await readyHealth(port, first.child, first.output);
+      viewer = new WebSocket(`ws://127.0.0.1:${port}`);
+      const viewerClosed = new Promise<void>(done => viewer!.once('close', () => done()));
+      const packets: Array<Record<string, unknown>> = [];
+      const displayedGenerations: number[] = [];
+      viewer.on('message', (bytes, binary) => {
+        if (binary) displayedGenerations.push((bytes as Buffer).readFloatLE(0));
+        else packets.push(JSON.parse(bytes.toString()) as Record<string, unknown>);
+      });
+      await new Promise<void>((done, reject) => { viewer!.once('open', done); viewer!.once('error', reject); });
+      viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
+      /** Wait for a specific lifecycle reply before the next control request. */
+      const untilPacket = async (predicate: (packet: Record<string, unknown>) => boolean): Promise<void> => {
+        const deadline = performance.now() + 5000;
+        while (!packets.some(predicate) && performance.now() < deadline) {
+          await new Promise<void>(done => setTimeout(done, 10));
+        }
+        expect(packets.some(predicate), JSON.stringify(packets)).toBe(true);
+      };
+      await untilPacket(packet => packet['type'] === 'welcome');
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 1 },
+        updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 0 }] }));
+      await untilPacket(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'reset');
+      const before = await readyHealth(port, first.child, first.output);
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.send(JSON.stringify({ type: 'settings', requestId: 'generation-death-speed',
+        updates: [{ path: 'simSpeed', value: 4 }] }));
+      await untilPacket(packet => packet['type'] === 'settingsApplied' &&
+        packet['requestId'] === 'generation-death-speed' && packet['applied'] === true);
+      await waitForReplacementDeath(first.child, first.output);
+      await viewerClosed;
+      expect(first.child.signalCode === 'SIGKILL' ||
+        (process.platform === 'win32' && first.child.exitCode === 1), first.output()).toBe(true);
+      const markerLine = first.output().split(/\r?\n/u)
+        .find(line => line.startsWith('{"type":"generationCrashPoint"'));
+      expect(markerLine, first.output()).toBeDefined();
+      const marker = JSON.parse(markerLine!) as {
+        point: ReplacementCrashPoint; runId: string; checkpointId: string;
+        generation: string; completedStep: string;
+        publication?: { publication: { worldEpoch: string; generation: string; completedStep: string } };
+      };
+      expect(marker).toMatchObject({ point, runId: before.runId, generation: '0000000000000002' });
+      expect(marker.checkpointId).not.toBe(before.startupCheckpointId);
+      expect(BigInt(`0x${marker.completedStep}`)).toBeGreaterThan(BigInt(`0x${before.completedStep}`));
+      expect(displayedGenerations.length).toBeGreaterThan(0);
+      expect(displayedGenerations.every(generation => generation === 1)).toBe(true);
+      expect(packets.filter(packet => packet['type'] === 'stats').every(packet => packet['gen'] === 1)).toBe(true);
+      if (point === 'afterSwap') {
+        expect(marker.publication?.publication).toMatchObject({ generation: marker.generation,
+          completedStep: marker.completedStep });
+        expect(BigInt(`0x${marker.publication!.publication.worldEpoch}`)).toBeGreaterThan(BigInt(`0x${before.worldEpoch}`));
+      }
+      const database = new Database(databasePath, { readonly: true });
+      let history: unknown;
+      let winner: unknown;
+      try {
+        expect(database.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+          .get(marker.runId)).toEqual({ checkpoint_id: marker.checkpointId });
+        history = database.prepare('SELECT * FROM rust_generation_history_v1 WHERE run_id = ? AND generation_hex = ?')
+          .all(marker.runId, '0000000000000001');
+        winner = database.prepare('SELECT * FROM rust_hall_of_fame_v1 WHERE run_id = ? AND generation_hex = ?')
+          .all(marker.runId, '0000000000000001');
+        expect(history).toHaveLength(1);
+        expect(winner).toHaveLength(1);
+      } finally { database.close(); }
+      viewer = undefined;
+      restarted = spawnRustServer(port, databasePath, 'latest');
+      const after = await readyHealth(port, restarted.child, restarted.output, BigInt(`0x${marker.completedStep}`));
+      expect(after).toMatchObject({ runId: marker.runId, startupCheckpointId: marker.checkpointId });
+      expect(BigInt(`0x${after.generation}`)).toBeGreaterThanOrEqual(2n);
+      expect(BigInt(`0x${after.completedStep}`)).toBeGreaterThan(BigInt(`0x${marker.completedStep}`));
+      const recovered = new Database(databasePath, { readonly: true });
+      try {
+        expect(recovered.prepare('SELECT * FROM rust_generation_history_v1 WHERE run_id = ? AND generation_hex = ?')
+          .all(marker.runId, '0000000000000001')).toEqual(history);
+        expect(recovered.prepare('SELECT * FROM rust_hall_of_fame_v1 WHERE run_id = ? AND generation_hex = ?')
+          .all(marker.runId, '0000000000000001')).toEqual(winner);
+      } finally { recovered.close(); }
     } finally {
       viewer?.terminate();
       if (restarted) await terminate(restarted.child, 'SIGTERM');
