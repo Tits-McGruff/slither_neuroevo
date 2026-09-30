@@ -1129,3 +1129,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   final sensing source. P0/P2 real-client coverage, browser frame/display
   budgets, fault injection, and the remaining longer durability gates stay
   open.
+
+- 2026-09-30 Separate-process recovery now kills Reset, New Run and archive
+  import after the SQLite reply/before Rust swap and after the matching Rust
+  swap/before public success. All six cases reach their recorded real boundary,
+  send no replacement success, and resume the exact committed run/checkpoint
+  in a fresh process. Import also leaves its completed upload spool after the
+  kill and removes recognized scratch after the documented grace period on
+  restart. The Windows process-death file passed all eight cases; TypeScript
+  and focused ESLint passed. Generation-transition, export and pruning death
+  coverage remain separate work.

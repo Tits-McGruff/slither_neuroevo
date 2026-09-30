@@ -8,7 +8,7 @@ import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { describeNetworkSuite } from './test/networkSuites.ts';
-import { ARCHIVE_ARTIFACT_GRACE_MS } from './rustEngine/archiveScavenger.ts';
+import { ARCHIVE_ARTIFACT_GRACE_MS, isRecognizedArchiveArtifact } from './rustEngine/archiveScavenger.ts';
 
 /** One scalar health response needed by the process-death contract. */
 interface ProcessHealth {
@@ -16,7 +16,19 @@ interface ProcessHealth {
   runId: string;
   startupCheckpointId: string;
   completedStep: string;
+  worldEpoch: string;
 }
+
+/** Replacement boundaries reached by the real child process. */
+type ReplacementCrashPoint = 'afterCommit' | 'afterSwap';
+
+/** Owner-visible operations that publish a complete replacement authority. */
+const REPLACEMENT_OPERATIONS = ['newRun', 'reset', 'import'] as const;
+/** Both sides of the final Rust swap, tested for each replacement entry point. */
+const REPLACEMENT_CRASH_CASES = REPLACEMENT_OPERATIONS.flatMap(operation => [
+  { operation, point: 'afterCommit' as const, description: 'after SQLite commit and before Rust swap' },
+  { operation, point: 'afterSwap' as const, description: 'after Rust swap and before public success' }
+]);
 
 /** Reserve a loopback port briefly for a child server with CLI-only startup. */
 async function availablePort(): Promise<number> {
@@ -31,14 +43,14 @@ async function availablePort(): Promise<number> {
   return address.port;
 }
 
-/** Start the server or its commit-death fixture in a distinct OS process. */
+/** Start the server or its replacement-death fixture in a distinct OS process. */
 function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | 'latest',
-  killAfterNewRunCommit = false): {
+  crashPoint?: ReplacementCrashPoint): {
   child: ChildProcess;
   output: () => string;
 } {
-  const args = killAfterNewRunCommit
-    ? ['--import', 'tsx', resolve('server/test/killAfterNewRunCommit.ts'), String(port), databasePath]
+  const args = crashPoint
+    ? ['--import', 'tsx', resolve('server/test/killDuringAuthorityReplacement.ts'), String(port), databasePath, crashPoint]
     : [
       '--import', 'tsx', resolve('server/rustServer.ts'),
       '--host', '127.0.0.1', '--port', String(port),
@@ -100,7 +112,7 @@ async function terminate(child: ChildProcess, signal: NodeJS.Signals): Promise<v
 }
 
 /** Wait for the injected child death without retaining a test timer afterward. */
-async function waitForCommitDeath(child: ChildProcess, output: () => string): Promise<void> {
+async function waitForReplacementDeath(child: ChildProcess, output: () => string): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -108,28 +120,49 @@ async function waitForCommitDeath(child: ChildProcess, output: () => string): Pr
       new Promise<void>(resolveExit => child.once('exit', () => resolveExit())),
       new Promise<never>((_, rejectExit) => {
         timer = setTimeout(() => rejectExit(new Error(
-          `New Run did not reach commit-death point: ${output()}`)), 15_000);
+          `Server did not reach replacement-death point: ${output()}`)), 15_000);
       })
     ]);
   } finally { if (timer) clearTimeout(timer); }
 }
 
 describeNetworkSuite('Rust process-death recovery', () => {
-  it('resumes a New Run killed after SQLite commit and before Rust swap', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'slither-rust-new-run-commit-death-'));
+  it.each(REPLACEMENT_CRASH_CASES)('resumes $operation killed $description', async ({ operation, point: crashPoint }) => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-replacement-death-'));
     const databasePath = join(root, 'experiment.sqlite');
+    const managedRoot = `${databasePath}.checkpoints`;
     const port = await availablePort();
-    const first = spawnRustServer(port, databasePath, 'fresh', true);
+    const first = spawnRustServer(port, databasePath, 'fresh', crashPoint);
     let restarted: ReturnType<typeof spawnRustServer> | undefined;
     let viewer: WebSocket | undefined;
     try {
+      let archive: ArrayBuffer | undefined;
+      let sourceHealth: ProcessHealth | undefined;
+      if (operation === 'import') {
+        const sourcePort = await availablePort();
+        const source = spawnRustServer(sourcePort, join(root, 'source.sqlite'), 'fresh');
+        try {
+          sourceHealth = await readyHealth(sourcePort, source.child, source.output);
+          const exported = await fetch(`http://127.0.0.1:${sourcePort}/api/export/latest`, {
+            signal: AbortSignal.timeout(15_000)
+          });
+          expect(exported.status).toBe(200);
+          archive = await exported.arrayBuffer();
+        } finally { await terminate(source.child, 'SIGKILL'); }
+      }
       const before = await readyHealth(port, first.child, first.output);
       viewer = new WebSocket(`ws://127.0.0.1:${port}`);
+      const viewerClosed = new Promise<void>(resolveClosed => viewer!.once('close', () => resolveClosed()));
+      const publicSuccess: string[] = [];
       const welcome = new Promise<void>((resolveWelcome, rejectWelcome) => {
         viewer!.once('error', rejectWelcome);
         viewer!.on('message', (bytes, binary) => {
           if (binary) return;
-          if ((JSON.parse(bytes.toString()) as { type: string }).type === 'welcome') {
+          const message = JSON.parse(bytes.toString()) as { type: string };
+          if (message.type === 'stateReplaced' || message.type === 'newRunResult') {
+            publicSuccess.push(message.type);
+          }
+          if (message.type === 'welcome') {
             viewer!.off('error', rejectWelcome);
             resolveWelcome();
           }
@@ -142,23 +175,62 @@ describeNetworkSuite('Rust process-death recovery', () => {
       viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
       await welcome;
       viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
-      viewer.send(JSON.stringify({ type: 'newRun', requestId: 'kill-after-commit' }));
-      await waitForCommitDeath(first.child, first.output);
+      let importResponse: Promise<{ status: number } | { error: unknown }> | undefined;
+      if (operation === 'import') {
+        importResponse = fetch(`http://127.0.0.1:${port}/api/import/archive`, {
+          method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' },
+          body: archive!, signal: AbortSignal.timeout(15_000)
+        }).then(response => ({ status: response.status }), error => ({ error }));
+      } else {
+        viewer.send(JSON.stringify(operation === 'newRun'
+          ? { type: 'newRun', requestId: 'kill-during-replacement' }
+          : { type: 'reset' }));
+      }
+      await waitForReplacementDeath(first.child, first.output);
+      await viewerClosed;
+      if (importResponse) expect(await importResponse).toHaveProperty('error');
       expect(first.child.signalCode === 'SIGKILL' ||
         (process.platform === 'win32' && first.child.exitCode === 1), first.output()).toBe(true);
+      const markerLine = first.output().split(/\r?\n/u)
+        .find(line => line.startsWith('{"type":"replacementCrashPoint"'));
+      expect(markerLine, first.output()).toBeDefined();
+      const marker = JSON.parse(markerLine!) as {
+        point: ReplacementCrashPoint;
+        runId: string;
+        checkpointId: string;
+        publication?: { worldEpoch: string; generation: string; completedStep: string };
+      };
+      expect(marker.point).toBe(crashPoint);
+      if (sourceHealth) expect(marker).toMatchObject({ runId: sourceHealth.runId,
+        checkpointId: sourceHealth.startupCheckpointId });
+      expect(publicSuccess).toEqual([]);
+      if (crashPoint === 'afterSwap') {
+        expect(marker.publication).toMatchObject({ generation: '0000000000000001',
+          completedStep: '0000000000000000' });
+        expect(BigInt(`0x${marker.publication!.worldEpoch}`)).toBeGreaterThan(BigInt(`0x${before.worldEpoch}`));
+      }
       const database = new Database(databasePath, { readonly: true });
       let committedRunId: string;
       try {
         committedRunId = (database.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1')
           .get() as { run_id: string }).run_id;
         expect(committedRunId).not.toBe(before.runId);
+        expect(committedRunId).toBe(marker.runId);
+        const current = database.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+          .get(committedRunId) as { checkpoint_id: string };
+        expect(current.checkpoint_id).toBe(marker.checkpointId);
       } finally { database.close(); }
-      viewer.terminate();
       viewer = undefined;
+      const abandonedArtifacts = (await readdir(managedRoot)).filter(isRecognizedArchiveArtifact);
+      if (operation === 'import') expect(abandonedArtifacts.some(name => name.endsWith('.upload.ready'))).toBe(true);
+      const stale = new Date(Date.now() - ARCHIVE_ARTIFACT_GRACE_MS - 60_000);
+      for (const name of abandonedArtifacts) await utimes(join(managedRoot, name), stale, stale);
       restarted = spawnRustServer(port, databasePath, 'latest');
       const after = await readyHealth(port, restarted.child, restarted.output);
       expect(after.runId).toBe(committedRunId);
+      expect(after.startupCheckpointId).toBe(marker.checkpointId);
       expect(after.completedStep).not.toBe('0000000000000000');
+      expect((await readdir(managedRoot)).filter(isRecognizedArchiveArtifact)).toEqual([]);
     } finally {
       viewer?.terminate();
       if (restarted) await terminate(restarted.child, 'SIGTERM');
