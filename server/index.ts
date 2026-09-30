@@ -126,18 +126,11 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
 
   const httpHandler = createHttpHandler({
     getStatus: () => {
-      if (!simServer) throw new Error('simulation server not ready');
+      if (!simServer || !wsHub) throw new Error('simulation server not ready');
       return {
         tick: simServer.getTickId(),
-        clients: wsHub?.getClientCount() ?? 0,
-        outbound: wsHub?.getOutboundDiagnostics() ?? {
-          connections: 0,
-          reliableQueuedMessages: 0,
-          reliableQueuedBytes: 0,
-          pendingFrames: 0,
-          replacedFrames: 0,
-          reliableFailures: 0
-        },
+        clients: wsHub.getClientCount(),
+        outbound: wsHub.getOutboundDiagnostics(),
         inferenceMode: simServer.getInferenceMode(),
         scheduler: simServer.getSchedulerDiagnostics(),
         collisionGrid: simServer.getCollisionGridDiagnostics(),

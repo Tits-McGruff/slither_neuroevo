@@ -119,9 +119,13 @@ separate browser-player/trainer action and controller-lifecycle latency, Node ev
 memory, plus Rust-confirmed per-kind assignment, reclaim, action, and disconnect
 counts. Percentiles are conservative fixed-histogram upper bounds; the server
 does not retain a per-step series or authoritative game arrays for reporting.
-The same health response exposes current reliable-queue, pending-frame,
-frame-replacement, and send-failure counters for slow-client checks. It also
-reports checkpoint retention by latest, recent, milestone, prior-run-anchor,
+The same health response exposes native inbound/output occupancy, lifetime
+peaks and configured limits under `nativeQueues`, using exact sixteen-digit
+hexadecimal counters. `outbound` reports current WebSocket reliable queues and
+pending frames, per-connection queue peaks and limits, and hub-lifetime frame
+replacement and reliable-failure totals that remain visible after disconnects.
+These diagnostics are scalar observations; they do not serialize the world.
+Health also reports checkpoint retention by latest, recent, milestone, prior-run-anchor,
 pinned, and planned-prune classes. Automatic cleanup runs at startup and after
 each durable generation save. It records the cleanup in SQLite before removing
 only unpinned managed files, keeps the latest eight checkpoints plus configured

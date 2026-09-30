@@ -5,6 +5,7 @@ import type {
   RustBackgroundDisplay,
   RustBackgroundFrameCopy,
   RustBackgroundHealth,
+  RustQueueDiagnostics,
   RustBackgroundJoinRequest,
   RustBackgroundReclaimRequest,
   RustBackgroundReclaimReceipt,
@@ -140,6 +141,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   drainOutputs(maxEvents: number, maxOwnedBytes: number): RustBackgroundDrain;
   /** Read only bounded atomic health scalars. */
   health(): RustBackgroundHealth;
+  /** Read queue occupancy, lifetime peaks, failures, and immutable admission limits. */
+  queueDiagnostics(): RustQueueDiagnostics;
   /** Read cached metadata without serializing or waiting on the live world. */
   latestDisplay(): RustBackgroundDisplay | null;
   /** Copy only a newer complete single-brain visualization snapshot. */
@@ -244,7 +247,7 @@ const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle
   'submitImportPersistenceAcknowledgement',
   'submitPrepareGenerationReassignments', 'submitGenerationAssignmentReceipt',
   'submitControllerDeliveryReceipt',
-  'submitPublishGenerationStart', 'drainOutputs', 'health', 'latestDisplay', 'latestVisualization',
+  'submitPublishGenerationStart', 'drainOutputs', 'health', 'queueDiagnostics', 'latestDisplay', 'latestVisualization',
   'copyLatestFrame', 'requestStop', 'join'
 ];
 

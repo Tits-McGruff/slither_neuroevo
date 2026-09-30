@@ -1261,3 +1261,22 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   removed with ports 5174/5180/5181 closed. This proves the measured P1 memory,
   loopback-health and programmatic lifecycle slice; browser rendering/heap and
   complete queue/backpressure acceptance remain separate.
+
+- 2026-09-30 Production health now exposes native queue occupancy, immutable
+  limits, lifetime peaks, rejection/overflow/wait counters and replaceable-output
+  decisions through a separate scalar diagnostic query. Normal frame copying
+  and frequent step-health reads do not invoke it. WebSocket failure/replacement
+  totals and per-connection reliable queue peaks survive peer removal, including
+  callbacks that fail after disconnect; no closed peer is retained for reporting.
+  The loaded-workload sampler preserves these measurements with resource samples.
+  A real HTTP/WebSocket/native integration test holds server display admission
+  above its transport-buffer threshold while actual TCP JSON delivery continues:
+  fresh assignment and same-snake reclaim arrive exactly once with a rotated
+  token, zero reliable failures, bounded peaks and continued stepping; frames
+  resume after pressure is removed. A real native queue saturation/drain test
+  verifies rejection and peak retention, and a hub regression covers late failures.
+  All 460 release Rust tests, rustfmt, Clippy, 102 required native/MT tests,
+  13 reference/hub tests, TypeScript, ESLint and browser build passed. The existing
+  full upload-deadline test remains opt-in. Test scratch was removed and Oxygen
+  ports 5174/5180/5181 were closed. This is scoped transport/diagnostic evidence;
+  sustained queue acceptance and browser rendering/heap gates remain open.

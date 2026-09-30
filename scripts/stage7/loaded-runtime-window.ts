@@ -2,8 +2,9 @@
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import WebSocket from 'ws';
-import type { RustBackgroundHealth } from '../../src/protocol/rustBackground.ts';
+import type { RustBackgroundHealth, RustQueueDiagnostics } from '../../src/protocol/rustBackground.ts';
 import type { ExperimentalRuntimeTelemetrySnapshot } from '../../server/rustEngine/runtimeTelemetry.ts';
+import type { WsOutboundDiagnostics } from '../../server/wsHub.ts';
 import { summarizeRssSoak } from './rss-soak-summary.ts';
 
 /** Mandatory real-time workloads in the approved migration plan. */
@@ -21,9 +22,10 @@ interface Health extends RustBackgroundHealth {
   nativeBuildIdentifier: string;
   /** Process-lifetime distributions and controller receipts. */
   telemetry: ExperimentalRuntimeTelemetrySnapshot;
+  /** Actual native occupancy, limits and peaks retained after output drains. */
+  nativeQueues: RustQueueDiagnostics;
   /** Bounded WebSocket output occupancy, independent from replaceable frames. */
-  outbound: { connections: number; reliableQueuedMessages: number; reliableQueuedBytes: number;
-    pendingFrames: number; replacedFrames: number; reliableFailures: number };
+  outbound: WsOutboundDiagnostics;
   /** Cached scalar durable-file and SQLite diagnostics. */
   storage: { sqlite: { databaseBytes: string; walBytes: string; shmBytes: string };
     managed: { temporaryBytes: string; freeBytes: string; operatingReserveBytes: string } };
@@ -123,13 +125,13 @@ async function run(): Promise<void> {
   const observationFailures: Array<{ wallSeconds: number; error: string }> = [];
   const latencies: number[] = [];
   const resourceSamples: Array<{ wallSeconds: number; rssBytes: number; trainerAppliedActions: number;
-    generation: string; outbound: Health['outbound']; storage: Health['storage'];
+    generation: string; nativeQueues: RustQueueDiagnostics; outbound: Health['outbound']; storage: Health['storage'];
     automaticStoredBytes: string; automaticByteCap: string }> = [];
   /** Keep actual resident memory, output occupancy and durable bytes at the same boundary. */
   const recordResources = (health: Health, wallSeconds: number): void => {
     resourceSamples.push({ wallSeconds, rssBytes: health.telemetry.process.rssBytes,
       trainerAppliedActions: health.telemetry.controllerActivity.trainer.appliedActions,
-      generation: health.generation, outbound: health.outbound, storage: health.storage,
+      generation: health.generation, nativeQueues: health.nativeQueues, outbound: health.outbound, storage: health.storage,
       automaticStoredBytes: counter(health.retention.automaticStoredByteCount).toString(),
       automaticByteCap: counter(health.retention.automaticByteCap).toString() });
   };

@@ -19,6 +19,8 @@ import { buildStackGraphSpec } from '../src/brains/stackBuilder.ts';
 import { compileGraph } from '../src/brains/graph/compiler.ts';
 import { CFG_DEFAULT } from '../src/config.ts';
 import { DEFAULT_CORE_SETTINGS } from '../src/protocol/settings.ts';
+import type { RustQueueDiagnostics } from '../src/protocol/rustBackground.ts';
+import type { WsOutboundDiagnostics } from './wsHub.ts';
 
 /** Bounded test inbox for the real Protocol 2 transport. */
 interface Peer {
@@ -1124,6 +1126,13 @@ describeNetworkSuite('Rust server real sockets', () => {
         authority: 'rust',
         calculationWorkers: 4,
         seed: 42,
+        nativeQueues: {
+          inbound: { maxBatches: '0000000000000040', maxCommands: '0000000000000040',
+            maxOwnedBytes: '0000000000400000', maxBatchCommands: '0000000000000001',
+            maxBatchOwnedBytes: '0000000000100000' },
+          output: { maxReliable: '0000000000000020', maxDiscrete: '0000000000000004',
+            maxOwnedBytes: '0000000002000000', maxFrames: '0000000000000004', hasReservedFault: false }
+        },
         outbound: {
           connections: 2,
           replacedFrames: expect.any(Number),
@@ -1168,6 +1177,21 @@ describeNetworkSuite('Rust server real sockets', () => {
           }
         }
       });
+      const queues = health['nativeQueues'] as RustQueueDiagnostics;
+      for (const group of [queues.inbound, queues.output]) {
+        for (const value of Object.values(group)) {
+          if (typeof value === 'string') expect(value).toMatch(/^[0-9a-f]{16}$/u);
+        }
+      }
+      expect(BigInt(`0x${queues.inbound.highWaterCommands}`)).toBeGreaterThan(0n);
+      expect(BigInt(`0x${queues.inbound.highWaterCommands}`)).toBeLessThanOrEqual(BigInt(`0x${queues.inbound.maxCommands}`));
+      expect(BigInt(`0x${queues.inbound.highWaterOwnedBytes}`)).toBeLessThanOrEqual(BigInt(`0x${queues.inbound.maxOwnedBytes}`));
+      expect(BigInt(`0x${queues.output.highWaterCount}`)).toBeGreaterThan(0n);
+      expect(BigInt(`0x${queues.output.highWaterCount}`)).toBeLessThanOrEqual(
+        BigInt(`0x${queues.output.maxReliable}`) + BigInt(`0x${queues.output.maxDiscrete}`) + BigInt(`0x${queues.output.maxFrames}`) + 1n);
+      expect(BigInt(`0x${queues.output.highWaterOwnedBytes}`)).toBeLessThanOrEqual(BigInt(`0x${queues.output.maxOwnedBytes}`));
+      expect(queues.inbound.faultDiscardedCommands).toBe('0000000000000000');
+      expect(queues.output.priorityOverflows).toBe('0000000000000000');
       const activity = (health['telemetry'] as {
         trainerAction: { samples: number };
         controllerActivity: { trainer: { appliedActions: number } };
@@ -1376,6 +1400,72 @@ describeNetworkSuite('Rust server real sockets', () => {
       browser?.disconnect();
       vi.unstubAllGlobals();
       await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('delivers fresh assignment and same-snake reclaim while display frames remain backpressured', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-frame-pressure-'));
+    const peers: Peer[] = [];
+    const bufferedAmount = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'bufferedAmount')?.get;
+    if (!bufferedAmount) throw new Error('real ws transport has no buffered-amount getter');
+    /** Induce only the server display admission condition; real TCP JSON sends still execute. */
+    const pressure = vi.spyOn(WebSocket.prototype, 'bufferedAmount', 'get').mockImplementation(function (this: WebSocket) {
+      return (this as WebSocket & { _isServer: boolean })._isServer
+        ? 1024 * 1024 : Number(bufferedAmount.call(this));
+    });
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    try {
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 76,
+        dbPath: join(root, 'experiment.sqlite') });
+      const first = await connect(server.port, 'ui'); peers.push(first);
+      first.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'frame-pressure-player' }));
+      await until(first, () => first.packets.some(packet => packet['type'] === 'assign'));
+      const assignment = first.packets.find(packet => packet['type'] === 'assign')!;
+      const initial = await healthUntil(server.port, value => {
+        const outbound = value['outbound'] as WsOutboundDiagnostics;
+        return outbound.replacedFrames >= 3 && outbound.pendingFrames === 1;
+      });
+      expect(first.frames).toBe(0);
+      expect(first.packets.filter(packet => packet['type'] === 'assign')).toHaveLength(1);
+      expect((initial['telemetry'] as { controllerActivity: { player: { freshAssignments: number } } })
+        .controllerActivity.player.freshAssignments).toBe(1);
+      await new Promise<void>(done => { first.socket.once('close', done); first.socket.close(); });
+      const resumed = await connect(server.port, 'ui'); peers.push(resumed);
+      resumed.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'frame-pressure-player',
+        resumeToken: assignment['resumeToken'] }));
+      await until(resumed, () => resumed.packets.some(packet => packet['type'] === 'assign') &&
+        resumed.packets.some(packet => packet['type'] === 'reclaimResult'));
+      expect(resumed.packets.filter(packet => packet['type'] === 'assign')).toHaveLength(1);
+      expect(resumed.packets.filter(packet => packet['type'] === 'reclaimResult')).toHaveLength(1);
+      expect(resumed.packets.find(packet => packet['type'] === 'reclaimResult')).toMatchObject({ reclaimed: true,
+        snakeId: assignment['snakeId'] });
+      const reclaimed = resumed.packets.find(packet => packet['type'] === 'assign')!;
+      expect(reclaimed).toMatchObject({ reclaimed: true, snakeId: assignment['snakeId'] });
+      expect(reclaimed['resumeToken']).not.toBe(assignment['resumeToken']);
+      const measured = await healthUntil(server.port, value => {
+        const outbound = value['outbound'] as WsOutboundDiagnostics;
+        return outbound.replacedFrames >= (initial['outbound'] as WsOutboundDiagnostics).replacedFrames + 3 &&
+          outbound.pendingFrames === 1 && BigInt(`0x${String(value['completedStep'])}`) > BigInt(`0x${String(initial['completedStep'])}`);
+      });
+      expect(resumed.frames).toBe(0);
+      expect(measured).toMatchObject({ ok: true, outbound: { connections: 1, pendingFrames: 1, reliableFailures: 0 },
+        telemetry: { controllerActivity: { player: { freshAssignments: 1, successfulReclaims: 1 } } } });
+      const outbound = measured['outbound'] as WsOutboundDiagnostics;
+      expect(outbound.highWaterReliableMessagesPerConnection).toBeGreaterThan(0);
+      expect(outbound.highWaterReliableMessagesPerConnection).toBeLessThanOrEqual(outbound.maxReliableMessagesPerConnection);
+      expect(outbound.highWaterReliableBytesPerConnection).toBeLessThanOrEqual(outbound.maxReliableBytesPerConnection);
+      const queues = measured['nativeQueues'] as RustQueueDiagnostics;
+      expect(queues.output.priorityOverflows).toBe('0000000000000000');
+      expect(queues.inbound.faultDiscardedCommands).toBe('0000000000000000');
+      expect(BigInt(`0x${queues.output.highWaterOwnedBytes}`)).toBeLessThanOrEqual(BigInt(`0x${queues.output.maxOwnedBytes}`));
+      pressure.mockRestore();
+      await until(resumed, () => resumed.frames > 0);
+      expect(frameDirection(resumed.latestFrame, Number(assignment['snakeId']))).toBeDefined();
+    } finally {
+      pressure.mockRestore();
+      for (const peer of peers) peer.socket.terminate();
+      await server?.close();
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);

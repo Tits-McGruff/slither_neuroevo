@@ -1285,6 +1285,18 @@ impl ExperimentalRunningAuthority {
         })
     }
 
+    /// Observe queue occupancy and peaks only when explicitly requested by diagnostics.
+    #[napi(catch_unwind)]
+    pub fn queue_diagnostics(
+        &self,
+    ) -> Result<crate::napi_queue_diagnostics::RuntimeQueueDiagnostics> {
+        self.root(|| {
+            Ok(crate::napi_queue_diagnostics::queue_diagnostics(
+                &self.runtime,
+            ))
+        })
+    }
+
     /// Read cached welcome metadata without repacking or waiting on the authority.
     #[napi(catch_unwind)]
     pub fn latest_display(&self) -> Result<Option<BackgroundDisplayStatus>> {

@@ -4,6 +4,96 @@ import type { GraphSpec } from '../brains/graph/schema.ts';
 /** Exact fixed-width unsigned identity emitted by the Rust background bridge. */
 export type RustBackgroundIdentity = string;
 
+/** Exact scalar queue measurements requested separately from frequent step-health reads. */
+export interface RustQueueDiagnostics {
+  /** Inbound occupancy, process-lifetime peaks and atomic admission failures. */
+  inbound: {
+    /** Currently queued batches. */
+    batches: RustBackgroundIdentity;
+    /** Currently queued commands. */
+    commands: RustBackgroundIdentity;
+    /** Currently retained payload bytes. */
+    ownedBytes: RustBackgroundIdentity;
+    /** Largest queued batch count. */
+    highWaterBatches: RustBackgroundIdentity;
+    /** Largest queued command count. */
+    highWaterCommands: RustBackgroundIdentity;
+    /** Largest retained payload byte count. */
+    highWaterOwnedBytes: RustBackgroundIdentity;
+    /** Immutable batch capacity. */
+    maxBatches: RustBackgroundIdentity;
+    /** Immutable command capacity. */
+    maxCommands: RustBackgroundIdentity;
+    /** Immutable payload byte capacity. */
+    maxOwnedBytes: RustBackgroundIdentity;
+    /** Immutable commands per atomic batch capacity. */
+    maxBatchCommands: RustBackgroundIdentity;
+    /** Immutable payload bytes per atomic batch capacity. */
+    maxBatchOwnedBytes: RustBackgroundIdentity;
+    /** Atomic queue admission rejections, including invalid queue batches. */
+    rejections: RustBackgroundIdentity;
+    /** Accepted queued commands discarded on a terminal fault. */
+    faultDiscardedCommands: RustBackgroundIdentity;
+  };
+  /** Output occupancy and lifetime peaks, independent from replaceable frame copying. */
+  output: {
+    /** Currently queued reliable events. */
+    reliable: RustBackgroundIdentity;
+    /** Currently retained reliable payload bytes. */
+    reliableOwnedBytes: RustBackgroundIdentity;
+    /** Currently queued discrete events. */
+    discrete: RustBackgroundIdentity;
+    /** Currently retained discrete payload bytes. */
+    discreteOwnedBytes: RustBackgroundIdentity;
+    /** Connections with one queued replaceable frame. */
+    frames: RustBackgroundIdentity;
+    /** Whether the replaceable stats slot is occupied. */
+    hasStats: boolean;
+    /** Currently retained output payload bytes. */
+    ownedBytes: RustBackgroundIdentity;
+    /** Largest combined reliable, discrete, stats and frame count. */
+    highWaterCount: RustBackgroundIdentity;
+    /** Largest combined retained payload byte count. */
+    highWaterOwnedBytes: RustBackgroundIdentity;
+    /** Immutable reliable event capacity. */
+    maxReliable: RustBackgroundIdentity;
+    /** Immutable reliable payload byte capacity. */
+    maxReliableOwnedBytes: RustBackgroundIdentity;
+    /** Immutable discrete event capacity. */
+    maxDiscrete: RustBackgroundIdentity;
+    /** Immutable discrete payload byte capacity. */
+    maxDiscreteOwnedBytes: RustBackgroundIdentity;
+    /** Immutable replaceable frame connection capacity. */
+    maxFrames: RustBackgroundIdentity;
+    /** Immutable combined payload byte capacity. */
+    maxOwnedBytes: RustBackgroundIdentity;
+    /** Immutable payload bytes per output event capacity. */
+    maxEventOwnedBytes: RustBackgroundIdentity;
+    /** Coordinator waits for reliable output capacity. */
+    capacityWaits: RustBackgroundIdentity;
+    /** Rejected priority events; successful publication never hides overflow. */
+    priorityOverflows: RustBackgroundIdentity;
+    /** Whether the reserved terminal fault slot is occupied. */
+    hasReservedFault: boolean;
+    /** Stats superseded by a newer publication. */
+    statsReplacements: RustBackgroundIdentity;
+    /** Frames superseded by a newer publication. */
+    frameReplacements: RustBackgroundIdentity;
+    /** Older stats discarded instead of replacing the current publication. */
+    staleStats: RustBackgroundIdentity;
+    /** Older frames discarded instead of replacing the current publication. */
+    staleFrames: RustBackgroundIdentity;
+    /** Replaceable stats rejected by their admission limits. */
+    statsRejections: RustBackgroundIdentity;
+    /** Replaceable frames rejected by their admission limits. */
+    frameRejections: RustBackgroundIdentity;
+    /** Stats evicted to preserve priority output capacity. */
+    statsEvictions: RustBackgroundIdentity;
+    /** Frames evicted to preserve priority output capacity. */
+    frameEvictions: RustBackgroundIdentity;
+  };
+}
+
 /** Immutable Rust-owned facts used to construct the initial server welcome. */
 export interface RustStartupMetadata {
   /** Exact admitted lineage. */

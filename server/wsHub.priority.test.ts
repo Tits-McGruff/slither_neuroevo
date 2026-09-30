@@ -64,9 +64,19 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
   const access = hub as unknown as {
     connections: Map<number, ConnectionState>;
     maxBufferedAmount: number;
+    replacedFrames: number;
+    reliableFailures: number;
+    highWaterReliableMessagesPerConnection: number;
+    highWaterReliableBytesPerConnection: number;
+    maxConnections: number;
   };
   access.connections = new Map([[state.id, state]]);
   access.maxBufferedAmount = 512 * 1024;
+  access.replacedFrames = 0;
+  access.reliableFailures = 0;
+  access.highWaterReliableMessagesPerConnection = 0;
+  access.highWaterReliableBytesPerConnection = 0;
+  access.maxConnections = 4;
   return { hub, state, socket };
 }
 
@@ -195,5 +205,31 @@ describe('WsHub lifecycle priority', () => {
     } finally {
       errorSpy.mockRestore();
     }
+  });
+
+  it('retains replacements and late reliable failures after the peer has been removed', () => {
+    const { hub, socket, state } = buildFakeHub();
+    const connections = (hub as unknown as { connections: Map<number, ConnectionState> }).connections;
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      hub.broadcastFrame(Uint8Array.of(1));
+      hub.broadcastFrame(Uint8Array.of(2));
+      hub.broadcastFrame(Uint8Array.of(3));
+      hub.sendJsonTo(1, { type: 'error', message: 'reliable write behind frame' });
+      socket.sent[0]!.complete();
+      expect(JSON.parse(String(socket.sent[1]!.payload))).toMatchObject({ type: 'error' });
+      connections.delete(state.id);
+      expect(hub.getOutboundDiagnostics()).toMatchObject({ connections: 0, replacedFrames: 1, reliableFailures: 0 });
+      socket.sent[1]!.complete(new Error('failure after disconnect'));
+      expect(hub.getOutboundDiagnostics()).toEqual({ connections: 0, reliableQueuedMessages: 0,
+        reliableQueuedBytes: 0, pendingFrames: 0, replacedFrames: 1, reliableFailures: 1,
+        highWaterReliableMessagesPerConnection: 1,
+        highWaterReliableBytesPerConnection: Buffer.byteLength(JSON.stringify({ type: 'error', message: 'reliable write behind frame' })),
+        maxReliableMessagesPerConnection: 1024, maxReliableBytesPerConnection: 4 * 1024 * 1024, maxConnections: 4 });
+      const replacement = buildFakeHub();
+      replacement.state.id = 2;
+      connections.set(2, replacement.state);
+      expect(hub.getOutboundDiagnostics()).toMatchObject({ connections: 1, replacedFrames: 1, reliableFailures: 1 });
+    } finally { errorSpy.mockRestore(); }
   });
 });

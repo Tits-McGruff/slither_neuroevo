@@ -578,6 +578,11 @@ impl EngineRuntime {
         Ok(self.output.drain(max_events, max_owned_bytes))
     }
 
+    /// Return the immutable validated queue limits.
+    pub(crate) const fn queue_limits(&self) -> EngineInit {
+        self.init
+    }
+
     /// Return a small consistent-enough operational snapshot.
     pub fn health(&self) -> EngineHealth {
         let (processed_batches, processed_commands) = self.coordinator.processed();

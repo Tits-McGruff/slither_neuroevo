@@ -65,10 +65,20 @@ export interface WsOutboundDiagnostics {
   reliableQueuedBytes: number;
   /** Connections holding one replaceable pending display frame. */
   pendingFrames: number;
-  /** Frames superseded before they reached the socket. */
+  /** Hub-lifetime frames superseded, including connections that have closed. */
   replacedFrames: number;
-  /** Reliable enqueue or write failures. */
+  /** Hub-lifetime reliable enqueue or write failures, including closed connections. */
   reliableFailures: number;
+  /** Largest queued reliable message count on any connection over the hub lifetime. */
+  highWaterReliableMessagesPerConnection: number;
+  /** Largest queued reliable byte count on any connection over the hub lifetime. */
+  highWaterReliableBytesPerConnection: number;
+  /** Reliable message admission cap per connection; excludes the one in-flight write. */
+  maxReliableMessagesPerConnection: number;
+  /** Reliable payload byte admission cap per connection; excludes the one in-flight write. */
+  maxReliableBytesPerConnection: number;
+  /** Configured live connection capacity, or null for the uncapped reference hub. */
+  maxConnections: number | null;
 }
 
 /** Optional hub configuration overrides. */
@@ -102,6 +112,14 @@ export class WsHub {
   private wss: WebSocketServer;
   /** Active connection state keyed by id. */
   private connections = new Map<number, ConnectionState>();
+  /** Lifetime frame replacements, retained without keeping closed connection objects. */
+  private replacedFrames = 0;
+  /** Lifetime reliable failures, including callbacks that finish after disconnect. */
+  private reliableFailures = 0;
+  /** Maximum reliable queue length observed at admission, including closed peers. */
+  private highWaterReliableMessagesPerConnection = 0;
+  /** Maximum reliable queue bytes observed at admission, including closed peers. */
+  private highWaterReliableBytesPerConnection = 0;
   /** Next connection id to assign. */
   private nextId = 1;
   /** Cached JSON payload for welcome messages. */
@@ -211,22 +229,23 @@ export class WsHub {
     let reliableQueuedMessages = 0;
     let reliableQueuedBytes = 0;
     let pendingFrames = 0;
-    let replacedFrames = 0;
-    let reliableFailures = 0;
     for (const state of this.connections.values()) {
       reliableQueuedMessages += state.reliableQueue.length;
       reliableQueuedBytes += state.reliableQueueBytes;
       if (state.pendingFrame !== null) pendingFrames++;
-      replacedFrames += state.replacedFrames;
-      reliableFailures += state.reliableFailures;
     }
     return {
       connections: this.connections.size,
       reliableQueuedMessages,
       reliableQueuedBytes,
       pendingFrames,
-      replacedFrames,
-      reliableFailures
+      replacedFrames: this.replacedFrames,
+      reliableFailures: this.reliableFailures,
+      highWaterReliableMessagesPerConnection: this.highWaterReliableMessagesPerConnection,
+      highWaterReliableBytesPerConnection: this.highWaterReliableBytesPerConnection,
+      maxReliableMessagesPerConnection: MAX_RELIABLE_QUEUE_MESSAGES,
+      maxReliableBytesPerConnection: MAX_RELIABLE_QUEUE_BYTES,
+      maxConnections: Number.isFinite(this.maxConnections) ? this.maxConnections : null
     };
   }
 
@@ -265,7 +284,10 @@ export class WsHub {
     for (const state of this.connections.values()) {
       if (state.clientType !== 'ui' || !state.joined) continue;
       if (state.socket.readyState !== WebSocket.OPEN) continue;
-      if (state.pendingFrame !== null) state.replacedFrames++;
+      if (state.pendingFrame !== null) {
+        state.replacedFrames++;
+        this.replacedFrames++;
+      }
       this.discardPendingFrame(state);
       state.pendingFrame = buffer;
       if (release) {
@@ -360,6 +382,7 @@ export class WsHub {
   private enqueueReliable(state: ConnectionState, payload: string): boolean {
     if (state.socket.readyState !== WebSocket.OPEN) {
       state.reliableFailures++;
+      this.reliableFailures++;
       console.error('[ws.reliable_send_failed]', {
         connId: state.id,
         reason: 'socket is not open'
@@ -372,6 +395,7 @@ export class WsHub {
       state.reliableQueueBytes + bytes > MAX_RELIABLE_QUEUE_BYTES
     ) {
       state.reliableFailures++;
+      this.reliableFailures++;
       console.error('[ws.reliable_queue_overflow]', {
         connId: state.id,
         queuedMessages: state.reliableQueue.length,
@@ -385,6 +409,8 @@ export class WsHub {
     }
     state.reliableQueue.push(payload);
     state.reliableQueueBytes += bytes;
+    this.highWaterReliableMessagesPerConnection = Math.max(this.highWaterReliableMessagesPerConnection, state.reliableQueue.length);
+    this.highWaterReliableBytesPerConnection = Math.max(this.highWaterReliableBytesPerConnection, state.reliableQueueBytes);
     this.pumpOutbound(state);
     return true;
   }
@@ -426,7 +452,10 @@ export class WsHub {
         releaseFrame?.();
         state.sending = false;
         if (error) {
-          if (reliable) state.reliableFailures++;
+          if (reliable) {
+            state.reliableFailures++;
+            this.reliableFailures++;
+          }
           console.error(reliable ? '[ws.reliable_send_failed]' : '[ws.send_failed]', {
             connId: state.id,
             reason: error.message
@@ -439,7 +468,10 @@ export class WsHub {
     } catch (error) {
       releaseFrame?.();
       state.sending = false;
-      if (reliable) state.reliableFailures++;
+      if (reliable) {
+        state.reliableFailures++;
+        this.reliableFailures++;
+      }
       console.error(reliable ? '[ws.reliable_send_failed]' : '[ws.send_failed]', {
         connId: state.id,
         reason: error instanceof Error ? error.message : String(error)
