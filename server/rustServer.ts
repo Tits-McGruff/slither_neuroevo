@@ -1060,8 +1060,10 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       const runId = randomUUID();
       let prepared = false;
       let staged = false;
+      let commitAttempted = false;
       let committed = false;
       let newlyPublishedBudgetRejectedFile: string | undefined;
+      let previousCurrent: { runId: string; checkpointId: string } | undefined;
       try {
         await owner.admitCheckpoint();
         const preexistingManagedNames = new Set(await readdir(owner.managedDirectory));
@@ -1099,6 +1101,13 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         }
         await output.stagePreparedImport();
         staged = true;
+        const selected = await owner.persistence.selectStartup();
+        if (!selected.descriptor || selected.runId !== activeMetadata.runId) {
+          throw new Error('staged fresh run found no matching current checkpoint');
+        }
+        previousCurrent = { runId: selected.runId,
+          checkpointId: selected.descriptor.logicalRootSha256 };
+        commitAttempted = true;
         const durable = await owner.persistence.commit(descriptor, null, true);
         committed = true;
         await output.publishPreparedImport(durable.descriptor);
@@ -1120,7 +1129,18 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         retention = await owner.persistence.inspectRetention();
         return { runId, seed, checkpointId: durable.checkpointId };
       } catch (error) {
-        if (staged && !committed) await output.cancelPreparedImport().catch(fail);
+        if (staged && !committed) {
+          let oldPointerStillCurrent = !commitAttempted;
+          if (commitAttempted) {
+            try {
+              const selected = await owner.persistence.selectStartup();
+              oldPointerStillCurrent = selected.runId === previousCurrent?.runId &&
+                selected.descriptor?.logicalRootSha256 === previousCurrent?.checkpointId;
+            } catch { /* An unreadable commit outcome cannot release the old authority. */ }
+          }
+          if (oldPointerStillCurrent) await output.cancelPreparedImport().catch(fail);
+          else fail(new Error('fresh replacement checkpoint outcome is unknown; restart from a valid retained checkpoint'));
+        }
         else if (prepared && !staged) {
           let discarded = false;
           try { owner.runtime.discardPreparedImport(); discarded = true; }
@@ -1173,6 +1193,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       }).catch(error => {
         importOperation = undefined;
         importAuthorityPublished = false;
+        if (fault) return;
         const detail = error instanceof Error ? error.message : String(error);
         if (newRunMessage) {
           sockets.sendJsonTo(connection, {

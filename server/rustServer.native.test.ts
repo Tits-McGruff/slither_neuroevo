@@ -783,6 +783,63 @@ describeNetworkSuite('Rust server real sockets', () => {
     }
   }, 30_000);
 
+  it('keeps a committed New Run when its SQLite reply is lost', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-lost-new-run-reply-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    let server = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+      resume: 'fresh', seed: 42, dbPath });
+    let viewer: Peer | undefined;
+    let commitSpy: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      viewer = await connect(server.port, 'ui');
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      const before = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        runId: string; startupCheckpointId: string;
+      };
+      const originalCommit = CheckpointPersistenceClient.prototype.commit;
+      /** Lose one reply after the real worker has activated the new run pointer. */
+      commitSpy = vi.spyOn(CheckpointPersistenceClient.prototype, 'commit')
+        .mockImplementationOnce(async function (this: CheckpointPersistenceClient,
+          ...args: Parameters<CheckpointPersistenceClient['commit']>) {
+          await originalCommit.apply(this, args);
+          throw new Error('injected lost New Run commit reply');
+        });
+      viewer.socket.send(JSON.stringify({ type: 'newRun', requestId: 'lost-new-run-reply' }));
+      await until(viewer, () => viewer!.packets.some(packet =>
+        packet['type'] === 'error' || packet['type'] === 'newRunResult'));
+      const faulted = await healthUntil(server.port, health => health['ok'] === false);
+      expect(faulted).toMatchObject({ runId: before.runId,
+        startupCheckpointId: before.startupCheckpointId,
+        interfaceFault: 'fresh replacement checkpoint outcome is unknown; restart from a valid retained checkpoint' });
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'error'));
+      expect(viewer.packets.filter(packet => packet['requestId'] === 'lost-new-run-reply')).toEqual([]);
+      const database = new Database(dbPath, { readonly: true });
+      let committedRunId: string;
+      try {
+        const current = database.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1')
+          .get() as { run_id: string };
+        committedRunId = current.run_id;
+        expect(committedRunId).not.toBe(before.runId);
+      } finally { database.close(); }
+      viewer.socket.terminate();
+      viewer = undefined;
+      await server.close();
+      commitSpy.mockRestore();
+      commitSpy = undefined;
+      const { seed: _seed, ...resumeConfig } = DEFAULT_CONFIG;
+      server = await startRustServer({ ...resumeConfig, port: 0, resume: 'latest', dbPath });
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: committedRunId, generation: '0000000000000001'
+      });
+    } finally {
+      commitSpy?.mockRestore();
+      viewer?.socket.terminate();
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it('recovers the committed import across both sides of the Rust swap', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-import-swap-fault-'));
     const source = await startRustServer({ ...DEFAULT_CONFIG, port: 0,

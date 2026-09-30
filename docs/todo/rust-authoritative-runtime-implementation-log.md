@@ -1088,3 +1088,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   The isolated production/test-hook addon suite passed. Process-death
   injection at this point and the post-swap/pre-success boundary remain
   separate acceptance work.
+
+- 2026-09-30 Reset and New Run now check the durable current pointer if a
+  replacement commit returns an error after staging Rust authority. An
+  unchanged pointer permits cancellation; a changed or unreadable outcome
+  faults the interface for restart instead of restoring the old Rust run or
+  reporting New Run as rejected. A real socket/SQLite test loses the commit
+  reply after SQLite activates a New Run and confirms latest-resume loads that
+  committed generation-one run.
