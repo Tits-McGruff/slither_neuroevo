@@ -1948,15 +1948,283 @@ pub(crate) fn parse_controller_receipt(receipt: &Object<'_>) -> Result<ExternalD
 
 #[cfg(test)]
 mod task_panic_tests {
-    use super::{catch_background_task_panic, ExperimentalRunningAuthority};
-    use crate::engine::contract::{
-        CommandBatch, EngineCommand, EngineInit, InboundLimits, OutputLimits, SequencedCommand,
-        ENGINE_CONTRACT_VERSION,
+    use super::{
+        catch_background_task_panic, ArchiveProgressJob, ExperimentalRunningAuthority,
+        PrepareExportArchiveTask, PrepareFreshRunTask, PrepareImportArchiveTask,
+        ValidateImportArchiveTask,
     };
+    use crate::engine::checkpoint::{CheckpointDescriptor, CheckpointOperationId};
+    use crate::engine::contract::{
+        CommandBatch, EngineCommand, EngineInit, InboundLimits, OutputLimits, PreparedImportSlot,
+        SequencedCommand, ENGINE_CONTRACT_VERSION,
+    };
+    use crate::engine::export_archive::{compose_export_archive, ExportInventoryDescriptor};
+    use crate::engine::fresh_run::{
+        prepare_stage6a_p0_fresh_run_with_settings_and_graph,
+        stage6a_p0_archive_validation_contract, Stage6aP0FreshRunRequest,
+    };
+    use crate::engine::graph::typescript_default_graph_spec;
     use crate::engine::queues::NoopWakeSink;
     use crate::engine::runtime::EngineRuntime;
+    use crate::engine::task_panic_fixture::{PanicInjection, PanicPoint};
+    use crate::engine::work_progress::{advance, ProgressScope};
+    use napi::bindgen_prelude::Task;
     use napi::{Error, Status};
+    use sha2::{Digest, Sha256};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
+
+    /// Own every file used by one task test and remove the whole isolated root.
+    struct TaskFiles(PathBuf);
+
+    impl TaskFiles {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "slither-task-panic-{}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            Self(root)
+        }
+
+        fn request(&self) -> Stage6aP0FreshRunRequest {
+            Stage6aP0FreshRunRequest {
+                run_id: "private-task-panic-run".to_owned(),
+                seed: 42,
+                memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
+            }
+        }
+
+        fn checkpoint(&self) -> CheckpointDescriptor {
+            let mut transition = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+                self.request(),
+                &[],
+                typescript_default_graph_spec(),
+            )
+            .unwrap();
+            transition
+                .publish_checkpoint(
+                    &self.0,
+                    CheckpointOperationId::parse("a".repeat(32)).unwrap(),
+                )
+                .unwrap()
+        }
+
+        fn inventory(&self, operation: &str) -> ExportInventoryDescriptor {
+            let mut bytes = [0u8; 32];
+            bytes[..13].copy_from_slice(b"SLITHER-EXPV1");
+            let relative_filename = format!(".{operation}.export-inventory-v1");
+            fs::write(self.0.join(&relative_filename), bytes).unwrap();
+            ExportInventoryDescriptor {
+                version: 1,
+                relative_filename,
+                sha256: format!("{:x}", Sha256::digest(bytes)),
+                stored_byte_count_hex: "0000000000000020".to_owned(),
+                history_count_hex: "0000000000000000".to_owned(),
+                hall_of_fame_count_hex: "0000000000000000".to_owned(),
+            }
+        }
+
+        fn archive(&self, checkpoint: &CheckpointDescriptor) -> PathBuf {
+            let operation = "b".repeat(32);
+            let inventory = self.inventory(&operation);
+            let (limits, graphs, admission) =
+                stage6a_p0_archive_validation_contract(4 * 1024 * 1024 * 1024, false).unwrap();
+            let archive = compose_export_archive(
+                &self.0, &operation, checkpoint, &inventory, &limits, &graphs, &admission,
+            )
+            .unwrap();
+            self.0.join(archive.relative_filename)
+        }
+
+        fn names(&self) -> Vec<String> {
+            let mut names: Vec<_> = fs::read_dir(&self.0)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+                .collect();
+            names.sort();
+            names
+        }
+    }
+
+    impl Drop for TaskFiles {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).expect("task-owned scratch must be removed");
+        }
+    }
+
+    /// Assert the actual task root contains the panic and faults its retained owner.
+    fn assert_task_panic<T>(
+        result: napi::Result<T>,
+        task_name: &str,
+        injection: &PanicInjection,
+        runtime: &EngineRuntime,
+    ) {
+        assert!(
+            injection.reached(),
+            "real operation boundary must be reached"
+        );
+        let error = result.err().expect("task panic must reject its result");
+        assert_eq!(error.status, Status::GenericFailure);
+        assert!(error.reason.contains(&format!("{task_name} panicked")));
+        assert!(!error.reason.contains("sensitive"));
+        assert!(runtime
+            .health()
+            .fault
+            .as_ref()
+            .is_some_and(|fault| fault.detail().contains(task_name)));
+        assert!(runtime
+            .try_submit(CommandBatch {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                commands: vec![SequencedCommand {
+                    sequence: 1,
+                    command: EngineCommand::Probe {
+                        correlation_id: 1,
+                        payload: vec![1]
+                    },
+                }]
+                .into_boxed_slice(),
+            })
+            .is_err());
+        runtime
+            .join()
+            .expect("faulted coordinator must join cleanly");
+    }
+
+    /// A subsequent job on the same worker must not inherit a panicked job's counter.
+    fn assert_progress_scope_released() {
+        let counter = Arc::new(AtomicU64::new(0));
+        let _scope = ProgressScope::enter(Arc::clone(&counter));
+        advance(7);
+        assert_eq!(counter.load(Ordering::Relaxed), 7);
+    }
+
+    #[test]
+    fn fresh_run_task_panic_removes_written_checkpoint_and_keeps_candidate_private() {
+        let files = TaskFiles::new();
+        let runtime = running_test_runtime();
+        let prepared = PreparedImportSlot::new();
+        let mut task = PrepareFreshRunTask {
+            runtime: Arc::clone(&runtime),
+            managed_directory: files.0.clone(),
+            operation_id: CheckpointOperationId::parse("c".repeat(32)).unwrap(),
+            request: files.request(),
+            calculation_workers: 1,
+            settings: Box::new([]),
+            graph: typescript_default_graph_spec(),
+            prepared: prepared.clone(),
+            active: Arc::new(AtomicBool::new(true)),
+        };
+        let injection = PanicInjection::arm(PanicPoint::CheckpointWritten);
+        assert_task_panic(
+            task.compute(),
+            "fresh-run preparation",
+            &injection,
+            &runtime,
+        );
+        assert!(!prepared.is_some());
+        assert!(files.names().is_empty());
+    }
+
+    #[test]
+    fn export_task_panic_removes_written_archive_and_preserves_leased_inputs() {
+        let files = TaskFiles::new();
+        let checkpoint = files.checkpoint();
+        let operation = "c".repeat(32);
+        let inventory = files.inventory(&operation);
+        let before = files.names();
+        let retained = fs::read(files.0.join(&checkpoint.relative_filename)).unwrap();
+        let runtime = running_test_runtime();
+        let progress = Arc::new(ArchiveProgressJob::new(operation.clone(), "export"));
+        let mut task = PrepareExportArchiveTask {
+            runtime: Arc::clone(&runtime),
+            managed_directory: files.0.clone(),
+            operation_id: operation,
+            checkpoint: checkpoint.clone(),
+            inventory,
+            progress: Arc::clone(&progress),
+        };
+        let injection = PanicInjection::arm(PanicPoint::ExportWritten);
+        assert_task_panic(task.compute(), "archive export", &injection, &runtime);
+        assert!(progress.started.load(Ordering::Acquire));
+        assert!(progress.completed_bytes.load(Ordering::Relaxed) > 0);
+        assert_eq!(files.names(), before);
+        assert_eq!(
+            fs::read(files.0.join(&checkpoint.relative_filename)).unwrap(),
+            retained
+        );
+        assert_progress_scope_released();
+    }
+
+    #[test]
+    fn import_validation_task_panic_removes_extracted_checkpoint_and_preserves_upload() {
+        let files = TaskFiles::new();
+        let checkpoint = files.checkpoint();
+        let archive = files.archive(&checkpoint);
+        let retained = fs::read(&archive).unwrap();
+        let before = files.names();
+        let runtime = running_test_runtime();
+        let mut task = ValidateImportArchiveTask {
+            runtime: Arc::clone(&runtime),
+            archive_path: archive.clone(),
+            scratch_directory: files.0.clone(),
+            operation_id: "c".repeat(32),
+            progress: Arc::new(ArchiveProgressJob::new("c".repeat(32), "validate")),
+        };
+        let injection = PanicInjection::arm(PanicPoint::ImportExtracted);
+        assert_task_panic(
+            task.compute(),
+            "archive import validation",
+            &injection,
+            &runtime,
+        );
+        assert_eq!(files.names(), before);
+        assert_eq!(fs::read(&archive).unwrap(), retained);
+        assert_progress_scope_released();
+    }
+
+    #[test]
+    fn import_preparation_task_panic_removes_inventory_and_keeps_candidate_private() {
+        let source = TaskFiles::new();
+        let checkpoint = source.checkpoint();
+        let archive = source.archive(&checkpoint);
+        let target = TaskFiles::new();
+        let retained = fs::read(&archive).unwrap();
+        let runtime = running_test_runtime();
+        let prepared = PreparedImportSlot::new();
+        let mut task = PrepareImportArchiveTask {
+            runtime: Arc::clone(&runtime),
+            archive_path: archive.clone(),
+            scratch_directory: target.0.clone(),
+            managed_directory: target.0.clone(),
+            operation_id: "c".repeat(32),
+            legacy_run_id: "unused-exact-import".to_owned(),
+            legacy_seed: 0,
+            calculation_workers: 1,
+            prepared: prepared.clone(),
+            active: Arc::new(AtomicBool::new(true)),
+            progress: Arc::new(ArchiveProgressJob::new("c".repeat(32), "import")),
+        };
+        let injection = PanicInjection::arm(PanicPoint::ImportExtracted);
+        assert_task_panic(
+            task.compute(),
+            "archive import preparation",
+            &injection,
+            &runtime,
+        );
+        assert!(!prepared.is_some());
+        assert!(target.names().is_empty());
+        assert_eq!(fs::read(&archive).unwrap(), retained);
+        assert_progress_scope_released();
+    }
 
     fn running_test_runtime() -> Arc<EngineRuntime> {
         let runtime = EngineRuntime::new_experimental_probe(

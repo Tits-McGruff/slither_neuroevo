@@ -1679,6 +1679,11 @@ fn validate_import_candidate(
                 .join(&descriptor.relative_filename),
         );
     }
+    #[cfg(test)]
+    super::task_panic_fixture::hit(
+        super::task_panic_fixture::PanicPoint::ImportExtracted,
+        &checkpoint_path,
+    );
     let restored = super::checkpoint::restore_checkpoint(
         &checkpoint_path,
         checkpoint_limits,
@@ -2001,6 +2006,11 @@ pub fn compose_export_archive(
     archive.finish()?;
     let mut writer = archive.into_inner()?;
     writer.flush()?;
+    #[cfg(test)]
+    super::task_panic_fixture::hit(
+        super::task_panic_fixture::PanicPoint::ExportWritten,
+        &partial_path,
+    );
     let output = writer.into_inner().map_err(|error| error.into_error())?;
     output.sync_all()?;
     if output.metadata()?.len() != expected_archive_bytes {

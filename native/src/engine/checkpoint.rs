@@ -1131,6 +1131,11 @@ pub fn publish_checkpoint(
     )?;
     let mut writer = archive.into_inner()?;
     writer.flush()?;
+    #[cfg(test)]
+    super::task_panic_fixture::hit(
+        super::task_panic_fixture::PanicPoint::CheckpointWritten,
+        &partial_path,
+    );
     let partial_file = writer.into_inner().map_err(|error| error.into_error())?;
     partial_file.sync_all()?;
     let actual_length = partial_file.metadata()?.len();

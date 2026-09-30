@@ -111,6 +111,9 @@ pub mod step_config;
 /// Deterministic Stage 5 complete scalar fixed-step performance evidence.
 #[cfg(feature = "engine-test-hooks")]
 pub mod step_fixture;
+/// Thread-local panic injection compiled only into Rust unit tests.
+#[cfg(test)]
+pub(crate) mod task_panic_fixture;
 /// Worker-local archive byte counters visible to the Node watchdog.
 pub mod work_progress;
 /// Complete post-control world-step staging before one authority publication.

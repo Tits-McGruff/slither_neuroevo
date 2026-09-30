@@ -44,7 +44,7 @@ is actually needed.
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
 | 6 | Rust runtime complete | Rust owns durable startup/recovery, continuous frames/stats, browser and Protocol 2 routing, generation persistence, managed retention, commands, and direct archive export/import. |
-| 7 | Acceptance active | P1/P2 VM performance, exact large archives and bounded persistence pass their measured checkpoints; real LAN browsers/trainer, fault injection and longer durability gates remain. |
+| 7 | Acceptance active | Measured P0/P1/P2 server timing, real trainer traffic, large archives and bounded persistence pass; browser drawing/heap, fault supervision and final durability acceptance remain. |
 | 8 | Production cutover active | Normal npm and launcher startup selects Rust; the TypeScript game is retained only as `server:reference`. Deployment/service and final acceptance remain. |
 
 ## Milestone index
@@ -1199,3 +1199,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   passed. The measured P2 ratio is close to the minimum and establishes little
   additional capacity; rendering, loopback-health and longer RSS gates remain
   separate work.
+
+- 2026-09-30 Release tests now panic inside the real fresh-run, export, import
+  validation and import preparation task computations after nonempty private
+  files exist. Unwinding removes unpublished checkpoint/archive files,
+  extracted import files and the prepared inventory; retained checkpoint and
+  upload bytes stay unchanged, and no replacement candidate becomes available.
+  The task root returns a bounded error, faults its retained engine, rejects
+  later commands and joins cleanly. The release Rust suite and Clippy passed.
+  These injection points compile only into Rust unit tests. Full Node/server
+  panic injection and supervised service recovery remain separate acceptance.
