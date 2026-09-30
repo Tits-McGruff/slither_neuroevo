@@ -404,6 +404,24 @@ every slow or flaky matrix job.
   directory names or other bookkeeping that the automated check already
   proves.
 
+### Temporary workspaces and retained evidence
+
+- Treat `/tmp` as disposable scratch that may disappear on reboot. Do not use
+  it as an archive or the sole location of evidence needed for a migration gate.
+- Stop disposable processes and remove task-owned scratch, build artifacts and
+  copied databases as soon as their validation slice no longer needs them.
+  Verify the exact paths before cleanup; never sweep unrelated temporary files
+  or another task's checkout.
+- Keep reusable remote checkouts and fixtures in a clearly named persistent
+  working directory. Give them the same cleanup lifecycle; moving files out of
+  `/tmp` is not a reason to retain unused copies or build caches indefinitely.
+- Save required benchmark reports and other retained evidence to a permanent
+  project evidence location before cleaning the workspace. Retain the compact
+  evidence needed to reproduce or assess a result, rather than abandoned
+  binaries, clones or database copies.
+- Check the actual filesystem's free space before a durability or loaded
+  checkpoint run. Preserve the configured disk-admission reserve.
+
 ## Coding and documentation rules
 
 - Preserve hot-path typed arrays and avoid per-frame allocation unless a
