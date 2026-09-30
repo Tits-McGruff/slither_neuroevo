@@ -1133,3 +1133,12 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   The Windows process-death file passed all ten cases. TypeScript and focused
   ESLint passed; cross-platform CI supplies the Linux confirmation. Export
   and pruning process-death checks remain open.
+
+- 2026-09-30 Export recovery now kills a separate real server after Rust
+  publishes its ready archive and during the first binary download write.
+  Both leave the selected checkpoint unchanged, retain the interrupted ready
+  file and export inventory, remove stale scratch on restart, and permit a
+  complete fresh download with normal cleanup. Both focused cases passed on
+  Windows after resuming; the unchanged combined process-death file previously
+  passed all twelve cases, with TypeScript and focused ESLint passing. This
+  does not cover death inside the native encoder or retention pruning.

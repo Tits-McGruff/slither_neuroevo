@@ -23,6 +23,11 @@ interface ProcessHealth {
 /** Replacement boundaries reached by the real child process. */
 type ReplacementCrashPoint = 'afterCommit' | 'afterSwap';
 
+/** Exact fixture and boundary selected for one disposable child. */
+type ProcessCrashFixture =
+  | { kind: 'replacement' | 'generation'; point: ReplacementCrashPoint }
+  | { kind: 'export'; point: 'afterReady' | 'duringDownload' };
+
 /** Owner-visible operations that publish a complete replacement authority. */
 const REPLACEMENT_OPERATIONS = ['newRun', 'reset', 'import'] as const;
 /** Both sides of the final Rust swap, tested for each replacement entry point. */
@@ -46,13 +51,15 @@ async function availablePort(): Promise<number> {
 
 /** Start the server or its replacement-death fixture in a distinct OS process. */
 function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | 'latest',
-  crashFixture?: { kind: 'replacement' | 'generation'; point: ReplacementCrashPoint }): {
+  crashFixture?: ProcessCrashFixture): {
   child: ChildProcess;
   output: () => string;
 } {
   const args = crashFixture
     ? ['--import', 'tsx', resolve(crashFixture.kind === 'replacement'
-      ? 'server/test/killDuringAuthorityReplacement.ts' : 'server/test/killDuringGenerationHandoff.ts'),
+      ? 'server/test/killDuringAuthorityReplacement.ts'
+      : crashFixture.kind === 'generation' ? 'server/test/killDuringGenerationHandoff.ts'
+      : 'server/test/killDuringArchiveExport.ts'),
     String(port), databasePath, crashFixture.point]
     : [
       '--import', 'tsx', resolve('server/rustServer.ts'),
@@ -99,6 +106,18 @@ async function pendingUpload(managedRoot: string): Promise<string> {
   throw new Error('archive upload never created its partial spool');
 }
 
+/** Wait for the worker's export-lease cleanup after the client has consumed its body. */
+async function waitForArchiveCleanup(managedRoot: string): Promise<void> {
+  const deadline = performance.now() + 5000;
+  let remaining: string[];
+  do {
+    remaining = (await readdir(managedRoot)).filter(isRecognizedArchiveArtifact);
+    if (remaining.length === 0) return;
+    await new Promise<void>(done => setTimeout(done, 10));
+  } while (performance.now() < deadline);
+  expect(remaining).toEqual([]);
+}
+
 /** Wait for a child to terminate after an explicit signal. */
 async function terminate(child: ChildProcess, signal: NodeJS.Signals): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
@@ -124,7 +143,7 @@ async function waitForReplacementDeath(child: ChildProcess, output: () => string
       new Promise<void>(resolveExit => child.once('exit', () => resolveExit())),
       new Promise<never>((_, rejectExit) => {
         timer = setTimeout(() => rejectExit(new Error(
-          `Server did not reach replacement-death point: ${output()}`)), 15_000);
+          `Server did not reach the requested death point: ${output()}`)), 15_000);
       })
     ]);
   } finally { if (timer) clearTimeout(timer); }
@@ -237,6 +256,65 @@ describeNetworkSuite('Rust process-death recovery', () => {
       expect((await readdir(managedRoot)).filter(isRecognizedArchiveArtifact)).toEqual([]);
     } finally {
       viewer?.terminate();
+      if (restarted) await terminate(restarted.child, 'SIGTERM');
+      await terminate(first.child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 45_000);
+
+  it.each(['afterReady', 'duringDownload'] as const)('recovers export death %s and permits a fresh download', async (point) => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-export-death-'));
+    const databasePath = join(root, 'experiment.sqlite');
+    const managedRoot = `${databasePath}.checkpoints`;
+    const port = await availablePort();
+    const first = spawnRustServer(port, databasePath, 'fresh', { kind: 'export', point });
+    let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    try {
+      const before = await readyHealth(port, first.child, first.output);
+      const interrupted = fetch(`http://127.0.0.1:${port}/api/export/latest`, {
+        signal: AbortSignal.timeout(15_000)
+      }).then(async response => {
+        await response.arrayBuffer();
+        return { completed: true };
+      }, error => ({ error })).catch(error => ({ error }));
+      await waitForReplacementDeath(first.child, first.output);
+      expect(await interrupted).toHaveProperty('error');
+      expect(first.child.signalCode === 'SIGKILL' ||
+        (process.platform === 'win32' && first.child.exitCode === 1), first.output()).toBe(true);
+      const markerLine = first.output().split(/\r?\n/u)
+        .find(line => line.startsWith('{"type":"exportCrashPoint"'));
+      expect(markerLine, first.output()).toBeDefined();
+      const marker = JSON.parse(markerLine!) as {
+        point: string; checkpointId: string; relativeFilename: string; storedByteCount: string; offeredBytes: number;
+      };
+      expect(marker).toMatchObject({ point, checkpointId: before.startupCheckpointId });
+      expect(marker.relativeFilename).toMatch(/^\.[0-9a-f]{32}\.slither-save\.ready$/u);
+      if (point === 'duringDownload') {
+        expect(marker.offeredBytes).toBeGreaterThan(0);
+        expect(BigInt(marker.offeredBytes)).toBeLessThan(BigInt(`0x${marker.storedByteCount}`));
+      } else expect(marker.offeredBytes).toBe(0);
+      const database = new Database(databasePath, { readonly: true });
+      try {
+        expect(database.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+          .get(before.runId)).toEqual({ checkpoint_id: before.startupCheckpointId });
+      } finally { database.close(); }
+      const artifacts = (await readdir(managedRoot)).filter(isRecognizedArchiveArtifact);
+      expect(artifacts).toContain(marker.relativeFilename);
+      expect(artifacts.some(name => name.endsWith('.export-inventory-v1'))).toBe(true);
+      const stale = new Date(Date.now() - ARCHIVE_ARTIFACT_GRACE_MS - 60_000);
+      for (const name of artifacts) await utimes(join(managedRoot, name), stale, stale);
+      restarted = spawnRustServer(port, databasePath, 'latest');
+      const after = await readyHealth(port, restarted.child, restarted.output);
+      expect(after).toMatchObject({ runId: before.runId, startupCheckpointId: before.startupCheckpointId });
+      expect((await readdir(managedRoot)).filter(isRecognizedArchiveArtifact)).toEqual([]);
+      const exported = await fetch(`http://127.0.0.1:${port}/api/export/latest`, {
+        signal: AbortSignal.timeout(15_000)
+      });
+      expect(exported.status).toBe(200);
+      expect(exported.headers.get('x-slither-checkpoint-id')).toBe(before.startupCheckpointId);
+      expect((await exported.arrayBuffer()).byteLength).toBe(Number(exported.headers.get('content-length')));
+      await waitForArchiveCleanup(managedRoot);
+    } finally {
       if (restarted) await terminate(restarted.child, 'SIGTERM');
       await terminate(first.child, 'SIGKILL');
       await rm(root, { recursive: true, force: true });
