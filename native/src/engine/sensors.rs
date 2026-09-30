@@ -7,7 +7,7 @@
 //! Pure probes return a delivery marker without mutating snake state; only a
 //! caller that actually consumes or accepts the observation commits it.
 
-use super::sensor_layout::{SensorLayout, SensorLayoutError};
+use super::sensor_layout::{SensorLayout, SensorLayoutError, MAX_SENSOR_BINS};
 use super::spatial::{
     BodySensorQueryScratch, IndexedSensorWorld, PelletQueryScratch, SpatialIndexError,
     SpatialQueryDiagnostics,
@@ -635,6 +635,7 @@ impl SensorEvaluator {
         let mut nearest_food_distance = radii.far;
         let mut nearest_food_delta = WorldPoint { x: 0.0, y: 0.0 };
         let mut found_food = false;
+        let pellet_bins = PelletAngularBins::new(snake.direction, self.layout.bins);
         #[cfg(feature = "engine-test-hooks")]
         let pellet_accumulation_started = scratch.phase_profile.as_ref().map(|_| Instant::now());
         for pellet in indexed_world
@@ -653,8 +654,7 @@ impl SensorEvaluator {
             if distance_squared <= 1.0e-6 || distance_squared > radii.far * radii.far {
                 continue;
             }
-            let relative = normalize_angle(dy.atan2(dx) - snake.direction);
-            let bin = angle_to_centered_bin(relative, self.layout.bins);
+            let bin = pellet_bins.classify(dx, dy, distance);
             let distance_weight = 1.0 - distance / radii.far;
             let value_weight = clamp(pellet.value / self.config.food_value.max(1.0e-6), 0.0, 6.0);
             scratch.food_bins[bin] =
@@ -931,6 +931,94 @@ fn angle_to_centered_bin(relative_angle: f64, bins: usize) -> usize {
     clamp((unit * bins as f64).floor(), 0.0, (bins - 1) as f64) as usize
 }
 
+/// One angular boundary after which a particular food-density bin begins.
+#[derive(Clone, Copy, Default)]
+struct PelletBinBoundary {
+    positive_angle: f64,
+    x: f64,
+    y: f64,
+    bin_after: usize,
+}
+
+/// Per-observation angular boundaries for cheap exact-bin pellet classification.
+///
+/// A vector close to a boundary uses the original atan2 calculation so floating
+/// point rounding at that boundary preserves the existing observation.
+struct PelletAngularBins {
+    boundaries: [PelletBinBoundary; MAX_SENSOR_BINS],
+    count: usize,
+    direction: f64,
+}
+
+impl PelletAngularBins {
+    fn new(direction: f64, count: usize) -> Self {
+        let mut boundaries = [PelletBinBoundary::default(); MAX_SENSOR_BINS];
+        // A finite restored direction can be outside the ordinary movement
+        // range. Preserve the original subtraction/remainder rounding there.
+        if direction.abs() > TAU {
+            return Self {
+                boundaries,
+                count,
+                direction,
+            };
+        }
+        for (index, boundary) in boundaries[..count].iter_mut().enumerate() {
+            let angle = normalize_angle(direction - PI + (index as f64 + 0.5) * TAU / count as f64);
+            let positive_angle = if angle < 0.0 { angle + TAU } else { angle };
+            let (y, x) = angle.sin_cos();
+            *boundary = PelletBinBoundary {
+                positive_angle,
+                x,
+                y,
+                bin_after: (index + 1) % count,
+            };
+        }
+        boundaries[..count]
+            .sort_unstable_by(|left, right| left.positive_angle.total_cmp(&right.positive_angle));
+        Self {
+            boundaries,
+            count,
+            direction,
+        }
+    }
+
+    #[inline]
+    fn classify(&self, x: f64, y: f64, distance: f64) -> usize {
+        if self.direction.abs() > TAU {
+            return angle_to_centered_bin(normalize_angle(y.atan2(x) - self.direction), self.count);
+        }
+        let upper = y > 0.0 || (y == 0.0 && x >= 0.0);
+        let mut low = 0;
+        let mut high = self.count;
+        while low < high {
+            let middle = (low + high) / 2;
+            let boundary = self.boundaries[middle];
+            let boundary_upper = boundary.y > 0.0 || (boundary.y == 0.0 && boundary.x >= 0.0);
+            let before = if upper != boundary_upper {
+                upper
+            } else {
+                x * boundary.y - y * boundary.x > 0.0
+            };
+            if before {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        let preceding = if low == 0 { self.count - 1 } else { low - 1 };
+        let following = low % self.count;
+        for boundary in [self.boundaries[preceding], self.boundaries[following]] {
+            if (x * boundary.y - y * boundary.x).abs() <= 1.0e-10 * distance {
+                return angle_to_centered_bin(
+                    normalize_angle(y.atan2(x) - self.direction),
+                    self.count,
+                );
+            }
+        }
+        self.boundaries[preceding].bin_after
+    }
+}
+
 fn centered_bin_to_angle(index: usize, bins: usize) -> f64 {
     -PI + index as f64 / bins as f64 * TAU
 }
@@ -1069,6 +1157,38 @@ mod tests {
     use crate::engine::spatial::SensorIndexConfig;
     use crate::engine::state::{BodyRange, PelletState, SnakeKind};
     use serde::Deserialize;
+
+    #[test]
+    fn pellet_direction_classifier_matches_original_bins_across_supported_layouts() {
+        for bins in 8..=MAX_SENSOR_BINS {
+            for direction in [
+                -1.0e20, -1.0e6, -TAU, -PI, -2.1, -0.37, 0.0, 0.37, 2.1, PI, TAU, 1.0e6, 1.0e20,
+            ] {
+                let classifier = PelletAngularBins::new(direction, bins);
+                for sample in 0..20_000_u64 {
+                    let angle = (sample.wrapping_mul(65_537) % 20_000) as f64 / 20_000.0 * TAU;
+                    let (y, x) = angle.sin_cos();
+                    let expected =
+                        angle_to_centered_bin(normalize_angle(y.atan2(x) - direction), bins);
+                    assert_eq!(
+                        classifier.classify(x, y, 1.0),
+                        expected,
+                        "bins={bins}, direction={direction}, angle={angle}"
+                    );
+                }
+                for boundary in 0..bins {
+                    let angle = direction - PI + (boundary as f64 + 0.5) * TAU / bins as f64;
+                    for delta in [-1.0e-10, -1.0e-13, 0.0, 1.0e-13, 1.0e-10] {
+                        let (y, x) = (angle + delta).sin_cos();
+                        let expected =
+                            angle_to_centered_bin(normalize_angle(y.atan2(x) - direction), bins);
+                        assert_eq!(classifier.classify(x, y, 1.0), expected,
+                            "bins={bins}, direction={direction}, boundary={boundary}, delta={delta}");
+                    }
+                }
+            }
+        }
+    }
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "camelCase")]

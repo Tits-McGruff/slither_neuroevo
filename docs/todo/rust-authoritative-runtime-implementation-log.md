@@ -1103,3 +1103,14 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   active-run pointer changes, and a fresh process resumes that generation-one
   run. The Windows process-death file passed all three cases; Linux CI remains
   the cross-platform confirmation.
+
+- 2026-09-30 Food sensing now classifies pellet direction against per-sample
+  angular boundaries, with the original angle calculation near boundaries or
+  for unusually large restored headings. A 3.5-million-plus direction/bin
+  comparison, all 455 release Rust tests, Clippy and the native integration
+  overlay passed. On Oxygen, paired pinned-core synthetic P1 sensing means
+  changed from 20.12 to 18.03 ms and from 19.50 to 19.13 ms; a final-source
+  pair measured 18.20 versus 17.08 ms. Pellet accumulation fell by about 2 ms
+  in the first two pairs and 2.5 ms in the final pair. P1, P2 and dense-pellet
+  observation hashes were unchanged. This is a sensing-only result; the loaded
+  P1 fixed-step p99 gate remains open.
