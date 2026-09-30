@@ -1,6 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import ts from 'typescript';
 import { NETWORK_TESTS_OPT_OUT_ENV } from '../server/test/networkSuites.ts';
 
 /** Phase 8 CI workflow contract. */
@@ -22,26 +25,51 @@ const PACKAGE = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
 const ROOT = resolve('.');
 
 /**
- * Follow static relative TypeScript imports from one production entry point.
+ * Follow value imports, exports and literal dynamic loads from one entry point.
+ * Explicit type declarations are erased; source-checked native loaders are
+ * the only permitted computed loads in the inspected dependency graph.
  * @param entry - Repository-relative TypeScript entry point.
  * @returns Normalized repository-relative dependency paths, including entry.
  */
-function staticTypeScriptDependencies(entry: string): Set<string> {
+function runtimeTypeScriptDependencies(entry: string): Set<string> {
   const pending = [resolve(entry)];
   const visited = new Set<string>();
-  const importPattern = /(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?['"](?<path>[^'"]+)['"]/gu;
   while (pending.length > 0) {
     const file = pending.pop()!;
     if (visited.has(file)) continue;
     visited.add(file);
-    const source = readFileSync(file, 'utf8');
-    for (const match of source.matchAll(importPattern)) {
-      const specifier = match.groups?.['path'];
-      if (!specifier?.startsWith('.')) continue;
+    const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+    /** Resolve a literal relative load without executing the module. */
+    const include = (specifier: string): void => {
+      if (!specifier.startsWith('.')) return;
       let candidate = resolve(dirname(file), specifier);
       if (!existsSync(candidate) && existsSync(`${candidate}.ts`)) candidate = `${candidate}.ts`;
-      if (existsSync(candidate)) pending.push(candidate);
-    }
+      if (!existsSync(candidate)) throw new Error(`unresolved relative runtime import: ${file} -> ${specifier}`);
+      pending.push(candidate);
+    };
+    /** Visit syntax nodes so comments and multiline imports cannot hide a load. */
+    const visit = (node: ts.Node): void => {
+      if ((ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly ||
+          ts.isExportDeclaration(node) && !node.isTypeOnly) &&
+          node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) include(node.moduleSpecifier.text);
+      if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly &&
+          ts.isExternalModuleReference(node.moduleReference) &&
+          node.moduleReference.expression && ts.isStringLiteralLike(node.moduleReference.expression)) {
+        include(node.moduleReference.expression.text);
+      }
+      if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          ts.isIdentifier(node.expression) && node.expression.text === 'require')) {
+        const argument = node.arguments[0];
+        if (argument && ts.isStringLiteralLike(argument)) include(argument.text);
+        else if (!(file === resolve('server/rustEngine/experimentalStartup.ts') &&
+            node.getText(source) === "require(resolve(NATIVE_DIRECTORY, 'index.js'))") &&
+            !(file === resolve('src/brains/nativeBridge.ts') && node.getText(source) === 'require(addonPath)')) {
+          throw new Error(`uninspectable runtime load: ${relative(ROOT, file)}: ${node.getText(source)}`);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
   }
   return new Set([...visited].map(file => relative(ROOT, file).replaceAll('\\', '/')));
 }
@@ -73,17 +101,51 @@ describe(SUITE, () => {
   it('makes Rust the normal server and isolates the TypeScript reference entry point', () => {
     expect(PACKAGE.scripts?.['server']).toBe('tsx server/rustServer.ts');
     expect(PACKAGE.scripts?.['server:reference']).toBe('tsx server/index.ts');
-    const production = staticTypeScriptDependencies('server/rustServer.ts');
+    const production = runtimeTypeScriptDependencies('server/rustServer.ts');
     for (const forbidden of [
       'server/index.ts',
       'server/simServer.ts',
       'server/brainPool.ts',
       'server/worker/inferWorker.ts',
       'src/sim/SimCore.ts',
-      'src/world.ts'
+      'src/world.ts',
+      'src/mlp.ts',
+      'src/brains/ops.ts',
+      'src/brains/graph/runtime.ts',
+      'src/brains/nativeBridge.ts'
     ]) {
       expect(production.has(forbidden), `production dependency reached ${forbidden}`).toBe(false);
     }
+  });
+
+  it('detects dynamic and CommonJS loads while excluding erased type-only declarations', async () => {
+    const root = await mkdtemp(resolve(tmpdir(), 'slither-runtime-imports-'));
+    if (dirname(root) !== resolve(tmpdir())) throw new Error('unexpected import fixture cleanup path');
+    try {
+      for (const name of ['value', 'dynamic', 'required', 'legacy', 'types']) {
+        await writeFile(resolve(root, `${name}.ts`), 'export const marker = 1;\n');
+      }
+      await writeFile(resolve(root, 'entry.ts'), `
+        import type { marker } from './types.ts';
+        export { marker } from './value.ts';
+        void import('./dynamic.ts');
+        require('./required.ts');
+        import legacy = require('./legacy.ts');
+      `);
+      const dependencies = runtimeTypeScriptDependencies(resolve(root, 'entry.ts'));
+      /** Normalize a temporary fixture path like the production graph paths. */
+      const key = (name: string): string => relative(ROOT, resolve(root, `${name}.ts`)).replaceAll('\\', '/');
+      expect(dependencies.has(key('types'))).toBe(false);
+      for (const name of ['value', 'dynamic', 'required', 'legacy']) expect(dependencies.has(key(name))).toBe(true);
+      for (const load of ['void import(selectedFallback);', 'require(selectedFallback);']) {
+        await writeFile(resolve(root, 'entry.ts'), `${load}\n`);
+        expect(() => runtimeTypeScriptDependencies(resolve(root, 'entry.ts'))).toThrow(/uninspectable runtime load/);
+      }
+      // The retained reference is a positive control for the production exclusion.
+      const reference = runtimeTypeScriptDependencies('server/index.ts');
+      expect(reference.has('src/world.ts')).toBe(true);
+      expect(reference.has('src/brains/nativeBridge.ts')).toBe(true);
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
 
   it('keeps Node 24 as the minimum and tests Node 24/26 on Ubuntu and Windows', () => {

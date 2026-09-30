@@ -1294,3 +1294,24 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Release Rust, native/MT, queue/RSS summary, TypeScript, lint and browser build
   checks passed. All disposable processes and copied source/build/database/
   trainer state were removed; Oxygen ports 5174/5180/5181 remain closed.
+
+- 2026-10-01 The exact `49f5919` P1 production source completed a 1,800.44-second
+  loaded window with two real PyRL actors and a reconnecting programmatic
+  player: 0.9919 simulated/wall, zero dropped debt and 16 ms step p99. Separate
+  native queue peaks stay within their capacities, with no priority overflow
+  or fault-discarded commands. The player received all 60 successful same-snake
+  reclaims; sampled file descriptors stay at 31–35 and threads at 19. Sampled
+  temporary bytes return to zero, with automatic checkpoint bytes and WAL
+  within their configured envelope. RSS slope is 1.124 MiB/minute, failing
+  the 1 MiB/minute gate despite a final increase of only 28.1 MiB above the
+  warm median. Raw reports and measurement provenance are retained under
+  `evidence/stage7/oxygen-ryzen2700/p7-p1-*-49f5919-20261001.*`.
+  The sampler now preserves heap/external-memory samples for attribution;
+  diagnosis and a corrected RSS run remain open. Production dependency
+  checks now follow value imports, dynamic imports and CommonJS loads,
+  reject unknown computed loads, and exclude the old TypeScript runtime
+  and per-layer bridge. Focused contracts, TypeScript and lint passed;
+  `49f5919` full CI passed. All disposable processes and source/build/database/
+  trainer scratch were removed after verified report copies, with ports
+  5174/5180/5181 closed. Browser rendering/heap, complete LAN input timing
+  and final acceptance auditing remain separate.

@@ -125,12 +125,14 @@ async function run(): Promise<void> {
   const transitions: Array<{ generation: string; wallSeconds: number }> = [];
   const observationFailures: Array<{ wallSeconds: number; error: string }> = [];
   const latencies: number[] = [];
-  const resourceSamples: Array<{ wallSeconds: number; rssBytes: number; trainerAppliedActions: number;
+  const resourceSamples: Array<{ wallSeconds: number; rssBytes: number; heapUsedBytes: number;
+    externalBytes: number; trainerAppliedActions: number;
     generation: string; nativeQueues: RustQueueDiagnostics; outbound: Health['outbound']; storage: Health['storage'];
     automaticStoredBytes: string; automaticByteCap: string }> = [];
   /** Keep actual resident memory, output occupancy and durable bytes at the same boundary. */
   const recordResources = (health: Health, wallSeconds: number): void => {
     resourceSamples.push({ wallSeconds, rssBytes: health.telemetry.process.rssBytes,
+      heapUsedBytes: health.telemetry.process.heapUsedBytes, externalBytes: health.telemetry.process.externalBytes,
       trainerAppliedActions: health.telemetry.controllerActivity.trainer.appliedActions,
       generation: health.generation, nativeQueues: health.nativeQueues, outbound: health.outbound, storage: health.storage,
       automaticStoredBytes: counter(health.retention.automaticStoredByteCount).toString(),
