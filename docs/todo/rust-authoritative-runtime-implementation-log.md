@@ -1115,21 +1115,6 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   observation hashes were unchanged. This is a sensing-only result; the loaded
   P1 fixed-step p99 gate remains open.
 
-- 2026-09-30 The source-identified `c6ed522` production server then sustained
-  a restart-isolated P1 run on Oxygen with six Rust workers and two actors from
-  the owner's actual Windows PyRL trainer. The 613.9-second measured window
-  advanced from generation four to fourteen at 0.9933 simulated/wall speed,
-  applied 68,340 trainer actions, and reported zero dropped scheduler time or
-  overload. Process timing across 45,955 steps had 12 ms p95 and 16 ms p99;
-  the window contained 86 ordinary steps above 16.667 ms. Trainer action p95
-  was 0.5 ms, event-loop delay p99 was 11.02 ms, and peak RSS was 205 MB.
-  The process crossed twelve checkpoint barriers with a 221.2 ms observed
-  maximum, including ten generation transitions during the measured window.
-  This clears the previously failed real-trainer P1 timing/load slice on the
-  final sensing source. P0/P2 real-client coverage, browser frame/display
-  budgets, fault injection, and the remaining longer durability gates stay
-  open.
-
 - 2026-09-30 Separate-process recovery now kills Reset, New Run and archive
   import after the SQLite reply/before Rust swap and after the matching Rust
   swap/before public success. All six cases reach their recorded real boundary,
