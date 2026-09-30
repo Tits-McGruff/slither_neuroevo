@@ -1096,3 +1096,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   reporting New Run as rejected. A real socket/SQLite test loses the commit
   reply after SQLite activates a New Run and confirms latest-resume loads that
   committed generation-one run.
+
+- 2026-09-30 A separate-process New Run test now kills the actual server
+  immediately after SQLite acknowledges the replacement commit, before the
+  awaiting Rust/Node call can swap or announce the new authority. The committed
+  active-run pointer changes, and a fresh process resumes that generation-one
+  run. The Windows process-death file passed all three cases; Linux CI remains
+  the cross-platform confirmation.

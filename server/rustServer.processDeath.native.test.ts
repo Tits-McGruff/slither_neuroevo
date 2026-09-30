@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
+import WebSocket from 'ws';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import { ARCHIVE_ARTIFACT_GRACE_MS } from './rustEngine/archiveScavenger.ts';
 
@@ -30,18 +31,21 @@ async function availablePort(): Promise<number> {
   return address.port;
 }
 
-/** Start the actual CLI program in a distinct OS process. */
-function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | 'latest'): {
+/** Start the server or its commit-death fixture in a distinct OS process. */
+function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | 'latest',
+  killAfterNewRunCommit = false): {
   child: ChildProcess;
   output: () => string;
 } {
-  const args = [
-    '--import', 'tsx', resolve('server/rustServer.ts'),
-    '--host', '127.0.0.1', '--port', String(port),
-    '--db-path', databasePath, '--checkpoint-every', '1', '--mt', 'false',
-    '--backend', 'native', '--rust-workers', '1',
-    ...(resume === 'fresh' ? ['--fresh', '--seed', '42'] : ['--resume', 'latest'])
-  ];
+  const args = killAfterNewRunCommit
+    ? ['--import', 'tsx', resolve('server/test/killAfterNewRunCommit.ts'), String(port), databasePath]
+    : [
+      '--import', 'tsx', resolve('server/rustServer.ts'),
+      '--host', '127.0.0.1', '--port', String(port),
+      '--db-path', databasePath, '--checkpoint-every', '1', '--mt', 'false',
+      '--backend', 'native', '--rust-workers', '1',
+      ...(resume === 'fresh' ? ['--fresh', '--seed', '42'] : ['--resume', 'latest'])
+    ];
   const child = spawn(process.execPath, args, { cwd: resolve(), stdio: ['ignore', 'pipe', 'pipe'] });
   let transcript = '';
   child.stdout?.on('data', bytes => { transcript = `${transcript}${String(bytes)}`.slice(-4096); });
@@ -95,7 +99,74 @@ async function terminate(child: ChildProcess, signal: NodeJS.Signals): Promise<v
   } finally { if (timer) clearTimeout(timer); }
 }
 
+/** Wait for the injected child death without retaining a test timer afterward. */
+async function waitForCommitDeath(child: ChildProcess, output: () => string): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      new Promise<void>(resolveExit => child.once('exit', () => resolveExit())),
+      new Promise<never>((_, rejectExit) => {
+        timer = setTimeout(() => rejectExit(new Error(
+          `New Run did not reach commit-death point: ${output()}`)), 15_000);
+      })
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
 describeNetworkSuite('Rust process-death recovery', () => {
+  it('resumes a New Run killed after SQLite commit and before Rust swap', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-new-run-commit-death-'));
+    const databasePath = join(root, 'experiment.sqlite');
+    const port = await availablePort();
+    const first = spawnRustServer(port, databasePath, 'fresh', true);
+    let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    let viewer: WebSocket | undefined;
+    try {
+      const before = await readyHealth(port, first.child, first.output);
+      viewer = new WebSocket(`ws://127.0.0.1:${port}`);
+      const welcome = new Promise<void>((resolveWelcome, rejectWelcome) => {
+        viewer!.once('error', rejectWelcome);
+        viewer!.on('message', (bytes, binary) => {
+          if (binary) return;
+          if ((JSON.parse(bytes.toString()) as { type: string }).type === 'welcome') {
+            viewer!.off('error', rejectWelcome);
+            resolveWelcome();
+          }
+        });
+      });
+      await new Promise<void>((resolveOpen, rejectOpen) => {
+        viewer!.once('open', resolveOpen);
+        viewer!.once('error', rejectOpen);
+      });
+      viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
+      await welcome;
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.send(JSON.stringify({ type: 'newRun', requestId: 'kill-after-commit' }));
+      await waitForCommitDeath(first.child, first.output);
+      expect(first.child.signalCode === 'SIGKILL' ||
+        (process.platform === 'win32' && first.child.exitCode === 1), first.output()).toBe(true);
+      const database = new Database(databasePath, { readonly: true });
+      let committedRunId: string;
+      try {
+        committedRunId = (database.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1')
+          .get() as { run_id: string }).run_id;
+        expect(committedRunId).not.toBe(before.runId);
+      } finally { database.close(); }
+      viewer.terminate();
+      viewer = undefined;
+      restarted = spawnRustServer(port, databasePath, 'latest');
+      const after = await readyHealth(port, restarted.child, restarted.output);
+      expect(after.runId).toBe(committedRunId);
+      expect(after.completedStep).not.toBe('0000000000000000');
+    } finally {
+      viewer?.terminate();
+      if (restarted) await terminate(restarted.child, 'SIGTERM');
+      await terminate(first.child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 45_000);
+
   it('resumes the last committed boundary and exports it after an OS kill during steps', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-process-death-'));
     const databasePath = join(root, 'experiment.sqlite');
