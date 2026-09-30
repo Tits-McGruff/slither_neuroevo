@@ -1152,3 +1152,19 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   server-lifecycle files passed all fifteen cases; TypeScript and focused
   ESLint passed. Cross-platform CI remains the Linux confirmation; native
   encoder death and supervised service restart remain separate acceptance work.
+
+- 2026-09-30 A fresh isolated Oxygen build of `7cf4ea3`, using this chat's
+  own evolved P1 fixture and two real PyRL actors, measured 600.03 seconds,
+  35,746 steps and 0.9929 simulated/wall speed with zero dropped debt or
+  sampled overload. Native step p99 was 16 ms; nine complete sampled generation
+  intervals were 60.08–60.54 seconds. The window applied 68,189 trainer actions;
+  process-lifetime trainer p95 was 0.25 ms, checkpoint-barrier maximum 251.61 ms,
+  event-loop p99 11.01 ms and peak RSS 211.35 MB. The LAN health sampler had
+  18.61 ms p95 and no failed observations. Raw initial/final health, workload
+  identity and transition samples are retained in
+  `evidence/stage7/oxygen-ryzen2700/p1-real-trainer-7cf4ea3-20260930.json`.
+  This clears the measured P1 server/trainer timing slice; browser/player
+  budgets, loopback-health timing and longer RSS/soak acceptance remain separate.
+  The sampler passed TypeScript and ESLint. The trainer and disposable server
+  stopped, ports 5180/5174 were closed, and their checkout/database/build and
+  trainer checkpoint scratch were removed. No other chat's results were used.

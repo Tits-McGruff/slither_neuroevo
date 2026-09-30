@@ -1,0 +1,994 @@
+{
+  "scenario": "P1",
+  "sourceRevision": "7cf4ea34c1ec98377e39909e5c4caa5b36b17721",
+  "startedAtUtc": "2026-09-30T06:46:09.827Z",
+  "requestedSeconds": 600,
+  "wallSeconds": 600.0344184,
+  "measuredScope": "Production server with two independent real PyRL actors; browser/player budgets unmeasured.",
+  "histogramScope": "Native and interface histograms cover this server process lifetime, including pre-window trainer warm-up.",
+  "healthLatencyScope": "Sampler-to-server route; loopback only if URL is loopback.",
+  "workloadWelcome": {
+    "type": "welcome",
+    "protocolVersion": 2,
+    "serializerVersion": 1,
+    "sessionId": "3d996504-835e-4618-be8b-7e995e487cd5",
+    "tickRate": 60,
+    "worldSeed": 1511506142,
+    "runId": "488bcfc7-0256-4817-b1fa-cafc2c86007e",
+    "configHash": "sha256:a44b32f8f35477f6dce440836014af6b552298eaccd3dde759f3b5b0d0269ec4",
+    "configRevision": 1,
+    "frameByteLength": 78388,
+    "graphSpec": {
+      "edges": [
+        {
+          "from": "input",
+          "to": "mlp"
+        },
+        {
+          "from": "mlp",
+          "to": "gru"
+        },
+        {
+          "from": "gru",
+          "to": "head"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "input",
+          "outputSize": 83,
+          "type": "Input"
+        },
+        {
+          "hiddenSizes": [
+            64
+          ],
+          "id": "mlp",
+          "inputSize": 83,
+          "outputSize": 64,
+          "type": "MLP"
+        },
+        {
+          "hiddenSize": 16,
+          "id": "gru",
+          "inputSize": 64,
+          "type": "GRU"
+        },
+        {
+          "id": "head",
+          "inputSize": 16,
+          "outputSize": 2,
+          "type": "Dense"
+        }
+      ],
+      "outputSize": 2,
+      "outputs": [
+        {
+          "nodeId": "head"
+        }
+      ],
+      "type": "graph"
+    },
+    "capabilities": {
+      "checkpointPinning": true,
+      "archiveExport": true,
+      "archiveImport": true
+    },
+    "settings": {
+      "core": {
+        "snakeCount": 300,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "updates": [
+        {
+          "path": "worldRadius",
+          "value": 3500
+        },
+        {
+          "path": "pelletCountTarget",
+          "value": 3500
+        },
+        {
+          "path": "pelletSpawnPerSecond",
+          "value": 170
+        },
+        {
+          "path": "foodValue",
+          "value": 1
+        },
+        {
+          "path": "growPerFood",
+          "value": 1
+        },
+        {
+          "path": "foodSpawn.edgeFalloffEnabled",
+          "value": 1
+        },
+        {
+          "path": "foodSpawn.edgeFadeStart",
+          "value": 0.35
+        },
+        {
+          "path": "foodSpawn.edgeFadePower",
+          "value": 2.6
+        },
+        {
+          "path": "foodSpawn.filamentPower",
+          "value": 4.2
+        },
+        {
+          "path": "foodSpawn.warpFreq",
+          "value": 0.0013
+        },
+        {
+          "path": "foodSpawn.warpScale",
+          "value": 0.08
+        },
+        {
+          "path": "foodSpawn.freqLarge",
+          "value": 0.0026
+        },
+        {
+          "path": "foodSpawn.freqMedium",
+          "value": 0.0042
+        },
+        {
+          "path": "foodSpawn.freqSmall",
+          "value": 0.0068
+        },
+        {
+          "path": "foodSpawn.dustStrength",
+          "value": 0.35
+        },
+        {
+          "path": "sense.layoutVersion",
+          "value": 3
+        },
+        {
+          "path": "sense.bubbleBins",
+          "value": 16
+        },
+        {
+          "path": "sense.rNearBase",
+          "value": 520
+        },
+        {
+          "path": "sense.rNearScale",
+          "value": 260
+        },
+        {
+          "path": "sense.rNearMin",
+          "value": 420
+        },
+        {
+          "path": "sense.rNearMax",
+          "value": 1100
+        },
+        {
+          "path": "sense.rFarBase",
+          "value": 1200
+        },
+        {
+          "path": "sense.rFarScale",
+          "value": 520
+        },
+        {
+          "path": "sense.rFarMin",
+          "value": 900
+        },
+        {
+          "path": "sense.rFarMax",
+          "value": 2400
+        },
+        {
+          "path": "sense.foodKBase",
+          "value": 4
+        },
+        {
+          "path": "sense.maxPelletChecks",
+          "value": 900
+        },
+        {
+          "path": "sense.maxSegmentChecks",
+          "value": 2200
+        },
+        {
+          "path": "baselineBots.count",
+          "value": 10
+        },
+        {
+          "path": "baselineBots.seed",
+          "value": 1
+        },
+        {
+          "path": "baselineBots.randomizeSeedPerGen",
+          "value": 0
+        },
+        {
+          "path": "baselineBots.respawnDelay",
+          "value": 20
+        },
+        {
+          "path": "snakeBaseSpeed",
+          "value": 165
+        },
+        {
+          "path": "snakeBoostSpeed",
+          "value": 500
+        },
+        {
+          "path": "snakeTurnRate",
+          "value": 3.2
+        },
+        {
+          "path": "snakeRadius",
+          "value": 9
+        },
+        {
+          "path": "snakeRadiusMax",
+          "value": 18
+        },
+        {
+          "path": "snakeThicknessScale",
+          "value": 2.9
+        },
+        {
+          "path": "snakeThicknessLogDiv",
+          "value": 30
+        },
+        {
+          "path": "snakeSpacing",
+          "value": 7.5
+        },
+        {
+          "path": "snakeStartLen",
+          "value": 5
+        },
+        {
+          "path": "snakeMaxLen",
+          "value": 10000
+        },
+        {
+          "path": "snakeMinLen",
+          "value": 4
+        },
+        {
+          "path": "snakeSizeSpeedPenalty",
+          "value": 0.18
+        },
+        {
+          "path": "snakeBoostSizePenalty",
+          "value": 0.28
+        },
+        {
+          "path": "boost.minPointsToBoost",
+          "value": 1.2
+        },
+        {
+          "path": "boost.pointsCostPerSecond",
+          "value": 7
+        },
+        {
+          "path": "boost.pointsCostSizeFactor",
+          "value": 1.1
+        },
+        {
+          "path": "boost.lenLossPerPoint",
+          "value": 0.16
+        },
+        {
+          "path": "boost.pelletValueFactor",
+          "value": 0.65
+        },
+        {
+          "path": "boost.pelletJitter",
+          "value": 10
+        },
+        {
+          "path": "collision.substepMaxDt",
+          "value": 0.006
+        },
+        {
+          "path": "collision.skipSegments",
+          "value": 0
+        },
+        {
+          "path": "collision.hitScale",
+          "value": 0.82
+        },
+        {
+          "path": "collision.cellSize",
+          "value": 70
+        },
+        {
+          "path": "collision.neighborRange",
+          "value": 1
+        },
+        {
+          "path": "generationSeconds",
+          "value": 60
+        },
+        {
+          "path": "eliteFrac",
+          "value": 0.12
+        },
+        {
+          "path": "mutationRate",
+          "value": 0.03
+        },
+        {
+          "path": "mutationStd",
+          "value": 0.35
+        },
+        {
+          "path": "crossoverRate",
+          "value": 0.85
+        },
+        {
+          "path": "observer.earlyEndMinSeconds",
+          "value": 8
+        },
+        {
+          "path": "observer.earlyEndAliveThreshold",
+          "value": 2
+        },
+        {
+          "path": "reward.pointsPerFood",
+          "value": 20
+        },
+        {
+          "path": "reward.pointsPerKill",
+          "value": 400
+        },
+        {
+          "path": "reward.pointsPerSecondAlive",
+          "value": 0.6
+        },
+        {
+          "path": "reward.fitnessSurvivalPerSecond",
+          "value": 0.7
+        },
+        {
+          "path": "reward.fitnessFood",
+          "value": 80
+        },
+        {
+          "path": "reward.fitnessLengthPerSegment",
+          "value": 100
+        },
+        {
+          "path": "reward.fitnessKill",
+          "value": 400
+        },
+        {
+          "path": "reward.fitnessPointsNorm",
+          "value": 42
+        },
+        {
+          "path": "reward.fitnessTopPointsBonus",
+          "value": 600
+        },
+        {
+          "path": "brain.controlDt",
+          "value": 0.016666666666666666
+        },
+        {
+          "path": "brain.gruMutationRate",
+          "value": 0.025
+        },
+        {
+          "path": "brain.gruMutationStd",
+          "value": 0.22
+        },
+        {
+          "path": "brain.gruCrossoverMode",
+          "value": 1
+        },
+        {
+          "path": "brain.gruInitUpdateBias",
+          "value": -0.7
+        },
+        {
+          "path": "brain.lstmInitForgetBias",
+          "value": 0.6
+        },
+        {
+          "path": "brain.rruInitGateBias",
+          "value": 0.1
+        }
+      ]
+    },
+    "sensorSpec": {
+      "sensorCount": 83,
+      "order": [
+        "heading_sin",
+        "heading_cos",
+        "size_norm",
+        "boost_margin",
+        "points_pct",
+        "speed_norm",
+        "boost_state",
+        "points_norm",
+        "points_delta_norm",
+        "length_norm",
+        "boost_points_frac",
+        "boost_cost_norm",
+        "wall_dist_norm",
+        "nearest_food_dist_norm",
+        "nearest_food_dir_sin",
+        "nearest_food_dir_cos",
+        "nearest_body_dist_norm",
+        "nearest_head_dist_norm",
+        "age_norm",
+        "food_0",
+        "food_1",
+        "food_2",
+        "food_3",
+        "food_4",
+        "food_5",
+        "food_6",
+        "food_7",
+        "food_8",
+        "food_9",
+        "food_10",
+        "food_11",
+        "food_12",
+        "food_13",
+        "food_14",
+        "food_15",
+        "hazard_0",
+        "hazard_1",
+        "hazard_2",
+        "hazard_3",
+        "hazard_4",
+        "hazard_5",
+        "hazard_6",
+        "hazard_7",
+        "hazard_8",
+        "hazard_9",
+        "hazard_10",
+        "hazard_11",
+        "hazard_12",
+        "hazard_13",
+        "hazard_14",
+        "hazard_15",
+        "wall_0",
+        "wall_1",
+        "wall_2",
+        "wall_3",
+        "wall_4",
+        "wall_5",
+        "wall_6",
+        "wall_7",
+        "wall_8",
+        "wall_9",
+        "wall_10",
+        "wall_11",
+        "wall_12",
+        "wall_13",
+        "wall_14",
+        "wall_15",
+        "head_0",
+        "head_1",
+        "head_2",
+        "head_3",
+        "head_4",
+        "head_5",
+        "head_6",
+        "head_7",
+        "head_8",
+        "head_9",
+        "head_10",
+        "head_11",
+        "head_12",
+        "head_13",
+        "head_14",
+        "head_15"
+      ],
+      "layoutVersion": "v3"
+    },
+    "inferenceMode": {
+      "requestedBackend": "native",
+      "activeBackend": "native",
+      "requestedMt": true,
+      "activeWorkerCount": 6,
+      "poolEpoch": null,
+      "weightEpoch": null,
+      "graphKey": "slither-graph-layout-v1:hex:736c69746865722d6e6575726f65766f2f67726170682d6c61796f75742f7631000100000004000000000000000500000000000000696e70757400530000000000000053000000000000000100000000000000530000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000006d6c7002530000000000000040000000000000000100000000000000400000000000000001000000000000004000000000000000000000000000000000402500000000000000000000000000000001000000000000000500000000000000696e70757400000000000000000000000000000000030000000000000067727503400000000000000010000000000000000100000000000000100000000000000000000000000000000110000000000000004025000000000000300f0000000000000100000000000000001000000000000000010000000000000003000000000000006d6c700000000000000000000000000000000004000000000000006865616401100000000000000002000000000000000100000000000000020000000000000000000000000000000070340000000000002200000000000000000000000000000000010000000000000003000000000000006772750000000000000000000000000000000001000000000000000400000000000000686561640000000000000000923400000000000010000000000000000200000000000000",
+      "parameterCount": 13458,
+      "seed": 1511506142,
+      "nativeAddonStatus": "ready",
+      "nativeAddonBuildIdentifier": "slither_native/0.1.0+7cf4ea34c1ec.23ccde840922e670"
+    }
+  },
+  "initialHealth": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "488bcfc7-0256-4817-b1fa-cafc2c86007e",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:a44b32f8f35477f6dce440836014af6b552298eaccd3dde759f3b5b0d0269ec4",
+    "startupCheckpointId": "d6aaa1006728940984e223d10781339de6a0b149c7802e6324a8a42aa8168bc3",
+    "calculationWorkers": 6,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "0000000000000003",
+    "generation": "0000000000000004",
+    "completedStep": "000000000000378e",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "000000000000297d",
+    "schedulerDroppedWallMicros": "0000000000000000",
+    "schedulerOverloaded": false,
+    "commandServiceBoundaries": "000000000000a017",
+    "coordinatorWorkBytes": "0000000007b8c523",
+    "processedCommands": "00000000000087cb",
+    "stepTimingSamples": "000000000000297d",
+    "stepTimingTotalMicros": "0000000003ff54c4",
+    "stepTimingMaxMicros": "000000000003d7e7",
+    "stepTimingP95Micros": "0000000000002ee0",
+    "stepTimingP99Micros": "0000000000003e80",
+    "slowStepSamples": "0000000000000010",
+    "slowStepControlMicros": "0000000000039700",
+    "slowStepControlIndexMicros": "000000000000303a",
+    "slowStepControlNeuralMicros": "000000000002cd62",
+    "slowStepControlSensingMicros": "000000000001ca14",
+    "slowStepControlInferenceMicros": "000000000001010a",
+    "slowStepWorldMicros": "000000000002ee63",
+    "slowStepOtherMicros": "0000000000002c82",
+    "nativeBuildIdentifier": "slither_native/0.1.0+7cf4ea34c1ec.23ccde840922e670",
+    "telemetry": {
+      "uptimeSeconds": 177.986490999,
+      "authoritativeSteps": 10621,
+      "simulatedSeconds": 177.01666666666665,
+      "simulatedWallRatio": 0.9945511351626185,
+      "step": {
+        "samples": 10621,
+        "meanMs": 6.314379813576876,
+        "p95Ms": 12,
+        "p99Ms": 16,
+        "maxMs": 251.879,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 196325376,
+        "heapUsedBytes": 17946048,
+        "externalBytes": 8780938,
+        "maxRssBytes": 198205440,
+        "eventLoopDelayMeanMs": 10.119179761414681,
+        "eventLoopDelayP95Ms": 10.772479,
+        "eventLoopDelayP99Ms": 11.010047,
+        "eventLoopDelayMaxMs": 17.580031
+      },
+      "frame": {
+        "latestBytes": 78900,
+        "maximumObservedBytes": 92496
+      },
+      "checkpointBarrier": {
+        "samples": 2,
+        "meanMs": 229.01730699999462,
+        "p95Ms": 250,
+        "maxMs": 249.50258799998846
+      },
+      "playerAction": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "trainerAction": {
+        "samples": 17027,
+        "meanMs": 0.31116884501084313,
+        "p95Ms": 0.25,
+        "maxMs": 33.59832099999767
+      },
+      "controllerLifecycle": {
+        "samples": 2,
+        "meanMs": 3.7091685000013968,
+        "p95Ms": 8,
+        "maxMs": 4.332936000002519
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 0,
+          "successfulReclaims": 0,
+          "appliedActions": 0,
+          "appliedDisconnects": 0
+        },
+        "trainer": {
+          "freshAssignments": 2,
+          "successfulReclaims": 0,
+          "appliedActions": 17027,
+          "appliedDisconnects": 0
+        }
+      }
+    },
+    "outbound": {
+      "connections": 2,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0
+    },
+    "archiveWork": null,
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "488bcfc7-0256-4817-b1fa-cafc2c86007e",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "0000000003646400",
+      "protectedAutomaticStoredByteCount": "0000000001c50c00",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000cf6600",
+          "decodedByteCount": "0000000000f74ddc",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "recent": {
+          "checkpointCount": 3,
+          "storedByteCount": "00000000026e9800",
+          "decodedByteCount": "0000000002e5e994",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 3,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 3
+          }
+        },
+        "milestone": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2c",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 0,
+      "deletedStoredByteCount": "0000000000000000"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "151552",
+        "walBytes": "173072",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "38",
+        "freelistPageCount": "0",
+        "usedPageBytes": "155648"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "2386415616",
+        "operatingReserveBytes": "1073741824"
+      }
+    }
+  },
+  "finalHealth": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "488bcfc7-0256-4817-b1fa-cafc2c86007e",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:a44b32f8f35477f6dce440836014af6b552298eaccd3dde759f3b5b0d0269ec4",
+    "startupCheckpointId": "d6aaa1006728940984e223d10781339de6a0b149c7802e6324a8a42aa8168bc3",
+    "calculationWorkers": 6,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "000000000000000d",
+    "generation": "000000000000000e",
+    "completedStep": "000000000000c330",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "000000000000b51f",
+    "schedulerDroppedWallMicros": "0000000000000000",
+    "schedulerOverloaded": false,
+    "commandServiceBoundaries": "000000000002e656",
+    "coordinatorWorkBytes": "000000002e54a234",
+    "processedCommands": "000000000002a994",
+    "stepTimingSamples": "000000000000b51f",
+    "stepTimingTotalMicros": "0000000011adb774",
+    "stepTimingMaxMicros": "000000000003d7e7",
+    "stepTimingP95Micros": "0000000000002ee0",
+    "stepTimingP99Micros": "0000000000003e80",
+    "slowStepSamples": "0000000000000056",
+    "slowStepControlMicros": "000000000012b00b",
+    "slowStepControlIndexMicros": "000000000000f0c0",
+    "slowStepControlNeuralMicros": "00000000000f1672",
+    "slowStepControlSensingMicros": "00000000000b6183",
+    "slowStepControlInferenceMicros": "000000000003a88c",
+    "slowStepWorldMicros": "00000000001006e1",
+    "slowStepOtherMicros": "000000000002504c",
+    "nativeBuildIdentifier": "slither_native/0.1.0+7cf4ea34c1ec.23ccde840922e670",
+    "telemetry": {
+      "uptimeSeconds": 778.0405399499999,
+      "authoritativeSteps": 46367,
+      "simulatedSeconds": 772.7833333333333,
+      "simulatedWallRatio": 0.9932430171093598,
+      "step": {
+        "samples": 46367,
+        "meanMs": 6.396733970280588,
+        "p95Ms": 12,
+        "p99Ms": 16,
+        "maxMs": 251.879,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 211099648,
+        "heapUsedBytes": 21397576,
+        "externalBytes": 8931743,
+        "maxRssBytes": 211353600,
+        "eventLoopDelayMeanMs": 10.114126472278192,
+        "eventLoopDelayP95Ms": 10.780671,
+        "eventLoopDelayP99Ms": 11.010047,
+        "eventLoopDelayMaxMs": 25.313279
+      },
+      "frame": {
+        "latestBytes": 79104,
+        "maximumObservedBytes": 92532
+      },
+      "checkpointBarrier": {
+        "samples": 12,
+        "meanMs": 217.7872885833555,
+        "p95Ms": 500,
+        "maxMs": 251.60789000010118
+      },
+      "playerAction": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "trainerAction": {
+        "samples": 85216,
+        "meanMs": 0.31505200834342895,
+        "p95Ms": 0.25,
+        "maxMs": 65.00522900000215
+      },
+      "controllerLifecycle": {
+        "samples": 2,
+        "meanMs": 3.7091685000013968,
+        "p95Ms": 8,
+        "maxMs": 4.332936000002519
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 0,
+          "successfulReclaims": 0,
+          "appliedActions": 0,
+          "appliedDisconnects": 0
+        },
+        "trainer": {
+          "freshAssignments": 2,
+          "successfulReclaims": 0,
+          "appliedActions": 85216,
+          "appliedDisconnects": 0
+        }
+      }
+    },
+    "outbound": {
+      "connections": 2,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0
+    },
+    "archiveWork": null,
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "488bcfc7-0256-4817-b1fa-cafc2c86007e",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "00000000068db400",
+      "protectedAutomaticStoredByteCount": "0000000001bee800",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000cc5400",
+          "decodedByteCount": "0000000000f74ddc",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "recent": {
+          "checkpointCount": 7,
+          "storedByteCount": "00000000059afa00",
+          "decodedByteCount": "0000000006c32172",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 7,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 7
+          }
+        },
+        "milestone": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2c",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 1,
+      "deletedStoredByteCount": "0000000000cbc200"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "151552",
+        "walBytes": "1100072",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "45",
+        "freelistPageCount": "0",
+        "usedPageBytes": "184320"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "2331910144",
+        "operatingReserveBytes": "1073741824"
+      }
+    }
+  },
+  "deltaSteps": "35746",
+  "simulatedWallRatio": 0.992887488446557,
+  "droppedWallMicros": "0",
+  "overloadedDuringSamples": false,
+  "trainerAppliedActionsDelta": 68189,
+  "transitions": [
+    {
+      "generation": "0000000000000005",
+      "wallSeconds": 3.659438899999999
+    },
+    {
+      "generation": "0000000000000006",
+      "wallSeconds": 64.0634913
+    },
+    {
+      "generation": "0000000000000007",
+      "wallSeconds": 124.5099029
+    },
+    {
+      "generation": "0000000000000008",
+      "wallSeconds": 184.9909164
+    },
+    {
+      "generation": "0000000000000009",
+      "wallSeconds": 245.39544350000003
+    },
+    {
+      "generation": "000000000000000a",
+      "wallSeconds": 305.9354476
+    },
+    {
+      "generation": "000000000000000b",
+      "wallSeconds": 366.4345795
+    },
+    {
+      "generation": "000000000000000c",
+      "wallSeconds": 426.97539789999996
+    },
+    {
+      "generation": "000000000000000d",
+      "wallSeconds": 487.05522229999997
+    },
+    {
+      "generation": "000000000000000e",
+      "wallSeconds": 547.4492469
+    }
+  ],
+  "generationIntervalsSeconds": [
+    60.4040524,
+    60.446411600000005,
+    60.4810135,
+    60.404527100000024,
+    60.54000409999995,
+    60.49913190000001,
+    60.54081839999998,
+    60.07982440000001,
+    60.39402460000008
+  ],
+  "observationFailures": [],
+  "healthLatencyP95Ms": 18.605899999965914,
+  "healthLatencyMaxMs": 27.276600000011967,
+  "meetsMeasuredGates": true
+}
