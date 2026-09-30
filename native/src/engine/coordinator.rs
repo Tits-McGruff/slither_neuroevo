@@ -1021,6 +1021,9 @@ fn execute_running_authority_command(
                         reservation.scope = std::mem::take(&mut reservation.scope).into_boxed_str().into_string();
                         reservation.resume_token = std::mem::take(&mut reservation.resume_token).into_boxed_str().into_string();
                     }
+                    // The published successor has replaced the old population and
+                    // worker bindings. Return its freed pages at this cold boundary.
+                    super::allocator_maintenance::release_unused_pages();
                     RunningAuthorityEvent::GenerationStartPublished {
                         command_sequence,
                         resolution,

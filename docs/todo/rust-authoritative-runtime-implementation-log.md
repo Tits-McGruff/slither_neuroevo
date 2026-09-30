@@ -1315,3 +1315,23 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   trainer scratch were removed after verified report copies, with ports
   5174/5180/5181 closed. Browser rendering/heap, complete LAN input timing
   and final acceptance auditing remain separate.
+
+- 2026-10-01 Allocator attribution on exact `255999c` P1 source released
+  43.9 MiB of RSS in 3.45 ms with essentially unchanged live allocation
+  counters after one controlled GNU allocator trim. The twenty-minute trace
+  used two real PyRL actors, a later programmatic player and diagnostic
+  instrumentation; its 24 ms step p99 and incomplete player report are not
+  acceptance results. Raw allocation, heap/isolate, resource and workload
+  reports plus scope and reproduction sources are retained as
+  `evidence/stage7/oxygen-ryzen2700/memory-profile-*-255999c-20261001.*`.
+  GNU/Linux production now requests release of unused allocator pages after
+  successful completed-generation publication and worker rebinding. Windows
+  allocator behavior is unchanged. All 498 release Rust feature tests, three
+  allocation tests, one doc test, rustfmt, Clippy, 17 real-server tests,
+  TypeScript, ESLint and browser build passed; the existing full upload-deadline
+  test remains opt-in. The GNU production addon built and advanced a fresh P1
+  fixture through a durable generation transition. `255999c` full CI passed.
+  The diagnostic checkout/build/database and trainer scratch were removed
+  after verified report copies; game, measurement and inspector ports are
+  closed. A normal thirty-minute RSS/timing run on the corrected source
+  remains required; allocator retention does not establish all RSS growth.

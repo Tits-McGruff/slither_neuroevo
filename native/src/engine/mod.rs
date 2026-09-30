@@ -2,6 +2,8 @@
 
 /// Staged once-per-fixed-step generation and live-snake scalar accounting.
 pub mod accounting;
+/// Cold generation-boundary release of unused allocator pages.
+mod allocator_maintenance;
 /// Staged fixed-step ambient-pellet accumulation and world-RNG generation.
 pub mod ambient;
 /// Durable baseline-slot lifecycle and pre-control respawn timing.
