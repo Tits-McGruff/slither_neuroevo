@@ -1223,3 +1223,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Clippy, rustfmt, TypeScript, ESLint and browser build passed on Windows. Linux
   CI remains the cross-platform confirmation. This closes the calculation-panic
   transport slice; supervised service recovery remains separate acceptance.
+
+- 2026-09-30 On Debian, an isolated source-checked release test addon now
+  injects a real calculation panic under the checked-in systemd restart,
+  backoff and stop policy. The caught fault keeps the service active with
+  HTTP 503 and rejects settings; it does not silently exit or auto-restart.
+  An explicit service restart changes the process ID, restores the same run,
+  generation and checkpoint, preserves independently inspected SQLite rows,
+  managed-file inventory and checkpoint hash, and accepts a new real WebSocket
+  welcome. The unit stops cleanly with status zero and no restart loop. Raw
+  health, supervisor properties, durable state and journal evidence is retained
+  in `evidence/stage8/oxygen-ryzen2700/caught-panic-eca5a82-20260930.json`.
+  The explicit fixture entry point replaces only startup composition and never
+  changes production provenance validation. All three Windows server/process
+  panic tests, TypeScript, focused ESLint and service/category contracts passed;
+  README now explains owner-directed recovery for caught faults. The disposable
+  unit and checkout/build/database were removed and ports 5174/5180/5181 stayed
+  closed. Earlier abort/watchdog service evidence remains separate; unattended
+  startup still requires administrator-enabled user lingering.

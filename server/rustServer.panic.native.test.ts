@@ -1,6 +1,8 @@
 /** Real release-addon worker panic through the production HTTP/WebSocket router. */
 import { createRequire } from 'node:module';
 import { once } from 'node:events';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -56,6 +58,45 @@ function durableState(databasePath: string): unknown {
       checkpoints: db.prepare('SELECT * FROM rust_checkpoint_v3_metadata ORDER BY checkpoint_id').all()
     };
   } finally { db.close(); }
+}
+
+/** Launch the explicit supervisor fixture in its own real Node process. */
+async function fixtureProcess(databasePath: string): Promise<{ child: ChildProcess; port: number }> {
+  const child = spawn(process.execPath, ['--import', 'tsx',
+    resolve('scripts/stage8/supervised-panic-server.ts')], {
+    env: { ...process.env, SLITHER_PANIC_FIXTURE_DB: databasePath, SLITHER_PANIC_FIXTURE_PORT: '0' },
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+  });
+  let errors = '';
+  child.stderr?.on('data', data => { errors = `${errors}${String(data)}`.slice(-8192); });
+  const lines = createInterface({ input: child.stdout! });
+  try {
+    const port = await new Promise<number>((done, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`fixture startup timed out: ${errors}`)), 5000);
+      child.once('exit', (code, signal) => {
+        clearTimeout(timeout);
+        reject(new Error(`fixture exited (${code}/${signal}): ${errors}`));
+      });
+      lines.on('line', line => {
+        if (!line.startsWith('{')) return;
+        const value = JSON.parse(line) as { fixture?: string; port?: number };
+        if (value.fixture !== 'supervised-calculation-panic' || !value.port) return;
+        clearTimeout(timeout);
+        done(value.port);
+      });
+    });
+    return { child, port };
+  } catch (error) { child.kill(); throw error; }
+  finally { lines.close(); }
+}
+
+/** Ask the child to join its real engine/worker before process termination. */
+async function stopFixture(child: ChildProcess | undefined): Promise<void> {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, 'exit', { signal: AbortSignal.timeout(5000) });
+  child.send('stop');
+  try { expect((await exited)[0]).toBe(0); }
+  finally { if (child.exitCode === null && child.signalCode === null) child.kill(); }
 }
 
 describeNetworkSuite('Rust server caught calculation panic', () => {
@@ -161,6 +202,31 @@ describeNetworkSuite('Rust server caught calculation panic', () => {
         configurePanicFixture(false);
         await rm(root, { recursive: true, force: true });
       }
+    }
+  }, 15_000);
+
+  it('runs the supervisor fixture in a separate process and restores after explicit stop', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-server-panic-process-'));
+    const databasePath = join(root, 'metadata.sqlite');
+    let child: ChildProcess | undefined;
+    try {
+      const first = await fixtureProcess(databasePath);
+      child = first.child;
+      const failed = await healthUntil(first.port, value => !value.ok);
+      expect(failed.interfaceFault).toMatch(/inference.*partition 1/);
+      expect(failed.completedStep).toBe('0000000000000000');
+      const retained = durableState(databasePath);
+      await stopFixture(child); child = undefined;
+      const second = await fixtureProcess(databasePath);
+      child = second.child;
+      const restored = await healthUntil(second.port,
+        value => value.ok && BigInt(`0x${value.completedStep}`) >= 2n);
+      expect(restored).toMatchObject({ runId: failed.runId,
+        startupCheckpointId: failed.startupCheckpointId, generation: failed.generation });
+      expect(durableState(databasePath)).toEqual(retained);
+    } finally {
+      try { await stopFixture(child); }
+      finally { await rm(root, { recursive: true, force: true }); }
     }
   }, 15_000);
 });

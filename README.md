@@ -211,6 +211,12 @@ administrator must enable user lingering once with
 The manual `play.sh`/`shutdown.sh` pair remains useful for diagnosis, but do not run
 it at the same time as the systemd service.
 
+A caught Rust calculation fault keeps the process alive and reports the fault
+at `/api/health`; it does not trigger an automatic service restart. Inspect the
+health response and logs, then use `systemctl --user restart slither-neuroevo.service`
+to resume from the latest valid committed checkpoint. The interrupted round's
+unsaved progress is lost.
+
 For an update, stop the service, update the checkout, run `npm ci` and
 `npm run build`, then start the service again. The service start command never
 installs dependencies or rebuilds files.
