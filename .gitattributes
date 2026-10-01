@@ -1,0 +1,2 @@
+# Keep the bytes of these checksummed reports stable across platform checkouts.
+docs/todo/evidence/stage7/**/*83402fa-20261001.json text eol=lf
