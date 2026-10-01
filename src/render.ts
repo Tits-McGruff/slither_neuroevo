@@ -114,6 +114,72 @@ let renderTick = 0;
 /** Last render timestamp for dt calculation. */
 let lastRenderTime = 0;
 
+/** Reused point-selection scratch, sized to the largest displayed snake rather than every frame. */
+let bodyDrawingPoints = new Uint8Array(0);
+/** Split only 64-point chunks, bounding simplification work even for pathological zigzags. */
+const BODY_DRAWING_CHUNK = 64;
+/** Reused interval stack; a 64-point chunk needs at most this many interval endpoints. */
+const bodyDrawingStack = new Uint32Array(BODY_DRAWING_CHUNK * 2);
+
+/**
+ * Select a display polyline within half a CSS pixel of every original body point.
+ * Distance is measured to the finite chord, preserving bends and hairpin endpoints.
+ * Chunk boundaries bound worst-case work and keep complete authoritative input untouched.
+ */
+function selectBodyDrawingPoints(pts: ArrayLike<number>, zoom: number): Uint8Array {
+  const count = Math.floor(pts.length / 2);
+  if (bodyDrawingPoints.length < count) {
+    bodyDrawingPoints = new Uint8Array(Math.max(count, bodyDrawingPoints.length * 2, BODY_DRAWING_CHUNK));
+  }
+  bodyDrawingPoints.fill(0, 0, count);
+  const toleranceSquared = (0.5 / Math.max(0.0001, zoom)) ** 2;
+  for (let chunkStart = 0; chunkStart < count; chunkStart += BODY_DRAWING_CHUNK) {
+    const chunkEnd = Math.min(count - 1, chunkStart + BODY_DRAWING_CHUNK);
+    bodyDrawingPoints[chunkStart] = 1;
+    bodyDrawingPoints[chunkEnd] = 1;
+    let pending = 0;
+    bodyDrawingStack[pending++] = chunkStart;
+    bodyDrawingStack[pending++] = chunkEnd;
+    while (pending) {
+      const end = bodyDrawingStack[--pending]!;
+      const start = bodyDrawingStack[--pending]!;
+      const ax = pts[start * 2] ?? 0;
+      const ay = pts[start * 2 + 1] ?? 0;
+      const dx = (pts[end * 2] ?? ax) - ax;
+      const dy = (pts[end * 2 + 1] ?? ay) - ay;
+      const lengthSquared = dx * dx + dy * dy;
+      let furthest = -1;
+      let largestError = toleranceSquared;
+      for (let point = start + 1; point < end; point++) {
+        const px = (pts[point * 2] ?? ax) - ax;
+        const py = (pts[point * 2 + 1] ?? ay) - ay;
+        const t = lengthSquared ? clamp((px * dx + py * dy) / lengthSquared, 0, 1) : 0;
+        const ex = px - t * dx;
+        const ey = py - t * dy;
+        const error = ex * ex + ey * ey;
+        if (error > largestError) {
+          furthest = point;
+          largestError = error;
+        }
+      }
+      if (furthest >= 0) {
+        bodyDrawingPoints[furthest] = 1;
+        bodyDrawingStack[pending++] = start;
+        bodyDrawingStack[pending++] = furthest;
+        bodyDrawingStack[pending++] = furthest;
+        bodyDrawingStack[pending++] = end;
+      }
+    }
+  }
+  return bodyDrawingPoints;
+}
+
+/** Convert distant world glow to screen blur, omitting an invisible subpixel shadow mask. */
+function projectedGlow(blur: number, zoom: number): number {
+  const screenBlur = blur * Math.min(1, zoom);
+  return screenBlur < 0.5 ? 0 : screenBlur;
+}
+
 /**
  * Generate a random number in [min,max].
  * @param min - Minimum value.
@@ -176,8 +242,9 @@ function spawnBoostParticle(x: number, y: number, ang: number, color: string, st
  * Render and advance boost particles.
  * @param ctx - Canvas 2D context to draw into.
  * @param dt - Delta time in seconds.
+ * @param zoom - Camera scale used to omit subpixel particle glow.
  */
-function renderBoostParticles(ctx: CanvasRenderingContext2D, dt: number): void {
+function renderBoostParticles(ctx: CanvasRenderingContext2D, dt: number, zoom: number): void {
   if (!boostParticles.length) return;
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -195,7 +262,7 @@ function renderBoostParticles(ctx: CanvasRenderingContext2D, dt: number): void {
     p.vy *= 0.94;
     const alpha = clamp(p.life / p.maxLife, 0, 1);
     ctx.globalAlpha = alpha;
-    ctx.shadowBlur = p.size * 4;
+    ctx.shadowBlur = projectedGlow(p.size * 4, zoom);
     ctx.shadowColor = p.color;
     ctx.fillStyle = p.color;
     ctx.beginPath();
@@ -394,7 +461,7 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
   const MAX_SPEED_GLOW_BONUS = 0.9;
   const glowScale = BASE_GLOW_SCALE + speedGlow * MAX_SPEED_GLOW_BONUS;
 
-  ctx.shadowBlur = s.radius * 1.6 * glowScale * boostGlow;
+  ctx.shadowBlur = projectedGlow(s.radius * 1.6 * glowScale * boostGlow, zoom);
   ctx.shadowColor = color;
   ctx.strokeStyle = color;
 
@@ -412,10 +479,14 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
     const startX = pts[0] ?? s.x;
     const startY = pts[1] ?? s.y;
     ctx.moveTo(startX, startY);
+    // Reduce only presentation detail below half a screen pixel. Follow view
+    // retains the complete close-up path; physics and selection use the input.
+    const drawingPoints = zoom < 0.25 ? selectBodyDrawingPoints(pts, zoom) : null;
     for (let i = 2; i < pts.length; i += 2) {
       const px = pts[i];
       const py = pts[i + 1];
       if (px === undefined || py === undefined) continue;
+      if (drawingPoints && !drawingPoints[i / 2]) continue;
       ctx.lineTo(px, py);
     }
   }
@@ -456,7 +527,7 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
     const ROBOT_GLOW_PCT = 0.6;
     ctx.fillStyle = THEME.snakeRobotEye;
     ctx.shadowColor = THEME.snakeRobotGlow;
-    ctx.shadowBlur = s.radius * ROBOT_GLOW_PCT;
+    ctx.shadowBlur = projectedGlow(s.radius * ROBOT_GLOW_PCT, zoom);
   } else {
     ctx.fillStyle = THEME.snakeSelfEye;
   }
@@ -654,7 +725,15 @@ export function renderWorldStruct(
     const r = BASE_PELLET_RAD + Math.sqrt(pv) * PELLET_VALUE_SCALE;
 
     ctx.fillStyle = color!;
-    ctx.shadowBlur = r * 1.5;
+    if (r * zoom < 0.5) {
+      // Below one pixel in diameter, an equal-area square preserves food
+      // brightness without an individual circular path and shadow mask.
+      const side = Math.sqrt(Math.PI) * r;
+      ctx.fillRect(px - side / 2, py - side / 2, side, side);
+      continue;
+    }
+
+    ctx.shadowBlur = projectedGlow(r * 1.5, zoom);
     ctx.shadowColor = glow!;
     ctx.beginPath();
     ctx.arc(px, py, r, 0, TAU);
@@ -679,7 +758,7 @@ export function renderWorldStruct(
       }
     }
   }
-  renderBoostParticles(ctx, dt);
+  renderBoostParticles(ctx, dt, zoom);
 
   // Draw Snakes
   for (const meta of snakeMeta) {

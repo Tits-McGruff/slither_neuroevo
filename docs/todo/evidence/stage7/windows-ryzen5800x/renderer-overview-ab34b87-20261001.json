@@ -1,0 +1,2962 @@
+{
+  "baseCommit": "ab34b874d954aef931d0956e82dd55ce8efb1208",
+  "renderer": {
+    "baselineGitBlob": "e063070ae9f5a9f9b13a591833243b5a7b4e360e",
+    "candidateGitBlob": "d3ca88fbd41942a3e2e64f6ed9444712a14c8eca",
+    "denseOverviewAndCurveTrialGitBlob": "c48c363cebe6e51bf423e8bb6ce59b29b91713cf",
+    "difference": "Dense overview and curve trial precede only the geometric scratch-capacity allocation change. The final ordinary comparison and full-minute follow window use candidateGitBlob. That allocation change preserves selected points and output geometry."
+  },
+  "environment": {
+    "host": "Windows Ryzen 7 5800X desktop",
+    "browser": "Codex in-app Chromium",
+    "viewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "foregroundHostShown": true,
+    "pageBroughtToFront": true
+  },
+  "method": {
+    "paired": "One immutable ordinary production binary frame per scene; baseline/candidate use the same SHA-256 frame, viewport, centered overview camera and default padding/margin. The baseline is a source copy with only relative import paths mapped to /src/.",
+    "samples": 30,
+    "warmupFrames": 3,
+    "intervals": "Actual foreground requestAnimationFrame intervals, including browser/GPU draw completion; durations measure synchronous renderer work.",
+    "camera": "clamp(min(1280,720)/(2*(frame[3]+160)*1.10),0.01,2)",
+    "trialSource": "state.trial=async function(rendererName,shadowMultiplier=1){\n if(state.status!=='ready')throw new Error('No qualified frame or trial already active');\n state.status='measuring';\n const renderer=rendererName==='baseline'?baseline:current;\n const descriptor=Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype,'shadowBlur');\n const durations=[],intervals=[];let previous;\n if(shadowMultiplier!==1)Object.defineProperty(CanvasRenderingContext2D.prototype,'shadowBlur',{...descriptor,set(value){descriptor.set.call(this,value*shadowMultiplier)}});\n try{\n  for(let index=0;index<33;index++){\n   const now=await new Promise(done=>requestAnimationFrame(done));\n   const began=performance.now();renderer(ctx,state.frame,1280,720,state.renderZoom,0,0);\n   if(index>=3){durations.push(performance.now()-began);if(previous!==undefined)intervals.push(now-previous);}\n   previous=now;\n  }\n  const sorted=[...intervals].sort((a,b)=>a-b);\n  const sortedDurations=[...durations].sort((a,b)=>a-b);\n  const report={renderer:rendererName,shadowMultiplier,renderZoom:state.renderZoom,geometry:state.geometry,frameSha256:state.frameSha256,samples:durations.length,intervalP95Ms:sorted[Math.ceil(sorted.length*.95)-1],fractionIntervalsAtMost40Ms:intervals.filter(x=>x<=40).length/intervals.length,durationP95Ms:sortedDurations[Math.ceil(sortedDurations.length*.95)-1],durationMeanMs:durations.reduce((a,b)=>a+b,0)/durations.length,visible:document.visibilityState,focus:document.hasFocus()};\n  state.reports.push(report);return report;\n }finally{Object.defineProperty(CanvasRenderingContext2D.prototype,'shadowBlur',descriptor);state.status='ready';}\n};",
+    "denseFixture": "scripts/stage7/dense-world-capacity.ts crowded settings, seed 1511506142, ordinary production addon and managed generation-one checkpoint. Physics, sensors, brains, food and deaths stay enabled. Small Dense graph intentionally stresses geometry, not large-network inference.",
+    "ordinaryFixture": "Fresh default Rust startup, seed 1511506142, six calculation workers, no reset/settings overrides. Captured ordinary frame has 43 living snakes, 448 body points and 3506 pellets.",
+    "serverPreparation": "Each replay starts one loopback production server and calls observe(port, boundedWallSeconds, 360, true), then closes it in finally. Separate real spectator socket audits every complete body frame. Ordinary startup closes after 45 seconds."
+  },
+  "paired": {
+    "dense": [
+      {
+        "renderer": "baseline",
+        "shadowMultiplier": 1,
+        "renderZoom": 0.03221188260558339,
+        "geometry": {
+          "inArenaCollisionSegments": 200507,
+          "outsideArenaPoints": 69,
+          "bodyPoints": 207146,
+          "alive": 219,
+          "zoom": 1,
+          "bytes": 2164068
+        },
+        "frameSha256": "4afb5d62e4f30d4bf442d79d0a2d01adbf604b35e2e68ad26d3c116be94a3501",
+        "samples": 30,
+        "intervalP95Ms": 483.59999999999854,
+        "fractionIntervalsAtMost40Ms": 0,
+        "durationP95Ms": 277.210000038147,
+        "durationMeanMs": 45.13216666976611,
+        "visible": "visible",
+        "focus": true
+      },
+      {
+        "renderer": "current",
+        "shadowMultiplier": 1,
+        "renderZoom": 0.03221188260558339,
+        "geometry": {
+          "inArenaCollisionSegments": 200507,
+          "outsideArenaPoints": 69,
+          "bodyPoints": 207146,
+          "alive": 219,
+          "zoom": 1,
+          "bytes": 2164068
+        },
+        "frameSha256": "4afb5d62e4f30d4bf442d79d0a2d01adbf604b35e2e68ad26d3c116be94a3501",
+        "samples": 30,
+        "intervalP95Ms": 33.48999999999978,
+        "fractionIntervalsAtMost40Ms": 1,
+        "durationP95Ms": 11.895000040531158,
+        "durationMeanMs": 9.955500010649363,
+        "visible": "visible",
+        "focus": true
+      }
+    ],
+    "ordinary": [
+      {
+        "renderer": "baseline",
+        "shadowMultiplier": 1,
+        "renderZoom": 0.0894187779433681,
+        "geometry": {
+          "inArenaCollisionSegments": 0,
+          "outsideArenaPoints": 0,
+          "bodyPoints": 448,
+          "alive": 43,
+          "zoom": 1,
+          "bytes": 75112
+        },
+        "frameSha256": "d459bbe610af811b253620cfb00b16b511d2c5d758344ac5c35e8281513ebde6",
+        "samples": 30,
+        "intervalP95Ms": 66.72000000000116,
+        "fractionIntervalsAtMost40Ms": 0.16666666666666666,
+        "durationP95Ms": 3.884999990463257,
+        "durationMeanMs": 2.9961666584014894,
+        "visible": "visible",
+        "focus": true
+      },
+      {
+        "renderer": "current",
+        "shadowMultiplier": 1,
+        "renderZoom": 0.0894187779433681,
+        "geometry": {
+          "inArenaCollisionSegments": 0,
+          "outsideArenaPoints": 0,
+          "bodyPoints": 448,
+          "alive": 43,
+          "zoom": 1,
+          "bytes": 75112
+        },
+        "frameSha256": "d459bbe610af811b253620cfb00b16b511d2c5d758344ac5c35e8281513ebde6",
+        "samples": 30,
+        "intervalP95Ms": 16.75,
+        "fractionIntervalsAtMost40Ms": 1,
+        "durationP95Ms": 1.7549999952316284,
+        "durationMeanMs": 1.3606666644414267,
+        "visible": "visible",
+        "focus": true
+      },
+      {
+        "renderer": "baseline",
+        "shadowMultiplier": 1,
+        "renderZoom": 0.0894187779433681,
+        "geometry": {
+          "inArenaCollisionSegments": 0,
+          "outsideArenaPoints": 0,
+          "bodyPoints": 448,
+          "alive": 43,
+          "zoom": 1,
+          "bytes": 75112
+        },
+        "frameSha256": "d459bbe610af811b253620cfb00b16b511d2c5d758344ac5c35e8281513ebde6",
+        "samples": 30,
+        "intervalP95Ms": 66.76499999999942,
+        "fractionIntervalsAtMost40Ms": 0.26666666666666666,
+        "durationP95Ms": 4.025000035762787,
+        "durationMeanMs": 2.867833340167999,
+        "visible": "visible",
+        "focus": true
+      }
+    ]
+  },
+  "fullMinute": {
+    "overview": {
+      "wallSeconds": 60.014019999980924,
+      "frames": 343,
+      "actions": 0,
+      "assignments": 0,
+      "animation": {
+        "samples": 2243,
+        "p95Ms": 33.46499999999651,
+        "maxMs": 50.38999999999942,
+        "fractionAtMost40Ms": 0.992866696388765
+      },
+      "renderIntervals": {
+        "samples": 2243,
+        "p95Ms": 33.46499999999651,
+        "maxMs": 50.38999999999942,
+        "fractionAtMost40Ms": 0.992866696388765
+      },
+      "renderDurations": {
+        "samples": 2244,
+        "p95Ms": 12.15499997138977,
+        "maxMs": 15.620000004768372,
+        "fractionAtMost40Ms": 1
+      },
+      "networkFrames": {
+        "samples": 342,
+        "p95Ms": 203.6599999666214,
+        "maxMs": 333.52999997138977,
+        "fractionAtMost40Ms": 0
+      },
+      "frameShape": {
+        "decodedFrames": 343,
+        "invalidFrames": 0,
+        "minBodySegments": 243537,
+        "maxBodySegments": 267766,
+        "maxFrameBytes": 2646960,
+        "viewModes": {
+          "overview": 343
+        },
+        "samples": [
+          {
+            "atMs": 75157.81999999285,
+            "alive": 149,
+            "bodySegments": 244325,
+            "pellets": 25003,
+            "frameBytes": 2460652,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 76013.41500002146,
+            "alive": 148,
+            "bodySegments": 244657,
+            "pellets": 24995,
+            "frameBytes": 2463108,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 77051.56000000238,
+            "alive": 148,
+            "bodySegments": 246956,
+            "pellets": 24996,
+            "frameBytes": 2481520,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 78041.13499999046,
+            "alive": 147,
+            "bodySegments": 247697,
+            "pellets": 24998,
+            "frameBytes": 2487448,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 79034.25,
+            "alive": 146,
+            "bodySegments": 247958,
+            "pellets": 24999,
+            "frameBytes": 2489516,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 80081.44999998808,
+            "alive": 145,
+            "bodySegments": 249659,
+            "pellets": 24994,
+            "frameBytes": 2502984,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 81088.58999997377,
+            "alive": 145,
+            "bodySegments": 251909,
+            "pellets": 24996,
+            "frameBytes": 2521024,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 82093.72000002861,
+            "alive": 144,
+            "bodySegments": 252931,
+            "pellets": 24999,
+            "frameBytes": 2529220,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 83085.44999998808,
+            "alive": 143,
+            "bodySegments": 251832,
+            "pellets": 25010,
+            "frameBytes": 2520608,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 84084.85000002384,
+            "alive": 143,
+            "bodySegments": 253751,
+            "pellets": 24995,
+            "frameBytes": 2535660,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 85153.75,
+            "alive": 141,
+            "bodySegments": 251713,
+            "pellets": 24997,
+            "frameBytes": 2519316,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 86145.125,
+            "alive": 140,
+            "bodySegments": 252054,
+            "pellets": 24999,
+            "frameBytes": 2522044,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 87150.31999999285,
+            "alive": 139,
+            "bodySegments": 251275,
+            "pellets": 25000,
+            "frameBytes": 2515792,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 87999.87999999523,
+            "alive": 138,
+            "bodySegments": 250736,
+            "pellets": 25005,
+            "frameBytes": 2511540,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 89017.51999998093,
+            "alive": 137,
+            "bodySegments": 250117,
+            "pellets": 24998,
+            "frameBytes": 2506408,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 90043.43000000715,
+            "alive": 134,
+            "bodySegments": 246297,
+            "pellets": 25012,
+            "frameBytes": 2476008,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 91052.12999999523,
+            "alive": 132,
+            "bodySegments": 244030,
+            "pellets": 25011,
+            "frameBytes": 2457772,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 92031.85000002384,
+            "alive": 132,
+            "bodySegments": 245390,
+            "pellets": 24999,
+            "frameBytes": 2468412,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 93078.405000031,
+            "alive": 131,
+            "bodySegments": 245030,
+            "pellets": 25005,
+            "frameBytes": 2465612,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 94046.07499998808,
+            "alive": 130,
+            "bodySegments": 244699,
+            "pellets": 24998,
+            "frameBytes": 2462784,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 95087.625,
+            "alive": 130,
+            "bodySegments": 247375,
+            "pellets": 24994,
+            "frameBytes": 2484112,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 96111.06499999762,
+            "alive": 130,
+            "bodySegments": 249375,
+            "pellets": 24997,
+            "frameBytes": 2500172,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 97123.56499999762,
+            "alive": 130,
+            "bodySegments": 250895,
+            "pellets": 24998,
+            "frameBytes": 2512352,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 98132.16000002623,
+            "alive": 128,
+            "bodySegments": 248184,
+            "pellets": 25004,
+            "frameBytes": 2490704,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 99106.41000002623,
+            "alive": 128,
+            "bodySegments": 249944,
+            "pellets": 24997,
+            "frameBytes": 2504644,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 100135.80500000715,
+            "alive": 128,
+            "bodySegments": 251919,
+            "pellets": 24998,
+            "frameBytes": 2520464,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 101145.63499999046,
+            "alive": 127,
+            "bodySegments": 252900,
+            "pellets": 24998,
+            "frameBytes": 2528272,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 102132.91500002146,
+            "alive": 127,
+            "bodySegments": 254716,
+            "pellets": 24996,
+            "frameBytes": 2542760,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 103136.45499998331,
+            "alive": 126,
+            "bodySegments": 255305,
+            "pellets": 24996,
+            "frameBytes": 2547432,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 104146.07999998331,
+            "alive": 123,
+            "bodySegments": 252248,
+            "pellets": 25014,
+            "frameBytes": 2523216,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 104995.49000000954,
+            "alive": 123,
+            "bodySegments": 253629,
+            "pellets": 25001,
+            "frameBytes": 2534004,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 106044.25999999046,
+            "alive": 123,
+            "bodySegments": 255069,
+            "pellets": 24996,
+            "frameBytes": 2545424,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 107032.69999998808,
+            "alive": 123,
+            "bodySegments": 255709,
+            "pellets": 24998,
+            "frameBytes": 2550584,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 108003.74000000954,
+            "alive": 123,
+            "bodySegments": 257549,
+            "pellets": 24994,
+            "frameBytes": 2565224,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 109079.4850000143,
+            "alive": 122,
+            "bodySegments": 257183,
+            "pellets": 24998,
+            "frameBytes": 2562336,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 109997.72500002384,
+            "alive": 122,
+            "bodySegments": 258783,
+            "pellets": 24997,
+            "frameBytes": 2575116,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 110984.91500002146,
+            "alive": 122,
+            "bodySegments": 260308,
+            "pellets": 24999,
+            "frameBytes": 2587356,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 112007.280000031,
+            "alive": 122,
+            "bodySegments": 262149,
+            "pellets": 24998,
+            "frameBytes": 2602064,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 113154.98000001907,
+            "alive": 122,
+            "bodySegments": 263509,
+            "pellets": 24996,
+            "frameBytes": 2612904,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 114154.17000001669,
+            "alive": 121,
+            "bodySegments": 262970,
+            "pellets": 25002,
+            "frameBytes": 2608672,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 115090.72000002861,
+            "alive": 121,
+            "bodySegments": 263933,
+            "pellets": 24997,
+            "frameBytes": 2616276,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 116017.17000001669,
+            "alive": 121,
+            "bodySegments": 265133,
+            "pellets": 24994,
+            "frameBytes": 2625816,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 117016.92000001669,
+            "alive": 121,
+            "bodySegments": 266326,
+            "pellets": 24999,
+            "frameBytes": 2635460,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 118138.36500000954,
+            "alive": 121,
+            "bodySegments": 267286,
+            "pellets": 24997,
+            "frameBytes": 2643100,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 119071.32999998331,
+            "alive": 119,
+            "bodySegments": 263088,
+            "pellets": 25009,
+            "frameBytes": 2609676,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 120111.42000001669,
+            "alive": 119,
+            "bodySegments": 264676,
+            "pellets": 24997,
+            "frameBytes": 2622140,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 121002.34500002861,
+            "alive": 118,
+            "bodySegments": 264412,
+            "pellets": 25004,
+            "frameBytes": 2620128,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 122052.89499998093,
+            "alive": 118,
+            "bodySegments": 265692,
+            "pellets": 24997,
+            "frameBytes": 2630228,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 123090.33999997377,
+            "alive": 117,
+            "bodySegments": 263303,
+            "pellets": 25008,
+            "frameBytes": 2611296,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 124106.280000031,
+            "alive": 117,
+            "bodySegments": 264423,
+            "pellets": 24995,
+            "frameBytes": 2619996,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 125143.93999999762,
+            "alive": 117,
+            "bodySegments": 265463,
+            "pellets": 24997,
+            "frameBytes": 2628356,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 126030.79000002146,
+            "alive": 116,
+            "bodySegments": 263230,
+            "pellets": 25003,
+            "frameBytes": 2610572,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 127123.20999997854,
+            "alive": 114,
+            "bodySegments": 259487,
+            "pellets": 25004,
+            "frameBytes": 2580568,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 128011.55000001192,
+            "alive": 114,
+            "bodySegments": 261323,
+            "pellets": 24996,
+            "frameBytes": 2595096,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 129155.7649999857,
+            "alive": 112,
+            "bodySegments": 258325,
+            "pellets": 25008,
+            "frameBytes": 2571272,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 130019.44499999285,
+            "alive": 112,
+            "bodySegments": 259685,
+            "pellets": 24998,
+            "frameBytes": 2581952,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 131071.55500000715,
+            "alive": 112,
+            "bodySegments": 260645,
+            "pellets": 24995,
+            "frameBytes": 2589572,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 132107.70999997854,
+            "alive": 112,
+            "bodySegments": 261925,
+            "pellets": 24997,
+            "frameBytes": 2599852,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 133157.94499999285,
+            "alive": 111,
+            "bodySegments": 259626,
+            "pellets": 25004,
+            "frameBytes": 2581560,
+            "viewMode": "overview"
+          },
+          {
+            "atMs": 134013.0799999833,
+            "alive": 111,
+            "bodySegments": 260966,
+            "pellets": 24997,
+            "frameBytes": 2592140,
+            "viewMode": "overview"
+          }
+        ]
+      },
+      "heapSamples": [
+        {
+          "atMs": 75169.00499999523,
+          "usedJSHeapBytes": 19319645,
+          "totalJSHeapBytes": 33751965
+        },
+        {
+          "atMs": 76172.06499999762,
+          "usedJSHeapBytes": 31626389,
+          "totalJSHeapBytes": 46057205
+        },
+        {
+          "atMs": 77182.18999999762,
+          "usedJSHeapBytes": 16705849,
+          "totalJSHeapBytes": 31320533
+        },
+        {
+          "atMs": 78175.47000002861,
+          "usedJSHeapBytes": 31597345,
+          "totalJSHeapBytes": 46209981
+        },
+        {
+          "atMs": 79172.56000000238,
+          "usedJSHeapBytes": 29176281,
+          "totalJSHeapBytes": 43786725
+        },
+        {
+          "atMs": 80173.32499998808,
+          "usedJSHeapBytes": 29048421,
+          "totalJSHeapBytes": 43841413
+        },
+        {
+          "atMs": 81182.33499997854,
+          "usedJSHeapBytes": 29157865,
+          "totalJSHeapBytes": 43948433
+        },
+        {
+          "atMs": 82166.905000031,
+          "usedJSHeapBytes": 29080905,
+          "totalJSHeapBytes": 44052469
+        },
+        {
+          "atMs": 83185.6100000143,
+          "usedJSHeapBytes": 29224469,
+          "totalJSHeapBytes": 44090929
+        },
+        {
+          "atMs": 84172.39499998093,
+          "usedJSHeapBytes": 28645007,
+          "totalJSHeapBytes": 44059391
+        },
+        {
+          "atMs": 85176.23000001907,
+          "usedJSHeapBytes": 34629277,
+          "totalJSHeapBytes": 44004453
+        },
+        {
+          "atMs": 86167.80500000715,
+          "usedJSHeapBytes": 34832989,
+          "totalJSHeapBytes": 44018913
+        },
+        {
+          "atMs": 87173.780000031,
+          "usedJSHeapBytes": 35007573,
+          "totalJSHeapBytes": 44002229
+        },
+        {
+          "atMs": 88168.74000000954,
+          "usedJSHeapBytes": 26071117,
+          "totalJSHeapBytes": 41493517
+        },
+        {
+          "atMs": 89167.61500000954,
+          "usedJSHeapBytes": 32727621,
+          "totalJSHeapBytes": 41407617
+        },
+        {
+          "atMs": 90166.30500000715,
+          "usedJSHeapBytes": 28607672,
+          "totalJSHeapBytes": 43870168
+        },
+        {
+          "atMs": 91176.85000002384,
+          "usedJSHeapBytes": 28476212,
+          "totalJSHeapBytes": 43699164
+        },
+        {
+          "atMs": 92172.04500001669,
+          "usedJSHeapBytes": 28290409,
+          "totalJSHeapBytes": 43610769
+        },
+        {
+          "atMs": 93171.625,
+          "usedJSHeapBytes": 28754329,
+          "totalJSHeapBytes": 43683701
+        },
+        {
+          "atMs": 94176.125,
+          "usedJSHeapBytes": 16940313,
+          "totalJSHeapBytes": 31286045
+        },
+        {
+          "atMs": 95182.06499999762,
+          "usedJSHeapBytes": 17168249,
+          "totalJSHeapBytes": 31324717
+        },
+        {
+          "atMs": 96176.405000031,
+          "usedJSHeapBytes": 17595654,
+          "totalJSHeapBytes": 31360202
+        },
+        {
+          "atMs": 97168.31499999762,
+          "usedJSHeapBytes": 20128777,
+          "totalJSHeapBytes": 33893553
+        },
+        {
+          "atMs": 98172.99500000477,
+          "usedJSHeapBytes": 20092129,
+          "totalJSHeapBytes": 33833229
+        },
+        {
+          "atMs": 99176.280000031,
+          "usedJSHeapBytes": 20129705,
+          "totalJSHeapBytes": 33869989
+        },
+        {
+          "atMs": 100187.44999998808,
+          "usedJSHeapBytes": 20177672,
+          "totalJSHeapBytes": 33918960
+        },
+        {
+          "atMs": 101186.49500000477,
+          "usedJSHeapBytes": 20012596,
+          "totalJSHeapBytes": 33948444
+        },
+        {
+          "atMs": 102175.28500002623,
+          "usedJSHeapBytes": 20044871,
+          "totalJSHeapBytes": 33982175
+        },
+        {
+          "atMs": 103180.93500000238,
+          "usedJSHeapBytes": 20256753,
+          "totalJSHeapBytes": 33997697
+        },
+        {
+          "atMs": 104172.08499997854,
+          "usedJSHeapBytes": 19826404,
+          "totalJSHeapBytes": 33942276
+        },
+        {
+          "atMs": 105168.16500002146,
+          "usedJSHeapBytes": 17686929,
+          "totalJSHeapBytes": 31425569
+        },
+        {
+          "atMs": 106176.79500001669,
+          "usedJSHeapBytes": 18300601,
+          "totalJSHeapBytes": 31450265
+        },
+        {
+          "atMs": 107176.87999999523,
+          "usedJSHeapBytes": 20861605,
+          "totalJSHeapBytes": 34011189
+        },
+        {
+          "atMs": 108166.56000000238,
+          "usedJSHeapBytes": 18728209,
+          "totalJSHeapBytes": 31488605
+        },
+        {
+          "atMs": 109176.57999998331,
+          "usedJSHeapBytes": 20561724,
+          "totalJSHeapBytes": 34045064
+        },
+        {
+          "atMs": 110174.44499999285,
+          "usedJSHeapBytes": 20957889,
+          "totalJSHeapBytes": 34081565
+        },
+        {
+          "atMs": 111167.9850000143,
+          "usedJSHeapBytes": 18797621,
+          "totalJSHeapBytes": 31536049
+        },
+        {
+          "atMs": 112166.91000002623,
+          "usedJSHeapBytes": 21222249,
+          "totalJSHeapBytes": 34162389
+        },
+        {
+          "atMs": 113173.81000000238,
+          "usedJSHeapBytes": 24449680,
+          "totalJSHeapBytes": 36799284
+        },
+        {
+          "atMs": 114175.04000002146,
+          "usedJSHeapBytes": 24276540,
+          "totalJSHeapBytes": 36812772
+        },
+        {
+          "atMs": 115177.26999998093,
+          "usedJSHeapBytes": 21663001,
+          "totalJSHeapBytes": 34206717
+        },
+        {
+          "atMs": 116176.44499999285,
+          "usedJSHeapBytes": 21885369,
+          "totalJSHeapBytes": 34231677
+        },
+        {
+          "atMs": 117179.86500000954,
+          "usedJSHeapBytes": 21916137,
+          "totalJSHeapBytes": 34264789
+        },
+        {
+          "atMs": 118170.06499999762,
+          "usedJSHeapBytes": 24387746,
+          "totalJSHeapBytes": 36926762
+        },
+        {
+          "atMs": 119179.3600000143,
+          "usedJSHeapBytes": 21887852,
+          "totalJSHeapBytes": 34204428
+        },
+        {
+          "atMs": 120179.39499998093,
+          "usedJSHeapBytes": 25117927,
+          "totalJSHeapBytes": 36839427
+        },
+        {
+          "atMs": 121167.45499998331,
+          "usedJSHeapBytes": 25738908,
+          "totalJSHeapBytes": 36871844
+        },
+        {
+          "atMs": 122173.45999997854,
+          "usedJSHeapBytes": 28776659,
+          "totalJSHeapBytes": 39499963
+        },
+        {
+          "atMs": 123179.16000002623,
+          "usedJSHeapBytes": 28987307,
+          "totalJSHeapBytes": 39509871
+        },
+        {
+          "atMs": 124169.98000001907,
+          "usedJSHeapBytes": 28947424,
+          "totalJSHeapBytes": 39444352
+        },
+        {
+          "atMs": 125170.8600000143,
+          "usedJSHeapBytes": 32410780,
+          "totalJSHeapBytes": 42109180
+        },
+        {
+          "atMs": 126175.92500001192,
+          "usedJSHeapBytes": 33011264,
+          "totalJSHeapBytes": 42103512
+        },
+        {
+          "atMs": 127166.35500001907,
+          "usedJSHeapBytes": 32746713,
+          "totalJSHeapBytes": 41907717
+        },
+        {
+          "atMs": 128169.25499999523,
+          "usedJSHeapBytes": 26629881,
+          "totalJSHeapBytes": 41888785
+        },
+        {
+          "atMs": 129167.53500002623,
+          "usedJSHeapBytes": 16258834,
+          "totalJSHeapBytes": 31514374
+        },
+        {
+          "atMs": 130178.80500000715,
+          "usedJSHeapBytes": 29965633,
+          "totalJSHeapBytes": 44410401
+        },
+        {
+          "atMs": 131169.36500000954,
+          "usedJSHeapBytes": 17097761,
+          "totalJSHeapBytes": 31538501
+        },
+        {
+          "atMs": 132176.88499999046,
+          "usedJSHeapBytes": 18136174,
+          "totalJSHeapBytes": 31560302
+        },
+        {
+          "atMs": 133171.08999997377,
+          "usedJSHeapBytes": 24291028,
+          "totalJSHeapBytes": 36685440
+        },
+        {
+          "atMs": 134175.5,
+          "usedJSHeapBytes": 25556339,
+          "totalJSHeapBytes": 36722723
+        }
+      ],
+      "visibility": "visible",
+      "focus": true,
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "devicePixelRatio": 1
+      },
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+      "canvas": [
+        {
+          "id": "c",
+          "width": 1280,
+          "height": 720,
+          "cssWidth": 1280,
+          "cssHeight": 720
+        },
+        {
+          "id": "vizCanvas",
+          "width": 360,
+          "height": 400,
+          "cssWidth": 0,
+          "cssHeight": 0
+        },
+        {
+          "id": "statsCanvas",
+          "width": 360,
+          "height": 300,
+          "cssWidth": 0,
+          "cssHeight": 0
+        }
+      ],
+      "visibilityChanges": []
+    },
+    "follow": {
+      "wallSeconds": 60.01719999998808,
+      "frames": 354,
+      "actions": 0,
+      "assignments": 0,
+      "animation": {
+        "samples": 3568,
+        "p95Ms": 16.80999999999767,
+        "maxMs": 33.50999999998021,
+        "fractionAtMost40Ms": 1
+      },
+      "renderIntervals": {
+        "samples": 3568,
+        "p95Ms": 16.80999999999767,
+        "maxMs": 33.50999999998021,
+        "fractionAtMost40Ms": 1
+      },
+      "renderDurations": {
+        "samples": 3569,
+        "p95Ms": 14.389999985694885,
+        "maxMs": 17.155000030994415,
+        "fractionAtMost40Ms": 1
+      },
+      "networkFrames": {
+        "samples": 353,
+        "p95Ms": 202.94999998807907,
+        "maxMs": 250.76499998569489,
+        "fractionAtMost40Ms": 0
+      },
+      "frameShape": {
+        "decodedFrames": 354,
+        "invalidFrames": 0,
+        "minBodySegments": 220358,
+        "maxBodySegments": 256685,
+        "maxFrameBytes": 2559872,
+        "viewModes": {
+          "follow": 354
+        },
+        "samples": [
+          {
+            "atMs": 118404.87000000477,
+            "alive": 191,
+            "bodySegments": 221238,
+            "pellets": 24992,
+            "frameBytes": 2277416,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 119418.39500004053,
+            "alive": 191,
+            "bodySegments": 222678,
+            "pellets": 24996,
+            "frameBytes": 2289016,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 120469.68500000238,
+            "alive": 191,
+            "bodySegments": 225078,
+            "pellets": 24994,
+            "frameBytes": 2308176,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 121438.1100000143,
+            "alive": 187,
+            "bodySegments": 223422,
+            "pellets": 25006,
+            "frameBytes": 2295008,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 122341.57499998808,
+            "alive": 185,
+            "bodySegments": 225144,
+            "pellets": 24995,
+            "frameBytes": 2308484,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 123358.18000000715,
+            "alive": 184,
+            "bodySegments": 226320,
+            "pellets": 24993,
+            "frameBytes": 2317812,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 124340.56499999762,
+            "alive": 183,
+            "bodySegments": 227461,
+            "pellets": 24996,
+            "frameBytes": 2326960,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 125360.55500000715,
+            "alive": 181,
+            "bodySegments": 226703,
+            "pellets": 25007,
+            "frameBytes": 2321036,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 126424.75999999046,
+            "alive": 179,
+            "bodySegments": 227374,
+            "pellets": 24993,
+            "frameBytes": 2326044,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 127327.92500001192,
+            "alive": 178,
+            "bodySegments": 228115,
+            "pellets": 25001,
+            "frameBytes": 2332092,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 128411.0149999857,
+            "alive": 177,
+            "bodySegments": 229176,
+            "pellets": 24998,
+            "frameBytes": 2340480,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 129296.42000001669,
+            "alive": 177,
+            "bodySegments": 231418,
+            "pellets": 24995,
+            "frameBytes": 2358356,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 130363.12000000477,
+            "alive": 176,
+            "bodySegments": 233119,
+            "pellets": 24995,
+            "frameBytes": 2371924,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 131365.18999999762,
+            "alive": 174,
+            "bodySegments": 232833,
+            "pellets": 24999,
+            "frameBytes": 2369636,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 132347.69999998808,
+            "alive": 173,
+            "bodySegments": 233734,
+            "pellets": 24999,
+            "frameBytes": 2376804,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 133395.81000000238,
+            "alive": 173,
+            "bodySegments": 235924,
+            "pellets": 24994,
+            "frameBytes": 2394224,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 134418.32499998808,
+            "alive": 172,
+            "bodySegments": 236585,
+            "pellets": 24995,
+            "frameBytes": 2399492,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 135400.30000001192,
+            "alive": 171,
+            "bodySegments": 238172,
+            "pellets": 24993,
+            "frameBytes": 2412108,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 136467,
+            "alive": 169,
+            "bodySegments": 238374,
+            "pellets": 25003,
+            "frameBytes": 2413844,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 137317.35500001907,
+            "alive": 169,
+            "bodySegments": 240534,
+            "pellets": 24999,
+            "frameBytes": 2431044,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 138369.49500000477,
+            "alive": 168,
+            "bodySegments": 241362,
+            "pellets": 25003,
+            "frameBytes": 2437708,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 139418.43000000715,
+            "alive": 168,
+            "bodySegments": 243842,
+            "pellets": 24996,
+            "frameBytes": 2457408,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 140369.71500003338,
+            "alive": 168,
+            "bodySegments": 245682,
+            "pellets": 24995,
+            "frameBytes": 2472108,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 141470.05500000715,
+            "alive": 167,
+            "bodySegments": 246855,
+            "pellets": 25002,
+            "frameBytes": 2481592,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 142457.6700000167,
+            "alive": 165,
+            "bodySegments": 245805,
+            "pellets": 24999,
+            "frameBytes": 2473052,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 143309.37000000477,
+            "alive": 165,
+            "bodySegments": 247992,
+            "pellets": 24992,
+            "frameBytes": 2490408,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 144405.4549999833,
+            "alive": 164,
+            "bodySegments": 248973,
+            "pellets": 24996,
+            "frameBytes": 2498296,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 145360.50999999046,
+            "alive": 162,
+            "bodySegments": 246455,
+            "pellets": 25003,
+            "frameBytes": 2478212,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 146375.00999999046,
+            "alive": 161,
+            "bodySegments": 246796,
+            "pellets": 24997,
+            "frameBytes": 2480780,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 147372.27500003576,
+            "alive": 160,
+            "bodySegments": 247735,
+            "pellets": 24997,
+            "frameBytes": 2488252,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 148443.12000000477,
+            "alive": 160,
+            "bodySegments": 250568,
+            "pellets": 24992,
+            "frameBytes": 2510816,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 149379.25,
+            "alive": 160,
+            "bodySegments": 251608,
+            "pellets": 24996,
+            "frameBytes": 2519216,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 150392.2649999857,
+            "alive": 160,
+            "bodySegments": 253805,
+            "pellets": 24995,
+            "frameBytes": 2536772,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 151361.7350000143,
+            "alive": 160,
+            "bodySegments": 255085,
+            "pellets": 24997,
+            "frameBytes": 2547052,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 152301.05000001192,
+            "alive": 160,
+            "bodySegments": 256685,
+            "pellets": 24998,
+            "frameBytes": 2559872,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 153317.8600000143,
+            "alive": 156,
+            "bodySegments": 251099,
+            "pellets": 25007,
+            "frameBytes": 2515204,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 154313.10000002384,
+            "alive": 152,
+            "bodySegments": 245031,
+            "pellets": 25016,
+            "frameBytes": 2466680,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 155348.15000003576,
+            "alive": 151,
+            "bodySegments": 244917,
+            "pellets": 25000,
+            "frameBytes": 2465408,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 156463.63499999046,
+            "alive": 150,
+            "bodySegments": 243744,
+            "pellets": 24995,
+            "frameBytes": 2455884,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 157449.625,
+            "alive": 150,
+            "bodySegments": 245744,
+            "pellets": 24993,
+            "frameBytes": 2471844,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 158451.96000003815,
+            "alive": 148,
+            "bodySegments": 244257,
+            "pellets": 24997,
+            "frameBytes": 2459948,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 159470.61500000954,
+            "alive": 148,
+            "bodySegments": 246497,
+            "pellets": 24992,
+            "frameBytes": 2477768,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 160335.60000002384,
+            "alive": 147,
+            "bodySegments": 247137,
+            "pellets": 24996,
+            "frameBytes": 2482928,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 161468.91000002623,
+            "alive": 146,
+            "bodySegments": 247638,
+            "pellets": 25003,
+            "frameBytes": 2487036,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 162471.8299999833,
+            "alive": 145,
+            "bodySegments": 249179,
+            "pellets": 24998,
+            "frameBytes": 2499224,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 163319.56499999762,
+            "alive": 145,
+            "bodySegments": 251099,
+            "pellets": 24996,
+            "frameBytes": 2514544,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 164340.0799999833,
+            "alive": 145,
+            "bodySegments": 253378,
+            "pellets": 24994,
+            "frameBytes": 2532736,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 165342.5450000167,
+            "alive": 144,
+            "bodySegments": 253891,
+            "pellets": 24999,
+            "frameBytes": 2536900,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 166391.6399999857,
+            "alive": 143,
+            "bodySegments": 253111,
+            "pellets": 24996,
+            "frameBytes": 2530560,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 167374.60500001907,
+            "alive": 141,
+            "bodySegments": 251153,
+            "pellets": 25004,
+            "frameBytes": 2514976,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 168395.44999998808,
+            "alive": 140,
+            "bodySegments": 251734,
+            "pellets": 25003,
+            "frameBytes": 2519564,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 169227.99000000954,
+            "alive": 140,
+            "bodySegments": 252854,
+            "pellets": 24995,
+            "frameBytes": 2528364,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 170430.93999999762,
+            "alive": 139,
+            "bodySegments": 253035,
+            "pellets": 24993,
+            "frameBytes": 2529732,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 171442.60000002384,
+            "alive": 137,
+            "bodySegments": 249957,
+            "pellets": 25000,
+            "frameBytes": 2505168,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 172328.2200000286,
+            "alive": 136,
+            "bodySegments": 249818,
+            "pellets": 24999,
+            "frameBytes": 2503996,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 173465.155000031,
+            "alive": 133,
+            "bodySegments": 246729,
+            "pellets": 25001,
+            "frameBytes": 2479204,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 174468.61500000954,
+            "alive": 132,
+            "bodySegments": 245310,
+            "pellets": 24997,
+            "frameBytes": 2467732,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 175462.3299999833,
+            "alive": 132,
+            "bodySegments": 247652,
+            "pellets": 24994,
+            "frameBytes": 2486408,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 176463.69999998808,
+            "alive": 130,
+            "bodySegments": 244539,
+            "pellets": 24997,
+            "frameBytes": 2461484,
+            "viewMode": "follow"
+          },
+          {
+            "atMs": 177418.94499999285,
+            "alive": 130,
+            "bodySegments": 246717,
+            "pellets": 24993,
+            "frameBytes": 2478828,
+            "viewMode": "follow"
+          }
+        ]
+      },
+      "heapSamples": [
+        {
+          "atMs": 118484.1100000143,
+          "usedJSHeapBytes": 21563239,
+          "totalJSHeapBytes": 27902715
+        },
+        {
+          "atMs": 119482.84000003338,
+          "usedJSHeapBytes": 21627607,
+          "totalJSHeapBytes": 27956615
+        },
+        {
+          "atMs": 120486.19499999285,
+          "usedJSHeapBytes": 21158435,
+          "totalJSHeapBytes": 28024915
+        },
+        {
+          "atMs": 121484.17000001669,
+          "usedJSHeapBytes": 21490643,
+          "totalJSHeapBytes": 28011395
+        },
+        {
+          "atMs": 122487.27500003576,
+          "usedJSHeapBytes": 22379075,
+          "totalJSHeapBytes": 28014427
+        },
+        {
+          "atMs": 123484.530000031,
+          "usedJSHeapBytes": 22300541,
+          "totalJSHeapBytes": 28053945
+        },
+        {
+          "atMs": 124485.16000002623,
+          "usedJSHeapBytes": 22527549,
+          "totalJSHeapBytes": 28097277
+        },
+        {
+          "atMs": 125476.18000000715,
+          "usedJSHeapBytes": 22217009,
+          "totalJSHeapBytes": 28934581
+        },
+        {
+          "atMs": 126489.66500002146,
+          "usedJSHeapBytes": 18790168,
+          "totalJSHeapBytes": 24246988
+        },
+        {
+          "atMs": 127475.34500002861,
+          "usedJSHeapBytes": 19371596,
+          "totalJSHeapBytes": 24268996
+        },
+        {
+          "atMs": 128487.625,
+          "usedJSHeapBytes": 19570231,
+          "totalJSHeapBytes": 26616391
+        },
+        {
+          "atMs": 129492.1399999857,
+          "usedJSHeapBytes": 17207752,
+          "totalJSHeapBytes": 24574916
+        },
+        {
+          "atMs": 130494.35000002384,
+          "usedJSHeapBytes": 19933889,
+          "totalJSHeapBytes": 24077785
+        },
+        {
+          "atMs": 131475.32499998808,
+          "usedJSHeapBytes": 19254460,
+          "totalJSHeapBytes": 24073928
+        },
+        {
+          "atMs": 132477.56000000238,
+          "usedJSHeapBytes": 24951121,
+          "totalJSHeapBytes": 34613177
+        },
+        {
+          "atMs": 133480.12000000477,
+          "usedJSHeapBytes": 26206484,
+          "totalJSHeapBytes": 32301908
+        },
+        {
+          "atMs": 134476.75,
+          "usedJSHeapBytes": 18205561,
+          "totalJSHeapBytes": 27540757
+        },
+        {
+          "atMs": 135481.50999999046,
+          "usedJSHeapBytes": 26111559,
+          "totalJSHeapBytes": 32372655
+        },
+        {
+          "atMs": 136479.02500003576,
+          "usedJSHeapBytes": 17040490,
+          "totalJSHeapBytes": 27580678
+        },
+        {
+          "atMs": 137482.10000002384,
+          "usedJSHeapBytes": 20077701,
+          "totalJSHeapBytes": 27606537
+        },
+        {
+          "atMs": 138479.85000002384,
+          "usedJSHeapBytes": 28343111,
+          "totalJSHeapBytes": 32766439
+        },
+        {
+          "atMs": 139486.68500000238,
+          "usedJSHeapBytes": 22759769,
+          "totalJSHeapBytes": 30369137
+        },
+        {
+          "atMs": 140485.60500001907,
+          "usedJSHeapBytes": 24304647,
+          "totalJSHeapBytes": 35334851
+        },
+        {
+          "atMs": 141485.81999999285,
+          "usedJSHeapBytes": 25717735,
+          "totalJSHeapBytes": 32944275
+        },
+        {
+          "atMs": 142489.27500003576,
+          "usedJSHeapBytes": 17111255,
+          "totalJSHeapBytes": 27952335
+        },
+        {
+          "atMs": 143483.6399999857,
+          "usedJSHeapBytes": 23121610,
+          "totalJSHeapBytes": 30728038
+        },
+        {
+          "atMs": 144475.89500004053,
+          "usedJSHeapBytes": 30459986,
+          "totalJSHeapBytes": 35751982
+        },
+        {
+          "atMs": 145479.05000001192,
+          "usedJSHeapBytes": 19678430,
+          "totalJSHeapBytes": 28222590
+        },
+        {
+          "atMs": 146492.28500002623,
+          "usedJSHeapBytes": 27823207,
+          "totalJSHeapBytes": 33202291
+        },
+        {
+          "atMs": 147491.71500003338,
+          "usedJSHeapBytes": 25491807,
+          "totalJSHeapBytes": 35460963
+        },
+        {
+          "atMs": 148491.375,
+          "usedJSHeapBytes": 26735511,
+          "totalJSHeapBytes": 33025839
+        },
+        {
+          "atMs": 149476.67500001192,
+          "usedJSHeapBytes": 18071747,
+          "totalJSHeapBytes": 28042783
+        },
+        {
+          "atMs": 150481.73000001907,
+          "usedJSHeapBytes": 23394008,
+          "totalJSHeapBytes": 30604936
+        },
+        {
+          "atMs": 151478.5450000167,
+          "usedJSHeapBytes": 24674283,
+          "totalJSHeapBytes": 35983175
+        },
+        {
+          "atMs": 152483.87000000477,
+          "usedJSHeapBytes": 20196582,
+          "totalJSHeapBytes": 28387570
+        },
+        {
+          "atMs": 153493.91500002146,
+          "usedJSHeapBytes": 28462136,
+          "totalJSHeapBytes": 33320584
+        },
+        {
+          "atMs": 154481.56499999762,
+          "usedJSHeapBytes": 28488227,
+          "totalJSHeapBytes": 38090723
+        },
+        {
+          "atMs": 155483.22500002384,
+          "usedJSHeapBytes": 24465701,
+          "totalJSHeapBytes": 30655925
+        },
+        {
+          "atMs": 156482.21500003338,
+          "usedJSHeapBytes": 18643986,
+          "totalJSHeapBytes": 28177814
+        },
+        {
+          "atMs": 157482.19999998808,
+          "usedJSHeapBytes": 27352916,
+          "totalJSHeapBytes": 33134184
+        },
+        {
+          "atMs": 158484.405000031,
+          "usedJSHeapBytes": 18856031,
+          "totalJSHeapBytes": 28187263
+        },
+        {
+          "atMs": 159484.14500004053,
+          "usedJSHeapBytes": 27653212,
+          "totalJSHeapBytes": 33420704
+        },
+        {
+          "atMs": 160483.25999999046,
+          "usedJSHeapBytes": 28373199,
+          "totalJSHeapBytes": 38144235
+        },
+        {
+          "atMs": 161486.0149999857,
+          "usedJSHeapBytes": 30022994,
+          "totalJSHeapBytes": 35980354
+        },
+        {
+          "atMs": 162482.53500002623,
+          "usedJSHeapBytes": 18887763,
+          "totalJSHeapBytes": 28271307
+        },
+        {
+          "atMs": 163488.74000000954,
+          "usedJSHeapBytes": 28129575,
+          "totalJSHeapBytes": 33310759
+        },
+        {
+          "atMs": 164485.530000031,
+          "usedJSHeapBytes": 23374968,
+          "totalJSHeapBytes": 30853012
+        },
+        {
+          "atMs": 165487.24500000477,
+          "usedJSHeapBytes": 22395915,
+          "totalJSHeapBytes": 33408171
+        },
+        {
+          "atMs": 166487.97500002384,
+          "usedJSHeapBytes": 22678480,
+          "totalJSHeapBytes": 30847244
+        },
+        {
+          "atMs": 167489.89500004053,
+          "usedJSHeapBytes": 28710682,
+          "totalJSHeapBytes": 33339790
+        },
+        {
+          "atMs": 168476.79000002146,
+          "usedJSHeapBytes": 23060563,
+          "totalJSHeapBytes": 30843475
+        },
+        {
+          "atMs": 169477.41500002146,
+          "usedJSHeapBytes": 22684495,
+          "totalJSHeapBytes": 33367971
+        },
+        {
+          "atMs": 170480.58500003815,
+          "usedJSHeapBytes": 26374329,
+          "totalJSHeapBytes": 33368689
+        },
+        {
+          "atMs": 171491.8899999857,
+          "usedJSHeapBytes": 17610771,
+          "totalJSHeapBytes": 28277531
+        },
+        {
+          "atMs": 172478.1399999857,
+          "usedJSHeapBytes": 24634537,
+          "totalJSHeapBytes": 30789641
+        },
+        {
+          "atMs": 173479.69499999285,
+          "usedJSHeapBytes": 22239419,
+          "totalJSHeapBytes": 30716287
+        },
+        {
+          "atMs": 174482.14500004053,
+          "usedJSHeapBytes": 17555147,
+          "totalJSHeapBytes": 28202851
+        },
+        {
+          "atMs": 175478.35000002384,
+          "usedJSHeapBytes": 26520270,
+          "totalJSHeapBytes": 33186894
+        },
+        {
+          "atMs": 176477.57499998808,
+          "usedJSHeapBytes": 17145879,
+          "totalJSHeapBytes": 28190143
+        },
+        {
+          "atMs": 177479.09000003338,
+          "usedJSHeapBytes": 26324071,
+          "totalJSHeapBytes": 33161107
+        }
+      ],
+      "visibility": "visible",
+      "focus": true,
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "devicePixelRatio": 1
+      },
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+      "canvas": [
+        {
+          "id": "c",
+          "width": 1280,
+          "height": 720,
+          "cssWidth": 1280,
+          "cssHeight": 720
+        },
+        {
+          "id": "vizCanvas",
+          "width": 360,
+          "height": 400,
+          "cssWidth": 0,
+          "cssHeight": 0
+        },
+        {
+          "id": "statsCanvas",
+          "width": 360,
+          "height": 300,
+          "cssWidth": 0,
+          "cssHeight": 0
+        }
+      ],
+      "visibilityChanges": []
+    }
+  },
+  "initialRadialSelectionAttempt": {
+    "scope": "Earlier candidate with radial half-pixel point selection; its full-minute failure motivated the bounded curve selection. Not a passing gate.",
+    "intervals": {
+      "samples": 1739,
+      "p95Ms": 50.06500000000233,
+      "maxMs": 50.29000000000087,
+      "fractionAtMost40Ms": 0.8729154686601495
+    }
+  },
+  "densityAudits": {
+    "overview": {
+      "wallSeconds": 210.00523180000002,
+      "frames": 1294,
+      "capacityHeldWallSeconds": 179.2747968,
+      "requiredSegmentScope": "both endpoints inside arena, after 30-point head skip",
+      "peak": {
+        "generation": 1,
+        "alive": 98,
+        "bodyPoints": 279715,
+        "bodySegments": 279617,
+        "longestBody": 5000,
+        "pellets": 24998,
+        "bytes": 2740848,
+        "inArenaCollisionSegments": 266686,
+        "outsideArenaPoints": 10089
+      },
+      "stopReason": "wall-time-limit",
+      "nativeBuildIdentifier": "slither_native/0.1.0+d1d1defd06f7.e55a6c17df710abc",
+      "authorityFault": null,
+      "reliableFailures": 0,
+      "schedulerOverloaded": true,
+      "telemetry": {
+        "step": {
+          "samples": 1294,
+          "meanMs": 161.21686476043277,
+          "p95Ms": 256,
+          "p99Ms": 256,
+          "maxMs": 225.997,
+          "percentilesAreUpperBounds": true
+        },
+        "simulatedWallRatio": 0.10267337168979128
+      },
+      "samples": [
+        {
+          "generation": 1,
+          "alive": 300,
+          "bodyPoints": 42000,
+          "bodySegments": 41700,
+          "longestBody": 140,
+          "pellets": 25000,
+          "bytes": 845632,
+          "inArenaCollisionSegments": 33000,
+          "outsideArenaPoints": 0,
+          "wallSeconds": 0.014136199999999974
+        },
+        {
+          "generation": 1,
+          "alive": 279,
+          "bodyPoints": 125318,
+          "bodySegments": 125039,
+          "longestBody": 1020,
+          "pellets": 24986,
+          "bytes": 1511224,
+          "inArenaCollisionSegments": 116948,
+          "outsideArenaPoints": 0,
+          "wallSeconds": 5.054061399999999
+        },
+        {
+          "generation": 1,
+          "alive": 264,
+          "bodyPoints": 158988,
+          "bodySegments": 158724,
+          "longestBody": 1260,
+          "pellets": 24988,
+          "bytes": 1780144,
+          "inArenaCollisionSegments": 151068,
+          "outsideArenaPoints": 0,
+          "wallSeconds": 10.0967533
+        },
+        {
+          "generation": 1,
+          "alive": 257,
+          "bodyPoints": 180008,
+          "bodySegments": 179751,
+          "longestBody": 1580,
+          "pellets": 24991,
+          "bytes": 1948140,
+          "inArenaCollisionSegments": 172298,
+          "outsideArenaPoints": 0,
+          "wallSeconds": 15.1377009
+        },
+        {
+          "generation": 1,
+          "alive": 239,
+          "bodyPoints": 192440,
+          "bodySegments": 192201,
+          "longestBody": 1900,
+          "pellets": 24989,
+          "bytes": 2046980,
+          "inArenaCollisionSegments": 185177,
+          "outsideArenaPoints": 93,
+          "wallSeconds": 20.196127800000003
+        },
+        {
+          "generation": 1,
+          "alive": 228,
+          "bodyPoints": 201046,
+          "bodySegments": 200818,
+          "longestBody": 1980,
+          "pellets": 24986,
+          "bytes": 2115416,
+          "inArenaCollisionSegments": 194099,
+          "outsideArenaPoints": 107,
+          "wallSeconds": 25.252307300000002
+        },
+        {
+          "generation": 1,
+          "alive": 215,
+          "bodyPoints": 206644,
+          "bodySegments": 206429,
+          "longestBody": 2140,
+          "pellets": 25001,
+          "bytes": 2160084,
+          "inArenaCollisionSegments": 200138,
+          "outsideArenaPoints": 56,
+          "wallSeconds": 30.266147800000002
+        },
+        {
+          "generation": 1,
+          "alive": 206,
+          "bodyPoints": 214409,
+          "bodySegments": 214203,
+          "longestBody": 2380,
+          "pellets": 24994,
+          "bytes": 2221776,
+          "inArenaCollisionSegments": 207792,
+          "outsideArenaPoints": 437,
+          "wallSeconds": 35.2994272
+        },
+        {
+          "generation": 1,
+          "alive": 194,
+          "bodyPoints": 213129,
+          "bodySegments": 212935,
+          "longestBody": 2460,
+          "pellets": 25007,
+          "bytes": 2211412,
+          "inArenaCollisionSegments": 206649,
+          "outsideArenaPoints": 660,
+          "wallSeconds": 40.3299973
+        },
+        {
+          "generation": 1,
+          "alive": 191,
+          "bodyPoints": 222869,
+          "bodySegments": 222678,
+          "longestBody": 2540,
+          "pellets": 24996,
+          "bytes": 2289016,
+          "inArenaCollisionSegments": 216517,
+          "outsideArenaPoints": 622,
+          "wallSeconds": 45.3740041
+        },
+        {
+          "generation": 1,
+          "alive": 183,
+          "bodyPoints": 228204,
+          "bodySegments": 228021,
+          "longestBody": 2860,
+          "pellets": 24993,
+          "bytes": 2331380,
+          "inArenaCollisionSegments": 222118,
+          "outsideArenaPoints": 596,
+          "wallSeconds": 50.4615314
+        },
+        {
+          "generation": 1,
+          "alive": 177,
+          "bodyPoints": 232715,
+          "bodySegments": 232538,
+          "longestBody": 3020,
+          "pellets": 24995,
+          "bytes": 2367316,
+          "inArenaCollisionSegments": 226664,
+          "outsideArenaPoints": 741,
+          "wallSeconds": 55.5212961
+        },
+        {
+          "generation": 1,
+          "alive": 172,
+          "bodyPoints": 238038,
+          "bodySegments": 237866,
+          "longestBody": 3180,
+          "pellets": 24987,
+          "bytes": 2409580,
+          "inArenaCollisionSegments": 232075,
+          "outsideArenaPoints": 803,
+          "wallSeconds": 60.6310049
+        },
+        {
+          "generation": 1,
+          "alive": 168,
+          "bodyPoints": 244650,
+          "bodySegments": 244482,
+          "longestBody": 3260,
+          "pellets": 24995,
+          "bytes": 2462508,
+          "inArenaCollisionSegments": 238772,
+          "outsideArenaPoints": 838,
+          "wallSeconds": 65.773208
+        },
+        {
+          "generation": 1,
+          "alive": 162,
+          "bodyPoints": 246057,
+          "bodySegments": 245895,
+          "longestBody": 3340,
+          "pellets": 25010,
+          "bytes": 2473872,
+          "inArenaCollisionSegments": 240082,
+          "outsideArenaPoints": 1115,
+          "wallSeconds": 70.8815551
+        },
+        {
+          "generation": 1,
+          "alive": 160,
+          "bodyPoints": 252968,
+          "bodySegments": 252808,
+          "longestBody": 3340,
+          "pellets": 24995,
+          "bytes": 2528796,
+          "inArenaCollisionSegments": 247010,
+          "outsideArenaPoints": 1158,
+          "wallSeconds": 75.9724118
+        },
+        {
+          "generation": 1,
+          "alive": 151,
+          "bodyPoints": 244668,
+          "bodySegments": 244517,
+          "longestBody": 3740,
+          "pellets": 25005,
+          "bytes": 2462308,
+          "inArenaCollisionSegments": 239329,
+          "outsideArenaPoints": 809,
+          "wallSeconds": 81.1475493
+        },
+        {
+          "generation": 1,
+          "alive": 147,
+          "bodyPoints": 246964,
+          "bodySegments": 246817,
+          "longestBody": 3900,
+          "pellets": 24996,
+          "bytes": 2480368,
+          "inArenaCollisionSegments": 241531,
+          "outsideArenaPoints": 1023,
+          "wallSeconds": 86.1974786
+        },
+        {
+          "generation": 1,
+          "alive": 144,
+          "bodyPoints": 253955,
+          "bodySegments": 253811,
+          "longestBody": 3980,
+          "pellets": 24996,
+          "bytes": 2536200,
+          "inArenaCollisionSegments": 248641,
+          "outsideArenaPoints": 994,
+          "wallSeconds": 91.2362132
+        },
+        {
+          "generation": 1,
+          "alive": 139,
+          "bodyPoints": 252614,
+          "bodySegments": 252475,
+          "longestBody": 4220,
+          "pellets": 24998,
+          "bytes": 2525352,
+          "inArenaCollisionSegments": 247142,
+          "outsideArenaPoints": 1302,
+          "wallSeconds": 96.2949711
+        },
+        {
+          "generation": 1,
+          "alive": 132,
+          "bodyPoints": 247304,
+          "bodySegments": 247172,
+          "longestBody": 4220,
+          "pellets": 24994,
+          "bytes": 2482568,
+          "inArenaCollisionSegments": 241762,
+          "outsideArenaPoints": 1582,
+          "wallSeconds": 101.367507
+        },
+        {
+          "generation": 1,
+          "alive": 128,
+          "bodyPoints": 247752,
+          "bodySegments": 247624,
+          "longestBody": 4220,
+          "pellets": 25011,
+          "bytes": 2486364,
+          "inArenaCollisionSegments": 242105,
+          "outsideArenaPoints": 1807,
+          "wallSeconds": 106.4172315
+        },
+        {
+          "generation": 1,
+          "alive": 126,
+          "bodyPoints": 254940,
+          "bodySegments": 254814,
+          "longestBody": 4380,
+          "pellets": 24996,
+          "bytes": 2543504,
+          "inArenaCollisionSegments": 248836,
+          "outsideArenaPoints": 2324,
+          "wallSeconds": 111.4412187
+        },
+        {
+          "generation": 1,
+          "alive": 123,
+          "bodyPoints": 257672,
+          "bodySegments": 257549,
+          "longestBody": 4380,
+          "pellets": 24994,
+          "bytes": 2565224,
+          "inArenaCollisionSegments": 251304,
+          "outsideArenaPoints": 2678,
+          "wallSeconds": 116.6546164
+        },
+        {
+          "generation": 1,
+          "alive": 122,
+          "bodyPoints": 263631,
+          "bodySegments": 263509,
+          "longestBody": 4540,
+          "pellets": 24996,
+          "bytes": 2612904,
+          "inArenaCollisionSegments": 256848,
+          "outsideArenaPoints": 3123,
+          "wallSeconds": 121.8065316
+        },
+        {
+          "generation": 1,
+          "alive": 121,
+          "bodyPoints": 267727,
+          "bodySegments": 267606,
+          "longestBody": 4620,
+          "pellets": 24996,
+          "bytes": 2645640,
+          "inArenaCollisionSegments": 260274,
+          "outsideArenaPoints": 3823,
+          "wallSeconds": 126.98546370000001
+        },
+        {
+          "generation": 1,
+          "alive": 117,
+          "bodyPoints": 263660,
+          "bodySegments": 263543,
+          "longestBody": 4860,
+          "pellets": 25005,
+          "bytes": 2613156,
+          "inArenaCollisionSegments": 255955,
+          "outsideArenaPoints": 4195,
+          "wallSeconds": 132.06005869999998
+        },
+        {
+          "generation": 1,
+          "alive": 114,
+          "bodyPoints": 261837,
+          "bodySegments": 261723,
+          "longestBody": 4860,
+          "pellets": 24997,
+          "bytes": 2598316,
+          "inArenaCollisionSegments": 253375,
+          "outsideArenaPoints": 5042,
+          "wallSeconds": 137.12910920000002
+        },
+        {
+          "generation": 1,
+          "alive": 111,
+          "bodyPoints": 260297,
+          "bodySegments": 260186,
+          "longestBody": 4940,
+          "pellets": 24998,
+          "bytes": 2585920,
+          "inArenaCollisionSegments": 251760,
+          "outsideArenaPoints": 5207,
+          "wallSeconds": 142.1436865
+        },
+        {
+          "generation": 1,
+          "alive": 109,
+          "bodyPoints": 263562,
+          "bodySegments": 263453,
+          "longestBody": 5000,
+          "pellets": 24997,
+          "bytes": 2611956,
+          "inArenaCollisionSegments": 253530,
+          "outsideArenaPoints": 6762,
+          "wallSeconds": 147.1888862
+        },
+        {
+          "generation": 1,
+          "alive": 107,
+          "bodyPoints": 265155,
+          "bodySegments": 265048,
+          "longestBody": 5000,
+          "pellets": 24998,
+          "bytes": 2624656,
+          "inArenaCollisionSegments": 254862,
+          "outsideArenaPoints": 7083,
+          "wallSeconds": 152.2791047
+        },
+        {
+          "generation": 1,
+          "alive": 106,
+          "bodyPoints": 266489,
+          "bodySegments": 266383,
+          "longestBody": 5000,
+          "pellets": 25011,
+          "bytes": 2635556,
+          "inArenaCollisionSegments": 255556,
+          "outsideArenaPoints": 7753,
+          "wallSeconds": 157.4441659
+        },
+        {
+          "generation": 1,
+          "alive": 104,
+          "bodyPoints": 267683,
+          "bodySegments": 267579,
+          "longestBody": 5000,
+          "pellets": 24997,
+          "bytes": 2644764,
+          "inArenaCollisionSegments": 255871,
+          "outsideArenaPoints": 8692,
+          "wallSeconds": 162.5963156
+        },
+        {
+          "generation": 1,
+          "alive": 104,
+          "bodyPoints": 272551,
+          "bodySegments": 272447,
+          "longestBody": 5000,
+          "pellets": 24998,
+          "bytes": 2683728,
+          "inArenaCollisionSegments": 260380,
+          "outsideArenaPoints": 9051,
+          "wallSeconds": 167.6271546
+        },
+        {
+          "generation": 1,
+          "alive": 102,
+          "bodyPoints": 272610,
+          "bodySegments": 272508,
+          "longestBody": 5000,
+          "pellets": 25004,
+          "bytes": 2684256,
+          "inArenaCollisionSegments": 260449,
+          "outsideArenaPoints": 9101,
+          "wallSeconds": 172.6882518
+        },
+        {
+          "generation": 1,
+          "alive": 101,
+          "bodyPoints": 272649,
+          "bodySegments": 272548,
+          "longestBody": 5000,
+          "pellets": 25005,
+          "bytes": 2684556,
+          "inArenaCollisionSegments": 260145,
+          "outsideArenaPoints": 9474,
+          "wallSeconds": 177.779818
+        },
+        {
+          "generation": 1,
+          "alive": 99,
+          "bodyPoints": 272834,
+          "bodySegments": 272735,
+          "longestBody": 5000,
+          "pellets": 25004,
+          "bytes": 2685952,
+          "inArenaCollisionSegments": 259737,
+          "outsideArenaPoints": 10127,
+          "wallSeconds": 182.8326791
+        },
+        {
+          "generation": 1,
+          "alive": 98,
+          "bodyPoints": 276716,
+          "bodySegments": 276618,
+          "longestBody": 5000,
+          "pellets": 24999,
+          "bytes": 2716876,
+          "inArenaCollisionSegments": 263606,
+          "outsideArenaPoints": 10170,
+          "wallSeconds": 187.9804536
+        },
+        {
+          "generation": 1,
+          "alive": 96,
+          "bodyPoints": 275409,
+          "bodySegments": 275313,
+          "longestBody": 5000,
+          "pellets": 25008,
+          "bytes": 2706536,
+          "inArenaCollisionSegments": 262245,
+          "outsideArenaPoints": 10284,
+          "wallSeconds": 193.02693340000002
+        },
+        {
+          "generation": 1,
+          "alive": 94,
+          "bodyPoints": 273051,
+          "bodySegments": 272957,
+          "longestBody": 5000,
+          "pellets": 25003,
+          "bytes": 2687508,
+          "inArenaCollisionSegments": 260058,
+          "outsideArenaPoints": 10173,
+          "wallSeconds": 198.185215
+        },
+        {
+          "generation": 1,
+          "alive": 93,
+          "bodyPoints": 276310,
+          "bodySegments": 276217,
+          "longestBody": 5000,
+          "pellets": 25010,
+          "bytes": 2713688,
+          "inArenaCollisionSegments": 263092,
+          "outsideArenaPoints": 10428,
+          "wallSeconds": 203.2259229
+        },
+        {
+          "generation": 1,
+          "alive": 87,
+          "bodyPoints": 260257,
+          "bodySegments": 260170,
+          "longestBody": 5000,
+          "pellets": 25014,
+          "bytes": 2585152,
+          "inArenaCollisionSegments": 246893,
+          "outsideArenaPoints": 10754,
+          "wallSeconds": 208.2883393
+        }
+      ]
+    },
+    "follow": {
+      "wallSeconds": 200.0141267,
+      "frames": 1242,
+      "capacityHeldWallSeconds": 169.7410745,
+      "requiredSegmentScope": "both endpoints inside arena, after 30-point head skip",
+      "peak": {
+        "generation": 1,
+        "alive": 98,
+        "bodyPoints": 279715,
+        "bodySegments": 279617,
+        "longestBody": 5000,
+        "pellets": 24998,
+        "bytes": 2740848,
+        "inArenaCollisionSegments": 266686,
+        "outsideArenaPoints": 10089
+      },
+      "stopReason": "wall-time-limit",
+      "nativeBuildIdentifier": "slither_native/0.1.0+d1d1defd06f7.e55a6c17df710abc",
+      "authorityFault": null,
+      "reliableFailures": 0,
+      "schedulerOverloaded": true,
+      "telemetry": {
+        "step": {
+          "samples": 1241,
+          "meanMs": 160.0117485898469,
+          "p95Ms": 256,
+          "p99Ms": 256,
+          "maxMs": 232.313,
+          "percentilesAreUpperBounds": true
+        },
+        "simulatedWallRatio": 0.10338966376784245
+      },
+      "samples": [
+        {
+          "generation": 1,
+          "alive": 300,
+          "bodyPoints": 42000,
+          "bodySegments": 41700,
+          "longestBody": 140,
+          "pellets": 25000,
+          "bytes": 845632,
+          "inArenaCollisionSegments": 33000,
+          "outsideArenaPoints": 0,
+          "wallSeconds": 0.015797799999999994
+        },
+        {
+          "generation": 1,
+          "alive": 279,
+          "bodyPoints": 126038,
+          "bodySegments": 125759,
+          "longestBody": 1020,
+          "pellets": 24991,
+          "bytes": 1517084,
+          "inArenaCollisionSegments": 117668,
+          "outsideArenaPoints": 0,
+          "wallSeconds": 5.0997851
+        },
+        {
+          "generation": 1,
+          "alive": 263,
+          "bodyPoints": 158928,
+          "bodySegments": 158665,
+          "longestBody": 1260,
+          "pellets": 24996,
+          "bytes": 1779792,
+          "inArenaCollisionSegments": 151038,
+          "outsideArenaPoints": 0,
+          "wallSeconds": 10.2040023
+        },
+        {
+          "generation": 1,
+          "alive": 256,
+          "bodyPoints": 182108,
+          "bodySegments": 181852,
+          "longestBody": 1740,
+          "pellets": 24988,
+          "bytes": 1964848,
+          "inArenaCollisionSegments": 174428,
+          "outsideArenaPoints": 0,
+          "wallSeconds": 15.217404
+        },
+        {
+          "generation": 1,
+          "alive": 239,
+          "bodyPoints": 194360,
+          "bodySegments": 194121,
+          "longestBody": 1900,
+          "pellets": 24992,
+          "bytes": 2062400,
+          "inArenaCollisionSegments": 187105,
+          "outsideArenaPoints": 85,
+          "wallSeconds": 20.367137
+        },
+        {
+          "generation": 1,
+          "alive": 223,
+          "bodyPoints": 198906,
+          "bodySegments": 198683,
+          "longestBody": 1980,
+          "pellets": 24993,
+          "bytes": 2098276,
+          "inArenaCollisionSegments": 192119,
+          "outsideArenaPoints": 97,
+          "wallSeconds": 25.502282299999997
+        },
+        {
+          "generation": 1,
+          "alive": 213,
+          "bodyPoints": 208444,
+          "bodySegments": 208231,
+          "longestBody": 2220,
+          "pellets": 24993,
+          "bytes": 2174260,
+          "inArenaCollisionSegments": 201883,
+          "outsideArenaPoints": 171,
+          "wallSeconds": 30.5404119
+        },
+        {
+          "generation": 1,
+          "alive": 205,
+          "bodyPoints": 216589,
+          "bodySegments": 216384,
+          "longestBody": 2460,
+          "pellets": 24998,
+          "bytes": 2239264,
+          "inArenaCollisionSegments": 209938,
+          "outsideArenaPoints": 501,
+          "wallSeconds": 35.6704258
+        },
+        {
+          "generation": 1,
+          "alive": 193,
+          "bodyPoints": 215530,
+          "bodySegments": 215337,
+          "longestBody": 2540,
+          "pellets": 24993,
+          "bytes": 2230308,
+          "inArenaCollisionSegments": 209030,
+          "outsideArenaPoints": 710,
+          "wallSeconds": 40.7408565
+        },
+        {
+          "generation": 1,
+          "alive": 191,
+          "bodyPoints": 225669,
+          "bodySegments": 225478,
+          "longestBody": 2540,
+          "pellets": 24995,
+          "bytes": 2311396,
+          "inArenaCollisionSegments": 219341,
+          "outsideArenaPoints": 598,
+          "wallSeconds": 45.8050303
+        },
+        {
+          "generation": 1,
+          "alive": 181,
+          "bodyPoints": 227684,
+          "bodySegments": 227503,
+          "longestBody": 2940,
+          "pellets": 24997,
+          "bytes": 2327236,
+          "inArenaCollisionSegments": 221680,
+          "outsideArenaPoints": 574,
+          "wallSeconds": 50.820557799999996
+        },
+        {
+          "generation": 1,
+          "alive": 175,
+          "bodyPoints": 233147,
+          "bodySegments": 232972,
+          "longestBody": 3020,
+          "pellets": 24994,
+          "bytes": 2370688,
+          "inArenaCollisionSegments": 227172,
+          "outsideArenaPoints": 725,
+          "wallSeconds": 55.8712999
+        },
+        {
+          "generation": 1,
+          "alive": 171,
+          "bodyPoints": 238983,
+          "bodySegments": 238812,
+          "longestBody": 3180,
+          "pellets": 24995,
+          "bytes": 2417268,
+          "inArenaCollisionSegments": 232994,
+          "outsideArenaPoints": 859,
+          "wallSeconds": 60.9155252
+        },
+        {
+          "generation": 1,
+          "alive": 168,
+          "bodyPoints": 247562,
+          "bodySegments": 247394,
+          "longestBody": 3260,
+          "pellets": 24994,
+          "bytes": 2485784,
+          "inArenaCollisionSegments": 241486,
+          "outsideArenaPoints": 1036,
+          "wallSeconds": 66.1137583
+        },
+        {
+          "generation": 1,
+          "alive": 162,
+          "bodyPoints": 247977,
+          "bodySegments": 247815,
+          "longestBody": 3340,
+          "pellets": 24996,
+          "bytes": 2488952,
+          "inArenaCollisionSegments": 242046,
+          "outsideArenaPoints": 1071,
+          "wallSeconds": 71.17684449999999
+        },
+        {
+          "generation": 1,
+          "alive": 160,
+          "bodyPoints": 255005,
+          "bodySegments": 254845,
+          "longestBody": 3500,
+          "pellets": 24997,
+          "bytes": 2545132,
+          "inArenaCollisionSegments": 248843,
+          "outsideArenaPoints": 1362,
+          "wallSeconds": 76.32145170000001
+        },
+        {
+          "generation": 1,
+          "alive": 150,
+          "bodyPoints": 243494,
+          "bodySegments": 243344,
+          "longestBody": 3740,
+          "pellets": 24994,
+          "bytes": 2452664,
+          "inArenaCollisionSegments": 238236,
+          "outsideArenaPoints": 758,
+          "wallSeconds": 81.4586727
+        },
+        {
+          "generation": 1,
+          "alive": 146,
+          "bodyPoints": 247704,
+          "bodySegments": 247558,
+          "longestBody": 3900,
+          "pellets": 25004,
+          "bytes": 2486416,
+          "inArenaCollisionSegments": 242366,
+          "outsideArenaPoints": 958,
+          "wallSeconds": 86.4636689
+        },
+        {
+          "generation": 1,
+          "alive": 143,
+          "bodyPoints": 253254,
+          "bodySegments": 253111,
+          "longestBody": 4140,
+          "pellets": 24996,
+          "bytes": 2530560,
+          "inArenaCollisionSegments": 247790,
+          "outsideArenaPoints": 1174,
+          "wallSeconds": 91.5323221
+        },
+        {
+          "generation": 1,
+          "alive": 137,
+          "bodyPoints": 250094,
+          "bodySegments": 249957,
+          "longestBody": 4220,
+          "pellets": 25000,
+          "bytes": 2505168,
+          "inArenaCollisionSegments": 244577,
+          "outsideArenaPoints": 1407,
+          "wallSeconds": 96.5798432
+        },
+        {
+          "generation": 1,
+          "alive": 130,
+          "bodyPoints": 244669,
+          "bodySegments": 244539,
+          "longestBody": 4220,
+          "pellets": 24997,
+          "bytes": 2461484,
+          "inArenaCollisionSegments": 239249,
+          "outsideArenaPoints": 1520,
+          "wallSeconds": 101.612891
+        },
+        {
+          "generation": 1,
+          "alive": 128,
+          "bodyPoints": 250072,
+          "bodySegments": 249944,
+          "longestBody": 4300,
+          "pellets": 24997,
+          "bytes": 2504644,
+          "inArenaCollisionSegments": 244346,
+          "outsideArenaPoints": 1886,
+          "wallSeconds": 106.7494207
+        },
+        {
+          "generation": 1,
+          "alive": 123,
+          "bodyPoints": 252371,
+          "bodySegments": 252248,
+          "longestBody": 4380,
+          "pellets": 25014,
+          "bytes": 2523216,
+          "inArenaCollisionSegments": 246137,
+          "outsideArenaPoints": 2544,
+          "wallSeconds": 111.8043921
+        },
+        {
+          "generation": 1,
+          "alive": 122,
+          "bodyPoints": 257785,
+          "bodySegments": 257663,
+          "longestBody": 4380,
+          "pellets": 24994,
+          "bytes": 2566096,
+          "inArenaCollisionSegments": 251471,
+          "outsideArenaPoints": 2654,
+          "wallSeconds": 116.87947199999999
+        },
+        {
+          "generation": 1,
+          "alive": 121,
+          "bodyPoints": 263091,
+          "bodySegments": 262970,
+          "longestBody": 4540,
+          "pellets": 25002,
+          "bytes": 2608672,
+          "inArenaCollisionSegments": 256115,
+          "outsideArenaPoints": 3346,
+          "wallSeconds": 121.9303622
+        },
+        {
+          "generation": 1,
+          "alive": 119,
+          "bodyPoints": 263367,
+          "bodySegments": 263248,
+          "longestBody": 4780,
+          "pellets": 25007,
+          "bytes": 2610916,
+          "inArenaCollisionSegments": 255809,
+          "outsideArenaPoints": 3988,
+          "wallSeconds": 126.95266009999999
+        },
+        {
+          "generation": 1,
+          "alive": 117,
+          "bodyPoints": 264700,
+          "bodySegments": 264583,
+          "longestBody": 4860,
+          "pellets": 24998,
+          "bytes": 2621336,
+          "inArenaCollisionSegments": 256862,
+          "outsideArenaPoints": 4328,
+          "wallSeconds": 132.04163509999998
+        },
+        {
+          "generation": 1,
+          "alive": 112,
+          "bodyPoints": 258757,
+          "bodySegments": 258645,
+          "longestBody": 4940,
+          "pellets": 25004,
+          "bytes": 2573752,
+          "inArenaCollisionSegments": 250199,
+          "outsideArenaPoints": 5198,
+          "wallSeconds": 137.1515846
+        },
+        {
+          "generation": 1,
+          "alive": 111,
+          "bodyPoints": 261792,
+          "bodySegments": 261681,
+          "longestBody": 5000,
+          "pellets": 24997,
+          "bytes": 2597860,
+          "inArenaCollisionSegments": 253195,
+          "outsideArenaPoints": 5267,
+          "wallSeconds": 142.2371599
+        },
+        {
+          "generation": 1,
+          "alive": 108,
+          "bodyPoints": 262627,
+          "bodySegments": 262519,
+          "longestBody": 5000,
+          "pellets": 24999,
+          "bytes": 2604484,
+          "inArenaCollisionSegments": 252713,
+          "outsideArenaPoints": 6674,
+          "wallSeconds": 147.2434773
+        },
+        {
+          "generation": 1,
+          "alive": 107,
+          "bodyPoints": 266182,
+          "bodySegments": 266075,
+          "longestBody": 5000,
+          "pellets": 24997,
+          "bytes": 2632852,
+          "inArenaCollisionSegments": 255590,
+          "outsideArenaPoints": 7382,
+          "wallSeconds": 152.2746587
+        },
+        {
+          "generation": 1,
+          "alive": 104,
+          "bodyPoints": 262369,
+          "bodySegments": 262265,
+          "longestBody": 5000,
+          "pellets": 25017,
+          "bytes": 2602652,
+          "inArenaCollisionSegments": 251440,
+          "outsideArenaPoints": 7809,
+          "wallSeconds": 157.378156
+        },
+        {
+          "generation": 1,
+          "alive": 104,
+          "bodyPoints": 268298,
+          "bodySegments": 268194,
+          "longestBody": 5000,
+          "pellets": 24998,
+          "bytes": 2649704,
+          "inArenaCollisionSegments": 256278,
+          "outsideArenaPoints": 8900,
+          "wallSeconds": 162.38920000000002
+        },
+        {
+          "generation": 1,
+          "alive": 104,
+          "bodyPoints": 273271,
+          "bodySegments": 273167,
+          "longestBody": 5000,
+          "pellets": 24997,
+          "bytes": 2689468,
+          "inArenaCollisionSegments": 261104,
+          "outsideArenaPoints": 9047,
+          "wallSeconds": 167.4990826
+        },
+        {
+          "generation": 1,
+          "alive": 102,
+          "bodyPoints": 273676,
+          "bodySegments": 273574,
+          "longestBody": 5000,
+          "pellets": 24996,
+          "bytes": 2692624,
+          "inArenaCollisionSegments": 261360,
+          "outsideArenaPoints": 9256,
+          "wallSeconds": 172.6226279
+        },
+        {
+          "generation": 1,
+          "alive": 101,
+          "bodyPoints": 273916,
+          "bodySegments": 273815,
+          "longestBody": 5000,
+          "pellets": 24995,
+          "bytes": 2694492,
+          "inArenaCollisionSegments": 261333,
+          "outsideArenaPoints": 9553,
+          "wallSeconds": 177.66711429999998
+        },
+        {
+          "generation": 1,
+          "alive": 99,
+          "bodyPoints": 273714,
+          "bodySegments": 273615,
+          "longestBody": 5000,
+          "pellets": 24997,
+          "bytes": 2692852,
+          "inArenaCollisionSegments": 260705,
+          "outsideArenaPoints": 10039,
+          "wallSeconds": 182.7165744
+        },
+        {
+          "generation": 1,
+          "alive": 98,
+          "bodyPoints": 277395,
+          "bodySegments": 277297,
+          "longestBody": 5000,
+          "pellets": 24996,
+          "bytes": 2722248,
+          "inArenaCollisionSegments": 264334,
+          "outsideArenaPoints": 10121,
+          "wallSeconds": 187.7620814
+        },
+        {
+          "generation": 1,
+          "alive": 95,
+          "bodyPoints": 271369,
+          "bodySegments": 271274,
+          "longestBody": 5000,
+          "pellets": 25009,
+          "bytes": 2674204,
+          "inArenaCollisionSegments": 259110,
+          "outsideArenaPoints": 9409,
+          "wallSeconds": 192.8417465
+        },
+        {
+          "generation": 1,
+          "alive": 94,
+          "bodyPoints": 273771,
+          "bodySegments": 273677,
+          "longestBody": 5000,
+          "pellets": 24997,
+          "bytes": 2693148,
+          "inArenaCollisionSegments": 260794,
+          "outsideArenaPoints": 10157,
+          "wallSeconds": 197.97877739999998
+        }
+      ]
+    }
+  },
+  "ordinaryAuthority": {
+    "ok": true,
+    "nativeBuildIdentifier": "slither_native/0.1.0+d1d1defd06f7.e55a6c17df710abc",
+    "calculationWorkers": 6,
+    "completedSteps": 2700,
+    "simulatedSeconds": 45,
+    "wallSeconds": 45.0410855,
+    "simulatedWallRatio": 0.9990878217177959,
+    "schedulerDroppedWallMicros": "0000000000000000",
+    "schedulerOverloaded": false,
+    "step": {
+      "samples": 2700,
+      "meanMs": 2.760797407407407,
+      "p95Ms": 4,
+      "p99Ms": 4,
+      "maxMs": 5.258,
+      "percentilesAreUpperBounds": true
+    }
+  },
+  "limits": [
+    "The ordinary comparison is a short paired drawing diagnostic, not a full-minute ordinary LAN/player or whole-simulation benchmark.",
+    "Dense full-minute captures use a local Windows production server. Prior Linux sustained in-arena capacity evidence is reused because Rust and frame transport are unchanged. This does not close the physical-laptop or trusted-LAN final-source gate.",
+    "The dense geometry workload remains overloaded at requested 1x. Drawing gains do not establish faster brains, sensors or world physics, or speed on every browser/GPU.",
+    "Far overview intentionally omits subpixel glow, uses equal-area food marks below one CSS pixel in diameter, and simplifies displayed bodies within half a CSS pixel. Close-up circles, complete body paths and authoritative geometry remain available."
+  ],
+  "validation": [
+    "Seven renderer regressions and three serializer contracts passed. TypeScript, focused ESLint and Vite production build passed. Previous ab34b87 CI completed successfully."
+  ],
+  "screenshots": [
+    {
+      "file": "renderer-overview-ab34b87-20261001.png",
+      "sha256": "23cc4ded6e868b0f38b18d2e679e5edc1bc70764f6adc23ddee7d366433f8e92"
+    },
+    {
+      "file": "renderer-follow-ab34b87-20261001.png",
+      "sha256": "a12390b2864a14a954cd4d3f40dd8ff061708705e766dd01a781b7eabe67ba83"
+    },
+    {
+      "file": "renderer-ordinary-ab34b87-20261001.png",
+      "sha256": "3ce111d68caeeeab969a9dd71f53036d65837041a0704bc2d8509706c894d1f9"
+    }
+  ]
+}

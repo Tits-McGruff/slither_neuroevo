@@ -44,7 +44,7 @@ is actually needed.
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
 | 6 | Rust runtime complete | Rust owns durable startup/recovery, continuous frames/stats, browser and Protocol 2 routing, generation persistence, managed retention, commands, and direct archive export/import. |
-| 7 | Acceptance active | P0/P1/P2 server timing, LAN steering and desktop drawing, real trainer traffic, large archives and bounded persistence slices are retained. The corrected replacement-token path passes a complete loaded P1 player/RSS/queue soak. Laptop/P4 rendering, archive heap and final durability acceptance remain. |
+| 7 | Acceptance active | P0/P1/P2 server timing, LAN steering and desktop drawing, real trainer traffic, large archives and bounded persistence slices are retained. The corrected replacement-token path passes a complete loaded P1 player/RSS/queue soak. Crowded P4 desktop follow/overview drawing passes locally; physical laptop/final-source LAN drawing, archive heap and final durability acceptance remain. |
 | 8 | Production cutover active | Normal npm and launcher startup selects Rust; the TypeScript game is retained only as `server:reference`. Deployment/service and final acceptance remain. |
 
 ## Milestone index
@@ -1561,3 +1561,20 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   CI passed. All test servers, task-owned checkouts/builds and copied databases
   were stopped/removed after evidence checksum checks. Overview drawing,
   laptop/archive acceptance and final production gates remain open.
+
+- 2026-10-01 Distant rendering now omits subpixel glow and draws food below one
+  CSS pixel in diameter with equal-area marks. Body drawing uses bounded chunks
+  and reusable scratch to keep curves within half a CSS pixel; complete input
+  geometry and close-up paths remain intact. Regressions cover curve error,
+  endpoints, returning tails, sharp turns, food centers/area and near-view detail.
+  Full-minute foreground desktop captures of real crowded frames passed:
+  overview p95 33.5 ms with 99.3% of intervals below 40 ms; follow p95 16.8 ms
+  with every interval below 40 ms. A short repeated-baseline comparison on one
+  ordinary frame (43 snakes, 448 points, 3,506 pellets) improved overview p95
+  from 66.7 to 16.8 ms. This is browser-specific drawing evidence, not a brains,
+  sensors or whole-simulation speed claim. Reports and source identities are
+  retained as `renderer-*-ab34b87-20261001.*`; Rust capacity evidence from
+  `83402fa` remains applicable. Renderer/serializer tests, TypeScript, focused
+  ESLint and Vite passed; preceding `ab34b87` CI passed. Test processes and
+  copied databases/scratch were stopped/removed. Physical laptop/final-source
+  LAN drawing, archive heap and final production acceptance remain open.
