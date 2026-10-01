@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "measuredAt": "2026-10-01",
   "platform": "Oxygen Ryzen 7 2700 / Debian x86_64 GNU",
+  "reportedHostContention": "The owner subsequently reported Plex and media-preview-generator hogging CPU on Unraid while discussing these slow runs. Host CPU utilization and the exact overlap were not captured. The interleaved cold pairs remain diagnostic measurements; they do not qualify unloaded target-VM performance.",
   "baseCommit": "875f0305783ef5a7399e5b8cd923619249e45b45",
   "method": "Three interleaved before/after pairs, each a separate process executing one cold complete step. SSE2, six workers, P1 brain and the established dense sensing world, zero warmup. Both binaries built from the base plus the identical profiling extension; after also removes the redundant segment tie sort in the collision cell index.",
   "scope": "Diagnostic collision profile only. The synthetic bodies overlap and all 310 snakes die normally during the step. This is neither sustained throughput nor production P4 acceptance. All controls, sensing, collision substeps, deaths, corpse effects and publication remain enabled.",

@@ -1503,8 +1503,25 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   peak RSS was higher, 361 versus 321 MiB. Both runs stayed healthy and within
   queue limits but reported overload; the earlier 169.9 ms capacity mean was
   not reproduced by the restored-sort run. Paired reports/manifests are retained
-  as `p4-physics-paired-*-875f030-20261001.json` and the corresponding
+  with the owner's subsequent report of Plex/media-preview-generator CPU
+  contention on Unraid; the timings do not qualify an unloaded target VM.
+  They are `p4-physics-paired-*-875f030-20261001.json` and the corresponding
   `p4-capacity-*-20261001.json` files. Engine regressions, normal-addon bridge,
   frame and real-server contracts, rustfmt and Clippy passed; `875f030` CI
   passed. The stopped remote checkout, addons, builds and copied databases were
   removed. P4 timing/LAN/browser and final acceptance remain open.
+
+- 2026-10-01 A real browser inspection exposed an unsuitable P4 preparation
+  shape: 98.7% of the audited points were straight tail extensions outside the
+  arena. The earlier runs remain storage/frame-capacity and diagnostic timing
+  evidence; they do not qualify crowded in-arena collision or drawing. The
+  bounded browser observer now records actual frame counts and view modes.
+  LAN preparation audits in-arena collision segments after the head skip and
+  uses bounded bodies, a larger arena and normal fast movement. Ordinary deaths
+  still prevented its >200k target. An early-exit regression run honestly
+  reported failure after 27.65 seconds, while healthy, then closed the server.
+  Three geometry regressions, test-category checks, TypeScript and focused
+  ESLint passed; `93d6e6d` CI passed. Compact reports/screenshots and a read-only
+  Carbon CPU/load/pinning sample are retained. Task-owned remote processes,
+  checkout, databases and builds were removed; owner service stays stopped.
+  A sustained >200k in-arena fixture and final P4/laptop/archive gates remain.

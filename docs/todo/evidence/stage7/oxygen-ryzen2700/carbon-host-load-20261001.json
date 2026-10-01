@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "sampledAtUtc": "2026-10-01T08:43:31Z",
+  "host": "carbon",
+  "method": "Read-only SSH: nproc, uptime, two one-second batch top snapshots, one docker stats snapshot, narrow docker inspect CPU fields, virsh list/vcpupin/emulatorpin and a bounded docker top sample. No processes, CPU pins, files or configuration changed.",
+  "logicalCpus": 16,
+  "loadAverage": { "oneMinute": 33.48, "fiveMinutes": 34.12, "fifteenMinutes": 29.84 },
+  "secondTopCpuPercent": { "user": 27.8, "system": 27.3, "nice": 5.5, "idle": 23.6, "ioWait": 9.8, "softIrq": 6.0 },
+  "containers": {
+    "Plex-Media-Server": { "cpuPercent": 431.26, "cpuSet": [0, 1, 2, 3, 8, 9, 10, 11], "cpuQuota": 0, "cpuPeriod": 0 },
+    "media-preview-generator": { "cpuPercent": 154.69, "cpuSet": "unrestricted", "cpuQuota": 0, "cpuPeriod": 0 }
+  },
+  "oxygenVm": {
+    "domain": "Debian",
+    "state": "running",
+    "vCpuToHostCpu": [4, 12, 5, 13, 6, 14, 7, 15],
+    "emulatorCpuSet": "0-15"
+  },
+  "interpretation": "Plex's pinned CPUs are separate from Oxygen's vCPU pins. The unrestricted preview generator can compete on Oxygen's assigned CPUs; the process placement sample included those CPUs. Docker percentages are a single instantaneous container sample, not a sustained allocation. Host load and I/O wait also show shared contention.",
+  "historicalScope": "The owner reported contention while discussing preceding slow measurements. This later host sample confirms contention at its own timestamp; it does not establish the exact overlap or isolate the cause of preceding timing changes. Those results do not qualify unloaded target performance."
+}

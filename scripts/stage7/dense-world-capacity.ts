@@ -13,6 +13,8 @@ import type { GraphSpec } from '../../src/brains/graph/types.ts';
 
 /** Required actual segment count for the historical spatial-capacity boundary. */
 const REQUIRED_SEGMENTS = 200_000;
+/** Crowded preparation stays within a bounded per-snake length that can fit the larger arena. */
+const CROWDED_MAXIMUM_LENGTH = 1000;
 /** Supported stress settings, retained verbatim in the report. */
 const UPDATES = [
   { path: 'generationSeconds', value: 480 },
@@ -57,10 +59,14 @@ interface FrameCounts {
   pellets: number;
   /** Exact binary transport size. */
   bytes: number;
+  /** Conservative collision segments with both endpoints inside the arena, when audited. */
+  inArenaCollisionSegments?: number;
+  /** Number of represented points outside the arena, when audited. */
+  outsideArenaPoints?: number;
 }
 
 /** Validate and count every variable-length frame record, including the final pellet section. */
-function frameCounts(bytes: Buffer): FrameCounts {
+export function frameCounts(bytes: Buffer, auditGeometry = false): FrameCounts {
   if (bytes.length < 32 || bytes.length % 4 !== 0) throw new Error('invalid capacity frame size');
   const floats = bytes.length / 4;
   /** Read an exact non-negative bounded integer field. */
@@ -76,8 +82,26 @@ function frameCounts(bytes: Buffer): FrameCounts {
   let bodyPoints = 0;
   let bodySegments = 0;
   let longestBody = 0;
+  let inArenaCollisionSegments = 0;
+  let outsideArenaPoints = 0;
+  const worldRadiusSquared = bytes.readFloatLE(3 * 4) ** 2;
   for (let snake = 0; snake < alive; snake++) {
     const points = integer(offset + 7);
+    if (auditGeometry) {
+      if (offset + 8 + points * 2 >= floats) throw new Error('truncated audited capacity body');
+      let previousInside = false;
+      for (let point = 0; point < points; point++) {
+        const coordinate = (offset + 8 + point * 2) * 4;
+        const x = bytes.readFloatLE(coordinate);
+        const y = bytes.readFloatLE(coordinate + 4);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('nonfinite capacity body');
+        const inside = x * x + y * y <= worldRadiusSquared;
+        if (!inside) outsideArenaPoints++;
+        // The fixture skips the first 30 points for head/body collision indexing.
+        if (point >= 30 && previousInside && inside) inArenaCollisionSegments++;
+        previousInside = inside;
+      }
+    }
     offset += 8 + points * 2;
     if (offset >= floats) throw new Error('truncated capacity body');
     bodyPoints += points;
@@ -86,22 +110,27 @@ function frameCounts(bytes: Buffer): FrameCounts {
   }
   const pellets = integer(offset);
   if (offset + 1 + pellets * 5 !== floats) throw new Error('invalid capacity pellet section');
-  return { generation, alive, bodyPoints, bodySegments, longestBody, pellets, bytes: bytes.length };
+  return { generation, alive, bodyPoints, bodySegments, longestBody, pellets, bytes: bytes.length,
+    ...(auditGeometry ? { inArenaCollisionSegments, outsideArenaPoints } : {}) };
 }
 
 /** Write one bounded genome at a time for normal population-only SQLite conversion. */
-function createSource(databasePath: string): Record<string, unknown> {
+function createSource(databasePath: string, browserLan = false): Record<string, unknown> {
   const graphSpec: GraphSpec = { type: 'graph',
     nodes: [{ id: 'input', type: 'Input', outputSize: 83 },
       { id: 'output', type: 'Dense', inputSize: 83, outputSize: 2 }],
     edges: [{ from: 'input', to: 'output' }], outputs: [{ nodeId: 'output' }], outputSize: 2 };
   const graph = compileGraph(graphSpec);
   if (graph.totalParams !== 168) throw new Error('capacity graph layout changed');
+  const crowdedOverrides: Record<string, number> = { worldRadius: 10000, snakeBaseSpeed: 650,
+    snakeBoostSpeed: 650, snakeStartLen: 5, snakeMaxLen: CROWDED_MAXIMUM_LENGTH };
+  const updates = browserLan ? UPDATES.map(update => ({ ...update,
+    value: crowdedOverrides[update.path] ?? update.value })) : UPDATES;
   const metadata = { formatVersion: 2, boundaryVersion: 1, boundaryKind: 'run-start',
     resumable: true, generation: 1, simulationStep: 0, worldSeed: 1511506142,
     runId: 'dense-world-capacity-source', configHash: 'dense-world-capacity-fixture', configRevision: 1,
     archKey: graph.key, graphSpec, populationCount: 300,
-    settings: { snakeCount: 300, simSpeed: 12 }, updates: UPDATES,
+    settings: { snakeCount: 300, simSpeed: browserLan ? 1 : 12 }, updates,
     rng: {}, allocators: {}, bestFitnessEver: 0, fitnessHistory: [], lastHofEntry: null };
   const database = new Database(databasePath);
   try {
@@ -143,11 +172,12 @@ function createSource(databasePath: string): Record<string, unknown> {
   return metadata;
 }
 
-/** Observe the live production frame stream for one bounded capacity-preparation window. */
-async function observe(port: number, seconds: number): Promise<Record<string, unknown>> {
+/** Observe complete production frames, keeping an admitted dense world available for a bounded UI capture. */
+async function observe(port: number, seconds: number, requiredHoldSeconds: number, auditGeometry: boolean): Promise<Record<string, unknown>> {
   const socket = new WebSocket(`ws://127.0.0.1:${port}`, { maxPayload: 64 * 1024 * 1024 });
   return new Promise<Record<string, unknown>>((done, reject) => {
     const began = performance.now();
+    let stopReason = 'wall-time-limit';
     let finished = false;
     let frames = 0;
     let peak: FrameCounts | null = null;
@@ -187,8 +217,10 @@ async function observe(port: number, seconds: number): Promise<Record<string, un
       if (error) reject(error);
       else if (!welcome || frames === 0) reject(new Error('capacity observer received no live frames'));
       else done({ frames, packetTypes, healthSamples, wallSeconds: (performance.now() - began) / 1000, welcome,
-        peak, samples, reachedRequiredBodySegments: (peak?.bodySegments ?? 0) > REQUIRED_SEGMENTS,
-        capacityHeldSeconds });
+        peak, samples, reachedRequiredBodySegments:
+          (peak?.inArenaCollisionSegments ?? peak?.bodySegments ?? 0) > REQUIRED_SEGMENTS,
+        requiredSegmentScope: auditGeometry ? 'both endpoints inside arena, after 30-point head skip' : 'all adjacent body points',
+        capacityHeldSeconds, requiredHoldSeconds, stopReason });
     }
     socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' })));
     socket.on('error', error => finish(error));
@@ -198,11 +230,12 @@ async function observe(port: number, seconds: number): Promise<Record<string, un
       try {
         if (binary) {
           const bytes = Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data);
-          const counts = frameCounts(bytes);
+          const counts = frameCounts(bytes, auditGeometry);
           const wallSeconds = (performance.now() - began) / 1000;
           frames++;
-          if (!peak || counts.bodySegments > peak.bodySegments) peak = counts;
-          if (counts.bodySegments > REQUIRED_SEGMENTS) {
+          const qualifyingSegments = counts.inArenaCollisionSegments ?? counts.bodySegments;
+          if (!peak || qualifyingSegments > (peak.inArenaCollisionSegments ?? peak.bodySegments)) peak = counts;
+          if (qualifyingSegments > REQUIRED_SEGMENTS) {
             capacityBegan ??= wallSeconds;
             capacityHeldSeconds = wallSeconds - capacityBegan;
           } else {
@@ -214,9 +247,18 @@ async function observe(port: number, seconds: number): Promise<Record<string, un
             lastSample = wallSeconds;
             process.stdout.write(`${JSON.stringify({ wallSeconds, ...counts })}\n`);
           }
-          // A second complete frame at least five seconds later proves further
-          // ordinary steps continued beyond the boundary; this is capacity only.
-          if (capacityHeldSeconds >= 5) finish();
+          // Ordinary capacity uses five seconds; browser mode keeps real physics
+          // advancing long enough for separate foreground follow/overview captures.
+          if (capacityHeldSeconds >= requiredHoldSeconds) {
+            stopReason = 'required-dense-hold-complete';
+            finish();
+          } else if (auditGeometry && counts.generation === 1 &&
+              counts.alive * (CROWDED_MAXIMUM_LENGTH - 30) <= REQUIRED_SEGMENTS) {
+            // With no baseline/external spawns, this generation's survivor count
+            // can only fall. Do not spend the remaining window on an impossible hold.
+            stopReason = 'first-generation-survivors-cannot-reach-in-arena-boundary';
+            finish();
+          }
         } else {
           const packet = JSON.parse(data.toString()) as Record<string, unknown>;
           const type = String(packet['type']);
@@ -232,36 +274,48 @@ async function observe(port: number, seconds: number): Promise<Record<string, un
   });
 }
 
-/** Prepare and observe an absent disposable database; always close its production server. */
-export async function run(databasePath: string, seconds: number): Promise<Record<string, unknown>> {
+/** Prepare an absent disposable database; optional LAN exposure supports separate browser evidence. */
+export async function run(databasePath: string, seconds: number, browserLan = false): Promise<Record<string, unknown>> {
+  if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > (browserLan ? 900 : 600)) {
+    throw new Error('capacity window exceeds its bounded mode limit');
+  }
   if (existsSync(databasePath) || existsSync(`${databasePath}.checkpoints`)) {
     throw new Error('capacity fixture requires absent database and managed paths');
   }
   await mkdir(dirname(databasePath), { recursive: true });
-  const source = createSource(databasePath);
-  const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: databasePath,
+  const source = createSource(databasePath, browserLan);
+  const host = browserLan ? '0.0.0.0' : '127.0.0.1';
+  const requiredHoldSeconds = browserLan ? 180 : 5;
+  const server = await startRustServer({ ...DEFAULT_CONFIG, host, port: browserLan ? 5180 : 0, dbPath: databasePath,
     resume: 'latest', rustCalculationWorkers: 6, logLevel: 'error' });
   try {
     if (server.startupFault) throw new Error(`capacity startup failed: ${server.startupFault}`);
-    const result = await observe(server.port, seconds);
+    process.stdout.write(`${JSON.stringify({ capacityServerReady: true, host, port: server.port,
+      requiredHoldSeconds, maximumWallSeconds: seconds })}\n`);
+    const result = await observe(server.port, seconds, requiredHoldSeconds, browserLan);
     const response = await fetch(`http://127.0.0.1:${server.port}/api/health`, {
       signal: AbortSignal.timeout(10_000)
     });
     const health = await response.json() as Record<string, unknown>;
     if (!response.ok || !health['ok']) throw new Error(`capacity runtime fault: ${JSON.stringify(health)}`);
-    return { source, ...result, health,
-      scope: 'Capacity preparation only: supported dense, slow-motion/high-growth settings, 12x requested preparation speed, ordinary production legacy startup, physics, food, deaths and binary frames. No world/body injection or hooks addon. This is not P4 real-time, LAN, browser follow/overview rendering or final acceptance.' };
+    return { source, ...result, host, port: server.port, browserLan, health,
+      scope: browserLan
+        ? 'Crowded-world preparation through supported 300-snake, 5-point initial bodies, 10000-radius arena, 1000-point maximum bodies, 650-speed movement and 1x requested simulation. Normal production sensing, collisions and deaths. Every observed frame audits actual in-arena collision segments after the 30-point head skip; only those segments qualify the hold. No body injection or hooks addon. Host contention and observation overhead must be accounted for; this report alone does not qualify browser drawing or final P4 acceptance.'
+        : 'Capacity preparation only through supported slow-motion/high-growth settings at 12x requested speed. Normal production sensing, physics, food and deaths; no body injection or hooks addon. Straight tail extension can place most represented points outside the arena. Counts prove storage/frame capacity, not crowded-world collision, browser rendering or final P4 acceptance.' };
   } finally { await server.close(); }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const args = process.argv.slice(2);
-  if (args.length !== 6 || args[0] !== '--db-path' || !args[1] || args[2] !== '--seconds' ||
-      !/^[1-9][0-9]*$/u.test(args[3] ?? '') || Number(args[3]) > 600 ||
-      args[4] !== '--output' || !args[5]) throw new Error('usage: --db-path NEW --seconds 1..600 --output NEW');
+  const browserLan = args[6] === '--browser-lan';
+  if (args.length !== (browserLan ? 7 : 6) || args[0] !== '--db-path' || !args[1] || args[2] !== '--seconds' ||
+      !/^[1-9][0-9]*$/u.test(args[3] ?? '') || Number(args[3]) > (browserLan ? 900 : 600) ||
+      args[4] !== '--output' || !args[5]) {
+    throw new Error('usage: --db-path NEW --seconds 1..600 --output NEW [--browser-lan (up to 900 seconds)]');
+  }
   const output = resolve(args[5]);
   if (existsSync(output)) throw new Error('capacity report destination exists');
-  void run(resolve(args[1]), Number(args[3])).then(async result => {
+  void run(resolve(args[1]), Number(args[3]), browserLan).then(async result => {
     await mkdir(dirname(output), { recursive: true });
     await writeFile(output, `${JSON.stringify(result, null, 2)}\n`);
     process.stdout.write(`${JSON.stringify({ reachedRequiredBodySegments: result['reachedRequiredBodySegments'],

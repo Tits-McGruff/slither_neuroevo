@@ -13,8 +13,46 @@
     assignments: 0, connections: 0, suppressedSensors: 0, suppressedFrames: 0,
     suppressSensors: false, suppressFrames: false, lastAction: null,
     visibilityChanges: [], lastFrameAtMs: null, lastAnimationAtMs: null,
-    lastRenderAtMs: null
+    lastRenderAtMs: null, lastShape: null, shapeSamples: [],
+    decodedFrames: 0, invalidFrames: 0, minBodySegments: null, maxBodySegments: 0,
+    maxFrameBytes: 0, viewModes: {}
   };
+  /** Read only scalar shape counts by jumping over the complete binary frame records. */
+  function observeShape(data) {
+    if (!(data instanceof ArrayBuffer) || data.byteLength % 4 !== 0) {
+      state.invalidFrames += 1;
+      return;
+    }
+    const frame = new Float32Array(data);
+    const alive = frame[2];
+    if (frame.length < 8 || !Number.isSafeInteger(alive) || alive < 0) {
+      state.invalidFrames += 1;
+      return;
+    }
+    let offset = 7;
+    let bodySegments = 0;
+    for (let snake = 0; snake < alive; snake += 1) {
+      const points = frame[offset + 7];
+      if (offset + 8 > frame.length || !Number.isSafeInteger(points) || points < 1) {
+        state.invalidFrames += 1;
+        return;
+      }
+      bodySegments += points - 1;
+      offset += 8 + points * 2;
+    }
+    const pellets = frame[offset];
+    if (!Number.isSafeInteger(pellets) || pellets < 0 || offset + 1 + pellets * 5 !== frame.length) {
+      state.invalidFrames += 1;
+      return;
+    }
+    state.decodedFrames += 1;
+    state.minBodySegments = Math.min(state.minBodySegments ?? bodySegments, bodySegments);
+    state.maxBodySegments = Math.max(state.maxBodySegments, bodySegments);
+    state.maxFrameBytes = Math.max(state.maxFrameBytes, data.byteLength);
+    const viewMode = window.currentWorld?.viewMode ?? 'unknown';
+    state.viewModes[viewMode] = (state.viewModes[viewMode] ?? 0) + 1;
+    state.lastShape = { atMs: performance.now(), alive, bodySegments, pellets, frameBytes: data.byteLength, viewMode };
+  }
   /** Original display scheduler; wrapping observes the real application callback. */
   const nativeAnimationFrame = window.requestAnimationFrame;
   /** Reuse callback wrappers without retaining application callbacks after their owner dies. */
@@ -64,6 +102,7 @@
         }
         state.lastFrameAtMs = now;
         state.frames += 1;
+        observeShape(event.data);
         return;
       }
       const message = JSON.parse(event.data);
@@ -109,6 +148,13 @@
     state.renderIntervalsMs = [];
     state.renderDurationsMs = [];
     state.heapSamples = [];
+    state.shapeSamples = [];
+    state.decodedFrames = 0;
+    state.invalidFrames = 0;
+    state.minBodySegments = null;
+    state.maxBodySegments = 0;
+    state.maxFrameBytes = 0;
+    state.viewModes = {};
     state.lastFrameAtMs = null;
     state.lastAnimationAtMs = null;
     state.lastRenderAtMs = null;
@@ -132,6 +178,10 @@
         renderIntervals: summarize(state.renderIntervalsMs),
         renderDurations: summarize(state.renderDurationsMs),
         networkFrames: summarize(state.frameIntervalsMs),
+        frameShape: { decodedFrames: state.decodedFrames, invalidFrames: state.invalidFrames,
+          minBodySegments: state.minBodySegments, maxBodySegments: state.maxBodySegments,
+          maxFrameBytes: state.maxFrameBytes, viewModes: { ...state.viewModes },
+          samples: [...state.shapeSamples] },
         heapSamples: [...state.heapSamples],
         visibility: document.visibilityState, focus: document.hasFocus(),
         viewport: { width: window.innerWidth, height: window.innerHeight,
@@ -147,6 +197,9 @@
   };
   /** Coarse renderer heap observations supplement independent CDP heap measurements. */
   window.setInterval(() => {
+    if (state.windowPending && state.lastShape && state.shapeSamples.length < 120) {
+      state.shapeSamples.push({ ...state.lastShape });
+    }
     if (!performance.memory || state.heapSamples.length >= 600) return;
     state.heapSamples.push({ atMs: performance.now(),
       usedJSHeapBytes: performance.memory.usedJSHeapSize,

@@ -2,6 +2,8 @@
   "schemaVersion": 1,
   "measuredAt": "2026-10-01",
   "platform": "Oxygen Ryzen 7 2700 / Debian x86_64 GNU",
+  "reportedHostContention": "The owner subsequently reported Plex and media-preview-generator hogging CPU on Unraid while discussing these slow runs. Host CPU utilization and the exact overlap were not captured. Treat the fresh timing comparison as observational evidence under reported host contention, not unloaded target-VM qualification.",
+  "geometryScope": "A later browser audit of the same growth preparation settings showed that most body points extend outside the arena as straight tails. These paired runs remain storage/frame-capacity and diagnostic timing evidence; they do not qualify crowded in-arena P4 collision or rendering acceptance. See p4-overview-diagnostic-93d6e6d-20261001.json.",
   "baseCommit": "875f0305783ef5a7399e5b8cd923619249e45b45",
   "method": "One production growth window per variant, executed after then before on the same VM and checkout. Both use the same profiling extension, production build class and compiler contract. Before restores only collision.rs from the base commit; after removes the redundant cell-index segment tie sort. Both use the identical committed capacity runner and fixture.",
   "buildClass": "production",
