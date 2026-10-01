@@ -1,0 +1,4772 @@
+{
+  "sourceRevision": "2f1e4b5c887535ff20b6a9c5db37353b4208c08e",
+  "scenario": "P0",
+  "route": "ws://192.168.0.200:5180",
+  "startedAtUtc": "2026-10-01T03:51:42.495Z",
+  "clientPlatform": "win32",
+  "scope": "Client send through an authoritative heading reversal and sensor return. This is an upper bound on action-to-step, including both network directions and sensor delivery. Every attempted command enters p95; assignment-interrupted unknown responses rank beyond all finite bounds. Bot sends use each advertised tick at most once, respecting the one-action-per-tick allowance. It does not measure browser event/render cadence, sensor suppression, boost release, or the owner trainer policy.",
+  "initialHealth": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "bc0c416c-ec85-4767-a901-e205709db42b",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:e437744785c16915ce0cd91e69cf5c167ef6e7419b735a0b1c3554872b5509e2",
+    "startupCheckpointId": "dcfcb23d21f516aa77935cf6556d34c0a0e95032266acfd71358cd5359b3d0e1",
+    "calculationWorkers": 6,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "0000000000000001",
+    "generation": "0000000000000002",
+    "completedStep": "0000000000000eff",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "00000000000000ee",
+    "schedulerDroppedWallMicros": "0000000000000000",
+    "schedulerOverloaded": false,
+    "commandServiceBoundaries": "000000000000029e",
+    "coordinatorWorkBytes": "0000000000000000",
+    "processedCommands": "0000000000000112",
+    "stepTimingSamples": "00000000000000ee",
+    "stepTimingTotalMicros": "0000000000115cf7",
+    "stepTimingMaxMicros": "0000000000001e72",
+    "stepTimingP95Micros": "0000000000001770",
+    "stepTimingP99Micros": "0000000000001f40",
+    "slowStepSamples": "0000000000000000",
+    "slowStepControlMicros": "0000000000000000",
+    "slowStepControlIndexMicros": "0000000000000000",
+    "slowStepControlNeuralMicros": "0000000000000000",
+    "slowStepControlSensingMicros": "0000000000000000",
+    "slowStepControlInferenceMicros": "0000000000000000",
+    "slowStepWorldMicros": "0000000000000000",
+    "slowStepOtherMicros": "0000000000000000",
+    "nativeBuildIdentifier": "slither_native/0.1.0+2f1e4b5c8875.d817a018981e7e22",
+    "telemetry": {
+      "uptimeSeconds": 3.9906106880000007,
+      "authoritativeSteps": 238,
+      "simulatedSeconds": 3.966666666666667,
+      "simulatedWallRatio": 0.9939999104885537,
+      "step": {
+        "samples": 238,
+        "meanMs": 4.781138655462185,
+        "p95Ms": 6,
+        "p99Ms": 8,
+        "maxMs": 7.794,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 145305600,
+        "heapUsedBytes": 17761184,
+        "externalBytes": 8648758,
+        "maxRssBytes": 145645568,
+        "eventLoopDelayMeanMs": 10.095226152284264,
+        "eventLoopDelayP95Ms": 10.641407,
+        "eventLoopDelayP99Ms": 10.952703,
+        "eventLoopDelayMaxMs": 11.739135
+      },
+      "frame": {
+        "latestBytes": 75628,
+        "maximumObservedBytes": 75792
+      },
+      "checkpointBarrier": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "playerAction": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "trainerAction": {
+        "samples": 132,
+        "meanMs": 0.1357521136363444,
+        "p95Ms": 0.25,
+        "maxMs": 1.4012280000001738
+      },
+      "controllerLifecycle": {
+        "samples": 2,
+        "meanMs": 2.4411929999998847,
+        "p95Ms": 4,
+        "maxMs": 2.7394469999999274
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 0,
+          "successfulReclaims": 0,
+          "appliedActions": 0,
+          "appliedDisconnects": 0
+        },
+        "trainer": {
+          "freshAssignments": 2,
+          "successfulReclaims": 0,
+          "appliedActions": 132,
+          "appliedDisconnects": 0
+        }
+      }
+    },
+    "nativeQueues": {
+      "inbound": {
+        "batches": "0000000000000000",
+        "commands": "0000000000000000",
+        "ownedBytes": "0000000000000000",
+        "highWaterBatches": "0000000000000002",
+        "highWaterCommands": "0000000000000002",
+        "highWaterOwnedBytes": "0000000000000064",
+        "maxBatches": "0000000000000040",
+        "maxCommands": "0000000000000040",
+        "maxOwnedBytes": "0000000000400000",
+        "maxBatchCommands": "0000000000000001",
+        "maxBatchOwnedBytes": "0000000000100000",
+        "rejections": "0000000000000000",
+        "faultDiscardedCommands": "0000000000000000"
+      },
+      "output": {
+        "reliable": "0000000000000000",
+        "reliableOwnedBytes": "0000000000000000",
+        "discrete": "0000000000000000",
+        "discreteOwnedBytes": "0000000000000000",
+        "frames": "0000000000000000",
+        "hasStats": false,
+        "ownedBytes": "0000000000000000",
+        "highWaterCount": "0000000000000002",
+        "highWaterOwnedBytes": "00000000000005f0",
+        "maxReliable": "0000000000000020",
+        "highWaterReliable": "0000000000000002",
+        "highWaterReliableOwnedBytes": "0000000000000588",
+        "highWaterDiscrete": "0000000000000000",
+        "highWaterDiscreteOwnedBytes": "0000000000000000",
+        "highWaterFrames": "0000000000000000",
+        "highWaterFrameOwnedBytes": "0000000000000000",
+        "highWaterStats": "0000000000000001",
+        "highWaterStatsOwnedBytes": "0000000000000068",
+        "maxReliableOwnedBytes": "0000000001000000",
+        "maxDiscrete": "0000000000000004",
+        "maxDiscreteOwnedBytes": "0000000000100000",
+        "maxFrames": "0000000000000004",
+        "maxOwnedBytes": "0000000002000000",
+        "maxEventOwnedBytes": "0000000000100000",
+        "capacityWaits": "0000000000000000",
+        "priorityOverflows": "0000000000000000",
+        "hasReservedFault": false,
+        "statsReplacements": "0000000000000000",
+        "frameReplacements": "0000000000000000",
+        "staleStats": "0000000000000000",
+        "staleFrames": "0000000000000000",
+        "statsRejections": "0000000000000000",
+        "frameRejections": "0000000000000000",
+        "statsEvictions": "0000000000000000",
+        "frameEvictions": "0000000000000000"
+      }
+    },
+    "outbound": {
+      "connections": 2,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0,
+      "highWaterReliableMessagesPerConnection": 1,
+      "highWaterReliableBytesPerConnection": 6844,
+      "maxReliableMessagesPerConnection": 1024,
+      "maxReliableBytesPerConnection": 4194304,
+      "maxConnections": 64
+    },
+    "archiveWork": null,
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "bc0c416c-ec85-4767-a901-e205709db42b",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "000000000071c200",
+      "protectedAutomaticStoredByteCount": "000000000071c200",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "000000000024f600",
+          "decodedByteCount": "00000000002d6e42",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "recent": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2c",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "milestone": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2c",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 0,
+      "deletedStoredByteCount": "0000000000000000"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "151552",
+        "walBytes": "0",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "37",
+        "freelistPageCount": "0",
+        "usedPageBytes": "151552"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "173459136512",
+        "operatingReserveBytes": "1073741824"
+      }
+    }
+  },
+  "finalHealth": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "bc0c416c-ec85-4767-a901-e205709db42b",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:e437744785c16915ce0cd91e69cf5c167ef6e7419b735a0b1c3554872b5509e2",
+    "startupCheckpointId": "dcfcb23d21f516aa77935cf6556d34c0a0e95032266acfd71358cd5359b3d0e1",
+    "calculationWorkers": 6,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "0000000000000001",
+    "generation": "0000000000000002",
+    "completedStep": "0000000000001bf7",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "0000000000000de6",
+    "schedulerDroppedWallMicros": "0000000000000000",
+    "schedulerOverloaded": false,
+    "commandServiceBoundaries": "0000000000003cec",
+    "coordinatorWorkBytes": "0000000000000000",
+    "processedCommands": "00000000000044ea",
+    "stepTimingSamples": "0000000000000de6",
+    "stepTimingTotalMicros": "0000000000f44a0d",
+    "stepTimingMaxMicros": "0000000000006b43",
+    "stepTimingP95Micros": "0000000000001770",
+    "stepTimingP99Micros": "0000000000001f40",
+    "slowStepSamples": "0000000000000006",
+    "slowStepControlMicros": "000000000000e186",
+    "slowStepControlIndexMicros": "0000000000000c1f",
+    "slowStepControlNeuralMicros": "000000000000a960",
+    "slowStepControlSensingMicros": "00000000000098b6",
+    "slowStepControlInferenceMicros": "0000000000001047",
+    "slowStepWorldMicros": "0000000000011ffc",
+    "slowStepOtherMicros": "0000000000002647",
+    "nativeBuildIdentifier": "slither_native/0.1.0+2f1e4b5c8875.d817a018981e7e22",
+    "telemetry": {
+      "uptimeSeconds": 59.322511918,
+      "authoritativeSteps": 3558,
+      "simulatedSeconds": 59.3,
+      "simulatedWallRatio": 0.9996205164401818,
+      "step": {
+        "samples": 3558,
+        "meanMs": 4.499646149522204,
+        "p95Ms": 6,
+        "p99Ms": 8,
+        "maxMs": 27.459,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 156680192,
+        "heapUsedBytes": 20781864,
+        "externalBytes": 8782107,
+        "maxRssBytes": 156680192,
+        "eventLoopDelayMeanMs": 10.121678801160607,
+        "eventLoopDelayP95Ms": 10.813439,
+        "eventLoopDelayP99Ms": 11.091967,
+        "eventLoopDelayMaxMs": 20.758527
+      },
+      "frame": {
+        "latestBytes": 76332,
+        "maximumObservedBytes": 77448
+      },
+      "checkpointBarrier": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "playerAction": {
+        "samples": 470,
+        "meanMs": 0.48565707446809453,
+        "p95Ms": 4,
+        "maxMs": 25.72486899999967
+      },
+      "trainerAction": {
+        "samples": 7063,
+        "meanMs": 0.1851843245079645,
+        "p95Ms": 0.25,
+        "maxMs": 35.32555200000024
+      },
+      "controllerLifecycle": {
+        "samples": 4,
+        "meanMs": 1.9864882499999794,
+        "p95Ms": 4,
+        "maxMs": 2.7394469999999274
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 1,
+          "successfulReclaims": 0,
+          "appliedActions": 470,
+          "appliedDisconnects": 1
+        },
+        "trainer": {
+          "freshAssignments": 3,
+          "successfulReclaims": 0,
+          "appliedActions": 7063,
+          "appliedDisconnects": 1
+        }
+      }
+    },
+    "nativeQueues": {
+      "inbound": {
+        "batches": "0000000000000000",
+        "commands": "0000000000000000",
+        "ownedBytes": "0000000000000000",
+        "highWaterBatches": "0000000000000007",
+        "highWaterCommands": "0000000000000007",
+        "highWaterOwnedBytes": "0000000000000078",
+        "maxBatches": "0000000000000040",
+        "maxCommands": "0000000000000040",
+        "maxOwnedBytes": "0000000000400000",
+        "maxBatchCommands": "0000000000000001",
+        "maxBatchOwnedBytes": "0000000000100000",
+        "rejections": "0000000000000000",
+        "faultDiscardedCommands": "0000000000000000"
+      },
+      "output": {
+        "reliable": "0000000000000000",
+        "reliableOwnedBytes": "0000000000000000",
+        "discrete": "0000000000000000",
+        "discreteOwnedBytes": "0000000000000000",
+        "frames": "0000000000000000",
+        "hasStats": false,
+        "ownedBytes": "0000000000000000",
+        "highWaterCount": "0000000000000007",
+        "highWaterOwnedBytes": "0000000000000850",
+        "maxReliable": "0000000000000020",
+        "highWaterReliable": "0000000000000007",
+        "highWaterReliableOwnedBytes": "0000000000000850",
+        "highWaterDiscrete": "0000000000000000",
+        "highWaterDiscreteOwnedBytes": "0000000000000000",
+        "highWaterFrames": "0000000000000000",
+        "highWaterFrameOwnedBytes": "0000000000000000",
+        "highWaterStats": "0000000000000001",
+        "highWaterStatsOwnedBytes": "0000000000000068",
+        "maxReliableOwnedBytes": "0000000001000000",
+        "maxDiscrete": "0000000000000004",
+        "maxDiscreteOwnedBytes": "0000000000100000",
+        "maxFrames": "0000000000000004",
+        "maxOwnedBytes": "0000000002000000",
+        "maxEventOwnedBytes": "0000000000100000",
+        "capacityWaits": "0000000000000000",
+        "priorityOverflows": "0000000000000000",
+        "hasReservedFault": false,
+        "statsReplacements": "0000000000000000",
+        "frameReplacements": "0000000000000000",
+        "staleStats": "0000000000000000",
+        "staleFrames": "0000000000000000",
+        "statsRejections": "0000000000000000",
+        "frameRejections": "0000000000000000",
+        "statsEvictions": "0000000000000000",
+        "frameEvictions": "0000000000000000"
+      }
+    },
+    "outbound": {
+      "connections": 2,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0,
+      "highWaterReliableMessagesPerConnection": 1,
+      "highWaterReliableBytesPerConnection": 6844,
+      "maxReliableMessagesPerConnection": 1024,
+      "maxReliableBytesPerConnection": 4194304,
+      "maxConnections": 64
+    },
+    "archiveWork": null,
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "bc0c416c-ec85-4767-a901-e205709db42b",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "000000000071c200",
+      "protectedAutomaticStoredByteCount": "000000000071c200",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "000000000024f600",
+          "decodedByteCount": "00000000002d6e42",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "recent": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2c",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "milestone": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2c",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 0,
+      "deletedStoredByteCount": "0000000000000000"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "151552",
+        "walBytes": "0",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "37",
+        "freelistPageCount": "0",
+        "usedPageBytes": "151552"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "173459136512",
+        "operatingReserveBytes": "1073741824"
+      }
+    }
+  },
+  "identityStable": true,
+  "workloadMatches": true,
+  "clients": [
+    {
+      "clientType": "ui",
+      "welcome": {
+        "type": "welcome",
+        "protocolVersion": 2,
+        "serializerVersion": 1,
+        "sessionId": "61583a5c-9507-41a1-88b3-e0dd4d0ed7ea",
+        "tickRate": 60,
+        "worldSeed": 1511506142,
+        "runId": "bc0c416c-ec85-4767-a901-e205709db42b",
+        "configHash": "sha256:e437744785c16915ce0cd91e69cf5c167ef6e7419b735a0b1c3554872b5509e2",
+        "configRevision": 1,
+        "frameByteLength": 75624,
+        "graphSpec": {
+          "edges": [
+            {
+              "from": "input",
+              "to": "mlp"
+            },
+            {
+              "from": "mlp",
+              "to": "gru"
+            },
+            {
+              "from": "gru",
+              "to": "head"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "input",
+              "outputSize": 83,
+              "type": "Input"
+            },
+            {
+              "hiddenSizes": [
+                64
+              ],
+              "id": "mlp",
+              "inputSize": 83,
+              "outputSize": 64,
+              "type": "MLP"
+            },
+            {
+              "hiddenSize": 16,
+              "id": "gru",
+              "inputSize": 64,
+              "type": "GRU"
+            },
+            {
+              "id": "head",
+              "inputSize": 16,
+              "outputSize": 2,
+              "type": "Dense"
+            }
+          ],
+          "outputSize": 2,
+          "outputs": [
+            {
+              "nodeId": "head"
+            }
+          ],
+          "type": "graph"
+        },
+        "capabilities": {
+          "checkpointPinning": true,
+          "archiveExport": true,
+          "archiveImport": true
+        },
+        "settings": {
+          "core": {
+            "snakeCount": 55,
+            "simSpeed": 1,
+            "hiddenLayers": 2,
+            "neurons1": 64,
+            "neurons2": 64,
+            "neurons3": 64,
+            "neurons4": 48,
+            "neurons5": 32
+          },
+          "updates": [
+            {
+              "path": "worldRadius",
+              "value": 3500
+            },
+            {
+              "path": "pelletCountTarget",
+              "value": 3500
+            },
+            {
+              "path": "pelletSpawnPerSecond",
+              "value": 170
+            },
+            {
+              "path": "foodValue",
+              "value": 1
+            },
+            {
+              "path": "growPerFood",
+              "value": 1
+            },
+            {
+              "path": "foodSpawn.edgeFalloffEnabled",
+              "value": 1
+            },
+            {
+              "path": "foodSpawn.edgeFadeStart",
+              "value": 0.35
+            },
+            {
+              "path": "foodSpawn.edgeFadePower",
+              "value": 2.6
+            },
+            {
+              "path": "foodSpawn.filamentPower",
+              "value": 4.2
+            },
+            {
+              "path": "foodSpawn.warpFreq",
+              "value": 0.0013
+            },
+            {
+              "path": "foodSpawn.warpScale",
+              "value": 0.08
+            },
+            {
+              "path": "foodSpawn.freqLarge",
+              "value": 0.0026
+            },
+            {
+              "path": "foodSpawn.freqMedium",
+              "value": 0.0042
+            },
+            {
+              "path": "foodSpawn.freqSmall",
+              "value": 0.0068
+            },
+            {
+              "path": "foodSpawn.dustStrength",
+              "value": 0.35
+            },
+            {
+              "path": "sense.layoutVersion",
+              "value": 3
+            },
+            {
+              "path": "sense.bubbleBins",
+              "value": 16
+            },
+            {
+              "path": "sense.rNearBase",
+              "value": 520
+            },
+            {
+              "path": "sense.rNearScale",
+              "value": 260
+            },
+            {
+              "path": "sense.rNearMin",
+              "value": 420
+            },
+            {
+              "path": "sense.rNearMax",
+              "value": 1100
+            },
+            {
+              "path": "sense.rFarBase",
+              "value": 1200
+            },
+            {
+              "path": "sense.rFarScale",
+              "value": 520
+            },
+            {
+              "path": "sense.rFarMin",
+              "value": 900
+            },
+            {
+              "path": "sense.rFarMax",
+              "value": 2400
+            },
+            {
+              "path": "sense.foodKBase",
+              "value": 4
+            },
+            {
+              "path": "sense.maxPelletChecks",
+              "value": 900
+            },
+            {
+              "path": "sense.maxSegmentChecks",
+              "value": 2200
+            },
+            {
+              "path": "baselineBots.count",
+              "value": 10
+            },
+            {
+              "path": "baselineBots.seed",
+              "value": 1
+            },
+            {
+              "path": "baselineBots.randomizeSeedPerGen",
+              "value": 0
+            },
+            {
+              "path": "baselineBots.respawnDelay",
+              "value": 20
+            },
+            {
+              "path": "snakeBaseSpeed",
+              "value": 165
+            },
+            {
+              "path": "snakeBoostSpeed",
+              "value": 500
+            },
+            {
+              "path": "snakeTurnRate",
+              "value": 3.2
+            },
+            {
+              "path": "snakeRadius",
+              "value": 9
+            },
+            {
+              "path": "snakeRadiusMax",
+              "value": 18
+            },
+            {
+              "path": "snakeThicknessScale",
+              "value": 2.9
+            },
+            {
+              "path": "snakeThicknessLogDiv",
+              "value": 30
+            },
+            {
+              "path": "snakeSpacing",
+              "value": 7.5
+            },
+            {
+              "path": "snakeStartLen",
+              "value": 5
+            },
+            {
+              "path": "snakeMaxLen",
+              "value": 10000
+            },
+            {
+              "path": "snakeMinLen",
+              "value": 4
+            },
+            {
+              "path": "snakeSizeSpeedPenalty",
+              "value": 0.18
+            },
+            {
+              "path": "snakeBoostSizePenalty",
+              "value": 0.28
+            },
+            {
+              "path": "boost.minPointsToBoost",
+              "value": 1.2
+            },
+            {
+              "path": "boost.pointsCostPerSecond",
+              "value": 7
+            },
+            {
+              "path": "boost.pointsCostSizeFactor",
+              "value": 1.1
+            },
+            {
+              "path": "boost.lenLossPerPoint",
+              "value": 0.16
+            },
+            {
+              "path": "boost.pelletValueFactor",
+              "value": 0.65
+            },
+            {
+              "path": "boost.pelletJitter",
+              "value": 10
+            },
+            {
+              "path": "collision.substepMaxDt",
+              "value": 0.006
+            },
+            {
+              "path": "collision.skipSegments",
+              "value": 0
+            },
+            {
+              "path": "collision.hitScale",
+              "value": 0.82
+            },
+            {
+              "path": "collision.cellSize",
+              "value": 70
+            },
+            {
+              "path": "collision.neighborRange",
+              "value": 1
+            },
+            {
+              "path": "generationSeconds",
+              "value": 60
+            },
+            {
+              "path": "eliteFrac",
+              "value": 0.12
+            },
+            {
+              "path": "mutationRate",
+              "value": 0.03
+            },
+            {
+              "path": "mutationStd",
+              "value": 0.35
+            },
+            {
+              "path": "crossoverRate",
+              "value": 0.85
+            },
+            {
+              "path": "observer.earlyEndMinSeconds",
+              "value": 8
+            },
+            {
+              "path": "observer.earlyEndAliveThreshold",
+              "value": 2
+            },
+            {
+              "path": "reward.pointsPerFood",
+              "value": 20
+            },
+            {
+              "path": "reward.pointsPerKill",
+              "value": 400
+            },
+            {
+              "path": "reward.pointsPerSecondAlive",
+              "value": 0.6
+            },
+            {
+              "path": "reward.fitnessSurvivalPerSecond",
+              "value": 0.7
+            },
+            {
+              "path": "reward.fitnessFood",
+              "value": 80
+            },
+            {
+              "path": "reward.fitnessLengthPerSegment",
+              "value": 100
+            },
+            {
+              "path": "reward.fitnessKill",
+              "value": 400
+            },
+            {
+              "path": "reward.fitnessPointsNorm",
+              "value": 42
+            },
+            {
+              "path": "reward.fitnessTopPointsBonus",
+              "value": 600
+            },
+            {
+              "path": "brain.controlDt",
+              "value": 0.016666666666666666
+            },
+            {
+              "path": "brain.gruMutationRate",
+              "value": 0.025
+            },
+            {
+              "path": "brain.gruMutationStd",
+              "value": 0.22
+            },
+            {
+              "path": "brain.gruCrossoverMode",
+              "value": 1
+            },
+            {
+              "path": "brain.gruInitUpdateBias",
+              "value": -0.7
+            },
+            {
+              "path": "brain.lstmInitForgetBias",
+              "value": 0.6
+            },
+            {
+              "path": "brain.rruInitGateBias",
+              "value": 0.1
+            }
+          ]
+        },
+        "sensorSpec": {
+          "sensorCount": 83,
+          "order": [
+            "heading_sin",
+            "heading_cos",
+            "size_norm",
+            "boost_margin",
+            "points_pct",
+            "speed_norm",
+            "boost_state",
+            "points_norm",
+            "points_delta_norm",
+            "length_norm",
+            "boost_points_frac",
+            "boost_cost_norm",
+            "wall_dist_norm",
+            "nearest_food_dist_norm",
+            "nearest_food_dir_sin",
+            "nearest_food_dir_cos",
+            "nearest_body_dist_norm",
+            "nearest_head_dist_norm",
+            "age_norm",
+            "food_0",
+            "food_1",
+            "food_2",
+            "food_3",
+            "food_4",
+            "food_5",
+            "food_6",
+            "food_7",
+            "food_8",
+            "food_9",
+            "food_10",
+            "food_11",
+            "food_12",
+            "food_13",
+            "food_14",
+            "food_15",
+            "hazard_0",
+            "hazard_1",
+            "hazard_2",
+            "hazard_3",
+            "hazard_4",
+            "hazard_5",
+            "hazard_6",
+            "hazard_7",
+            "hazard_8",
+            "hazard_9",
+            "hazard_10",
+            "hazard_11",
+            "hazard_12",
+            "hazard_13",
+            "hazard_14",
+            "hazard_15",
+            "wall_0",
+            "wall_1",
+            "wall_2",
+            "wall_3",
+            "wall_4",
+            "wall_5",
+            "wall_6",
+            "wall_7",
+            "wall_8",
+            "wall_9",
+            "wall_10",
+            "wall_11",
+            "wall_12",
+            "wall_13",
+            "wall_14",
+            "wall_15",
+            "head_0",
+            "head_1",
+            "head_2",
+            "head_3",
+            "head_4",
+            "head_5",
+            "head_6",
+            "head_7",
+            "head_8",
+            "head_9",
+            "head_10",
+            "head_11",
+            "head_12",
+            "head_13",
+            "head_14",
+            "head_15"
+          ],
+          "layoutVersion": "v3"
+        },
+        "inferenceMode": {
+          "requestedBackend": "native",
+          "activeBackend": "native",
+          "requestedMt": true,
+          "activeWorkerCount": 6,
+          "poolEpoch": null,
+          "weightEpoch": null,
+          "graphKey": "slither-graph-layout-v1:hex:736c69746865722d6e6575726f65766f2f67726170682d6c61796f75742f7631000100000004000000000000000500000000000000696e70757400530000000000000053000000000000000100000000000000530000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000006d6c7002530000000000000040000000000000000100000000000000400000000000000001000000000000004000000000000000000000000000000000402500000000000000000000000000000001000000000000000500000000000000696e70757400000000000000000000000000000000030000000000000067727503400000000000000010000000000000000100000000000000100000000000000000000000000000000110000000000000004025000000000000300f0000000000000100000000000000001000000000000000010000000000000003000000000000006d6c700000000000000000000000000000000004000000000000006865616401100000000000000002000000000000000100000000000000020000000000000000000000000000000070340000000000002200000000000000000000000000000000010000000000000003000000000000006772750000000000000000000000000000000001000000000000000400000000000000686561640000000000000000923400000000000010000000000000000200000000000000",
+          "parameterCount": 13458,
+          "seed": 1511506142,
+          "nativeAddonStatus": "ready",
+          "nativeAddonBuildIdentifier": "slither_native/0.1.0+2f1e4b5c8875.d817a018981e7e22"
+        }
+      },
+      "trials": [
+        {
+          "snakeId": 141,
+          "clientTick": 3842,
+          "requestedTurn": -1,
+          "sentAtMs": 180.53,
+          "latencyUpperBoundMs": 33.109399999999994,
+          "observedTick": 3844
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3850,
+          "requestedTurn": 1,
+          "sentAtMs": 314.9597,
+          "latencyUpperBoundMs": 32.6327,
+          "observedTick": 3852
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3858,
+          "requestedTurn": -1,
+          "sentAtMs": 447.6827,
+          "latencyUpperBoundMs": 33.83979999999997,
+          "observedTick": 3860
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3866,
+          "requestedTurn": 1,
+          "sentAtMs": 584.5069,
+          "latencyUpperBoundMs": 32.11559999999997,
+          "observedTick": 3868
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3874,
+          "requestedTurn": -1,
+          "sentAtMs": 729.8048,
+          "latencyUpperBoundMs": 33.82899999999995,
+          "observedTick": 3877
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3884,
+          "requestedTurn": 1,
+          "sentAtMs": 880.4286,
+          "latencyUpperBoundMs": 33.43610000000001,
+          "observedTick": 3886
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3892,
+          "requestedTurn": -1,
+          "sentAtMs": 1013.9802,
+          "latencyUpperBoundMs": 32.48559999999998,
+          "observedTick": 3894
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3900,
+          "requestedTurn": 1,
+          "sentAtMs": 1149.2009,
+          "latencyUpperBoundMs": 31.654999999999973,
+          "observedTick": 3902
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3908,
+          "requestedTurn": -1,
+          "sentAtMs": 1281.0441,
+          "latencyUpperBoundMs": 32.829499999999825,
+          "observedTick": 3910
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3916,
+          "requestedTurn": 1,
+          "sentAtMs": 1419.0211,
+          "latencyUpperBoundMs": 27.744699999999966,
+          "observedTick": 3918
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3924,
+          "requestedTurn": -1,
+          "sentAtMs": 1546.8987,
+          "latencyUpperBoundMs": 33.74890000000005,
+          "observedTick": 3926
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3932,
+          "requestedTurn": 1,
+          "sentAtMs": 1680.813,
+          "latencyUpperBoundMs": 33.243799999999965,
+          "observedTick": 3934
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3941,
+          "requestedTurn": -1,
+          "sentAtMs": 1830.3941,
+          "latencyUpperBoundMs": 34.29899999999998,
+          "observedTick": 3943
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3949,
+          "requestedTurn": 1,
+          "sentAtMs": 1965.4098,
+          "latencyUpperBoundMs": 31.713700000000017,
+          "observedTick": 3951
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3957,
+          "requestedTurn": -1,
+          "sentAtMs": 2097.0589,
+          "latencyUpperBoundMs": 33.104699999999866,
+          "observedTick": 3959
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3966,
+          "requestedTurn": 1,
+          "sentAtMs": 2248.454,
+          "latencyUpperBoundMs": 31.97519999999986,
+          "observedTick": 3968
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3974,
+          "requestedTurn": -1,
+          "sentAtMs": 2380.4253,
+          "latencyUpperBoundMs": 33.369100000000344,
+          "observedTick": 3976
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3983,
+          "requestedTurn": 1,
+          "sentAtMs": 2530.1543,
+          "latencyUpperBoundMs": 32.82069999999976,
+          "observedTick": 3985
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3991,
+          "requestedTurn": -1,
+          "sentAtMs": 2663.0083,
+          "latencyUpperBoundMs": 33.88599999999997,
+          "observedTick": 3993
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 3999,
+          "requestedTurn": 1,
+          "sentAtMs": 2796.7637,
+          "latencyUpperBoundMs": 33.221500000000106,
+          "observedTick": 4001
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4008,
+          "requestedTurn": -1,
+          "sentAtMs": 2946.5458,
+          "latencyUpperBoundMs": 33.73420000000033,
+          "observedTick": 4010
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4016,
+          "requestedTurn": 1,
+          "sentAtMs": 3083.5643,
+          "latencyUpperBoundMs": 30.47589999999991,
+          "observedTick": 4018
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4024,
+          "requestedTurn": -1,
+          "sentAtMs": 3213.8062,
+          "latencyUpperBoundMs": 33.18080000000009,
+          "observedTick": 4026
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4032,
+          "requestedTurn": 1,
+          "sentAtMs": 3346.687,
+          "latencyUpperBoundMs": 33.539400000000114,
+          "observedTick": 4034
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4040,
+          "requestedTurn": -1,
+          "sentAtMs": 3481.748,
+          "latencyUpperBoundMs": 33.0286000000001,
+          "observedTick": 4042
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4049,
+          "requestedTurn": 1,
+          "sentAtMs": 3630.4774,
+          "latencyUpperBoundMs": 33.03919999999971,
+          "observedTick": 4051
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4057,
+          "requestedTurn": -1,
+          "sentAtMs": 3763.4847,
+          "latencyUpperBoundMs": 32.852400000000216,
+          "observedTick": 4059
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4065,
+          "requestedTurn": 1,
+          "sentAtMs": 3896.3917,
+          "latencyUpperBoundMs": 33.598199999999906,
+          "observedTick": 4067
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4074,
+          "requestedTurn": -1,
+          "sentAtMs": 4046.2658,
+          "latencyUpperBoundMs": 34.76559999999972,
+          "observedTick": 4076
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4082,
+          "requestedTurn": 1,
+          "sentAtMs": 4180.816,
+          "latencyUpperBoundMs": 32.97620000000006,
+          "observedTick": 4084
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4090,
+          "requestedTurn": -1,
+          "sentAtMs": 4313.6873,
+          "latencyUpperBoundMs": 34.19540000000052,
+          "observedTick": 4092
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4098,
+          "requestedTurn": 1,
+          "sentAtMs": 4457.9368,
+          "latencyUpperBoundMs": 38.559799999999996,
+          "observedTick": 4101
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4107,
+          "requestedTurn": -1,
+          "sentAtMs": 4595.9877,
+          "latencyUpperBoundMs": 34.45650000000023,
+          "observedTick": 4109
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4116,
+          "requestedTurn": 1,
+          "sentAtMs": 4746.7037,
+          "latencyUpperBoundMs": 33.187299999999595,
+          "observedTick": 4118
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4125,
+          "requestedTurn": -1,
+          "sentAtMs": 4896.592,
+          "latencyUpperBoundMs": 33.27070000000003,
+          "observedTick": 4127
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4133,
+          "requestedTurn": 1,
+          "sentAtMs": 5029.9938,
+          "latencyUpperBoundMs": 33.04959999999937,
+          "observedTick": 4135
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4142,
+          "requestedTurn": -1,
+          "sentAtMs": 5180.0212,
+          "latencyUpperBoundMs": 33.207800000000134,
+          "observedTick": 4144
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4150,
+          "requestedTurn": 1,
+          "sentAtMs": 5313.5548,
+          "latencyUpperBoundMs": 32.709499999999935,
+          "observedTick": 4152
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4158,
+          "requestedTurn": -1,
+          "sentAtMs": 5446.2761,
+          "latencyUpperBoundMs": 33.526600000000144,
+          "observedTick": 4160
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4167,
+          "requestedTurn": 1,
+          "sentAtMs": 5596.5399,
+          "latencyUpperBoundMs": 33.51220000000012,
+          "observedTick": 4169
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4175,
+          "requestedTurn": -1,
+          "sentAtMs": 5729.8701,
+          "latencyUpperBoundMs": 33.45439999999962,
+          "observedTick": 4177
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4183,
+          "requestedTurn": 1,
+          "sentAtMs": 5863.1655,
+          "latencyUpperBoundMs": 39.539700000000266,
+          "observedTick": 4185
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4191,
+          "requestedTurn": -1,
+          "sentAtMs": 6005.1747,
+          "latencyUpperBoundMs": 25.20300000000043,
+          "observedTick": 4193
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4199,
+          "requestedTurn": 1,
+          "sentAtMs": 6131.0072,
+          "latencyUpperBoundMs": 32.2506999999996,
+          "observedTick": 4201
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4207,
+          "requestedTurn": -1,
+          "sentAtMs": 6262.863,
+          "latencyUpperBoundMs": 33.019499999999425,
+          "observedTick": 4209
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4216,
+          "requestedTurn": 1,
+          "sentAtMs": 6413.1777,
+          "latencyUpperBoundMs": 33.0037999999995,
+          "observedTick": 4218
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4222,
+          "requestedTurn": -1,
+          "sentAtMs": 6557.2787,
+          "latencyUpperBoundMs": 57.164200000000164,
+          "observedTick": 4225
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4234,
+          "requestedTurn": 1,
+          "sentAtMs": 6713.8991,
+          "latencyUpperBoundMs": 32.47530000000006,
+          "observedTick": 4236
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4242,
+          "requestedTurn": -1,
+          "sentAtMs": 6846.8046,
+          "latencyUpperBoundMs": 32.746399999999994,
+          "observedTick": 4244
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4250,
+          "requestedTurn": 1,
+          "sentAtMs": 6979.7525,
+          "latencyUpperBoundMs": 35.13670000000002,
+          "observedTick": 4252
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4259,
+          "requestedTurn": -1,
+          "sentAtMs": 7129.7003,
+          "latencyUpperBoundMs": 33.72279999999955,
+          "observedTick": 4261
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4267,
+          "requestedTurn": 1,
+          "sentAtMs": 7263.5237,
+          "latencyUpperBoundMs": 33.039999999999964,
+          "observedTick": 4269
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4274,
+          "requestedTurn": -1,
+          "sentAtMs": 7396.355,
+          "latencyUpperBoundMs": 34.3709000000008,
+          "observedTick": 4277
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4283,
+          "requestedTurn": 1,
+          "sentAtMs": 7536.2008,
+          "latencyUpperBoundMs": 26.801800000000185,
+          "observedTick": 4285
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4291,
+          "requestedTurn": -1,
+          "sentAtMs": 7662.8893,
+          "latencyUpperBoundMs": 33.120200000000295,
+          "observedTick": 4293
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4299,
+          "requestedTurn": 1,
+          "sentAtMs": 7796.3406,
+          "latencyUpperBoundMs": 33.3128999999999,
+          "observedTick": 4301
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4307,
+          "requestedTurn": -1,
+          "sentAtMs": 7930.0909,
+          "latencyUpperBoundMs": 33.488900000000285,
+          "observedTick": 4309
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4315,
+          "requestedTurn": 1,
+          "sentAtMs": 8062.8609,
+          "latencyUpperBoundMs": 33.19140000000061,
+          "observedTick": 4317
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4324,
+          "requestedTurn": -1,
+          "sentAtMs": 8212.4575,
+          "latencyUpperBoundMs": 33.074399999999514,
+          "observedTick": 4326
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4332,
+          "requestedTurn": 1,
+          "sentAtMs": 8345.8763,
+          "latencyUpperBoundMs": 33.552700000000186,
+          "observedTick": 4334
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4340,
+          "requestedTurn": -1,
+          "sentAtMs": 8479.5927,
+          "latencyUpperBoundMs": 33.38160000000062,
+          "observedTick": 4342
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4348,
+          "requestedTurn": 1,
+          "sentAtMs": 8615.0904,
+          "latencyUpperBoundMs": 30.486500000000888,
+          "observedTick": 4350
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4356,
+          "requestedTurn": -1,
+          "sentAtMs": 8746.044,
+          "latencyUpperBoundMs": 33.880300000000716,
+          "observedTick": 4358
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4364,
+          "requestedTurn": 1,
+          "sentAtMs": 8879.8371,
+          "latencyUpperBoundMs": 32.78769999999895,
+          "observedTick": 4366
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4373,
+          "requestedTurn": -1,
+          "sentAtMs": 9029.2958,
+          "latencyUpperBoundMs": 33.89969999999994,
+          "observedTick": 4375
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4381,
+          "requestedTurn": 1,
+          "sentAtMs": 9163.2555,
+          "latencyUpperBoundMs": 32.1796000000013,
+          "observedTick": 4383
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4388,
+          "requestedTurn": -1,
+          "sentAtMs": 9294.8411,
+          "latencyUpperBoundMs": 34.65830000000096,
+          "observedTick": 4391
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4397,
+          "requestedTurn": 1,
+          "sentAtMs": 9434.3668,
+          "latencyUpperBoundMs": 28.151600000001054,
+          "observedTick": 4399
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4405,
+          "requestedTurn": -1,
+          "sentAtMs": 9562.2838,
+          "latencyUpperBoundMs": 33.99589999999989,
+          "observedTick": 4407
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4413,
+          "requestedTurn": 1,
+          "sentAtMs": 9695.824,
+          "latencyUpperBoundMs": 33.73309999999947,
+          "observedTick": 4415
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4422,
+          "requestedTurn": -1,
+          "sentAtMs": 9846.1713,
+          "latencyUpperBoundMs": 33.41740000000027,
+          "observedTick": 4424
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4430,
+          "requestedTurn": 1,
+          "sentAtMs": 9981.2645,
+          "latencyUpperBoundMs": 31.65390000000116,
+          "observedTick": 4432
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4438,
+          "requestedTurn": -1,
+          "sentAtMs": 10113.223,
+          "latencyUpperBoundMs": 32.823200000000725,
+          "observedTick": 4440
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4447,
+          "requestedTurn": 1,
+          "sentAtMs": 10263.0549,
+          "latencyUpperBoundMs": 32.52280000000064,
+          "observedTick": 4449
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4455,
+          "requestedTurn": -1,
+          "sentAtMs": 10395.6725,
+          "latencyUpperBoundMs": 33.381099999998696,
+          "observedTick": 4457
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4464,
+          "requestedTurn": 1,
+          "sentAtMs": 10545.9838,
+          "latencyUpperBoundMs": 33.1820000000007,
+          "observedTick": 4466
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4472,
+          "requestedTurn": -1,
+          "sentAtMs": 10679.5999,
+          "latencyUpperBoundMs": 33.35230000000047,
+          "observedTick": 4474
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4480,
+          "requestedTurn": 1,
+          "sentAtMs": 10813.7176,
+          "latencyUpperBoundMs": 32.19809999999961,
+          "observedTick": 4482
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4488,
+          "requestedTurn": -1,
+          "sentAtMs": 10946.091,
+          "latencyUpperBoundMs": 33.943299999999,
+          "observedTick": 4490
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4496,
+          "requestedTurn": 1,
+          "sentAtMs": 11080.5048,
+          "latencyUpperBoundMs": 34.89499999999862,
+          "observedTick": 4498
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4504,
+          "requestedTurn": -1,
+          "sentAtMs": 11217.5761,
+          "latencyUpperBoundMs": 28.271600000000035,
+          "observedTick": 4506
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4512,
+          "requestedTurn": 1,
+          "sentAtMs": 11345.7046,
+          "latencyUpperBoundMs": 34.19310000000041,
+          "observedTick": 4514
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4520,
+          "requestedTurn": -1,
+          "sentAtMs": 11479.7891,
+          "latencyUpperBoundMs": 33.08719999999994,
+          "observedTick": 4522
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4529,
+          "requestedTurn": 1,
+          "sentAtMs": 11629.313,
+          "latencyUpperBoundMs": 32.85139999999956,
+          "observedTick": 4531
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4537,
+          "requestedTurn": -1,
+          "sentAtMs": 11762.5635,
+          "latencyUpperBoundMs": 33.10980000000018,
+          "observedTick": 4539
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4545,
+          "requestedTurn": 1,
+          "sentAtMs": 11896.7054,
+          "latencyUpperBoundMs": 32.77859999999964,
+          "observedTick": 4547
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4553,
+          "requestedTurn": -1,
+          "sentAtMs": 12029.3829,
+          "latencyUpperBoundMs": 32.97099999999955,
+          "observedTick": 4555
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4560,
+          "requestedTurn": 1,
+          "sentAtMs": 12163.4455,
+          "latencyUpperBoundMs": 32.57120000000032,
+          "observedTick": 4563
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4570,
+          "requestedTurn": -1,
+          "sentAtMs": 12312.7561,
+          "latencyUpperBoundMs": 32.37039999999979,
+          "observedTick": 4572
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4578,
+          "requestedTurn": 1,
+          "sentAtMs": 12445.7411,
+          "latencyUpperBoundMs": 33.03780000000006,
+          "observedTick": 4580
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4586,
+          "requestedTurn": -1,
+          "sentAtMs": 12579.0744,
+          "latencyUpperBoundMs": 33.607600000001185,
+          "observedTick": 4588
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4595,
+          "requestedTurn": 1,
+          "sentAtMs": 12728.965,
+          "latencyUpperBoundMs": 33.07940000000053,
+          "observedTick": 4597
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4603,
+          "requestedTurn": -1,
+          "sentAtMs": 12864.0508,
+          "latencyUpperBoundMs": 31.892299999999523,
+          "observedTick": 4605
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4611,
+          "requestedTurn": 1,
+          "sentAtMs": 12996.8563,
+          "latencyUpperBoundMs": 32.3711000000003,
+          "observedTick": 4613
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4619,
+          "requestedTurn": -1,
+          "sentAtMs": 13129.4762,
+          "latencyUpperBoundMs": 33.17240000000129,
+          "observedTick": 4621
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4627,
+          "requestedTurn": 1,
+          "sentAtMs": 13262.7089,
+          "latencyUpperBoundMs": 33.16910000000098,
+          "observedTick": 4629
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4635,
+          "requestedTurn": -1,
+          "sentAtMs": 13402.4403,
+          "latencyUpperBoundMs": 26.855199999999968,
+          "observedTick": 4637
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4643,
+          "requestedTurn": 1,
+          "sentAtMs": 13530.7566,
+          "latencyUpperBoundMs": 31.579899999998815,
+          "observedTick": 4645
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4651,
+          "requestedTurn": -1,
+          "sentAtMs": 13665.9934,
+          "latencyUpperBoundMs": 29.81370000000061,
+          "observedTick": 4653
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4659,
+          "requestedTurn": 1,
+          "sentAtMs": 13803.3035,
+          "latencyUpperBoundMs": 25.978800000000774,
+          "observedTick": 4661
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4667,
+          "requestedTurn": -1,
+          "sentAtMs": 13929.1294,
+          "latencyUpperBoundMs": 35.34130000000005,
+          "observedTick": 4669
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4675,
+          "requestedTurn": 1,
+          "sentAtMs": 14063.7164,
+          "latencyUpperBoundMs": 33.03280000000086,
+          "observedTick": 4677
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4683,
+          "requestedTurn": -1,
+          "sentAtMs": 14197.1663,
+          "latencyUpperBoundMs": 31.811699999998382,
+          "observedTick": 4685
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4691,
+          "requestedTurn": 1,
+          "sentAtMs": 14329.0301,
+          "latencyUpperBoundMs": 33.314399999999296,
+          "observedTick": 4693
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4700,
+          "requestedTurn": -1,
+          "sentAtMs": 14478.7078,
+          "latencyUpperBoundMs": 33.921800000000076,
+          "observedTick": 4702
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4708,
+          "requestedTurn": 1,
+          "sentAtMs": 14614.7881,
+          "latencyUpperBoundMs": 31.03310000000056,
+          "observedTick": 4710
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4716,
+          "requestedTurn": -1,
+          "sentAtMs": 14748.6823,
+          "latencyUpperBoundMs": 30.507400000000416,
+          "observedTick": 4718
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4724,
+          "requestedTurn": 1,
+          "sentAtMs": 14878.7392,
+          "latencyUpperBoundMs": 33.5020999999997,
+          "observedTick": 4726
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4732,
+          "requestedTurn": -1,
+          "sentAtMs": 15012.4836,
+          "latencyUpperBoundMs": 33.16990000000078,
+          "observedTick": 4734
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4741,
+          "requestedTurn": 1,
+          "sentAtMs": 15162.9337,
+          "latencyUpperBoundMs": 32.31600000000071,
+          "observedTick": 4743
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4749,
+          "requestedTurn": -1,
+          "sentAtMs": 15295.9034,
+          "latencyUpperBoundMs": 33.311900000000605,
+          "observedTick": 4751
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4757,
+          "requestedTurn": 1,
+          "sentAtMs": 15428.7852,
+          "latencyUpperBoundMs": 33.00989999999911,
+          "observedTick": 4759
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4766,
+          "requestedTurn": -1,
+          "sentAtMs": 15579.237,
+          "latencyUpperBoundMs": 34.803900000000795,
+          "observedTick": 4768
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4774,
+          "requestedTurn": 1,
+          "sentAtMs": 15713.752,
+          "latencyUpperBoundMs": 31.15400000000045,
+          "observedTick": 4776
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4782,
+          "requestedTurn": -1,
+          "sentAtMs": 15847.1648,
+          "latencyUpperBoundMs": 32.0661999999993,
+          "observedTick": 4784
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4790,
+          "requestedTurn": 1,
+          "sentAtMs": 15987.779,
+          "latencyUpperBoundMs": 24.475099999999657,
+          "observedTick": 4792
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4798,
+          "requestedTurn": -1,
+          "sentAtMs": 16112.3272,
+          "latencyUpperBoundMs": 33.149600000000646,
+          "observedTick": 4800
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4807,
+          "requestedTurn": 1,
+          "sentAtMs": 16262.5332,
+          "latencyUpperBoundMs": 32.87800000000061,
+          "observedTick": 4809
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4815,
+          "requestedTurn": -1,
+          "sentAtMs": 16395.122,
+          "latencyUpperBoundMs": 33.78269999999975,
+          "observedTick": 4817
+        },
+        {
+          "snakeId": 141,
+          "clientTick": 4823,
+          "requestedTurn": 1,
+          "sentAtMs": 16529.4577,
+          "latencyUpperBoundMs": 32.68000000000029,
+          "observedTick": 4825
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4832,
+          "requestedTurn": -1,
+          "sentAtMs": 16679.2734,
+          "latencyUpperBoundMs": 33.130300000000716,
+          "observedTick": 4834
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4840,
+          "requestedTurn": 1,
+          "sentAtMs": 16816.2355,
+          "latencyUpperBoundMs": 29.739300000001094,
+          "observedTick": 4842
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4848,
+          "requestedTurn": -1,
+          "sentAtMs": 16947.3093,
+          "latencyUpperBoundMs": 31.70499999999811,
+          "observedTick": 4850
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4857,
+          "requestedTurn": 1,
+          "sentAtMs": 17096.5664,
+          "latencyUpperBoundMs": 33.27430000000095,
+          "observedTick": 4859
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4865,
+          "requestedTurn": -1,
+          "sentAtMs": 17229.6874,
+          "latencyUpperBoundMs": 31.99170000000231,
+          "observedTick": 4867
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4873,
+          "requestedTurn": 1,
+          "sentAtMs": 17364.4991,
+          "latencyUpperBoundMs": 31.677899999998772,
+          "observedTick": 4875
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4881,
+          "requestedTurn": -1,
+          "sentAtMs": 17495.7751,
+          "latencyUpperBoundMs": 33.08360000000175,
+          "observedTick": 4883
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4889,
+          "requestedTurn": 1,
+          "sentAtMs": 17629.6765,
+          "latencyUpperBoundMs": 32.42319999999745,
+          "observedTick": 4891
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4897,
+          "requestedTurn": -1,
+          "sentAtMs": 17762.9597,
+          "latencyUpperBoundMs": 35.58390000000145,
+          "observedTick": 4899
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4905,
+          "requestedTurn": 1,
+          "sentAtMs": 17910.2068,
+          "latencyUpperBoundMs": 34.58810000000085,
+          "observedTick": 4908
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4914,
+          "requestedTurn": -1,
+          "sentAtMs": 18045.4807,
+          "latencyUpperBoundMs": 34.214599999999336,
+          "observedTick": 4916
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4922,
+          "requestedTurn": 1,
+          "sentAtMs": 18186.9937,
+          "latencyUpperBoundMs": 24.579100000002654,
+          "observedTick": 4924
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4930,
+          "requestedTurn": -1,
+          "sentAtMs": 18311.8447,
+          "latencyUpperBoundMs": 32.81319999999687,
+          "observedTick": 4932
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4939,
+          "requestedTurn": 1,
+          "sentAtMs": 18462.1779,
+          "latencyUpperBoundMs": 33.712900000002264,
+          "observedTick": 4941
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4947,
+          "requestedTurn": -1,
+          "sentAtMs": 18597.5203,
+          "latencyUpperBoundMs": 31.230899999998655,
+          "observedTick": 4949
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4955,
+          "requestedTurn": 1,
+          "sentAtMs": 18728.8008,
+          "latencyUpperBoundMs": 33.53299999999945,
+          "observedTick": 4957
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4963,
+          "requestedTurn": -1,
+          "sentAtMs": 18862.6703,
+          "latencyUpperBoundMs": 32.2567999999992,
+          "observedTick": 4965
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4971,
+          "requestedTurn": 1,
+          "sentAtMs": 18996.0697,
+          "latencyUpperBoundMs": 33.56590000000142,
+          "observedTick": 4973
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4979,
+          "requestedTurn": -1,
+          "sentAtMs": 19131.2284,
+          "latencyUpperBoundMs": 31.885600000001432,
+          "observedTick": 4981
+        },
+        {
+          "snakeId": 146,
+          "clientTick": 4988,
+          "requestedTurn": 1,
+          "sentAtMs": 19278.7538,
+          "failure": "assignment changed before a correlated observation; latency unknown"
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 4995,
+          "requestedTurn": -1,
+          "sentAtMs": 19395.7619,
+          "latencyUpperBoundMs": 34.39819999999963,
+          "observedTick": 4997
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5003,
+          "requestedTurn": 1,
+          "sentAtMs": 19530.7195,
+          "latencyUpperBoundMs": 32.02300000000105,
+          "observedTick": 5005
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5011,
+          "requestedTurn": -1,
+          "sentAtMs": 19674.5034,
+          "latencyUpperBoundMs": 38.25859999999739,
+          "observedTick": 5014
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5020,
+          "requestedTurn": 1,
+          "sentAtMs": 19814.2161,
+          "latencyUpperBoundMs": 30.72099999999773,
+          "observedTick": 5022
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5028,
+          "requestedTurn": -1,
+          "sentAtMs": 19945.2855,
+          "latencyUpperBoundMs": 33.60319999999774,
+          "observedTick": 5030
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5036,
+          "requestedTurn": 1,
+          "sentAtMs": 20080.251,
+          "latencyUpperBoundMs": 31.856400000000576,
+          "observedTick": 5038
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5045,
+          "requestedTurn": -1,
+          "sentAtMs": 20229.2823,
+          "latencyUpperBoundMs": 33.843300000000454,
+          "observedTick": 5047
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5053,
+          "requestedTurn": 1,
+          "sentAtMs": 20370.5785,
+          "latencyUpperBoundMs": 24.615300000001298,
+          "observedTick": 5055
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5061,
+          "requestedTurn": -1,
+          "sentAtMs": 20495.664,
+          "latencyUpperBoundMs": 33.089100000001054,
+          "observedTick": 5063
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5070,
+          "requestedTurn": 1,
+          "sentAtMs": 20645.5262,
+          "latencyUpperBoundMs": 33.4487999999983,
+          "observedTick": 5072
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5078,
+          "requestedTurn": -1,
+          "sentAtMs": 20779.1225,
+          "latencyUpperBoundMs": 33.889799999997194,
+          "observedTick": 5080
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5086,
+          "requestedTurn": 1,
+          "sentAtMs": 20912.6968,
+          "latencyUpperBoundMs": 32.60599999999977,
+          "observedTick": 5088
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5094,
+          "requestedTurn": -1,
+          "sentAtMs": 21045.6769,
+          "latencyUpperBoundMs": 33.33860000000277,
+          "observedTick": 5096
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5102,
+          "requestedTurn": 1,
+          "sentAtMs": 21182.8142,
+          "latencyUpperBoundMs": 29.0753999999979,
+          "observedTick": 5104
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5109,
+          "requestedTurn": -1,
+          "sentAtMs": 21312.3232,
+          "latencyUpperBoundMs": 36.612700000001496,
+          "observedTick": 5112
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5118,
+          "requestedTurn": 1,
+          "sentAtMs": 21451.2482,
+          "latencyUpperBoundMs": 27.599199999996927,
+          "observedTick": 5120
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5126,
+          "requestedTurn": -1,
+          "sentAtMs": 21578.9377,
+          "latencyUpperBoundMs": 33.021600000000035,
+          "observedTick": 5128
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5134,
+          "requestedTurn": 1,
+          "sentAtMs": 21712.3608,
+          "latencyUpperBoundMs": 32.56160000000091,
+          "observedTick": 5136
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5143,
+          "requestedTurn": -1,
+          "sentAtMs": 21862.3457,
+          "latencyUpperBoundMs": 32.340799999998126,
+          "observedTick": 5145
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5151,
+          "requestedTurn": 1,
+          "sentAtMs": 21996.1822,
+          "latencyUpperBoundMs": 32.9419999999991,
+          "observedTick": 5153
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5159,
+          "requestedTurn": -1,
+          "sentAtMs": 22129.1166,
+          "latencyUpperBoundMs": 32.95499999999811,
+          "observedTick": 5161
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5167,
+          "requestedTurn": 1,
+          "sentAtMs": 22261.893,
+          "latencyUpperBoundMs": 32.86620000000039,
+          "observedTick": 5169
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5175,
+          "requestedTurn": -1,
+          "sentAtMs": 22395.9329,
+          "latencyUpperBoundMs": 33.103900000001886,
+          "observedTick": 5177
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5184,
+          "requestedTurn": 1,
+          "sentAtMs": 22545.0155,
+          "latencyUpperBoundMs": 33.65859999999884,
+          "observedTick": 5186
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5192,
+          "requestedTurn": -1,
+          "sentAtMs": 22679.0288,
+          "latencyUpperBoundMs": 33.780900000001566,
+          "observedTick": 5194
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5200,
+          "requestedTurn": 1,
+          "sentAtMs": 22815.001,
+          "latencyUpperBoundMs": 30.244200000001,
+          "observedTick": 5202
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5208,
+          "requestedTurn": -1,
+          "sentAtMs": 22944.6807,
+          "latencyUpperBoundMs": 34.311900000000605,
+          "observedTick": 5210
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5216,
+          "requestedTurn": 1,
+          "sentAtMs": 23078.9555,
+          "latencyUpperBoundMs": 33.310199999999895,
+          "observedTick": 5218
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5225,
+          "requestedTurn": -1,
+          "sentAtMs": 23229.014,
+          "latencyUpperBoundMs": 32.750599999999395,
+          "observedTick": 5227
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5233,
+          "requestedTurn": 1,
+          "sentAtMs": 23361.723,
+          "latencyUpperBoundMs": 33.88159999999698,
+          "observedTick": 5235
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5241,
+          "requestedTurn": -1,
+          "sentAtMs": 23495.3522,
+          "latencyUpperBoundMs": 33.25989999999729,
+          "observedTick": 5243
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5250,
+          "requestedTurn": 1,
+          "sentAtMs": 23646.3932,
+          "latencyUpperBoundMs": 32.485200000002806,
+          "observedTick": 5252
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5258,
+          "requestedTurn": -1,
+          "sentAtMs": 23781.7027,
+          "latencyUpperBoundMs": 31.138899999998102,
+          "observedTick": 5260
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5266,
+          "requestedTurn": 1,
+          "sentAtMs": 23915.1329,
+          "latencyUpperBoundMs": 30.451499999999214,
+          "observedTick": 5268
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5275,
+          "requestedTurn": -1,
+          "sentAtMs": 24062.2181,
+          "latencyUpperBoundMs": 33.12280000000101,
+          "observedTick": 5277
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5283,
+          "requestedTurn": 1,
+          "sentAtMs": 24194.9117,
+          "latencyUpperBoundMs": 33.82690000000002,
+          "observedTick": 5285
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5291,
+          "requestedTurn": -1,
+          "sentAtMs": 24329.4121,
+          "latencyUpperBoundMs": 32.42699999999968,
+          "observedTick": 5293
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5299,
+          "requestedTurn": 1,
+          "sentAtMs": 24464.1176,
+          "latencyUpperBoundMs": 31.490200000000186,
+          "observedTick": 5301
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5307,
+          "requestedTurn": -1,
+          "sentAtMs": 24595.7601,
+          "latencyUpperBoundMs": 33.23080000000118,
+          "observedTick": 5309
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5315,
+          "requestedTurn": 1,
+          "sentAtMs": 24728.7207,
+          "latencyUpperBoundMs": 32.95829999999842,
+          "observedTick": 5317
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5323,
+          "requestedTurn": -1,
+          "sentAtMs": 24862.7684,
+          "latencyUpperBoundMs": 32.541699999997945,
+          "observedTick": 5325
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5331,
+          "requestedTurn": 1,
+          "sentAtMs": 24994.7217,
+          "latencyUpperBoundMs": 34.257800000003044,
+          "observedTick": 5333
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5339,
+          "requestedTurn": -1,
+          "sentAtMs": 25129.3282,
+          "latencyUpperBoundMs": 34.12619999999879,
+          "observedTick": 5341
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5347,
+          "requestedTurn": 1,
+          "sentAtMs": 25262.7548,
+          "latencyUpperBoundMs": 33.126100000001315,
+          "observedTick": 5349
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5356,
+          "requestedTurn": -1,
+          "sentAtMs": 25412.6715,
+          "latencyUpperBoundMs": 32.86599999999817,
+          "observedTick": 5358
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5364,
+          "requestedTurn": 1,
+          "sentAtMs": 25545.5955,
+          "latencyUpperBoundMs": 33.40950000000157,
+          "observedTick": 5366
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5372,
+          "requestedTurn": -1,
+          "sentAtMs": 25679.2492,
+          "latencyUpperBoundMs": 32.68760000000111,
+          "observedTick": 5374
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5381,
+          "requestedTurn": 1,
+          "sentAtMs": 25829.4152,
+          "latencyUpperBoundMs": 44.169700000002194,
+          "observedTick": 5383
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5389,
+          "requestedTurn": -1,
+          "sentAtMs": 25973.928,
+          "latencyUpperBoundMs": 38.31450000000041,
+          "observedTick": 5392
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5397,
+          "requestedTurn": 1,
+          "sentAtMs": 26112.6647,
+          "latencyUpperBoundMs": 35.99059999999736,
+          "observedTick": 5400
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5406,
+          "requestedTurn": -1,
+          "sentAtMs": 26253.5561,
+          "latencyUpperBoundMs": 25.48699999999735,
+          "observedTick": 5408
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5414,
+          "requestedTurn": 1,
+          "sentAtMs": 26379.3721,
+          "latencyUpperBoundMs": 32.970000000001164,
+          "observedTick": 5416
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5422,
+          "requestedTurn": -1,
+          "sentAtMs": 26512.4717,
+          "latencyUpperBoundMs": 33.14140000000043,
+          "observedTick": 5424
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5431,
+          "requestedTurn": 1,
+          "sentAtMs": 26661.9524,
+          "latencyUpperBoundMs": 33.2361000000019,
+          "observedTick": 5433
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5439,
+          "requestedTurn": -1,
+          "sentAtMs": 26795.4229,
+          "latencyUpperBoundMs": 33.429699999996956,
+          "observedTick": 5441
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5447,
+          "requestedTurn": 1,
+          "sentAtMs": 26928.6922,
+          "latencyUpperBoundMs": 33.82430000000022,
+          "observedTick": 5449
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5455,
+          "requestedTurn": -1,
+          "sentAtMs": 27061.6874,
+          "latencyUpperBoundMs": 34.06999999999971,
+          "observedTick": 5457
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5463,
+          "requestedTurn": 1,
+          "sentAtMs": 27195.7227,
+          "latencyUpperBoundMs": 34.13460000000123,
+          "observedTick": 5465
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5471,
+          "requestedTurn": -1,
+          "sentAtMs": 27329.6867,
+          "latencyUpperBoundMs": 32.319500000001426,
+          "observedTick": 5473
+        },
+        {
+          "snakeId": 148,
+          "clientTick": 5480,
+          "requestedTurn": 1,
+          "sentAtMs": 27478.8647,
+          "latencyUpperBoundMs": 33.38420000000042,
+          "observedTick": 5482
+        }
+      ],
+      "latencyUpperBoundP95Ms": 35.34130000000005,
+      "latencyUpperBoundMaxMs": 57.164200000000164,
+      "completedTrials": 199,
+      "unknownTrials": 1,
+      "meetsInputLatencyUpperBound": true
+    },
+    {
+      "clientType": "bot",
+      "welcome": {
+        "type": "welcome",
+        "protocolVersion": 2,
+        "serializerVersion": 1,
+        "sessionId": "61583a5c-9507-41a1-88b3-e0dd4d0ed7ea",
+        "tickRate": 60,
+        "worldSeed": 1511506142,
+        "runId": "bc0c416c-ec85-4767-a901-e205709db42b",
+        "configHash": "sha256:e437744785c16915ce0cd91e69cf5c167ef6e7419b735a0b1c3554872b5509e2",
+        "configRevision": 1,
+        "frameByteLength": 76060,
+        "graphSpec": {
+          "edges": [
+            {
+              "from": "input",
+              "to": "mlp"
+            },
+            {
+              "from": "mlp",
+              "to": "gru"
+            },
+            {
+              "from": "gru",
+              "to": "head"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "input",
+              "outputSize": 83,
+              "type": "Input"
+            },
+            {
+              "hiddenSizes": [
+                64
+              ],
+              "id": "mlp",
+              "inputSize": 83,
+              "outputSize": 64,
+              "type": "MLP"
+            },
+            {
+              "hiddenSize": 16,
+              "id": "gru",
+              "inputSize": 64,
+              "type": "GRU"
+            },
+            {
+              "id": "head",
+              "inputSize": 16,
+              "outputSize": 2,
+              "type": "Dense"
+            }
+          ],
+          "outputSize": 2,
+          "outputs": [
+            {
+              "nodeId": "head"
+            }
+          ],
+          "type": "graph"
+        },
+        "capabilities": {
+          "checkpointPinning": true,
+          "archiveExport": true,
+          "archiveImport": true
+        },
+        "settings": {
+          "core": {
+            "snakeCount": 55,
+            "simSpeed": 1,
+            "hiddenLayers": 2,
+            "neurons1": 64,
+            "neurons2": 64,
+            "neurons3": 64,
+            "neurons4": 48,
+            "neurons5": 32
+          },
+          "updates": [
+            {
+              "path": "worldRadius",
+              "value": 3500
+            },
+            {
+              "path": "pelletCountTarget",
+              "value": 3500
+            },
+            {
+              "path": "pelletSpawnPerSecond",
+              "value": 170
+            },
+            {
+              "path": "foodValue",
+              "value": 1
+            },
+            {
+              "path": "growPerFood",
+              "value": 1
+            },
+            {
+              "path": "foodSpawn.edgeFalloffEnabled",
+              "value": 1
+            },
+            {
+              "path": "foodSpawn.edgeFadeStart",
+              "value": 0.35
+            },
+            {
+              "path": "foodSpawn.edgeFadePower",
+              "value": 2.6
+            },
+            {
+              "path": "foodSpawn.filamentPower",
+              "value": 4.2
+            },
+            {
+              "path": "foodSpawn.warpFreq",
+              "value": 0.0013
+            },
+            {
+              "path": "foodSpawn.warpScale",
+              "value": 0.08
+            },
+            {
+              "path": "foodSpawn.freqLarge",
+              "value": 0.0026
+            },
+            {
+              "path": "foodSpawn.freqMedium",
+              "value": 0.0042
+            },
+            {
+              "path": "foodSpawn.freqSmall",
+              "value": 0.0068
+            },
+            {
+              "path": "foodSpawn.dustStrength",
+              "value": 0.35
+            },
+            {
+              "path": "sense.layoutVersion",
+              "value": 3
+            },
+            {
+              "path": "sense.bubbleBins",
+              "value": 16
+            },
+            {
+              "path": "sense.rNearBase",
+              "value": 520
+            },
+            {
+              "path": "sense.rNearScale",
+              "value": 260
+            },
+            {
+              "path": "sense.rNearMin",
+              "value": 420
+            },
+            {
+              "path": "sense.rNearMax",
+              "value": 1100
+            },
+            {
+              "path": "sense.rFarBase",
+              "value": 1200
+            },
+            {
+              "path": "sense.rFarScale",
+              "value": 520
+            },
+            {
+              "path": "sense.rFarMin",
+              "value": 900
+            },
+            {
+              "path": "sense.rFarMax",
+              "value": 2400
+            },
+            {
+              "path": "sense.foodKBase",
+              "value": 4
+            },
+            {
+              "path": "sense.maxPelletChecks",
+              "value": 900
+            },
+            {
+              "path": "sense.maxSegmentChecks",
+              "value": 2200
+            },
+            {
+              "path": "baselineBots.count",
+              "value": 10
+            },
+            {
+              "path": "baselineBots.seed",
+              "value": 1
+            },
+            {
+              "path": "baselineBots.randomizeSeedPerGen",
+              "value": 0
+            },
+            {
+              "path": "baselineBots.respawnDelay",
+              "value": 20
+            },
+            {
+              "path": "snakeBaseSpeed",
+              "value": 165
+            },
+            {
+              "path": "snakeBoostSpeed",
+              "value": 500
+            },
+            {
+              "path": "snakeTurnRate",
+              "value": 3.2
+            },
+            {
+              "path": "snakeRadius",
+              "value": 9
+            },
+            {
+              "path": "snakeRadiusMax",
+              "value": 18
+            },
+            {
+              "path": "snakeThicknessScale",
+              "value": 2.9
+            },
+            {
+              "path": "snakeThicknessLogDiv",
+              "value": 30
+            },
+            {
+              "path": "snakeSpacing",
+              "value": 7.5
+            },
+            {
+              "path": "snakeStartLen",
+              "value": 5
+            },
+            {
+              "path": "snakeMaxLen",
+              "value": 10000
+            },
+            {
+              "path": "snakeMinLen",
+              "value": 4
+            },
+            {
+              "path": "snakeSizeSpeedPenalty",
+              "value": 0.18
+            },
+            {
+              "path": "snakeBoostSizePenalty",
+              "value": 0.28
+            },
+            {
+              "path": "boost.minPointsToBoost",
+              "value": 1.2
+            },
+            {
+              "path": "boost.pointsCostPerSecond",
+              "value": 7
+            },
+            {
+              "path": "boost.pointsCostSizeFactor",
+              "value": 1.1
+            },
+            {
+              "path": "boost.lenLossPerPoint",
+              "value": 0.16
+            },
+            {
+              "path": "boost.pelletValueFactor",
+              "value": 0.65
+            },
+            {
+              "path": "boost.pelletJitter",
+              "value": 10
+            },
+            {
+              "path": "collision.substepMaxDt",
+              "value": 0.006
+            },
+            {
+              "path": "collision.skipSegments",
+              "value": 0
+            },
+            {
+              "path": "collision.hitScale",
+              "value": 0.82
+            },
+            {
+              "path": "collision.cellSize",
+              "value": 70
+            },
+            {
+              "path": "collision.neighborRange",
+              "value": 1
+            },
+            {
+              "path": "generationSeconds",
+              "value": 60
+            },
+            {
+              "path": "eliteFrac",
+              "value": 0.12
+            },
+            {
+              "path": "mutationRate",
+              "value": 0.03
+            },
+            {
+              "path": "mutationStd",
+              "value": 0.35
+            },
+            {
+              "path": "crossoverRate",
+              "value": 0.85
+            },
+            {
+              "path": "observer.earlyEndMinSeconds",
+              "value": 8
+            },
+            {
+              "path": "observer.earlyEndAliveThreshold",
+              "value": 2
+            },
+            {
+              "path": "reward.pointsPerFood",
+              "value": 20
+            },
+            {
+              "path": "reward.pointsPerKill",
+              "value": 400
+            },
+            {
+              "path": "reward.pointsPerSecondAlive",
+              "value": 0.6
+            },
+            {
+              "path": "reward.fitnessSurvivalPerSecond",
+              "value": 0.7
+            },
+            {
+              "path": "reward.fitnessFood",
+              "value": 80
+            },
+            {
+              "path": "reward.fitnessLengthPerSegment",
+              "value": 100
+            },
+            {
+              "path": "reward.fitnessKill",
+              "value": 400
+            },
+            {
+              "path": "reward.fitnessPointsNorm",
+              "value": 42
+            },
+            {
+              "path": "reward.fitnessTopPointsBonus",
+              "value": 600
+            },
+            {
+              "path": "brain.controlDt",
+              "value": 0.016666666666666666
+            },
+            {
+              "path": "brain.gruMutationRate",
+              "value": 0.025
+            },
+            {
+              "path": "brain.gruMutationStd",
+              "value": 0.22
+            },
+            {
+              "path": "brain.gruCrossoverMode",
+              "value": 1
+            },
+            {
+              "path": "brain.gruInitUpdateBias",
+              "value": -0.7
+            },
+            {
+              "path": "brain.lstmInitForgetBias",
+              "value": 0.6
+            },
+            {
+              "path": "brain.rruInitGateBias",
+              "value": 0.1
+            }
+          ]
+        },
+        "sensorSpec": {
+          "sensorCount": 83,
+          "order": [
+            "heading_sin",
+            "heading_cos",
+            "size_norm",
+            "boost_margin",
+            "points_pct",
+            "speed_norm",
+            "boost_state",
+            "points_norm",
+            "points_delta_norm",
+            "length_norm",
+            "boost_points_frac",
+            "boost_cost_norm",
+            "wall_dist_norm",
+            "nearest_food_dist_norm",
+            "nearest_food_dir_sin",
+            "nearest_food_dir_cos",
+            "nearest_body_dist_norm",
+            "nearest_head_dist_norm",
+            "age_norm",
+            "food_0",
+            "food_1",
+            "food_2",
+            "food_3",
+            "food_4",
+            "food_5",
+            "food_6",
+            "food_7",
+            "food_8",
+            "food_9",
+            "food_10",
+            "food_11",
+            "food_12",
+            "food_13",
+            "food_14",
+            "food_15",
+            "hazard_0",
+            "hazard_1",
+            "hazard_2",
+            "hazard_3",
+            "hazard_4",
+            "hazard_5",
+            "hazard_6",
+            "hazard_7",
+            "hazard_8",
+            "hazard_9",
+            "hazard_10",
+            "hazard_11",
+            "hazard_12",
+            "hazard_13",
+            "hazard_14",
+            "hazard_15",
+            "wall_0",
+            "wall_1",
+            "wall_2",
+            "wall_3",
+            "wall_4",
+            "wall_5",
+            "wall_6",
+            "wall_7",
+            "wall_8",
+            "wall_9",
+            "wall_10",
+            "wall_11",
+            "wall_12",
+            "wall_13",
+            "wall_14",
+            "wall_15",
+            "head_0",
+            "head_1",
+            "head_2",
+            "head_3",
+            "head_4",
+            "head_5",
+            "head_6",
+            "head_7",
+            "head_8",
+            "head_9",
+            "head_10",
+            "head_11",
+            "head_12",
+            "head_13",
+            "head_14",
+            "head_15"
+          ],
+          "layoutVersion": "v3"
+        },
+        "inferenceMode": {
+          "requestedBackend": "native",
+          "activeBackend": "native",
+          "requestedMt": true,
+          "activeWorkerCount": 6,
+          "poolEpoch": null,
+          "weightEpoch": null,
+          "graphKey": "slither-graph-layout-v1:hex:736c69746865722d6e6575726f65766f2f67726170682d6c61796f75742f7631000100000004000000000000000500000000000000696e70757400530000000000000053000000000000000100000000000000530000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000006d6c7002530000000000000040000000000000000100000000000000400000000000000001000000000000004000000000000000000000000000000000402500000000000000000000000000000001000000000000000500000000000000696e70757400000000000000000000000000000000030000000000000067727503400000000000000010000000000000000100000000000000100000000000000000000000000000000110000000000000004025000000000000300f0000000000000100000000000000001000000000000000010000000000000003000000000000006d6c700000000000000000000000000000000004000000000000006865616401100000000000000002000000000000000100000000000000020000000000000000000000000000000070340000000000002200000000000000000000000000000000010000000000000003000000000000006772750000000000000000000000000000000001000000000000000400000000000000686561640000000000000000923400000000000010000000000000000200000000000000",
+          "parameterCount": 13458,
+          "seed": 1511506142,
+          "nativeAddonStatus": "ready",
+          "nativeAddonBuildIdentifier": "slither_native/0.1.0+2f1e4b5c8875.d817a018981e7e22"
+        }
+      },
+      "trials": [
+        {
+          "snakeId": 153,
+          "clientTick": 5492,
+          "requestedTurn": -1,
+          "sentAtMs": 27691.4089,
+          "latencyUpperBoundMs": 37.40970000000016,
+          "observedTick": 5495
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5501,
+          "requestedTurn": 1,
+          "sentAtMs": 27828.8378,
+          "latencyUpperBoundMs": 33.136099999999715,
+          "observedTick": 5503
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5509,
+          "requestedTurn": -1,
+          "sentAtMs": 27962.8706,
+          "latencyUpperBoundMs": 32.96780000000217,
+          "observedTick": 5511
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5517,
+          "requestedTurn": 1,
+          "sentAtMs": 28096.023,
+          "latencyUpperBoundMs": 34.70209999999861,
+          "observedTick": 5519
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5525,
+          "requestedTurn": -1,
+          "sentAtMs": 28230.6991,
+          "latencyUpperBoundMs": 31.62569999999687,
+          "observedTick": 5527
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5533,
+          "requestedTurn": 1,
+          "sentAtMs": 28362.3046,
+          "latencyUpperBoundMs": 33.308100000002014,
+          "observedTick": 5535
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5541,
+          "requestedTurn": -1,
+          "sentAtMs": 28495.2504,
+          "latencyUpperBoundMs": 33.587100000000646,
+          "observedTick": 5543
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5549,
+          "requestedTurn": 1,
+          "sentAtMs": 28628.9708,
+          "latencyUpperBoundMs": 33.05870000000141,
+          "observedTick": 5551
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5557,
+          "requestedTurn": -1,
+          "sentAtMs": 28761.7525,
+          "latencyUpperBoundMs": 33.81300000000192,
+          "observedTick": 5559
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5565,
+          "requestedTurn": 1,
+          "sentAtMs": 28895.5897,
+          "latencyUpperBoundMs": 33.23630000000048,
+          "observedTick": 5567
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5573,
+          "requestedTurn": -1,
+          "sentAtMs": 29028.9088,
+          "latencyUpperBoundMs": 33.27169999999751,
+          "observedTick": 5575
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5582,
+          "requestedTurn": 1,
+          "sentAtMs": 29178.6008,
+          "latencyUpperBoundMs": 33.726299999998446,
+          "observedTick": 5584
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5590,
+          "requestedTurn": -1,
+          "sentAtMs": 29312.305,
+          "latencyUpperBoundMs": 32.471300000001065,
+          "observedTick": 5592
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5598,
+          "requestedTurn": 1,
+          "sentAtMs": 29445.5843,
+          "latencyUpperBoundMs": 34.210800000000745,
+          "observedTick": 5600
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5607,
+          "requestedTurn": -1,
+          "sentAtMs": 29595.9027,
+          "latencyUpperBoundMs": 33.168000000001484,
+          "observedTick": 5609
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5615,
+          "requestedTurn": 1,
+          "sentAtMs": 29728.7918,
+          "latencyUpperBoundMs": 32.9871000000021,
+          "observedTick": 5617
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5623,
+          "requestedTurn": -1,
+          "sentAtMs": 29861.9665,
+          "latencyUpperBoundMs": 33.297700000002806,
+          "observedTick": 5625
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5633,
+          "requestedTurn": 1,
+          "sentAtMs": 30028.9414,
+          "latencyUpperBoundMs": 33.157100000000355,
+          "observedTick": 5635
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5641,
+          "requestedTurn": -1,
+          "sentAtMs": 30162.2972,
+          "latencyUpperBoundMs": 32.91869999999835,
+          "observedTick": 5643
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5649,
+          "requestedTurn": 1,
+          "sentAtMs": 30295.2445,
+          "latencyUpperBoundMs": 33.90869999999995,
+          "observedTick": 5651
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5658,
+          "requestedTurn": -1,
+          "sentAtMs": 30445.5375,
+          "latencyUpperBoundMs": 36.94080000000031,
+          "observedTick": 5660
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5667,
+          "requestedTurn": 1,
+          "sentAtMs": 30595.7175,
+          "latencyUpperBoundMs": 34.27890000000116,
+          "observedTick": 5669
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5675,
+          "requestedTurn": -1,
+          "sentAtMs": 30743.8271,
+          "latencyUpperBoundMs": 35.192800000000716,
+          "observedTick": 5678
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5684,
+          "requestedTurn": 1,
+          "sentAtMs": 30879.2606,
+          "latencyUpperBoundMs": 32.98919999999998,
+          "observedTick": 5686
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5692,
+          "requestedTurn": -1,
+          "sentAtMs": 31012.3911,
+          "latencyUpperBoundMs": 32.24359999999797,
+          "observedTick": 5694
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5699,
+          "requestedTurn": 1,
+          "sentAtMs": 31145.1155,
+          "latencyUpperBoundMs": 33.565999999998894,
+          "observedTick": 5702
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5709,
+          "requestedTurn": -1,
+          "sentAtMs": 31296.0074,
+          "latencyUpperBoundMs": 32.869200000001,
+          "observedTick": 5711
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5717,
+          "requestedTurn": 1,
+          "sentAtMs": 31428.798,
+          "latencyUpperBoundMs": 33.181000000000495,
+          "observedTick": 5719
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5725,
+          "requestedTurn": -1,
+          "sentAtMs": 31561.9701,
+          "latencyUpperBoundMs": 32.624800000001414,
+          "observedTick": 5727
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5733,
+          "requestedTurn": 1,
+          "sentAtMs": 31695.7391,
+          "latencyUpperBoundMs": 32.969600000000355,
+          "observedTick": 5735
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5741,
+          "requestedTurn": -1,
+          "sentAtMs": 31828.964,
+          "latencyUpperBoundMs": 32.64630000000034,
+          "observedTick": 5743
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5750,
+          "requestedTurn": 1,
+          "sentAtMs": 31978.8938,
+          "latencyUpperBoundMs": 33.549299999998766,
+          "observedTick": 5752
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5758,
+          "requestedTurn": -1,
+          "sentAtMs": 32112.5513,
+          "latencyUpperBoundMs": 34.55160000000251,
+          "observedTick": 5760
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5766,
+          "requestedTurn": 1,
+          "sentAtMs": 32249.3648,
+          "latencyUpperBoundMs": 29.0496000000021,
+          "observedTick": 5768
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5774,
+          "requestedTurn": -1,
+          "sentAtMs": 32379.1213,
+          "latencyUpperBoundMs": 34.59220000000278,
+          "observedTick": 5776
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5782,
+          "requestedTurn": 1,
+          "sentAtMs": 32517.2735,
+          "latencyUpperBoundMs": 31.844600000000355,
+          "observedTick": 5784
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5791,
+          "requestedTurn": -1,
+          "sentAtMs": 32662.0772,
+          "latencyUpperBoundMs": 33.52720000000045,
+          "observedTick": 5793
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5799,
+          "requestedTurn": 1,
+          "sentAtMs": 32794.9698,
+          "latencyUpperBoundMs": 33.805599999999686,
+          "observedTick": 5801
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5807,
+          "requestedTurn": -1,
+          "sentAtMs": 32928.8017,
+          "latencyUpperBoundMs": 32.63579999999638,
+          "observedTick": 5809
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5815,
+          "requestedTurn": 1,
+          "sentAtMs": 33061.7844,
+          "latencyUpperBoundMs": 33.10109999999986,
+          "observedTick": 5817
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5823,
+          "requestedTurn": -1,
+          "sentAtMs": 33194.9578,
+          "latencyUpperBoundMs": 33.64860000000044,
+          "observedTick": 5825
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5831,
+          "requestedTurn": 1,
+          "sentAtMs": 33328.9334,
+          "latencyUpperBoundMs": 33.11409999999887,
+          "observedTick": 5833
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5840,
+          "requestedTurn": -1,
+          "sentAtMs": 33478.7683,
+          "latencyUpperBoundMs": 33.29639999999927,
+          "observedTick": 5842
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5848,
+          "requestedTurn": 1,
+          "sentAtMs": 33612.8918,
+          "latencyUpperBoundMs": 32.26020000000426,
+          "observedTick": 5850
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5856,
+          "requestedTurn": -1,
+          "sentAtMs": 33744.7127,
+          "latencyUpperBoundMs": 34.298900000001595,
+          "observedTick": 5858
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5865,
+          "requestedTurn": 1,
+          "sentAtMs": 33894.97,
+          "latencyUpperBoundMs": 33.54750000000058,
+          "observedTick": 5867
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5873,
+          "requestedTurn": -1,
+          "sentAtMs": 34028.7027,
+          "latencyUpperBoundMs": 32.90780000000086,
+          "observedTick": 5875
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5882,
+          "requestedTurn": 1,
+          "sentAtMs": 34180.0129,
+          "latencyUpperBoundMs": 31.909399999996822,
+          "observedTick": 5884
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5890,
+          "requestedTurn": -1,
+          "sentAtMs": 34311.8567,
+          "latencyUpperBoundMs": 32.61710000000312,
+          "observedTick": 5892
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5898,
+          "requestedTurn": 1,
+          "sentAtMs": 34445.4766,
+          "latencyUpperBoundMs": 33.41670000000158,
+          "observedTick": 5900
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5907,
+          "requestedTurn": -1,
+          "sentAtMs": 34595.9459,
+          "latencyUpperBoundMs": 33.72250000000349,
+          "observedTick": 5909
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5915,
+          "requestedTurn": 1,
+          "sentAtMs": 34741.3466,
+          "latencyUpperBoundMs": 37.67020000000048,
+          "observedTick": 5918
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5924,
+          "requestedTurn": -1,
+          "sentAtMs": 34879.2909,
+          "latencyUpperBoundMs": 32.61839999999938,
+          "observedTick": 5926
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5932,
+          "requestedTurn": 1,
+          "sentAtMs": 35012.1889,
+          "latencyUpperBoundMs": 32.36509999999544,
+          "observedTick": 5934
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5940,
+          "requestedTurn": -1,
+          "sentAtMs": 35145.1591,
+          "latencyUpperBoundMs": 33.73710000000574,
+          "observedTick": 5942
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5948,
+          "requestedTurn": 1,
+          "sentAtMs": 35279.3076,
+          "latencyUpperBoundMs": 32.84389999999985,
+          "observedTick": 5950
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5956,
+          "requestedTurn": -1,
+          "sentAtMs": 35412.1244,
+          "latencyUpperBoundMs": 32.36099999999715,
+          "observedTick": 5958
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5965,
+          "requestedTurn": 1,
+          "sentAtMs": 35561.5714,
+          "latencyUpperBoundMs": 33.84180000000197,
+          "observedTick": 5967
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5973,
+          "requestedTurn": -1,
+          "sentAtMs": 35694.8718,
+          "latencyUpperBoundMs": 33.761500000000524,
+          "observedTick": 5975
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5981,
+          "requestedTurn": 1,
+          "sentAtMs": 35828.7533,
+          "latencyUpperBoundMs": 32.64400000000023,
+          "observedTick": 5983
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5989,
+          "requestedTurn": -1,
+          "sentAtMs": 35961.4052,
+          "latencyUpperBoundMs": 33.10299999999552,
+          "observedTick": 5991
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 5996,
+          "requestedTurn": 1,
+          "sentAtMs": 36094.1544,
+          "latencyUpperBoundMs": 34.265400000003865,
+          "observedTick": 5999
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6006,
+          "requestedTurn": -1,
+          "sentAtMs": 36245.145,
+          "latencyUpperBoundMs": 33.94380000000092,
+          "observedTick": 6008
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6014,
+          "requestedTurn": 1,
+          "sentAtMs": 36378.987,
+          "latencyUpperBoundMs": 32.4658999999956,
+          "observedTick": 6016
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6022,
+          "requestedTurn": -1,
+          "sentAtMs": 36511.8898,
+          "latencyUpperBoundMs": 32.855600000002596,
+          "observedTick": 6024
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6031,
+          "requestedTurn": 1,
+          "sentAtMs": 36661.9999,
+          "latencyUpperBoundMs": 33.3153999999995,
+          "observedTick": 6033
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6039,
+          "requestedTurn": -1,
+          "sentAtMs": 36795.0761,
+          "latencyUpperBoundMs": 33.18899999999849,
+          "observedTick": 6041
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6048,
+          "requestedTurn": 1,
+          "sentAtMs": 36945.2609,
+          "latencyUpperBoundMs": 33.56739999999991,
+          "observedTick": 6050
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6056,
+          "requestedTurn": -1,
+          "sentAtMs": 37089.9845,
+          "latencyUpperBoundMs": 38.481400000004214,
+          "observedTick": 6059
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6065,
+          "requestedTurn": 1,
+          "sentAtMs": 37228.5718,
+          "latencyUpperBoundMs": 32.95820000000094,
+          "observedTick": 6067
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6074,
+          "requestedTurn": -1,
+          "sentAtMs": 37378.9003,
+          "latencyUpperBoundMs": 33.078999999997905,
+          "observedTick": 6076
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6082,
+          "requestedTurn": 1,
+          "sentAtMs": 37511.9472,
+          "latencyUpperBoundMs": 32.39860000000044,
+          "observedTick": 6084
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6090,
+          "requestedTurn": -1,
+          "sentAtMs": 37645.304,
+          "latencyUpperBoundMs": 33.58050000000367,
+          "observedTick": 6092
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6099,
+          "requestedTurn": 1,
+          "sentAtMs": 37794.598,
+          "latencyUpperBoundMs": 33.81930000000284,
+          "observedTick": 6101
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6107,
+          "requestedTurn": -1,
+          "sentAtMs": 37928.1963,
+          "latencyUpperBoundMs": 34.328899999993155,
+          "observedTick": 6109
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6115,
+          "requestedTurn": 1,
+          "sentAtMs": 38066.8234,
+          "latencyUpperBoundMs": 28.539599999996426,
+          "observedTick": 6117
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6123,
+          "requestedTurn": -1,
+          "sentAtMs": 38195.6379,
+          "latencyUpperBoundMs": 32.886399999995774,
+          "observedTick": 6125
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6131,
+          "requestedTurn": 1,
+          "sentAtMs": 38328.3147,
+          "latencyUpperBoundMs": 33.28499999999622,
+          "observedTick": 6133
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6140,
+          "requestedTurn": -1,
+          "sentAtMs": 38478.359,
+          "latencyUpperBoundMs": 33.62830000000395,
+          "observedTick": 6142
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6148,
+          "requestedTurn": 1,
+          "sentAtMs": 38611.9699,
+          "latencyUpperBoundMs": 35.18300000000454,
+          "observedTick": 6150
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6155,
+          "requestedTurn": -1,
+          "sentAtMs": 38747.463,
+          "latencyUpperBoundMs": 45.74909999999363,
+          "observedTick": 6158
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6165,
+          "requestedTurn": 1,
+          "sentAtMs": 38894.9253,
+          "latencyUpperBoundMs": 33.48999999999796,
+          "observedTick": 6167
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6174,
+          "requestedTurn": -1,
+          "sentAtMs": 39058.824,
+          "latencyUpperBoundMs": 36.32880000000296,
+          "observedTick": 6177
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6183,
+          "requestedTurn": 1,
+          "sentAtMs": 39196.4248,
+          "latencyUpperBoundMs": 32.01840000000084,
+          "observedTick": 6185
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6191,
+          "requestedTurn": -1,
+          "sentAtMs": 39328.7389,
+          "latencyUpperBoundMs": 33.10020000000077,
+          "observedTick": 6193
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6199,
+          "requestedTurn": 1,
+          "sentAtMs": 39461.8468,
+          "latencyUpperBoundMs": 33.51380000000063,
+          "observedTick": 6201
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6207,
+          "requestedTurn": -1,
+          "sentAtMs": 39595.478,
+          "latencyUpperBoundMs": 33.11989999999787,
+          "observedTick": 6209
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6215,
+          "requestedTurn": 1,
+          "sentAtMs": 39728.3961,
+          "latencyUpperBoundMs": 33.15080000000307,
+          "observedTick": 6217
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6223,
+          "requestedTurn": -1,
+          "sentAtMs": 39861.1873,
+          "latencyUpperBoundMs": 34.005700000001525,
+          "observedTick": 6225
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6231,
+          "requestedTurn": 1,
+          "sentAtMs": 39995.1636,
+          "latencyUpperBoundMs": 33.20539999999892,
+          "observedTick": 6233
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6240,
+          "requestedTurn": -1,
+          "sentAtMs": 40145.5824,
+          "latencyUpperBoundMs": 32.52180000000226,
+          "observedTick": 6242
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6248,
+          "requestedTurn": 1,
+          "sentAtMs": 40278.8278,
+          "latencyUpperBoundMs": 32.964599999999336,
+          "observedTick": 6250
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6256,
+          "requestedTurn": -1,
+          "sentAtMs": 40415.1774,
+          "latencyUpperBoundMs": 29.417099999998754,
+          "observedTick": 6258
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6264,
+          "requestedTurn": 1,
+          "sentAtMs": 40544.3803,
+          "latencyUpperBoundMs": 34.06680000000051,
+          "observedTick": 6266
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6272,
+          "requestedTurn": -1,
+          "sentAtMs": 40678.3691,
+          "latencyUpperBoundMs": 33.37179999999353,
+          "observedTick": 6274
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6281,
+          "requestedTurn": 1,
+          "sentAtMs": 40828.5467,
+          "latencyUpperBoundMs": 33.61130000000412,
+          "observedTick": 6283
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6289,
+          "requestedTurn": -1,
+          "sentAtMs": 40974.2912,
+          "latencyUpperBoundMs": 37.4484999999986,
+          "observedTick": 6292
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6298,
+          "requestedTurn": 1,
+          "sentAtMs": 41112.6576,
+          "latencyUpperBoundMs": 32.6872000000003,
+          "observedTick": 6300
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6307,
+          "requestedTurn": -1,
+          "sentAtMs": 41261.4364,
+          "latencyUpperBoundMs": 33.76340000000346,
+          "observedTick": 6309
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6315,
+          "requestedTurn": 1,
+          "sentAtMs": 41395.8825,
+          "latencyUpperBoundMs": 32.27509999999893,
+          "observedTick": 6317
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6323,
+          "requestedTurn": -1,
+          "sentAtMs": 41528.5414,
+          "latencyUpperBoundMs": 33.542999999997846,
+          "observedTick": 6325
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6331,
+          "requestedTurn": 1,
+          "sentAtMs": 41661.7169,
+          "latencyUpperBoundMs": 32.33559999999852,
+          "observedTick": 6333
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6338,
+          "requestedTurn": -1,
+          "sentAtMs": 41793.8535,
+          "latencyUpperBoundMs": 34.25850000000355,
+          "observedTick": 6341
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6348,
+          "requestedTurn": 1,
+          "sentAtMs": 41944.7451,
+          "latencyUpperBoundMs": 33.544999999998254,
+          "observedTick": 6350
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6356,
+          "requestedTurn": -1,
+          "sentAtMs": 42079.5436,
+          "latencyUpperBoundMs": 36.19600000000355,
+          "observedTick": 6358
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6364,
+          "requestedTurn": 1,
+          "sentAtMs": 42216.7595,
+          "latencyUpperBoundMs": 27.421399999999267,
+          "observedTick": 6366
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6372,
+          "requestedTurn": -1,
+          "sentAtMs": 42345.0357,
+          "latencyUpperBoundMs": 32.91049999999814,
+          "observedTick": 6374
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6380,
+          "requestedTurn": 1,
+          "sentAtMs": 42478.2261,
+          "latencyUpperBoundMs": 33.51789999999892,
+          "observedTick": 6382
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6389,
+          "requestedTurn": -1,
+          "sentAtMs": 42628.7363,
+          "latencyUpperBoundMs": 32.38420000000042,
+          "observedTick": 6391
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6397,
+          "requestedTurn": 1,
+          "sentAtMs": 42760.9644,
+          "latencyUpperBoundMs": 34.23750000000291,
+          "observedTick": 6399
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6405,
+          "requestedTurn": -1,
+          "sentAtMs": 42894.6813,
+          "latencyUpperBoundMs": 33.53570000000036,
+          "observedTick": 6407
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6414,
+          "requestedTurn": 1,
+          "sentAtMs": 43044.6557,
+          "latencyUpperBoundMs": 33.94579999999405,
+          "observedTick": 6416
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6422,
+          "requestedTurn": -1,
+          "sentAtMs": 43178.9638,
+          "latencyUpperBoundMs": 32.903400000002875,
+          "observedTick": 6424
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6430,
+          "requestedTurn": 1,
+          "sentAtMs": 43315.0118,
+          "latencyUpperBoundMs": 29.864500000003318,
+          "observedTick": 6432
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6438,
+          "requestedTurn": -1,
+          "sentAtMs": 43454.9901,
+          "latencyUpperBoundMs": 23.310399999994843,
+          "observedTick": 6440
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6446,
+          "requestedTurn": 1,
+          "sentAtMs": 43578.6031,
+          "latencyUpperBoundMs": 32.89680000000226,
+          "observedTick": 6448
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6455,
+          "requestedTurn": -1,
+          "sentAtMs": 43728.447,
+          "latencyUpperBoundMs": 33.05329999999958,
+          "observedTick": 6457
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6463,
+          "requestedTurn": 1,
+          "sentAtMs": 43861.5627,
+          "latencyUpperBoundMs": 32.69289999999455,
+          "observedTick": 6465
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6471,
+          "requestedTurn": -1,
+          "sentAtMs": 43994.6638,
+          "latencyUpperBoundMs": 33.54819999999745,
+          "observedTick": 6473
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6479,
+          "requestedTurn": 1,
+          "sentAtMs": 44128.4293,
+          "latencyUpperBoundMs": 36.53429999999935,
+          "observedTick": 6481
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6487,
+          "requestedTurn": -1,
+          "sentAtMs": 44277.1922,
+          "latencyUpperBoundMs": 34.94480000000476,
+          "observedTick": 6490
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6497,
+          "requestedTurn": 1,
+          "sentAtMs": 44428.4579,
+          "latencyUpperBoundMs": 32.62380000000121,
+          "observedTick": 6499
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6505,
+          "requestedTurn": -1,
+          "sentAtMs": 44564.2933,
+          "latencyUpperBoundMs": 32.22650000000431,
+          "observedTick": 6507
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6513,
+          "requestedTurn": 1,
+          "sentAtMs": 44695.708,
+          "latencyUpperBoundMs": 33.16700000000128,
+          "observedTick": 6515
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6522,
+          "requestedTurn": -1,
+          "sentAtMs": 44845.2158,
+          "latencyUpperBoundMs": 33.057300000000396,
+          "observedTick": 6524
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6530,
+          "requestedTurn": 1,
+          "sentAtMs": 44978.2895,
+          "latencyUpperBoundMs": 33.681900000003225,
+          "observedTick": 6532
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6538,
+          "requestedTurn": -1,
+          "sentAtMs": 45114.4571,
+          "latencyUpperBoundMs": 33.01729999999952,
+          "observedTick": 6540
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6546,
+          "requestedTurn": 1,
+          "sentAtMs": 45256.4159,
+          "latencyUpperBoundMs": 38.59700000000157,
+          "observedTick": 6549
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6555,
+          "requestedTurn": -1,
+          "sentAtMs": 45394.8965,
+          "latencyUpperBoundMs": 33.242200000000594,
+          "observedTick": 6557
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6564,
+          "requestedTurn": 1,
+          "sentAtMs": 45545.5378,
+          "latencyUpperBoundMs": 32.684800000002724,
+          "observedTick": 6566
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6572,
+          "requestedTurn": -1,
+          "sentAtMs": 45678.0713,
+          "latencyUpperBoundMs": 33.3382999999958,
+          "observedTick": 6574
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6580,
+          "requestedTurn": 1,
+          "sentAtMs": 45812.0617,
+          "latencyUpperBoundMs": 32.46100000000297,
+          "observedTick": 6582
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6589,
+          "requestedTurn": -1,
+          "sentAtMs": 45961.4304,
+          "latencyUpperBoundMs": 33.309100000005856,
+          "observedTick": 6591
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6597,
+          "requestedTurn": 1,
+          "sentAtMs": 46096.2037,
+          "latencyUpperBoundMs": 34.9968000000008,
+          "observedTick": 6599
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6606,
+          "requestedTurn": -1,
+          "sentAtMs": 46244.9204,
+          "latencyUpperBoundMs": 33.153999999994994,
+          "observedTick": 6608
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6615,
+          "requestedTurn": 1,
+          "sentAtMs": 46395.4568,
+          "latencyUpperBoundMs": 32.82839999999851,
+          "observedTick": 6617
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6623,
+          "requestedTurn": -1,
+          "sentAtMs": 46528.4319,
+          "latencyUpperBoundMs": 33.00879999999597,
+          "observedTick": 6625
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6631,
+          "requestedTurn": 1,
+          "sentAtMs": 46661.463,
+          "latencyUpperBoundMs": 33.169899999993504,
+          "observedTick": 6633
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6640,
+          "requestedTurn": -1,
+          "sentAtMs": 46811.8596,
+          "latencyUpperBoundMs": 32.77769999999873,
+          "observedTick": 6642
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6648,
+          "requestedTurn": 1,
+          "sentAtMs": 46954.1505,
+          "latencyUpperBoundMs": 24.052499999997963,
+          "observedTick": 6650
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6656,
+          "requestedTurn": -1,
+          "sentAtMs": 47079.6569,
+          "latencyUpperBoundMs": 33.781199999997625,
+          "observedTick": 6658
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6665,
+          "requestedTurn": 1,
+          "sentAtMs": 47228.3676,
+          "latencyUpperBoundMs": 33.87750000000233,
+          "observedTick": 6667
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6673,
+          "requestedTurn": -1,
+          "sentAtMs": 47361.9244,
+          "latencyUpperBoundMs": 32.295399999995425,
+          "observedTick": 6675
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6682,
+          "requestedTurn": 1,
+          "sentAtMs": 47511.9468,
+          "latencyUpperBoundMs": 33.0457000000024,
+          "observedTick": 6684
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6690,
+          "requestedTurn": -1,
+          "sentAtMs": 47656.3635,
+          "latencyUpperBoundMs": 38.010800000003655,
+          "observedTick": 6693
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6699,
+          "requestedTurn": 1,
+          "sentAtMs": 47794.9358,
+          "latencyUpperBoundMs": 33.240499999999884,
+          "observedTick": 6701
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6708,
+          "requestedTurn": -1,
+          "sentAtMs": 47944.9934,
+          "latencyUpperBoundMs": 33.20019999999931,
+          "observedTick": 6710
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6716,
+          "requestedTurn": 1,
+          "sentAtMs": 48079.6573,
+          "latencyUpperBoundMs": 31.809000000001106,
+          "observedTick": 6718
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6725,
+          "requestedTurn": -1,
+          "sentAtMs": 48228.3438,
+          "latencyUpperBoundMs": 33.074399999997695,
+          "observedTick": 6727
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6733,
+          "requestedTurn": 1,
+          "sentAtMs": 48361.7336,
+          "latencyUpperBoundMs": 33.324500000002445,
+          "observedTick": 6735
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6741,
+          "requestedTurn": -1,
+          "sentAtMs": 48494.8919,
+          "latencyUpperBoundMs": 33.4716999999946,
+          "observedTick": 6743
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6750,
+          "requestedTurn": 1,
+          "sentAtMs": 48644.8977,
+          "latencyUpperBoundMs": 33.266899999995076,
+          "observedTick": 6752
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6758,
+          "requestedTurn": -1,
+          "sentAtMs": 48778.4964,
+          "latencyUpperBoundMs": 33.06889999999839,
+          "observedTick": 6760
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6767,
+          "requestedTurn": 1,
+          "sentAtMs": 48928.0839,
+          "latencyUpperBoundMs": 32.709600000001956,
+          "observedTick": 6769
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6775,
+          "requestedTurn": -1,
+          "sentAtMs": 49061.6831,
+          "latencyUpperBoundMs": 32.71600000000035,
+          "observedTick": 6777
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6783,
+          "requestedTurn": 1,
+          "sentAtMs": 49194.9753,
+          "latencyUpperBoundMs": 33.07560000000376,
+          "observedTick": 6785
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6792,
+          "requestedTurn": -1,
+          "sentAtMs": 49344.4442,
+          "latencyUpperBoundMs": 33.16700000000128,
+          "observedTick": 6794
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6800,
+          "requestedTurn": 1,
+          "sentAtMs": 49477.8943,
+          "latencyUpperBoundMs": 33.01589999999851,
+          "observedTick": 6802
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6808,
+          "requestedTurn": -1,
+          "sentAtMs": 49611.6808,
+          "latencyUpperBoundMs": 32.755199999999604,
+          "observedTick": 6810
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6816,
+          "requestedTurn": 1,
+          "sentAtMs": 49744.87,
+          "latencyUpperBoundMs": 33.352099999996426,
+          "observedTick": 6818
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6824,
+          "requestedTurn": -1,
+          "sentAtMs": 49878.2589,
+          "latencyUpperBoundMs": 32.252800000002026,
+          "observedTick": 6826
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6832,
+          "requestedTurn": 1,
+          "sentAtMs": 50011.3412,
+          "latencyUpperBoundMs": 32.887299999994866,
+          "observedTick": 6834
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6840,
+          "requestedTurn": -1,
+          "sentAtMs": 50143.955,
+          "latencyUpperBoundMs": 33.624299999995856,
+          "observedTick": 6842
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6849,
+          "requestedTurn": 1,
+          "sentAtMs": 50294.4764,
+          "latencyUpperBoundMs": 33.34689999999682,
+          "observedTick": 6851
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6857,
+          "requestedTurn": -1,
+          "sentAtMs": 50427.8646,
+          "latencyUpperBoundMs": 33.20259999999689,
+          "observedTick": 6859
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6865,
+          "requestedTurn": 1,
+          "sentAtMs": 50560.8097,
+          "latencyUpperBoundMs": 33.78020000000106,
+          "observedTick": 6867
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6874,
+          "requestedTurn": -1,
+          "sentAtMs": 50711.2177,
+          "latencyUpperBoundMs": 32.6733000000022,
+          "observedTick": 6876
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6882,
+          "requestedTurn": 1,
+          "sentAtMs": 50845.9134,
+          "latencyUpperBoundMs": 32.00119999999879,
+          "observedTick": 6884
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6890,
+          "requestedTurn": -1,
+          "sentAtMs": 50978.3834,
+          "latencyUpperBoundMs": 32.98769999999786,
+          "observedTick": 6892
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6898,
+          "requestedTurn": 1,
+          "sentAtMs": 51111.1806,
+          "latencyUpperBoundMs": 32.90770000000339,
+          "observedTick": 6900
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6906,
+          "requestedTurn": -1,
+          "sentAtMs": 51244.6398,
+          "latencyUpperBoundMs": 33.47179999999935,
+          "observedTick": 6908
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6915,
+          "requestedTurn": 1,
+          "sentAtMs": 51394.12,
+          "latencyUpperBoundMs": 33.46860000000015,
+          "observedTick": 6917
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6923,
+          "requestedTurn": -1,
+          "sentAtMs": 51528.0199,
+          "latencyUpperBoundMs": 33.4375,
+          "observedTick": 6925
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6932,
+          "requestedTurn": 1,
+          "sentAtMs": 51677.3581,
+          "latencyUpperBoundMs": 33.61059999999998,
+          "observedTick": 6934
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6940,
+          "requestedTurn": -1,
+          "sentAtMs": 51813.9729,
+          "latencyUpperBoundMs": 30.394200000002456,
+          "observedTick": 6942
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6948,
+          "requestedTurn": 1,
+          "sentAtMs": 51944.3055,
+          "latencyUpperBoundMs": 33.29139999999461,
+          "observedTick": 6950
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6957,
+          "requestedTurn": -1,
+          "sentAtMs": 52094.5757,
+          "latencyUpperBoundMs": 33.10949999999866,
+          "observedTick": 6959
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6965,
+          "requestedTurn": 1,
+          "sentAtMs": 52241.5313,
+          "latencyUpperBoundMs": 36.07759999999689,
+          "observedTick": 6968
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6974,
+          "requestedTurn": -1,
+          "sentAtMs": 52377.9686,
+          "latencyUpperBoundMs": 33.03949999999895,
+          "observedTick": 6976
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6982,
+          "requestedTurn": 1,
+          "sentAtMs": 52511.2334,
+          "latencyUpperBoundMs": 33.63790000000154,
+          "observedTick": 6984
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6990,
+          "requestedTurn": -1,
+          "sentAtMs": 52645.8864,
+          "latencyUpperBoundMs": 31.707599999994272,
+          "observedTick": 6992
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 6999,
+          "requestedTurn": 1,
+          "sentAtMs": 52795.2083,
+          "latencyUpperBoundMs": 33.35020000000077,
+          "observedTick": 7001
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7007,
+          "requestedTurn": -1,
+          "sentAtMs": 52927.7433,
+          "latencyUpperBoundMs": 32.85369999999966,
+          "observedTick": 7009
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7016,
+          "requestedTurn": 1,
+          "sentAtMs": 53078.139,
+          "latencyUpperBoundMs": 33.10319999999774,
+          "observedTick": 7018
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7024,
+          "requestedTurn": -1,
+          "sentAtMs": 53211.2915,
+          "latencyUpperBoundMs": 32.401200000000244,
+          "observedTick": 7026
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7032,
+          "requestedTurn": 1,
+          "sentAtMs": 53343.7676,
+          "latencyUpperBoundMs": 33.60420000000158,
+          "observedTick": 7034
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7041,
+          "requestedTurn": -1,
+          "sentAtMs": 53494.0351,
+          "latencyUpperBoundMs": 33.76209999999992,
+          "observedTick": 7043
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7049,
+          "requestedTurn": 1,
+          "sentAtMs": 53627.8088,
+          "latencyUpperBoundMs": 32.895400000001246,
+          "observedTick": 7051
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7057,
+          "requestedTurn": -1,
+          "sentAtMs": 53766.3061,
+          "latencyUpperBoundMs": 28.103299999995215,
+          "observedTick": 7059
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7065,
+          "requestedTurn": 1,
+          "sentAtMs": 53894.9666,
+          "latencyUpperBoundMs": 33.225100000003295,
+          "observedTick": 7067
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7073,
+          "requestedTurn": -1,
+          "sentAtMs": 54040.1538,
+          "latencyUpperBoundMs": 37.80819999999949,
+          "observedTick": 7076
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7082,
+          "requestedTurn": 1,
+          "sentAtMs": 54177.7392,
+          "latencyUpperBoundMs": 33.298799999996845,
+          "observedTick": 7084
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7091,
+          "requestedTurn": -1,
+          "sentAtMs": 54327.6976,
+          "latencyUpperBoundMs": 33.309000000001106,
+          "observedTick": 7093
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7099,
+          "requestedTurn": 1,
+          "sentAtMs": 54460.9221,
+          "latencyUpperBoundMs": 33.06499999999505,
+          "observedTick": 7101
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7108,
+          "requestedTurn": -1,
+          "sentAtMs": 54612.683,
+          "latencyUpperBoundMs": 31.94959999999992,
+          "observedTick": 7110
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7116,
+          "requestedTurn": 1,
+          "sentAtMs": 54744.8904,
+          "latencyUpperBoundMs": 32.931900000003225,
+          "observedTick": 7118
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7123,
+          "requestedTurn": -1,
+          "sentAtMs": 54878.1874,
+          "latencyUpperBoundMs": 33.77889999999752,
+          "observedTick": 7126
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7133,
+          "requestedTurn": 1,
+          "sentAtMs": 55027.5401,
+          "latencyUpperBoundMs": 32.95479999999952,
+          "observedTick": 7135
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7141,
+          "requestedTurn": -1,
+          "sentAtMs": 55162.306,
+          "latencyUpperBoundMs": 31.163500000002387,
+          "observedTick": 7143
+        },
+        {
+          "snakeId": 153,
+          "clientTick": 7150,
+          "requestedTurn": 1,
+          "sentAtMs": 55310.6813,
+          "latencyUpperBoundMs": 33.339700000004086,
+          "observedTick": 7152
+        }
+      ],
+      "latencyUpperBoundP95Ms": 36.32880000000296,
+      "latencyUpperBoundMaxMs": 45.74909999999363,
+      "completedTrials": 200,
+      "unknownTrials": 0,
+      "meetsInputLatencyUpperBound": true
+    }
+  ],
+  "meetsInputLatencyUpperBound": true
+}

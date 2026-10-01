@@ -1,0 +1,2708 @@
+{
+  "startedAtUtc": "2026-10-01T03:18:15.364Z",
+  "requestedSeconds": 1830,
+  "clientScope": "Programmatic player; measures received frames and reconnects, not browser rendering.",
+  "connections": 61,
+  "frames": 54135,
+  "frameBytes": 4339111004,
+  "actions": 55046,
+  "assignments": 134,
+  "reclaimed": 60,
+  "reclaimResults": 62,
+  "failedReclaims": 2,
+  "errors": [],
+  "lifecycleExchanges": [
+    {
+      "connection": 1,
+      "startedWallSeconds": 0.0009783990000000245,
+      "requestedGeneration": 0,
+      "requestedTick": 0,
+      "exchange": {
+        "packets": [
+          {
+            "type": "assign",
+            "snakeId": 636,
+            "reclaimed": false,
+            "tokenHash": "1a81dd45e0eedb4c0973a45bae744368eff3812284044f1551eb8ecfdc69fc22",
+            "tokenChanged": true,
+            "wallSeconds": 0.03989481800000004,
+            "generation": 2,
+            "tick": 3947
+          }
+        ],
+        "freshJoinRequested": false,
+        "outcome": "fresh"
+      }
+    },
+    {
+      "connection": 2,
+      "startedWallSeconds": 30.1525606,
+      "requestedGeneration": 2,
+      "requestedTick": 5749,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 636,
+            "wallSeconds": 30.161894053,
+            "generation": 2,
+            "tick": 5749
+          },
+          {
+            "type": "assign",
+            "snakeId": 636,
+            "reclaimed": true,
+            "tokenHash": "c2cc37d5c38546da6d1f9c5927a138e0abb19203fa33bffcb10f7db2b1100670",
+            "tokenChanged": true,
+            "wallSeconds": 30.162033864,
+            "generation": 2,
+            "tick": 5749
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 636,
+        "requestedTokenHash": "1a81dd45e0eedb4c0973a45bae744368eff3812284044f1551eb8ecfdc69fc22",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 3,
+      "startedWallSeconds": 60.273767646,
+      "requestedGeneration": 3,
+      "requestedTick": 7530,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 971,
+            "wallSeconds": 60.275815439,
+            "generation": 3,
+            "tick": 7530
+          },
+          {
+            "type": "assign",
+            "snakeId": 971,
+            "reclaimed": true,
+            "tokenHash": "bec35f29999643b4bd7f53107a1a413e53458dd813d27fb476b7cd545a8d4625",
+            "tokenChanged": true,
+            "wallSeconds": 60.275967640000005,
+            "generation": 3,
+            "tick": 7530
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 971,
+        "requestedTokenHash": "2d6ef8c2d2274a8620b7735dce4ab8c1df0254792c6acae0fb9d956537bc0751",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 4,
+      "startedWallSeconds": 90.39004377,
+      "requestedGeneration": 3,
+      "requestedTick": 9337,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 971,
+            "wallSeconds": 90.391823469,
+            "generation": 3,
+            "tick": 9337
+          },
+          {
+            "type": "assign",
+            "snakeId": 971,
+            "reclaimed": true,
+            "tokenHash": "0d94177ed3c747e6c7eedb899a978ebed9f66a171ec41f40ae8ed34788db387d",
+            "tokenChanged": true,
+            "wallSeconds": 90.391991335,
+            "generation": 3,
+            "tick": 9337
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 971,
+        "requestedTokenHash": "bec35f29999643b4bd7f53107a1a413e53458dd813d27fb476b7cd545a8d4625",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 5,
+      "startedWallSeconds": 120.512614205,
+      "requestedGeneration": 4,
+      "requestedTick": 11118,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 1303,
+            "wallSeconds": 120.514844862,
+            "generation": 4,
+            "tick": 11118
+          },
+          {
+            "type": "assign",
+            "snakeId": 1303,
+            "reclaimed": true,
+            "tokenHash": "1f247d4de3aef982e8f9d257870cf4b55ae672c06796bd3399476eafb0858772",
+            "tokenChanged": true,
+            "wallSeconds": 120.514980855,
+            "generation": 4,
+            "tick": 11118
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 1303,
+        "requestedTokenHash": "11f10239889c54c895b1abe94301dfc732327a4af03b74c516e13536d5e3087d",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 6,
+      "startedWallSeconds": 150.130882824,
+      "requestedGeneration": 4,
+      "requestedTick": 12896,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 1322,
+            "wallSeconds": 150.13420559700003,
+            "generation": 4,
+            "tick": 12896
+          },
+          {
+            "type": "assign",
+            "snakeId": 1322,
+            "reclaimed": true,
+            "tokenHash": "c89e284a74263633d778719e4d8f6ecce636e31d838e485a76ded4ea835f0aa1",
+            "tokenChanged": true,
+            "wallSeconds": 150.13440014900002,
+            "generation": 4,
+            "tick": 12896
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 1322,
+        "requestedTokenHash": "b975f1d9e19b642404c9ee29f7eebfe15132484e15269390c5e1b9c4e2a012a3",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 7,
+      "startedWallSeconds": 180.26101218500003,
+      "requestedGeneration": 5,
+      "requestedTick": 14673,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 1645,
+            "wallSeconds": 180.262880582,
+            "generation": 5,
+            "tick": 14673
+          },
+          {
+            "type": "assign",
+            "snakeId": 1645,
+            "reclaimed": true,
+            "tokenHash": "9d75dfd818713e4c9394e4ab63762107706292bb94503e3ad274696fc0783920",
+            "tokenChanged": true,
+            "wallSeconds": 180.263011353,
+            "generation": 5,
+            "tick": 14673
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 1645,
+        "requestedTokenHash": "ef7f56066f06e513fc040db37f7a8cd7ce3003266d50c0f19d6f64a2c948ecc0",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 8,
+      "startedWallSeconds": 210.38019951900003,
+      "requestedGeneration": 5,
+      "requestedTick": 16480,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 1645,
+            "wallSeconds": 210.390461176,
+            "generation": 5,
+            "tick": 16480
+          },
+          {
+            "type": "assign",
+            "snakeId": 1645,
+            "reclaimed": true,
+            "tokenHash": "fd8c3b10fc151f0856ee96d8c5da328454933d3375027b951bd8b74422e968d5",
+            "tokenChanged": true,
+            "wallSeconds": 210.390627688,
+            "generation": 5,
+            "tick": 16480
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 1645,
+        "requestedTokenHash": "9d75dfd818713e4c9394e4ab63762107706292bb94503e3ad274696fc0783920",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 9,
+      "startedWallSeconds": 240.50289797500002,
+      "requestedGeneration": 6,
+      "requestedTick": 18260,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 1985,
+            "wallSeconds": 240.508950156,
+            "generation": 6,
+            "tick": 18260
+          },
+          {
+            "type": "assign",
+            "snakeId": 1985,
+            "reclaimed": true,
+            "tokenHash": "ad1213db9e563c0ec39dc2af617a3bf2ef26bbf49906b0622dae2b089cee5ea4",
+            "tokenChanged": true,
+            "wallSeconds": 240.50910175700002,
+            "generation": 6,
+            "tick": 18260
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 1985,
+        "requestedTokenHash": "e0c1f475ba0dd6774b0ce0f0ce2efe31e2a21536b085c9b1467c4162dea4873d",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 10,
+      "startedWallSeconds": 270.13368035800005,
+      "requestedGeneration": 6,
+      "requestedTick": 20038,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 1993,
+            "wallSeconds": 270.13899583299997,
+            "generation": 6,
+            "tick": 20038
+          },
+          {
+            "type": "assign",
+            "snakeId": 1993,
+            "reclaimed": true,
+            "tokenHash": "203c2239b93b226f8041a79a84c3a86ab4ebc047ddf53573516360fc2a4bc98d",
+            "tokenChanged": true,
+            "wallSeconds": 270.139159004,
+            "generation": 6,
+            "tick": 20038
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 1993,
+        "requestedTokenHash": "2ed6fc86340cb3f8785c93fcb83dbb29ece01fcdaf76b951884f8a966ed1de4d",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 11,
+      "startedWallSeconds": 300.25522183400005,
+      "requestedGeneration": 7,
+      "requestedTick": 21820,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 2326,
+            "wallSeconds": 300.26217055000006,
+            "generation": 7,
+            "tick": 21827
+          },
+          {
+            "type": "assign",
+            "snakeId": 2326,
+            "reclaimed": true,
+            "tokenHash": "492a39d1fb6ec4da4039ba53d96c54493f5d699a838a27d4b75961790d6b6964",
+            "tokenChanged": true,
+            "wallSeconds": 300.26231179200005,
+            "generation": 7,
+            "tick": 21827
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 2326,
+        "requestedTokenHash": "d490d70e93e6ba63fc36f4dbad6543550f07a9060924be0b09813b8de00a760f",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 12,
+      "startedWallSeconds": 330.376912151,
+      "requestedGeneration": 7,
+      "requestedTick": 23628,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 2327,
+            "wallSeconds": 330.38248584400003,
+            "generation": 7,
+            "tick": 23628
+          },
+          {
+            "type": "assign",
+            "snakeId": 2327,
+            "reclaimed": true,
+            "tokenHash": "5a824234f4627a49ac48eb828eec11da84b643a68a35d854166735fc27a6c5c1",
+            "tokenChanged": true,
+            "wallSeconds": 330.382633955,
+            "generation": 7,
+            "tick": 23628
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 2327,
+        "requestedTokenHash": "941125ee1e04fc368b7b97c1f001d4845f99a2c7ffed316d38b828b5c6869694",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 13,
+      "startedWallSeconds": 360.50142704700005,
+      "requestedGeneration": 8,
+      "requestedTick": 25409,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 2657,
+            "wallSeconds": 360.515528806,
+            "generation": 8,
+            "tick": 25409
+          },
+          {
+            "type": "assign",
+            "snakeId": 2657,
+            "reclaimed": true,
+            "tokenHash": "3646d1e1e0b268276054162f1b144f48bcd71e779b1188fd03f4a6fbe7aadcbc",
+            "tokenChanged": true,
+            "wallSeconds": 360.51575667800006,
+            "generation": 8,
+            "tick": 25409
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 2657,
+        "requestedTokenHash": "2f9d3d121d112b18d52674875cded16e72c0a731fc648bbf3bab4b3e43ca79ea",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 14,
+      "startedWallSeconds": 390.14043856000006,
+      "requestedGeneration": 8,
+      "requestedTick": 27187,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 2663,
+            "wallSeconds": 390.147001591,
+            "generation": 8,
+            "tick": 27187
+          },
+          {
+            "type": "assign",
+            "snakeId": 2663,
+            "reclaimed": true,
+            "tokenHash": "d439ec12d13d536c94b019d1b36550f42b6ec6d036a8f1d4bc70b4ee4dc266e7",
+            "tokenChanged": true,
+            "wallSeconds": 390.147142423,
+            "generation": 8,
+            "tick": 27187
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 2663,
+        "requestedTokenHash": "64d4314067931ced1e24b1639d09064282d9cc160107218f023a9c9579fd659e",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 15,
+      "startedWallSeconds": 420.270017462,
+      "requestedGeneration": 9,
+      "requestedTick": 28966,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 2991,
+            "wallSeconds": 420.276015179,
+            "generation": 9,
+            "tick": 28966
+          },
+          {
+            "type": "assign",
+            "snakeId": 2991,
+            "reclaimed": true,
+            "tokenHash": "aac6fffbeb7e2c3d8b69919a3c3b2212b9b7d5c660c989ad3012dfbf4af53425",
+            "tokenChanged": true,
+            "wallSeconds": 420.276128191,
+            "generation": 9,
+            "tick": 28966
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 2991,
+        "requestedTokenHash": "809d047be3f87133448197b5b28c702d53413ed260515deae404b88907192207",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 16,
+      "startedWallSeconds": 450.399116345,
+      "requestedGeneration": 9,
+      "requestedTick": 30774,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 2997,
+            "wallSeconds": 450.40495483200004,
+            "generation": 9,
+            "tick": 30774
+          },
+          {
+            "type": "assign",
+            "snakeId": 2997,
+            "reclaimed": true,
+            "tokenHash": "b88372c480abb05fe3ede42fec337e04aa73b8901c7483c08e4e1f376d32ae96",
+            "tokenChanged": true,
+            "wallSeconds": 450.40507490400006,
+            "generation": 9,
+            "tick": 30774
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 2997,
+        "requestedTokenHash": "e041444486b8edf4c9b2c1a9a323e72696ed7147dfd984cda6f51ea6fa77c785",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 17,
+      "startedWallSeconds": 480.52499209,
+      "requestedGeneration": 10,
+      "requestedTick": 32556,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 3329,
+            "wallSeconds": 480.535880818,
+            "generation": 10,
+            "tick": 32556
+          },
+          {
+            "type": "assign",
+            "snakeId": 3329,
+            "reclaimed": true,
+            "tokenHash": "9cf8fc4976cc61590a255e853b2560580a0af16dffcecf5a19e1f2fdaab4a86d",
+            "tokenChanged": true,
+            "wallSeconds": 480.535970615,
+            "generation": 10,
+            "tick": 32556
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 3329,
+        "requestedTokenHash": "7dd0dd02821b2d032b8f5831b53f56588cf0893cb728fce6f7afd2d8a4f6dade",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 18,
+      "startedWallSeconds": 510.155865225,
+      "requestedGeneration": 10,
+      "requestedTick": 34334,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 3329,
+            "wallSeconds": 510.16580374,
+            "generation": 10,
+            "tick": 34341
+          },
+          {
+            "type": "assign",
+            "snakeId": 3329,
+            "reclaimed": true,
+            "tokenHash": "6d1b58f529f02631c355e45f578ffaab0665ec566dd84adade6e979093bd7d92",
+            "tokenChanged": true,
+            "wallSeconds": 510.16595251100006,
+            "generation": 10,
+            "tick": 34341
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 3329,
+        "requestedTokenHash": "9cf8fc4976cc61590a255e853b2560580a0af16dffcecf5a19e1f2fdaab4a86d",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 19,
+      "startedWallSeconds": 540.277712166,
+      "requestedGeneration": 11,
+      "requestedTick": 36117,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 3661,
+            "wallSeconds": 540.2900628140001,
+            "generation": 11,
+            "tick": 36124
+          },
+          {
+            "type": "assign",
+            "snakeId": 3661,
+            "reclaimed": true,
+            "tokenHash": "1883c71fd0da671527035f4c5fe4c3721dc51058002452a640f74ab366ac7ab7",
+            "tokenChanged": true,
+            "wallSeconds": 540.2902087900001,
+            "generation": 11,
+            "tick": 36124
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 3661,
+        "requestedTokenHash": "f42b3d27b10316abc993aa84883df723a103cff6c76e507fe672e7851d3f129e",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 20,
+      "startedWallSeconds": 570.406445509,
+      "requestedGeneration": 11,
+      "requestedTick": 37925,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 3661,
+            "wallSeconds": 570.409069013,
+            "generation": 11,
+            "tick": 37925
+          },
+          {
+            "type": "assign",
+            "snakeId": 3661,
+            "reclaimed": true,
+            "tokenHash": "5e1b0a2e54c9a4374f85d9467e194a9c66cbf83d219ed1619b7f94d5ee9f8732",
+            "tokenChanged": true,
+            "wallSeconds": 570.409210958,
+            "generation": 11,
+            "tick": 37925
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 3661,
+        "requestedTokenHash": "1883c71fd0da671527035f4c5fe4c3721dc51058002452a640f74ab366ac7ab7",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 21,
+      "startedWallSeconds": 600.531548086,
+      "requestedGeneration": 12,
+      "requestedTick": 39706,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 3996,
+            "wallSeconds": 600.5327850770001,
+            "generation": 12,
+            "tick": 39706
+          },
+          {
+            "type": "assign",
+            "snakeId": 3996,
+            "reclaimed": true,
+            "tokenHash": "77f51f8fad709ab361e951c070c6e91388e5cdb1df8b4cdce82dd8c298b8783d",
+            "tokenChanged": true,
+            "wallSeconds": 600.532907627,
+            "generation": 12,
+            "tick": 39706
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 3996,
+        "requestedTokenHash": "8a05db69027c55199448cb020f6e7bfa4eb6eee26bc2137fce37b88e05f4fbe0",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 22,
+      "startedWallSeconds": 630.150050496,
+      "requestedGeneration": 12,
+      "requestedTick": 41483,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 4006,
+            "wallSeconds": 630.156422181,
+            "generation": 12,
+            "tick": 41490
+          },
+          {
+            "type": "assign",
+            "snakeId": 4006,
+            "reclaimed": true,
+            "tokenHash": "04319672247c8b58e6189eb60f8b2f0bdd8f34334df7afd01cef64ff291aa305",
+            "tokenChanged": true,
+            "wallSeconds": 630.1565606830001,
+            "generation": 12,
+            "tick": 41490
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 4006,
+        "requestedTokenHash": "c0cf39e82070beb2f5ca196a48797f8266f137413ca2095a535ec4c3a5ae7051",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 23,
+      "startedWallSeconds": 660.275024554,
+      "requestedGeneration": 13,
+      "requestedTick": 43261,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 4338,
+            "wallSeconds": 660.281930786,
+            "generation": 13,
+            "tick": 43268
+          },
+          {
+            "type": "assign",
+            "snakeId": 4338,
+            "reclaimed": true,
+            "tokenHash": "dc1f846d6292dd723149632689ae9cdd53eef8eda51427ec3fd4b0e5e3e84866",
+            "tokenChanged": true,
+            "wallSeconds": 660.281956507,
+            "generation": 13,
+            "tick": 43268
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 4338,
+        "requestedTokenHash": "8b3075f821f8badf3acdef922d634f98270d622772462c6dbfa55d83450cf783",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 24,
+      "startedWallSeconds": 690.392822914,
+      "requestedGeneration": 13,
+      "requestedTick": 45069,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 4338,
+            "wallSeconds": 690.394781683,
+            "generation": 13,
+            "tick": 45069
+          },
+          {
+            "type": "assign",
+            "snakeId": 4338,
+            "reclaimed": true,
+            "tokenHash": "6b1d8bc878eda94e0a0f6735af1b4723e229b93a8dbd4278fe36580fcd9eae30",
+            "tokenChanged": true,
+            "wallSeconds": 690.394960785,
+            "generation": 13,
+            "tick": 45069
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 4338,
+        "requestedTokenHash": "dc1f846d6292dd723149632689ae9cdd53eef8eda51427ec3fd4b0e5e3e84866",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 25,
+      "startedWallSeconds": 720.50972355,
+      "requestedGeneration": 14,
+      "requestedTick": 46849,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 4674,
+            "wallSeconds": 720.520379261,
+            "generation": 14,
+            "tick": 46849
+          },
+          {
+            "type": "assign",
+            "snakeId": 4674,
+            "reclaimed": true,
+            "tokenHash": "7ff7aaf23fc297dc43f3d80bcd425739ff8897556626d29954d0cfa99a0bc588",
+            "tokenChanged": true,
+            "wallSeconds": 720.5204550919999,
+            "generation": 14,
+            "tick": 46849
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 4674,
+        "requestedTokenHash": "e76b9c700a37758f0fb5e25f18fd82f05cb5f4cb068d1d2370c26b2735b1e954",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 26,
+      "startedWallSeconds": 750.135709511,
+      "requestedGeneration": 14,
+      "requestedTick": 48627,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 4681,
+            "wallSeconds": 750.139232005,
+            "generation": 14,
+            "tick": 48627
+          },
+          {
+            "type": "assign",
+            "snakeId": 4681,
+            "reclaimed": true,
+            "tokenHash": "91a2f5cb12ff7e112dfc2b9f06c9ab989b5e0a560201e895692e00be5332a026",
+            "tokenChanged": true,
+            "wallSeconds": 750.139358346,
+            "generation": 14,
+            "tick": 48627
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 4681,
+        "requestedTokenHash": "a72e07692e0ac2d2852dcc3dd25192eaae8593b2530ffab7437f9c2d99f185fe",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 27,
+      "startedWallSeconds": 780.26079551,
+      "requestedGeneration": 14,
+      "requestedTick": 50413,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": false,
+            "reason": "invalid",
+            "wallSeconds": 780.276923101,
+            "generation": 15,
+            "tick": 50415
+          },
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 5008,
+            "wallSeconds": 780.277482446,
+            "generation": 15,
+            "tick": 50415
+          },
+          {
+            "type": "assign",
+            "snakeId": 5008,
+            "reclaimed": true,
+            "tokenHash": "da312f976f8f1c0bf7440c5e22fc985f07f9f2ff4338f4381b67c411028ff824",
+            "tokenChanged": true,
+            "wallSeconds": 780.277539747,
+            "generation": 15,
+            "tick": 50415
+          }
+        ],
+        "freshJoinRequested": true,
+        "requestedSnakeId": 4681,
+        "requestedTokenHash": "91a2f5cb12ff7e112dfc2b9f06c9ab989b5e0a560201e895692e00be5332a026",
+        "outcome": "freshAfterRejectedReclaim"
+      }
+    },
+    {
+      "connection": 28,
+      "startedWallSeconds": 810.3924555689999,
+      "requestedGeneration": 15,
+      "requestedTick": 52216,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 5012,
+            "wallSeconds": 810.3940601,
+            "generation": 15,
+            "tick": 52216
+          },
+          {
+            "type": "assign",
+            "snakeId": 5012,
+            "reclaimed": true,
+            "tokenHash": "78c4d151ce77cf0941903eba267c3042c0be8248bcccdba2d494e242fa81b9dd",
+            "tokenChanged": true,
+            "wallSeconds": 810.3942924040001,
+            "generation": 15,
+            "tick": 52216
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 5012,
+        "requestedTokenHash": "b7823de348ffa2b5a2756e533fba4d6b33640a4dd0a4e180815576123487cb97",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 29,
+      "startedWallSeconds": 840.512229085,
+      "requestedGeneration": 15,
+      "requestedTick": 54013,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": false,
+            "reason": "invalid",
+            "wallSeconds": 840.70077967,
+            "generation": 15,
+            "tick": 54013
+          },
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 5343,
+            "wallSeconds": 840.701190318,
+            "generation": 16,
+            "tick": 54015
+          },
+          {
+            "type": "assign",
+            "snakeId": 5343,
+            "reclaimed": true,
+            "tokenHash": "a37f3bc53bbe7fa4311fb3b8b3a226213c266982e625adcc07e5897faea29ad0",
+            "tokenChanged": true,
+            "wallSeconds": 840.701225098,
+            "generation": 16,
+            "tick": 54015
+          }
+        ],
+        "freshJoinRequested": true,
+        "requestedSnakeId": 5012,
+        "requestedTokenHash": "78c4d151ce77cf0941903eba267c3042c0be8248bcccdba2d494e242fa81b9dd",
+        "outcome": "freshAfterRejectedReclaim"
+      }
+    },
+    {
+      "connection": 30,
+      "startedWallSeconds": 870.3142577240001,
+      "requestedGeneration": 16,
+      "requestedTick": 55784,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 5343,
+            "wallSeconds": 870.320747714,
+            "generation": 16,
+            "tick": 55784
+          },
+          {
+            "type": "assign",
+            "snakeId": 5343,
+            "reclaimed": true,
+            "tokenHash": "d015fe6ba60928cc8496c5e678423ea33a4dea8720f3326c9e12842e686e5e60",
+            "tokenChanged": true,
+            "wallSeconds": 870.320824494,
+            "generation": 16,
+            "tick": 55784
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 5343,
+        "requestedTokenHash": "a37f3bc53bbe7fa4311fb3b8b3a226213c266982e625adcc07e5897faea29ad0",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 31,
+      "startedWallSeconds": 900.432831548,
+      "requestedGeneration": 16,
+      "requestedTick": 57591,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 5362,
+            "wallSeconds": 900.438150363,
+            "generation": 16,
+            "tick": 57591
+          },
+          {
+            "type": "assign",
+            "snakeId": 5362,
+            "reclaimed": true,
+            "tokenHash": "e0505fff59552be664f340497f028e52a7a5e4719e17f1e6d9992857372ccbc9",
+            "tokenChanged": true,
+            "wallSeconds": 900.438277644,
+            "generation": 16,
+            "tick": 57591
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 5362,
+        "requestedTokenHash": "40266a4c3ddde7e7606b9768db6ee88402aa4ba7748bb0ef1fab7424bb6fc970",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 32,
+      "startedWallSeconds": 930.551060342,
+      "requestedGeneration": 17,
+      "requestedTick": 59372,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 5684,
+            "wallSeconds": 930.5565628649999,
+            "generation": 17,
+            "tick": 59379
+          },
+          {
+            "type": "assign",
+            "snakeId": 5684,
+            "reclaimed": true,
+            "tokenHash": "48ba8e6123f480765c67cd23fbcc9766d16b6c0c60173357dcccad1fe4d1cd6c",
+            "tokenChanged": true,
+            "wallSeconds": 930.556703275,
+            "generation": 17,
+            "tick": 59379
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 5684,
+        "requestedTokenHash": "75300156552e958b9973cc09fafa969b6ca1d0509c991f84d86509ffb4801c53",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 33,
+      "startedWallSeconds": 960.1701853510001,
+      "requestedGeneration": 17,
+      "requestedTick": 61149,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 5684,
+            "wallSeconds": 960.1758695890001,
+            "generation": 17,
+            "tick": 61156
+          },
+          {
+            "type": "assign",
+            "snakeId": 5684,
+            "reclaimed": true,
+            "tokenHash": "29f7eb69e44d7ea7ef0cd21e52e05ca30e1c3c9db1de6f3f405f8d4f79c6dde6",
+            "tokenChanged": true,
+            "wallSeconds": 960.176069935,
+            "generation": 17,
+            "tick": 61156
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 5684,
+        "requestedTokenHash": "48ba8e6123f480765c67cd23fbcc9766d16b6c0c60173357dcccad1fe4d1cd6c",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 34,
+      "startedWallSeconds": 990.290296838,
+      "requestedGeneration": 18,
+      "requestedTick": 62929,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 6022,
+            "wallSeconds": 990.2984073060001,
+            "generation": 18,
+            "tick": 62936
+          },
+          {
+            "type": "assign",
+            "snakeId": 6022,
+            "reclaimed": true,
+            "tokenHash": "60e6d2224ec164bdc66f921e7d38d90ffe216a1cd1cad6aafca7bc5581ab6c8d",
+            "tokenChanged": true,
+            "wallSeconds": 990.298435587,
+            "generation": 18,
+            "tick": 62936
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 6022,
+        "requestedTokenHash": "9a03e4088b12b1cd26a5916e2c166a6c22e4198696b16a08e0257c3c27366889",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 35,
+      "startedWallSeconds": 1020.414728273,
+      "requestedGeneration": 18,
+      "requestedTick": 64737,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 6040,
+            "wallSeconds": 1020.4160529320001,
+            "generation": 18,
+            "tick": 64737
+          },
+          {
+            "type": "assign",
+            "snakeId": 6040,
+            "reclaimed": true,
+            "tokenHash": "0676c5533e61a64bf7f45b09db9a2b5e784a24c584537af91ab5d9cdbee93e66",
+            "tokenChanged": true,
+            "wallSeconds": 1020.4161749909999,
+            "generation": 18,
+            "tick": 64737
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 6040,
+        "requestedTokenHash": "385951a437667e1c26c45e6fe1d9dd47b5826be7b239a7d25a959ea595188180",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 36,
+      "startedWallSeconds": 1050.540358584,
+      "requestedGeneration": 19,
+      "requestedTick": 66515,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 6356,
+            "wallSeconds": 1050.544853509,
+            "generation": 19,
+            "tick": 66515
+          },
+          {
+            "type": "assign",
+            "snakeId": 6356,
+            "reclaimed": true,
+            "tokenHash": "5ab469f535c6dfa61d2001a4c9b106253994e991eabaed93e937445287a1707a",
+            "tokenChanged": true,
+            "wallSeconds": 1050.5449453449999,
+            "generation": 19,
+            "tick": 66515
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 6356,
+        "requestedTokenHash": "2518211e79357fd95c59c746532d92e8a325d2458bfe0dd11b527768c62989f1",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 37,
+      "startedWallSeconds": 1080.164315508,
+      "requestedGeneration": 19,
+      "requestedTick": 68293,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 6376,
+            "wallSeconds": 1080.165601091,
+            "generation": 19,
+            "tick": 68293
+          },
+          {
+            "type": "assign",
+            "snakeId": 6376,
+            "reclaimed": true,
+            "tokenHash": "f57df68d1c3a95848273964c6b3373bc233ce2088bd825dd5a675adca3a93bde",
+            "tokenChanged": true,
+            "wallSeconds": 1080.165723588,
+            "generation": 19,
+            "tick": 68293
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 6376,
+        "requestedTokenHash": "0dca5decf306d1a3f8211e01f18b2ddd03306839bd61c356934a38181931e25f",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 38,
+      "startedWallSeconds": 1110.279662914,
+      "requestedGeneration": 20,
+      "requestedTick": 70070,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 6696,
+            "wallSeconds": 1110.2808389630002,
+            "generation": 20,
+            "tick": 70070
+          },
+          {
+            "type": "assign",
+            "snakeId": 6696,
+            "reclaimed": true,
+            "tokenHash": "f64ed686bab488d8d624d11c83f3e64d0cbb50f1f6f16a397f02df5519c3f4af",
+            "tokenChanged": true,
+            "wallSeconds": 1110.2809552140002,
+            "generation": 20,
+            "tick": 70070
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 6696,
+        "requestedTokenHash": "0edb2cbe95b84963e06edb99f9dc1706112bd14ceb7fae348b870ee5eece4c2e",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 39,
+      "startedWallSeconds": 1140.3996024819999,
+      "requestedGeneration": 20,
+      "requestedTick": 71877,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 6719,
+            "wallSeconds": 1140.400795991,
+            "generation": 20,
+            "tick": 71877
+          },
+          {
+            "type": "assign",
+            "snakeId": 6719,
+            "reclaimed": true,
+            "tokenHash": "6915917d00309dd0ee8b62c94d5e483eb951bcf499cd1675e6bfe65a26e75091",
+            "tokenChanged": true,
+            "wallSeconds": 1140.400913039,
+            "generation": 20,
+            "tick": 71877
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 6719,
+        "requestedTokenHash": "7cdabb35494cf431544e6c9011e2cf5a7b90c42d0cd260ce98d9d3b0c34f24c6",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 40,
+      "startedWallSeconds": 1170.522030824,
+      "requestedGeneration": 21,
+      "requestedTick": 73652,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 7034,
+            "wallSeconds": 1170.528341467,
+            "generation": 21,
+            "tick": 73659
+          },
+          {
+            "type": "assign",
+            "snakeId": 7034,
+            "reclaimed": true,
+            "tokenHash": "29ee96a05b23070fe04be699db866343a58de0a41d06b70e334247d241464ae9",
+            "tokenChanged": true,
+            "wallSeconds": 1170.528535117,
+            "generation": 21,
+            "tick": 73659
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 7034,
+        "requestedTokenHash": "5d06179d2e518790f56ef18b21637dd0b2e71dd0637a8fbc134923c595e65dfd",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 41,
+      "startedWallSeconds": 1200.142316513,
+      "requestedGeneration": 21,
+      "requestedTick": 75429,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 7034,
+            "wallSeconds": 1200.144016694,
+            "generation": 21,
+            "tick": 75429
+          },
+          {
+            "type": "assign",
+            "snakeId": 7034,
+            "reclaimed": true,
+            "tokenHash": "f75377a0cae22770e9ffa38103641056d09a53ea82bb755470a344b9a61ffb59",
+            "tokenChanged": true,
+            "wallSeconds": 1200.1441403459999,
+            "generation": 21,
+            "tick": 75429
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 7034,
+        "requestedTokenHash": "29ee96a05b23070fe04be699db866343a58de0a41d06b70e334247d241464ae9",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 42,
+      "startedWallSeconds": 1230.261284081,
+      "requestedGeneration": 22,
+      "requestedTick": 77206,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 7359,
+            "wallSeconds": 1230.2691794720001,
+            "generation": 22,
+            "tick": 77213
+          },
+          {
+            "type": "assign",
+            "snakeId": 7359,
+            "reclaimed": true,
+            "tokenHash": "3291bb54de2eb59fcb9dca636f0d6f26ca5f59b129559c91e284c87cf8eb5459",
+            "tokenChanged": true,
+            "wallSeconds": 1230.269188892,
+            "generation": 22,
+            "tick": 77213
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 7359,
+        "requestedTokenHash": "194a266df3c4db6922998ed5437c4215f8c09a13e5a50d2147b1e5aec3f65e96",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 43,
+      "startedWallSeconds": 1260.381711237,
+      "requestedGeneration": 22,
+      "requestedTick": 79014,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 7359,
+            "wallSeconds": 1260.383109678,
+            "generation": 22,
+            "tick": 79014
+          },
+          {
+            "type": "assign",
+            "snakeId": 7359,
+            "reclaimed": true,
+            "tokenHash": "f8759f365aa7ac7c08b06df1e76f5763d69621523887b6d6d9b42538ff383a62",
+            "tokenChanged": true,
+            "wallSeconds": 1260.383225592,
+            "generation": 22,
+            "tick": 79014
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 7359,
+        "requestedTokenHash": "3291bb54de2eb59fcb9dca636f0d6f26ca5f59b129559c91e284c87cf8eb5459",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 44,
+      "startedWallSeconds": 1290.501686966,
+      "requestedGeneration": 23,
+      "requestedTick": 80792,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 7705,
+            "wallSeconds": 1290.502825706,
+            "generation": 23,
+            "tick": 80792
+          },
+          {
+            "type": "assign",
+            "snakeId": 7705,
+            "reclaimed": true,
+            "tokenHash": "9d900c25680fe54bb1b09232697325788a0acabaf7b58467f5debcaab58d643e",
+            "tokenChanged": true,
+            "wallSeconds": 1290.50294074,
+            "generation": 23,
+            "tick": 80792
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 7705,
+        "requestedTokenHash": "3612eeba90be9feea29074835505cf997f3d4ac4e2e38b493b4ca73252a7f313",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 45,
+      "startedWallSeconds": 1320.117785041,
+      "requestedGeneration": 23,
+      "requestedTick": 82569,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 7717,
+            "wallSeconds": 1320.119063301,
+            "generation": 23,
+            "tick": 82569
+          },
+          {
+            "type": "assign",
+            "snakeId": 7717,
+            "reclaimed": true,
+            "tokenHash": "32fcbde4a7c894ca4ceab5172509211de9dbeff7ccaf2ab55f1a001215bfdbb2",
+            "tokenChanged": true,
+            "wallSeconds": 1320.11921245,
+            "generation": 23,
+            "tick": 82569
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 7717,
+        "requestedTokenHash": "d6988ced8ba04736e3194cdb6dfb2ca9b560b9e952033389258468081169b060",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 46,
+      "startedWallSeconds": 1350.236093623,
+      "requestedGeneration": 24,
+      "requestedTick": 84346,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 8033,
+            "wallSeconds": 1350.2374857060001,
+            "generation": 24,
+            "tick": 84346
+          },
+          {
+            "type": "assign",
+            "snakeId": 8033,
+            "reclaimed": true,
+            "tokenHash": "d9da3e178929fba21c08725950f6aaa4c55294102d755318c962d36d8fc0bc75",
+            "tokenChanged": true,
+            "wallSeconds": 1350.237590272,
+            "generation": 24,
+            "tick": 84346
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 8033,
+        "requestedTokenHash": "e57799f00cb189f72a59418638c2c7650cc828719451a1369207068b1235607e",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 47,
+      "startedWallSeconds": 1380.3488119360002,
+      "requestedGeneration": 24,
+      "requestedTick": 86152,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 8033,
+            "wallSeconds": 1380.351016308,
+            "generation": 24,
+            "tick": 86152
+          },
+          {
+            "type": "assign",
+            "snakeId": 8033,
+            "reclaimed": true,
+            "tokenHash": "46f1d422a53a36345e3666e11d0e23f7212e8abcd076fb6025583f433e10f61b",
+            "tokenChanged": true,
+            "wallSeconds": 1380.3510706289999,
+            "generation": 24,
+            "tick": 86152
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 8033,
+        "requestedTokenHash": "d9da3e178929fba21c08725950f6aaa4c55294102d755318c962d36d8fc0bc75",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 48,
+      "startedWallSeconds": 1410.465988396,
+      "requestedGeneration": 25,
+      "requestedTick": 87929,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 8367,
+            "wallSeconds": 1410.467395872,
+            "generation": 25,
+            "tick": 87929
+          },
+          {
+            "type": "assign",
+            "snakeId": 8367,
+            "reclaimed": true,
+            "tokenHash": "c6dbdb3a8db68f4ffc46262c046f3adde7f2d900e576be9aa8369a4077c1ce24",
+            "tokenChanged": true,
+            "wallSeconds": 1410.467558854,
+            "generation": 25,
+            "tick": 87929
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 8367,
+        "requestedTokenHash": "705da214578be51a3d05590dceb8ee8b5f3b5e10adedd108230b39c46a667b64",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 49,
+      "startedWallSeconds": 1440.586400781,
+      "requestedGeneration": 25,
+      "requestedTick": 89736,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 8379,
+            "wallSeconds": 1440.587666313,
+            "generation": 25,
+            "tick": 89736
+          },
+          {
+            "type": "assign",
+            "snakeId": 8379,
+            "reclaimed": true,
+            "tokenHash": "78422d1d43c613d4bc2848be79075664a9620f486e418784a24ebb4c76bd3b3e",
+            "tokenChanged": true,
+            "wallSeconds": 1440.587782023,
+            "generation": 25,
+            "tick": 89736
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 8379,
+        "requestedTokenHash": "9859d5a21485715ec7a1a5d631c24a161ea3fef752d40f41880a1f277e9de852",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 50,
+      "startedWallSeconds": 1470.2037080389998,
+      "requestedGeneration": 26,
+      "requestedTick": 91483,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 8701,
+            "wallSeconds": 1470.205570151,
+            "generation": 26,
+            "tick": 91483
+          },
+          {
+            "type": "assign",
+            "snakeId": 8701,
+            "reclaimed": true,
+            "tokenHash": "272a54c78502136880017a95a1e730448ebff2e4f71ca70f8c21bbf574029163",
+            "tokenChanged": true,
+            "wallSeconds": 1470.20570065,
+            "generation": 26,
+            "tick": 91483
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 8701,
+        "requestedTokenHash": "17597141a8dc00c1958d6858f758f27240de97a10c1632050038ef180c89e370",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 51,
+      "startedWallSeconds": 1500.3262399579999,
+      "requestedGeneration": 26,
+      "requestedTick": 93290,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 8716,
+            "wallSeconds": 1500.327573328,
+            "generation": 26,
+            "tick": 93290
+          },
+          {
+            "type": "assign",
+            "snakeId": 8716,
+            "reclaimed": true,
+            "tokenHash": "6fb7b2a1ba2020fc027fce7a884935f4aaefa4d08e75e84d912ab94208795ab2",
+            "tokenChanged": true,
+            "wallSeconds": 1500.327654909,
+            "generation": 26,
+            "tick": 93290
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 8716,
+        "requestedTokenHash": "c244916615b4d47ce67e2dcc9d8f1638a6e3832dcd75ccc248decbc3deae29ad",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 52,
+      "startedWallSeconds": 1530.4457098080002,
+      "requestedGeneration": 27,
+      "requestedTick": 95067,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 9034,
+            "wallSeconds": 1530.446996117,
+            "generation": 27,
+            "tick": 95067
+          },
+          {
+            "type": "assign",
+            "snakeId": 9034,
+            "reclaimed": true,
+            "tokenHash": "c8e558a6cd79b5112ed2713f0abb34f9b8a221519891e1e5fb84daf845be56c3",
+            "tokenChanged": true,
+            "wallSeconds": 1530.447105909,
+            "generation": 27,
+            "tick": 95067
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 9034,
+        "requestedTokenHash": "2b4033517eb9e16f521deb726f0dbf6d0b789f5031066a37e945ef3e14b82c7f",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 53,
+      "startedWallSeconds": 1560.5644581929998,
+      "requestedGeneration": 27,
+      "requestedTick": 96874,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 9034,
+            "wallSeconds": 1560.5656616249998,
+            "generation": 27,
+            "tick": 96874
+          },
+          {
+            "type": "assign",
+            "snakeId": 9034,
+            "reclaimed": true,
+            "tokenHash": "cf33baa052878f48bba93d005e79f24344284a5ae564b5f8bed21b07908469cf",
+            "tokenChanged": true,
+            "wallSeconds": 1560.565779862,
+            "generation": 27,
+            "tick": 96874
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 9034,
+        "requestedTokenHash": "c8e558a6cd79b5112ed2713f0abb34f9b8a221519891e1e5fb84daf845be56c3",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 54,
+      "startedWallSeconds": 1590.179159803,
+      "requestedGeneration": 28,
+      "requestedTick": 98617,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 9359,
+            "wallSeconds": 1590.180404941,
+            "generation": 28,
+            "tick": 98617
+          },
+          {
+            "type": "assign",
+            "snakeId": 9359,
+            "reclaimed": true,
+            "tokenHash": "daf3a346cd9e6ed0b8373cb37b65f1b2e146b799e12276582d18d50515523a72",
+            "tokenChanged": true,
+            "wallSeconds": 1590.1805246010001,
+            "generation": 28,
+            "tick": 98617
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 9359,
+        "requestedTokenHash": "6f459e996f5b37468ef4b6298562915feb7b9bb8f4f3cd2af459505eebc23b6e",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 55,
+      "startedWallSeconds": 1620.295774353,
+      "requestedGeneration": 28,
+      "requestedTick": 100424,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 9359,
+            "wallSeconds": 1620.297164507,
+            "generation": 28,
+            "tick": 100424
+          },
+          {
+            "type": "assign",
+            "snakeId": 9359,
+            "reclaimed": true,
+            "tokenHash": "caf973c67e013875e250051c0473ea275f271ffa1fde0409e020492d8a3b753e",
+            "tokenChanged": true,
+            "wallSeconds": 1620.297287372,
+            "generation": 28,
+            "tick": 100424
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 9359,
+        "requestedTokenHash": "daf3a346cd9e6ed0b8373cb37b65f1b2e146b799e12276582d18d50515523a72",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 56,
+      "startedWallSeconds": 1650.416048048,
+      "requestedGeneration": 29,
+      "requestedTick": 102200,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 9706,
+            "wallSeconds": 1650.417249913,
+            "generation": 29,
+            "tick": 102200
+          },
+          {
+            "type": "assign",
+            "snakeId": 9706,
+            "reclaimed": true,
+            "tokenHash": "7809092f314fcdaf456b97cd3831c9fdd9fc97c546a3a6b2d7db15a1ea72efc9",
+            "tokenChanged": true,
+            "wallSeconds": 1650.417373231,
+            "generation": 29,
+            "tick": 102200
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 9706,
+        "requestedTokenHash": "e2a2988310d5e8abb2923bfe7ce5259b819ef59baa1f38bd9858f5265d459f25",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 57,
+      "startedWallSeconds": 1680.536659035,
+      "requestedGeneration": 29,
+      "requestedTick": 104007,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 9706,
+            "wallSeconds": 1680.542486792,
+            "generation": 29,
+            "tick": 104014
+          },
+          {
+            "type": "assign",
+            "snakeId": 9706,
+            "reclaimed": true,
+            "tokenHash": "d140aec1fb0ffaf661f4eeb6cbdbf1a25cc727068eb9db2281c76b90a04a43cf",
+            "tokenChanged": true,
+            "wallSeconds": 1680.54263714,
+            "generation": 29,
+            "tick": 104014
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 9706,
+        "requestedTokenHash": "7809092f314fcdaf456b97cd3831c9fdd9fc97c546a3a6b2d7db15a1ea72efc9",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 58,
+      "startedWallSeconds": 1710.1590275360002,
+      "requestedGeneration": 30,
+      "requestedTick": 105753,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 10035,
+            "wallSeconds": 1710.160953528,
+            "generation": 30,
+            "tick": 105753
+          },
+          {
+            "type": "assign",
+            "snakeId": 10035,
+            "reclaimed": true,
+            "tokenHash": "1206b62d7930cf8c405cc06f992b4559b4ecf7b7dcd2504cef1ecac58eafd40f",
+            "tokenChanged": true,
+            "wallSeconds": 1710.161096665,
+            "generation": 30,
+            "tick": 105753
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 10035,
+        "requestedTokenHash": "15bec796097103ded40c5ca94ebf40a7edae5ace0355b12b1491ed0c21ed81e8",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 59,
+      "startedWallSeconds": 1740.27836284,
+      "requestedGeneration": 30,
+      "requestedTick": 107561,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 10056,
+            "wallSeconds": 1740.279496698,
+            "generation": 30,
+            "tick": 107561
+          },
+          {
+            "type": "assign",
+            "snakeId": 10056,
+            "reclaimed": true,
+            "tokenHash": "e16f97f0a88bda3cdd3f51aa8e666410e38006692202f4e5e30354f006374fa8",
+            "tokenChanged": true,
+            "wallSeconds": 1740.279596246,
+            "generation": 30,
+            "tick": 107561
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 10056,
+        "requestedTokenHash": "2f0c927f3b4c35dcb1c529abbaea25ea02c962a374d83482463ff636f8e3e4a0",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 60,
+      "startedWallSeconds": 1770.4156561060001,
+      "requestedGeneration": 31,
+      "requestedTick": 109339,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 10373,
+            "wallSeconds": 1770.417081348,
+            "generation": 31,
+            "tick": 109339
+          },
+          {
+            "type": "assign",
+            "snakeId": 10373,
+            "reclaimed": true,
+            "tokenHash": "859891e0b8348252314494f9f7c6588a31413a82fc19818793c8d7a54bd8c18f",
+            "tokenChanged": true,
+            "wallSeconds": 1770.4171973530001,
+            "generation": 31,
+            "tick": 109339
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 10373,
+        "requestedTokenHash": "4b2dad4f41971b3cc4532039d381d4ca3a6b42ea72ca2a2e9d1e336c112ee650",
+        "outcome": "sameSnakeReclaim"
+      }
+    },
+    {
+      "connection": 61,
+      "startedWallSeconds": 1800.534050061,
+      "requestedGeneration": 31,
+      "requestedTick": 111146,
+      "exchange": {
+        "packets": [
+          {
+            "type": "reclaimResult",
+            "reclaimed": true,
+            "reason": "reclaimed",
+            "snakeId": 10394,
+            "wallSeconds": 1800.535316299,
+            "generation": 31,
+            "tick": 111146
+          },
+          {
+            "type": "assign",
+            "snakeId": 10394,
+            "reclaimed": true,
+            "tokenHash": "2971c796aa5b53e159d7b47c62f1bcc854920b00e7b3428359c4e74dcf8feba8",
+            "tokenChanged": true,
+            "wallSeconds": 1800.5354423400001,
+            "generation": 31,
+            "tick": 111146
+          }
+        ],
+        "freshJoinRequested": false,
+        "requestedSnakeId": 10394,
+        "requestedTokenHash": "a0ff34482a4d871d72f04074cfae96bc8791af7967fcba81d867f2dcfeb0787a",
+        "outcome": "sameSnakeReclaim"
+      }
+    }
+  ],
+  "reconnects": [
+    {
+      "wallSeconds": 0.04014115000000004,
+      "reclaimed": false,
+      "snakeId": 636
+    },
+    {
+      "wallSeconds": 30.162126675,
+      "reclaimed": true,
+      "snakeId": 636
+    },
+    {
+      "wallSeconds": 54.680677986,
+      "reclaimed": false,
+      "snakeId": 967
+    },
+    {
+      "wallSeconds": 57.574154207,
+      "reclaimed": false,
+      "snakeId": 970
+    },
+    {
+      "wallSeconds": 58.64216960700001,
+      "reclaimed": false,
+      "snakeId": 971
+    },
+    {
+      "wallSeconds": 60.27601894,
+      "reclaimed": true,
+      "snakeId": 971
+    },
+    {
+      "wallSeconds": 90.392012105,
+      "reclaimed": true,
+      "snakeId": 971
+    },
+    {
+      "wallSeconds": 115.11937765100001,
+      "reclaimed": false,
+      "snakeId": 1303
+    },
+    {
+      "wallSeconds": 120.515008405,
+      "reclaimed": true,
+      "snakeId": 1303
+    },
+    {
+      "wallSeconds": 143.642612382,
+      "reclaimed": false,
+      "snakeId": 1321
+    },
+    {
+      "wallSeconds": 143.86003931700003,
+      "reclaimed": false,
+      "snakeId": 1322
+    },
+    {
+      "wallSeconds": 150.13443182000003,
+      "reclaimed": true,
+      "snakeId": 1322
+    },
+    {
+      "wallSeconds": 175.65109041700003,
+      "reclaimed": false,
+      "snakeId": 1641
+    },
+    {
+      "wallSeconds": 176.94750158500003,
+      "reclaimed": false,
+      "snakeId": 1645
+    },
+    {
+      "wallSeconds": 180.263034603,
+      "reclaimed": true,
+      "snakeId": 1645
+    },
+    {
+      "wallSeconds": 210.390687218,
+      "reclaimed": true,
+      "snakeId": 1645
+    },
+    {
+      "wallSeconds": 231.675666017,
+      "reclaimed": false,
+      "snakeId": 1670
+    },
+    {
+      "wallSeconds": 236.110189525,
+      "reclaimed": false,
+      "snakeId": 1985
+    },
+    {
+      "wallSeconds": 240.50912801700002,
+      "reclaimed": true,
+      "snakeId": 1985
+    },
+    {
+      "wallSeconds": 253.700969531,
+      "reclaimed": false,
+      "snakeId": 1993
+    },
+    {
+      "wallSeconds": 270.139179824,
+      "reclaimed": true,
+      "snakeId": 1993
+    },
+    {
+      "wallSeconds": 296.550556228,
+      "reclaimed": false,
+      "snakeId": 2320
+    },
+    {
+      "wallSeconds": 299.863064786,
+      "reclaimed": false,
+      "snakeId": 2326
+    },
+    {
+      "wallSeconds": 300.262343922,
+      "reclaimed": true,
+      "snakeId": 2326
+    },
+    {
+      "wallSeconds": 303.19384526000005,
+      "reclaimed": false,
+      "snakeId": 2327
+    },
+    {
+      "wallSeconds": 330.382659155,
+      "reclaimed": true,
+      "snakeId": 2327
+    },
+    {
+      "wallSeconds": 357.005596004,
+      "reclaimed": false,
+      "snakeId": 2657
+    },
+    {
+      "wallSeconds": 360.515791609,
+      "reclaimed": true,
+      "snakeId": 2657
+    },
+    {
+      "wallSeconds": 372.65028004500004,
+      "reclaimed": false,
+      "snakeId": 2663
+    },
+    {
+      "wallSeconds": 390.147180283,
+      "reclaimed": true,
+      "snakeId": 2663
+    },
+    {
+      "wallSeconds": 417.494689274,
+      "reclaimed": false,
+      "snakeId": 2991
+    },
+    {
+      "wallSeconds": 420.27615002100003,
+      "reclaimed": true,
+      "snakeId": 2991
+    },
+    {
+      "wallSeconds": 437.90246622,
+      "reclaimed": false,
+      "snakeId": 2997
+    },
+    {
+      "wallSeconds": 450.405099484,
+      "reclaimed": true,
+      "snakeId": 2997
+    },
+    {
+      "wallSeconds": 459.985472146,
+      "reclaimed": false,
+      "snakeId": 3010
+    },
+    {
+      "wallSeconds": 470.718252339,
+      "reclaimed": false,
+      "snakeId": 3013
+    },
+    {
+      "wallSeconds": 477.942846534,
+      "reclaimed": false,
+      "snakeId": 3329
+    },
+    {
+      "wallSeconds": 480.536008325,
+      "reclaimed": true,
+      "snakeId": 3329
+    },
+    {
+      "wallSeconds": 510.165990292,
+      "reclaimed": true,
+      "snakeId": 3329
+    },
+    {
+      "wallSeconds": 518.450154549,
+      "reclaimed": false,
+      "snakeId": 3343
+    },
+    {
+      "wallSeconds": 538.3612943779999,
+      "reclaimed": false,
+      "snakeId": 3661
+    },
+    {
+      "wallSeconds": 540.2902478,
+      "reclaimed": true,
+      "snakeId": 3661
+    },
+    {
+      "wallSeconds": 570.409236798,
+      "reclaimed": true,
+      "snakeId": 3661
+    },
+    {
+      "wallSeconds": 598.816770012,
+      "reclaimed": false,
+      "snakeId": 3996
+    },
+    {
+      "wallSeconds": 600.5329257770001,
+      "reclaimed": true,
+      "snakeId": 3996
+    },
+    {
+      "wallSeconds": 607.192483336,
+      "reclaimed": false,
+      "snakeId": 4006
+    },
+    {
+      "wallSeconds": 630.156602874,
+      "reclaimed": true,
+      "snakeId": 4006
+    },
+    {
+      "wallSeconds": 659.31792477,
+      "reclaimed": false,
+      "snakeId": 4338
+    },
+    {
+      "wallSeconds": 660.281988867,
+      "reclaimed": true,
+      "snakeId": 4338
+    },
+    {
+      "wallSeconds": 690.3949818750001,
+      "reclaimed": true,
+      "snakeId": 4338
+    },
+    {
+      "wallSeconds": 719.773416722,
+      "reclaimed": false,
+      "snakeId": 4674
+    },
+    {
+      "wallSeconds": 720.520500803,
+      "reclaimed": true,
+      "snakeId": 4674
+    },
+    {
+      "wallSeconds": 724.317649246,
+      "reclaimed": false,
+      "snakeId": 4679
+    },
+    {
+      "wallSeconds": 737.148457718,
+      "reclaimed": false,
+      "snakeId": 4681
+    },
+    {
+      "wallSeconds": 750.139394506,
+      "reclaimed": true,
+      "snakeId": 4681
+    },
+    {
+      "wallSeconds": 780.277594797,
+      "reclaimed": true,
+      "snakeId": 5008
+    },
+    {
+      "wallSeconds": 785.688547488,
+      "reclaimed": false,
+      "snakeId": 5012
+    },
+    {
+      "wallSeconds": 810.394338395,
+      "reclaimed": true,
+      "snakeId": 5012
+    },
+    {
+      "wallSeconds": 840.701268689,
+      "reclaimed": true,
+      "snakeId": 5343
+    },
+    {
+      "wallSeconds": 870.320865455,
+      "reclaimed": true,
+      "snakeId": 5343
+    },
+    {
+      "wallSeconds": 874.238953692,
+      "reclaimed": false,
+      "snakeId": 5362
+    },
+    {
+      "wallSeconds": 900.4383173350001,
+      "reclaimed": true,
+      "snakeId": 5362
+    },
+    {
+      "wallSeconds": 901.149100693,
+      "reclaimed": false,
+      "snakeId": 5682
+    },
+    {
+      "wallSeconds": 901.298565198,
+      "reclaimed": false,
+      "snakeId": 5684
+    },
+    {
+      "wallSeconds": 930.556743995,
+      "reclaimed": true,
+      "snakeId": 5684
+    },
+    {
+      "wallSeconds": 960.176113596,
+      "reclaimed": true,
+      "snakeId": 5684
+    },
+    {
+      "wallSeconds": 961.623865755,
+      "reclaimed": false,
+      "snakeId": 6017
+    },
+    {
+      "wallSeconds": 965.968169619,
+      "reclaimed": false,
+      "snakeId": 6022
+    },
+    {
+      "wallSeconds": 990.298486117,
+      "reclaimed": true,
+      "snakeId": 6022
+    },
+    {
+      "wallSeconds": 1007.7326180680001,
+      "reclaimed": false,
+      "snakeId": 6040
+    },
+    {
+      "wallSeconds": 1020.416195111,
+      "reclaimed": true,
+      "snakeId": 6040
+    },
+    {
+      "wallSeconds": 1022.122220361,
+      "reclaimed": false,
+      "snakeId": 6356
+    },
+    {
+      "wallSeconds": 1050.544980226,
+      "reclaimed": true,
+      "snakeId": 6356
+    },
+    {
+      "wallSeconds": 1075.279501384,
+      "reclaimed": false,
+      "snakeId": 6376
+    },
+    {
+      "wallSeconds": 1080.165746599,
+      "reclaimed": true,
+      "snakeId": 6376
+    },
+    {
+      "wallSeconds": 1082.6347784220002,
+      "reclaimed": false,
+      "snakeId": 6690
+    },
+    {
+      "wallSeconds": 1082.8177868999999,
+      "reclaimed": false,
+      "snakeId": 6692
+    },
+    {
+      "wallSeconds": 1088.794492388,
+      "reclaimed": false,
+      "snakeId": 6694
+    },
+    {
+      "wallSeconds": 1091.344853642,
+      "reclaimed": false,
+      "snakeId": 6696
+    },
+    {
+      "wallSeconds": 1110.2809724640001,
+      "reclaimed": true,
+      "snakeId": 6696
+    },
+    {
+      "wallSeconds": 1139.543068796,
+      "reclaimed": false,
+      "snakeId": 6719
+    },
+    {
+      "wallSeconds": 1140.4009290390002,
+      "reclaimed": true,
+      "snakeId": 6719
+    },
+    {
+      "wallSeconds": 1143.18727715,
+      "reclaimed": false,
+      "snakeId": 7032
+    },
+    {
+      "wallSeconds": 1149.030537185,
+      "reclaimed": false,
+      "snakeId": 7034
+    },
+    {
+      "wallSeconds": 1170.528572988,
+      "reclaimed": true,
+      "snakeId": 7034
+    },
+    {
+      "wallSeconds": 1200.144161827,
+      "reclaimed": true,
+      "snakeId": 7034
+    },
+    {
+      "wallSeconds": 1203.709418756,
+      "reclaimed": false,
+      "snakeId": 7359
+    },
+    {
+      "wallSeconds": 1230.269230973,
+      "reclaimed": true,
+      "snakeId": 7359
+    },
+    {
+      "wallSeconds": 1260.3832427920001,
+      "reclaimed": true,
+      "snakeId": 7359
+    },
+    {
+      "wallSeconds": 1264.208812825,
+      "reclaimed": false,
+      "snakeId": 7691
+    },
+    {
+      "wallSeconds": 1269.036846986,
+      "reclaimed": false,
+      "snakeId": 7698
+    },
+    {
+      "wallSeconds": 1279.5172095940002,
+      "reclaimed": false,
+      "snakeId": 7702
+    },
+    {
+      "wallSeconds": 1280.384725048,
+      "reclaimed": false,
+      "snakeId": 7704
+    },
+    {
+      "wallSeconds": 1281.433773955,
+      "reclaimed": false,
+      "snakeId": 7705
+    },
+    {
+      "wallSeconds": 1290.50295706,
+      "reclaimed": true,
+      "snakeId": 7705
+    },
+    {
+      "wallSeconds": 1317.950436128,
+      "reclaimed": false,
+      "snakeId": 7717
+    },
+    {
+      "wallSeconds": 1320.1192305,
+      "reclaimed": true,
+      "snakeId": 7717
+    },
+    {
+      "wallSeconds": 1324.728262022,
+      "reclaimed": false,
+      "snakeId": 8033
+    },
+    {
+      "wallSeconds": 1350.237613522,
+      "reclaimed": true,
+      "snakeId": 8033
+    },
+    {
+      "wallSeconds": 1380.3510967290001,
+      "reclaimed": true,
+      "snakeId": 8033
+    },
+    {
+      "wallSeconds": 1385.256807554,
+      "reclaimed": false,
+      "snakeId": 8360
+    },
+    {
+      "wallSeconds": 1386.6859826450002,
+      "reclaimed": false,
+      "snakeId": 8363
+    },
+    {
+      "wallSeconds": 1402.3304979089999,
+      "reclaimed": false,
+      "snakeId": 8367
+    },
+    {
+      "wallSeconds": 1410.467583674,
+      "reclaimed": true,
+      "snakeId": 8367
+    },
+    {
+      "wallSeconds": 1422.2472012169999,
+      "reclaimed": false,
+      "snakeId": 8379
+    },
+    {
+      "wallSeconds": 1440.5877979929999,
+      "reclaimed": true,
+      "snakeId": 8379
+    },
+    {
+      "wallSeconds": 1445.7780200779998,
+      "reclaimed": false,
+      "snakeId": 8697
+    },
+    {
+      "wallSeconds": 1454.371142183,
+      "reclaimed": false,
+      "snakeId": 8701
+    },
+    {
+      "wallSeconds": 1470.20571761,
+      "reclaimed": true,
+      "snakeId": 8701
+    },
+    {
+      "wallSeconds": 1492.786281722,
+      "reclaimed": false,
+      "snakeId": 8716
+    },
+    {
+      "wallSeconds": 1500.327672999,
+      "reclaimed": true,
+      "snakeId": 8716
+    },
+    {
+      "wallSeconds": 1506.303618754,
+      "reclaimed": false,
+      "snakeId": 9034
+    },
+    {
+      "wallSeconds": 1530.4471224,
+      "reclaimed": true,
+      "snakeId": 9034
+    },
+    {
+      "wallSeconds": 1560.565797923,
+      "reclaimed": true,
+      "snakeId": 9034
+    },
+    {
+      "wallSeconds": 1566.883056267,
+      "reclaimed": false,
+      "snakeId": 9359
+    },
+    {
+      "wallSeconds": 1590.180540721,
+      "reclaimed": true,
+      "snakeId": 9359
+    },
+    {
+      "wallSeconds": 1620.2973057319998,
+      "reclaimed": true,
+      "snakeId": 9359
+    },
+    {
+      "wallSeconds": 1627.420336456,
+      "reclaimed": false,
+      "snakeId": 9697
+    },
+    {
+      "wallSeconds": 1632.413221985,
+      "reclaimed": false,
+      "snakeId": 9702
+    },
+    {
+      "wallSeconds": 1636.479731177,
+      "reclaimed": false,
+      "snakeId": 9706
+    },
+    {
+      "wallSeconds": 1650.4173949009999,
+      "reclaimed": true,
+      "snakeId": 9706
+    },
+    {
+      "wallSeconds": 1680.5426697,
+      "reclaimed": true,
+      "snakeId": 9706
+    },
+    {
+      "wallSeconds": 1687.953051617,
+      "reclaimed": false,
+      "snakeId": 10035
+    },
+    {
+      "wallSeconds": 1710.161123006,
+      "reclaimed": true,
+      "snakeId": 10035
+    },
+    {
+      "wallSeconds": 1726.261560165,
+      "reclaimed": false,
+      "snakeId": 10056
+    },
+    {
+      "wallSeconds": 1740.279611847,
+      "reclaimed": true,
+      "snakeId": 10056
+    },
+    {
+      "wallSeconds": 1748.460460087,
+      "reclaimed": false,
+      "snakeId": 10373
+    },
+    {
+      "wallSeconds": 1770.4172149740002,
+      "reclaimed": true,
+      "snakeId": 10373
+    },
+    {
+      "wallSeconds": 1778.684139148,
+      "reclaimed": false,
+      "snakeId": 10391
+    },
+    {
+      "wallSeconds": 1782.5339190070001,
+      "reclaimed": false,
+      "snakeId": 10392
+    },
+    {
+      "wallSeconds": 1784.58581353,
+      "reclaimed": false,
+      "snakeId": 10394
+    },
+    {
+      "wallSeconds": 1800.53546148,
+      "reclaimed": true,
+      "snakeId": 10394
+    },
+    {
+      "wallSeconds": 1808.969559455,
+      "reclaimed": false,
+      "snakeId": 10710
+    },
+    {
+      "wallSeconds": 1820.3431631150002,
+      "reclaimed": false,
+      "snakeId": 10716
+    }
+  ],
+  "wallSeconds": 1830.051496066,
+  "passed": true
+}

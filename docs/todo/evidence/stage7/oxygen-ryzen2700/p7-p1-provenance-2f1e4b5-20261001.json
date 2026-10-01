@@ -1,0 +1,147 @@
+{
+  "sourceRevision": "2f1e4b5c887535ff20b6a9c5db37353b4208c08e",
+  "nativeBuildIdentifier": "slither_native/0.1.0+2f1e4b5c8875.d817a018981e7e22",
+  "trainerRevision": "7240da036df6f4cfb606b1f20d6dc1c3561399a2",
+  "runtimeScope": "Normal production GNU release addon with six workers, two real PyRL actors and one independently driven programmatic player. No preload, inspector, forced GC, external trim, or diagnostic clients during the thirty-minute server window.",
+  "measuredSeconds": 1800.3230265640002,
+  "deltaSteps": "107195",
+  "simulatedWallRatio": 0.9923682066896129,
+  "droppedWallMicros": "0",
+  "stepP99Ms": 16,
+  "memorySoak": {
+    "warmSamples": 20,
+    "measuredSamples": 41,
+    "warmMedianBytes": 156968960,
+    "finalRssBytes": 187490304,
+    "finalAboveWarmMedianBytes": 30521344,
+    "slopeMiBPerMinute": 0.8494862106043563,
+    "warmSeconds": 600,
+    "measuredSeconds": 1200.3230265640002,
+    "meetsMemoryGate": true
+  },
+  "queueSoak": {
+    "inspectedSamples": 61,
+    "withinReportedLimits": true,
+    "inboundPeakCommands": "20",
+    "inboundPeakOwnedBytes": "1054",
+    "outputPeakCount": "18",
+    "outputPeakOwnedBytes": "6292",
+    "outputPeakReliable": "17",
+    "outputPeakReliableOwnedBytes": "6188",
+    "outputPeakDiscrete": "0",
+    "outputPeakDiscreteOwnedBytes": "0",
+    "outputPeakFrames": "0",
+    "outputPeakFrameOwnedBytes": "0",
+    "outputPeakStats": "1",
+    "outputPeakStatsOwnedBytes": "104",
+    "websocketPeakMessagesPerConnection": 1,
+    "websocketPeakBytesPerConnection": 6845,
+    "inboundRejectionsDelta": "0",
+    "outputCapacityWaitsDelta": "0",
+    "faultDiscardedCommandsDelta": "0",
+    "priorityOverflowsDelta": "0",
+    "reliableFailuresDelta": 1,
+    "meetsQueueGate": true
+  },
+  "healthLatencyP95Ms": 1.7498370000103023,
+  "checkpointBarrier": {
+    "samples": 29,
+    "meanMs": 213.51223296553258,
+    "p95Ms": 250,
+    "maxMs": 245.20145800011232
+  },
+  "maximumGenerationIntervalSeconds": 60.69891716000001,
+  "playerPassed": true,
+  "playerSeconds": 1830.051496066,
+  "playerConnections": 61,
+  "lifecycleOutcomes": [
+    {
+      "Name": "fresh",
+      "Count": 1
+    },
+    {
+      "Name": "freshAfterRejectedReclaim",
+      "Count": 2
+    },
+    {
+      "Name": "sameSnakeReclaim",
+      "Count": 58
+    }
+  ],
+  "lifecycleScope": "58 same-snake reclaims and two explicit invalid-token results followed by requested token-free joins. The latter recovered successor snakes through the name fallback and are not counted as same-snake reclaim. One reliable local-send failure was retained during deliberate reconnect traffic; no queue overflow, rejected inbound batch, or fault-discarded command occurred.",
+  "loadedP1ServerPlayerSoakPassed": true,
+  "completeStage7Acceptance": false,
+  "lan": [
+    {
+      "scenario": "P0",
+      "passed": true,
+      "clients": [
+        {
+          "clientType": "ui",
+          "completedTrials": 199,
+          "unknownTrials": 1,
+          "latencyUpperBoundP95Ms": 35.34130000000005
+        },
+        {
+          "clientType": "bot",
+          "completedTrials": 200,
+          "unknownTrials": 0,
+          "latencyUpperBoundP95Ms": 36.32880000000296
+        }
+      ]
+    },
+    {
+      "scenario": "P1",
+      "passed": true,
+      "clients": [
+        {
+          "clientType": "ui",
+          "completedTrials": 199,
+          "unknownTrials": 1,
+          "latencyUpperBoundP95Ms": 38.053900000000795
+        },
+        {
+          "clientType": "bot",
+          "completedTrials": 198,
+          "unknownTrials": 2,
+          "latencyUpperBoundP95Ms": 38.35250000000087
+        }
+      ]
+    },
+    {
+      "scenario": "P2",
+      "passed": true,
+      "clients": [
+        {
+          "clientType": "ui",
+          "completedTrials": 200,
+          "unknownTrials": 0,
+          "latencyUpperBoundP95Ms": 38.425200000001496
+        },
+        {
+          "clientType": "bot",
+          "completedTrials": 199,
+          "unknownTrials": 1,
+          "latencyUpperBoundP95Ms": 42.5054999999993
+        }
+      ]
+    }
+  ],
+  "lanScope": "Separate Windows-to-Oxygen LAN runs, each with two real trainer actors and 200 steering attempts per client route. Unknown attempts remain ranked beyond finite latency bounds. These conservative action-to-step bounds include the observation return trip and do not measure browser event/render cadence, display/sensor suppression, boost release or browser archive heap.",
+  "measurementGateUpdate": "The executed sampler already reported raw health p95. Its 1.75 ms value independently passes the 100 ms gate. The next sampler checkpoint also includes that limit in its boolean pass result; this measurement-only change cannot invalidate the retained raw timings.",
+  "ci": "2f1e4b5 full CI 36809401448 passed",
+  "sourceReportSha256": {
+    "lan-turn-p0-2f1e4b5-20261001.json": "b5aba1bfa426b52060c5242b71f891048b853f2077118e9f3c11f0b46bb4b6e7",
+    "lan-turn-p1-2f1e4b5-20261001.json": "c468f1cbeaa74aa689581afe098cc7044e5186243ac25cb909d209589c470fad",
+    "lan-turn-p2-2f1e4b5-20261001.json": "d5e5f9b70bba7e504c0117727f88bed6fd59bae831ab012771be869ee54281c2",
+    "lan-turn-runner-2f1e4b5-20261001.py": "f7558c53e206c5b2e9fe3f934788c97f6e0c0fb0082f3956a3b6c75cf6dc3c99",
+    "lan-turn-server-2f1e4b5-20261001.sh": "ac3fc40ceba5da5e0e105dbfc62861e7dc356934b2b657eaf21739fef5437a2f",
+    "p7-p1-final-health-2f1e4b5-20261001.json": "95950ca0432393ed66553961f97f22009eff1b76134e4b91e0a4cc1f9685b99b",
+    "p7-p1-handles-2f1e4b5-20261001.json": "7acba3bb4cb1ae92925acb353c044c25bd1bf83674a489d4a4fd58310836de75",
+    "p7-p1-player-2f1e4b5-20261001.json": "0973a1d1cd89f4182e41dc860f67745a41a3337adfdd98252dd876c223366ed7",
+    "p7-p1-runner-2f1e4b5-20261001.py": "9d4a6e9f136e449c9499a452bcc86d284847262b9b14a795a56681238528b98c",
+    "p7-p1-supervisor-2f1e4b5-20261001.sh": "454f8f87233e163645fc27e120d239d8c475cf9937a20e7ee8e2dbd5af82da8f",
+    "p7-p1-window-2f1e4b5-20261001.json": "d51f09db833bc3960f4d1a88ad7611f1e32bcdc2bcae979162c4a65945379b23"
+  },
+  "cleanup": "Remote reports matched copied hashes. Soak and all LAN server/player/trainer/monitor processes stopped. The exact owned remote checkout/addon/build/databases and local runner/trainer scratch were removed. The owner service is inactive and ports 5174/5180/5181 are closed."
+}

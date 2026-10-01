@@ -190,10 +190,12 @@ async function run(): Promise<void> {
   const intervals = transitions.slice(1).map((item, index) => item.wallSeconds - transitions[index]!.wallSeconds);
   const trainerActions = final.telemetry.controllerActivity.trainer.appliedActions - initial.telemetry.controllerActivity.trainer.appliedActions;
   const timing = final.telemetry;
+  const healthLatencyP95Ms = latencies.length ? percentile(latencies, 0.95) : null;
   const meetsMeasuredGates = !failure && wallSeconds >= seconds && ratio >= 0.98 && dropped === 0n &&
     !overloaded && (scenario === 'P2' || timing.step.p99Ms <= 16.667) && intervals.length > 0 && intervals.every(value => value <= 62) &&
     timing.checkpointBarrier.samples > 0 && timing.checkpointBarrier.p95Ms <= 1000 && timing.checkpointBarrier.maxMs <= 2000 &&
     timing.process.eventLoopDelayP95Ms <= 20 && timing.process.eventLoopDelayP99Ms <= 50 &&
+    healthLatencyP95Ms !== null && healthLatencyP95Ms <= 100 &&
     timing.process.maxRssBytes < 12 * 1024 ** 3 &&
     trainerActions > 0 && timing.trainerAction.p95Ms <= 100 &&
     (seconds < 1800 || memorySoak?.meetsMemoryGate === true) && queueSoak?.meetsQueueGate === true;
@@ -205,7 +207,7 @@ async function run(): Promise<void> {
     deltaSteps: deltaSteps.toString(), simulatedWallRatio: ratio, droppedWallMicros: dropped.toString(),
     overloadedDuringSamples: overloaded, trainerAppliedActionsDelta: trainerActions,
     transitions, generationIntervalsSeconds: intervals, observationFailures, resourceSamples, memorySoak, queueSoak,
-    healthLatencyP95Ms: latencies.length ? percentile(latencies, 0.95) : null,
+    healthLatencyP95Ms,
     healthLatencyMaxMs: latencies.length ? Math.max(...latencies) : null,
     failure, meetsMeasuredGates };
   await writeFile(resolve(output), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });

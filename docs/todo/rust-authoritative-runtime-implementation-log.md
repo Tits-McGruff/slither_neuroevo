@@ -44,7 +44,7 @@ is actually needed.
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
 | 6 | Rust runtime complete | Rust owns durable startup/recovery, continuous frames/stats, browser and Protocol 2 routing, generation persistence, managed retention, commands, and direct archive export/import. |
-| 7 | Acceptance active | Measured P0/P1/P2 server timing, real trainer traffic, large archives and bounded persistence slices are retained. The interrupted player soak exposed a corrected failed-replacement token race; a complete loaded soak on that correction, complete LAN input timing, browser drawing/heap and final durability acceptance remain. |
+| 7 | Acceptance active | P0/P1/P2 server timing and LAN steering, real trainer traffic, large archives and bounded persistence slices are retained. The corrected replacement-token path passes a complete loaded P1 player/RSS/queue soak. Browser drawing/heap and final durability acceptance remain. |
 | 8 | Production cutover active | Normal npm and launcher startup selects Rust; the TypeScript game is retained only as `server:reference`. Deployment/service and final acceptance remain. |
 
 ## Milestone index
@@ -1393,3 +1393,24 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   removed after verified report copies; the owner game remains stopped. This
   interrupted run does not close the thirty-minute loaded soak; that run and
   complete LAN/browser/final acceptance remain required on corrected source.
+
+- 2026-10-01 Exact corrected `2f1e4b5` production source passed the complete
+  loaded P1 server/player soak: 1,800.32 seconds, 107,195 steps, 0.9924
+  simulated/wall, zero dropped time and 16 ms step p99. Final RSS was 178.8 MiB,
+  29.1 MiB above the warm median, with a 0.849 MiB/minute slope; all queue peaks
+  stayed within their limits. Health p95 was 1.75 ms, checkpoint-barrier
+  p95/max 250/245.2 ms and the longest complete generation interval 60.70 seconds.
+  The player completed 1,830 seconds and 61 connections, including 58 same-snake
+  reclaims and two explicit invalid-token/fresh-join recoveries. Separate
+  Windows-to-Oxygen LAN probes with two real trainer actors recorded 200
+  steering attempts per client route: player/bot p95 upper bounds were
+  35.3/36.3 ms for P0, 38.1/38.4 ms for P1 and 38.4/42.5 ms for P2. Unknown
+  responses remained in the percentile calculation. Raw reports and executed
+  runners are retained as `evidence/stage7/oxygen-ryzen2700/*-2f1e4b5-20261001.*`.
+  The sampler now also enforces its already-reported 100 ms health-p95 limit in
+  the pass flag; TypeScript, focused lint and queue/RSS contracts passed.
+  `2f1e4b5` full CI passed. Reports matched their copied hashes; all owned
+  processes, remote checkout/addon/build/databases and local trainer scratch
+  were removed, and the owner game remains stopped. Browser rendering,
+  large-archive heap/usability, unattended service startup and final acceptance
+  auditing remain; these reports do not establish those separate gates.
