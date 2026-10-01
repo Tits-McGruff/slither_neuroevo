@@ -1578,3 +1578,18 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   ESLint and Vite passed; preceding `ab34b87` CI passed. Test processes and
   copied databases/scratch were stopped/removed. Physical laptop/final-source
   LAN drawing, archive heap and final production acceptance remain open.
+
+- 2026-10-02 The normal browser Export/Import controls downloaded a 2,521,088-byte
+  default save and round-tripped an 89,509,376-byte evolved P2 save as its original
+  on-disk File. Independent bounded TAR/Zstandard decoding verified every role's
+  counts/hash and the save root; the successful HTTP receipt preserved the exact
+  run, generation, completed step, checkpoint and root. A traced browser download
+  made one request with matching filename/headers/body. An earlier valid download
+  had a generation-seven label and generation-eight body; its cause and a traced
+  generation-overlap check remain open. Precise peak/post-collection browser heap
+  remains unproven. Compact evidence, a standalone verifier and the restored view
+  are retained as `browser-*-df2d81d-20261002.*`. Test processes, copied databases
+  and scratch were removed; two verified archives remain in the named ignored
+  local fixture directory for those unfinished gates. A focused native socket test
+  and ESLint passed after reducing admission-fixture movement, preserving all
+  300-body assertions and the existing deadline.
