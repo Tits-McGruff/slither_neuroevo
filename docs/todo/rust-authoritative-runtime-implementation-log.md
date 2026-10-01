@@ -1473,3 +1473,18 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   actual adjacent-point segments, with live health/queue brackets, and requires
   further frames beyond 200,000 segments. P4 timing/LAN/browser and final
   acceptance remain separate gates.
+
+- 2026-10-01 The same production native source, committed as `8d38fb9`, then
+  completed a bounded Oxygen capacity run through normal population conversion
+  and supported dense/high-growth settings. Actual frames reached 203,536 body
+  segments across eight living snakes (at least 203,304 collision segments after
+  configured head skips), with 24,999 pellets and a 2,128,620-byte frame. Further
+  frames stayed above the boundary for 5.16 seconds before orderly close;
+  1,558 frames arrived over 265.94 seconds, with no authority fault or reliable
+  send failure. Peak RSS was 345 MiB. This clears the narrow >200k capacity
+  boundary, not its timing/LAN/browser gates: the stress workload reported
+  overload, 0.0976 simulated/wall speed and a 256 ms p99 histogram upper bound.
+  The report and exact build/source/runner manifest are retained as
+  `p4-capacity-*-56711b23-20261001.json`. Unused Windows scratch, the remote
+  build tree, and the stopped remote checkout/addon/databases were removed;
+  owner service and ports remain stopped/closed.
