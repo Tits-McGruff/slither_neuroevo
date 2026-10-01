@@ -124,6 +124,9 @@ describeNetworkSuite('Rust server real sockets', () => {
           { path: 'worldRadius', value: 10000 },
           { path: 'snakeStartLen', value: 140 },
           { path: 'snakeSpacing', value: 3 },
+          // This checks admission geometry; limit movement before a loaded runner observes it.
+          { path: 'snakeBaseSpeed', value: 30 },
+          { path: 'snakeBoostSpeed', value: 40 },
           { path: 'snakeRadius', value: 3 },
           { path: 'snakeThicknessScale', value: 0 },
           { path: 'collision.skipSegments', value: 30 },
