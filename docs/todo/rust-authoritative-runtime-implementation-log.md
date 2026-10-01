@@ -1448,3 +1448,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   `a700d86` full CI passed. The owned checkout, addon and copied databases were
   removed after verified evidence retention. Laptop/P4 rendering, archive
   heap/usability, unattended service startup and final acceptance remain.
+
+- 2026-10-01 README now publishes the measured P0/P1/P2 six-worker workloads,
+  corrected P1 soak, LAN steering and desktop drawing results, plus P3 startup
+  capacity and the remaining acceptance limits. Figures were checked against
+  retained reports; service/update/backup/recovery instructions remain present.
+  This documentation checkpoint does not qualify laptop/P4 or browser archive
+  memory/usability and does not declare final production acceptance.

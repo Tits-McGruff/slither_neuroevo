@@ -191,6 +191,47 @@ isolated SQLite metadata worker.
 Use `npm run server:reference` only when deliberately running the retained
 TypeScript comparison implementation.
 
+### Measured workloads and remaining acceptance
+
+The retained Rust measurements use Oxygen's Ryzen 7 2700/Debian host with
+**six calculation workers**, 1x simulation speed, 3,500 target pellets and ten
+baseline bots. Population snakes have individually owned neural weights. The
+large graph has 402,914 parameters per snake; the P3 startup probe uses a
+deterministic packed-weight capacity fixture. The default configuration still
+starts with five workers; use `--rust-workers 6` to match these measurements.
+
+| Case | Population | Sensors per snake | Brain | Completed measurements |
+|---|---:|---:|---|---|
+| P0 | 55 | 83, with 16 angular bins | Default graph | Server timing, LAN steering and desktop drawing |
+| P1 | 300 | 83, with 16 angular bins | Default graph | Server timing, thirty-minute loaded player/trainer soak, LAN steering and desktop drawing |
+| P2 | 55 | 147, with 32 angular bins | Large custom graph | Server timing, LAN steering and desktop drawing |
+| P3 | 300 | 147, with 32 angular bins | Large custom graph | Large-population persistence and startup-capacity checks; real-time performance remains unqualified |
+
+The corrected P1 thirty-minute run completed 107,195 steps at 0.9924
+simulated/wall time with zero discarded scheduler time and a 16 ms step-p99
+histogram upper bound. The separate LAN steering measurements covered 200
+attempts for each player and bot route in each P0/P1/P2 case; p95 upper bounds
+were at most 42.6 ms, including unknown responses in the ranking. Separate
+sixty-second foreground desktop drawing samples had p95 intervals of
+16.8–16.9 ms. P2 retained a 1.55-second drawing-interval stall while opening
+the graph/settings panel. These desktop samples used a Ryzen 7 5800X/RTX 4080
+client and Chromium 154.
+
+For the full-size P3 legacy-conversion fixture, a 1280 MiB checkpoint budget
+rejected startup before publishing a current checkpoint. A 1986 MiB budget
+admitted one generation-one checkpoint and its subsequent managed restart.
+The fixture preserved all legacy source rows. Actual admission depends on the
+protected checkpoints, new payload size and available disk space; keep the
+normal 4096 MiB default unless a deliberate storage budget requires otherwise.
+
+Migration acceptance remains open for laptop rendering, the dense-world case
+with more than 200,000 body segments in follow and overview modes, browser
+memory/usability during large archive download and upload, unattended service
+startup and the final feature audit. Server archive round trips and desktop
+drawing have separate retained evidence. The current scope and links to the
+raw reports are in the
+[factual implementation log](docs/todo/rust-authoritative-runtime-implementation-log.md).
+
 ### Debian service, updates, and backups
 
 The checked-in service runs the Rust server in the foreground so systemd owns
