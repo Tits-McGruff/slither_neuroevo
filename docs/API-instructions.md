@@ -123,6 +123,9 @@ Register as a spectator or request a controlled snake:
 - `mode` is exactly `"spectator"` or `"player"`.
 - `name`, when present, is at most 24 characters.
 - Player mode requires a non-blank name at the server behavior boundary.
+- Optional `resumeToken` requests reclaim of the assignment that issued it.
+  Retain the latest token from each `assign`, repeat `hello` after reconnect,
+  then send `join` with the same name and that token.
 - Joining spectator mode releases any snake assigned to that connection.
 
 ### `action`
@@ -357,11 +360,36 @@ Sent after player join and whenever a dead controlled snake is replaced:
 {
   "type": "assign",
   "snakeId": 100000,
-  "controller": "bot"
+  "controller": "bot",
+  "resumeToken": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
 }
 ```
 
 `controller` is `"bot"` for a bot client and `"player"` for a UI player.
+Each replacement has a new snake identity and token. A successful reclaim also
+sets `reclaimed: true` and rotates the token while preserving the live snake.
+
+### `reclaimResult`
+
+A successful token reclaim sends this result followed by its matching `assign`:
+
+```json
+{
+  "type": "reclaimResult",
+  "reclaimed": true,
+  "reason": "reclaimed",
+  "snakeId": 100000
+}
+```
+
+The default disconnect grace is 30 seconds of wall time. A token cannot reclaim
+a different snake after death or a generation replacement, including when the
+replacement assignment could not be sent. A rejected reclaim has
+`reclaimed: false` and an explicit reason; it does not implicitly create a
+fresh assignment. Send another `join` without `resumeToken` to request an
+assignment. The trusted-LAN name fallback may reclaim one matching reserved
+lease; ambiguous matches are rejected. Tokens are also invalidated by Reset,
+New Run, import, or a server restart.
 
 ### `sensors`
 

@@ -44,7 +44,7 @@ is actually needed.
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
 | 6 | Rust runtime complete | Rust owns durable startup/recovery, continuous frames/stats, browser and Protocol 2 routing, generation persistence, managed retention, commands, and direct archive export/import. |
-| 7 | Acceptance active | Measured P0/P1/P2 server timing, real trainer traffic, large archives and bounded persistence slices are retained. Latest P1 server memory/queue results are scoped by an interrupted player soak; reconnect consistency, complete LAN input timing, browser drawing/heap and final durability acceptance remain. |
+| 7 | Acceptance active | Measured P0/P1/P2 server timing, real trainer traffic, large archives and bounded persistence slices are retained. The interrupted player soak exposed a corrected failed-replacement token race; a complete loaded soak on that correction, complete LAN input timing, browser drawing/heap and final durability acceptance remain. |
 | 8 | Production cutover active | Normal npm and launcher startup selects Rust; the TypeScript game is retained only as `server:reference`. Deployment/service and final acceptance remain. |
 
 ## Milestone index
@@ -1375,3 +1375,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   upload-deadline test remains opt-in. The original long-run mismatch still
   requires an instrumented loaded run; this checkpoint changes measurement
   correlation, not production controller behavior.
+
+- 2026-10-01 Exact `4b7f6b0` loaded P1 reproduced the successful-reclaim
+  mismatch after 720.5 seconds: request snake 4365 received matching successful
+  result/assignment for successor 4682 with a rotated token. Raw request/reply
+  fingerprints, the interrupted server window, scope and reproduction sources
+  are retained as `evidence/stage7/oxygen-ryzen2700/p7-p1-*-4b7f6b0-20261001.*`.
+  A focused real-server regression reproduces the same failure by rejecting a
+  successor assignment at the transport boundary. Rust had retained the
+  predecessor token on the fresh snake after failed delivery; replacements now
+  invalidate that token on either send outcome while preserving neutral control
+  and disconnect grace. Same-live-snake reclaim still rotates only after its
+  successful send. Full release Rust, rustfmt, Clippy, the rebuilt-addon
+  real-server suite, reconnect/dependency contracts, TypeScript and full ESLint
+  passed. External-client instructions document explicit fresh-join recovery.
+  `4b7f6b0` full CI passed. All owned processes and remote/local scratch were
+  removed after verified report copies; the owner game remains stopped. This
+  interrupted run does not close the thirty-minute loaded soak; that run and
+  complete LAN/browser/final acceptance remain required on corrected source.

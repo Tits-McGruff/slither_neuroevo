@@ -14,6 +14,7 @@ import { run as runStage6RuntimeProbe } from '../scripts/stage6/runtime-integrat
 import { measureTurnResponses } from '../scripts/stage7/lan-turn-response.ts';
 import { PlayerReconnectExchange } from '../scripts/stage7/player-reconnect-exchange.ts';
 import { startRustServer } from './rustServer.ts';
+import { WsHub } from './wsHub.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
@@ -1320,11 +1321,12 @@ describeNetworkSuite('Rust server real sockets', () => {
     }
   }, 30_000);
 
-  it('keeps same-snake reclaim distinct from explicit fresh join after a durable generation change', async () => {
+  it('keeps same-snake reclaim distinct from fresh joins after generation changes and failed successor sends', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-reclaim-generation-'));
     const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 91,
       rustCalculationWorkers: 4, dbPath: join(root, 'experiment.sqlite') });
     const peers: Peer[] = [];
+    let sendSpy: ReturnType<typeof vi.spyOn> | undefined;
     try {
       const viewer = await connect(server.port, 'ui'); peers.push(viewer);
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
@@ -1376,7 +1378,38 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(replacement.exchange.record.packets[0]).toMatchObject({ type: 'reclaimResult', reclaimed: false });
       expect(replacement.exchange.record.packets.at(-1)?.snakeId).not.toBe(Number(before['snakeId']));
       expect(replacement.exchange.record.freshJoinRequested).toBe(true);
+
+      viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'hold-successor-send',
+        updates: [{ path: 'simSpeed', value: 0.1 }] }));
+      await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'hold-successor-send'));
+      expect(viewer.packets.findLast(packet => packet['requestId'] === 'hold-successor-send'))
+        .toMatchObject({ applied: true });
+      const held = replacement.peer.packets.findLast(packet => packet['type'] === 'assign')!;
+      const heldGeneration = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as { generation: string };
+      const originalSend = WsHub.prototype.sendJsonTo;
+      let failedSuccessorId: number | undefined;
+      // Reject exactly the first new-snake send at the real transport boundary.
+      // Rust must publish its failed-send outcome; the old token cannot bind it.
+      sendSpy = vi.spyOn(WsHub.prototype, 'sendJsonTo').mockImplementation(function (this: WsHub, connection, message) {
+        if (message.type === 'assign' && message.reclaimed !== true &&
+            message.snakeId !== Number(held['snakeId']) && failedSuccessorId === undefined) {
+          failedSuccessorId = message.snakeId;
+          return false;
+        }
+        return originalSend.call(this, connection, message);
+      });
+      viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'advance-successor-send',
+        updates: [{ path: 'simSpeed', value: 12 }] }));
+      await healthUntil(server.port, value => failedSuccessorId !== undefined &&
+        BigInt(`0x${String(value['generation'])}`) > BigInt(`0x${heldGeneration.generation}`));
+      sendSpy.mockRestore(); sendSpy = undefined;
+      await new Promise<void>(done => { replacement.peer.socket.once('close', done); replacement.peer.socket.close(); });
+      const recovered = await claim({ snakeId: Number(held['snakeId']), token: String(held['resumeToken']) });
+      expect(recovered.exchange.record.outcome).toBe('freshAfterRejectedReclaim');
+      expect(recovered.exchange.record.packets[0]).toMatchObject({ type: 'reclaimResult', reclaimed: false });
+      expect(recovered.exchange.record.requestedSnakeId).not.toBe(failedSuccessorId);
     } finally {
+      sendSpy?.mockRestore();
       for (const peer of peers) peer.socket.terminate();
       await server.close();
       await rm(root, { recursive: true, force: true });

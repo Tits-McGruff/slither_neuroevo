@@ -9553,7 +9553,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_replacement_assignment_keeps_the_known_token_and_disconnect_grace() {
+    fn failed_replacement_assignment_invalidates_the_old_snake_token_and_keeps_grace() {
         let graph = default_graph();
         let mut candidate = complete_running_candidate(&graph);
         let old_snake_id = EXTERNAL_ENTITY_ID_START;
@@ -9640,14 +9640,29 @@ mod tests {
             .iter()
             .find(|lease| lease.id == event.lease_id)
             .expect("fresh lease must enter disconnect grace");
-        assert_eq!(lease.resume_token, old_token);
-        assert_ne!(lease.resume_token, rejected_token);
+        assert_ne!(lease.resume_token, old_token);
+        assert_eq!(lease.resume_token, rejected_token);
         assert_eq!(lease.connection_id, None);
         assert_eq!(lease.status, ControllerLeaseStatus::HoldingLastInput);
         assert_eq!(lease.disconnected_at_ms, Some(100));
         assert_eq!(lease.input_hold_expires_at_ms, Some(600));
         assert_eq!(lease.grace_expires_at_ms, Some(30_100));
         assert_eq!(lease.takeover_committed_at_ms, None);
+
+        let before_reclaim = authority.state().clone();
+        let failed_reclaim =
+            authority.prepare_controller_reclaim(super::super::controllers::ReclaimInput {
+                kind: lease.kind,
+                scope: &lease.scope,
+                resume_token: &old_token,
+                next_resume_token: "A".repeat(32),
+                connection_id: 8,
+                arrival_sequence: 2,
+                received_at_ms: 200,
+                boundary_at_ms: 200,
+            });
+        assert!(matches!(failed_reclaim, Err(reason) if reason == "invalid"));
+        assert_eq!(authority.state(), &before_reclaim);
 
         let duplicate = coordinator
             .submit_external_delivery_results(

@@ -5,9 +5,9 @@
 //! ordering, but isolates every draw to the external-controller RNG, allocates
 //! fresh exact identities, checks the complete body against live geometry, and
 //! exposes no result until the whole replacement set is ready.  A failed local
-//! assignment send disconnects the already-staged replacement under the old
-//! known resume token; it never leaves a player and brain simultaneously
-//! steering the snake.
+//! assignment send disconnects the already-staged replacement under its fresh
+//! token. The old token cannot silently reclaim a different snake; recovery
+//! requires an explicit fresh join. A player and brain never steer together.
 
 use super::control_phase::{copy_brains_reusing, ControlPhaseError};
 use super::controllers::{
@@ -558,7 +558,7 @@ struct ReplacementRecord {
 pub enum AssignmentResolution {
     /// The exact pending assignment accepted and rotated its token.
     Accepted,
-    /// The exact pending assignment failed and entered disconnect grace.
+    /// The exact pending assignment failed, invalidated the old token, and entered grace.
     Failed,
     /// The identity was unknown, stale, or had already resolved.
     Ignored,
@@ -1019,31 +1019,28 @@ impl ExternalReplacementWorkspace {
             return Ok(AssignmentResolution::Ignored);
         }
         self.validate_record(index)?;
+        let token = self
+            .tokens
+            .get(assignment.token_index)
+            .ok_or(ExternalReplacementError::InternalShapeMismatch)?;
+        let record = self.records[index];
+        let lease_index = self
+            .world
+            .controller_leases
+            .iter()
+            .position(|lease| lease.id == assignment.lease_id)
+            .ok_or(ExternalReplacementError::InternalShapeMismatch)?;
+        let lease = &mut self.world.controller_leases[lease_index];
+        // This lease owns a new snake even when delivery fails. Its predecessor's
+        // token must never report a successful same-snake reclaim for this identity.
+        // Capacity and token uniqueness were checked before exposing the batch.
+        debug_assert!(lease.resume_token.capacity() >= token.len());
+        lease.resume_token.clear();
+        lease.resume_token.push_str(token);
         if accepted {
-            let token = self
-                .tokens
-                .get(assignment.token_index)
-                .ok_or(ExternalReplacementError::InternalShapeMismatch)?;
-            let lease = self
-                .world
-                .controller_leases
-                .iter_mut()
-                .find(|lease| lease.id == assignment.lease_id)
-                .ok_or(ExternalReplacementError::InternalShapeMismatch)?;
-            debug_assert!(lease.resume_token.capacity() >= token.len());
-            lease.resume_token.clear();
-            lease.resume_token.push_str(token);
             self.statuses[index] = AssignmentDeliveryStatus::Accepted;
             Ok(AssignmentResolution::Accepted)
         } else {
-            let record = self.records[index];
-            let lease_index = self
-                .world
-                .controller_leases
-                .iter()
-                .position(|lease| lease.id == assignment.lease_id)
-                .ok_or(ExternalReplacementError::InternalShapeMismatch)?;
-            let lease = &mut self.world.controller_leases[lease_index];
             let snake = &mut self.world.snakes[record.snake_index];
             commit_disconnect_prevalidated(lease, snake, record.disconnect);
             self.statuses[index] = AssignmentDeliveryStatus::Failed;
@@ -1943,7 +1940,12 @@ impl ExternalReplacementWorkspace {
                     }
                 }
                 AssignmentDeliveryStatus::Failed => {
+                    let token = self
+                        .tokens
+                        .get(assignment.token_index)
+                        .ok_or(ExternalReplacementError::InternalShapeMismatch)?;
                     if lease.connection_id.is_some()
+                        || lease.resume_token.as_str() != token.as_str()
                         || !matches!(
                             lease.status,
                             ControllerLeaseStatus::HoldingLastInput
@@ -3469,7 +3471,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_assignment_keeps_the_known_token_and_enters_exact_grace() {
+    fn failed_assignment_invalidates_the_old_snake_token_and_enters_exact_grace() {
         let graph = graph();
         let (world, brains) = fixture(&graph);
         let source_rng = rng();
@@ -3517,8 +3519,8 @@ mod tests {
             .iter()
             .find(|snake| snake.id == assignment.snake_id)
             .unwrap();
-        assert_eq!(lease.resume_token, format!("old-token-{OLD_LEASE_ID}"));
-        assert_ne!(lease.resume_token, new_token);
+        assert_ne!(lease.resume_token, format!("old-token-{OLD_LEASE_ID}"));
+        assert_eq!(lease.resume_token, new_token);
         assert_eq!(lease.connection_id, None);
         assert_eq!(lease.status, ControllerLeaseStatus::HoldingLastInput);
         assert_eq!(lease.disconnected_at_ms, Some(WALL_NOW_MS));
