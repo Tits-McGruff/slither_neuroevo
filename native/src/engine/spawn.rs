@@ -189,6 +189,63 @@ pub struct SpawnPlacement {
     pub used_fallback: bool,
     /// One-based candidate count examined for this request.
     pub candidates_examined: usize,
+    /// Cached complete-body bounds used only to reject provably distant pairs.
+    bounds: BodyBounds,
+}
+
+/// Complete finite polyline bounds, cached once per immutable obstacle body.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct BodyBounds {
+    minimum: WorldPoint,
+    maximum: WorldPoint,
+}
+
+impl BodyBounds {
+    /// Read a nonempty body whose complete coordinate range was already validated.
+    fn for_body(body: &[WorldPoint]) -> Self {
+        let mut bounds = Self {
+            minimum: body[0],
+            maximum: body[0],
+        };
+        for point in &body[1..] {
+            bounds.minimum.x = bounds.minimum.x.min(point.x);
+            bounds.minimum.y = bounds.minimum.y.min(point.y);
+            bounds.maximum.x = bounds.maximum.x.max(point.x);
+            bounds.maximum.y = bounds.maximum.y.max(point.y);
+        }
+        bounds
+    }
+
+    /// Reject only strict separation, padding for threshold and floating-point rounding.
+    fn separated_from(self, other: Self, threshold: f64) -> bool {
+        let scale = self
+            .minimum
+            .x
+            .abs()
+            .max(self.minimum.y.abs())
+            .max(self.maximum.x.abs())
+            .max(self.maximum.y.abs())
+            .max(other.minimum.x.abs())
+            .max(other.minimum.y.abs())
+            .max(other.maximum.x.abs())
+            .max(other.maximum.y.abs())
+            .max(threshold.abs())
+            .max(1.0);
+        // Near-touching boxes stay on the exact path. Overflow also leaves the
+        // comparison on that path rather than admitting a falsely clear body.
+        let padding = threshold + 16.0 * f64::EPSILON * scale;
+        self.maximum.x + padding < other.minimum.x
+            || other.maximum.x + padding < self.minimum.x
+            || self.maximum.y + padding < other.minimum.y
+            || other.maximum.y + padding < self.minimum.y
+    }
+}
+
+/// Canonical live-source identity together with its validated, complete body bounds.
+#[derive(Clone, Copy, Debug)]
+struct SourceObstacle {
+    index: usize,
+    bounds: BodyBounds,
 }
 
 /// Current sizes and retained capacities for one prepared placement batch.
@@ -272,7 +329,7 @@ impl<'scratch, 'world> PreparedSpawns<'scratch, 'world> {
 #[derive(Debug, Default)]
 pub struct SpawnWorkspace {
     order: Vec<usize>,
-    source_order: Vec<usize>,
+    source_order: Vec<SourceObstacle>,
     placements: Vec<SpawnPlacement>,
     body_points: Vec<WorldPoint>,
     candidate_body: Vec<WorldPoint>,
@@ -286,7 +343,7 @@ pub struct SpawnWorkspace {
 #[derive(Clone, Copy)]
 struct SpawnObstacles<'a> {
     source_world: &'a WorldState,
-    source_order: &'a [usize],
+    source_order: &'a [SourceObstacle],
     placements: &'a [SpawnPlacement],
     staged_body_points: &'a [WorldPoint],
 }
@@ -467,14 +524,17 @@ impl SpawnWorkspace {
             if !snake.radius.is_finite() || snake.radius <= 0.0 {
                 return Err(SpawnError::InvalidSourceSnake { snake_id: snake.id });
             }
-            checked_source_body(source_world, snake.id, snake.body)?;
-            self.source_order.push(index);
+            let body = checked_source_body(source_world, snake.id, snake.body)?;
+            self.source_order.push(SourceObstacle {
+                index,
+                bounds: BodyBounds::for_body(body),
+            });
         }
         self.source_order
-            .sort_unstable_by_key(|index| source_world.snakes[*index].id);
+            .sort_unstable_by_key(|obstacle| source_world.snakes[obstacle.index].id);
         for pair in self.source_order.windows(2) {
-            let left = source_world.snakes[pair[0]].id;
-            let right = source_world.snakes[pair[1]].id;
+            let left = source_world.snakes[pair[0].index].id;
+            let right = source_world.snakes[pair[1].index].id;
             if left == right {
                 return Err(SpawnError::DuplicateSourceSnakeId(left));
             }
@@ -527,6 +587,7 @@ impl SpawnWorkspace {
             },
             used_fallback,
             candidates_examined: self.candidates_examined - start_examined,
+            bounds: BodyBounds::for_body(&self.candidate_body),
         })
     }
 
@@ -714,10 +775,18 @@ fn candidate_is_valid(
         }
     }
 
-    for source_index in obstacles.source_order {
-        let snake = &obstacles.source_world.snakes[*source_index];
-        let body = checked_source_body(obstacles.source_world, snake.id, snake.body)?;
+    let candidate_bounds = BodyBounds::for_body(candidate);
+    for source in obstacles.source_order {
+        let snake = &obstacles.source_world.snakes[source.index];
         let minimum_distance = config.snake_radius + snake.radius + config.body_clearance;
+        consume_geometry_check(geometry_checks, config, key)?;
+        if candidate_bounds.separated_from(source.bounds, minimum_distance) {
+            continue;
+        }
+        // prepare_source_order validated this range and every coordinate once;
+        // the same source world stays immutably borrowed throughout the batch.
+        let body = &obstacles.source_world.body_points
+            [snake.body.start..snake.body.start + snake.body.len];
         if polylines_within(
             candidate,
             body,
@@ -731,6 +800,10 @@ fn candidate_is_valid(
     }
     let staged_minimum = config.snake_radius * 2.0 + config.body_clearance;
     for placement in obstacles.placements {
+        consume_geometry_check(geometry_checks, config, key)?;
+        if candidate_bounds.separated_from(placement.bounds, staged_minimum) {
+            continue;
+        }
         let end = placement.body.start.checked_add(placement.body.len).ok_or(
             SpawnError::ArithmeticOverflow {
                 context: "staged spawn body range",
@@ -1052,7 +1125,10 @@ mod tests {
             &candidate,
             SpawnObstacles {
                 source_world: &world,
-                source_order: &[0],
+                source_order: &[SourceObstacle {
+                    index: 0,
+                    bounds: BodyBounds::for_body(&existing)
+                }],
                 placements: &[],
                 staged_body_points: &[],
             },
@@ -1061,6 +1137,169 @@ mod tests {
             &mut geometry_checks,
         )
         .expect("finite source should validate"));
+    }
+
+    #[test]
+    fn cached_bounds_include_bent_obstacles_and_keep_threshold_tangencies_exact() {
+        let bent = [
+            WorldPoint {
+                x: -100.0,
+                y: -100.0,
+            },
+            WorldPoint { x: 500.0, y: 0.0 },
+            WorldPoint {
+                x: -100.0,
+                y: 100.0,
+            },
+        ];
+        let near_middle = [WorldPoint { x: 499.0, y: 0.0 }];
+        assert!(
+            !BodyBounds::for_body(&near_middle).separated_from(BodyBounds::for_body(&bent), 2.0)
+        );
+        let world = world_with_body(&bent, 1.0);
+        let mut workspace = SpawnWorkspace::default();
+        workspace
+            .prepare_source_order(&world)
+            .expect("finite bent obstacle");
+        let config = SpawnConfig {
+            snake_radius: 1.0,
+            ..SpawnConfig::typescript_geometry_defaults()
+        };
+        assert!(!candidate_is_valid(
+            &near_middle,
+            SpawnObstacles {
+                source_world: &world,
+                source_order: &workspace.source_order,
+                placements: &[],
+                staged_body_points: &[]
+            },
+            config,
+            key(0),
+            &mut 0
+        )
+        .expect("middle segment must remain on the exact collision path"));
+        let origin = BodyBounds::for_body(&[WorldPoint { x: 0.0, y: 0.0 }]);
+        for gap in [6.0 - f64::EPSILON * 8.0, 6.0, 6.0 + f64::EPSILON * 8.0] {
+            assert!(
+                !origin.separated_from(BodyBounds::for_body(&[WorldPoint { x: gap, y: 0.0 }]), 6.0)
+            );
+        }
+        let huge = BodyBounds::for_body(&[WorldPoint {
+            x: f64::MAX,
+            y: 0.0,
+        }]);
+        assert!(!origin.separated_from(huge, f64::MAX));
+    }
+
+    #[test]
+    fn separated_bounds_never_skip_a_hit_found_by_the_unfiltered_segment_oracle() {
+        let mut rng = StatefulRng::new(9921.0);
+        let config = SpawnConfig::typescript_geometry_defaults();
+        for _ in 0..512 {
+            let mut body = || {
+                (0..12)
+                    .map(|_| WorldPoint {
+                        x: (rng.next_f64() - 0.5) * 1000.0,
+                        y: (rng.next_f64() - 0.5) * 1000.0,
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let first = body();
+            let mut second = body();
+            let shift = (rng.next_f64() - 0.5) * 4000.0;
+            for point in &mut second {
+                point.x += shift;
+            }
+            let exact_hit = polylines_within(&first, &second, 6.0, &mut 0, config, key(0))
+                .expect("small oracle pair fits its work budget");
+            if BodyBounds::for_body(&first).separated_from(BodyBounds::for_body(&second), 6.0) {
+                assert!(
+                    !exact_hit,
+                    "a cached bounding rejection must not hide a segment hit"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn long_body_prefix_matches_unfiltered_placements_and_rng_continuation() {
+        let source = StatefulRng::new(1_511_506_142.0).export_state();
+        let config = SpawnConfig {
+            world_radius: 10_000.0,
+            snake_radius: 3.0,
+            snake_spacing: 3.0,
+            snake_start_len: 140,
+            ..SpawnConfig::typescript_geometry_defaults()
+        };
+        let world = WorldState::default();
+        let requests = (0..32).map(request).collect::<Vec<_>>();
+        let mut workspace = SpawnWorkspace::default();
+        let prepared = workspace
+            .prepare(&world, &requests, &source, config, 4480)
+            .expect("long prefix fits the ordinary budget with cached bounds");
+        let mut rng = StatefulRng::from_state(&source).expect("oracle RNG");
+        let mut bodies: Vec<Vec<WorldPoint>> = Vec::new();
+        let mut comparisons = 0;
+        let oracle_config = SpawnConfig {
+            maximum_geometry_checks_per_batch: 100_000_000,
+            ..config
+        };
+        for placement in prepared.placements() {
+            let mut accepted = false;
+            for attempt in 1..=config.random_attempts_per_request {
+                let angle = rng.next_f64() * TAU;
+                let radius =
+                    rng.next_f64().sqrt() * (config.world_radius * config.spawn_radius_fraction);
+                let head = WorldPoint {
+                    x: angle.cos() * radius,
+                    y: angle.sin() * radius,
+                };
+                let direction = rng.next_f64() * TAU;
+                let mut candidate = Vec::new();
+                build_body(&mut candidate, head, direction, config).expect("finite oracle body");
+                let wall = config.world_radius - config.snake_radius - config.wall_clearance;
+                if candidate
+                    .iter()
+                    .any(|point| point.x * point.x + point.y * point.y >= wall * wall)
+                {
+                    continue;
+                }
+                let mut blocked = false;
+                for body in &bodies {
+                    if polylines_within(
+                        &candidate,
+                        body,
+                        2.0 * config.snake_radius + config.body_clearance,
+                        &mut comparisons,
+                        oracle_config,
+                        placement.key,
+                    )
+                    .expect("oracle budget")
+                    {
+                        blocked = true;
+                        break;
+                    }
+                }
+                if blocked {
+                    continue;
+                }
+                assert_eq!(placement.direction, direction);
+                assert_eq!(placement.candidates_examined, attempt);
+                assert!(!placement.used_fallback);
+                assert_eq!(
+                    prepared.body_for(placement).expect("prepared body"),
+                    candidate
+                );
+                bodies.push(candidate);
+                accepted = true;
+                break;
+            }
+            assert!(
+                accepted,
+                "the unfiltered oracle must accept the same random candidate"
+            );
+        }
+        assert_eq!(prepared.next_rng(), &rng.export_state());
     }
 
     #[test]
@@ -1342,6 +1581,34 @@ mod tests {
         assert!(!workspace.is_ready());
         assert_eq!(source, StatefulRng::new(71.0).export_state());
         assert_eq!(world, WorldState::default());
+    }
+
+    #[test]
+    fn supported_long_initial_population_fits_the_existing_geometry_budget() {
+        let source = StatefulRng::new(1_511_506_142.0).export_state();
+        let world = WorldState::default();
+        let requests = (0..300).map(request).collect::<Vec<_>>();
+        let config = SpawnConfig {
+            world_radius: 10_000.0,
+            snake_radius: 3.0,
+            snake_spacing: 3.0,
+            snake_start_len: 140,
+            ..SpawnConfig::typescript_geometry_defaults()
+        };
+        let mut workspace = SpawnWorkspace::default();
+        let prepared = workspace
+            .prepare(&world, &requests, &source, config, 42_000)
+            .expect("supported long initial population should fit the ordinary work budget");
+        assert_eq!(prepared.placements().len(), 300);
+        assert_eq!(prepared.body_points().len(), 42_000);
+        assert!(prepared.diagnostics().geometry_checks <= config.maximum_geometry_checks_per_batch);
+        eprintln!(
+            "long initial population: {} candidates, {} geometry checks",
+            prepared.diagnostics().candidates_examined,
+            prepared.diagnostics().geometry_checks
+        );
+        assert_eq!(world, WorldState::default());
+        assert_eq!(source, StatefulRng::new(1_511_506_142.0).export_state());
     }
 
     #[test]

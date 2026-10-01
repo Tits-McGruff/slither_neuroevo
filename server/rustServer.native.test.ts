@@ -104,6 +104,64 @@ function directionDelta(from: number, to: number): number {
 }
 
 describeNetworkSuite('Rust server real sockets', () => {
+  it('admits 300 complete long initial bodies through the normal reset boundary', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-long-start-'));
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    let viewer: Peer | undefined;
+    try {
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh',
+        seed: 1511506142, dbPath: join(root, 'experiment.sqlite') });
+      viewer = await connect(server.port, 'ui');
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      await until(viewer, () => viewer!.frames > 0);
+      const graphSpec = { type: 'graph',
+        nodes: [{ id: 'input', type: 'Input', outputSize: 83 },
+          { id: 'output', type: 'Dense', inputSize: 83, outputSize: 2 }],
+        edges: [{ from: 'input', to: 'output' }], outputs: [{ nodeId: 'output' }], outputSize: 2 };
+      viewer.socket.send(JSON.stringify({ type: 'reset', graphSpec,
+        settings: { snakeCount: 300, simSpeed: 0.1 }, updates: [
+          { path: 'worldRadius', value: 10000 },
+          { path: 'snakeStartLen', value: 140 },
+          { path: 'snakeSpacing', value: 3 },
+          { path: 'snakeRadius', value: 3 },
+          { path: 'snakeThicknessScale', value: 0 },
+          { path: 'collision.skipSegments', value: 30 },
+          { path: 'baselineBots.count', value: 0 }
+        ] }));
+      await until(viewer, () => viewer!.packets.some(packet =>
+        packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
+      delete viewer.latestFrame;
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      await until(viewer, () => viewer!.latestFrame?.readFloatLE(4) === 300);
+      const bytes = viewer.latestFrame!;
+      expect(bytes.readFloatLE(0)).toBe(1);
+      expect(bytes.readFloatLE(8)).toBe(300);
+      expect(bytes.readFloatLE(12)).toBe(10000);
+      let offset = 7;
+      let bodyPoints = 0;
+      for (let snake = 0; snake < 300; snake++) {
+        const points = bytes.readFloatLE((offset + 7) * 4);
+        expect(Number.isSafeInteger(points)).toBe(true);
+        expect(points).toBeGreaterThanOrEqual(140);
+        for (let point = 0; point < points; point++) {
+          const x = bytes.readFloatLE((offset + 8 + point * 2) * 4);
+          const y = bytes.readFloatLE((offset + 9 + point * 2) * 4);
+          expect(x * x + y * y).toBeLessThan(10000 ** 2);
+        }
+        bodyPoints += points;
+        offset += 8 + points * 2;
+      }
+      expect(bodyPoints).toBeGreaterThanOrEqual(42000);
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json())
+        .toMatchObject({ ok: true, lifecycle: 'running' });
+    } finally {
+      viewer?.socket.terminate();
+      await server?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   it.runIf(process.env['SLITHER_FULL_UPLOAD_TIMEOUT_TEST'] === '1')(
     'rejects a connected chunked import after the full no-progress deadline', async () => {
       const root = await mkdtemp(join(tmpdir(), 'slither-rust-stalled-import-'));

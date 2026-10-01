@@ -1525,3 +1525,18 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Carbon CPU/load/pinning sample are retained. Task-owned remote processes,
   checkout, databases and builds were removed; owner service stays stopped.
   A sustained >200k in-arena fixture and final P4/laptop/archive gates remain.
+
+- 2026-10-01 Supported long-body startup exposed unnecessary all-segment spawn
+  comparisons: 300 initial 140-point bodies in a 10,000-radius arena exhausted
+  the unchanged 10-million geometry-check budget at slot 32. Complete cached
+  body bounds now reject provably distant pairs; nearby bodies retain the exact
+  segment predicate, stable ordering and candidate draws. The red/green case
+  admits all 42,000 points using 2,004,872 checks. Regressions cover bent bodies,
+  threshold tangencies, an unfiltered collision oracle, and exact accepted
+  positions/RNG continuation. A real Protocol 2 Reset also publishes all 300
+  complete bodies inside the arena through the normal production addon. All
+  468 release Rust tests, the compile-fail doctest, rustfmt, Clippy, production
+  build, TypeScript, ESLint, Vite and 34 server/addon contracts passed across
+  focused runs (the upload-deadline test remains opt-in). `d1d1def` CI passed.
+  Test sockets, servers and copied databases were closed/removed. This fixes
+  startup admission; sustained P4 and final acceptance remain open.
