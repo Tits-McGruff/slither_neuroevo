@@ -44,7 +44,7 @@ is actually needed.
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
 | 6 | Rust runtime complete | Rust owns durable startup/recovery, continuous frames/stats, browser and Protocol 2 routing, generation persistence, managed retention, commands, and direct archive export/import. |
-| 7 | Acceptance active | Measured P0/P1/P2 server timing, real trainer traffic, large archives and bounded persistence pass; browser drawing/heap, fault supervision and final durability acceptance remain. |
+| 7 | Acceptance active | Measured P0/P1/P2 server timing, real trainer traffic, large archives and bounded persistence slices are retained. Latest P1 server memory/queue results are scoped by an interrupted player soak; reconnect consistency, complete LAN input timing, browser drawing/heap and final durability acceptance remain. |
 | 8 | Production cutover active | Normal npm and launcher startup selects Rust; the TypeScript game is retained only as `server:reference`. Deployment/service and final acceptance remain. |
 
 ## Milestone index
@@ -1335,3 +1335,31 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   after verified report copies; game, measurement and inspector ports are
   closed. A normal thirty-minute RSS/timing run on the corrected source
   remains required; allocator retention does not establish all RSS growth.
+
+- 2026-10-01 Exact `0a50949` production source with completed-generation GNU
+  allocator release completed a 1,800.12-second P1 server window with two real
+  PyRL actors: 0.9921 simulated/wall, 107,150 steps, zero dropped time and
+  16 ms step p99. RSS slope was 0.712 MiB/minute, final RSS 178.2 MiB and
+  29.4 MiB above the warm median; queue peaks passed their immutable limits.
+  Checkpoint-barrier p95/max were 250/257.3 ms, health p95 1.89 ms and threads
+  stayed at 19. The reconnecting player stopped at 780.5 seconds after its
+  same-snake assertion failed; later diagnostic clients changed the client mix.
+  These server measurements are scoped evidence, not complete P7 acceptance.
+  Raw reports and executed supervisor/reconnect sources are retained as
+  `evidence/stage7/oxygen-ryzen2700/p7-p1-*-0a50949-20261001.*`.
+  Near-boundary reconnects were consistent in a focused trace; crossing a
+  completed generation returned an explicit invalid-token result. The original
+  successful-reclaim mismatch still needs decisive correlation evidence.
+  A new client-side steering probe times actual sends through observed Rust
+  heading reversals, ranks unknown attempts beyond all finite latency bounds,
+  and respects the bot route's one-action-per-tick allowance. P1 LAN player
+  steering completed 200 trials at 37.4 ms p95. The bot probe stopped at a
+  generation-boundary observation deadline after 188 completed/one unknown
+  attempt; its joint gate remains open. The probe now continues after an
+  isolated observation deadline with that attempt retained as unknown.
+  Five correlation/percentile tests, category completeness, 18 real-server
+  tests, TypeScript and full ESLint passed; the existing full upload-deadline
+  test remains opt-in. `0a50949` full CI passed. The owned checkout/database/
+  addon and trainer scratch were removed after verified copies; game and
+  measurement ports are closed. Complete LAN P0/P1/P2, player lifecycle and
+  browser rendering/archive-heap acceptance remain open.

@@ -1,0 +1,147 @@
+{
+  "scope": "Focused generation-boundary reconnect attribution; supplements an already interrupted player soak, not full P7 acceptance",
+  "wallSeconds": 31.655706746,
+  "frames": 918,
+  "attempts": [
+    {
+      "requested": {
+        "generation": 0,
+        "tick": 0
+      },
+      "assigned": {
+        "snakeId": 11334,
+        "tokenHash": "48a3aa7df0efdeef81d4ed2363a549c15363a16d2e70b67287c65ecc31a022c6",
+        "reclaimed": false
+      },
+      "health": {
+        "ok": true,
+        "generation": "0000000000000022",
+        "completedStep": "000000000001d827",
+        "worldEpoch": "000000000000001d"
+      },
+      "consistent": true
+    },
+    {
+      "requested": {
+        "snakeId": 11334,
+        "tokenHash": "48a3aa7df0efdeef81d4ed2363a549c15363a16d2e70b67287c65ecc31a022c6",
+        "generation": 34,
+        "tick": 122417
+      },
+      "result": {
+        "type": "reclaimResult",
+        "reclaimed": false,
+        "reason": "invalid"
+      },
+      "health": {
+        "ok": true,
+        "generation": "0000000000000023",
+        "completedStep": "000000000001df6f",
+        "worldEpoch": "000000000000001e"
+      },
+      "consistent": true
+    }
+  ],
+  "events": [
+    {
+      "wallSeconds": 0.014081620000000001,
+      "type": "connect",
+      "requested": {
+        "generation": 0,
+        "tick": 0
+      }
+    },
+    {
+      "wallSeconds": 0.024905389999999996,
+      "type": "assign",
+      "snakeId": 11334,
+      "tokenHash": "48a3aa7df0efdeef81d4ed2363a549c15363a16d2e70b67287c65ecc31a022c6",
+      "reclaimed": false,
+      "generation": 34,
+      "tick": 120868
+    },
+    {
+      "wallSeconds": 0.067917287,
+      "type": "resolved",
+      "attempt": {
+        "requested": {
+          "generation": 0,
+          "tick": 0
+        },
+        "assigned": {
+          "snakeId": 11334,
+          "tokenHash": "48a3aa7df0efdeef81d4ed2363a549c15363a16d2e70b67287c65ecc31a022c6",
+          "reclaimed": false
+        },
+        "health": {
+          "ok": true,
+          "generation": "0000000000000022",
+          "completedStep": "000000000001d827",
+          "worldEpoch": "000000000000001d"
+        },
+        "consistent": true
+      }
+    },
+    {
+      "wallSeconds": 25.844928201,
+      "type": "disconnect",
+      "snakeId": 11334,
+      "tokenHash": "48a3aa7df0efdeef81d4ed2363a549c15363a16d2e70b67287c65ecc31a022c6",
+      "generation": 34,
+      "generationTime": 59.733333333331224,
+      "tick": 122417,
+      "health": {
+        "ok": true,
+        "generation": "0000000000000022",
+        "completedStep": "000000000001de32",
+        "worldEpoch": "000000000000001d"
+      }
+    },
+    {
+      "wallSeconds": 26.650516295000003,
+      "type": "connect",
+      "requested": {
+        "snakeId": 11334,
+        "tokenHash": "48a3aa7df0efdeef81d4ed2363a549c15363a16d2e70b67287c65ecc31a022c6",
+        "generation": 34,
+        "tick": 122417
+      }
+    },
+    {
+      "wallSeconds": 26.655894580000002,
+      "type": "reclaimResult",
+      "packet": {
+        "type": "reclaimResult",
+        "reclaimed": false,
+        "reason": "invalid"
+      },
+      "generation": 34,
+      "tick": 122417
+    },
+    {
+      "wallSeconds": 31.655452364000002,
+      "type": "resolved",
+      "attempt": {
+        "requested": {
+          "snakeId": 11334,
+          "tokenHash": "48a3aa7df0efdeef81d4ed2363a549c15363a16d2e70b67287c65ecc31a022c6",
+          "generation": 34,
+          "tick": 122417
+        },
+        "result": {
+          "type": "reclaimResult",
+          "reclaimed": false,
+          "reason": "invalid"
+        },
+        "health": {
+          "ok": true,
+          "generation": "0000000000000023",
+          "completedStep": "000000000001df6f",
+          "worldEpoch": "000000000000001e"
+        },
+        "consistent": true
+      }
+    }
+  ],
+  "failure": "Error: missing lifecycle response"
+}

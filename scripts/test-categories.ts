@@ -14,6 +14,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/stage6/frameV1Fixture.test.ts',
     'scripts/stage7/rss-soak-summary.test.ts',
     'scripts/stage7/queue-soak-summary.test.ts',
+    'scripts/stage7/turn-response-marker.test.ts',
     'scripts/test-categories.test.ts',
     'server/authoritativeWorldDigest.test.ts',
     'server/hash.test.ts',

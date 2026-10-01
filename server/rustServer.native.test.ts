@@ -11,6 +11,7 @@ import { DEFAULT_CONFIG, normalizeConfig } from './config.ts';
 import { PlayerActionPump } from '../src/net/playerActionPump.ts';
 import { createWsClient, type AssignMsg, type SensorsMsg, type WelcomeMsg, type WsClient } from '../src/net/wsClient.ts';
 import { run as runStage6RuntimeProbe } from '../scripts/stage6/runtime-integration-probe.ts';
+import { measureTurnResponses } from '../scripts/stage7/lan-turn-response.ts';
 import { startRustServer } from './rustServer.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
@@ -1317,6 +1318,32 @@ describeNetworkSuite('Rust server real sockets', () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it('correlates client steering reversals with real Rust observations for player and bot leases', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-lan-turn-'));
+    const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 83,
+      dbPath: join(root, 'experiment.sqlite') });
+    try {
+      for (const kind of ['ui', 'bot'] as const) {
+        const report = await measureTurnResponses(`ws://127.0.0.1:${server.port}`, kind, 4);
+        expect(report.failure).toBeUndefined();
+        expect(report.welcome?.inferenceMode.activeBackend).toBe('native');
+        expect(report.trials).toHaveLength(4);
+        expect(report.trials.map(trial => trial.requestedTurn)).toEqual([-1, 1, -1, 1]);
+        for (const trial of report.trials) {
+          expect(trial.failure).toBeUndefined();
+          expect(trial.observedTick).toBeGreaterThan(trial.clientTick);
+          expect(trial.latencyUpperBoundMs).toBeGreaterThanOrEqual(0);
+          expect(trial.latencyUpperBoundMs).toBeLessThan(500);
+        }
+        // The 100 ms performance limit is evaluated in retained target-platform
+        // reports; this integration gate verifies actual control/observation correlation.
+      }
+    } finally {
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 15_000);
 
   it('serves the built browser and applies its independent latest-action pump through Rust', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-browser-action-'));
