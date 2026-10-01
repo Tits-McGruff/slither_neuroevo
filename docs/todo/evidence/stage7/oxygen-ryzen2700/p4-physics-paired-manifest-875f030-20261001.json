@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-10-01",
+  "platform": "Oxygen Ryzen 7 2700 / Debian x86_64 GNU",
+  "baseCommit": "875f0305783ef5a7399e5b8cd923619249e45b45",
+  "method": "Three interleaved before/after pairs, each a separate process executing one cold complete step. SSE2, six workers, P1 brain and the established dense sensing world, zero warmup. Both binaries built from the base plus the identical profiling extension; after also removes the redundant segment tie sort in the collision cell index.",
+  "scope": "Diagnostic collision profile only. The synthetic bodies overlap and all 310 snakes die normally during the step. This is neither sustained throughput nor production P4 acceptance. All controls, sensing, collision substeps, deaths, corpse effects and publication remain enabled.",
+  "pairs": [
+    {
+      "pair": 1,
+      "beforeReport": "p4-physics-paired-before-875f030-20261001-1.json",
+      "beforeReportSha256": "a6c5e03ff1eab9ee597ae944da5074542c9a1e2df9bc0bfeb1c7f7ec888d35ea",
+      "afterReport": "p4-physics-paired-after-875f030-20261001-1.json",
+      "afterReportSha256": "1d7f2152be1e1b0ed4e3546d58b4c196d80c75d2c057cde5e2323ddc7d8a7459",
+      "beforeStepMs": 437.32786899999996,
+      "afterStepMs": 412.56726399999997,
+      "beforeIndexMs": 148.009933,
+      "afterIndexMs": 81.735181
+    },
+    {
+      "pair": 2,
+      "beforeReport": "p4-physics-paired-before-875f030-20261001-2.json",
+      "beforeReportSha256": "637914b784ee811f26d1f0614d9192bfedecc51eb6733063bf0457762553a027",
+      "afterReport": "p4-physics-paired-after-875f030-20261001-2.json",
+      "afterReportSha256": "e091daf8cef3900466202a2fd65e6fc712de917046734e76411f902dfcb2c66f",
+      "beforeStepMs": 437.738261,
+      "afterStepMs": 368.931822,
+      "beforeIndexMs": 140.32069700000002,
+      "afterIndexMs": 79.65740199999999
+    },
+    {
+      "pair": 3,
+      "beforeReport": "p4-physics-paired-before-875f030-20261001-3.json",
+      "beforeReportSha256": "c00d2eba8b5133b1d527a7f283bb323723c1136483f4e1036d340751c3144098",
+      "afterReport": "p4-physics-paired-after-875f030-20261001-3.json",
+      "afterReportSha256": "ec8517193a226ed7d9f130e933c2df91d5ab763b933787b1b46f1e63505d51f4",
+      "beforeStepMs": 446.54738,
+      "afterStepMs": 382.612097,
+      "beforeIndexMs": 154.178388,
+      "afterIndexMs": 85.40086699999999
+    }
+  ],
+  "beforeSource": {
+    "nativeBuildIdentifier": "slither_native/0.1.0+875f0305783e.2592d3fda0f67f3b",
+    "nativeSourceSha256": "091084868c3b491840ef3991b4278e44f7aee81bbd8a9bb399b6ea9fcf8e07cb",
+    "nativeBuildContractSha256": "sha256:1fb16b35a1b51f7f0cd24193df2af9668ae71c93f702311812c144c61e047cd1",
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "rustcVersion": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+    "buildProfile": "release",
+    "buildClass": "test-hooks"
+  },
+  "afterSource": {
+    "nativeBuildIdentifier": "slither_native/0.1.0+875f0305783e.571f4cc5ab024c11",
+    "nativeSourceSha256": "a28612bee216f397a5208c72dd6112de82ad44905007faf29b6d1051fc646b72",
+    "nativeBuildContractSha256": "sha256:1fb16b35a1b51f7f0cd24193df2af9668ae71c93f702311812c144c61e047cd1",
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "rustcVersion": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+    "buildProfile": "release",
+    "buildClass": "test-hooks"
+  },
+  "commonWorkload": {
+    "fixtureVersion": 2,
+    "fixtureClass": "source-shaped deterministic synthetic admitted authority",
+    "scenario": "P1",
+    "description": "Stage 2 P4-shaped 300 evolved snakes, 10 baseline bots, 700-point bodies, 12,000 pellets, v3/16-bin sensing",
+    "evolvedPopulation": 300,
+    "baselineSnakes": 10,
+    "totalLiveSnakes": 310,
+    "bodyPointsPerSnake": 700,
+    "initialPellets": 12000,
+    "sensorBins": 16,
+    "sensorInputSize": 83,
+    "parametersPerBrain": 13458,
+    "recurrentFloatsPerBrain": 16,
+    "graphLayoutSha256": "ced9f12f73d0925efd0d75a872e818a878fb838b552c5daa60e3566a4c64e4b6",
+    "initialWorldSha256": "08b57d4e6a9bb64cbea613de977b87efdaa2d1679acb619859808035ba5dbf40",
+    "weightsSha256": "c1ece367f7325124d15aedbb4a7c3278917e998b968bf2250d75d7f39a7d8abe",
+    "initialRecurrentSha256": "48fe75ac4a5f45fa8feda11977a5cc940fd59380cb0fe16b752489d062b6a5b2",
+    "uniqueWeightBlocks": 300,
+    "uniqueInitialRecurrentBlocks": 300,
+    "warmupSteps": 0,
+    "measuredSteps": 1
+  },
+  "finalWorldSha256": "c7eb95d925528172c47ab90bbf583137879e2e464d39e00ce341f3155e865e4e",
+  "finalRecurrentSha256": "e26e7d069117d0c565e6fca1a4b4dd5df76d4ba2603e6e0d21ccb8c00db1c280",
+  "changedNativeFileSha256": {
+    "native/src/bin/stage5_step_benchmark.rs": "56befbfa2c4d4b2b03b43926bf570f7f92f202f713368e2e532e29d375c0bff4",
+    "native/src/engine/step_fixture.rs": "421310c90d733ba85fd1cf90c139b4d35993294583148d1a6e9bc0ddd987f22e",
+    "native/src/engine/collision.rs": "ed57005fc6860acafd9386571fca6a2a2ea1a147b08650118d2500e4dac51781"
+  },
+  "comparison": "Each pair has identical graph, source-world, genome and initial-recurrent hashes; identical final world/recurrent hashes, survivor/pellet counts, completed-step/generation elapsed and first/final work diagnostics. Collision-index time falls 43.2–44.8%; complete cold-step time falls 5.7–15.7%.",
+  "command": "native/target/release/stage5-step-benchmark --scenario P1 --dense-body-first-step --math-backend sse2 --workers 6 --warmup-steps 0 --steps 1 --environment owner-target-vm --output NEW.json"
+}

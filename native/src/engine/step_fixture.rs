@@ -25,7 +25,8 @@ use super::sensing_fixture::{
     allocation_distribution, build_world, cpu_usage, digest_world, distribution, hex_bytes,
     linux_os_release_value, linux_process_status_bytes, linux_total_memory_bytes,
     process_cpu_snapshot, system_cpu_model, system_hostname, Stage4AllocationDistribution,
-    Stage4CpuUsage, Stage4SensingDistribution, Stage4SensingScenarioSpec,
+    Stage4CpuUsage, Stage4SensingDistribution, Stage4SensingScenarioName,
+    Stage4SensingScenarioSpec,
 };
 use super::sensors::SensorGenerationState;
 use super::state::{
@@ -69,6 +70,9 @@ const MAXIMUM_TOTAL_STEPS: usize = 300;
 pub struct Stage5StepEvidenceOptions {
     /// Approved P0-P3 scenario.
     pub scenario: Stage4InferenceScenarioName,
+    /// Profile the first complete step of the existing synthetic >200k-body fixture.
+    /// Requires P1, no warmup and exactly one step; ordinary deaths remain enabled.
+    pub dense_body_first_step: bool,
     /// Explicit neural arithmetic implementation bound into run identity.
     pub math_backend: InferenceMathBackend,
     /// Persistent calculation threads used for the sensing phase.
@@ -174,6 +178,8 @@ pub struct Stage5StepWorkload {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stage5StepPath {
+    /// A cold synthetic dense step, not a sustained production performance gate.
+    pub dense_body_first_step: bool,
     pub authority_owner: &'static str,
     pub graph_traversal_owner: &'static str,
     pub math_backend: &'static str,
@@ -416,6 +422,7 @@ pub fn run_stage5_step_evidence(
         options.scenario,
         options.math_backend,
         options.calculation_workers,
+        options.dense_body_first_step,
     )?;
     fixture
         .coordinator
@@ -573,8 +580,9 @@ pub fn run_stage5_step_evidence(
     }
     let final_alive_evolved = alive_count(state, SnakeKind::Evolved);
     let final_alive_baselines = alive_count(state, SnakeKind::Baseline);
-    if final_alive_evolved != options.scenario.population_count()
-        || final_alive_baselines != BASELINE_SNAKES
+    if !options.dense_body_first_step
+        && (final_alive_evolved != options.scenario.population_count()
+            || final_alive_baselines != BASELINE_SNAKES)
     {
         return Err(format!(
             "source-shaped benchmark lost live workload members (evolved {final_alive_evolved}/{}, baseline {final_alive_baselines}/{BASELINE_SNAKES})",
@@ -628,7 +636,7 @@ pub fn run_stage5_step_evidence(
     )?
     .checked_mul(size_of::<f32>())
     .ok_or_else(|| "recurrent byte count overflowed".to_owned())?;
-    let spec = scenario_world_spec(options.scenario);
+    let spec = evidence_world_spec(options.scenario, options.dense_body_first_step);
     let worker_label = if options.calculation_workers == 1 {
         "single-worker".to_owned()
     } else {
@@ -657,7 +665,7 @@ pub fn run_stage5_step_evidence(
         },
         version: if options.calculation_workers == 1 { 2 } else { 1 },
         evidence_class,
-        caveat: "Source-shaped deterministic synthetic fixed-step benchmark with an explicitly recorded neural math backend and worker count. It drives one admitted Rust authority through corrected sensing, distinct stateful population brains, baseline control, movement, food, continuous collision, effects, accounting, and atomic publication. Additional workers parallelize sensing and brain evaluation in stable disjoint ranges; physical commit remains ordered and serial. Allocation distributions count process-wide allocation operations by measured phase and do not prove an allocation-free steady state. The benchmark excludes the scheduler pump, N-API/Node bridge, browser or Protocol 2 RL client, frame packing, generation transition/evolution, persistence, a sustained round, and production cutover.",
+        caveat: "Source-shaped deterministic synthetic fixed-step benchmark with an explicitly recorded neural math backend and worker count. It drives one admitted Rust authority through corrected sensing, distinct stateful population brains, baseline control, movement, food, continuous collision, effects, accounting, and atomic publication. Dense-body-first-step mode profiles one cold complete step of the existing 310-snake/700-point synthetic world: deaths are enabled and reported, and neither its single sample nor its throughput qualifies sustained production behavior. Additional workers parallelize sensing and brain evaluation in stable disjoint ranges; physical commit remains ordered and serial. Allocation distributions count process-wide allocation operations by measured phase and do not prove an allocation-free steady state. The benchmark excludes the scheduler pump, N-API/Node bridge, browser or Protocol 2 RL client, frame packing, generation transition/evolution, persistence, a sustained round, and production cutover.",
         source: Stage5StepSource {
             native_build_identifier: crate::native_addon_build_identifier(),
             native_source_sha256: crate::native_addon_source_sha256(),
@@ -689,7 +697,11 @@ pub fn run_stage5_step_evidence(
             fixture_version: STAGE5_STEP_FIXTURE_VERSION,
             fixture_class: "source-shaped deterministic synthetic admitted authority",
             scenario: options.scenario.label(),
-            description: scenario_description(options.scenario),
+            description: if options.dense_body_first_step {
+                spec.description.to_owned()
+            } else {
+                scenario_description(options.scenario)
+            },
             evolved_population: spec.evolved_snakes,
             baseline_snakes: spec.baseline_snakes,
             total_live_snakes: spec.total_snakes(),
@@ -709,6 +721,7 @@ pub fn run_stage5_step_evidence(
             measured_steps: options.measured_steps,
         },
         path: Stage5StepPath {
+            dense_body_first_step: options.dense_body_first_step,
             authority_owner: "Rust",
             graph_traversal_owner: "Rust",
             math_backend: actual_math_backend.label(),
@@ -813,6 +826,15 @@ pub fn run_stage5_step_evidence(
 }
 
 fn validate_options(options: &Stage5StepEvidenceOptions) -> Result<(), String> {
+    if options.dense_body_first_step
+        && (options.scenario != Stage4InferenceScenarioName::P1
+            || options.warmup_steps != 0
+            || options.measured_steps != 1)
+    {
+        return Err(
+            "dense-body-first-step requires P1, zero warmup and exactly one step".to_owned(),
+        );
+    }
     if !(1..=7).contains(&options.calculation_workers) {
         return Err("calculation workers must be from 1 to 7".to_owned());
     }
@@ -840,8 +862,9 @@ fn build_fixture(
     scenario: Stage4InferenceScenarioName,
     math_backend: InferenceMathBackend,
     calculation_workers: usize,
+    dense_body_first_step: bool,
 ) -> Result<StepFixture, String> {
-    let spec = scenario_world_spec(scenario);
+    let spec = evidence_world_spec(scenario, dense_body_first_step);
     let mut world = build_world(spec)?;
     for (offset, snake) in world.snakes[spec.evolved_snakes..].iter_mut().enumerate() {
         snake.id = BASELINE_ENTITY_ID_START
@@ -949,8 +972,16 @@ fn build_fixture(
         baseline_count: BASELINE_SNAKES,
         max_world_snakes: spec.total_snakes() + 64,
         max_non_population_brains: 64,
-        max_body_points: 100_000,
-        max_pellets: 25_000,
+        max_body_points: if dense_body_first_step {
+            1_000_000
+        } else {
+            100_000
+        },
+        max_pellets: if dense_body_first_step {
+            250_000
+        } else {
+            25_000
+        },
         spatial_index_bytes: 256 * 1024 * 1024,
         worker_scratch_bytes: 512 * 1024 * 1024,
         checkpoint_scratch_bytes: 512 * 1024 * 1024,
@@ -1106,6 +1137,9 @@ fn execute_step(
     allocation_snapshot: fn() -> u64,
 ) -> Result<StepSample, String> {
     let source_completed_step = fixture.authority.state().generation.completed_step;
+    // Controls sample the source observation boundary, before this step's deaths.
+    let source_alive_evolved = alive_count(fixture.authority.state(), SnakeKind::Evolved);
+    let source_alive_baselines = alive_count(fixture.authority.state(), SnakeKind::Baseline);
     let wall_now_ms = source_completed_step
         .checked_add(1)
         .and_then(|step| step.checked_mul(17))
@@ -1151,9 +1185,8 @@ fn execute_step(
         );
     }
     let selection = diagnostics.control.selection;
-    if selection.neural_evaluations != alive_count(fixture.authority.state(), SnakeKind::Evolved)
-        || selection.baseline_observations
-            != alive_count(fixture.authority.state(), SnakeKind::Baseline)
+    if selection.neural_evaluations != source_alive_evolved
+        || selection.baseline_observations != source_alive_baselines
         || selection.external_observations != 0
     {
         return Err(
@@ -1217,6 +1250,18 @@ fn scenario_world_spec(scenario: Stage4InferenceScenarioName) -> Stage4SensingSc
         pellets: PELLETS,
         sensor_bins: if scenario.is_large() { 32 } else { 16 },
         description: "Stage 5 source-shaped complete single-worker fixed-step fixture",
+    }
+}
+
+/// Reuse the established dense sensing geometry for an explicitly cold physics profile.
+fn evidence_world_spec(
+    scenario: Stage4InferenceScenarioName,
+    dense_body_first_step: bool,
+) -> Stage4SensingScenarioSpec {
+    if dense_body_first_step {
+        Stage4SensingScenarioName::DenseBody.spec()
+    } else {
+        scenario_world_spec(scenario)
     }
 }
 
@@ -1291,10 +1336,51 @@ mod tests {
     use super::*;
 
     #[test]
+    fn dense_first_step_preserves_real_collision_deaths_and_profiles_full_source() {
+        let options = Stage5StepEvidenceOptions {
+            scenario: Stage4InferenceScenarioName::P1,
+            dense_body_first_step: true,
+            math_backend: InferenceMathBackend::Scalar,
+            calculation_workers: 1,
+            warmup_steps: 0,
+            measured_steps: 1,
+            evidence_environment: "development".to_owned(),
+            command: vec!["test".to_owned()],
+        };
+        let report = run_stage5_step_evidence(options.clone(), || 0).unwrap();
+        assert!(report.path.dense_body_first_step);
+        assert_eq!(report.workload.total_live_snakes, 310);
+        assert_eq!(report.workload.body_points_per_snake, 700);
+        assert!(
+            report.workload.total_live_snakes * (report.workload.body_points_per_snake - 1)
+                > 200_000
+        );
+        assert_eq!(report.result.final_completed_step, 1);
+        assert!(report.result.final_alive_evolved < 300);
+        assert_eq!(report.result.first_measured_step.neural_evaluations, 300);
+        assert_eq!(report.result.first_measured_step.baseline_observations, 10);
+        assert!(report.result.physics_phase_ms.collision_index_ms.mean > 0.0);
+        assert!(report.result.physics_phase_ms.collision_head_body_ms.mean > 0.0);
+        assert!(report.result.authority_changed);
+        assert_eq!(report.result.complete_fixed_step_ms.count, 1);
+        assert!(validate_options(&Stage5StepEvidenceOptions {
+            measured_steps: 2,
+            ..options.clone()
+        })
+        .is_err());
+        assert!(validate_options(&Stage5StepEvidenceOptions {
+            warmup_steps: 1,
+            ..options
+        })
+        .is_err());
+    }
+
+    #[test]
     fn p0_fixture_publishes_real_complete_steps() {
         let report = run_stage5_step_evidence(
             Stage5StepEvidenceOptions {
                 scenario: Stage4InferenceScenarioName::P0,
+                dense_body_first_step: false,
                 math_backend: InferenceMathBackend::Scalar,
                 calculation_workers: 1,
                 warmup_steps: 1,
@@ -1319,6 +1405,7 @@ mod tests {
     fn parallel_calculation_keeps_the_complete_step_and_recurrent_identity() {
         let options = Stage5StepEvidenceOptions {
             scenario: Stage4InferenceScenarioName::P0,
+            dense_body_first_step: false,
             math_backend: InferenceMathBackend::Scalar,
             calculation_workers: 1,
             warmup_steps: 1,
@@ -1356,6 +1443,7 @@ mod tests {
             Stage4InferenceScenarioName::P0,
             InferenceMathBackend::Scalar,
             1,
+            false,
         )
         .unwrap();
         assert_eq!(
@@ -1372,6 +1460,7 @@ mod tests {
     fn excessive_stateful_window_is_rejected() {
         let error = validate_options(&Stage5StepEvidenceOptions {
             scenario: Stage4InferenceScenarioName::P0,
+            dense_body_first_step: false,
             math_backend: InferenceMathBackend::Scalar,
             calculation_workers: 1,
             warmup_steps: 1,

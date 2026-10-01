@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-10-01",
+  "platform": "Oxygen Ryzen 7 2700 / Debian x86_64 GNU",
+  "baseCommit": "875f0305783ef5a7399e5b8cd923619249e45b45",
+  "method": "One production growth window per variant, executed after then before on the same VM and checkout. Both use the same profiling extension, production build class and compiler contract. Before restores only collision.rs from the base commit; after removes the redundant cell-index segment tie sort. Both use the identical committed capacity runner and fixture.",
+  "buildClass": "production",
+  "targetTriple": "x86_64-unknown-linux-gnu",
+  "nativeBuildContractSha256": "sha256:3bcf1d0a16aeef770a5316c503b16e0a2bf2212f8d360309768b2bc4c2b8f51e",
+  "beforeNativeSourceSha256": "091084868c3b491840ef3991b4278e44f7aee81bbd8a9bb399b6ea9fcf8e07cb",
+  "afterNativeSourceSha256": "a28612bee216f397a5208c72dd6112de82ad44905007faf29b6d1051fc646b72",
+  "changedNativeFileSha256": {
+    "native/src/bin/stage5_step_benchmark.rs": "56befbfa2c4d4b2b03b43926bf570f7f92f202f713368e2e532e29d375c0bff4",
+    "native/src/engine/step_fixture.rs": "421310c90d733ba85fd1cf90c139b4d35993294583148d1a6e9bc0ddd987f22e",
+    "native/src/engine/collision.rs": "ed57005fc6860acafd9386571fca6a2a2ea1a147b08650118d2500e4dac51781"
+  },
+  "runner": "scripts/stage7/dense-world-capacity.ts",
+  "executedRunnerSha256": "0b3ed72d60a02a5a59ead40991ed6c6e37f28b50333f6846577c194d6c16c21e",
+  "command": "node ./node_modules/tsx/dist/cli.mjs scripts/stage7/dense-world-capacity.ts --db-path NEW/probe.sqlite --seconds 600 --output NEW/report.json",
+  "before": {
+    "report": "p4-capacity-before-2592d3fd-20261001.json",
+    "reportSha256": "3867483780c35581e1a56af06b12a35b8ea577a01189e7c00e4044d8a186d563",
+    "nativeBuildIdentifier": "slither_native/0.1.0+875f0305783e.2592d3fda0f67f3b",
+    "wallSeconds": 442.61646091200004,
+    "frames": 1548,
+    "completedSteps": 1547,
+    "capacityHeldSeconds": 5.171249529000022,
+    "peak": {
+      "generation": 1,
+      "alive": 8,
+      "bodyPoints": 202019,
+      "bodySegments": 202011,
+      "longestBody": 38500,
+      "pellets": 24998,
+      "bytes": 2116400
+    },
+    "simulatedWallRatio": 0.058252088682394294,
+    "step": {
+      "samples": 1547,
+      "meanMs": 284.4291254040077,
+      "p95Ms": 487.71,
+      "p99Ms": 487.71,
+      "maxMs": 487.71,
+      "percentilesAreUpperBounds": true
+    },
+    "rssPeakBytes": 336392192,
+    "eventLoopDelayP99Ms": 13.197311,
+    "slowWorldMeanMs": 230.20525145442792,
+    "slowControlMeanMs": 48.85134583063995
+  },
+  "after": {
+    "report": "p4-capacity-571f4cc5-20261001.json",
+    "reportSha256": "93f48f7a97a599f51347059024d23c7ab6cf50605f5e776eb46c037b351a02f0",
+    "nativeBuildIdentifier": "slither_native/0.1.0+875f0305783e.571f4cc5ab024c11",
+    "wallSeconds": 397.00945378800003,
+    "frames": 1548,
+    "completedSteps": 1547,
+    "capacityHeldSeconds": 5.121262829999978,
+    "peak": {
+      "generation": 1,
+      "alive": 8,
+      "bodyPoints": 202019,
+      "bodySegments": 202011,
+      "longestBody": 38500,
+      "pellets": 24998,
+      "bytes": 2116400
+    },
+    "simulatedWallRatio": 0.06494387750046234,
+    "step": {
+      "samples": 1547,
+      "meanMs": 255.01807369101488,
+      "p95Ms": 422.304,
+      "p99Ms": 422.304,
+      "maxMs": 422.304,
+      "percentilesAreUpperBounds": true
+    },
+    "rssPeakBytes": 378454016,
+    "eventLoopDelayP99Ms": 13.058047,
+    "slowWorldMeanMs": 202.57495475113123,
+    "slowControlMeanMs": 47.293352941176465
+  },
+  "meanStepReductionPercent": 10.340379759357244,
+  "collisionSkipSegments": 30,
+  "conservativeIndexedCollisionSegmentLowerBound": 201779,
+  "comparison": "Source fixture JSON, completed-step boundary, frame count and peak frame counts match. Both exceed 200,000 actual adjacent-point segments and then advance for more than five seconds. Authority health stays valid; inbound/output high-water counts remain within their limits, with no priority overflow, inbound rejection or reliable transport failure.",
+  "scope": "Capacity and observed timing only. Normal production legacy conversion, admitted growth settings, ordinary sensing, food, collisions, deaths and complete frame transport. No body injection, hooks addon, disabled collisions or substitute sensors. Neither overloaded window qualifies P4 real-time, LAN or browser follow/overview acceptance.",
+  "caveat": "A single fresh after/before production comparison supports the observed mean-step improvement, not a statistical throughput guarantee or a memory improvement. Peak RSS is higher in the after window. The prior 169.94 ms capacity mean from p4-capacity-56711b23-20261001.json was not reproduced by this restored-sort run; it is retained as historical scoped evidence.",
+  "cleanup": "Reports and verified source/runner hashes retained before deleting the stopped task-owned remote checkout, addons, generated builds and copied databases. Owner service remains stopped."
+}

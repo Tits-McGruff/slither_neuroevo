@@ -51,6 +51,7 @@ static GLOBAL_ALLOCATOR: CountingAllocator = CountingAllocator;
 /// Fully parsed runner arguments.
 struct CliOptions {
     scenario: Stage4InferenceScenarioName,
+    dense_body_first_step: bool,
     math_backend: InferenceMathBackend,
     calculation_workers: usize,
     warmup_steps: usize,
@@ -79,6 +80,7 @@ fn parse_options() -> Result<CliOptions, String> {
     let command = env::args().collect::<Vec<_>>();
     let mut arguments = env::args_os().skip(1);
     let mut scenario = None;
+    let mut dense_body_first_step = false;
     let mut math_backend = None;
     let mut calculation_workers = 1;
     let mut warmup_steps = 3;
@@ -87,6 +89,7 @@ fn parse_options() -> Result<CliOptions, String> {
     let mut output_path = None;
     while let Some(flag) = arguments.next() {
         match flag.to_str() {
+            Some("--dense-body-first-step") => dense_body_first_step = true,
             Some("--scenario") => {
                 let value = arguments
                     .next()
@@ -144,6 +147,7 @@ fn parse_options() -> Result<CliOptions, String> {
     }
     Ok(CliOptions {
         scenario: scenario.ok_or_else(|| "--scenario is required".to_owned())?,
+        dense_body_first_step,
         math_backend: math_backend.ok_or_else(|| "--math-backend is required".to_owned())?,
         calculation_workers,
         warmup_steps,
@@ -177,6 +181,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let report = run_stage5_step_evidence(
         Stage5StepEvidenceOptions {
             scenario: options.scenario,
+            dense_body_first_step: options.dense_body_first_step,
             math_backend: options.math_backend,
             calculation_workers: options.calculation_workers,
             warmup_steps: options.warmup_steps,
@@ -205,6 +210,7 @@ mod tests {
         let report = run_stage5_step_evidence(
             Stage5StepEvidenceOptions {
                 scenario: Stage4InferenceScenarioName::P0,
+                dense_body_first_step: false,
                 math_backend: InferenceMathBackend::Scalar,
                 calculation_workers: 1,
                 warmup_steps: 1,

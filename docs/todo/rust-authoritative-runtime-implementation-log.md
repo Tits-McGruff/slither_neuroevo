@@ -1488,3 +1488,23 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   `p4-capacity-*-56711b23-20261001.json`. Unused Windows scratch, the remote
   build tree, and the stopped remote checkout/addon/databases were removed;
   owner service and ports remain stopped/closed.
+
+- 2026-10-01 Collision cell indexing now groups by cell alone; complete queries
+  still deduplicate every entry and sort candidates into canonical segment
+  order. A >200k-candidate regression checks complete traversal, ordering and
+  reuse after reversing equal-cell entries. The explicit cold dense-step
+  profiling mode keeps ordinary deaths enabled and checks controls against
+  the source observation boundary. Its three Oxygen pairs reduced index time
+  by 43–45%, with identical final world/recurrent hashes and work counts;
+  all 310 synthetic snakes die normally, so these are diagnostic profiles.
+  A fresh production after/before pair reached identical 202,011-segment peak
+  frame counts and 1,547-step boundaries. Mean step time was 255.0 versus
+  284.4 ms; observed p99 upper bounds were 422.3 versus 487.7 ms. Candidate
+  peak RSS was higher, 361 versus 321 MiB. Both runs stayed healthy and within
+  queue limits but reported overload; the earlier 169.9 ms capacity mean was
+  not reproduced by the restored-sort run. Paired reports/manifests are retained
+  as `p4-physics-paired-*-875f030-20261001.json` and the corresponding
+  `p4-capacity-*-20261001.json` files. Engine regressions, normal-addon bridge,
+  frame and real-server contracts, rustfmt and Clippy passed; `875f030` CI
+  passed. The stopped remote checkout, addons, builds and copied databases were
+  removed. P4 timing/LAN/browser and final acceptance remain open.

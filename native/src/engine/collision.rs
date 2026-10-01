@@ -446,14 +446,11 @@ impl SweptBodyIndex {
         }
         debug_assert_eq!(self.segments.len(), required_segments);
         debug_assert_eq!(self.entries.len(), required_entries);
-        // Segments were appended in sorted owner-ID and segment-end order, so
-        // their indices are the same canonical tie-breaker without random
-        // segment lookups in the large cell-entry sort.
-        self.entries.sort_unstable_by(|left, right| {
-            left.key
-                .cmp(&right.key)
-                .then_with(|| left.segment.cmp(&right.segment))
-        });
+        // Only cell grouping belongs here. A complete query deduplicates every
+        // visited entry and sorts segment indices afterward into canonical
+        // owner/segment order. Ordering equal-cell entries by segment would do
+        // that work twice and prevents the sort from exploiting repeated keys.
+        self.entries.sort_unstable_by_key(|entry| entry.key);
         reserve_for(&mut self.cells, self.entries.len(), "swept occupied cells")?;
         let mut start = 0usize;
         while start < self.entries.len() {
@@ -1648,6 +1645,81 @@ mod tests {
     use std::mem::size_of;
 
     const DT: f64 = 1.0 / 180.0;
+
+    #[test]
+    fn equal_cell_entry_order_keeps_every_large_query_candidate_canonical() {
+        const RECORDS: usize = 200_003;
+        let point = WorldPoint { x: 0.0, y: 0.0 };
+        let segment = SweptSegment {
+            owner_id: 2,
+            segment_end: 5,
+            previous_start: point,
+            previous_end: point,
+            current_start: point,
+            current_end: point,
+            movement_radius: 9.0,
+            final_radius: 9.0,
+            newly_grown: false,
+            removed_at_final: false,
+        };
+        let mut index = SweptBodyIndex {
+            cell_size: 1.0,
+            maximum_query_cells: 64,
+            segments: vec![segment; RECORDS],
+            ..SweptBodyIndex::default()
+        };
+        // Each record occupies the center plus one adjacent cell. Source order
+        // deliberately differs from canonical segment order, beyond the old cap.
+        for segment in (0..RECORDS).rev() {
+            index.entries.push(CellEntry {
+                key: CellKey { x: 0, y: 0 },
+                segment,
+            });
+            index.entries.push(CellEntry {
+                key: CellKey {
+                    x: if segment % 2 == 0 { -1 } else { 1 },
+                    y: 0,
+                },
+                segment,
+            });
+        }
+        index.entries.sort_unstable_by_key(|entry| entry.key);
+        let left_end = RECORDS.div_ceil(2);
+        let center_end = left_end + RECORDS;
+        index.cells = vec![
+            CellSpan {
+                key: CellKey { x: -1, y: 0 },
+                start: 0,
+                end: left_end,
+            },
+            CellSpan {
+                key: CellKey { x: 0, y: 0 },
+                start: left_end,
+                end: center_end,
+            },
+            CellSpan {
+                key: CellKey { x: 1, y: 0 },
+                start: center_end,
+                end: RECORDS * 2,
+            },
+        ];
+        let mut scratch = CandidateScratch::default();
+        let (_, visited) = index
+            .collect_candidates(point, point, 1.0, &mut scratch)
+            .unwrap();
+        assert_eq!(visited, RECORDS * 2);
+        assert_eq!(scratch.candidates, (0..RECORDS).collect::<Vec<_>>());
+        let capacity = scratch.candidates.capacity();
+        for span in &index.cells {
+            index.entries[span.start..span.end].reverse();
+        }
+        let (_, visited) = index
+            .collect_candidates(point, point, 1.0, &mut scratch)
+            .unwrap();
+        assert_eq!(visited, RECORDS * 2);
+        assert_eq!(scratch.candidates, (0..RECORDS).collect::<Vec<_>>());
+        assert_eq!(scratch.candidates.capacity(), capacity);
+    }
 
     #[derive(Clone, Debug, PartialEq)]
     struct CollisionResult {
