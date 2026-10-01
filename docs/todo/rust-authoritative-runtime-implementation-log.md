@@ -1643,3 +1643,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   and scratch were stopped/removed. This proves one real-browser corruption
   case and safe recovery, not precise heap, complete failure coverage or final
   acceptance.
+
+- 2026-10-02 The unchanged production Rust runtime generated paired fresh and
+  generation-13 P0/P2/P3 saves with normal physics, sensors, inference and
+  evolution active. A bounded independent reader verified all eight logical
+  role hashes and each save root, rebuilt each compressed numeric candidate
+  byte-for-byte using the production level/window settings, and confirmed the
+  strictly-smaller adaptive selection. Exact streamed JavaScript decimal array
+  sizes put complete archive reductions at 5.91–8.70x; the large P2/P3 fixtures
+  were 5.97–5.98x, above the four-times limit. Raw/candidate/selected bytes,
+  container overhead, bounded block maxima and independent Python codec
+  throughput are retained in `archive-codec-d6d138b-20261002.json`. Existing raw
+  fallback and reusable-scratch Rust test evidence applies to the unchanged
+  native source. Strict standalone TypeScript, focused ESLint and decimal
+  counter edge/rejection checks passed. All three disposable servers/databases
+  and the new archive/metric scratch were stopped/removed after retaining the
+  compact report. These eight-second fixture rounds and Python timings are
+  size/codec evidence, not Rust/Oxygen timing, total phase-memory or precise
+  browser-heap acceptance; the remaining Stage 7/8 gates stay open.

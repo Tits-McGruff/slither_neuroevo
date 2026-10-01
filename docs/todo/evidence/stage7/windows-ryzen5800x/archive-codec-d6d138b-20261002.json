@@ -1,0 +1,1245 @@
+{
+  "schemaVersion": 1,
+  "testedProductionRevision": "d6d138bdda0f51f3ce3b93a132fec0fdde018072",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.14.2",
+  "node": "v24.19.0",
+  "cpu": "AMD Ryzen 7 5800X 8-Core Processor             ",
+  "arch": "x64",
+  "build": "slither_native/0.1.0+bd64f7c9d278.5ec8939dbf45bb1a",
+  "sourceSha256": "62d60844bd1ab8d567102b11a0ea079fc5d6ed889f32d71b7bbf05e00303070d",
+  "buildClass": "production",
+  "reproduction": [
+    "node node_modules/tsx/dist/cli.mjs scripts/stage7/codec-archive-fixture.ts --scenario P0|P2|P3 --output-root NEW_DIRECTORY",
+    "python scripts/stage7/archive-codec-metrics.py --archive NEW_DIRECTORY/fresh.slither-save --output NEW_METRICS_JSON",
+    "python scripts/stage7/archive-codec-metrics.py --archive NEW_DIRECTORY/evolved.slither-save --output NEW_METRICS_JSON"
+  ],
+  "fixtures": [
+    {
+      "productionFixture": {
+        "scenario": "P0",
+        "freeBytes": "237008662528",
+        "snakeCount": 55,
+        "parameterCount": 13458,
+        "rustWorkers": 6,
+        "generationSeconds": 8,
+        "fresh": {
+          "runId": "258bdd64-eb81-4265-8165-e4721a2d6beb",
+          "checkpointId": "ebbb81358a6d55e2cef224ec78c131894dc618bc81d2ab9d79675f8ec970dd6b",
+          "generation": "0000000000000001",
+          "bytes": 2521088,
+          "exportWallMs": 85.34170000000006,
+          "saveRoot": "0514ae5f3d0f68e71877238f34946f524e78b8dddc74c6e2fca19b36905d632f"
+        },
+        "evolved": {
+          "runId": "258bdd64-eb81-4265-8165-e4721a2d6beb",
+          "checkpointId": "b29c0989a0e1a2aa798fa6ad49974f7df299f21b76123d740c30547da0a048c0",
+          "generation": "000000000000000d",
+          "bytes": 2080768,
+          "exportWallMs": 82.89979999999923,
+          "saveRoot": "1d223a0d4c93d4ca4f0d9bd1c525a86220e736f6703cc853ad45d79c622e0d55"
+        },
+        "wallSeconds": 15.7872853,
+        "scope": "Unchanged production Rust physics, sensors, inference, evolution and HTTP export; accelerated rate only. Export wall time is not isolated Rust codec timing."
+      },
+      "measurements": [
+        {
+          "schemaVersion": 1,
+          "file": "fresh.slither-save",
+          "archiveBytes": 2521088,
+          "archiveSha256": "734550b0229ea9e0782bc2c54fce3b06f1604cb375ce9891dd70b3b4e003302d",
+          "runId": "258bdd64-eb81-4265-8165-e4721a2d6beb",
+          "generation": "0000000000000001",
+          "checkpointId": "ebbb81358a6d55e2cef224ec78c131894dc618bc81d2ab9d79675f8ec970dd6b",
+          "saveRoot": "0514ae5f3d0f68e71877238f34946f524e78b8dddc74c6e2fca19b36905d632f",
+          "populationCount": 55,
+          "zstandardOracleVersion": "1.5.7",
+          "zstandardLevel": 1,
+          "windowLog": 20,
+          "roles": [
+            {
+              "role": "checkpoint",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 5905,
+              "rawBytes": 5905,
+              "logicalSha256": "aa667c92bc01587c0d0551495c1546e876825096380e7b87c9fdbe209f63a6a3",
+              "bitExact": true
+            },
+            {
+              "role": "graph",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 1377,
+              "rawBytes": 1377,
+              "logicalSha256": "7a1b6a8e8e3c7afe750c1a6f379e8de75d7ac1e8c86fc8e8d7c323e159308c42",
+              "bitExact": true
+            },
+            {
+              "role": "population-index",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 5760,
+              "rawBytes": 5760,
+              "logicalSha256": "db2ab91df970f7fd37c7c2bda7baa6ec8915eec73a1900c93a875ffe8cfc7e3b",
+              "bitExact": true
+            },
+            {
+              "role": "population-weights",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 2493993,
+              "rawBytes": 2960760,
+              "logicalSha256": "d693cc8054da692c89c56debd8858f5ae94e763fb74cb493ff2f61b3d682b959",
+              "bitExact": true,
+              "shuffledCandidateBytes": 2493993,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 3,
+              "largestRawBlockBytes": 1048576,
+              "largestCandidateFrameBytes": 881604,
+              "readDecodeMs": 8.987099980004132,
+              "candidateEncodeMs": 8.544599986635149,
+              "candidateDecodeMs": 6.081499974243343,
+              "candidateEncodeRawMiBPerSecond": 330.4544125482109,
+              "candidateDecodeRawMiBPerSecond": 464.2934771029543,
+              "decimalJson": {
+                "floats": 740190,
+                "jsonArrayBytes": 14892557,
+                "formattingMs": 115.90539999999993,
+                "maxChunkBytes": 65536
+              }
+            },
+            {
+              "role": "population-recurrent",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 31,
+              "rawBytes": 3520,
+              "logicalSha256": "36a26ecce01fa5b0397415be067d3d275359a48fce772eb50a916862e0bec1d6",
+              "bitExact": true,
+              "shuffledCandidateBytes": 31,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 1,
+              "largestRawBlockBytes": 3520,
+              "largestCandidateFrameBytes": 19,
+              "readDecodeMs": 0.07209996692836285,
+              "candidateEncodeMs": 0.04869996337220073,
+              "candidateDecodeMs": 0.010600022505968809,
+              "candidateEncodeRawMiBPerSecond": 68.93092645868866,
+              "candidateDecodeRawMiBPerSecond": 316.69117606681783,
+              "decimalJson": {
+                "floats": 880,
+                "jsonArrayBytes": 1761,
+                "formattingMs": 0.31629999999999825,
+                "maxChunkBytes": 3520
+              }
+            },
+            {
+              "role": "history",
+              "encoding": "raw-history-v1",
+              "storedBytes": 0,
+              "rawBytes": 0,
+              "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-index",
+              "encoding": "raw-hof-index-v1",
+              "storedBytes": 0,
+              "rawBytes": 0,
+              "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-weights",
+              "encoding": "raw-f32le-v1",
+              "storedBytes": 0,
+              "rawBytes": 0,
+              "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bitExact": true,
+              "shuffledCandidateBytes": 0,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 0,
+              "largestRawBlockBytes": 0,
+              "largestCandidateFrameBytes": 0,
+              "readDecodeMs": 0.0,
+              "candidateEncodeMs": 0.0,
+              "candidateDecodeMs": 0.0,
+              "candidateEncodeRawMiBPerSecond": null,
+              "candidateDecodeRawMiBPerSecond": null,
+              "decimalJson": {
+                "floats": 0,
+                "jsonArrayBytes": 2,
+                "formattingMs": 0,
+                "maxChunkBytes": 0
+              }
+            }
+          ],
+          "containerAndManifestBytes": 14022,
+          "numericJsonArraysOnlyBytes": 14894320,
+          "numericJsonLowerBoundToArchiveRatio": 5.907893734768481,
+          "scope": "Independent per-block codec/read timings, exact JS JSON.stringify scalar sizes, and byte-exact production candidate comparison. Numeric JSON arrays alone are a lower bound on a complete JSON experiment. No Rust production timing or total process peak-memory claim.",
+          "manifestBytes": 6399,
+          "completedStep": "0000000000000000",
+          "historyCount": 0,
+          "hallOfFameCount": 0,
+          "selectedNumericBytes": 2494024,
+          "rawPackedNumericBytes": 2964280,
+          "state": "fresh"
+        },
+        {
+          "schemaVersion": 1,
+          "file": "evolved.slither-save",
+          "archiveBytes": 2080768,
+          "archiveSha256": "09c4d291fd55f03670979416446e61e405f97078ed5a0dd8f74cc8950104e41b",
+          "runId": "258bdd64-eb81-4265-8165-e4721a2d6beb",
+          "generation": "000000000000000d",
+          "checkpointId": "b29c0989a0e1a2aa798fa6ad49974f7df299f21b76123d740c30547da0a048c0",
+          "saveRoot": "1d223a0d4c93d4ca4f0d9bd1c525a86220e736f6703cc853ad45d79c622e0d55",
+          "populationCount": 55,
+          "zstandardOracleVersion": "1.5.7",
+          "zstandardLevel": 1,
+          "windowLog": 20,
+          "roles": [
+            {
+              "role": "checkpoint",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 5927,
+              "rawBytes": 5927,
+              "logicalSha256": "5e6ebe9e92b65793473d127cbb502ce90d33a30fa105b8d78c8c1b1fe29aa964",
+              "bitExact": true
+            },
+            {
+              "role": "graph",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 1377,
+              "rawBytes": 1377,
+              "logicalSha256": "7a1b6a8e8e3c7afe750c1a6f379e8de75d7ac1e8c86fc8e8d7c323e159308c42",
+              "bitExact": true
+            },
+            {
+              "role": "population-index",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 5760,
+              "rawBytes": 5760,
+              "logicalSha256": "a0dfb6b88af6fafc0b64b142b378db64a9fbb6d2e9aa687ee896bc17decbe77f",
+              "bitExact": true
+            },
+            {
+              "role": "population-weights",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 1693147,
+              "rawBytes": 2960760,
+              "logicalSha256": "5fd2d4c3615c04685fe1cb4fd0b5122bb0ff6e9e23ba3a0791eebb1407e1f238",
+              "bitExact": true,
+              "shuffledCandidateBytes": 1693147,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 3,
+              "largestRawBlockBytes": 1048576,
+              "largestCandidateFrameBytes": 603093,
+              "readDecodeMs": 10.677899932488799,
+              "candidateEncodeMs": 15.749799960758537,
+              "candidateDecodeMs": 11.705400072969496,
+              "candidateEncodeRawMiBPerSecond": 179.27851630357972,
+              "candidateDecodeRawMiBPerSecond": 241.22206429862425,
+              "decimalJson": {
+                "floats": 740190,
+                "jsonArrayBytes": 14864409,
+                "formattingMs": 132.97030000000004,
+                "maxChunkBytes": 65536
+              }
+            },
+            {
+              "role": "population-recurrent",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 31,
+              "rawBytes": 3520,
+              "logicalSha256": "36a26ecce01fa5b0397415be067d3d275359a48fce772eb50a916862e0bec1d6",
+              "bitExact": true,
+              "shuffledCandidateBytes": 31,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 1,
+              "largestRawBlockBytes": 3520,
+              "largestCandidateFrameBytes": 19,
+              "readDecodeMs": 0.063000014051795,
+              "candidateEncodeMs": 0.06699998630210757,
+              "candidateDecodeMs": 0.013199984095990658,
+              "candidateEncodeRawMiBPerSecond": 50.10349671734789,
+              "candidateDecodeRawMiBPerSecond": 254.31345745103053,
+              "decimalJson": {
+                "floats": 880,
+                "jsonArrayBytes": 1761,
+                "formattingMs": 0.5311000000000021,
+                "maxChunkBytes": 3520
+              }
+            },
+            {
+              "role": "history",
+              "encoding": "raw-history-v1",
+              "storedBytes": 672,
+              "rawBytes": 672,
+              "logicalSha256": "7e14f127874157544cb07b2224409ab09ffe5f224c542bed98442f8637221548",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-index",
+              "encoding": "raw-hof-index-v1",
+              "storedBytes": 1440,
+              "rawBytes": 1440,
+              "logicalSha256": "b1af8f6e50a60e35c2abc9ec2439bfd478d7c893fa1c5c2053faf668713a39f8",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-weights",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 358031,
+              "rawBytes": 645984,
+              "logicalSha256": "e7b9c8a1e60efbcc9e3ebe47463dc6a7030240fef0116a37063bbe3c553e1bc7",
+              "bitExact": true,
+              "shuffledCandidateBytes": 358031,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 1,
+              "largestRawBlockBytes": 645984,
+              "largestCandidateFrameBytes": 358019,
+              "readDecodeMs": 1.748099981341511,
+              "candidateEncodeMs": 2.608399954624474,
+              "candidateDecodeMs": 1.5106999780982733,
+              "candidateEncodeRawMiBPerSecond": 236.18247213858263,
+              "candidateDecodeRawMiBPerSecond": 407.79662311565846,
+              "decimalJson": {
+                "floats": 161496,
+                "jsonArrayBytes": 3246473,
+                "formattingMs": 30.7098,
+                "maxChunkBytes": 65536
+              }
+            }
+          ],
+          "containerAndManifestBytes": 14383,
+          "numericJsonArraysOnlyBytes": 18112643,
+          "numericJsonLowerBoundToArchiveRatio": 8.704787366972194,
+          "scope": "Independent per-block codec/read timings, exact JS JSON.stringify scalar sizes, and byte-exact production candidate comparison. Numeric JSON arrays alone are a lower bound on a complete JSON experiment. No Rust production timing or total process peak-memory claim.",
+          "manifestBytes": 6420,
+          "completedStep": "000000000000168c",
+          "historyCount": 12,
+          "hallOfFameCount": 12,
+          "selectedNumericBytes": 2051209,
+          "rawPackedNumericBytes": 3610264,
+          "state": "evolved"
+        }
+      ]
+    },
+    {
+      "productionFixture": {
+        "scenario": "P2",
+        "freeBytes": "237191663616",
+        "snakeCount": 55,
+        "parameterCount": 402914,
+        "rustWorkers": 6,
+        "generationSeconds": 8,
+        "fresh": {
+          "runId": "47953003-b448-4ba8-b896-f840c34cd472",
+          "checkpointId": "c2e9e537057c654cee0a4747544729089bd3dbfb2da5dc8414b942a6c8d3bd18",
+          "generation": "0000000000000001",
+          "bytes": 74514432,
+          "exportWallMs": 1008.0277999999998,
+          "saveRoot": "e7727c8ffe3af3b85e6a3e1bf9c0b687bd90cc3c54f8d82ec0a895fbd69d3423"
+        },
+        "evolved": {
+          "runId": "47953003-b448-4ba8-b896-f840c34cd472",
+          "checkpointId": "4183e422d861c48527720da6d204918e739969217b39b81b622f0798a5f5af72",
+          "generation": "000000000000000d",
+          "bytes": 90862592,
+          "exportWallMs": 1262.8041999999987,
+          "saveRoot": "0b39e56a6cbcc8b59ec5e6eee56db01444b2f4b1691852cb352c8c99d2022770"
+        },
+        "wallSeconds": 39.7296135,
+        "scope": "Unchanged production Rust physics, sensors, inference, evolution and HTTP export; accelerated rate only. Export wall time is not isolated Rust codec timing."
+      },
+      "measurements": [
+        {
+          "schemaVersion": 1,
+          "file": "fresh.slither-save",
+          "archiveBytes": 74514432,
+          "archiveSha256": "d0f4005f5e0fba727cf11104f17e5f377ebbf25482a57f53423bce14b2ba038d",
+          "runId": "47953003-b448-4ba8-b896-f840c34cd472",
+          "generation": "0000000000000001",
+          "checkpointId": "c2e9e537057c654cee0a4747544729089bd3dbfb2da5dc8414b942a6c8d3bd18",
+          "saveRoot": "e7727c8ffe3af3b85e6a3e1bf9c0b687bd90cc3c54f8d82ec0a895fbd69d3423",
+          "populationCount": 55,
+          "zstandardOracleVersion": "1.5.7",
+          "zstandardLevel": 1,
+          "windowLog": 20,
+          "roles": [
+            {
+              "role": "checkpoint",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 5993,
+              "rawBytes": 5993,
+              "logicalSha256": "bafc9b5d0a3cb7005ebcf26b6e9822c8c40b38874cbe3c249b6b446e8c0a53b2",
+              "bitExact": true
+            },
+            {
+              "role": "graph",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 1519,
+              "rawBytes": 1519,
+              "logicalSha256": "05e77259e898acd0cc6e5a10f8731180db1ae1fa297d5d8e65abc163f4335121",
+              "bitExact": true
+            },
+            {
+              "role": "population-index",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 5760,
+              "rawBytes": 5760,
+              "logicalSha256": "4168132839ad86426b89965a45c13e0089f4da28c5a581c061703006ea8a3500",
+              "bitExact": true
+            },
+            {
+              "role": "population-weights",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 74487431,
+              "rawBytes": 88641080,
+              "logicalSha256": "f33e582c376e2d7daa497fe62714bc6f8691265339521ac66b31280606f4adf5",
+              "bitExact": true,
+              "shuffledCandidateBytes": 74487431,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 85,
+              "largestRawBlockBytes": 1048576,
+              "largestCandidateFrameBytes": 881939,
+              "readDecodeMs": 256.3149002380669,
+              "candidateEncodeMs": 266.0800999728963,
+              "candidateDecodeMs": 177.57439985871315,
+              "candidateEncodeRawMiBPerSecond": 317.7040349245309,
+              "candidateDecodeRawMiBPerSecond": 476.05241206937296,
+              "decimalJson": {
+                "floats": 22160270,
+                "jsonArrayBytes": 445694257,
+                "formattingMs": 3361.3441999999973,
+                "maxChunkBytes": 65536
+              }
+            },
+            {
+              "role": "population-recurrent",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 31,
+              "rawBytes": 21120,
+              "logicalSha256": "fcb99a526c4ae037ad3248525f4245e1580911672c650839de9ebbc64ed68495",
+              "bitExact": true,
+              "shuffledCandidateBytes": 31,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 1,
+              "largestRawBlockBytes": 21120,
+              "largestCandidateFrameBytes": 19,
+              "readDecodeMs": 0.06500002928078175,
+              "candidateEncodeMs": 0.060399994254112244,
+              "candidateDecodeMs": 0.02239999594166875,
+              "candidateEncodeRawMiBPerSecond": 333.47025626792487,
+              "candidateDecodeRawMiBPerSecond": 899.1788040922072,
+              "decimalJson": {
+                "floats": 5280,
+                "jsonArrayBytes": 10561,
+                "formattingMs": 1.6738999999999962,
+                "maxChunkBytes": 21120
+              }
+            },
+            {
+              "role": "history",
+              "encoding": "raw-history-v1",
+              "storedBytes": 0,
+              "rawBytes": 0,
+              "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-index",
+              "encoding": "raw-hof-index-v1",
+              "storedBytes": 0,
+              "rawBytes": 0,
+              "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-weights",
+              "encoding": "raw-f32le-v1",
+              "storedBytes": 0,
+              "rawBytes": 0,
+              "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bitExact": true,
+              "shuffledCandidateBytes": 0,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 0,
+              "largestRawBlockBytes": 0,
+              "largestCandidateFrameBytes": 0,
+              "readDecodeMs": 0.0,
+              "candidateEncodeMs": 0.0,
+              "candidateDecodeMs": 0.0,
+              "candidateEncodeRawMiBPerSecond": null,
+              "candidateDecodeRawMiBPerSecond": null,
+              "decimalJson": {
+                "floats": 0,
+                "jsonArrayBytes": 2,
+                "formattingMs": 0,
+                "maxChunkBytes": 0
+              }
+            }
+          ],
+          "containerAndManifestBytes": 13698,
+          "numericJsonArraysOnlyBytes": 445704820,
+          "numericJsonLowerBoundToArchiveRatio": 5.981456317079623,
+          "scope": "Independent per-block codec/read timings, exact JS JSON.stringify scalar sizes, and byte-exact production candidate comparison. Numeric JSON arrays alone are a lower bound on a complete JSON experiment. No Rust production timing or total process peak-memory claim.",
+          "manifestBytes": 6487,
+          "completedStep": "0000000000000000",
+          "historyCount": 0,
+          "hallOfFameCount": 0,
+          "selectedNumericBytes": 74487462,
+          "rawPackedNumericBytes": 88662200,
+          "state": "fresh"
+        },
+        {
+          "schemaVersion": 1,
+          "file": "evolved.slither-save",
+          "archiveBytes": 90862592,
+          "archiveSha256": "dc770f6a829fb2f23b4fe26ffe73e6974663f2782b6e790395c52b7427c8da7b",
+          "runId": "47953003-b448-4ba8-b896-f840c34cd472",
+          "generation": "000000000000000d",
+          "checkpointId": "4183e422d861c48527720da6d204918e739969217b39b81b622f0798a5f5af72",
+          "saveRoot": "0b39e56a6cbcc8b59ec5e6eee56db01444b2f4b1691852cb352c8c99d2022770",
+          "populationCount": 55,
+          "zstandardOracleVersion": "1.5.7",
+          "zstandardLevel": 1,
+          "windowLog": 20,
+          "roles": [
+            {
+              "role": "checkpoint",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 6015,
+              "rawBytes": 6015,
+              "logicalSha256": "0621f853daff25220addd8cd96b75d431cb52a6265c9ef7c1fca982f456260e0",
+              "bitExact": true
+            },
+            {
+              "role": "graph",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 1519,
+              "rawBytes": 1519,
+              "logicalSha256": "05e77259e898acd0cc6e5a10f8731180db1ae1fa297d5d8e65abc163f4335121",
+              "bitExact": true
+            },
+            {
+              "role": "population-index",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 5760,
+              "rawBytes": 5760,
+              "logicalSha256": "5ca52afc467e31edf95c16d5c682193ab33ece4d5a093de8594786dab926817b",
+              "bitExact": true
+            },
+            {
+              "role": "population-weights",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 74563800,
+              "rawBytes": 88641080,
+              "logicalSha256": "6f92790fef860550eec0d919a8c93329b5a55d372e0704b4e6bd88fa70e0e8d2",
+              "bitExact": true,
+              "shuffledCandidateBytes": 74563800,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 85,
+              "largestRawBlockBytes": 1048576,
+              "largestCandidateFrameBytes": 882706,
+              "readDecodeMs": 279.09599989652634,
+              "candidateEncodeMs": 282.30430028634146,
+              "candidateDecodeMs": 188.69390012696385,
+              "candidateEncodeRawMiBPerSecond": 299.44539027130685,
+              "candidateDecodeRawMiBPerSecond": 447.9992268834976,
+              "decimalJson": {
+                "floats": 22160270,
+                "jsonArrayBytes": 444886462,
+                "formattingMs": 3429.676299999994,
+                "maxChunkBytes": 65536
+              }
+            },
+            {
+              "role": "population-recurrent",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 31,
+              "rawBytes": 21120,
+              "logicalSha256": "fcb99a526c4ae037ad3248525f4245e1580911672c650839de9ebbc64ed68495",
+              "bitExact": true,
+              "shuffledCandidateBytes": 31,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 1,
+              "largestRawBlockBytes": 21120,
+              "largestCandidateFrameBytes": 19,
+              "readDecodeMs": 0.21890003699809313,
+              "candidateEncodeMs": 0.08849997539073229,
+              "candidateDecodeMs": 0.03709999145939946,
+              "candidateEncodeRawMiBPerSecond": 227.58878150613845,
+              "candidateDecodeRawMiBPerSecond": 542.9004366360043,
+              "decimalJson": {
+                "floats": 5280,
+                "jsonArrayBytes": 10561,
+                "formattingMs": 2.3123999999999967,
+                "maxChunkBytes": 21120
+              }
+            },
+            {
+              "role": "history",
+              "encoding": "raw-history-v1",
+              "storedBytes": 672,
+              "rawBytes": 672,
+              "logicalSha256": "0024259f1e88fa0ea09ba3ae8a99f6cca9b0ff99154f7481e962f655d170c044",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-index",
+              "encoding": "raw-hof-index-v1",
+              "storedBytes": 1440,
+              "rawBytes": 1440,
+              "logicalSha256": "2db511db04ff7f4e02d14a215cdb585c16ee985bc8b49eec8e4de621537febac",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-weights",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 16268940,
+              "rawBytes": 19339872,
+              "logicalSha256": "d3fc6a87eb30df629b8872852a237861579cca1d4f2780bc283aa976b111c286",
+              "bitExact": true,
+              "shuffledCandidateBytes": 16268940,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 19,
+              "largestRawBlockBytes": 1048576,
+              "largestCandidateFrameBytes": 882128,
+              "readDecodeMs": 80.25770011590794,
+              "candidateEncodeMs": 67.04839994199574,
+              "candidateDecodeMs": 51.299499929882586,
+              "candidateEncodeRawMiBPerSecond": 275.0839576327014,
+              "candidateDecodeRawMiBPerSecond": 359.5344834587862,
+              "decimalJson": {
+                "floats": 4834968,
+                "jsonArrayBytes": 97161777,
+                "formattingMs": 860.4568000000004,
+                "maxChunkBytes": 65536
+              }
+            }
+          ],
+          "containerAndManifestBytes": 14415,
+          "numericJsonArraysOnlyBytes": 542058800,
+          "numericJsonLowerBoundToArchiveRatio": 5.965698183032242,
+          "scope": "Independent per-block codec/read timings, exact JS JSON.stringify scalar sizes, and byte-exact production candidate comparison. Numeric JSON arrays alone are a lower bound on a complete JSON experiment. No Rust production timing or total process peak-memory claim.",
+          "manifestBytes": 6508,
+          "completedStep": "000000000000168c",
+          "historyCount": 12,
+          "hallOfFameCount": 12,
+          "selectedNumericBytes": 90832771,
+          "rawPackedNumericBytes": 108002072,
+          "state": "evolved"
+        }
+      ]
+    },
+    {
+      "productionFixture": {
+        "scenario": "P3",
+        "freeBytes": "237022949376",
+        "snakeCount": 300,
+        "parameterCount": 402914,
+        "rustWorkers": 6,
+        "generationSeconds": 8,
+        "fresh": {
+          "runId": "71c77b6e-5769-41f7-8391-bec448a215b2",
+          "checkpointId": "1a8fe435e2a3cf8fe19047284eb0d345a8d55130a8c325072f261aff2fb29e23",
+          "generation": "0000000000000001",
+          "bytes": 406314496,
+          "exportWallMs": 5276.4987,
+          "saveRoot": "ebc8c9806e6250ee266851d64685bfac2929c02665a5fce60c154e236c19372d"
+        },
+        "evolved": {
+          "runId": "71c77b6e-5769-41f7-8391-bec448a215b2",
+          "checkpointId": "a19c5850ab8e4f7f64c3952212b737194c96224c6617faef14e3674b7f6def36",
+          "generation": "000000000000000d",
+          "bytes": 423014400,
+          "exportWallMs": 5193.212300000014,
+          "saveRoot": "fdb4c6014f2a5c6970287b70b56c1b6101cbf00ee0d2acc3954a58ea88afb009"
+        },
+        "wallSeconds": 163.6234407,
+        "scope": "Unchanged production Rust physics, sensors, inference, evolution and HTTP export; accelerated rate only. Export wall time is not isolated Rust codec timing."
+      },
+      "measurements": [
+        {
+          "schemaVersion": 1,
+          "file": "fresh.slither-save",
+          "archiveBytes": 406314496,
+          "archiveSha256": "8fe10f8e1d805ba18685cb0a4335db10ab8c71698169e92c3db87bd99ca2c311",
+          "runId": "71c77b6e-5769-41f7-8391-bec448a215b2",
+          "generation": "0000000000000001",
+          "checkpointId": "1a8fe435e2a3cf8fe19047284eb0d345a8d55130a8c325072f261aff2fb29e23",
+          "saveRoot": "ebc8c9806e6250ee266851d64685bfac2929c02665a5fce60c154e236c19372d",
+          "populationCount": 300,
+          "zstandardOracleVersion": "1.5.7",
+          "zstandardLevel": 1,
+          "windowLog": 20,
+          "roles": [
+            {
+              "role": "checkpoint",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 5993,
+              "rawBytes": 5993,
+              "logicalSha256": "a559e7480ba0e8a623e77beca86a866a2e7d168d510142b11a92f5f02d18eb59",
+              "bitExact": true
+            },
+            {
+              "role": "graph",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 1519,
+              "rawBytes": 1519,
+              "logicalSha256": "05e77259e898acd0cc6e5a10f8731180db1ae1fa297d5d8e65abc163f4335121",
+              "bitExact": true
+            },
+            {
+              "role": "population-index",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 31240,
+              "rawBytes": 31240,
+              "logicalSha256": "899a7d26d8f3abc94465d019139e336aec88a06c912b63a2d871815e58ece9ee",
+              "bitExact": true
+            },
+            {
+              "role": "population-weights",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 406261773,
+              "rawBytes": 483496800,
+              "logicalSha256": "802ab4632fa08a76fcc8cd3fa201b2a4d5803be93e648c56292270f9ff69670c",
+              "bitExact": true,
+              "shuffledCandidateBytes": 406261773,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 462,
+              "largestRawBlockBytes": 1048576,
+              "largestCandidateFrameBytes": 882089,
+              "readDecodeMs": 1133.3643999532796,
+              "candidateEncodeMs": 1247.896900109481,
+              "candidateDecodeMs": 784.866200236138,
+              "candidateEncodeRawMiBPerSecond": 369.500461283425,
+              "candidateDecodeRawMiBPerSecond": 587.4867335169758,
+              "decimalJson": {
+                "floats": 120874200,
+                "jsonArrayBytes": 2431065190,
+                "formattingMs": 17526.99269999993,
+                "maxChunkBytes": 65536
+              }
+            },
+            {
+              "role": "population-recurrent",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 34,
+              "rawBytes": 115200,
+              "logicalSha256": "d8b443032200e143b1c49820b6d78c32d519553a3f63a38f48e8bc31da084f0a",
+              "bitExact": true,
+              "shuffledCandidateBytes": 34,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 1,
+              "largestRawBlockBytes": 115200,
+              "largestCandidateFrameBytes": 22,
+              "readDecodeMs": 0.2633000258356333,
+              "candidateEncodeMs": 0.16139994841068983,
+              "candidateDecodeMs": 0.215600011870265,
+              "candidateEncodeRawMiBPerSecond": 680.6896924802459,
+              "candidateDecodeRawMiBPerSecond": 509.56992208381257,
+              "decimalJson": {
+                "floats": 28800,
+                "jsonArrayBytes": 57601,
+                "formattingMs": 4.149799999999999,
+                "maxChunkBytes": 65536
+              }
+            },
+            {
+              "role": "history",
+              "encoding": "raw-history-v1",
+              "storedBytes": 0,
+              "rawBytes": 0,
+              "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-index",
+              "encoding": "raw-hof-index-v1",
+              "storedBytes": 0,
+              "rawBytes": 0,
+              "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-weights",
+              "encoding": "raw-f32le-v1",
+              "storedBytes": 0,
+              "rawBytes": 0,
+              "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "bitExact": true,
+              "shuffledCandidateBytes": 0,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 0,
+              "largestRawBlockBytes": 0,
+              "largestCandidateFrameBytes": 0,
+              "readDecodeMs": 0.0,
+              "candidateEncodeMs": 0.0,
+              "candidateDecodeMs": 0.0,
+              "candidateEncodeRawMiBPerSecond": null,
+              "candidateDecodeRawMiBPerSecond": null,
+              "decimalJson": {
+                "floats": 0,
+                "jsonArrayBytes": 2,
+                "formattingMs": 0,
+                "maxChunkBytes": 0
+              }
+            }
+          ],
+          "containerAndManifestBytes": 13937,
+          "numericJsonArraysOnlyBytes": 2431122793,
+          "numericJsonLowerBoundToArchiveRatio": 5.983352346355863,
+          "scope": "Independent per-block codec/read timings, exact JS JSON.stringify scalar sizes, and byte-exact production candidate comparison. Numeric JSON arrays alone are a lower bound on a complete JSON experiment. No Rust production timing or total process peak-memory claim.",
+          "manifestBytes": 6487,
+          "completedStep": "0000000000000000",
+          "historyCount": 0,
+          "hallOfFameCount": 0,
+          "selectedNumericBytes": 406261807,
+          "rawPackedNumericBytes": 483612000,
+          "state": "fresh"
+        },
+        {
+          "schemaVersion": 1,
+          "file": "evolved.slither-save",
+          "archiveBytes": 423014400,
+          "archiveSha256": "47fb8c4fbfc10ca37a9efd831e386e5f74c6f828214255b6055aa079dd36be79",
+          "runId": "71c77b6e-5769-41f7-8391-bec448a215b2",
+          "generation": "000000000000000d",
+          "checkpointId": "a19c5850ab8e4f7f64c3952212b737194c96224c6617faef14e3674b7f6def36",
+          "saveRoot": "fdb4c6014f2a5c6970287b70b56c1b6101cbf00ee0d2acc3954a58ea88afb009",
+          "populationCount": 300,
+          "zstandardOracleVersion": "1.5.7",
+          "zstandardLevel": 1,
+          "windowLog": 20,
+          "roles": [
+            {
+              "role": "checkpoint",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 6015,
+              "rawBytes": 6015,
+              "logicalSha256": "b5f7a28c6d184d1dabb620d258b034877f9d3ef063cf1d22536f6e97cc46ce24",
+              "bitExact": true
+            },
+            {
+              "role": "graph",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 1519,
+              "rawBytes": 1519,
+              "logicalSha256": "05e77259e898acd0cc6e5a10f8731180db1ae1fa297d5d8e65abc163f4335121",
+              "bitExact": true
+            },
+            {
+              "role": "population-index",
+              "encoding": "raw-binary-v1",
+              "storedBytes": 31240,
+              "rawBytes": 31240,
+              "logicalSha256": "219906ddfffb66a365033eb02f36796f980dc9928a815556d4044eb19040dec2",
+              "bitExact": true
+            },
+            {
+              "role": "population-weights",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 406688376,
+              "rawBytes": 483496800,
+              "logicalSha256": "9b51594a91129b48ed6d6268158987e61d1f11588fbba0563005b3d7c581fd12",
+              "bitExact": true,
+              "shuffledCandidateBytes": 406688376,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 462,
+              "largestRawBlockBytes": 1048576,
+              "largestCandidateFrameBytes": 882785,
+              "readDecodeMs": 1150.507700163871,
+              "candidateEncodeMs": 1242.7945996751077,
+              "candidateDecodeMs": 802.415699698031,
+              "candidateEncodeRawMiBPerSecond": 371.01744756949387,
+              "candidateDecodeRawMiBPerSecond": 574.6379095001907,
+              "decimalJson": {
+                "floats": 120874200,
+                "jsonArrayBytes": 2426836630,
+                "formattingMs": 17510.614400000053,
+                "maxChunkBytes": 65536
+              }
+            },
+            {
+              "role": "population-recurrent",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 34,
+              "rawBytes": 115200,
+              "logicalSha256": "d8b443032200e143b1c49820b6d78c32d519553a3f63a38f48e8bc31da084f0a",
+              "bitExact": true,
+              "shuffledCandidateBytes": 34,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 1,
+              "largestRawBlockBytes": 115200,
+              "largestCandidateFrameBytes": 22,
+              "readDecodeMs": 0.2087999600917101,
+              "candidateEncodeMs": 0.16160000814124942,
+              "candidateDecodeMs": 0.18279999494552612,
+              "candidateEncodeRawMiBPerSecond": 679.8470031880939,
+              "candidateDecodeRawMiBPerSecond": 601.0026492765437,
+              "decimalJson": {
+                "floats": 28800,
+                "jsonArrayBytes": 57601,
+                "formattingMs": 4.028199999999998,
+                "maxChunkBytes": 65536
+              }
+            },
+            {
+              "role": "history",
+              "encoding": "raw-history-v1",
+              "storedBytes": 672,
+              "rawBytes": 672,
+              "logicalSha256": "ece2721a8514e690fee0c46fce18c52708912b6f0096a84b23b2524ad9a89d55",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-index",
+              "encoding": "raw-hof-index-v1",
+              "storedBytes": 1440,
+              "rawBytes": 1440,
+              "logicalSha256": "78e91ced691b532493bbb4a3336c96ab5d76408741ce34b006ad50db09569412",
+              "bitExact": true
+            },
+            {
+              "role": "hall-of-fame-weights",
+              "encoding": "f32le-shuffle4-zstd-v1",
+              "storedBytes": 16270766,
+              "rawBytes": 19339872,
+              "logicalSha256": "776258335f2ed67fedc4ae971538b5218abb2e76bd2f1b5a70cd1ae787c41a24",
+              "bitExact": true,
+              "shuffledCandidateBytes": 16270766,
+              "adaptiveSelectionVerified": true,
+              "storedCandidateByteExact": true,
+              "decodedBlocks": 19,
+              "largestRawBlockBytes": 1048576,
+              "largestCandidateFrameBytes": 882187,
+              "readDecodeMs": 45.04489991813898,
+              "candidateEncodeMs": 49.073000031057745,
+              "candidateDecodeMs": 30.795000260695815,
+              "candidateEncodeRawMiBPerSecond": 375.84698708681793,
+              "candidateDecodeRawMiBPerSecond": 598.9264183421583,
+              "decimalJson": {
+                "floats": 4834968,
+                "jsonArrayBytes": 97162905,
+                "formattingMs": 714.5783999999996,
+                "maxChunkBytes": 65536
+              }
+            }
+          ],
+          "containerAndManifestBytes": 14338,
+          "numericJsonArraysOnlyBytes": 2524057136,
+          "numericJsonLowerBoundToArchiveRatio": 5.966835020273542,
+          "scope": "Independent per-block codec/read timings, exact JS JSON.stringify scalar sizes, and byte-exact production candidate comparison. Numeric JSON arrays alone are a lower bound on a complete JSON experiment. No Rust production timing or total process peak-memory claim.",
+          "manifestBytes": 6508,
+          "completedStep": "000000000000168c",
+          "historyCount": 12,
+          "hallOfFameCount": 12,
+          "selectedNumericBytes": 422959176,
+          "rawPackedNumericBytes": 502951872,
+          "state": "evolved"
+        }
+      ]
+    }
+  ],
+  "existingArchiveCrossChecks": [
+    {
+      "schemaVersion": 1,
+      "file": "p0-generation1.slither-save",
+      "archiveBytes": 2521088,
+      "archiveSha256": "e78da8246f9f016330b4071e35442ccc2924ffecea3b8482d2d7a7ed1d881206",
+      "runId": "b43ab8d2-757c-4bd1-9b2c-1f6c6e136ec3",
+      "generation": "0000000000000001",
+      "checkpointId": "dab7c41ccda9b5c3885ad63c83342051d7447215861ac8bfff86e70ca83c3688",
+      "saveRoot": "ea1fd00ead3b7e9a1d14d6baa1ec09d46a46e0506d079e86330a2bd2810b61d0",
+      "populationCount": 55,
+      "zstandardOracleVersion": "1.5.7",
+      "zstandardLevel": 1,
+      "windowLog": 20,
+      "roles": [
+        {
+          "role": "checkpoint",
+          "encoding": "raw-binary-v1",
+          "storedBytes": 5905,
+          "rawBytes": 5905,
+          "logicalSha256": "d5d9adac6a42da13c59b5fc80b441ad176a0bbc6e180bf9549d98ca13f959014",
+          "bitExact": true
+        },
+        {
+          "role": "graph",
+          "encoding": "raw-binary-v1",
+          "storedBytes": 1377,
+          "rawBytes": 1377,
+          "logicalSha256": "7a1b6a8e8e3c7afe750c1a6f379e8de75d7ac1e8c86fc8e8d7c323e159308c42",
+          "bitExact": true
+        },
+        {
+          "role": "population-index",
+          "encoding": "raw-binary-v1",
+          "storedBytes": 5760,
+          "rawBytes": 5760,
+          "logicalSha256": "db2ab91df970f7fd37c7c2bda7baa6ec8915eec73a1900c93a875ffe8cfc7e3b",
+          "bitExact": true
+        },
+        {
+          "role": "population-weights",
+          "encoding": "f32le-shuffle4-zstd-v1",
+          "storedBytes": 2494324,
+          "rawBytes": 2960760,
+          "logicalSha256": "432b53730a304c34886bc03a3c3254946492f6ff805e9e934e32a6fd41db386d",
+          "bitExact": true,
+          "shuffledCandidateBytes": 2494324,
+          "adaptiveSelectionVerified": true,
+          "storedCandidateByteExact": true,
+          "decodedBlocks": 3,
+          "largestRawBlockBytes": 1048576,
+          "largestCandidateFrameBytes": 881661,
+          "readDecodeMs": 8.329699980095029,
+          "candidateEncodeMs": 7.773799996357411,
+          "candidateDecodeMs": 5.112400103826076,
+          "candidateEncodeRawMiBPerSecond": 363.22014592168955,
+          "candidateDecodeRawMiBPerSecond": 552.3043407595995,
+          "decimalJson": {
+            "floats": 740190,
+            "jsonArrayBytes": 14893453,
+            "formattingMs": 113.52389999999991,
+            "maxChunkBytes": 65536
+          }
+        },
+        {
+          "role": "population-recurrent",
+          "encoding": "f32le-shuffle4-zstd-v1",
+          "storedBytes": 31,
+          "rawBytes": 3520,
+          "logicalSha256": "36a26ecce01fa5b0397415be067d3d275359a48fce772eb50a916862e0bec1d6",
+          "bitExact": true,
+          "shuffledCandidateBytes": 31,
+          "adaptiveSelectionVerified": true,
+          "storedCandidateByteExact": true,
+          "decodedBlocks": 1,
+          "largestRawBlockBytes": 3520,
+          "largestCandidateFrameBytes": 19,
+          "readDecodeMs": 0.036400044336915016,
+          "candidateEncodeMs": 0.036699988413602114,
+          "candidateDecodeMs": 0.008800008799880743,
+          "candidateEncodeRawMiBPerSecond": 91.46960908864538,
+          "candidateDecodeRawMiBPerSecond": 381.46934509832454,
+          "decimalJson": {
+            "floats": 880,
+            "jsonArrayBytes": 1761,
+            "formattingMs": 0.3072000000000017,
+            "maxChunkBytes": 3520
+          }
+        },
+        {
+          "role": "history",
+          "encoding": "raw-history-v1",
+          "storedBytes": 0,
+          "rawBytes": 0,
+          "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bitExact": true
+        },
+        {
+          "role": "hall-of-fame-index",
+          "encoding": "raw-hof-index-v1",
+          "storedBytes": 0,
+          "rawBytes": 0,
+          "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bitExact": true
+        },
+        {
+          "role": "hall-of-fame-weights",
+          "encoding": "raw-f32le-v1",
+          "storedBytes": 0,
+          "rawBytes": 0,
+          "logicalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bitExact": true,
+          "shuffledCandidateBytes": 0,
+          "adaptiveSelectionVerified": true,
+          "storedCandidateByteExact": true,
+          "decodedBlocks": 0,
+          "largestRawBlockBytes": 0,
+          "largestCandidateFrameBytes": 0,
+          "readDecodeMs": 0.0,
+          "candidateEncodeMs": 0.0,
+          "candidateDecodeMs": 0.0,
+          "candidateEncodeRawMiBPerSecond": null,
+          "candidateDecodeRawMiBPerSecond": null,
+          "decimalJson": {
+            "floats": 0,
+            "jsonArrayBytes": 2,
+            "formattingMs": 0,
+            "maxChunkBytes": 0
+          }
+        }
+      ],
+      "containerAndManifestBytes": 13691,
+      "numericJsonArraysOnlyBytes": 14895216,
+      "numericJsonLowerBoundToArchiveRatio": 5.908249136880585,
+      "scope": "Independent per-block codec/read timings, exact JS JSON.stringify scalar sizes, and byte-exact production candidate comparison. Numeric JSON arrays alone are a lower bound on a complete JSON experiment. No Rust production timing or total process peak-memory claim."
+    },
+    {
+      "schemaVersion": 1,
+      "file": "p2-generation13.slither-save",
+      "archiveBytes": 89509376,
+      "archiveSha256": "ac5de5eaaeb9582185af47e1bd065a72f9e81166d4f4d3a0695e7e4401378572",
+      "runId": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+      "generation": "000000000000000d",
+      "checkpointId": "5e40a9e626bae6b4e81e37bd293a7116cb07df70347792ef10ecafa973fa0876",
+      "saveRoot": "81f36487b798d509f2c51b17785bb5bb4156b21f9aba6761bbfed0694637de60",
+      "populationCount": 55,
+      "zstandardOracleVersion": "1.5.7",
+      "zstandardLevel": 1,
+      "windowLog": 20,
+      "roles": [
+        {
+          "role": "checkpoint",
+          "encoding": "raw-binary-v1",
+          "storedBytes": 6015,
+          "rawBytes": 6015,
+          "logicalSha256": "6f272cab370ac91edb507b10fd59dc1abe6bf6581771085f6e47d8d47bea9229",
+          "bitExact": true
+        },
+        {
+          "role": "graph",
+          "encoding": "raw-binary-v1",
+          "storedBytes": 1519,
+          "rawBytes": 1519,
+          "logicalSha256": "05e77259e898acd0cc6e5a10f8731180db1ae1fa297d5d8e65abc163f4335121",
+          "bitExact": true
+        },
+        {
+          "role": "population-index",
+          "encoding": "raw-binary-v1",
+          "storedBytes": 5760,
+          "rawBytes": 5760,
+          "logicalSha256": "9b04329bd5d93ecbe2e924367e2877df65ec192144c00d3218f5c9af1ba8b728",
+          "bitExact": true
+        },
+        {
+          "role": "population-weights",
+          "encoding": "f32le-shuffle4-zstd-v1",
+          "storedBytes": 74563899,
+          "rawBytes": 88641080,
+          "logicalSha256": "e8c683b77ed810dc473f4def12ce88750d74567b36958814d9860954eb31a152",
+          "bitExact": true,
+          "shuffledCandidateBytes": 74563899,
+          "adaptiveSelectionVerified": true,
+          "storedCandidateByteExact": true,
+          "decodedBlocks": 85,
+          "largestRawBlockBytes": 1048576,
+          "largestCandidateFrameBytes": 882699,
+          "readDecodeMs": 217.20199950505048,
+          "candidateEncodeMs": 232.55249991780147,
+          "candidateDecodeMs": 150.32299980521202,
+          "candidateEncodeRawMiBPerSecond": 363.5081171107236,
+          "candidateDecodeRawMiBPerSecond": 562.3538745504779,
+          "decimalJson": {
+            "floats": 22160270,
+            "jsonArrayBytes": 444928803,
+            "formattingMs": 3229.674100000002,
+            "maxChunkBytes": 65536
+          }
+        },
+        {
+          "role": "population-recurrent",
+          "encoding": "f32le-shuffle4-zstd-v1",
+          "storedBytes": 31,
+          "rawBytes": 21120,
+          "logicalSha256": "fcb99a526c4ae037ad3248525f4245e1580911672c650839de9ebbc64ed68495",
+          "bitExact": true,
+          "shuffledCandidateBytes": 31,
+          "adaptiveSelectionVerified": true,
+          "storedCandidateByteExact": true,
+          "decodedBlocks": 1,
+          "largestRawBlockBytes": 21120,
+          "largestCandidateFrameBytes": 19,
+          "readDecodeMs": 0.0817000400274992,
+          "candidateEncodeMs": 0.04900002386420965,
+          "candidateDecodeMs": 0.016000005416572094,
+          "candidateEncodeRawMiBPerSecond": 411.0528929193385,
+          "candidateDecodeRawMiBPerSecond": 1258.849671490625,
+          "decimalJson": {
+            "floats": 5280,
+            "jsonArrayBytes": 10561,
+            "formattingMs": 1.3594000000000008,
+            "maxChunkBytes": 21120
+          }
+        },
+        {
+          "role": "history",
+          "encoding": "raw-history-v1",
+          "storedBytes": 672,
+          "rawBytes": 672,
+          "logicalSha256": "c5cdaacd76bf2de1bc9230d2259def826a677d71311261c513a4ef786f049336",
+          "bitExact": true
+        },
+        {
+          "role": "hall-of-fame-index",
+          "encoding": "raw-hof-index-v1",
+          "storedBytes": 1320,
+          "rawBytes": 1320,
+          "logicalSha256": "d096d8d28cb3f4788514a63eb9349c1e57f445fa63504c3b9063a4c3388eb5e0",
+          "bitExact": true
+        },
+        {
+          "role": "hall-of-fame-weights",
+          "encoding": "f32le-shuffle4-zstd-v1",
+          "storedBytes": 14916023,
+          "rawBytes": 17728216,
+          "logicalSha256": "8345121b9ecd811899263ad2ea2442e2c899d959cfa5b361d75eb7fa0cab174d",
+          "bitExact": true,
+          "shuffledCandidateBytes": 14916023,
+          "adaptiveSelectionVerified": true,
+          "storedCandidateByteExact": true,
+          "decodedBlocks": 17,
+          "largestRawBlockBytes": 1048576,
+          "largestCandidateFrameBytes": 882091,
+          "readDecodeMs": 44.26110006170347,
+          "candidateEncodeMs": 45.86259991629049,
+          "candidateDecodeMs": 29.696499928832054,
+          "candidateEncodeRawMiBPerSecond": 368.64338929239295,
+          "candidateDecodeRawMiBPerSecond": 569.3244764675972,
+          "decimalJson": {
+            "floats": 4432054,
+            "jsonArrayBytes": 89075217,
+            "formattingMs": 624.8143000000006,
+            "maxChunkBytes": 65536
+          }
+        }
+      ],
+      "containerAndManifestBytes": 14137,
+      "numericJsonArraysOnlyBytes": 534014581,
+      "numericJsonLowerBoundToArchiveRatio": 5.9660183643778275,
+      "scope": "Independent per-block codec/read timings, exact JS JSON.stringify scalar sizes, and byte-exact production candidate comparison. Numeric JSON arrays alone are a lower bound on a complete JSON experiment. No Rust production timing or total process peak-memory claim."
+    }
+  ],
+  "rawFallbackAndScratchEvidence": {
+    "dependency": "Production Rust source is unchanged from the prior checkpoint. Existing Rust codec tests passed in the preceding checkpoint CI Ubuntu Node 24/26 jobs; this slice does not invalidate them.",
+    "ci": "https://github.com/Tits-McGruff/slither_neuroevo/actions/runs/36902717910",
+    "tests": [
+      "raw_at_selected_entry_limit_succeeds_when_sfz1_candidate_expands",
+      "multi_block_codec_reuses_bounded_scratch",
+      "adaptive_numeric_stream_round_trips_compressed_bytes"
+    ]
+  },
+  "decimalCounterValidation": "Direct JSON.stringify(Array.from(Float32Array)) byte comparison including negative zero, fractional values, smallest subnormal and largest finite values with three-byte writes; wrong count, partial float and nonfinite input rejected; empty array is two bytes.",
+  "scope": "Six actual Rust-generated fresh/generation-13 archives, exact Float32 hashes and independent candidate-byte comparisons, exact equivalent numeric JSON array sizes, declared role/container sizes, bounded-block maxima and independent Python codec throughput. Acceleration changes requested step rate only; ordinary physics, sensing, inference, deaths and evolution remain active. Eight-second rounds are fixture preparation, not the 60-second real-time timing gate. Python timings are not Rust production or Oxygen timing; block maxima are not total process-memory measurements. Formal server phase-memory and precise browser-memory gates remain open.",
+  "cleanup": "The three task servers and databases were stopped/removed by their finally handlers. Newly created save archives and metric scratch are deleted after retaining this report. The two previously reusable browser save fixtures remain required and unchanged."
+}
