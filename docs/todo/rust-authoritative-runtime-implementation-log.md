@@ -44,7 +44,7 @@ is actually needed.
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
 | 6 | Rust runtime complete | Rust owns durable startup/recovery, continuous frames/stats, browser and Protocol 2 routing, generation persistence, managed retention, commands, and direct archive export/import. |
-| 7 | Acceptance active | P0/P1/P2 server timing and LAN steering, real trainer traffic, large archives and bounded persistence slices are retained. The corrected replacement-token path passes a complete loaded P1 player/RSS/queue soak. Browser drawing/heap and final durability acceptance remain. |
+| 7 | Acceptance active | P0/P1/P2 server timing, LAN steering and desktop drawing, real trainer traffic, large archives and bounded persistence slices are retained. The corrected replacement-token path passes a complete loaded P1 player/RSS/queue soak. Laptop/P4 rendering, archive heap and final durability acceptance remain. |
 | 8 | Production cutover active | Normal npm and launcher startup selects Rust; the TypeScript game is retained only as `server:reference`. Deployment/service and final acceptance remain. |
 
 ## Milestone index
@@ -1414,3 +1414,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   were removed, and the owner game remains stopped. Browser rendering,
   large-archive heap/usability, unattended service startup and final acceptance
   auditing remain; these reports do not establish those separate gates.
+
+- 2026-10-01 Exact `14bce5f` production source passed separate 60-second
+  Windows desktop browser drawing samples over LAN, each with two actual PyRL
+  actors and one browser player. P0/P1/P2 drawing intervals at most 40 ms were
+  100.00/99.97/99.88%, with 16.8/16.9/16.9 ms p95; incoming-frame intervals
+  met that limit at 98.96/99.27/96.26%. P2 retains a 1.55-second interval stall
+  while opening graph/settings UI. The observer now times the actual drawing
+  callback and finishes bounded captures independently of diagnostic RPCs.
+  A background P0 capture exposed in-app compositor throttling despite visible
+  page flags; showing the host and `Page.bringToFront` restored normal cadence
+  before the separate full foreground sample. Reports, screenshots, source/load
+  health brackets and executed runners are retained as `browser-*-14bce5f-20261001.*`.
+  Large P2 and small P0 Export clicks returned no completed browser download;
+  archive heap/usability is unproven. Laptop/P4 and final durability/service
+  acceptance remain. Focused observer lint and independent report/source/load
+  checks passed. All owned processes, QA tabs, the remote checkout/addon/data
+  and Windows trainer scratch were removed after compact evidence was retained;
+  owner ports remain closed.

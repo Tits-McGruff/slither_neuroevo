@@ -1,0 +1,376 @@
+{
+  "sourceRevision": "14bce5f5f89a7cb5b5ac215eabf6a879dee2b735",
+  "scenario": "P2",
+  "scope": "Windows Codex in-app browser, actual game drawing callback and LAN frame delivery with two real PyRL actors and one browser player; includes pointer changes and opening the graph/settings panel.",
+  "startHeap": {
+    "backingStorageSize": 1651007,
+    "embedderHeapUsedSize": 6523184,
+    "totalSize": 20766720,
+    "usedSize": 11708524
+  },
+  "endHeap": {
+    "backingStorageSize": 829349,
+    "embedderHeapUsedSize": 3923224,
+    "totalSize": 20054016,
+    "usedSize": 6362764
+  },
+  "window": {
+    "actions": 2895,
+    "animation": {
+      "fractionAtMost40Ms": 0.9988321167883212,
+      "maxMs": 1551.3999999999996,
+      "p95Ms": 16.900000000001455,
+      "samples": 3425
+    },
+    "assignments": 5,
+    "canvas": [
+      {
+        "cssHeight": 720,
+        "cssWidth": 1280,
+        "height": 720,
+        "id": "c",
+        "width": 1280
+      },
+      {
+        "cssHeight": 0,
+        "cssWidth": 0,
+        "height": 400,
+        "id": "vizCanvas",
+        "width": 360
+      },
+      {
+        "cssHeight": 0,
+        "cssWidth": 0,
+        "height": 300,
+        "id": "statsCanvas",
+        "width": 360
+      }
+    ],
+    "focus": true,
+    "frames": 1714,
+    "heapSamples": [
+      {
+        "atMs": 1203.199999988079,
+        "totalJSHeapBytes": 23966928,
+        "usedJSHeapBytes": 14887296
+      },
+      {
+        "atMs": 2198.5,
+        "totalJSHeapBytes": 26069529,
+        "usedJSHeapBytes": 18846777
+      },
+      {
+        "atMs": 3204.199999988079,
+        "totalJSHeapBytes": 28378018,
+        "usedJSHeapBytes": 21972482
+      },
+      {
+        "atMs": 4195,
+        "totalJSHeapBytes": 31041944,
+        "usedJSHeapBytes": 22240704
+      },
+      {
+        "atMs": 5204.199999988079,
+        "totalJSHeapBytes": 33438618,
+        "usedJSHeapBytes": 25958666
+      },
+      {
+        "atMs": 6194.199999988079,
+        "totalJSHeapBytes": 35749132,
+        "usedJSHeapBytes": 28895612
+      },
+      {
+        "atMs": 7212.899999976158,
+        "totalJSHeapBytes": 18346975,
+        "usedJSHeapBytes": 9144119
+      },
+      {
+        "atMs": 8197.099999964237,
+        "totalJSHeapBytes": 17539081,
+        "usedJSHeapBytes": 7528165
+      },
+      {
+        "atMs": 9204.19999998808,
+        "totalJSHeapBytes": 19360091,
+        "usedJSHeapBytes": 9772871
+      },
+      {
+        "atMs": 10194.399999976158,
+        "totalJSHeapBytes": 18875601,
+        "usedJSHeapBytes": 10947193
+      },
+      {
+        "atMs": 12704,
+        "totalJSHeapBytes": 17548511,
+        "usedJSHeapBytes": 7847267
+      },
+      {
+        "atMs": 13204.899999976158,
+        "totalJSHeapBytes": 21786326,
+        "usedJSHeapBytes": 14124346
+      },
+      {
+        "atMs": 14196.69999998808,
+        "totalJSHeapBytes": 19155591,
+        "usedJSHeapBytes": 9064335
+      },
+      {
+        "atMs": 15200.599999964235,
+        "totalJSHeapBytes": 18438359,
+        "usedJSHeapBytes": 10555339
+      },
+      {
+        "atMs": 16198.30000001192,
+        "totalJSHeapBytes": 20303417,
+        "usedJSHeapBytes": 6807445
+      },
+      {
+        "atMs": 17203.5,
+        "totalJSHeapBytes": 22630503,
+        "usedJSHeapBytes": 13800399
+      },
+      {
+        "atMs": 18194,
+        "totalJSHeapBytes": 21501423,
+        "usedJSHeapBytes": 10405199
+      },
+      {
+        "atMs": 19204.69999998808,
+        "totalJSHeapBytes": 20540747,
+        "usedJSHeapBytes": 7496427
+      },
+      {
+        "atMs": 20204.19999998808,
+        "totalJSHeapBytes": 22769476,
+        "usedJSHeapBytes": 14768920
+      },
+      {
+        "atMs": 21202.30000001192,
+        "totalJSHeapBytes": 22025347,
+        "usedJSHeapBytes": 13514723
+      },
+      {
+        "atMs": 22196.80000001192,
+        "totalJSHeapBytes": 21480483,
+        "usedJSHeapBytes": 11051891
+      },
+      {
+        "atMs": 23201.19999998808,
+        "totalJSHeapBytes": 20787097,
+        "usedJSHeapBytes": 8677741
+      },
+      {
+        "atMs": 24199,
+        "totalJSHeapBytes": 23185872,
+        "usedJSHeapBytes": 10025136
+      },
+      {
+        "atMs": 25204.5,
+        "totalJSHeapBytes": 22535049,
+        "usedJSHeapBytes": 14381997
+      },
+      {
+        "atMs": 26201.30000001192,
+        "totalJSHeapBytes": 21734327,
+        "usedJSHeapBytes": 11771439
+      },
+      {
+        "atMs": 27202.30000001192,
+        "totalJSHeapBytes": 20932164,
+        "usedJSHeapBytes": 9274508
+      },
+      {
+        "atMs": 28194.5,
+        "totalJSHeapBytes": 23012731,
+        "usedJSHeapBytes": 9382735
+      },
+      {
+        "atMs": 29204,
+        "totalJSHeapBytes": 22483428,
+        "usedJSHeapBytes": 14477408
+      },
+      {
+        "atMs": 30196.5,
+        "totalJSHeapBytes": 21711924,
+        "usedJSHeapBytes": 11833816
+      },
+      {
+        "atMs": 31201.19999998808,
+        "totalJSHeapBytes": 20913670,
+        "usedJSHeapBytes": 9162066
+      },
+      {
+        "atMs": 32197.599999964237,
+        "totalJSHeapBytes": 23098952,
+        "usedJSHeapBytes": 9463508
+      },
+      {
+        "atMs": 33201.69999998808,
+        "totalJSHeapBytes": 22463607,
+        "usedJSHeapBytes": 14390835
+      },
+      {
+        "atMs": 34198.5,
+        "totalJSHeapBytes": 21689841,
+        "usedJSHeapBytes": 11625665
+      },
+      {
+        "atMs": 35203,
+        "totalJSHeapBytes": 20919777,
+        "usedJSHeapBytes": 9077509
+      },
+      {
+        "atMs": 36194.89999997616,
+        "totalJSHeapBytes": 23119910,
+        "usedJSHeapBytes": 9417402
+      },
+      {
+        "atMs": 37202.5,
+        "totalJSHeapBytes": 22480141,
+        "usedJSHeapBytes": 14579721
+      },
+      {
+        "atMs": 38195.59999996424,
+        "totalJSHeapBytes": 21701922,
+        "usedJSHeapBytes": 11986186
+      },
+      {
+        "atMs": 39202.89999997616,
+        "totalJSHeapBytes": 20995715,
+        "usedJSHeapBytes": 9401323
+      },
+      {
+        "atMs": 40195.80000001192,
+        "totalJSHeapBytes": 20216890,
+        "usedJSHeapBytes": 6616190
+      },
+      {
+        "atMs": 41204.69999998808,
+        "totalJSHeapBytes": 22097472,
+        "usedJSHeapBytes": 14604552
+      },
+      {
+        "atMs": 42200.89999997616,
+        "totalJSHeapBytes": 21385019,
+        "usedJSHeapBytes": 10876707
+      },
+      {
+        "atMs": 43201.39999997616,
+        "totalJSHeapBytes": 20532244,
+        "usedJSHeapBytes": 7900352
+      },
+      {
+        "atMs": 44201.30000001192,
+        "totalJSHeapBytes": 22890581,
+        "usedJSHeapBytes": 9809081
+      },
+      {
+        "atMs": 45208.30000001192,
+        "totalJSHeapBytes": 22100655,
+        "usedJSHeapBytes": 13622779
+      },
+      {
+        "atMs": 46198,
+        "totalJSHeapBytes": 21307957,
+        "usedJSHeapBytes": 10619293
+      },
+      {
+        "atMs": 47204.69999998808,
+        "totalJSHeapBytes": 20533017,
+        "usedJSHeapBytes": 7944261
+      },
+      {
+        "atMs": 48193.30000001192,
+        "totalJSHeapBytes": 22874460,
+        "usedJSHeapBytes": 9585640
+      },
+      {
+        "atMs": 49201.30000001192,
+        "totalJSHeapBytes": 22099481,
+        "usedJSHeapBytes": 13397097
+      },
+      {
+        "atMs": 50198.80000001192,
+        "totalJSHeapBytes": 21242210,
+        "usedJSHeapBytes": 10580854
+      },
+      {
+        "atMs": 51201.19999998808,
+        "totalJSHeapBytes": 20457464,
+        "usedJSHeapBytes": 7699336
+      },
+      {
+        "atMs": 52196.59999996424,
+        "totalJSHeapBytes": 22837572,
+        "usedJSHeapBytes": 9526608
+      },
+      {
+        "atMs": 53201.19999998808,
+        "totalJSHeapBytes": 22090007,
+        "usedJSHeapBytes": 13476615
+      },
+      {
+        "atMs": 54197.69999998808,
+        "totalJSHeapBytes": 21623702,
+        "usedJSHeapBytes": 10845790
+      },
+      {
+        "atMs": 55201.5,
+        "totalJSHeapBytes": 20816694,
+        "usedJSHeapBytes": 8134162
+      },
+      {
+        "atMs": 56199,
+        "totalJSHeapBytes": 23223037,
+        "usedJSHeapBytes": 10028369
+      },
+      {
+        "atMs": 57193.19999998808,
+        "totalJSHeapBytes": 22456503,
+        "usedJSHeapBytes": 14049463
+      },
+      {
+        "atMs": 58200.89999997616,
+        "totalJSHeapBytes": 23283168,
+        "usedJSHeapBytes": 12752844
+      },
+      {
+        "atMs": 59201.80000001192,
+        "totalJSHeapBytes": 21426351,
+        "usedJSHeapBytes": 8940299
+      },
+      {
+        "atMs": 60202.69999998808,
+        "totalJSHeapBytes": 20830593,
+        "usedJSHeapBytes": 7941409
+      }
+    ],
+    "networkFrames": {
+      "fractionAtMost40Ms": 0.9626386456509048,
+      "maxMs": 1780.300000011921,
+      "p95Ms": 38,
+      "samples": 1713
+    },
+    "renderDurations": {
+      "fractionAtMost40Ms": 0.999708284714119,
+      "maxMs": 206.19999998807907,
+      "p95Ms": 2.699999988079071,
+      "samples": 3428
+    },
+    "renderIntervals": {
+      "fractionAtMost40Ms": 0.9988327983659178,
+      "maxMs": 1551.3999999999996,
+      "p95Ms": 16.900000000001455,
+      "samples": 3427
+    },
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "viewport": {
+      "devicePixelRatio": 1,
+      "height": 720,
+      "width": 1280
+    },
+    "visibility": "visible",
+    "visibilityChanges": [],
+    "wallSeconds": 60.00959999996424
+  }
+}
