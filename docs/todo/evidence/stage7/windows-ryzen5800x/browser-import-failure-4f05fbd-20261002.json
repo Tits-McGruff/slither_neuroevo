@@ -1,0 +1,356 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "4f05fbd7e43ce43c073da7c42d5a948d92602355",
+  "browser": {
+    "surface": "Codex in-app browser",
+    "engine": "Chromium 154",
+    "method": "Original Import button and file chooser; trace only opaque File name/size and small XHR response plus original native alert/confirm messages. Native recovery confirmation accepted through the browser dialog API. No File contents read in browser JavaScript."
+  },
+  "fixture": {
+    "archiveBytes": 89509376,
+    "originalArchiveSha256": "ac5de5eaaeb9582185af47e1bd065a72f9e81166d4f4d3a0695e7e4401378572",
+    "validationReport": "browser-archive-df2d81d-20261002.json",
+    "damagedArchiveSha256": "3830ad4f5c52d94bcfbd2d5bb6e23877151906c583a7d2c7efaa1d1f9135624f",
+    "mutation": {
+      "byteOffset": 512,
+      "originalByte": 83,
+      "damagedByte": 211,
+      "meaning": "One byte of the checkpoint role in a task-owned copy. TAR headers and length unchanged."
+    },
+    "freeFilesystemBytes": "236809318400",
+    "authority": "Normal production server and production-class source-identified addon; fresh task database imported the original validated archive. Normal brains, sensors, physics and deaths continued.",
+    "pairedComparison": "The first failure ran at 1x across generation changes. The repeat used the real live speed slider at its supported 0.1x minimum so both state snapshots were in generation 21. This is atomicity evidence, not a performance gate."
+  },
+  "audit": {
+    "helper": "scripts/stage7/import-failure-audit.ts",
+    "gitBlobId": "291dc94be20e01cb262420455c4385f85759ffac",
+    "method": "One read-only SQLite transaction iterates each rust_% table in rowid order, hashing JSON rows followed by LF. Immutable files are hashed incrementally. Health surrounds each sample; samples crossing a generation/run boundary fail.",
+    "healthFieldScope": "startupCheckpointId identifies the restored/start boundary. Current-pointer preservation is independently checked using the SQLite current table."
+  },
+  "trace": {
+    "uploads": [
+      {
+        "name": "damaged-p2.slither-save",
+        "bytes": 89509376,
+        "kind": "File",
+        "status": 400,
+        "response": "{\"ok\":false,\"message\":\"checkpoint IMPORT_CHECKPOINT_ROLE: raw flattened checkpoint role failed its logical SHA-256\"}"
+      },
+      {
+        "name": "damaged-p2.slither-save",
+        "bytes": 89509376,
+        "kind": "File",
+        "status": 400,
+        "response": "{\"ok\":false,\"message\":\"checkpoint IMPORT_CHECKPOINT_ROLE: raw flattened checkpoint role failed its logical SHA-256\"}"
+      },
+      {
+        "name": "p2-generation13.slither-save",
+        "bytes": 89509376,
+        "kind": "File",
+        "status": 409,
+        "response": "{\"ok\":false,\"message\":\"exact import cannot move a run behind its retained future history; resume it as a branch\",\"code\":\"IMPORT_REQUIRES_BRANCH\"}"
+      },
+      {
+        "name": "p2-generation13.slither-save",
+        "bytes": 89509376,
+        "kind": "File",
+        "status": 200,
+        "response": "{\"ok\":true,\"runId\":\"3d44604e-3716-4d3d-80b0-b21f9e8054a1\",\"generation\":\"000000000000000d\",\"completedStep\":\"000000000000a85c\",\"checkpointId\":\"5e40a9e626bae6b4e81e37bd293a7116cb07df70347792ef10ecafa973fa0876\",\"saveLogicalRootSha256\":\"81f36487b798d509f2c51b17785bb5bb4156b21f9aba6761bbfed0694637de60\",\"branched\":true,\"sourceRunId\":\"2002c1dd-f132-4416-a04f-eaf41bc641a7\"}"
+      }
+    ],
+    "alerts": [
+      "Failed to import file: checkpoint IMPORT_CHECKPOINT_ROLE: raw flattened checkpoint role failed its logical SHA-256",
+      "Failed to import file: checkpoint IMPORT_CHECKPOINT_ROLE: raw flattened checkpoint role failed its logical SHA-256",
+      "Imported generation 13 as a new run (original run 2002c1dd-f132-4416-a04f-eaf41bc641a7)."
+    ],
+    "confirms": [
+      "This save is older than later history already stored for that run. Resume it as a new run while keeping the later history?"
+    ]
+  },
+  "failedImport": {
+    "before": {
+      "ok": true,
+      "authority": "rust",
+      "runId": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+      "seed": 1511506142,
+      "configRevision": 2,
+      "configHash": "sha256:4d10be7a4e644b1a6212f56ef73d5b0d0b34c683c89483435d4a6d19cb56a46d",
+      "startupCheckpointId": "5e40a9e626bae6b4e81e37bd293a7116cb07df70347792ef10ecafa973fa0876",
+      "calculationWorkers": 6,
+      "lifecycle": "running",
+      "worldEpoch": "000000000000000a",
+      "generation": "0000000000000015",
+      "completedStep": "00000000000123fc",
+      "nativeBuildIdentifier": "slither_native/0.1.0+bd64f7c9d278.5ec8939dbf45bb1a"
+    },
+    "after": {
+      "ok": true,
+      "authority": "rust",
+      "runId": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+      "seed": 1511506142,
+      "configRevision": 2,
+      "configHash": "sha256:4d10be7a4e644b1a6212f56ef73d5b0d0b34c683c89483435d4a6d19cb56a46d",
+      "startupCheckpointId": "5e40a9e626bae6b4e81e37bd293a7116cb07df70347792ef10ecafa973fa0876",
+      "calculationWorkers": 6,
+      "lifecycle": "running",
+      "worldEpoch": "000000000000000a",
+      "generation": "0000000000000015",
+      "completedStep": "00000000000124b7",
+      "nativeBuildIdentifier": "slither_native/0.1.0+bd64f7c9d278.5ec8939dbf45bb1a"
+    },
+    "allMetadataUnchanged": true,
+    "tables": [
+      {
+        "table": "rust_active_run_v1",
+        "rows": 1,
+        "bytes": 63,
+        "sha256": "0353bc35a2ab60aaacff67b7d41afbce8a9426a75fc6cef1556d5a49aa9a60f9"
+      },
+      {
+        "table": "rust_checkpoint_retention_v1",
+        "rows": 10,
+        "bytes": 1457,
+        "sha256": "4212ab81bd8a8ebda7111e6d6e74b385444e8b6171e4507f802f310e9cffa14b"
+      },
+      {
+        "table": "rust_checkpoint_v3_current",
+        "rows": 2,
+        "bytes": 440,
+        "sha256": "2ef29cd099c1ef90a0bda3875a32dd2e386ce3a1d0f380f218373c98a1792011"
+      },
+      {
+        "table": "rust_checkpoint_v3_metadata",
+        "rows": 10,
+        "bytes": 23598,
+        "sha256": "250bf3a9c233a199390e38548c10f50c4a604feada01b44260106181032d6a4b"
+      },
+      {
+        "table": "rust_generation_history_v1",
+        "rows": 20,
+        "bytes": 7935,
+        "sha256": "7c52b15796738e25a6a482ea97acb59ad1c4c79246424ff85039ef9a44c4f6de"
+      },
+      {
+        "table": "rust_hall_of_fame_v1",
+        "rows": 19,
+        "bytes": 11489,
+        "sha256": "e2d4b2809e0cf336270d40d726266caeb43a796417c7815d11f521ec5be24552"
+      },
+      {
+        "table": "rust_hall_of_fame_weights_v1",
+        "rows": 19,
+        "bytes": 7182,
+        "sha256": "874b8f88f2f1ec6ef596af3157acc79673f40fdfae54fb8bc7476d3e431cfb50"
+      },
+      {
+        "table": "rust_import_branches_v1",
+        "rows": 0,
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "table": "rust_legacy_conversions_v1",
+        "rows": 0,
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "table": "rust_recovery_branches_v1",
+        "rows": 0,
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "allManagedFilesUnchanged": true,
+    "files": [
+      {
+        "name": "0b6e26b68ba58ac66072e4de1e3162077f35b2482d17c2922169f7325db3a276.hof-weights-v1",
+        "sha256": "ccc1eb23328767256557b2b6f83d3665147c1c222d47cfd579335504bf5a9c65"
+      },
+      {
+        "name": "10423d5f05b2466eb45845a9127784066ea68e7000527a50cf06aface66092b3.hof-weights-v1",
+        "sha256": "e88e1df216c1bae1fb819b25aa3b3ab28013818e339fda25755854e8094da105"
+      },
+      {
+        "name": "1a25a82a2bc1e39b4b7cfefd4bd4c4e74917cabc2a60fb92ba3d9aa0f320de93.hof-weights-v1",
+        "sha256": "9c1716151ed267637140a870eba3f9ab968d11bd11c103c30b4e5cd3807a4a11"
+      },
+      {
+        "name": "1ca39197498ebf54bfd02dbcd8635386aea6b0b3a8f3baa5b898c5e0029b235c.hof-weights-v1",
+        "sha256": "a42b7f035993987ab91b117c43c8794df8dc20dd2e37d5efd34f9306ece527ad"
+      },
+      {
+        "name": "2235a54fb6afe9446a2af9762c8556cac3b37f58354cdd84a1f748542942144b.hof-weights-v1",
+        "sha256": "99f87fe99f18be71f9cfbd507365ac7e6f67082a82a5da28662e5be11318ba94"
+      },
+      {
+        "name": "304cdd2c9f6b124b99b7b3d5d26daca3ebf278685249d4612bd9e1d68d030b80.hof-weights-v1",
+        "sha256": "df6293057b9819c90b271e8a083fb2cd13599fec85d75af8a8643a70468c8504"
+      },
+      {
+        "name": "3a86d43beb5f193116e75e4ad87abc3e686b6f7d8201aa52f9917a32761bfd87.checkpoint-v3",
+        "sha256": "9475a484490f94099b6d850170b954d9ae0eb907b404885d09d204f70a70c55a"
+      },
+      {
+        "name": "3cc816f5d5823600a534cd0590d78662c0586866b58925614cef3971c0826cab.hof-weights-v1",
+        "sha256": "4076841da7046fadf41cb03ba2a229f6de9bd5f7aec136ed4d5825cd5cfee552"
+      },
+      {
+        "name": "57a6815dc3251f788d2ee7f97e5a393eb3ed99d74c7a271c9970993fb2e5fafe.hof-weights-v1",
+        "sha256": "cf90ab3c92cee3c223c36013a1cf3024a2b8739a22462eaecb76d28e249ed459"
+      },
+      {
+        "name": "5f0355c2c3b91b1d4a90cef09d4b76e8d0819560716a751a0d9494ca5c68eeea.checkpoint-v3",
+        "sha256": "1ece3b72fe71b1c3e469c198772efc96242c852dc4ee1901178bdb353b840698"
+      },
+      {
+        "name": "632cdd81119470107269541d1800f32c6508d27a2f82188c9d2293dec3526c34.hof-weights-v1",
+        "sha256": "f5905b344ac2f03eeba30fa2d1fcfbe58d2bc4e5a788b58a2907357f62133522"
+      },
+      {
+        "name": "63cbf244cfba2e83b78890e6ac2c9a82370cfe22dd46a6de28d491239bb0cf71.checkpoint-v3",
+        "sha256": "4164d0da4f74b3aaeda0fa14f29ad0c8f47cac22ec63214da1aca3d083cd0576"
+      },
+      {
+        "name": "698f20deac2af21db897230011897dff4280f096100a8e6b91b9a8d2030ead35.hof-weights-v1",
+        "sha256": "c697a6ab8c40a36155c691fcb810f67fffd2b5635a4bbd52e5ec9e0ffeda3e7c"
+      },
+      {
+        "name": "89a41ad797a1cc508cb4bf93be8c3685d5f6db6016a2d5d17d3605622ad9a13d.checkpoint-v3",
+        "sha256": "91d9e48f7c63d7a87215adf2317755403fb3bcb15aabf14c37251066f7c1c79e"
+      },
+      {
+        "name": "8d1c3829018c0e4a801565c546a7e1bf5570f74a2b00b58d8c771d4eae118cb5.hof-weights-v1",
+        "sha256": "33188a978a51928749db13e879f2882c9cf92c3d2b5d419d5fe02a2ade36a89c"
+      },
+      {
+        "name": "9153d0c81659b8dec3c3bca76d4110372e7da43a74ff8a3e83d1448724ccc307.hof-weights-v1",
+        "sha256": "1043efa663bb27bc7891201747fd68bc884033b26d3e6584c61af31acc51ddae"
+      },
+      {
+        "name": "92e7eecbf2b42109f84aa070b488483fbda582fe9c777334ba4c6e961b6233b1.checkpoint-v3",
+        "sha256": "9505ec4aa3df21ee2919e9790dcc59cd140df0db6a6444e7025b167413fb0bdb"
+      },
+      {
+        "name": "a18af1f999ab22bd41829fe75aed80b769f15f751fbbce412f0bafd929a8a45f.checkpoint-v3",
+        "sha256": "b54d0ef3e3fe4fa484dcdab647db5166a390b94abc1e0161cf6949438baf3d1d"
+      },
+      {
+        "name": "a89b24530bb58dd3e04af23d0fcaea6dd9c7066f0657be2930f85819e7b736f9.hof-weights-v1",
+        "sha256": "1c2a99b7e438f04fc5714a7363f1adf522dea200f7b3ae65ec86a9d6ea57fd5d"
+      },
+      {
+        "name": "b853429505f95ce905e7bba83ecdc4fee843f0b3dd3d0a8d219f909c72503949.checkpoint-v3",
+        "sha256": "a2b0ec3f0a2b6eb1cd14728bca41edd274178d6261a90fb5fbf3a9201058bef4"
+      },
+      {
+        "name": "b9ee52e8cd5a4584b3ba53e2408eab205b09f5a541aa11f364712e628126619a.checkpoint-v3",
+        "sha256": "adf598b12504a2e7a9366ece3824a7f502423d9e11f5f37009c4b340cc873a17"
+      },
+      {
+        "name": "c4a3ef9b94f59adddf81726057f139c367985443dec36bf9fc32dd91225d1bf8.hof-weights-v1",
+        "sha256": "d9fb008c3a3d072c2b40048adc8f6073ea1dee04abc66233753ae2b14ab1a82a"
+      },
+      {
+        "name": "d41fa30324e7d17ff2b32d72c71dedb2eb75fdb31433de9196aefbb51b8a6aa0.hof-weights-v1",
+        "sha256": "180430ec24523214b11ce265a52f9f4e52149778d8127c5f6e83a12043d585d5"
+      },
+      {
+        "name": "d55b8af83f26263ef6dbeb3950ee89fc349aa44a2980fedaeb4776f4f6de1873.hof-weights-v1",
+        "sha256": "fd90cda3ccdf85ddf58c3f91af1e781032c4801bf33a7883e8ef3748045bd35f"
+      },
+      {
+        "name": "e7bc852551b61c0938d778d23e0bf8e3e8dc5ed567955ae8ce9ce6071ac4ba55.checkpoint-v3",
+        "sha256": "129ac0658e08eca16cac3fad6133c6d2a2a3118fc30a8544bea2c4c9f2ebdc5b"
+      },
+      {
+        "name": "e938ea57b7d28a27819be0acd54bafdc9cbaa958de5fef6342189c00ffa62b9e.hof-weights-v1",
+        "sha256": "9f8d1b7f77ac87d2820a7c5c9361e950bd62425ebfb767e59f30e6113356e5a5"
+      },
+      {
+        "name": "f763d7cf53d4b8a6d9e268b8030803f20b7e6ea313f4dcd2dbb7df7b839512e9.hof-weights-v1",
+        "sha256": "30669afff336a0a5c3310e8260f4a70490aebd07a952f37a2ae02b45fa5a64e1"
+      },
+      {
+        "name": "fa0111f88aaf38bbf991eb64b7ab87b87bec65fb1c202362931c40a57522bb91.hof-weights-v1",
+        "sha256": "3b518d5e15033b6943eceb8beb004eede7d1c0f4ac888b6187a3037e6d1301dc"
+      }
+    ],
+    "worldEpochUnchanged": true,
+    "otherManagedNamesAfter": [],
+    "buttonAfterFailure": "Import enabled and usable"
+  },
+  "recovery": {
+    "receipt": {
+      "ok": true,
+      "runId": "3d44604e-3716-4d3d-80b0-b21f9e8054a1",
+      "generation": "000000000000000d",
+      "completedStep": "000000000000a85c",
+      "checkpointId": "5e40a9e626bae6b4e81e37bd293a7116cb07df70347792ef10ecafa973fa0876",
+      "saveLogicalRootSha256": "81f36487b798d509f2c51b17785bb5bb4156b21f9aba6761bbfed0694637de60",
+      "branched": true,
+      "sourceRunId": "2002c1dd-f132-4416-a04f-eaf41bc641a7"
+    },
+    "health": {
+      "ok": true,
+      "authority": "rust",
+      "runId": "3d44604e-3716-4d3d-80b0-b21f9e8054a1",
+      "seed": 1511506142,
+      "configRevision": 1,
+      "configHash": "sha256:0c3d5dd12f4057b538ed24e6d4ed10c07eb7a5ce98a4279420baa2d35b4d236e",
+      "startupCheckpointId": "5e40a9e626bae6b4e81e37bd293a7116cb07df70347792ef10ecafa973fa0876",
+      "calculationWorkers": 6,
+      "lifecycle": "running",
+      "worldEpoch": "000000000000000e",
+      "generation": "000000000000000d",
+      "completedStep": "000000000000af4f",
+      "nativeBuildIdentifier": "slither_native/0.1.0+bd64f7c9d278.5ec8939dbf45bb1a"
+    },
+    "originalHistoryAndHallOfFame": {
+      "retained": [
+        {
+          "table": "rust_generation_history_v1",
+          "sourceRun": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+          "rows": 20,
+          "sha256": "7c52b15796738e25a6a482ea97acb59ad1c4c79246424ff85039ef9a44c4f6de",
+          "expectedRows": 20,
+          "expectedSha256": "7c52b15796738e25a6a482ea97acb59ad1c4c79246424ff85039ef9a44c4f6de"
+        },
+        {
+          "table": "rust_hall_of_fame_v1",
+          "sourceRun": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+          "rows": 19,
+          "sha256": "e2d4b2809e0cf336270d40d726266caeb43a796417c7815d11f521ec5be24552",
+          "expectedRows": 19,
+          "expectedSha256": "e2d4b2809e0cf336270d40d726266caeb43a796417c7815d11f521ec5be24552"
+        }
+      ],
+      "sourceCurrent": {
+        "run_id": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+        "checkpoint_id": "3a86d43beb5f193116e75e4ad87abc3e686b6f7d8201aa52f9917a32761bfd87",
+        "transition_epoch": "0000000000000e11",
+        "operation_id": "eb3384b3bf7c68f20b611b0c52da2e27"
+      },
+      "priorCurrentPointers": {
+        "rows": 2,
+        "sha256": "2ef29cd099c1ef90a0bda3875a32dd2e386ce3a1d0f380f218373c98a1792011",
+        "expectedRows": 2,
+        "expectedSha256": "2ef29cd099c1ef90a0bda3875a32dd2e386ce3a1d0f380f218373c98a1792011"
+      },
+      "sourceCurrentGeneration": "0000000000000015"
+    },
+    "originalCurrentCheckpointPreserved": true,
+    "otherManagedNamesAfter": [],
+    "screenshot": {
+      "file": "browser-import-recovery-4f05fbd-20261002.png",
+      "bytes": 68262,
+      "sha256": "22d02638d0261bb48f9b1d603e22a4467eafe9e124df644e6caf371f8ef787eb"
+    }
+  },
+  "scope": "One real-browser logical-role hash corruption case, original-File upload above 50 MiB, and successful explicit recovery branch preserving the later source history/Hall of Fame/current checkpoint. No precise browser heap, timing/usability budget, complete malicious archive matrix, or complete A1-A10 gate claimed.",
+  "cleanup": {
+    "serverStopped": true,
+    "testTabClosed": true,
+    "copiedDatabaseAndDamagedFile": "Removed after retained evidence was verified; original two reusable archives remain needed."
+  }
+}

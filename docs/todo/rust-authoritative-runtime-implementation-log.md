@@ -1626,3 +1626,20 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   `server/rustServer.native.test.ts`. Test servers and copied databases were
   closed/removed. This is Windows HTTP failure evidence; real-browser failure
   UI, remaining failure boundaries and complete A1–A10 acceptance remain open.
+
+- 2026-10-02 The real browser Import control uploaded a task-owned damaged
+  89,509,376-byte save as its original File and showed the HTTP 400 logical-role
+  hash rejection. A repeat at the supported 0.1x live speed kept both samples
+  within generation 21: all ten Rust metadata tables, 28 immutable managed-file
+  hashes and world epoch stayed identical, with no remaining import scratch.
+  A valid original-File retry followed the actual older-save confirmation and
+  restored generation 13 into a new branch. The prior generation-21 current
+  pointer, all 20 source history rows and 19 source Hall-of-Fame rows remained
+  hash-identical. The original archive checksum stayed unchanged. Compact
+  request/alert/receipt and source-preservation evidence plus the restored view
+  are retained as `browser-import-*-4f05fbd-20261002.*`; the read-only reusable
+  audit is `scripts/stage7/import-failure-audit.ts`. Strict standalone TypeScript
+  and focused ESLint passed. The test server/tab, copied database, damaged copy
+  and scratch were stopped/removed. This proves one real-browser corruption
+  case and safe recovery, not precise heap, complete failure coverage or final
+  acceptance.
