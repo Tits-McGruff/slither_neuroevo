@@ -1432,3 +1432,19 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   checks passed. All owned processes, QA tabs, the remote checkout/addon/data
   and Windows trainer scratch were removed after compact evidence was retained;
   owner ports remain closed.
+
+- 2026-10-01 Exact `a700d86` production startup passed full-size P3 legacy
+  SQLite conversion admission: 300 snakes, 402,914 parameters per genome and
+  147 sensors. A 1280 MiB budget returned HTTP/WebSocket 503 before any managed
+  file or current pointer remained; the admission requirement was 2,065,430,320
+  bytes. Retrying at 1986 MiB committed one generation-one checkpoint and normal
+  restart selected that same run/checkpoint. All 300 legacy genome rows and
+  parent metadata remained hash-identical. Reports and the reproducible runner
+  are retained as `p3-startup-budget-*-a700d86-20261001.json` and
+  `scripts/stage7/legacy-p3-startup-budget.ts`. RSS is cumulative across attempts
+  in one process, not an isolated memory gate. This covers supported legacy
+  conversion, not a P3 `--fresh` configuration or evolved real-time performance.
+  TypeScript, focused lint and the conversion-provenance contract passed;
+  `a700d86` full CI passed. The owned checkout, addon and copied databases were
+  removed after verified evidence retention. Laptop/P4 rendering, archive
+  heap/usability, unattended service startup and final acceptance remain.
