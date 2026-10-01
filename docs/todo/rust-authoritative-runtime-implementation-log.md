@@ -1593,3 +1593,20 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   local fixture directory for those unfinished gates. A focused native socket test
   and ESLint passed after reducing admission-fixture movement, preserving all
   300-body assertions and the existing deadline.
+
+- 2026-10-02 A bounded real-browser export fixture holds the production lease
+  until the next durable generation, then prepares the same selected checkpoint.
+  One original UI request selected generation 15, advanced through 16, and saved
+  generation 15 with matching filename, response headers, exact outgoing SHA-256
+  and independently decoded role/save roots. A fresh-origin one-click download
+  instead issued two requests: generation 14 closed unfinished, then generation
+  16 completed. Its saved bytes exactly match the second response but retained
+  the first filename. This reproduces the label mismatch after production response
+  headers; the browser/tool's internal mechanism remains unverified. It does not
+  retroactively trace the earlier anomaly. Compact traces and decoded identities
+  are retained as `browser-export-boundary-a3f2140-20261002.json`; the reusable
+  fixture is `scripts/stage7/browser-archive-boundary.ts`. Strict standalone
+  TypeScript and focused ESLint passed. Task servers, tabs, copied databases and
+  duplicate downloads were stopped/removed. Other concurrent archive lifecycle
+  cases, fresh-origin filename handling, precise comparative browser heap and
+  final acceptance remain open.

@@ -1,0 +1,352 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "a3f21400ff570d4c1ff1915fc1379c8a06fb3260",
+  "nativeBuild": {
+    "identifier": "slither_native/0.1.0+bd64f7c9d278.5ec8939dbf45bb1a",
+    "sourceSha256": "62d60844bd1ab8d567102b11a0ea079fc5d6ed889f32d71b7bbf05e00303070d",
+    "contract": "sha256:3b592e686658f6c9e452b4cd898f12700c455077ecf4da9c2635cbdb342b2cfa",
+    "target": "x86_64-pc-windows-msvc",
+    "class": "production",
+    "rustc": "1.92.0"
+  },
+  "browser": {
+    "surface": "Codex in-app browser",
+    "engine": "Chromium 154",
+    "requests": "Original production Export button and Import file chooser on loopback; no external browser opened."
+  },
+  "harness": {
+    "file": "scripts/stage7/browser-archive-boundary.ts",
+    "gitBlobId": "b4b3da031aa0eb433aba90645605e5bd3ec0810b",
+    "method": "Normal production server and production-class source-identified addon. Stream the retained evolved P2 archive through the real import endpoint into a new database. A diagnostic lease wrapper waits for one real durable generation after selecting the immutable checkpoint and before archive preparation. It returns the same lease. Transport wrappers forward unchanged outgoing chunks and record their SHA-256 without retaining population data.",
+    "scope": "Deterministic post-selection interleaving, not naturally long archive encoding or a performance measurement. No game physics, brains, sensors, source identities or archive bytes replaced. First case was launched before erased TypeScript signature annotations; second case used this exact artifact. Both use the same executable logic."
+  },
+  "fixture": {
+    "report": "browser-archive-df2d81d-20261002.json",
+    "archiveBytes": 89509376,
+    "archiveSha256": "ac5de5eaaeb9582185af47e1bd065a72f9e81166d4f4d3a0695e7e4401378572"
+  },
+  "independentVerifier": {
+    "file": "browser-archive-verifier-df2d81d-20261002.py",
+    "sha256": "d31445250bec620dcb54b186ab25ceb2449bb898c1f3845e9b959d5964fefd77",
+    "method": "Python 3.14 tarfile plus compression.zstd. Bounded 1 MiB shuffled blocks decoded; all eight role byte counts and SHA-256 hashes checked, save logical root independently recomputed. No population parsing in the browser."
+  },
+  "cases": [
+    {
+      "name": "single-request",
+      "originalExportButtonClicks": 1,
+      "trace": [
+        {
+          "at": "2026-10-01T16:46:00.150Z",
+          "phase": "filesystem",
+          "freeBytes": "236622131200"
+        },
+        {
+          "at": "2026-10-01T16:46:01.475Z",
+          "phase": "fixture-import",
+          "receipt": {
+            "ok": true,
+            "runId": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+            "generation": "000000000000000d",
+            "completedStep": "000000000000a85c",
+            "checkpointId": "5e40a9e626bae6b4e81e37bd293a7116cb07df70347792ef10ecafa973fa0876",
+            "saveLogicalRootSha256": "81f36487b798d509f2c51b17785bb5bb4156b21f9aba6761bbfed0694637de60",
+            "branched": false
+          }
+        },
+        {
+          "at": "2026-10-01T16:48:35.485Z",
+          "phase": "request",
+          "requestId": 1,
+          "method": "GET",
+          "url": "/api/export/latest",
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
+        },
+        {
+          "at": "2026-10-01T16:48:35.498Z",
+          "phase": "selected",
+          "operationId": "5ce7506540fdc54ce458b5c03149cfb6",
+          "runId": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+          "generation": "000000000000000f",
+          "completedStep": "000000000000c47e",
+          "checkpointId": "a18af1f999ab22bd41829fe75aed80b769f15f751fbbce412f0bafd929a8a45f"
+        },
+        {
+          "at": "2026-10-01T16:49:03.754Z",
+          "phase": "advanced-before-preparation",
+          "operationId": "5ce7506540fdc54ce458b5c03149cfb6",
+          "generation": "0000000000000010",
+          "selectedGeneration": "000000000000000f"
+        },
+        {
+          "at": "2026-10-01T16:49:04.750Z",
+          "phase": "headers",
+          "requestId": 1,
+          "arguments": [
+            200,
+            {
+              "Content-Type": "application/vnd.slither-neuroevo.save",
+              "Content-Length": "92221952",
+              "Content-Disposition": "attachment; filename=\"slither-neuroevo-a18af1f999ab-gen-15-v1.slither-save\"",
+              "X-Slither-Checkpoint-Id": "a18af1f999ab22bd41829fe75aed80b769f15f751fbbce412f0bafd929a8a45f",
+              "X-Slither-Save-Root": "b941ec0de30a198c526e6e8773591a728367862b74b40a1a75c00569a3126c4d"
+            }
+          ]
+        },
+        {
+          "at": "2026-10-01T16:49:05.446Z",
+          "phase": "finish",
+          "requestId": 1,
+          "bodyBytes": 92221952,
+          "bodySha256": "128ae82240ecbd4324c9dcade48874d4bba9839b3710899da863bfc46f4bf91a"
+        },
+        {
+          "at": "2026-10-01T16:49:05.446Z",
+          "phase": "close",
+          "requestId": 1,
+          "finished": true
+        }
+      ],
+      "saved": {
+        "file": "slither-neuroevo-a18af1f999ab-gen-15-v1.slither-save",
+        "archiveBytes": 92221952,
+        "archiveSha256": "128ae82240ecbd4324c9dcade48874d4bba9839b3710899da863bfc46f4bf91a",
+        "runId": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+        "generationHex": "000000000000000f",
+        "completedStepHex": "000000000000c47e",
+        "checkpointId": "a18af1f999ab22bd41829fe75aed80b769f15f751fbbce412f0bafd929a8a45f",
+        "saveRoot": "b941ec0de30a198c526e6e8773591a728367862b74b40a1a75c00569a3126c4d",
+        "saveRootVerified": true,
+        "validatedRoles": [
+          {
+            "role": "checkpoint",
+            "decodedBytes": 6015,
+            "logicalSha256": "f25f494f5465ee3f27b8cdf1498b7abdbb541f522e6d805f0516115cd60c4691"
+          },
+          {
+            "role": "graph",
+            "decodedBytes": 1519,
+            "logicalSha256": "05e77259e898acd0cc6e5a10f8731180db1ae1fa297d5d8e65abc163f4335121"
+          },
+          {
+            "role": "population-index",
+            "decodedBytes": 5760,
+            "logicalSha256": "08666cdcca648952d1ad2a01762fda7f7295195b1680a2c07224027f48f5f7e5"
+          },
+          {
+            "role": "population-weights",
+            "decodedBytes": 88641080,
+            "logicalSha256": "9f0c5d5a08a55a30920bf7ede7a4c72ad68ea223b1bbe9454249a1b0b5aec1e5"
+          },
+          {
+            "role": "population-recurrent",
+            "decodedBytes": 21120,
+            "logicalSha256": "fcb99a526c4ae037ad3248525f4245e1580911672c650839de9ebbc64ed68495"
+          },
+          {
+            "role": "history",
+            "decodedBytes": 784,
+            "logicalSha256": "271f893b2821d92982e2e7cff8166a4671cab87d3441f831a2ae5eb60c47a052"
+          },
+          {
+            "role": "hall-of-fame-index",
+            "decodedBytes": 1560,
+            "logicalSha256": "569c624969f836c221f1721fb4251ee50ccd3ea5ec772a3e0a2cdc97508d57a3"
+          },
+          {
+            "role": "hall-of-fame-weights",
+            "decodedBytes": 20951528,
+            "logicalSha256": "a0810023c37437b8d3a893ea8381383072d418d146911cf81714c3caa1594d01"
+          }
+        ],
+        "matchingRequestId": 1
+      },
+      "result": "One request preserved the selected generation through a real durable generation advance. Filename, headers, body counts and independently decoded identity agree."
+    },
+    {
+      "name": "fresh-origin",
+      "originalExportButtonClicks": 1,
+      "trace": [
+        {
+          "at": "2026-10-01T16:51:29.436Z",
+          "phase": "filesystem",
+          "freeBytes": "236163227648"
+        },
+        {
+          "at": "2026-10-01T16:51:30.658Z",
+          "phase": "fixture-import",
+          "receipt": {
+            "ok": true,
+            "runId": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+            "generation": "000000000000000d",
+            "completedStep": "000000000000a85c",
+            "checkpointId": "5e40a9e626bae6b4e81e37bd293a7116cb07df70347792ef10ecafa973fa0876",
+            "saveLogicalRootSha256": "81f36487b798d509f2c51b17785bb5bb4156b21f9aba6761bbfed0694637de60",
+            "branched": false
+          }
+        },
+        {
+          "at": "2026-10-01T16:52:37.535Z",
+          "phase": "request",
+          "requestId": 1,
+          "method": "GET",
+          "url": "/api/export/latest",
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
+        },
+        {
+          "at": "2026-10-01T16:52:37.548Z",
+          "phase": "selected",
+          "operationId": "722069fe07c4b879972956f06c224829",
+          "runId": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+          "generation": "000000000000000e",
+          "completedStep": "000000000000b66d",
+          "checkpointId": "63cbf244cfba2e83b78890e6ac2c9a82370cfe22dd46a6de28d491239bb0cf71"
+        },
+        {
+          "at": "2026-10-01T16:53:32.167Z",
+          "phase": "advanced-before-preparation",
+          "operationId": "722069fe07c4b879972956f06c224829",
+          "generation": "000000000000000f",
+          "selectedGeneration": "000000000000000e"
+        },
+        {
+          "at": "2026-10-01T16:53:33.345Z",
+          "phase": "headers",
+          "requestId": 1,
+          "arguments": [
+            200,
+            {
+              "Content-Type": "application/vnd.slither-neuroevo.save",
+              "Content-Length": "90866688",
+              "Content-Disposition": "attachment; filename=\"slither-neuroevo-63cbf244cfba-gen-14-v1.slither-save\"",
+              "X-Slither-Checkpoint-Id": "63cbf244cfba2e83b78890e6ac2c9a82370cfe22dd46a6de28d491239bb0cf71",
+              "X-Slither-Save-Root": "024c17a0afac6dd6d87c76966c338b52378be15920c599d50ab206124b26e667"
+            }
+          ]
+        },
+        {
+          "at": "2026-10-01T16:54:33.367Z",
+          "phase": "close",
+          "requestId": 1,
+          "finished": false
+        },
+        {
+          "at": "2026-10-01T16:55:27.640Z",
+          "phase": "request",
+          "requestId": 2,
+          "method": "GET",
+          "url": "/api/export/latest",
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
+        },
+        {
+          "at": "2026-10-01T16:55:27.651Z",
+          "phase": "selected",
+          "operationId": "da59bde4cff780a18454fd6999a458ea",
+          "runId": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+          "generation": "0000000000000010",
+          "completedStep": "000000000000d28f",
+          "checkpointId": "89a41ad797a1cc508cb4bf93be8c3685d5f6db6016a2d5d17d3605622ad9a13d"
+        },
+        {
+          "at": "2026-10-01T16:55:33.426Z",
+          "phase": "advanced-before-preparation",
+          "operationId": "da59bde4cff780a18454fd6999a458ea",
+          "generation": "0000000000000011",
+          "selectedGeneration": "0000000000000010"
+        },
+        {
+          "at": "2026-10-01T16:55:34.573Z",
+          "phase": "headers",
+          "requestId": 2,
+          "arguments": [
+            200,
+            {
+              "Content-Type": "application/vnd.slither-neuroevo.save",
+              "Content-Length": "93581824",
+              "Content-Disposition": "attachment; filename=\"slither-neuroevo-89a41ad797a1-gen-16-v1.slither-save\"",
+              "X-Slither-Checkpoint-Id": "89a41ad797a1cc508cb4bf93be8c3685d5f6db6016a2d5d17d3605622ad9a13d",
+              "X-Slither-Save-Root": "ae8c02b02e4dac3d9006b2daf55c2f0bcc7b986520ca28d08dd4d5d282c5c839"
+            }
+          ]
+        },
+        {
+          "at": "2026-10-01T16:55:35.191Z",
+          "phase": "finish",
+          "requestId": 2,
+          "bodyBytes": 93581824,
+          "bodySha256": "0db896e3a41a6c2e369a4553ec64abdea8097c84375781a837d8138a9e8d33be"
+        },
+        {
+          "at": "2026-10-01T16:55:35.192Z",
+          "phase": "close",
+          "requestId": 2,
+          "finished": true
+        }
+      ],
+      "saved": {
+        "file": "slither-neuroevo-63cbf244cfba-gen-14-v1.slither-save",
+        "archiveBytes": 93581824,
+        "archiveSha256": "0db896e3a41a6c2e369a4553ec64abdea8097c84375781a837d8138a9e8d33be",
+        "runId": "2002c1dd-f132-4416-a04f-eaf41bc641a7",
+        "generationHex": "0000000000000010",
+        "completedStepHex": "000000000000d28f",
+        "checkpointId": "89a41ad797a1cc508cb4bf93be8c3685d5f6db6016a2d5d17d3605622ad9a13d",
+        "saveRoot": "ae8c02b02e4dac3d9006b2daf55c2f0bcc7b986520ca28d08dd4d5d282c5c839",
+        "saveRootVerified": true,
+        "validatedRoles": [
+          {
+            "role": "checkpoint",
+            "decodedBytes": 6015,
+            "logicalSha256": "fac02aff1905e418ae4dea952e713b64a96649331dbff889c41e95151fd639f1"
+          },
+          {
+            "role": "graph",
+            "decodedBytes": 1519,
+            "logicalSha256": "05e77259e898acd0cc6e5a10f8731180db1ae1fa297d5d8e65abc163f4335121"
+          },
+          {
+            "role": "population-index",
+            "decodedBytes": 5760,
+            "logicalSha256": "93bf5841c1193402726228b01b6557da9e9321b9db6283b70969d0e20b8f6057"
+          },
+          {
+            "role": "population-weights",
+            "decodedBytes": 88641080,
+            "logicalSha256": "af1fac167d7525c93241b1d02a7af253ed1085c0ec80860e01a10de0fe19d2d3"
+          },
+          {
+            "role": "population-recurrent",
+            "decodedBytes": 21120,
+            "logicalSha256": "fcb99a526c4ae037ad3248525f4245e1580911672c650839de9ebbc64ed68495"
+          },
+          {
+            "role": "history",
+            "decodedBytes": 840,
+            "logicalSha256": "b015b340c95b455f13e755658ee102cf1388a7522a84fe4b6f22db1be0a6fa76"
+          },
+          {
+            "role": "hall-of-fame-index",
+            "decodedBytes": 1680,
+            "logicalSha256": "d264156deb5a43d09855f7c9072c30131cb945778f892dafbd8071478be4a73d"
+          },
+          {
+            "role": "hall-of-fame-weights",
+            "decodedBytes": 22563184,
+            "logicalSha256": "466f505dccc21e3059195e7408976545514e5cfb3499a6e9a88386481ed9772b"
+          }
+        ],
+        "matchingRequestId": 2
+      },
+      "result": "First response advertised generation 14 and closed unfinished 60.022 seconds after its headers. A second request from the same one-click download selected generation 16. The saved bytes exactly match request 2 and independently decode as generation 16, while the filename is from request 1 (generation 14)."
+    }
+  ],
+  "conclusions": {
+    "selectedCheckpoint": "Verified across one real durable generation advance in the completed original request.",
+    "filenameAnomaly": "Reproduced across two separate requests in the in-app browser download path. Each emitted response advertised its own selected checkpoint; saved bytes came from the second completed response with the first response filename. This trace localizes the mismatch after the production response headers. It does not establish the internal browser/tool mechanism or retroactively supply a trace for the earlier untraced anomaly.",
+    "openAcceptance": "Full A1 also includes other concurrent lifecycle cases. Fresh-origin download filename behavior, comparative precise peak/post-GC browser memory, and remaining final acceptance are open."
+  },
+  "cleanup": {
+    "testServersStopped": true,
+    "testTabsClosed": true,
+    "taskDatabasesAndDuplicateDownloads": "Both task-owned copied databases/checkpoint directories and both independently verified duplicate downloads were removed after exact-path, stopped-process and checksum checks. Only the two previously named reusable archive fixtures remain needed."
+  }
+}
