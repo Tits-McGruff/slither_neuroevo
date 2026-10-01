@@ -1,0 +1,73 @@
+{
+  "baseCommit": "83402fa253fe1a4dbf64de08d2d7d1d71e3472f0",
+  "nativeSourceSha256": "58d85e7e1070d0824221462887a04257580bc945f007a1d599470b998ba6dec5",
+  "nativeBuildIdentifier": "slither_native/0.1.0+83402fa253fe.e55a6c17df710abc",
+  "buildClass": "production",
+  "targetTriple": "x86_64-unknown-linux-gnu",
+  "capacityRunnerSha256": "459ee71c5bd23ea59dcaa81986e71db9c7b1fdaae920829461174fc7e4218d9a",
+  "followAuditRunnerSha256": "dd750d020e10941e0618bde6ed31d78a0d85dcf8a4a66514d9a8208b9e1eade8",
+  "followReplayDriverSha256": "d3d6a41ab8746d840c6e80428bfa9f21ae8fe5e9efcd06c912b87ec404d8fb3c",
+  "browserObserverSha256": "f47b4ee94bab96f4e7a1b8401d09fe4665ebdb314fe136d57428106307bf417c",
+  "hostLoadReport": "carbon-before-p4-83402fa-20261001.json",
+  "reports": [
+    {
+      "file": "p4-crowded-capacity-83402fa-20261001.json",
+      "sha256": "7843fd0bdb0d49f30175befaa2da8217b761af88348b34228a4b161af4fccde5"
+    },
+    {
+      "file": "p4-follow-audited-stream-83402fa-20261001.json",
+      "sha256": "863439444b3b101df6f18484f4331f6fc2a44f9669d5ab7fc3bcfc87d398487b"
+    },
+    {
+      "file": "p4-overview-crowded-83402fa-20261001.json",
+      "sha256": "cd9c96bd4fde5af7bd19c34e2d230a17eb1857477f76a1ecbd0574d90f18827e"
+    },
+    {
+      "file": "p4-follow-crowded-83402fa-20261001.json",
+      "sha256": "d819e73ac63d4f4f58b612c1d5846c8ac5c5cbcc6573438810416379337edd7f"
+    }
+  ],
+  "capacity": {
+    "wallSeconds": 224.299582728,
+    "uninterruptedDenseWallSeconds": 180.219208646,
+    "actualSimulatedSeconds": 16.366666666666667,
+    "actualSimulatedWallRatio": 0.07296164634218598,
+    "peakInArenaCollisionSegments": 248149,
+    "peakBodyPoints": 255903,
+    "outsideArenaPointsAtPeak": 4424,
+    "peakRssBytes": 426946560,
+    "stepMeanMs": 227.01267209775966,
+    "stepP99UpperBoundMs": 369.776,
+    "reliableFailures": 0,
+    "authorityFault": null
+  },
+  "slowSteps": {
+    "controlSeconds": 50.816792,
+    "worldSeconds": 169.278806,
+    "otherSeconds": 2.830846,
+    "inferenceSeconds": 0.171422,
+    "inferenceFraction": 0.0007689621604514537,
+    "scope": "Small 168-parameter Dense graph only; not a conclusion about larger P1/P2/P3 inference workloads."
+  },
+  "browser": {
+    "device": "Windows desktop, in-app Chromium, 1280x720, foreground host shown",
+    "overview": {
+      "seconds": 60,
+      "renderIntervalP95Ms": 500.5,
+      "fractionIntervalsAtMost40Ms": 0,
+      "renderDurationP95Ms": 300.80000001192093,
+      "minimumBodySegments": 229905,
+      "invalidFrames": 0
+    },
+    "follow": {
+      "seconds": 60,
+      "renderIntervalP95Ms": 16.80000000000291,
+      "fractionIntervalsAtMost40Ms": 1,
+      "renderDurationP95Ms": 13.200000047683716,
+      "minimumBodySegments": 230590,
+      "invalidFrames": 0
+    },
+    "scope": "Separate complete foreground windows: overview during the sustained capacity run, follow during bounded replay of the same generation-one checkpoint with simultaneous geometry audit. No laptop result. Overview fails the drawing interval target; follow meets it."
+  },
+  "scope": "Sustained in-arena capacity, honest target-VM timing, LAN frame delivery and desktop drawing characterization. Normal movement, food, collisions and deaths. Requested 1x is overloaded; the 180-second hold is wall time and must not be described as 180 simulated seconds. P4 overview, laptop and overall final acceptance remain open. Other host activity remains possible; no quiet-host guarantee."
+}

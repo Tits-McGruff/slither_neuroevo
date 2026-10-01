@@ -1540,3 +1540,24 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   focused runs (the upload-deadline test remains opt-in). `d1d1def` CI passed.
   Test sockets, servers and copied databases were closed/removed. This fixes
   startup admission; sustained P4 and final acceptance remain open.
+
+- 2026-10-01 Long-body preparation now starts the supported 300-snake
+  population with 140-point bodies and a bounded 5,000-point maximum. A
+  separate loopback mode qualified the fixture locally before LAN exposure.
+  Oxygen then delivered 982 audited frames over 224.30 wall seconds and held
+  >200,000 in-arena collision segments continuously for 180.22 wall seconds;
+  peak was 248,149 qualifying segments, with ordinary deaths continuing. At
+  peak, 4,424 of 255,903 points were outside the arena. This is sustained
+  capacity, not realtime: only 16.37 simulated seconds advanced, mean step was
+  227.0 ms, p99 upper bound 369.8 ms, and peak RSS 407.2 MiB. No authority fault
+  or reliable-send failure occurred. Full-minute foreground desktop captures
+  covered overview and a separately audited bounded replay in follow view.
+  Follow had 16.8 ms p95 render intervals, all below 40 ms; overview failed at
+  500.5 ms p95. Neither capture had malformed frames. Small-graph inference was
+  only 0.08% of measured slow-step time; world work dominated. Reports,
+  screenshots, runner/build identities and the reduced Carbon load sample are
+  retained as `p4-crowded-*-83402fa-20261001.json` and the corresponding view
+  files. Geometry regressions, TypeScript and focused ESLint passed; `83402fa`
+  CI passed. All test servers, task-owned checkouts/builds and copied databases
+  were stopped/removed after evidence checksum checks. Overview drawing,
+  laptop/archive acceptance and final production gates remain open.

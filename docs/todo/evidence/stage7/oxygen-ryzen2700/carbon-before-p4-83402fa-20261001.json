@@ -1,0 +1,18 @@
+{
+  "observedAtUtc": "2026-10-01T12:11:33Z",
+  "host": "carbon",
+  "logicalProcessors": 16,
+  "loadAverage": [5.54, 4.96, 5.88],
+  "secondTopSampleCpuPercent": {
+    "user": 19.5, "system": 11.9, "nice": 0.0, "idle": 66.3,
+    "ioWait": 1.0, "hardwareInterrupt": 0.0, "softwareInterrupt": 1.4, "steal": 0.0
+  },
+  "dockerCpuPercent": {
+    "Plex-Media-Server": 110.34,
+    "media-preview-generator": 0.04,
+    "binhex-sonarr": 91.39,
+    "netdata": 27.79,
+    "binhex-qbittorrentvpn": 21.09
+  },
+  "scope": "Read-only one-second top and instantaneous Docker samples before the sustained P4 run, while the task-owned Oxygen release build was active. Other containers and the VM contribute to host load. This shows reduced Plex/media-preview load relative to the earlier sample, not a quiet-host guarantee or continuous overlap measurement. No container, CPU pinning or service settings were changed."
+}

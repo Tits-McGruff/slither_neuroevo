@@ -1,0 +1,873 @@
+{
+  "sourceCommit": "83402fa253fe1a4dbf64de08d2d7d1d71e3472f0",
+  "scope": "Foreground desktop follow capture during a bounded replay of the same disposable checkpoint with simultaneous in-arena geometry auditing. Not laptop or realtime acceptance.",
+  "hostShownAtStart": true,
+  "startHeap": {
+    "backingStorageSize": 5031221,
+    "embedderHeapUsedSize": 2269896,
+    "totalSize": 18743296,
+    "usedSize": 9326632
+  },
+  "endHeap": {
+    "backingStorageSize": 5246926,
+    "embedderHeapUsedSize": 2489032,
+    "totalSize": 19005440,
+    "usedSize": 9075216
+  },
+  "window": {
+    "actions": 0,
+    "animation": {
+      "fractionAtMost40Ms": 1,
+      "maxMs": 17.19999999999709,
+      "p95Ms": 16.80000000000291,
+      "samples": 3596
+    },
+    "assignments": 0,
+    "canvas": [
+      {
+        "cssHeight": 720,
+        "cssWidth": 1280,
+        "height": 720,
+        "id": "c",
+        "width": 1280
+      },
+      {
+        "cssHeight": 0,
+        "cssWidth": 0,
+        "height": 400,
+        "id": "vizCanvas",
+        "width": 360
+      },
+      {
+        "cssHeight": 0,
+        "cssWidth": 0,
+        "height": 300,
+        "id": "statsCanvas",
+        "width": 360
+      }
+    ],
+    "focus": true,
+    "frameShape": {
+      "decodedFrames": 244,
+      "invalidFrames": 0,
+      "maxBodySegments": 250329,
+      "maxFrameBytes": 2508124,
+      "minBodySegments": 230590,
+      "samples": [
+        {
+          "alive": 181,
+          "atMs": 63051.29999995232,
+          "bodySegments": 234855,
+          "frameBytes": 2386072,
+          "pellets": 24998,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 180,
+          "atMs": 64083.39999997616,
+          "bodySegments": 234725,
+          "frameBytes": 2384952,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 179,
+          "atMs": 65050.89999997616,
+          "bodySegments": 234746,
+          "frameBytes": 2385060,
+          "pellets": 24995,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 175,
+          "atMs": 66038.39999997616,
+          "bodySegments": 231565,
+          "frameBytes": 2359632,
+          "pellets": 25004,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 175,
+          "atMs": 67054.29999995232,
+          "bodySegments": 233256,
+          "frameBytes": 2372980,
+          "pellets": 24995,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 175,
+          "atMs": 68053.69999998808,
+          "bodySegments": 234856,
+          "frameBytes": 2385800,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 175,
+          "atMs": 69120.79999995232,
+          "bodySegments": 237385,
+          "frameBytes": 2405952,
+          "pellets": 24992,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 174,
+          "atMs": 70122.5,
+          "bodySegments": 238318,
+          "frameBytes": 2413416,
+          "pellets": 24994,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 173,
+          "atMs": 71104.89999997616,
+          "bodySegments": 238579,
+          "frameBytes": 2415584,
+          "pellets": 25000,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 173,
+          "atMs": 72142.79999995232,
+          "bodySegments": 240725,
+          "frameBytes": 2432672,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 172,
+          "atMs": 73056.5,
+          "bodySegments": 239466,
+          "frameBytes": 2422620,
+          "pellets": 24999,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 171,
+          "atMs": 73991.59999996424,
+          "bodySegments": 239327,
+          "frameBytes": 2421388,
+          "pellets": 24995,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 171,
+          "atMs": 75146.09999996424,
+          "bodySegments": 241967,
+          "frameBytes": 2442428,
+          "pellets": 24991,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 171,
+          "atMs": 76113,
+          "bodySegments": 243647,
+          "frameBytes": 2455968,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 170,
+          "atMs": 77029.69999998808,
+          "bodySegments": 242716,
+          "frameBytes": 2448500,
+          "pellets": 24997,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 168,
+          "atMs": 78015,
+          "bodySegments": 240517,
+          "frameBytes": 2431068,
+          "pellets": 25009,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 167,
+          "atMs": 78962.5,
+          "bodySegments": 240058,
+          "frameBytes": 2427256,
+          "pellets": 25004,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 166,
+          "atMs": 80098.69999998808,
+          "bodySegments": 239633,
+          "frameBytes": 2423676,
+          "pellets": 24997,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 165,
+          "atMs": 81032.5,
+          "bodySegments": 239414,
+          "frameBytes": 2421984,
+          "pellets": 25002,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 164,
+          "atMs": 82015.29999995232,
+          "bodySegments": 238795,
+          "frameBytes": 2416972,
+          "pellets": 25001,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 164,
+          "atMs": 82967.89999997616,
+          "bodySegments": 240088,
+          "frameBytes": 2427236,
+          "pellets": 24997,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 164,
+          "atMs": 83982.29999995232,
+          "bodySegments": 241610,
+          "frameBytes": 2439392,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 164,
+          "atMs": 84950.29999995232,
+          "bodySegments": 242890,
+          "frameBytes": 2449572,
+          "pellets": 24993,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 164,
+          "atMs": 86154.39999997616,
+          "bodySegments": 244650,
+          "frameBytes": 2463672,
+          "pellets": 24994,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 163,
+          "atMs": 87136.69999998808,
+          "bodySegments": 243791,
+          "frameBytes": 2456860,
+          "pellets": 24999,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 162,
+          "atMs": 87920.69999998808,
+          "bodySegments": 242754,
+          "frameBytes": 2448464,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 162,
+          "atMs": 88901.59999996424,
+          "bodySegments": 244221,
+          "frameBytes": 2460160,
+          "pellets": 24994,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 161,
+          "atMs": 89988.59999996424,
+          "bodySegments": 242873,
+          "frameBytes": 2449556,
+          "pellets": 25005,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 160,
+          "atMs": 91125.59999996424,
+          "bodySegments": 242635,
+          "frameBytes": 2447432,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 157,
+          "atMs": 92124.19999998808,
+          "bodySegments": 237338,
+          "frameBytes": 2405336,
+          "pellets": 25016,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 157,
+          "atMs": 93126.19999998808,
+          "bodySegments": 238138,
+          "frameBytes": 2411536,
+          "pellets": 25006,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 157,
+          "atMs": 94110.09999996424,
+          "bodySegments": 239418,
+          "frameBytes": 2421596,
+          "pellets": 24997,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 155,
+          "atMs": 95025.09999996424,
+          "bodySegments": 237620,
+          "frameBytes": 2407152,
+          "pellets": 24998,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 155,
+          "atMs": 96008.79999995232,
+          "bodySegments": 239460,
+          "frameBytes": 2421732,
+          "pellets": 24991,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 155,
+          "atMs": 96960.89999997616,
+          "bodySegments": 240820,
+          "frameBytes": 2432692,
+          "pellets": 24995,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 154,
+          "atMs": 98145.89999997616,
+          "bodySegments": 239773,
+          "frameBytes": 2424576,
+          "pellets": 25010,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 154,
+          "atMs": 99128.19999998808,
+          "bodySegments": 241693,
+          "frameBytes": 2439556,
+          "pellets": 24991,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 153,
+          "atMs": 100081.09999996424,
+          "bodySegments": 240754,
+          "frameBytes": 2432284,
+          "pellets": 25005,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 153,
+          "atMs": 101048.69999998808,
+          "bodySegments": 242594,
+          "frameBytes": 2446784,
+          "pellets": 24994,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 152,
+          "atMs": 101999.39999997616,
+          "bodySegments": 242535,
+          "frameBytes": 2446332,
+          "pellets": 24997,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 151,
+          "atMs": 102982.79999995232,
+          "bodySegments": 243036,
+          "frameBytes": 2450380,
+          "pellets": 25001,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 150,
+          "atMs": 104152.29999995232,
+          "bodySegments": 242897,
+          "frameBytes": 2449308,
+          "pellets": 25005,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 150,
+          "atMs": 105068.5,
+          "bodySegments": 244279,
+          "frameBytes": 2460124,
+          "pellets": 24993,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 148,
+          "atMs": 106104.19999998808,
+          "bodySegments": 242721,
+          "frameBytes": 2447720,
+          "pellets": 25000,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 147,
+          "atMs": 106935.29999995232,
+          "bodySegments": 242898,
+          "frameBytes": 2448896,
+          "pellets": 24990,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 147,
+          "atMs": 107950.89999997616,
+          "bodySegments": 244545,
+          "frameBytes": 2462192,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 147,
+          "atMs": 108968.79999995232,
+          "bodySegments": 245505,
+          "frameBytes": 2469872,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 147,
+          "atMs": 109957.5,
+          "bodySegments": 246625,
+          "frameBytes": 2478872,
+          "pellets": 24998,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 147,
+          "atMs": 110939.09999996424,
+          "bodySegments": 248287,
+          "frameBytes": 2492068,
+          "pellets": 24993,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 146,
+          "atMs": 111956.89999997616,
+          "bodySegments": 248364,
+          "frameBytes": 2492704,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 145,
+          "atMs": 113140.29999995232,
+          "bodySegments": 248077,
+          "frameBytes": 2490608,
+          "pellets": 25008,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 143,
+          "atMs": 113956.79999995232,
+          "bodySegments": 246831,
+          "frameBytes": 2480460,
+          "pellets": 25003,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 141,
+          "atMs": 114996.29999995232,
+          "bodySegments": 244570,
+          "frameBytes": 2462252,
+          "pellets": 25001,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 141,
+          "atMs": 115960.19999998808,
+          "bodySegments": 245690,
+          "frameBytes": 2471112,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 140,
+          "atMs": 117161.29999995232,
+          "bodySegments": 244937,
+          "frameBytes": 2464948,
+          "pellets": 24991,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 140,
+          "atMs": 118161.69999998808,
+          "bodySegments": 246057,
+          "frameBytes": 2474008,
+          "pellets": 24996,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 140,
+          "atMs": 119047.69999998808,
+          "bodySegments": 247497,
+          "frameBytes": 2485548,
+          "pellets": 24997,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 140,
+          "atMs": 119997.29999995232,
+          "bodySegments": 248649,
+          "frameBytes": 2494764,
+          "pellets": 24997,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 139,
+          "atMs": 120995.39999997616,
+          "bodySegments": 249070,
+          "frameBytes": 2498192,
+          "pellets": 25002,
+          "viewMode": "follow"
+        },
+        {
+          "alive": 137,
+          "atMs": 121964.5,
+          "bodySegments": 246473,
+          "frameBytes": 2477436,
+          "pellets": 25007,
+          "viewMode": "follow"
+        }
+      ],
+      "viewModes": {
+        "follow": 244
+      }
+    },
+    "frames": 244,
+    "heapSamples": [
+      {
+        "atMs": 63181.5,
+        "totalJSHeapBytes": 26170604,
+        "usedJSHeapBytes": 17555312
+      },
+      {
+        "atMs": 64180.59999996424,
+        "totalJSHeapBytes": 28551954,
+        "usedJSHeapBytes": 16551266
+      },
+      {
+        "atMs": 65183.59999996424,
+        "totalJSHeapBytes": 23785881,
+        "usedJSHeapBytes": 14702721
+      },
+      {
+        "atMs": 66186.09999996424,
+        "totalJSHeapBytes": 26084626,
+        "usedJSHeapBytes": 13291198
+      },
+      {
+        "atMs": 67186.89999997616,
+        "totalJSHeapBytes": 23761645,
+        "usedJSHeapBytes": 12666709
+      },
+      {
+        "atMs": 68185.39999997616,
+        "totalJSHeapBytes": 26166776,
+        "usedJSHeapBytes": 18108660
+      },
+      {
+        "atMs": 69184.69999998808,
+        "totalJSHeapBytes": 23824427,
+        "usedJSHeapBytes": 12016983
+      },
+      {
+        "atMs": 70187,
+        "totalJSHeapBytes": 26248485,
+        "usedJSHeapBytes": 18187721
+      },
+      {
+        "atMs": 71189.39999997616,
+        "totalJSHeapBytes": 23854247,
+        "usedJSHeapBytes": 12403019
+      },
+      {
+        "atMs": 72189.89999997616,
+        "totalJSHeapBytes": 26302925,
+        "usedJSHeapBytes": 18608357
+      },
+      {
+        "atMs": 73188.89999997616,
+        "totalJSHeapBytes": 23862846,
+        "usedJSHeapBytes": 13140286
+      },
+      {
+        "atMs": 74192.29999995232,
+        "totalJSHeapBytes": 26274589,
+        "usedJSHeapBytes": 18433865
+      },
+      {
+        "atMs": 75191.59999996424,
+        "totalJSHeapBytes": 23898022,
+        "usedJSHeapBytes": 11927514
+      },
+      {
+        "atMs": 76193,
+        "totalJSHeapBytes": 26377301,
+        "usedJSHeapBytes": 18176173
+      },
+      {
+        "atMs": 77192.5,
+        "totalJSHeapBytes": 28794255,
+        "usedJSHeapBytes": 17193423
+      },
+      {
+        "atMs": 78193.09999996424,
+        "totalJSHeapBytes": 26360998,
+        "usedJSHeapBytes": 18391478
+      },
+      {
+        "atMs": 79180.59999996424,
+        "totalJSHeapBytes": 28712370,
+        "usedJSHeapBytes": 16944906
+      },
+      {
+        "atMs": 80181.39999997616,
+        "totalJSHeapBytes": 26285085,
+        "usedJSHeapBytes": 17819245
+      },
+      {
+        "atMs": 81181.09999996424,
+        "totalJSHeapBytes": 28724447,
+        "usedJSHeapBytes": 17332327
+      },
+      {
+        "atMs": 82198.29999995232,
+        "totalJSHeapBytes": 26277914,
+        "usedJSHeapBytes": 18200442
+      },
+      {
+        "atMs": 83181.69999998808,
+        "totalJSHeapBytes": 28716889,
+        "usedJSHeapBytes": 17508641
+      },
+      {
+        "atMs": 84184,
+        "totalJSHeapBytes": 26328893,
+        "usedJSHeapBytes": 19022237
+      },
+      {
+        "atMs": 85183.09999996424,
+        "totalJSHeapBytes": 28796241,
+        "usedJSHeapBytes": 18339877
+      },
+      {
+        "atMs": 86184.79999995232,
+        "totalJSHeapBytes": 28854644,
+        "usedJSHeapBytes": 21706156
+      },
+      {
+        "atMs": 87183.79999995232,
+        "totalJSHeapBytes": 23930084,
+        "usedJSHeapBytes": 14043400
+      },
+      {
+        "atMs": 88188.19999998808,
+        "totalJSHeapBytes": 26369963,
+        "usedJSHeapBytes": 13529123
+      },
+      {
+        "atMs": 89184.89999997616,
+        "totalJSHeapBytes": 23935594,
+        "usedJSHeapBytes": 14980594
+      },
+      {
+        "atMs": 90187,
+        "totalJSHeapBytes": 28860580,
+        "usedJSHeapBytes": 16765524
+      },
+      {
+        "atMs": 91189.79999995232,
+        "totalJSHeapBytes": 26354412,
+        "usedJSHeapBytes": 18558680
+      },
+      {
+        "atMs": 92188.5,
+        "totalJSHeapBytes": 23844028,
+        "usedJSHeapBytes": 12144900
+      },
+      {
+        "atMs": 93189.29999995232,
+        "totalJSHeapBytes": 26244984,
+        "usedJSHeapBytes": 18894492
+      },
+      {
+        "atMs": 94189.69999998808,
+        "totalJSHeapBytes": 23860117,
+        "usedJSHeapBytes": 13482989
+      },
+      {
+        "atMs": 95192.29999995232,
+        "totalJSHeapBytes": 26231411,
+        "usedJSHeapBytes": 13609307
+      },
+      {
+        "atMs": 96193.39999997616,
+        "totalJSHeapBytes": 23856590,
+        "usedJSHeapBytes": 14468846
+      },
+      {
+        "atMs": 97180.69999998808,
+        "totalJSHeapBytes": 26309104,
+        "usedJSHeapBytes": 19639544
+      },
+      {
+        "atMs": 98192.89999997616,
+        "totalJSHeapBytes": 26325617,
+        "usedJSHeapBytes": 17516201
+      },
+      {
+        "atMs": 99194.39999997616,
+        "totalJSHeapBytes": 28749919,
+        "usedJSHeapBytes": 16518207
+      },
+      {
+        "atMs": 100195.39999997616,
+        "totalJSHeapBytes": 26341382,
+        "usedJSHeapBytes": 17940822
+      },
+      {
+        "atMs": 101195.29999995232,
+        "totalJSHeapBytes": 23908423,
+        "usedJSHeapBytes": 13022123
+      },
+      {
+        "atMs": 102182.09999996424,
+        "totalJSHeapBytes": 26360525,
+        "usedJSHeapBytes": 18990121
+      },
+      {
+        "atMs": 103181.19999998808,
+        "totalJSHeapBytes": 23929187,
+        "usedJSHeapBytes": 13827079
+      },
+      {
+        "atMs": 104183.69999998808,
+        "totalJSHeapBytes": 28853156,
+        "usedJSHeapBytes": 22292412
+      },
+      {
+        "atMs": 105181.5,
+        "totalJSHeapBytes": 23933238,
+        "usedJSHeapBytes": 14428602
+      },
+      {
+        "atMs": 106183.69999998808,
+        "totalJSHeapBytes": 23912215,
+        "usedJSHeapBytes": 12084915
+      },
+      {
+        "atMs": 107184,
+        "totalJSHeapBytes": 23909381,
+        "usedJSHeapBytes": 16561317
+      },
+      {
+        "atMs": 108185.19999998808,
+        "totalJSHeapBytes": 23940591,
+        "usedJSHeapBytes": 14247903
+      },
+      {
+        "atMs": 109185.5,
+        "totalJSHeapBytes": 26422103,
+        "usedJSHeapBytes": 14006347
+      },
+      {
+        "atMs": 110186.39999997616,
+        "totalJSHeapBytes": 23975463,
+        "usedJSHeapBytes": 16223203
+      },
+      {
+        "atMs": 111188.09999996424,
+        "totalJSHeapBytes": 28968419,
+        "usedJSHeapBytes": 18882263
+      },
+      {
+        "atMs": 112188.79999995232,
+        "totalJSHeapBytes": 26499411,
+        "usedJSHeapBytes": 19949331
+      },
+      {
+        "atMs": 113191.29999995232,
+        "totalJSHeapBytes": 26520787,
+        "usedJSHeapBytes": 17836935
+      },
+      {
+        "atMs": 114191.09999996424,
+        "totalJSHeapBytes": 26467339,
+        "usedJSHeapBytes": 15260719
+      },
+      {
+        "atMs": 115192.69999998808,
+        "totalJSHeapBytes": 26400855,
+        "usedJSHeapBytes": 19929719
+      },
+      {
+        "atMs": 116191.09999996424,
+        "totalJSHeapBytes": 23958471,
+        "usedJSHeapBytes": 14142099
+      },
+      {
+        "atMs": 117192.5,
+        "totalJSHeapBytes": 23942951,
+        "usedJSHeapBytes": 11770051
+      },
+      {
+        "atMs": 118193.5,
+        "totalJSHeapBytes": 26433463,
+        "usedJSHeapBytes": 18980091
+      },
+      {
+        "atMs": 119194.59999996424,
+        "totalJSHeapBytes": 23987983,
+        "usedJSHeapBytes": 14174383
+      },
+      {
+        "atMs": 120194.69999998808,
+        "totalJSHeapBytes": 26496951,
+        "usedJSHeapBytes": 14321007
+      },
+      {
+        "atMs": 121194,
+        "totalJSHeapBytes": 24025163,
+        "usedJSHeapBytes": 16219227
+      },
+      {
+        "atMs": 122182.29999995232,
+        "totalJSHeapBytes": 28956851,
+        "usedJSHeapBytes": 18168927
+      }
+    ],
+    "networkFrames": {
+      "fractionAtMost40Ms": 0,
+      "maxMs": 399.10000002384186,
+      "p95Ms": 281.80000001192093,
+      "samples": 243
+    },
+    "renderDurations": {
+      "fractionAtMost40Ms": 1,
+      "maxMs": 18.400000035762787,
+      "p95Ms": 13.200000047683716,
+      "samples": 3597
+    },
+    "renderIntervals": {
+      "fractionAtMost40Ms": 1,
+      "maxMs": 17.19999999999709,
+      "p95Ms": 16.80000000000291,
+      "samples": 3596
+    },
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "viewport": {
+      "devicePixelRatio": 1,
+      "height": 720,
+      "width": 1280
+    },
+    "visibility": "visible",
+    "visibilityChanges": [],
+    "wallSeconds": 60.00019999998808
+  }
+}

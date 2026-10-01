@@ -1,0 +1,1448 @@
+{
+  "source": {
+    "formatVersion": 2,
+    "boundaryVersion": 1,
+    "boundaryKind": "run-start",
+    "resumable": true,
+    "generation": 1,
+    "simulationStep": 0,
+    "worldSeed": 1511506142,
+    "runId": "dense-world-capacity-source",
+    "configHash": "dense-world-capacity-fixture",
+    "configRevision": 1,
+    "archKey": "graph|out:2|nodes:input:Input:83;output:Dense:83x2|edges:input->output:0:0|outs:output:0",
+    "graphSpec": {
+      "type": "graph",
+      "nodes": [
+        {
+          "id": "input",
+          "type": "Input",
+          "outputSize": 83
+        },
+        {
+          "id": "output",
+          "type": "Dense",
+          "inputSize": 83,
+          "outputSize": 2
+        }
+      ],
+      "edges": [
+        {
+          "from": "input",
+          "to": "output"
+        }
+      ],
+      "outputs": [
+        {
+          "nodeId": "output"
+        }
+      ],
+      "outputSize": 2
+    },
+    "populationCount": 300,
+    "settings": {
+      "snakeCount": 300,
+      "simSpeed": 1
+    },
+    "updates": [
+      {
+        "path": "generationSeconds",
+        "value": 480
+      },
+      {
+        "path": "observer.earlyEndMinSeconds",
+        "value": 50
+      },
+      {
+        "path": "observer.earlyEndAliveThreshold",
+        "value": 1
+      },
+      {
+        "path": "worldRadius",
+        "value": 10000
+      },
+      {
+        "path": "pelletCountTarget",
+        "value": 25000
+      },
+      {
+        "path": "pelletSpawnPerSecond",
+        "value": 3500
+      },
+      {
+        "path": "foodValue",
+        "value": 8
+      },
+      {
+        "path": "growPerFood",
+        "value": 10
+      },
+      {
+        "path": "baselineBots.count",
+        "value": 0
+      },
+      {
+        "path": "snakeBaseSpeed",
+        "value": 650
+      },
+      {
+        "path": "snakeBoostSpeed",
+        "value": 650
+      },
+      {
+        "path": "snakeTurnRate",
+        "value": 14
+      },
+      {
+        "path": "snakeRadius",
+        "value": 3
+      },
+      {
+        "path": "snakeRadiusMax",
+        "value": 4
+      },
+      {
+        "path": "snakeThicknessScale",
+        "value": 0
+      },
+      {
+        "path": "snakeSpacing",
+        "value": 3
+      },
+      {
+        "path": "snakeStartLen",
+        "value": 140
+      },
+      {
+        "path": "snakeMaxLen",
+        "value": 5000
+      },
+      {
+        "path": "snakeSizeSpeedPenalty",
+        "value": 0
+      },
+      {
+        "path": "snakeBoostSizePenalty",
+        "value": 0
+      },
+      {
+        "path": "collision.skipSegments",
+        "value": 30
+      },
+      {
+        "path": "collision.hitScale",
+        "value": 0.45
+      },
+      {
+        "path": "boost.pointsCostPerSecond",
+        "value": 0
+      },
+      {
+        "path": "boost.lenLossPerPoint",
+        "value": 0
+      }
+    ],
+    "rng": {},
+    "allocators": {},
+    "bestFitnessEver": 0,
+    "fitnessHistory": [],
+    "lastHofEntry": null
+  },
+  "frames": 292,
+  "packetTypes": {
+    "welcome": 1,
+    "stats": 291
+  },
+  "healthSamples": [
+    {
+      "wallSeconds": 10.0485696,
+      "completedStep": "0000000000000073",
+      "outbound": {
+        "connections": 1,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6297,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 10.062806199999999,
+        "authoritativeSteps": 115,
+        "simulatedSeconds": 1.9166666666666667,
+        "simulatedWallRatio": 0.19047039449757733,
+        "step": {
+          "samples": 115,
+          "meanMs": 85.65296521739131,
+          "p95Ms": 192,
+          "p99Ms": 192,
+          "maxMs": 145.826,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 205062144,
+          "heapUsedBytes": 13205848,
+          "externalBytes": 32862445,
+          "maxRssBytes": 256909312,
+          "eventLoopDelayMeanMs": 15.372564417177914,
+          "eventLoopDelayP95Ms": 19.415039,
+          "eventLoopDelayP99Ms": 21.413887,
+          "eventLoopDelayMaxMs": 26.755071
+        },
+        "frame": {
+          "latestBytes": 1747012,
+          "maximumObservedBytes": 1747012
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 20.061667099999998,
+      "completedStep": "00000000000000bb",
+      "outbound": {
+        "connections": 1,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6297,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 20.0690694,
+        "authoritativeSteps": 187,
+        "simulatedSeconds": 3.1166666666666667,
+        "simulatedWallRatio": 0.1552970197345905,
+        "step": {
+          "samples": 187,
+          "meanMs": 106.3004064171123,
+          "p95Ms": 192,
+          "p99Ms": 256,
+          "maxMs": 193.596,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 228732928,
+          "heapUsedBytes": 13429416,
+          "externalBytes": 32862485,
+          "maxRssBytes": 283377664,
+          "eventLoopDelayMeanMs": 15.360213595092025,
+          "eventLoopDelayP95Ms": 18.989055,
+          "eventLoopDelayP99Ms": 21.495807,
+          "eventLoopDelayMaxMs": 26.755071
+        },
+        "frame": {
+          "latestBytes": 2016064,
+          "maximumObservedBytes": 2016064
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 30.0499297,
+      "completedStep": "00000000000000ff",
+      "outbound": {
+        "connections": 1,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6297,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 30.0629301,
+        "authoritativeSteps": 255,
+        "simulatedSeconds": 4.25,
+        "simulatedWallRatio": 0.14137011880954345,
+        "step": {
+          "samples": 255,
+          "meanMs": 116.5194588235294,
+          "p95Ms": 192,
+          "p99Ms": 192,
+          "maxMs": 193.596,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 239493120,
+          "heapUsedBytes": 13529920,
+          "externalBytes": 32862485,
+          "maxRssBytes": 298545152,
+          "eventLoopDelayMeanMs": 15.353724073619633,
+          "eventLoopDelayP95Ms": 18.513919,
+          "eventLoopDelayP99Ms": 21.315583,
+          "eventLoopDelayMaxMs": 26.755071
+        },
+        "frame": {
+          "latestBytes": 2161696,
+          "maximumObservedBytes": 2164068
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    }
+  ],
+  "wallSeconds": 36.8603645,
+  "welcome": {
+    "type": "welcome",
+    "protocolVersion": 2,
+    "serializerVersion": 1,
+    "sessionId": "2a42dcaf-b4da-44b6-a414-9c01d1d6ae60",
+    "tickRate": 60,
+    "worldSeed": 1511506142,
+    "runId": "de3a6587-ebff-4058-b646-57a98d864473",
+    "configHash": "sha256:e3ec074ae2d7da74d311f290d83f238e12f8cc1f171887481b7000a2fbefab76",
+    "configRevision": 1,
+    "frameByteLength": 845632,
+    "graphSpec": {
+      "edges": [
+        {
+          "from": "input",
+          "to": "output"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "input",
+          "outputSize": 83,
+          "type": "Input"
+        },
+        {
+          "id": "output",
+          "inputSize": 83,
+          "outputSize": 2,
+          "type": "Dense"
+        }
+      ],
+      "outputSize": 2,
+      "outputs": [
+        {
+          "nodeId": "output"
+        }
+      ],
+      "type": "graph"
+    },
+    "capabilities": {
+      "checkpointPinning": true,
+      "archiveExport": true,
+      "archiveImport": true
+    },
+    "settings": {
+      "core": {
+        "snakeCount": 300,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "updates": [
+        {
+          "path": "worldRadius",
+          "value": 10000
+        },
+        {
+          "path": "pelletCountTarget",
+          "value": 25000
+        },
+        {
+          "path": "pelletSpawnPerSecond",
+          "value": 3500
+        },
+        {
+          "path": "foodValue",
+          "value": 8
+        },
+        {
+          "path": "growPerFood",
+          "value": 10
+        },
+        {
+          "path": "foodSpawn.edgeFalloffEnabled",
+          "value": 1
+        },
+        {
+          "path": "foodSpawn.edgeFadeStart",
+          "value": 0.35
+        },
+        {
+          "path": "foodSpawn.edgeFadePower",
+          "value": 2.6
+        },
+        {
+          "path": "foodSpawn.filamentPower",
+          "value": 4.2
+        },
+        {
+          "path": "foodSpawn.warpFreq",
+          "value": 0.0013
+        },
+        {
+          "path": "foodSpawn.warpScale",
+          "value": 0.08
+        },
+        {
+          "path": "foodSpawn.freqLarge",
+          "value": 0.0026
+        },
+        {
+          "path": "foodSpawn.freqMedium",
+          "value": 0.0042
+        },
+        {
+          "path": "foodSpawn.freqSmall",
+          "value": 0.0068
+        },
+        {
+          "path": "foodSpawn.dustStrength",
+          "value": 0.35
+        },
+        {
+          "path": "sense.layoutVersion",
+          "value": 3
+        },
+        {
+          "path": "sense.bubbleBins",
+          "value": 16
+        },
+        {
+          "path": "sense.rNearBase",
+          "value": 520
+        },
+        {
+          "path": "sense.rNearScale",
+          "value": 260
+        },
+        {
+          "path": "sense.rNearMin",
+          "value": 420
+        },
+        {
+          "path": "sense.rNearMax",
+          "value": 1100
+        },
+        {
+          "path": "sense.rFarBase",
+          "value": 1200
+        },
+        {
+          "path": "sense.rFarScale",
+          "value": 520
+        },
+        {
+          "path": "sense.rFarMin",
+          "value": 900
+        },
+        {
+          "path": "sense.rFarMax",
+          "value": 2400
+        },
+        {
+          "path": "sense.foodKBase",
+          "value": 4
+        },
+        {
+          "path": "sense.maxPelletChecks",
+          "value": 900
+        },
+        {
+          "path": "sense.maxSegmentChecks",
+          "value": 2200
+        },
+        {
+          "path": "baselineBots.count",
+          "value": 0
+        },
+        {
+          "path": "baselineBots.seed",
+          "value": 1
+        },
+        {
+          "path": "baselineBots.randomizeSeedPerGen",
+          "value": 0
+        },
+        {
+          "path": "baselineBots.respawnDelay",
+          "value": 20
+        },
+        {
+          "path": "snakeBaseSpeed",
+          "value": 650
+        },
+        {
+          "path": "snakeBoostSpeed",
+          "value": 650
+        },
+        {
+          "path": "snakeTurnRate",
+          "value": 14
+        },
+        {
+          "path": "snakeRadius",
+          "value": 3
+        },
+        {
+          "path": "snakeRadiusMax",
+          "value": 4
+        },
+        {
+          "path": "snakeThicknessScale",
+          "value": 0
+        },
+        {
+          "path": "snakeThicknessLogDiv",
+          "value": 30
+        },
+        {
+          "path": "snakeSpacing",
+          "value": 3
+        },
+        {
+          "path": "snakeStartLen",
+          "value": 140
+        },
+        {
+          "path": "snakeMaxLen",
+          "value": 5000
+        },
+        {
+          "path": "snakeMinLen",
+          "value": 4
+        },
+        {
+          "path": "snakeSizeSpeedPenalty",
+          "value": 0
+        },
+        {
+          "path": "snakeBoostSizePenalty",
+          "value": 0
+        },
+        {
+          "path": "boost.minPointsToBoost",
+          "value": 1.2
+        },
+        {
+          "path": "boost.pointsCostPerSecond",
+          "value": 0
+        },
+        {
+          "path": "boost.pointsCostSizeFactor",
+          "value": 1.1
+        },
+        {
+          "path": "boost.lenLossPerPoint",
+          "value": 0
+        },
+        {
+          "path": "boost.pelletValueFactor",
+          "value": 0.65
+        },
+        {
+          "path": "boost.pelletJitter",
+          "value": 10
+        },
+        {
+          "path": "collision.substepMaxDt",
+          "value": 0.006
+        },
+        {
+          "path": "collision.skipSegments",
+          "value": 30
+        },
+        {
+          "path": "collision.hitScale",
+          "value": 0.45
+        },
+        {
+          "path": "collision.cellSize",
+          "value": 70
+        },
+        {
+          "path": "collision.neighborRange",
+          "value": 1
+        },
+        {
+          "path": "generationSeconds",
+          "value": 480
+        },
+        {
+          "path": "eliteFrac",
+          "value": 0.12
+        },
+        {
+          "path": "mutationRate",
+          "value": 0.03
+        },
+        {
+          "path": "mutationStd",
+          "value": 0.35
+        },
+        {
+          "path": "crossoverRate",
+          "value": 0.85
+        },
+        {
+          "path": "observer.earlyEndMinSeconds",
+          "value": 50
+        },
+        {
+          "path": "observer.earlyEndAliveThreshold",
+          "value": 1
+        },
+        {
+          "path": "reward.pointsPerFood",
+          "value": 20
+        },
+        {
+          "path": "reward.pointsPerKill",
+          "value": 400
+        },
+        {
+          "path": "reward.pointsPerSecondAlive",
+          "value": 0.6
+        },
+        {
+          "path": "reward.fitnessSurvivalPerSecond",
+          "value": 0.7
+        },
+        {
+          "path": "reward.fitnessFood",
+          "value": 80
+        },
+        {
+          "path": "reward.fitnessLengthPerSegment",
+          "value": 100
+        },
+        {
+          "path": "reward.fitnessKill",
+          "value": 400
+        },
+        {
+          "path": "reward.fitnessPointsNorm",
+          "value": 42
+        },
+        {
+          "path": "reward.fitnessTopPointsBonus",
+          "value": 600
+        },
+        {
+          "path": "brain.controlDt",
+          "value": 0.016666666666666666
+        },
+        {
+          "path": "brain.gruMutationRate",
+          "value": 0.025
+        },
+        {
+          "path": "brain.gruMutationStd",
+          "value": 0.22
+        },
+        {
+          "path": "brain.gruCrossoverMode",
+          "value": 1
+        },
+        {
+          "path": "brain.gruInitUpdateBias",
+          "value": -0.7
+        },
+        {
+          "path": "brain.lstmInitForgetBias",
+          "value": 0.6
+        },
+        {
+          "path": "brain.rruInitGateBias",
+          "value": 0.1
+        }
+      ]
+    },
+    "sensorSpec": {
+      "sensorCount": 83,
+      "order": [
+        "heading_sin",
+        "heading_cos",
+        "size_norm",
+        "boost_margin",
+        "points_pct",
+        "speed_norm",
+        "boost_state",
+        "points_norm",
+        "points_delta_norm",
+        "length_norm",
+        "boost_points_frac",
+        "boost_cost_norm",
+        "wall_dist_norm",
+        "nearest_food_dist_norm",
+        "nearest_food_dir_sin",
+        "nearest_food_dir_cos",
+        "nearest_body_dist_norm",
+        "nearest_head_dist_norm",
+        "age_norm",
+        "food_0",
+        "food_1",
+        "food_2",
+        "food_3",
+        "food_4",
+        "food_5",
+        "food_6",
+        "food_7",
+        "food_8",
+        "food_9",
+        "food_10",
+        "food_11",
+        "food_12",
+        "food_13",
+        "food_14",
+        "food_15",
+        "hazard_0",
+        "hazard_1",
+        "hazard_2",
+        "hazard_3",
+        "hazard_4",
+        "hazard_5",
+        "hazard_6",
+        "hazard_7",
+        "hazard_8",
+        "hazard_9",
+        "hazard_10",
+        "hazard_11",
+        "hazard_12",
+        "hazard_13",
+        "hazard_14",
+        "hazard_15",
+        "wall_0",
+        "wall_1",
+        "wall_2",
+        "wall_3",
+        "wall_4",
+        "wall_5",
+        "wall_6",
+        "wall_7",
+        "wall_8",
+        "wall_9",
+        "wall_10",
+        "wall_11",
+        "wall_12",
+        "wall_13",
+        "wall_14",
+        "wall_15",
+        "head_0",
+        "head_1",
+        "head_2",
+        "head_3",
+        "head_4",
+        "head_5",
+        "head_6",
+        "head_7",
+        "head_8",
+        "head_9",
+        "head_10",
+        "head_11",
+        "head_12",
+        "head_13",
+        "head_14",
+        "head_15"
+      ],
+      "layoutVersion": "v3"
+    },
+    "inferenceMode": {
+      "requestedBackend": "native",
+      "activeBackend": "native",
+      "requestedMt": true,
+      "activeWorkerCount": 6,
+      "poolEpoch": null,
+      "weightEpoch": null,
+      "graphKey": "slither-graph-layout-v1:hex:736c69746865722d6e6575726f65766f2f67726170682d6c61796f75742f7631000100000002000000000000000500000000000000696e70757400530000000000000053000000000000000100000000000000530000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000006f75747075740153000000000000000200000000000000010000000000000002000000000000000000000000000000000000000000000000a80000000000000000000000000000000001000000000000000500000000000000696e70757400000000000000000000000000000000010000000000000006000000000000006f75747075740000000000000000a80000000000000000000000000000000200000000000000",
+      "parameterCount": 168,
+      "seed": 1511506142,
+      "nativeAddonStatus": "ready",
+      "nativeAddonBuildIdentifier": "slither_native/0.1.0+d1d1defd06f7.e55a6c17df710abc"
+    },
+    "legacyConversion": {
+      "sourceSnapshotId": 1,
+      "sourceFormat": "typescript-v2",
+      "completeness": "population-only",
+      "exactContinuation": false
+    }
+  },
+  "peak": {
+    "generation": 1,
+    "alive": 208,
+    "bodyPoints": 213000,
+    "bodySegments": 212792,
+    "longestBody": 2380,
+    "pellets": 24993,
+    "bytes": 2210548,
+    "inArenaCollisionSegments": 206388,
+    "outsideArenaPoints": 372
+  },
+  "samples": [
+    {
+      "generation": 1,
+      "alive": 300,
+      "bodyPoints": 42000,
+      "bodySegments": 41700,
+      "longestBody": 140,
+      "pellets": 25000,
+      "bytes": 845632,
+      "inArenaCollisionSegments": 33000,
+      "outsideArenaPoints": 0,
+      "wallSeconds": 0.015358499999999935
+    },
+    {
+      "generation": 1,
+      "alive": 279,
+      "bodyPoints": 120918,
+      "bodySegments": 120639,
+      "longestBody": 940,
+      "pellets": 24994,
+      "bytes": 1476184,
+      "inArenaCollisionSegments": 112548,
+      "outsideArenaPoints": 0,
+      "wallSeconds": 5.0325397999999995
+    },
+    {
+      "generation": 1,
+      "alive": 268,
+      "bodyPoints": 155718,
+      "bodySegments": 155450,
+      "longestBody": 1100,
+      "pellets": 24989,
+      "bytes": 1754132,
+      "inArenaCollisionSegments": 147678,
+      "outsideArenaPoints": 0,
+      "wallSeconds": 10.071206
+    },
+    {
+      "generation": 1,
+      "alive": 260,
+      "bodyPoints": 178508,
+      "bodySegments": 178248,
+      "longestBody": 1500,
+      "pellets": 24991,
+      "bytes": 1936236,
+      "inArenaCollisionSegments": 170708,
+      "outsideArenaPoints": 0,
+      "wallSeconds": 15.1362779
+    },
+    {
+      "generation": 1,
+      "alive": 241,
+      "bodyPoints": 188720,
+      "bodySegments": 188479,
+      "longestBody": 1820,
+      "pellets": 24998,
+      "bytes": 2017464,
+      "inArenaCollisionSegments": 181464,
+      "outsideArenaPoints": 26,
+      "wallSeconds": 20.178829699999998
+    },
+    {
+      "generation": 1,
+      "alive": 231,
+      "bodyPoints": 200280,
+      "bodySegments": 200049,
+      "longestBody": 1980,
+      "pellets": 24993,
+      "bytes": 2109524,
+      "inArenaCollisionSegments": 193230,
+      "outsideArenaPoints": 120,
+      "wallSeconds": 25.2661485
+    },
+    {
+      "generation": 1,
+      "alive": 218,
+      "bodyPoints": 207886,
+      "bodySegments": 207668,
+      "longestBody": 1980,
+      "pellets": 24993,
+      "bytes": 2169956,
+      "inArenaCollisionSegments": 201282,
+      "outsideArenaPoints": 64,
+      "wallSeconds": 30.400638899999997
+    },
+    {
+      "generation": 1,
+      "alive": 210,
+      "bodyPoints": 211304,
+      "bodySegments": 211094,
+      "longestBody": 2380,
+      "pellets": 24995,
+      "bytes": 2197084,
+      "inArenaCollisionSegments": 204781,
+      "outsideArenaPoints": 223,
+      "wallSeconds": 35.5149277
+    }
+  ],
+  "reachedRequiredBodySegments": true,
+  "requiredSegmentScope": "both endpoints inside arena, after 30-point head skip",
+  "capacityHeldSeconds": 5.068839099999995,
+  "requiredHoldSeconds": 5,
+  "stopReason": "required-dense-hold-complete",
+  "host": "127.0.0.1",
+  "port": 18797,
+  "browserLan": false,
+  "mode": "crowded",
+  "health": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "de3a6587-ebff-4058-b646-57a98d864473",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:e3ec074ae2d7da74d311f290d83f238e12f8cc1f171887481b7000a2fbefab76",
+    "startupCheckpointId": "28f10071436debd6d2b9819b5ea3170536669d690f45df6ca7a4af864d4e5866",
+    "calculationWorkers": 6,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "0000000000000001",
+    "generation": "0000000000000001",
+    "completedStep": "0000000000000123",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "0000000000000123",
+    "schedulerDroppedWallMicros": "0000000001e25491",
+    "schedulerOverloaded": true,
+    "commandServiceBoundaries": "0000000000000124",
+    "coordinatorWorkBytes": "0000000000000000",
+    "processedCommands": "0000000000000000",
+    "stepTimingSamples": "0000000000000123",
+    "stepTimingTotalMicros": "00000000022e5da6",
+    "stepTimingMaxMicros": "00000000000565a2",
+    "stepTimingP95Micros": "000000000003e800",
+    "stepTimingP99Micros": "00000000000565a2",
+    "slowStepSamples": "0000000000000123",
+    "slowStepControlMicros": "0000000000861dd5",
+    "slowStepControlIndexMicros": "00000000005da4f5",
+    "slowStepControlNeuralMicros": "0000000000284a6c",
+    "slowStepControlSensingMicros": "000000000027bf8e",
+    "slowStepControlInferenceMicros": "0000000000004939",
+    "slowStepWorldMicros": "00000000019bf06f",
+    "slowStepOtherMicros": "00000000000c4f62",
+    "nativeBuildIdentifier": "slither_native/0.1.0+d1d1defd06f7.e55a6c17df710abc",
+    "telemetry": {
+      "uptimeSeconds": 36.900866199999996,
+      "authoritativeSteps": 291,
+      "simulatedSeconds": 4.85,
+      "simulatedWallRatio": 0.1314332290660429,
+      "step": {
+        "samples": 291,
+        "meanMs": 125.74935395189003,
+        "p95Ms": 256,
+        "p99Ms": 353.698,
+        "maxMs": 353.698,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 244293632,
+        "heapUsedBytes": 13553752,
+        "externalBytes": 32862485,
+        "maxRssBytes": 300023808,
+        "eventLoopDelayMeanMs": 15.430880174131437,
+        "eventLoopDelayP95Ms": 19.054591,
+        "eventLoopDelayP99Ms": 22.118399,
+        "eventLoopDelayMaxMs": 29.294591
+      },
+      "frame": {
+        "latestBytes": 2210548,
+        "maximumObservedBytes": 2210548
+      },
+      "checkpointBarrier": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "playerAction": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "trainerAction": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "controllerLifecycle": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 0,
+          "successfulReclaims": 0,
+          "appliedActions": 0,
+          "appliedDisconnects": 0
+        },
+        "trainer": {
+          "freshAssignments": 0,
+          "successfulReclaims": 0,
+          "appliedActions": 0,
+          "appliedDisconnects": 0
+        }
+      }
+    },
+    "nativeQueues": {
+      "inbound": {
+        "batches": "0000000000000000",
+        "commands": "0000000000000000",
+        "ownedBytes": "0000000000000000",
+        "highWaterBatches": "0000000000000000",
+        "highWaterCommands": "0000000000000000",
+        "highWaterOwnedBytes": "0000000000000000",
+        "maxBatches": "0000000000000040",
+        "maxCommands": "0000000000000040",
+        "maxOwnedBytes": "0000000000400000",
+        "maxBatchCommands": "0000000000000001",
+        "maxBatchOwnedBytes": "0000000000100000",
+        "rejections": "0000000000000000",
+        "faultDiscardedCommands": "0000000000000000"
+      },
+      "output": {
+        "reliable": "0000000000000000",
+        "reliableOwnedBytes": "0000000000000000",
+        "discrete": "0000000000000000",
+        "discreteOwnedBytes": "0000000000000000",
+        "frames": "0000000000000000",
+        "hasStats": false,
+        "ownedBytes": "0000000000000000",
+        "highWaterCount": "0000000000000002",
+        "highWaterOwnedBytes": "0000000000000068",
+        "maxReliable": "0000000000000020",
+        "highWaterReliable": "0000000000000001",
+        "highWaterReliableOwnedBytes": "0000000000000000",
+        "highWaterDiscrete": "0000000000000000",
+        "highWaterDiscreteOwnedBytes": "0000000000000000",
+        "highWaterFrames": "0000000000000000",
+        "highWaterFrameOwnedBytes": "0000000000000000",
+        "highWaterStats": "0000000000000001",
+        "highWaterStatsOwnedBytes": "0000000000000068",
+        "maxReliableOwnedBytes": "0000000001000000",
+        "maxDiscrete": "0000000000000004",
+        "maxDiscreteOwnedBytes": "0000000000100000",
+        "maxFrames": "0000000000000004",
+        "maxOwnedBytes": "0000000002000000",
+        "maxEventOwnedBytes": "0000000000100000",
+        "capacityWaits": "0000000000000000",
+        "priorityOverflows": "0000000000000000",
+        "hasReservedFault": false,
+        "statsReplacements": "0000000000000000",
+        "frameReplacements": "0000000000000000",
+        "staleStats": "0000000000000000",
+        "staleFrames": "0000000000000000",
+        "statsRejections": "0000000000000000",
+        "frameRejections": "0000000000000000",
+        "statsEvictions": "0000000000000000",
+        "frameEvictions": "0000000000000000"
+      }
+    },
+    "outbound": {
+      "connections": 0,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0,
+      "highWaterReliableMessagesPerConnection": 1,
+      "highWaterReliableBytesPerConnection": 6297,
+      "maxReliableMessagesPerConnection": 1024,
+      "maxReliableBytesPerConnection": 4194304,
+      "maxConnections": 64
+    },
+    "archiveWork": null,
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "de3a6587-ebff-4058-b646-57a98d864473",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "000000000000be00",
+      "protectedAutomaticStoredByteCount": "000000000000be00",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "000000000000be00",
+          "decodedByteCount": "000000000003a2de",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 1,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "recent": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "milestone": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 0,
+      "deletedStoredByteCount": "0000000000000000"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "323584",
+        "walBytes": "271952",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "114",
+        "freelistPageCount": "0",
+        "usedPageBytes": "466944"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "239913144320",
+        "operatingReserveBytes": "1073741824"
+      }
+    },
+    "legacyConversion": {
+      "sourceSnapshotId": 1,
+      "sourceFormat": "typescript-v2",
+      "completeness": "population-only",
+      "exactContinuation": false
+    }
+  },
+  "scope": "Crowded-world preparation through supported 300-snake, 140-point initial bodies, 10000-radius arena, 5000-point maximum bodies, 650-speed movement and 1x requested simulation. Normal production sensing, collisions and deaths. Every observed frame audits actual in-arena collision segments after the 30-point head skip; only those segments qualify the hold. No body injection or hooks addon. Host contention and observation overhead must be accounted for; this report alone does not qualify browser drawing or final P4 acceptance."
+}
