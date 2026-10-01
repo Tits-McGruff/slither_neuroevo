@@ -1610,3 +1610,19 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   duplicate downloads were stopped/removed. Other concurrent archive lifecycle
   cases, fresh-origin filename handling, precise comparative browser heap and
   final acceptance remain open.
+
+- 2026-10-02 Real HTTP regressions cancel exports before and after response
+  headers, confirm server close precedes completion, preserve every Rust
+  metadata row and exact managed-source SHA-256, and admit a fresh successful
+  export after releasing each lease and temporary file. A separate opt-in
+  connected non-reading download used the retained 89,509,376-byte P2 archive:
+  the unchanged production idle deadline closed it after 60.03 seconds without
+  progress, released its lease and cleaned export artifacts within two seconds.
+  The game stayed healthy and advanced from generation 13 to 14; the original
+  archive SHA-256 remained unchanged. All three real-server checks, TypeScript
+  and focused ESLint passed. The idle case is reproduced with
+  `SLITHER_FULL_DOWNLOAD_TIMEOUT_TEST=1`, `SLITHER_DOWNLOAD_TIMEOUT_ARCHIVE`
+  pointing to a verified save over 50 MiB, and the named test in
+  `server/rustServer.native.test.ts`. Test servers and copied databases were
+  closed/removed. This is Windows HTTP failure evidence; real-browser failure
+  UI, remaining failure boundaries and complete A1–A10 acceptance remain open.

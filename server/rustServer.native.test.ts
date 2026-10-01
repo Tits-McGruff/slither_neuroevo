@@ -1,8 +1,9 @@
-import { mkdtemp, rm, readdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { request as httpRequest } from 'node:http';
+import { request as httpRequest, Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
@@ -784,6 +785,236 @@ describeNetworkSuite('Rust server real sockets', () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it.each(['before headers', 'after headers'] as const)(
+    'releases a cancelled export %s and admits a fresh direct request', async boundary => {
+      const root = await mkdtemp(join(tmpdir(), 'slither-rust-export-cancel-'));
+      const dbPath = join(root, 'experiment.sqlite');
+      const managedDirectory = `${dbPath}.checkpoints`;
+      const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+        resume: 'fresh', seed: 41, dbPath });
+      /** Hold only the real selected lease so cancellation precedes preparation deterministically. */
+      const gate = Promise.withResolvers<void>();
+      /** Observe the actual persistence lease rather than guessing from request timing. */
+      const selected = Promise.withResolvers<Awaited<ReturnType<CheckpointPersistenceClient['acquireCurrentExportLease']>>>();
+      const originalAcquire = CheckpointPersistenceClient.prototype.acquireCurrentExportLease;
+      const acquire = vi.spyOn(CheckpointPersistenceClient.prototype, 'acquireCurrentExportLease')
+        .mockImplementationOnce(async function(this: CheckpointPersistenceClient) {
+          const lease = await originalAcquire.call(this);
+          selected.resolve(lease);
+          if (boundary === 'before headers') await gate.promise;
+          return lease;
+        });
+      const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
+      /** Observe real server termination so an already-complete response cannot masquerade as cancellation. */
+      let cancelledResponseClosedBeforeFinish: boolean | undefined;
+      let observedExport = false;
+      const originalEmit = Server.prototype.emit;
+      const dispatch = vi.spyOn(Server.prototype, 'emit').mockImplementation(function(
+        this: Server, event: string | symbol, ...args: unknown[]
+      ): boolean {
+        if (event === 'request') {
+          const incoming = args[0] as IncomingMessage;
+          const response = args[1] as ServerResponse;
+          if (!observedExport && incoming.socket.localPort === server.port &&
+              incoming.url === '/api/export/latest') {
+            observedExport = true;
+            response.once('close', () => {
+              cancelledResponseClosedBeforeFinish = !response.writableFinished;
+            });
+          }
+        }
+        return Reflect.apply(originalEmit, this, [event, ...args]) as boolean;
+      });
+      const request = httpRequest(`http://127.0.0.1:${server.port}/api/export/latest`);
+      /** Client close is observed independently of server cleanup. */
+      const closed = new Promise<void>(done => request.once('close', done));
+      let receivedHeaders = false;
+      request.on('error', () => { /* Destroying the cancelled client may report ECONNRESET. */ });
+      request.on('response', response => {
+        receivedHeaders = true;
+        expect(response.statusCode).toBe(200);
+        response.destroy();
+      });
+      /** Snapshot every durable metadata row; export must not change the experiment. */
+      const metadata = (): unknown => {
+        const database = new Database(dbPath, { readonly: true });
+        try {
+          const tables = database.prepare(`SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name LIKE 'rust_%' ORDER BY name`).all() as Array<{ name: string }>;
+          return tables.map(({ name }) => ({ name, rows: database.prepare(
+            `SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`
+          ).all() }));
+        } finally { database.close(); }
+      };
+      /** Check exact source file bytes as well as filenames and SQLite references. */
+      const managedHashes = async (files: readonly string[]): Promise<string[]> => Promise.all(
+        files.map(async name => createHash('sha256').update(await readFile(join(managedDirectory, name))).digest('hex'))
+      );
+      try {
+        const before = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+          runId: string; generation: string; startupCheckpointId: string; configHash: string; seed: number;
+        };
+        const beforeMetadata = metadata();
+        const beforeFiles = (await readdir(managedDirectory)).sort();
+        const beforeHashes = await managedHashes(beforeFiles);
+        request.end();
+        const lease = await selected.promise;
+        expect(lease.descriptor.logicalRootSha256).toBe(before.startupCheckpointId);
+        if (boundary === 'before headers') request.destroy();
+        await closed;
+        expect(receivedHeaders).toBe(boundary === 'after headers');
+        gate.resolve();
+
+        const deadline = performance.now() + 2000;
+        let files: string[];
+        do {
+          files = (await readdir(managedDirectory)).sort();
+          if (release.mock.calls.length === 1 && JSON.stringify(files) === JSON.stringify(beforeFiles)) break;
+          await new Promise<void>(done => setTimeout(done, 10));
+        } while (performance.now() < deadline);
+        expect(files!).toEqual(beforeFiles);
+        expect(cancelledResponseClosedBeforeFinish).toBe(true);
+        expect(release).toHaveBeenCalledExactlyOnceWith(lease.operationId);
+        await release.mock.results[0]!.value;
+        expect(metadata()).toEqual(beforeMetadata);
+        expect(await managedHashes(beforeFiles)).toEqual(beforeHashes);
+        expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+          ok: true, runId: before.runId, generation: before.generation,
+          startupCheckpointId: before.startupCheckpointId, configHash: before.configHash, seed: before.seed
+        });
+
+        const fresh = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+        expect(fresh.status).toBe(200);
+        expect(fresh.headers.get('x-slither-checkpoint-id')).toBe(before.startupCheckpointId);
+        expect(fresh.headers.get('content-disposition')).toContain('-gen-1-v1.slither-save');
+        expect((await fresh.arrayBuffer()).byteLength).toBe(Number(fresh.headers.get('content-length')));
+        const retryDeadline = performance.now() + 2000;
+        do {
+          files = (await readdir(managedDirectory)).sort();
+          if (release.mock.calls.length === 2 && JSON.stringify(files) === JSON.stringify(beforeFiles)) break;
+          await new Promise<void>(done => setTimeout(done, 10));
+        } while (performance.now() < retryDeadline);
+        expect(files!).toEqual(beforeFiles);
+        expect(acquire).toHaveBeenCalledTimes(2);
+        expect(release).toHaveBeenCalledTimes(2);
+        await release.mock.results[1]!.value;
+        expect(metadata()).toEqual(beforeMetadata);
+        expect(await managedHashes(beforeFiles)).toEqual(beforeHashes);
+      } finally {
+        request.destroy();
+        gate.resolve();
+        try { await server.close(); }
+        finally {
+          dispatch.mockRestore();
+          acquire.mockRestore();
+          release.mockRestore();
+          await rm(root, { recursive: true, force: true });
+        }
+      }
+    }, 20_000
+  );
+
+  it.runIf(process.env['SLITHER_FULL_DOWNLOAD_TIMEOUT_TEST'] === '1')(
+    'releases a connected large download after the full no-progress deadline', async () => {
+      const archivePath = process.env['SLITHER_DOWNLOAD_TIMEOUT_ARCHIVE'];
+      if (!archivePath) throw new Error('SLITHER_DOWNLOAD_TIMEOUT_ARCHIVE must name a verified save over 50 MiB');
+      const archive = await stat(archivePath);
+      expect(archive.isFile()).toBe(true);
+      expect(archive.size).toBeGreaterThan(50 * 1024 * 1024);
+      const root = await mkdtemp(join(tmpdir(), 'slither-rust-stalled-export-'));
+      const dbPath = join(root, 'experiment.sqlite');
+      const managedDirectory = `${dbPath}.checkpoints`;
+      const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+        resume: 'fresh', seed: 41, dbPath, rustCalculationWorkers: 6 });
+      /** Observe server-side close even while the client refuses to drain buffered bytes. */
+      const terminal = Promise.withResolvers<{ finished: boolean; elapsedSinceProgressMs: number }>();
+      let observedExport = false;
+      let lastProgressAt = 0;
+      const originalEmit = Server.prototype.emit;
+      const dispatch = vi.spyOn(Server.prototype, 'emit').mockImplementation(function(
+        this: Server, event: string | symbol, ...args: unknown[]
+      ): boolean {
+        if (event === 'request') {
+          const incoming = args[0] as IncomingMessage;
+          const response = args[1] as ServerResponse;
+          if (!observedExport && incoming.socket.localPort === server.port &&
+              incoming.url === '/api/export/latest') {
+            observedExport = true;
+            const originalWrite = response.write;
+            response.write = function(...values: unknown[]): boolean {
+              lastProgressAt = performance.now();
+              return Reflect.apply(originalWrite, this, values) as boolean;
+            };
+            response.on('drain', () => { lastProgressAt = performance.now(); });
+            response.once('close', () => terminal.resolve({ finished: response.writableFinished,
+              elapsedSinceProgressMs: performance.now() - lastProgressAt }));
+          }
+        }
+        return Reflect.apply(originalEmit, this, [event, ...args]) as boolean;
+      });
+      const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
+      const request = httpRequest(`http://127.0.0.1:${server.port}/api/export/latest`);
+      request.on('error', () => { /* The timed-out server may reset the blocked client. */ });
+      /** Original headers arrive before deliberately stopping all client body reads. */
+      const headers = Promise.withResolvers<{ checkpointId: string; contentLength: number }>();
+      request.once('response', response => {
+        response.pause();
+        response.on('error', () => { /* Expected when the server ends an idle download. */ });
+        headers.resolve({ checkpointId: String(response.headers['x-slither-checkpoint-id']),
+          contentLength: Number(response.headers['content-length']) });
+      });
+      try {
+        const imported = await fetch(`http://127.0.0.1:${server.port}/api/import/archive`, {
+          method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save',
+            'Content-Length': String(archive.size) },
+          body: createReadStream(archivePath) as unknown as BodyInit, duplex: 'half'
+        } as RequestInit & { duplex: 'half' });
+        expect(imported.status).toBe(200);
+        const receipt = await imported.json() as { ok: boolean; runId: string; checkpointId: string };
+        expect(receipt.ok).toBe(true);
+        const before = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+          runId: string; configHash: string; completedStep: string;
+        };
+        request.end();
+        const advertised = await headers.promise;
+        expect(advertised.checkpointId).toBe(receipt.checkpointId);
+        expect(advertised.contentLength).toBeGreaterThan(50 * 1024 * 1024);
+        const result = await terminal.promise;
+        expect(result.finished).toBe(false);
+        expect(result.elapsedSinceProgressMs).toBeGreaterThanOrEqual(59_000);
+        expect(result.elapsedSinceProgressMs).toBeLessThan(70_000);
+        // Keep the non-reading client connected until the actual server timeout is observed.
+        request.destroy();
+        const cleanupDeadline = performance.now() + 2000;
+        let leftovers: string[];
+        do {
+          leftovers = (await readdir(managedDirectory)).filter(name =>
+            name.includes('export-inventory') || name.includes('slither-save') || name.includes('export-hof'));
+          if (release.mock.calls.length === 1 && leftovers.length === 0) break;
+          await new Promise<void>(done => setTimeout(done, 10));
+        } while (performance.now() < cleanupDeadline);
+        expect(leftovers!).toEqual([]);
+        expect(release).toHaveBeenCalledTimes(1);
+        await release.mock.results[0]!.value;
+        const after = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+          completedStep: string; generation: string;
+        };
+        expect(after).toMatchObject({ ok: true, runId: before.runId, configHash: before.configHash });
+        expect(BigInt(`0x${after.completedStep}`)).toBeGreaterThan(BigInt(`0x${before.completedStep}`));
+        console.log(JSON.stringify({ idleDownload: result, advertisedBytes: advertised.contentLength,
+          generationAfterTimeout: after.generation }));
+      } finally {
+        request.destroy();
+        try { await server.close(); }
+        finally {
+          dispatch.mockRestore();
+          release.mockRestore();
+          await rm(root, { recursive: true, force: true });
+        }
+      }
+    }, 90_000
+  );
 
   it('faults the old authority when an import commits but its reply is lost', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-lost-import-reply-'));
