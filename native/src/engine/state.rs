@@ -62,6 +62,8 @@ pub const CHECKPOINT_VERSION: u32 = 3;
 /// Next process-local identity assigned to a newly admitted authoritative world.
 static NEXT_WORLD_EPOCH: AtomicU64 = AtomicU64::new(1);
 
+// `try_update` is the newer spelling and is unavailable on Rust 1.92.
+#[allow(deprecated)]
 fn allocate_world_epoch() -> Result<u64, StateError> {
     NEXT_WORLD_EPOCH
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {

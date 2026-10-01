@@ -282,6 +282,8 @@ impl RunningAuthorityMetrics {
         let micros = u64::try_from(duration.as_micros()).unwrap_or(u64::MAX);
         saturating_increment(&self.step_timing_samples, 1);
         saturating_increment(&self.step_timing_total_micros, micros);
+        // Keep the pre-rename API for the supported Rust 1.92 toolchain.
+        #[allow(deprecated)]
         let _ = self.step_timing_max_micros.fetch_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
@@ -1355,6 +1357,8 @@ fn loop_state_from_code(code: u8) -> RunningAuthorityLoopState {
 }
 
 fn saturating_increment(counter: &AtomicU64, amount: u64) {
+    // `try_update` is the newer spelling and is unavailable on Rust 1.92.
+    #[allow(deprecated)]
     let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
         Some(value.saturating_add(amount))
     });

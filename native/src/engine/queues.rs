@@ -1331,6 +1331,8 @@ impl OutputQueue {
     }
 
     fn signal_change(&self) -> Result<(), EngineError> {
+        // Keep the pre-rename API for the supported Rust 1.92 toolchain.
+        #[allow(deprecated)]
         let _ = self
             .generation
             .fetch_update(Ordering::Release, Ordering::Relaxed, |value| {
