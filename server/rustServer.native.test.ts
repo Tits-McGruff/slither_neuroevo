@@ -18,6 +18,7 @@ import { startRustServer } from './rustServer.ts';
 import { WsHub } from './wsHub.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
+import type { RustArchiveWorkProgress } from './rustEngine/backgroundRuntime.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import { buildStackGraphSpec } from '../src/brains/stackBuilder.ts';
 import { compileGraph } from '../src/brains/graph/compiler.ts';
@@ -621,7 +622,7 @@ describeNetworkSuite('Rust server real sockets', () => {
     30_000
   );
 
-  it('streams, imports, and atomically activates one exact Rust save', async () => {
+  it.each([false, true])('streams, imports, and atomically activates one exact Rust save (phase trace=%s)', async trace => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-export-server-'));
     const dbPath = join(root, 'experiment.sqlite');
     const managedDirectory = `${dbPath}.checkpoints`;
@@ -631,6 +632,7 @@ describeNetworkSuite('Rust server real sockets', () => {
     let target: Awaited<ReturnType<typeof startRustServer>> | undefined;
     const peers: Peer[] = [];
     try {
+      vi.stubEnv('SLITHER_TRACE_ARCHIVE_PHASES', trace ? '1' : '0');
       const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         runId: string; startupCheckpointId: string; archiveWork: unknown;
         schedulerDroppedWallMicros: string; schedulerOverloaded: boolean;
@@ -681,10 +683,21 @@ describeNetworkSuite('Rust server real sockets', () => {
       } while (performance.now() < cleanupDeadline);
       expect(leftovers).toEqual([]);
       const afterExport = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
-        archiveWork: { kind: string; started: boolean; finished: boolean; completedBytes: string };
+        archiveWork: RustArchiveWorkProgress;
       };
       expect(afterExport.archiveWork).toMatchObject({ kind: 'export', started: true, finished: true });
       expect(BigInt(`0x${afterExport.archiveWork.completedBytes}`)).toBeGreaterThan(0n);
+      if (trace) {
+        const timings = afterExport.archiveWork.phaseTrace!;
+        expect(timings.truncated).toBe(false);
+        expect(timings.intervals.length).toBeLessThanOrEqual(4096);
+        expect(timings.intervals.every(interval => interval.finishedMicros !== undefined)).toBe(true);
+        const source = timings.intervals.find(interval => interval.phase === 'export-source-population')!;
+        const write = timings.intervals.find(interval => interval.phase === 'temporary-file-write')!;
+        const validation = timings.intervals.find(interval => interval.phase === 'validation')!;
+        expect(BigInt(`0x${source.finishedMicros}`)).toBeLessThanOrEqual(BigInt(`0x${write.startedMicros}`));
+        expect(BigInt(`0x${write.finishedMicros}`)).toBeLessThanOrEqual(BigInt(`0x${validation.startedMicros}`));
+      } else expect(afterExport.archiveWork.phaseTrace).toBeUndefined();
 
       const targetDbPath = join(root, 'target.sqlite');
       target = await startRustServer({
@@ -709,10 +722,19 @@ describeNetworkSuite('Rust server real sockets', () => {
         ok: true, runId: health.runId, generation: '0000000000000001', checkpointId: health.startupCheckpointId
       });
       const importedHealth = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
-        archiveWork: { kind: string; started: boolean; finished: boolean; completedBytes: string };
+        archiveWork: RustArchiveWorkProgress;
       };
       expect(importedHealth.archiveWork).toMatchObject({ kind: 'import', started: true, finished: true });
       expect(BigInt(`0x${importedHealth.archiveWork.completedBytes}`)).toBeGreaterThan(0n);
+      if (trace) {
+        const timings = importedHealth.archiveWork.phaseTrace!;
+        expect(timings.truncated).toBe(false);
+        expect(timings.intervals.every(interval => interval.finishedMicros !== undefined)).toBe(true);
+        expect(new Set(timings.intervals.map(interval => interval.phase))).toEqual(new Set([
+          'import', 'validation', 'temporary-file-write', 'numeric-decode', 'checkpoint-restore',
+          'managed-publication', 'candidate-construction'
+        ]));
+      } else expect(importedHealth.archiveWork.phaseTrace).toBeUndefined();
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
       expect(viewer.socket.readyState).toBe(WebSocket.OPEN);
       expect(viewer.packets.find(packet => packet['type'] === 'stateReplaced')).toMatchObject({
@@ -783,6 +805,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       await target?.close();
       await server.close();
       await rm(root, { recursive: true, force: true });
+      vi.unstubAllEnvs();
     }
   }, 30_000);
 

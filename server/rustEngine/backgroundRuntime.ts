@@ -167,6 +167,28 @@ export interface RustArchiveWorkProgress {
   started: boolean;
   /** Whether the native task reached its terminal callback. */
   finished: boolean;
+  /** Opt-in bounded monotonic intervals, absent during normal operation. */
+  phaseTrace?: RustArchivePhaseDiagnostics | null;
+}
+
+/** Archive-job timings enabled explicitly with SLITHER_TRACE_ARCHIVE_PHASES=1. */
+export interface RustArchivePhaseDiagnostics {
+  /** Current elapsed job-clock microseconds, for aligning external memory samples. */
+  elapsedMicros: U64Hex;
+  /** True means the fixed interval cap was reached; measurements must reject partial traces. */
+  truncated: boolean;
+  /** At most 4096 fixed-name intervals; nested phases may overlap. */
+  intervals: RustArchivePhaseTiming[];
+}
+
+/** One phase boundary; absent finish indicates a stage still in progress. */
+export interface RustArchivePhaseTiming {
+  /** Fixed Rust stage name with no filenames or owner data. */
+  phase: string;
+  /** Microseconds since this exact job was submitted. */
+  startedMicros: U64Hex;
+  /** Microseconds at guard completion, including error/unwind cleanup. */
+  finishedMicros?: U64Hex | null;
 }
 
 /** Small ready-file facts returned by Rust; archive bytes remain on disk. */

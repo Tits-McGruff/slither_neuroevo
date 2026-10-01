@@ -23,7 +23,9 @@ use super::graph::{
 };
 use super::state::{NormalizedSettingValue, StateAdmissionPolicy};
 use super::step_config::typescript_default_settings;
-use super::work_progress::{advance as advance_work_progress, ProgressReader};
+use super::work_progress::{
+    advance as advance_work_progress, ArchivePhase, ArchivePhaseScope, ProgressReader,
+};
 use flate2::read::MultiGzDecoder;
 use rusqlite::{Connection, OpenFlags, MAIN_DB};
 use serde::de::{self, DeserializeOwned, SeqAccess, Visitor};
@@ -599,6 +601,7 @@ pub fn prepare_import_archive(
     admission_policy: &StateAdmissionPolicy,
     memory_ceiling_bytes: usize,
 ) -> Result<PreparedImportArchive, CheckpointError> {
+    let _phase = ArchivePhaseScope::enter(ArchivePhase::Import);
     if upload_looks_like_legacy_json(archive_path)? {
         return prepare_legacy_json_import(
             archive_path,
@@ -622,6 +625,7 @@ pub fn prepare_import_archive(
     let descriptor = publication_descriptor_for_restored(&candidate.restored, operation_id);
     let managed_directory = managed_directory.canonicalize()?;
     let final_path = managed_directory.join(&descriptor.relative_filename);
+    let publication_phase = ArchivePhaseScope::enter(ArchivePhase::ManagedPublication);
     if final_path.exists() {
         let existing = super::checkpoint::restore_checkpoint(
             &final_path,
@@ -644,12 +648,15 @@ pub fn prepare_import_archive(
         sync_parent_directory(&managed_directory)?;
     }
     fs::remove_dir(&candidate.stage_directory)?;
+    drop(publication_phase);
+    let construction_phase = ArchivePhaseScope::enter(ArchivePhase::CandidateConstruction);
     let transition = super::fresh_run::prepare_stage6a_p0_validated_import(
         candidate.restored,
         descriptor.clone(),
         memory_ceiling_bytes,
     )
     .map_err(|error| CheckpointError::format("IMPORT_CANDIDATE", error.to_string()))?;
+    drop(construction_phase);
     let startup_metadata_json = transition
         .startup_metadata_json()
         .map_err(|error| CheckpointError::format("IMPORT_METADATA", error))?;
@@ -687,6 +694,7 @@ fn prepare_legacy_json_import(
     legacy_seed: u32,
     memory_ceiling_bytes: usize,
 ) -> Result<PreparedImportArchive, CheckpointError> {
+    let decode_phase = ArchivePhaseScope::enter(ArchivePhase::LegacyDecode);
     validate_operation_id(operation_id)?;
     let metadata = fs::symlink_metadata(archive_path)?;
     if metadata.file_type().is_symlink()
@@ -713,16 +721,21 @@ fn prepare_legacy_json_import(
             format!("legacy population JSON has trailing data: {error}"),
         )
     })?;
+    drop(decode_phase);
+    let construction_phase = ArchivePhaseScope::enter(ArchivePhase::CandidateConstruction);
     let mut transition = prepare_legacy_population_transition(
         legacy,
         legacy_run_id,
         legacy_seed,
         memory_ceiling_bytes,
     )?;
+    drop(construction_phase);
     let operation = CheckpointOperationId::parse(operation_id.to_owned())?;
+    let publication_phase = ArchivePhaseScope::enter(ArchivePhase::ManagedPublication);
     let descriptor = transition
         .publish_checkpoint(managed_directory, operation)
         .map_err(|error| CheckpointError::format("LEGACY_IMPORT_CHECKPOINT", error.to_string()))?;
+    drop(publication_phase);
     let startup_metadata_json = transition
         .startup_metadata_json()
         .map_err(|error| CheckpointError::format("LEGACY_IMPORT_METADATA", error))?;
@@ -1632,6 +1645,7 @@ fn validate_import_candidate(
     graph_limits: &GraphLimits,
     admission_policy: &StateAdmissionPolicy,
 ) -> Result<ValidatedImportCandidate, CheckpointError> {
+    let _phase = ArchivePhaseScope::enter(ArchivePhase::Validation);
     validate_operation_id(operation_id)?;
     let metadata = fs::symlink_metadata(archive_path)?;
     if metadata.file_type().is_symlink()
@@ -1751,6 +1765,7 @@ pub fn compose_export_archive(
     graph_limits: &GraphLimits,
     admission_policy: &StateAdmissionPolicy,
 ) -> Result<ExportArchiveDescriptor, CheckpointError> {
+    let _phase = ArchivePhaseScope::enter(ArchivePhase::Export);
     validate_operation_id(operation_id)?;
     if checkpoint.operation_id.as_str() == operation_id {
         return Err(CheckpointError::format(
@@ -1765,6 +1780,7 @@ pub fn compose_export_archive(
         parse_hex_u64(&checkpoint.stored_byte_count_hex, "checkpoint stored bytes")?,
         "checkpoint",
     )?;
+    let source_population_phase = ArchivePhaseScope::enter(ArchivePhase::ExportSourcePopulation);
     let restored = restore_committed_checkpoint(
         &managed_directory,
         checkpoint,
@@ -1778,6 +1794,10 @@ pub fn compose_export_archive(
             "restored checkpoint identity changed before export",
         ));
     }
+    // The verified source population is no longer needed. Release it before
+    // composition and post-write validation allocate a second restored reader.
+    drop(restored);
+    drop(source_population_phase);
     let checkpoint_layout =
         validated_checkpoint_archive_layout(&checkpoint_path, checkpoint_limits)?;
     if checkpoint_layout.manifest.logical_root_sha256 != checkpoint.logical_root_sha256
@@ -1967,6 +1987,7 @@ pub fn compose_export_archive(
         ));
     }
 
+    let write_phase = ArchivePhaseScope::enter(ArchivePhase::TemporaryFileWrite);
     let output = OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -2020,6 +2041,7 @@ pub fn compose_export_archive(
         ));
     }
     drop(output);
+    drop(write_phase);
     // The full import validator below already rescans every archive role,
     // checks its hashes and lengths, and restores the checkpoint. A separate
     // post-write scan would read the entire save a third time.
@@ -2039,9 +2061,11 @@ pub fn compose_export_archive(
             "full flat-save validation returned a different identity",
         ));
     }
+    let publication_phase = ArchivePhaseScope::enter(ArchivePhase::ManagedPublication);
     rename_noreplace(&partial_path, &final_path)?;
     scratch.track(final_path.clone());
     sync_parent_directory(&managed_directory)?;
+    drop(publication_phase);
     scratch
         .paths
         .retain(|path| path != &partial_path && path != &final_path);
@@ -2593,6 +2617,7 @@ fn extract_and_validate_import_roles(
     operation_id: &str,
     checkpoint_limits: &CheckpointLimits,
 ) -> Result<Option<ImportInventoryDescriptor>, CheckpointError> {
+    let _phase = ArchivePhaseScope::enter(ArchivePhase::TemporaryFileWrite);
     let file = File::open(archive_path)?;
     let mut archive = TarArchive::new(BufReader::new(file));
     let mut entries = archive.entries()?;

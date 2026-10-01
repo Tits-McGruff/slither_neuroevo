@@ -18,7 +18,7 @@ use super::state::{
     PopulationGenome, RngStateBundle, RunIdentity, StateAdmissionPolicy, StateCandidate,
     StateError, WorldState, CHECKPOINT_VERSION,
 };
-use super::work_progress::advance as advance_work_progress;
+use super::work_progress::{advance as advance_work_progress, ArchivePhase, ArchivePhaseScope};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::error::Error;
@@ -1448,6 +1448,7 @@ pub fn restore_checkpoint(
     graph_limits: &GraphLimits,
     admission_policy: &StateAdmissionPolicy,
 ) -> Result<RestoredCheckpoint, CheckpointError> {
+    let _phase = ArchivePhaseScope::enter(ArchivePhase::CheckpointRestore);
     validate_limits(limits)?;
     let minimum_workspace = checkpoint_workspace_bound(limits, 0)?;
     if minimum_workspace > admission_policy.memory_ceiling_bytes {
@@ -3130,6 +3131,7 @@ fn select_numeric_reader_candidate<R: Read>(
     limits: &CheckpointLimits,
     artifacts: &mut TemporaryArtifacts,
 ) -> Result<NumericCandidate, CheckpointError> {
+    let _phase = ArchivePhaseScope::enter(ArchivePhase::NumericEncode);
     let raw_bytes = usize_to_u64(total_floats, "numeric count")?
         .checked_mul(4)
         .ok_or_else(|| CheckpointError::format("COUNT_OVERFLOW", "numeric byte count overflows"))?;
@@ -3581,6 +3583,7 @@ pub(super) fn decode_adaptive_numeric_reader<R: Read, W: Write>(
     expected_sha256: [u8; 32],
     output: &mut W,
 ) -> Result<(), CheckpointError> {
+    let _phase = ArchivePhaseScope::enter(ArchivePhase::NumericDecode);
     let expected_floats = u64_to_usize(expected_floats, "adaptive numeric float count")?;
     if encoding == NumericEncoding::RawF32LeV1
         && stored_bytes
@@ -3751,6 +3754,7 @@ fn decode_numeric_role(
     segment_length: usize,
     expected_sha256: [u8; 32],
 ) -> Result<Vec<Box<[f32]>>, CheckpointError> {
+    let _phase = ArchivePhaseScope::enter(ArchivePhase::NumericDecode);
     let expected_bytes = usize_to_u64(expected_floats, "numeric float count")?
         .checked_mul(4)
         .ok_or_else(|| {

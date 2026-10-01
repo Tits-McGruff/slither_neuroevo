@@ -29,7 +29,7 @@ use crate::engine::fresh_run::{
 use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec};
 use crate::engine::run_start::PendingRunStartTransition;
 use crate::engine::runtime::EngineRuntime;
-use crate::engine::work_progress::ProgressScope;
+use crate::engine::work_progress::{ArchivePhaseTrace, ProgressScope};
 use crate::napi_engine::{
     background_generation_event_to_napi, background_generation_health_to_napi, bounded_js_string,
     bounded_object_string, checkpoint_descriptor_from_napi_object, checkpoint_descriptor_to_napi,
@@ -180,6 +180,23 @@ pub struct ArchiveWorkProgress {
     pub completed_bytes: String,
     pub started: bool,
     pub finished: bool,
+    pub phase_trace: Option<ArchivePhaseDiagnostics>,
+}
+
+/// Optional timing facts; populated only with SLITHER_TRACE_ARCHIVE_PHASES=1.
+#[napi(object)]
+pub struct ArchivePhaseDiagnostics {
+    pub elapsed_micros: String,
+    pub truncated: bool,
+    pub intervals: Vec<ArchivePhaseTiming>,
+}
+
+/// One bounded phase interval, including still-open outer stages.
+#[napi(object)]
+pub struct ArchivePhaseTiming {
+    pub phase: String,
+    pub started_micros: String,
+    pub finished_micros: Option<String>,
 }
 
 struct ArchiveProgressJob {
@@ -188,6 +205,7 @@ struct ArchiveProgressJob {
     completed_bytes: Arc<AtomicU64>,
     started: AtomicBool,
     finished: AtomicBool,
+    phase_trace: Option<Arc<ArchivePhaseTrace>>,
 }
 
 impl ArchiveProgressJob {
@@ -198,6 +216,9 @@ impl ArchiveProgressJob {
             completed_bytes: Arc::new(AtomicU64::new(0)),
             started: AtomicBool::new(false),
             finished: AtomicBool::new(false),
+            phase_trace: (std::env::var_os("SLITHER_TRACE_ARCHIVE_PHASES").as_deref()
+                == Some(std::ffi::OsStr::new("1")))
+            .then(|| Arc::new(ArchivePhaseTrace::new())),
         }
     }
 
@@ -208,6 +229,21 @@ impl ArchiveProgressJob {
             completed_bytes: u64_hex(self.completed_bytes.load(Ordering::Relaxed)),
             started: self.started.load(Ordering::Acquire),
             finished: self.finished.load(Ordering::Acquire),
+            phase_trace: self.phase_trace.as_ref().map(|trace| {
+                let (elapsed, truncated, intervals) = trace.snapshot();
+                ArchivePhaseDiagnostics {
+                    elapsed_micros: u64_hex(elapsed),
+                    truncated,
+                    intervals: intervals
+                        .into_iter()
+                        .map(|interval| ArchivePhaseTiming {
+                            phase: interval.phase.name().to_owned(),
+                            started_micros: u64_hex(interval.started_micros),
+                            finished_micros: interval.finished_micros.map(u64_hex),
+                        })
+                        .collect(),
+                }
+            }),
         }
     }
 }
@@ -372,7 +408,10 @@ impl Task for PrepareExportArchiveTask {
     fn compute(&mut self) -> Result<Self::Output> {
         catch_background_task_panic("archive export", Some(&self.runtime), || {
             self.progress.started.store(true, Ordering::Release);
-            let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
+            let _progress = ProgressScope::enter_with_trace(
+                Arc::clone(&self.progress.completed_bytes),
+                self.progress.phase_trace.clone(),
+            );
             let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
                 Error::new(
                     Status::GenericFailure,
@@ -468,7 +507,10 @@ impl Task for PrepareImportArchiveTask {
     fn compute(&mut self) -> Result<Self::Output> {
         catch_background_task_panic("archive import preparation", Some(&self.runtime), || {
             self.progress.started.store(true, Ordering::Release);
-            let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
+            let _progress = ProgressScope::enter_with_trace(
+                Arc::clone(&self.progress.completed_bytes),
+                self.progress.phase_trace.clone(),
+            );
             let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
                 Error::new(
                     Status::GenericFailure,
@@ -543,7 +585,10 @@ impl Task for ValidateImportArchiveTask {
     fn compute(&mut self) -> Result<Self::Output> {
         catch_background_task_panic("archive import validation", Some(&self.runtime), || {
             self.progress.started.store(true, Ordering::Release);
-            let _progress = ProgressScope::enter(Arc::clone(&self.progress.completed_bytes));
+            let _progress = ProgressScope::enter_with_trace(
+                Arc::clone(&self.progress.completed_bytes),
+                self.progress.phase_trace.clone(),
+            );
             let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
                 Error::new(
                     Status::GenericFailure,

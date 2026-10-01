@@ -1661,3 +1661,22 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   compact report. These eight-second fixture rounds and Python timings are
   size/codec evidence, not Rust/Oxygen timing, total phase-memory or precise
   browser-heap acceptance; the remaining Stage 7/8 gates stay open.
+
+- 2026-10-02 Added opt-in bounded archive-phase intervals to real Rust jobs
+  (`SLITHER_TRACE_ARCHIVE_PHASES=1`), including nested decode, validation,
+  publication and candidate construction. Ordinary jobs omit the trace; the
+  4,096-record cap never interrupts archive work. Export now drops its fully
+  validated source population before assembly and post-write validation instead
+  of retaining two restored populations together. Exact real-socket roundtrips
+  passed with profiling both disabled and enabled; 471 Rust tests plus the
+  compile-fail doctest, 108 native/MT tests, TypeScript, ESLint, Vite, rustfmt
+  and Clippy passed. A separate production child process imported and exported
+  an evolved 90,862,592-byte P2 save with identical SHA-256; 96 memory samples
+  and the worker-request boundaries are retained in
+  `archive-phases-4cd2287-20261002.json`. Health p95 was 18.32 ms. Short phases
+  without a matched sample remain explicitly unknown. This is preparatory
+  phase evidence, not total I/O overhead, all legacy readers, player latency or
+  complete A4 acceptance. A rejected foreign-build probe exposed premature
+  Hall-of-Fame publication during import validation; fixing that rejection
+  cleanup is the next slice. Disposable profile processes/databases/exports
+  were stopped/removed; only compact reports are retained.
