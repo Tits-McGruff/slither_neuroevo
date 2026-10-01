@@ -1363,3 +1363,15 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   addon and trainer scratch were removed after verified copies; game and
   measurement ports are closed. Complete LAN P0/P1/P2, player lifecycle and
   browser rendering/archive-heap acceptance remain open.
+
+- 2026-10-01 The loaded player probe now retains each requested snake/token
+  fingerprint and its actual reclaim-result/assignment pair before checking
+  identity or token rotation. A rejected token triggers one explicit fresh
+  join, recorded separately from same-snake reclaim; packets from a replaced
+  socket cannot alter the current client identity. A real Rust socket test
+  verifies same-snake reclaim followed by explicit rejection/fresh join after
+  a durable generation change. Five correlation tests, category completeness,
+  19 real-server tests, TypeScript and full ESLint passed; the existing full
+  upload-deadline test remains opt-in. The original long-run mismatch still
+  requires an instrumented loaded run; this checkpoint changes measurement
+  correlation, not production controller behavior.

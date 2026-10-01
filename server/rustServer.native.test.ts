@@ -12,6 +12,7 @@ import { PlayerActionPump } from '../src/net/playerActionPump.ts';
 import { createWsClient, type AssignMsg, type SensorsMsg, type WelcomeMsg, type WsClient } from '../src/net/wsClient.ts';
 import { run as runStage6RuntimeProbe } from '../scripts/stage6/runtime-integration-probe.ts';
 import { measureTurnResponses } from '../scripts/stage7/lan-turn-response.ts';
+import { PlayerReconnectExchange } from '../scripts/stage7/player-reconnect-exchange.ts';
 import { startRustServer } from './rustServer.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
@@ -1318,6 +1319,69 @@ describeNetworkSuite('Rust server real sockets', () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it('keeps same-snake reclaim distinct from explicit fresh join after a durable generation change', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-reclaim-generation-'));
+    const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 91,
+      rustCalculationWorkers: 4, dbPath: join(root, 'experiment.sqlite') });
+    const peers: Peer[] = [];
+    try {
+      const viewer = await connect(server.port, 'ui'); peers.push(viewer);
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 3, simSpeed: 0.1 },
+        updates: [{ path: 'generationSeconds', value: 8 }, { path: 'pelletCountTarget', value: 100 },
+          { path: 'baselineBots.count', value: 0 }],
+        graphSpec: buildStackGraphSpec({ hiddenLayers: 1, neurons1: 2, neurons2: 2,
+          neurons3: 2, neurons4: 2, neurons5: 2 },
+        { brain: { inSize: 83, outSize: 2, useMlp: false } }) }));
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      /** Drive the exact measurement exchange through real result/assignment packets. */
+      const claim = async (prior?: { snakeId: number; token: string }): Promise<{ peer: Peer; exchange: PlayerReconnectExchange }> => {
+        const peer = await connect(server.port, 'ui'); peers.push(peer);
+        const exchange = new PlayerReconnectExchange(prior?.snakeId, prior?.token);
+        peer.socket.on('message', (data, binary) => {
+          if (binary || exchange.record.failure) return;
+          try {
+            const message = JSON.parse(data.toString()) as Record<string, unknown>;
+            if (exchange.consume(message)) peer.socket.send(JSON.stringify({
+              type: 'join', mode: 'player', name: 'GenerationReclaimProbe' }));
+          } catch { /* The exchange retains its failed invariant for the bounded assertion below. */ }
+        });
+        peer.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'GenerationReclaimProbe',
+          ...(prior ? { resumeToken: prior.token } : {}) }));
+        await until(peer, () => exchange.ready || exchange.record.failure !== undefined);
+        expect(exchange.record.failure).toBeUndefined();
+        expect(exchange.ready).toBe(true);
+        return { peer, exchange };
+      };
+      const first = await claim();
+      expect(first.exchange.record.outcome).toBe('fresh');
+      await new Promise<void>(done => { first.peer.socket.once('close', done); first.peer.socket.close(); });
+      const original = first.peer.packets.findLast(packet => packet['type'] === 'assign')!;
+      const same = await claim({ snakeId: Number(original['snakeId']), token: String(original['resumeToken']) });
+      expect(same.exchange.record.outcome).toBe('sameSnakeReclaim');
+      await new Promise<void>(done => { same.peer.socket.once('close', done); same.peer.socket.close(); });
+      const before = same.peer.packets.findLast(packet => packet['type'] === 'assign')!;
+      const initial = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as { generation: string };
+      viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'advance-reclaim-generation',
+        updates: [{ path: 'simSpeed', value: 12 }] }));
+      await until(viewer, () => viewer.packets.some(packet =>
+        packet['type'] === 'settingsApplied' && packet['requestId'] === 'advance-reclaim-generation'));
+      expect(viewer.packets.findLast(packet => packet['requestId'] === 'advance-reclaim-generation'))
+        .toMatchObject({ applied: true });
+      await healthUntil(server.port, value => BigInt(`0x${String(value['generation'])}`) > BigInt(`0x${initial.generation}`));
+      const replacement = await claim({ snakeId: Number(before['snakeId']), token: String(before['resumeToken']) });
+      expect(replacement.exchange.record.outcome).toBe('freshAfterRejectedReclaim');
+      expect(replacement.exchange.record.packets[0]).toMatchObject({ type: 'reclaimResult', reclaimed: false });
+      expect(replacement.exchange.record.packets.at(-1)?.snakeId).not.toBe(Number(before['snakeId']));
+      expect(replacement.exchange.record.freshJoinRequested).toBe(true);
+    } finally {
+      for (const peer of peers) peer.socket.terminate();
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 15_000);
 
   it('correlates client steering reversals with real Rust observations for player and bot leases', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-lan-turn-'));
