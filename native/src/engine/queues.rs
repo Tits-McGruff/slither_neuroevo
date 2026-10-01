@@ -1078,11 +1078,13 @@ impl OutputQueue {
         self.replace_status(ReplaceableStats::Running(event))
     }
 
-    /// Display copies yield to already queued priority output and authority work.
+    /// Display copies yield to queued priority output and terminal closure.
+    /// A reply reservation belongs to an unfinished command or step; it cannot
+    /// change the independent cache's preceding committed frame. Blocking on
+    /// that reservation would starve viewers throughout sustained long steps.
     pub(crate) fn display_copy_blocked(&self) -> bool {
         let state = lock_recover(&self.state);
-        state.authority_reply_reserved
-            || state.terminal != OutputTerminalState::Open
+        state.terminal != OutputTerminalState::Open
             || !state.reliable.is_empty()
             || !state.discrete.is_empty()
     }

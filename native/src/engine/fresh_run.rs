@@ -52,6 +52,14 @@ pub const STAGE6A_P0_BASELINE_COUNT: usize = 10;
 const MAXIMUM_FRESH_RUN_POPULATION_COUNT: usize = 300;
 /// Largest baseline population admitted by the existing settings contract.
 const MAXIMUM_FRESH_RUN_BASELINE_COUNT: usize = 120;
+/// Aggregate body storage charged by state admission before any fresh authority activates.
+/// This exceeds the historical 200,000-segment grid failure while remaining a finite
+/// resource ceiling; the per-snake `snakeMaxLen` setting is independently enforced.
+const MAXIMUM_RUNNING_BODY_POINTS: usize = 1_000_000;
+/// Aggregate pellet storage, including ambient food, boost trails and complete corpses.
+/// The 25,000 ambient target plus a full maximum-snake batch of 420-pellet corpses
+/// fits this allowance. Further accumulation still fails atomically at this bound.
+const MAXIMUM_RUNNING_PELLETS: usize = 250_000;
 /// Exact packed Float32 parameters in the current default graph.
 pub const STAGE6A_P0_PARAMETERS_PER_GENOME: usize = 13_458;
 /// Exact recurrent Float32 values per current default brain.
@@ -507,8 +515,8 @@ fn stage6a_p0_config(
         baseline_count,
         max_world_snakes: population_count + baseline_count + 64,
         max_non_population_brains: 64,
-        max_body_points: 100_000,
-        max_pellets: 25_000,
+        max_body_points: MAXIMUM_RUNNING_BODY_POINTS,
+        max_pellets: MAXIMUM_RUNNING_PELLETS,
         spatial_index_bytes: 256 * MIB,
         worker_scratch_bytes: 512 * MIB,
         checkpoint_scratch_bytes: 512 * MIB,
@@ -1314,6 +1322,53 @@ mod tests {
         assert!(!transition.checkpoint_published());
         assert!(!transition.authority_published());
         assert_eq!(transition.snake_count(), 0);
+    }
+
+    #[test]
+    fn maximum_ambient_target_preserves_complete_death_effects_and_next_step() {
+        let pending = activate_pending_run_start(
+            prepare_stage6a_p0_fresh_run_with_settings(
+                request(42),
+                &[
+                    FreshRunSettingUpdate {
+                        path: "snakeCount".into(),
+                        value: 1.0,
+                    },
+                    FreshRunSettingUpdate {
+                        path: "baselineBots.count".into(),
+                        value: 0.0,
+                    },
+                    FreshRunSettingUpdate {
+                        path: "pelletCountTarget".into(),
+                        value: 25_000.0,
+                    },
+                ],
+            )
+            .unwrap(),
+            "maximum-ambient-death",
+            "112233445566778899aabbccddeeff00",
+        );
+        let mut frame = Vec::new();
+        let initial = pending.pack_initial_frame_v1(&mut frame).unwrap();
+        assert_eq!(initial.pellets, 25_000);
+        assert_eq!(initial.alive_snakes, 1);
+        let snake_id = f32::from_le_bytes(frame[28..32].try_into().unwrap()) as u32;
+        let mut running = pending
+            .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+            .unwrap();
+        let (death, effective_step) = running
+            .apply_god_mode_kill(snake_id)
+            .expect("the supported ambient target must leave space for the full normal corpse");
+        assert!(death.pellets_dropped > 0);
+        assert_eq!(effective_step, 1);
+        let mut frame = Vec::with_capacity(running.admitted_frame_bytes());
+        let after_death = running.pack_display_into(1, &mut frame).unwrap();
+        assert_eq!(after_death.frame.alive_snakes, 0);
+        assert_eq!(after_death.frame.pellets, 25_000 + death.pellets_dropped);
+        assert!(matches!(
+            running.service_after_command_drain(17, SchedulerServiceMode::Background, None).unwrap(),
+            RunningAuthorityLoopProgress::Published { publication, .. } if publication.completed_step == 1
+        ));
     }
 
     #[test]

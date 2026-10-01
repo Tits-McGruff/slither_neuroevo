@@ -87,6 +87,15 @@ it parallelizes sensing and brain evaluation while keeping brain-state and
 physics commits ordered. This is separate from the reference server's
 `--mt-workers` option.
 
+New runs, Apply and reset, New Run and legacy population conversions admit
+bounded storage for **1,000,000 total body points** and **250,000 total pellets**.
+The per-snake **Max length** setting remains separate from the aggregate body
+limit. The ambient target can reach 25,000 pellets while leaving room for normal
+corpse and boost pellets. State admission charges the declared world and frame
+storage before activation; exceeding a runtime resource ceiling rejects the
+complete step. Existing exact checkpoints retain their originally admitted
+limits. Apply and reset creates a new boundary with the current allowances.
+
 For a managed Rust database, latest startup validates the current checkpoint
 and, if necessary, recovers from the newest valid retained boundary under a new
 provenance-labelled branch. After an application rebuild, `--resume latest`

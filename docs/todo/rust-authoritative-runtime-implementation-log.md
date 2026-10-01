@@ -1455,3 +1455,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   retained reports; service/update/backup/recovery instructions remain present.
   This documentation checkpoint does not qualify laptop/P4 or browser archive
   memory/usability and does not declare final production acceptance.
+
+- 2026-10-01 Dense-world preparation exposed two production capacity defects:
+  the inherited 100,000-point body allowance could not reach P4, and the 25,000
+  pellet allowance equalled the supported ambient target, leaving no space for
+  an ordinary corpse. New authorities now admit 1,000,000 body points and
+  250,000 pellets, charged with their frame storage before activation; exact
+  older checkpoints preserve their limits. A regression reproduces the old
+  corpse failure and verifies the complete death plus the next ordinary step.
+  Long steps also starved frames by reserving an eventual reply throughout
+  computation. The preceding committed frame can now be copied during that
+  reservation while queued replies and terminal closure still take priority;
+  its red/green regression preserves those ordering and immutable-cache rules.
+  All 463 release Rust tests, the compile-fail doctest, rustfmt, Clippy,
+  TypeScript, ESLint and 33 real-server/frame contracts passed (one opt-in
+  upload-deadline test skipped). The bounded production capacity runner counts
+  actual adjacent-point segments, with live health/queue brackets, and requires
+  further frames beyond 200,000 segments. P4 timing/LAN/browser and final
+  acceptance remain separate gates.

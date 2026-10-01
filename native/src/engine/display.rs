@@ -401,6 +401,58 @@ mod tests {
     }
 
     #[test]
+    fn committed_frame_remains_readable_while_next_step_reserves_its_reply() {
+        let cache = RunningDisplayCache::new(32).unwrap();
+        {
+            let mut retained = cache.cache.lock().unwrap();
+            retained.bytes.resize(32, 9);
+            retained.status = Some(status(2));
+        }
+        let queue = OutputQueue::new(
+            OutputLimits {
+                max_reliable: 4,
+                max_reliable_owned_bytes: 1024,
+                max_discrete: 1,
+                max_discrete_owned_bytes: 1024,
+                max_total_owned_bytes: 2048,
+                max_event_owned_bytes: 1024,
+                max_frame_connections: 1,
+            },
+            Arc::new(NoopWakeSink),
+        );
+        // Every background step reserves an eventual reply while it computes.
+        // The preceding committed frame is independent of that unpublished step.
+        let reply = queue.reserve_authority_reply(0).unwrap();
+        let mut send = [17; 32];
+        assert_eq!(
+            cache
+                .copy_latest(&mut send, 0, || !queue.display_copy_blocked())
+                .unwrap(),
+            FrameCopyResult::Copied(status(2))
+        );
+        assert_eq!(send, [9; 32]);
+        reply.publish(ReliableEvent::Started).unwrap();
+        send.fill(17);
+        assert_eq!(
+            cache
+                .copy_latest(&mut send, 0, || !queue.display_copy_blocked())
+                .unwrap(),
+            FrameCopyResult::Busy
+        );
+        assert_eq!(send, [17; 32]);
+        assert_eq!(
+            queue.drain(1, 1024).events,
+            vec![CompletedEvent::Reliable(ReliableEvent::Started)]
+        );
+        assert_eq!(
+            cache
+                .copy_latest(&mut send, 0, || !queue.display_copy_blocked())
+                .unwrap(),
+            FrameCopyResult::Copied(status(2))
+        );
+    }
+
+    #[test]
     fn cache_cannot_advance_between_priority_admission_and_copy() {
         let cache = RunningDisplayCache::new(32).unwrap();
         {
