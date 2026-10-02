@@ -2297,6 +2297,87 @@ mod task_panic_tests {
         assert_progress_scope_released();
     }
 
+    /// Real partial publication rejects before slot installation; panic also faults the owner.
+    /// A new task can reuse the valid unreferenced final without altering the original upload.
+    #[test]
+    fn import_preparation_task_partial_publication_rejects_and_retries() {
+        use crate::engine::task_panic_fixture::PublicationIoErrorInjection;
+
+        let source = TaskFiles::new();
+        let checkpoint = source.checkpoint();
+        let archive = source.archive(&checkpoint);
+        let retained = fs::read(&archive).unwrap();
+        let checkpoint_bytes = fs::read(source.0.join(&checkpoint.relative_filename)).unwrap();
+        for panic in [false, true] {
+            let target = TaskFiles::new();
+            let prepared = PreparedImportSlot::new();
+            let make_task =
+                |runtime: &Arc<EngineRuntime>, operation: &str| PrepareImportArchiveTask {
+                    runtime: Arc::clone(runtime),
+                    archive_path: archive.clone(),
+                    scratch_directory: target.0.clone(),
+                    managed_directory: target.0.clone(),
+                    operation_id: operation.to_owned(),
+                    legacy_run_id: "unused-exact-import".to_owned(),
+                    legacy_seed: 0,
+                    calculation_workers: 1,
+                    prepared: prepared.clone(),
+                    active: Arc::new(AtomicBool::new(true)),
+                    progress: Arc::new(ArchiveProgressJob::new(operation.to_owned(), "import")),
+                };
+            let runtime = running_test_runtime();
+            let mut task = make_task(&runtime, &"c".repeat(32));
+            if panic {
+                let injection = PanicInjection::arm(PanicPoint::ImportFilePublished);
+                assert_task_panic(
+                    task.compute(),
+                    "archive import preparation",
+                    &injection,
+                    &runtime,
+                );
+            } else {
+                let injection = PublicationIoErrorInjection::arm();
+                let error = match task.compute() {
+                    Err(error) => error,
+                    Ok(_) => panic!("publication must reject"),
+                };
+                assert!(injection.reached());
+                assert!(error
+                    .reason
+                    .contains("injected import publication I/O error"));
+                assert!(runtime.health().fault.is_none());
+                runtime.request_stop();
+                runtime.join().unwrap();
+            }
+            assert!(!prepared.is_some());
+            assert_eq!(target.names(), vec![checkpoint.relative_filename.clone()]);
+            assert_eq!(fs::read(&archive).unwrap(), retained);
+            assert_eq!(
+                fs::read(target.0.join(&checkpoint.relative_filename)).unwrap(),
+                checkpoint_bytes
+            );
+            assert_progress_scope_released();
+
+            let restarted = running_test_runtime();
+            let mut retry = make_task(&restarted, &"d".repeat(32));
+            let result = retry
+                .compute()
+                .expect("independent retry must reuse the valid final");
+            assert_eq!(
+                result.descriptor.logical_root_sha256,
+                checkpoint.logical_root_sha256
+            );
+            assert_eq!(target.names().len(), 2);
+            assert!(target.0.join(&result.inventory.relative_filename).is_file());
+            assert!(!prepared.is_some(), "compute cannot install the candidate");
+            assert!(restarted.health().fault.is_none());
+            restarted.request_stop();
+            restarted.join().unwrap();
+            assert_eq!(fs::read(&archive).unwrap(), retained);
+            assert_progress_scope_released();
+        }
+    }
+
     fn running_test_runtime() -> Arc<EngineRuntime> {
         let runtime = EngineRuntime::new_experimental_probe(
             EngineInit {

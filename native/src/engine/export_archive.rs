@@ -1815,6 +1815,10 @@ fn publish_staged_import_files(
         let destination = managed_directory.join(&filename);
         match rename_noreplace(&entry.path(), &destination) {
             Ok(()) => {
+                #[cfg(test)]
+                if filename != inventory_filename {
+                    super::task_panic_fixture::after_import_publication(&destination)?;
+                }
                 if filename == inventory_filename {
                     cleanup.track(destination);
                 }

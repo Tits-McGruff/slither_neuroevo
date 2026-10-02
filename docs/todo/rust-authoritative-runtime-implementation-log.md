@@ -1719,3 +1719,25 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   the preceding 472-test checkpoint. Disposable servers and fixture roots were
   closed/removed. These prove the named rollback/deferred cases; the full A7
   failure matrix and remaining Stage 7/8 acceptance still require their audit.
+
+- 2026-10-02 A real import failure injected after the first permanent file rename
+  exposed Windows publication replacing a pre-existing immutable file through
+  `std::fs::rename`. Windows now calls `MoveFileExW` without replacement or
+  cross-volume copy flags; canonical parents retain long Unicode path support
+  and interior NUL is rejected before mutation. Sequential and concurrent
+  different-byte candidates prove one unchanged retained destination and an
+  intact rejected source. Evolved-save tests exercise ordinary I/O failure and
+  panic with absent/shared checkpoint/shared elite destinations: private scratch
+  disappears, shared files and the original upload remain byte-identical, and
+  valid retries restore the exact state. The real background task rejects before
+  candidate installation; ordinary errors leave its runtime healthy while panic
+  faults it. New unreferenced finals remain for the already-tested worker's safe
+  boundary/restart reclamation.
+  All 477 Rust tests plus the compile-fail doctest, 110 native/MT contracts and
+  57 persistence/scavenger tests passed; three existing conditional cases were
+  skipped across the JavaScript runs. Rustfmt and all-target Clippy passed.
+  Prior TypeScript/ESLint/Vite evidence applies to the unchanged browser and
+  Node sources. Test roots/processes and the isolated panic-addon copy were
+  closed/removed. This proves the named late-publication failures and Windows
+  no-replacement invariant; complete A7 and remaining Stage 7/8 acceptance stay
+  open.
