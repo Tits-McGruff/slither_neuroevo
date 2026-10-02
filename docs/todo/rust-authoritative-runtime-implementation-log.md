@@ -1875,3 +1875,19 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   native/source validation applies. Disposable servers and fixtures were removed.
   This proves the named no-external-input continuation cases; complete A6 and
   the remaining Stage 7/8 gates stay open.
+
+- 2026-10-02 A7 real HTTP coverage exposed an accepted identity conflict:
+  independently valid saves with the same run and generation but different
+  checkpoint roots replaced the current game. The import transaction now rejects
+  that conflict, including an explicit branch request, without changing retained
+  rows or files. Retrying the failed operation with the genuine older checkpoint
+  still creates its requested branch and preserves the source future. Nine
+  compressed-population rejection cases cover window/output/block bounds,
+  dictionaries, truncation, extra frames and altered decoded bits; a separate
+  decoder verifies the 518-byte expansion fixture produces 16 MiB. Real HTTP
+  failures preserve active identity, every retained metadata row and managed-file
+  hash, original upload bytes, and continued stepping. Affected persistence,
+  server, archive and restart-continuation tests, TypeScript and ESLint passed;
+  unchanged Rust/browser code retains the preceding broad validation. Disposable
+  servers and fixtures were removed. These prove the named failures; full A7
+  and Stage 7/8 remain open.

@@ -1,11 +1,13 @@
 /** Real HTTP archive framing and wire-limit acceptance with an unchanged prior experiment. */
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { createReadStream } from 'node:fs';
-import { mkdtemp, readdir, rm, stat, statfs } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, stat, statfs } from 'node:fs/promises';
 import { request, Server, type ClientRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { connect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { constants as zstdConstants, createZstdDecompress, zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import Database from 'better-sqlite3';
 import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
@@ -15,6 +17,8 @@ import { P0_ARCHIVE_UPLOAD_LIMIT } from './rustEngine/archiveUpload.ts';
 import * as archiveUpload from './rustEngine/archiveUpload.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
+import { loadExperimentalFreshRunSession } from './rustEngine/experimentalFreshRunSession.ts';
+import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from './rustEngine/diskAdmission.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import type { AssignMsg, SensorsMsg } from './protocol.ts';
 import type { ExperimentalRuntimeTelemetrySnapshot } from './rustEngine/runtimeTelemetry.ts';
@@ -194,6 +198,74 @@ function archiveHeaderChecksum(bytes: Buffer, header: number): void {
   bytes.fill(0x20, header + 148, header + 156);
   const checksum = bytes.subarray(header, header + 512).reduce((sum, byte) => sum + byte, 0);
   bytes.write(checksum.toString(8).padStart(6, '0') + '\0 ', header + 148, 8, 'ascii');
+}
+
+/** A valid dictionary-free frame with no content-size field and 128 repeated 128-KiB blocks. */
+function expansionFrame(): Buffer {
+  const blocks = 128;
+  const frame = Buffer.alloc(6 + blocks * 4);
+  Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x50]).copy(frame);
+  for (let index = 0; index < blocks; index++) {
+    frame.writeUIntLE((131072 << 3) | 2 | (index === blocks - 1 ? 1 : 0), 6 + index * 4, 3);
+  }
+  return frame;
+}
+
+/** Independently prove the expansion fixture is a valid stream without retaining its output. */
+async function expansionBytes(frame: Buffer): Promise<number> {
+  const decoder = createZstdDecompress({ chunkSize: 64 * 1024,
+    params: { [zstdConstants.ZSTD_d_windowLogMax]: 20 } });
+  decoder.end(frame);
+  let count = 0;
+  for await (const bytes of decoder) count += (bytes as Buffer).byteLength;
+  return count;
+}
+
+/** Locate a payload-bit change that a separate bounded decoder accepts with different output. */
+function alteredDecodedFrame(frame: Buffer, decodedBytes: number): Buffer {
+  const original = zstdDecompressSync(frame, { maxOutputLength: decodedBytes });
+  expect(original.byteLength).toBe(decodedBytes);
+  for (let offset = frame.byteLength - 1; offset >= Math.max(16, frame.byteLength - 128); offset--) {
+    const changed = Buffer.from(frame);
+    changed[offset] = changed[offset]! ^ 1;
+    let decoded: Buffer;
+    try { decoded = zstdDecompressSync(changed, { maxOutputLength: decodedBytes }); }
+    catch { continue; }
+    if (decoded.byteLength === decodedBytes && !decoded.equals(original)) return changed;
+  }
+  throw new Error('could not construct a valid changed-bit numeric fixture');
+}
+
+/** Export independently valid Rust state that deliberately collides with an existing run/generation key. */
+async function conflictingArchive(fixture: Fixture): Promise<Buffer> {
+  const databasePath = join(dirname(fixture.databasePath), 'conflicting.sqlite');
+  const managedDirectory = `${databasePath}.checkpoints`;
+  await mkdir(managedDirectory);
+  await admitDiskOperation(managedDirectory, CHECKPOINT_DISK_ADMISSION_REQUEST);
+  const persistence = new CheckpointPersistenceClient({ databasePath, managedRootPath: managedDirectory });
+  try {
+    const nativeRequire = createRequire(import.meta.url);
+    const session = await loadExperimentalFreshRunSession({ nativeManifestDirectory: resolve('native'),
+      loadBinding: () => nativeRequire(resolve('native/index.js')),
+      runId: String(fixture.identity['runId']), seed: 77,
+      memoryCeilingBytes: 4n * 1024n ** 3n, calculationWorkers: 1, persistence, managedDirectory });
+    await session.initialize();
+    const committed = await session.commitPendingRunStart(randomBytes(16).toString('hex'));
+    expect(committed.descriptor.generation).toBe(fixture.identity['generation']);
+    expect(committed.checkpointId).not.toBe(fixture.identity['startupCheckpointId']);
+  } finally { await persistence.close(); }
+  const server = await startRustServer({ ...DEFAULT_CONFIG, host: '127.0.0.1', port: 0,
+    resume: 'latest', dbPath: databasePath });
+  try {
+    expect(server.startupFault).toBeUndefined();
+    expect(await health(server)).toMatchObject({ runId: fixture.identity['runId'], seed: 77,
+      generation: fixture.identity['generation'] });
+    const response = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+    expect(response.status).toBe(200);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
+    return bytes;
+  } finally { await server.close(); }
 }
 
 /** Prove cancellation or publication releases the world to complete further fixed steps. */
@@ -561,6 +633,85 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
       });
     }
   );
+
+  it.each([
+    ['oversized decoder window', 'ZSTD_WINDOW'],
+    ['hidden-size expansion stream', 'ZSTD_CONTENT_SIZE'],
+    ['false frame output size', 'ZSTD_CONTENT_SIZE'],
+    ['dictionary-dependent frame', 'ZSTD_FRAME'],
+    ['oversized shuffled block', 'SHUFFLED_LIMIT'],
+    ['oversized compressed block', 'SHUFFLED_LIMIT'],
+    ['truncated frame header', 'ZSTD_FRAME'],
+    ['extra compressed frame', 'ZSTD_FRAME'],
+    ['changed decoded bits', 'LOGICAL_ROLE_SHA256']
+  ] as const)('rejects %s inside a compressed population before replacement', async (fault, code) => {
+    await experiment(async fixture => {
+      const entries = archiveEntries(fixture.archive);
+      const entry = entries[3]!;
+      const manifest = JSON.parse(fixture.archive.subarray(entries[8]!.data,
+        entries[8]!.data + entries[8]!.size).toString()) as { roles: Array<{ encoding: string }> };
+      expect(manifest.roles[3]!.encoding).toBe('f32le-shuffle4-zstd-v1');
+      expect(fixture.archive.subarray(entry.data, entry.data + 4).toString()).toBe('SFZ1');
+      const floats = fixture.archive.readUInt32LE(entry.data + 4);
+      const size = fixture.archive.readUInt32LE(entry.data + 8);
+      expect(floats * 4).toBe(1024 * 1024);
+      const originalFrame = fixture.archive.subarray(entry.data + 12, entry.data + 12 + size);
+      const damaged = Buffer.from(fixture.archive);
+      let replacement: Buffer | undefined;
+      if (fault === 'oversized shuffled block') damaged.writeUInt32LE(floats + 1, entry.data + 4);
+      else if (fault === 'oversized compressed block') damaged.writeUInt32LE(0xffff_ffff, entry.data + 8);
+      else if (fault === 'truncated frame header') replacement = originalFrame.subarray(0, 3);
+      else if (fault === 'extra compressed frame') replacement = Buffer.concat([
+        originalFrame, zstdCompressSync(Buffer.alloc(4))
+      ]);
+      else if (fault === 'changed decoded bits') replacement = alteredDecodedFrame(originalFrame, floats * 4);
+      else if (fault === 'hidden-size expansion stream') {
+        replacement = expansionFrame();
+        expect(replacement.byteLength).toBe(518);
+        expect(await expansionBytes(replacement)).toBe(16 * 1024 * 1024);
+      } else {
+        const dictionary = fault === 'dictionary-dependent frame';
+        replacement = Buffer.alloc(dictionary ? 11 : 10);
+        Buffer.from([0x28, 0xb5, 0x2f, 0xfd, dictionary ? 0x81 : 0x80,
+          fault === 'oversized decoder window' ? 0x58 : 0x50]).copy(replacement);
+        if (dictionary) replacement[6] = 1;
+        replacement.writeUInt32LE(floats * 4 + (fault === 'false frame output size' ? 1 : 0), dictionary ? 7 : 6);
+      }
+      if (replacement) {
+        expect(replacement.byteLength + 12).toBeLessThan(entry.size);
+        damaged.writeUInt32LE(replacement.byteLength, entry.data + 8);
+        replacement.copy(damaged, entry.data + 12);
+      }
+      const sourceHash = createHash('sha256').update(fixture.archive).digest('hex');
+      const stage = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport');
+      const commit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commitImport');
+      try {
+        const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`, {
+          method: 'POST', body: damaged, signal: AbortSignal.timeout(5000) });
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({ ok: false, message: expect.stringContaining(`checkpoint ${code}:`) });
+        expect(stage).not.toHaveBeenCalled();
+        expect(commit).not.toHaveBeenCalled();
+        await preserved(fixture);
+        await advancing(fixture);
+        expect(createHash('sha256').update(fixture.archive).digest('hex')).toBe(sourceHash);
+      } finally { stage.mockRestore(); commit.mockRestore(); }
+    });
+  });
+
+  it('rejects a valid same-run same-generation archive with different immutable content', async () => {
+    await experiment(async fixture => {
+      const body = await conflictingArchive(fixture);
+      const originalHash = createHash('sha256').update(body).digest('hex');
+      const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`, {
+        method: 'POST', body: new Uint8Array(body), signal: AbortSignal.timeout(5000) });
+      expect(response.status, await response.clone().text()).toBe(400);
+      expect(await response.json()).toMatchObject({ ok: false, message: expect.stringContaining('generation identity conflicts') });
+      await preserved(fixture);
+      await advancing(fixture);
+      expect(createHash('sha256').update(body).digest('hex')).toBe(originalHash);
+    });
+  });
 
   it.each(['afterSpool', 'afterPreparation', 'afterStage', 'beforeCommit'] as const)(
     'preserves the experiment when the import client disconnects %s', async boundary => {

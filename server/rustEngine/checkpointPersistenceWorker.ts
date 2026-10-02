@@ -2412,6 +2412,12 @@ function commitManagedImport(
     const committed = db.transaction(() => {
       recheckManagedFile(managedFile);
       recheckManagedFile(inventoryFile);
+      const conflictingGeneration = db.prepare(`SELECT 1 FROM rust_checkpoint_v3_metadata
+        WHERE run_id = ? AND generation_hex = ? AND checkpoint_id != ? LIMIT 1`)
+        .get(descriptor.runId, descriptor.generation, descriptor.logicalRootSha256);
+      if (conflictingGeneration) {
+        throw new Error('import checkpoint generation identity conflicts with different immutable content');
+      }
       const futureCheckpoint = db.prepare(`SELECT 1 FROM rust_checkpoint_v3_metadata
         WHERE run_id = ? AND generation_hex > ? LIMIT 1`).get(descriptor.runId, descriptor.generation);
       const targetHistoryGeneration = historyCount.toString(16).padStart(16, '0');

@@ -1374,6 +1374,46 @@ describe(SUITE, { timeout: 30_000 }, () => {
     }
   );
 
+  it.each([null, 'conflicting-import-branch'] as const)(
+    'rejects a different root at an existing run/generation with branch=%s', async branchRunId => {
+      const fixture = createFixture();
+      const first = createDescriptor(fixture.managedRoot);
+      await fixture.client.commit(first);
+      const lease = await fixture.client.acquireCurrentExportLease();
+      const second = createDescriptor(fixture.managedRoot, { operationId: '96'.repeat(16),
+        transitionEpoch: u64(2n), generation: u64(2n), completedStep: u64(3_600n), boundaryKind: 'generation' });
+      await fixture.client.commit(second, createGenerationCommit(1n));
+      const operationId = '97'.repeat(16);
+      const conflicting = createDescriptor(fixture.managedRoot, { operationId });
+      expect(conflicting.logicalRootSha256).not.toBe(first.logicalRootSha256);
+      const relativeFilename = `.${operationId}.import-inventory-v1`;
+      /** Recreate the trusted empty generation-one inventory after each terminal attempt. */
+      const inventory = (): ManagedImportInventoryDescriptor => {
+        copyFileSync(join(fixture.managedRoot, lease.inventory.relativeFilename), join(fixture.managedRoot, relativeFilename));
+        return { ...lease.inventory, relativeFilename };
+      };
+      /** Observe every persisted application row independently of the current-pointer check. */
+      const rows = (): unknown => {
+        const database = new Database(fixture.databasePath, { readonly: true });
+        try {
+          const tables = database.prepare(`SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name LIKE 'rust_%' ORDER BY name`).all() as Array<{ name: string }>;
+          return tables.map(({ name }) => ({ name,
+            rows: database.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all() }));
+        } finally { database.close(); }
+      };
+      const before = rows();
+      await expect(fixture.client.commitImport(conflicting, inventory(), branchRunId))
+        .rejects.toThrow('generation identity conflicts with different immutable content');
+      expect(rows()).toEqual(before);
+      expect(await fixture.client.selectCurrent(first.runId)).toEqual(second);
+      await expect(fixture.client.commitImport({ ...first, operationId }, inventory(), 'valid-original-branch'))
+        .resolves.toMatchObject({ runId: 'valid-original-branch', checkpointId: first.logicalRootSha256 });
+      expect(await fixture.client.selectCurrent(first.runId)).toEqual(second);
+      await fixture.client.releaseExportLease(lease.operationId);
+    }
+  );
+
   it('resumes an older exact import as a durable branch without replacing its future', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);
