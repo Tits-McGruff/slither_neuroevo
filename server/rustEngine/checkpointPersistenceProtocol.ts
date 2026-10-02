@@ -305,6 +305,7 @@ export type CheckpointPersistenceWorkerRequest =
   | { type: 'commitRecoveryBranch'; commit: RecoveryBranchCommit }
   | { type: 'inspectCheckpointRetention'; operationId: CheckpointOperationId }
   | { type: 'inspectManagedStorage'; operationId: CheckpointOperationId }
+  | { type: 'reclaimManagedOrphans'; operationId: CheckpointOperationId }
   | { type: 'pinCurrentCheckpoint'; operationId: CheckpointOperationId }
   | { type: 'applyCheckpointRetention'; operationId: CheckpointOperationId;
       physicalReserveBytes: U64Hex | null }
@@ -443,6 +444,18 @@ export interface ManagedStorageDiagnostics {
   usedPageByteCount: U64Hex;
 }
 
+/** Reference-checked cleanup performed while native permanent publication is held. */
+export interface ManagedOrphanCleanupResult {
+  /** False when a live lease or invalid retained reference prevents deletion. */
+  completed: boolean;
+  /** Number of unreferenced immutable checkpoint files removed. */
+  deletedCheckpointCount: U64Hex;
+  /** Number of unreferenced immutable elite files removed. */
+  deletedHallOfFameCount: U64Hex;
+  /** Exact total bytes represented by removed files. */
+  deletedStoredByteCount: U64Hex;
+}
+
 /** One validated metadata selection, without opening or decoding population payloads. */
 export interface ManagedCheckpointSelectedResponse extends ManagedCheckpointSelection {
   /** Response discriminator. */
@@ -490,6 +503,7 @@ export interface ManagedCheckpointRejectedResponse {
 
 /** Worker responses understood by the client. */
 export type CheckpointPersistenceWorkerResponse =
+  | { type: 'managedOrphansReclaimed'; operationId: CheckpointOperationId; result: ManagedOrphanCleanupResult }
   | { type: 'persistenceProgress'; operationId: CheckpointOperationId; completedUnits: U64Hex }
   | { type: 'legacySnapshotSelected'; operationId: CheckpointOperationId; selection: ManagedLegacySnapshotSelection | null }
   | { type: 'recoveryCandidate'; operationId: string; result: RecoveryScanResult }

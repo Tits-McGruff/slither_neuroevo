@@ -39,6 +39,7 @@ import {
   type ManagedLegacyConversion,
   type ManagedLegacySnapshotSelection,
   type ManagedStorageDiagnostics,
+  type ManagedOrphanCleanupResult,
   type ManagedGraphPreset,
   type ManagedGraphPresetMeta,
   type U64Hex
@@ -185,6 +186,8 @@ export class CheckpointPersistenceClient {
   private pin: { operationId: CheckpointOperationId; resolve(value: PinnedCheckpointResult): void; reject(error: Error): void } | undefined;
   /** At most one verified automatic pruning pass may be in flight. */
   private pruning: { operationId: CheckpointOperationId; resolve(value: CheckpointPruneResult): void; reject(error: Error): void } | undefined;
+  /** One reference-checked cleanup while the caller holds native publication. */
+  private orphanCleanup: { operationId: CheckpointOperationId; resolve(value: ManagedOrphanCleanupResult): void; reject(error: Error): void } | undefined;
   /** At most one compact browser-history read may be in flight. */
   private history: { operationId: CheckpointOperationId; runId: string; resolve(value: ManagedBrowserHistoryEntry[]): void; reject(error: Error): void } | undefined;
   /** At most one compact browser Hall-of-Fame read may be in flight. */
@@ -485,6 +488,18 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Reclaim immutable orphans only while the caller holds a native durability boundary. */
+  reclaimManagedOrphans(): Promise<ManagedOrphanCleanupResult> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.orphanCleanup) return Promise.reject(new Error('managed orphan cleanup is busy or stopping'));
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.orphanCleanup = { operationId, resolve, reject };
+      try { this.postOperation({ type: 'reclaimManagedOrphans', operationId }, operationId); }
+      catch (error) { this.orphanCleanup = undefined; reject(asError(error)); }
+    });
+  }
+
   /** Read the newest compact generation summaries for one active lineage. */
   readBrowserHistory(runId: string, limit = 120): Promise<ManagedBrowserHistoryEntry[]> {
     if (this.failure) return Promise.reject(this.failure);
@@ -712,6 +727,15 @@ export class CheckpointPersistenceClient {
             ? response.selection.operationId
             : response.operationId;
       if (responseOperationId !== null) this.finishWatchedOperation(responseOperationId);
+      if (response.type === 'managedOrphansReclaimed') {
+        const pending = this.orphanCleanup;
+        if (!pending || pending.operationId !== response.operationId) {
+          throw new Error('persistence worker returned a mismatched orphan cleanup');
+        }
+        this.orphanCleanup = undefined;
+        pending.resolve(response.result);
+        return;
+      }
       if (response.type === 'hallOfFameEntryReleased') {
         const lease = this.hallOfFameSelection;
         if (!lease || lease.phase !== 'releasing' || lease.operationId !== response.operationId) {
@@ -923,6 +947,12 @@ export class CheckpointPersistenceClient {
           pending.reject(new Error(response.reason));
           return;
         }
+        if (response.operationId === this.orphanCleanup?.operationId) {
+          const pending = this.orphanCleanup;
+          this.orphanCleanup = undefined;
+          pending.reject(new Error(response.reason));
+          return;
+        }
         if (response.operationId === this.history?.operationId) {
           const pending = this.history;
           this.history = undefined;
@@ -1039,6 +1069,8 @@ export class CheckpointPersistenceClient {
     this.history = undefined;
     this.hallOfFame?.reject(error);
     this.hallOfFame = undefined;
+    this.orphanCleanup?.reject(error);
+    this.orphanCleanup = undefined;
     for (const pending of this.graphPresets.values()) pending.reject(error);
     this.graphPresets.clear();
     if (this.hallOfFameSelection?.phase !== 'active') this.hallOfFameSelection?.reject(error);
@@ -1077,7 +1109,7 @@ export class CheckpointPersistenceClient {
       return;
     }
     if (this.stopping && code === 0 && this.pending.size === 0 && this.graphPresets.size === 0 && !this.selection && !this.legacySelection && !this.recovery && !this.scan && !this.retention && !this.storage && !this.pin && !this.pruning && !this.history && !this.hallOfFame &&
-        (!this.hallOfFameSelection || this.hallOfFameSelection.phase === 'active') &&
+        !this.orphanCleanup && (!this.hallOfFameSelection || this.hallOfFameSelection.phase === 'active') &&
         (!this.exportLease || this.exportLease.phase === 'active')) {
       this.resolveStopped?.();
       this.resolveStopped = null;
@@ -1372,6 +1404,25 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
       operationId: response['operationId'],
       inventory: parseCheckpointRetentionInventory(response['inventory'])
     };
+  }
+  if (response['type'] === 'managedOrphansReclaimed') {
+    requireExactKeys(response, ['type', 'operationId', 'result']);
+    const result = response['result'];
+    if (!isOperationId(response['operationId']) || !result || typeof result !== 'object' || Array.isArray(result)) {
+      throw new TypeError('invalid managed orphan cleanup response');
+    }
+    const fields = result as Record<string, unknown>;
+    requireExactKeys(fields, ['completed', 'deletedCheckpointCount', 'deletedHallOfFameCount', 'deletedStoredByteCount']);
+    if (typeof fields['completed'] !== 'boolean' || !isU64Hex(fields['deletedCheckpointCount']) ||
+        !isU64Hex(fields['deletedHallOfFameCount']) || !isU64Hex(fields['deletedStoredByteCount']) ||
+        (!fields['completed'] && [fields['deletedCheckpointCount'], fields['deletedHallOfFameCount'],
+          fields['deletedStoredByteCount']].some(value => value !== '0000000000000000'))) {
+      throw new TypeError('invalid managed orphan cleanup result');
+    }
+    return { type: 'managedOrphansReclaimed', operationId: response['operationId'], result: {
+      completed: fields['completed'], deletedCheckpointCount: fields['deletedCheckpointCount'],
+      deletedHallOfFameCount: fields['deletedHallOfFameCount'], deletedStoredByteCount: fields['deletedStoredByteCount']
+    } };
   }
   if (response['type'] === 'managedStorageInspected') {
     requireExactKeys(response, ['type', 'operationId', 'diagnostics']);

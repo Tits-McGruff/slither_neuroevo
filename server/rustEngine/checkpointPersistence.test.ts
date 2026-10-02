@@ -707,6 +707,34 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(existsSync(protectedOrphan)).toBe(true);
   });
 
+  it('reclaims only unreferenced finals after leases release and preserves files when a retained reference is invalid', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(descriptor);
+    const lease = await fixture.client.acquireCurrentExportLease();
+    const orphanCheckpoint = join(fixture.managedRoot, `${'a'.repeat(64)}.checkpoint-v3`);
+    const orphanElite = join(fixture.managedRoot, `${'b'.repeat(64)}.hof-weights-v1`);
+    const unknown = join(fixture.managedRoot, 'owner-notes.txt');
+    writeFileSync(orphanCheckpoint, 'abandoned checkpoint');
+    writeFileSync(orphanElite, 'abandoned elite');
+    writeFileSync(unknown, 'preserve owner notes');
+    await expect(fixture.client.reclaimManagedOrphans()).resolves.toEqual({ completed: false,
+      deletedCheckpointCount: u64(0n), deletedHallOfFameCount: u64(0n), deletedStoredByteCount: u64(0n) });
+    expect(existsSync(orphanCheckpoint) && existsSync(orphanElite)).toBe(true);
+    await fixture.client.releaseExportLease(lease.operationId);
+    const deletedBytes = BigInt(statSync(orphanCheckpoint).size + statSync(orphanElite).size);
+    await expect(fixture.client.reclaimManagedOrphans()).resolves.toEqual({ completed: true,
+      deletedCheckpointCount: u64(1n), deletedHallOfFameCount: u64(1n), deletedStoredByteCount: u64(deletedBytes) });
+    expect(existsSync(orphanCheckpoint) || existsSync(orphanElite)).toBe(false);
+    expect(existsSync(unknown)).toBe(true);
+    expect(await fixture.client.selectCurrent()).toEqual(descriptor);
+    writeFileSync(orphanCheckpoint, 'preserve after failed reference check');
+    rmSync(join(fixture.managedRoot, descriptor.relativeFilename));
+    await expect(fixture.client.reclaimManagedOrphans()).resolves.toMatchObject({ completed: false,
+      deletedCheckpointCount: u64(0n), deletedHallOfFameCount: u64(0n), deletedStoredByteCount: u64(0n) });
+    expect(existsSync(orphanCheckpoint)).toBe(true);
+  });
+
   it('classifies old managed files and returns bounded owner-policy retention accounting', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);
@@ -1671,6 +1699,13 @@ describe(SUITE, { timeout: 30_000 }, () => {
     );
     const descriptor = createDescriptor(fixture.managedRoot);
     await expect(fixture.client.commit(descriptor)).rejects.toThrow(/unknown response type/);
+    await expect(fixture.client.close()).rejects.toThrow(/unknown response type/);
+    expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('rejects orphan cleanup and waits for termination after an invalid worker reply', async () => {
+    const fixture = createFixture(new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url));
+    await expect(fixture.client.reclaimManagedOrphans()).rejects.toThrow(/unknown response type/);
     await expect(fixture.client.close()).rejects.toThrow(/unknown response type/);
     expect(fixture.client.terminated).toBe(true);
   });

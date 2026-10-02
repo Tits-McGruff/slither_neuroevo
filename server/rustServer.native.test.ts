@@ -1103,6 +1103,70 @@ describeNetworkSuite('Rust server real sockets', () => {
     }
   }, 30_000);
 
+  it('reclaims a rejected New Run candidate before resuming the unchanged old authority', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-rejected-new-run-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+      resume: 'fresh', seed: 42, dbPath });
+    let viewer: Peer | undefined;
+    const cleanup = vi.spyOn(CheckpointPersistenceClient.prototype, 'reclaimManagedOrphans');
+    /** Preserve every managed byte and metadata row across a real SQLite rejection. */
+    const snapshot = async (): Promise<unknown> => {
+      const database = new Database(dbPath, { readonly: true });
+      try {
+        const tables = database.prepare(`SELECT name FROM sqlite_master
+          WHERE type = 'table' AND name LIKE 'rust_%' ORDER BY name`).all() as Array<{ name: string }>;
+        const names = (await readdir(`${dbPath}.checkpoints`)).sort();
+        return { tables: tables.map(({ name }) => ({ name,
+          rows: database.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all() })),
+        files: await Promise.all(names.map(async name => ({ name,
+          hash: createHash('sha256').update(await readFile(join(`${dbPath}.checkpoints`, name))).digest('hex') }))) };
+      } finally { database.close(); }
+    };
+    try {
+      viewer = await connect(server.port, 'ui');
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      const failureDatabase = new Database(dbPath);
+      try {
+        failureDatabase.exec(`CREATE TRIGGER reject_new_run_activation
+          BEFORE INSERT ON rust_active_run_v1 BEGIN
+            SELECT RAISE(ABORT, 'injected actual New Run transaction rejection');
+          END`);
+      } finally { failureDatabase.close(); }
+      const before = await snapshot();
+      const beforeHealth = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        runId: string; worldEpoch: string; seed: number;
+      };
+      viewer.socket.send(JSON.stringify({ type: 'newRun', requestId: 'rejected-new-run' }));
+      await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === 'rejected-new-run'));
+      expect(viewer.packets.find(packet => packet['requestId'] === 'rejected-new-run')).toMatchObject({
+        type: 'newRunResult', applied: false, reason: expect.stringContaining('injected actual New Run transaction rejection')
+      });
+      expect(cleanup).toHaveBeenCalledOnce();
+      expect(await cleanup.mock.results[0]!.value).toMatchObject({ completed: true,
+        deletedCheckpointCount: '0000000000000001', deletedHallOfFameCount: '0000000000000000' });
+      expect(await snapshot()).toEqual(before);
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: beforeHealth.runId, worldEpoch: beforeHealth.worldEpoch, seed: beforeHealth.seed
+      });
+      const recoveryDatabase = new Database(dbPath);
+      try { recoveryDatabase.exec('DROP TRIGGER reject_new_run_activation'); }
+      finally { recoveryDatabase.close(); }
+      viewer.socket.send(JSON.stringify({ type: 'newRun', requestId: 'new-run-valid-retry' }));
+      await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === 'new-run-valid-retry'));
+      expect(viewer.packets.find(packet => packet['requestId'] === 'new-run-valid-retry')).toMatchObject({
+        type: 'newRunResult', applied: true
+      });
+      expect(cleanup).toHaveBeenCalledOnce();
+    } finally {
+      cleanup.mockRestore();
+      viewer?.socket.close();
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   it('keeps a committed New Run when its SQLite reply is lost', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-lost-new-run-reply-'));
     const dbPath = join(root, 'experiment.sqlite');
@@ -1238,7 +1302,13 @@ describeNetworkSuite('Rust server real sockets', () => {
     let target: Awaited<ReturnType<typeof startRustServer>> | undefined;
     let viewer: Peer | undefined;
     let targetViewer: Peer | undefined;
+    let cleanupSpy: ReturnType<typeof vi.spyOn> | undefined;
+    let stageSpy: ReturnType<typeof vi.spyOn> | undefined;
     try {
+      const initialExport = await fetch(`http://127.0.0.1:${source.port}/api/export/latest`);
+      expect(initialExport.status).toBe(200);
+      const initialCheckpointId = initialExport.headers.get('x-slither-checkpoint-id');
+      const initialArchive = Buffer.from(await initialExport.arrayBuffer());
       viewer = await connect(source.port, 'ui');
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
@@ -1267,6 +1337,65 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(expectedElites.length).toBeGreaterThan(0);
       target = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
         resume: 'fresh', seed: 42, dbPath: targetPath });
+      const managedDirectory = `${targetPath}.checkpoints`;
+      /** Capture every durable metadata table and managed file in this small fixture. */
+      const snapshot = async (): Promise<unknown> => {
+        const database = new Database(targetPath, { readonly: true });
+        try {
+          const tables = database.prepare(`SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name LIKE 'rust_%' ORDER BY name`).all() as Array<{ name: string }>;
+          const names = (await readdir(managedDirectory)).sort();
+          return { tables: tables.map(({ name }) => ({ name,
+            rows: database.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all() })),
+          files: await Promise.all(names.map(async name => ({ name,
+            hash: createHash('sha256').update(await readFile(join(managedDirectory, name))).digest('hex') }))) };
+        } finally { database.close(); }
+      };
+      const failureDatabase = new Database(targetPath);
+      try {
+        failureDatabase.exec(`CREATE TRIGGER reject_import_activation
+          BEFORE INSERT ON rust_active_run_v1 BEGIN
+            SELECT RAISE(ABORT, 'injected actual import transaction rejection');
+          END`);
+      } finally { failureDatabase.close(); }
+      const beforeFailure = await snapshot();
+      const previousAuthority = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
+        runId: string; worldEpoch: string; generation: string;
+      };
+      const originalCleanup = CheckpointPersistenceClient.prototype.reclaimManagedOrphans;
+      /** Observe real permanent files and a held world across the actual reference scan. */
+      cleanupSpy = vi.spyOn(CheckpointPersistenceClient.prototype, 'reclaimManagedOrphans')
+        .mockImplementationOnce(async function(this: CheckpointPersistenceClient) {
+          const files = await readdir(managedDirectory);
+          expect(files).toEqual(expect.arrayContaining([`${checkpointId}.checkpoint-v3`,
+            ...expectedElites.map(elite => elite.relative_filename)]));
+          const held = await (await fetch(`http://127.0.0.1:${target!.port}/api/health`)).json() as {
+            completedStep: string; worldEpoch: string;
+          };
+          const result = await originalCleanup.call(this);
+          expect(result).toMatchObject({ completed: true, deletedCheckpointCount: '0000000000000001' });
+          expect(BigInt(`0x${result.deletedHallOfFameCount}`)).toBe(BigInt(expectedElites.length));
+          expect(await (await fetch(`http://127.0.0.1:${target!.port}/api/health`)).json()).toMatchObject({
+            completedStep: held.completedStep, worldEpoch: held.worldEpoch
+          });
+          return result;
+        });
+      const transactionRejected = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: archive
+      });
+      expect(transactionRejected.status).toBe(400);
+      expect(await transactionRejected.json()).toMatchObject({ ok: false,
+        message: expect.stringContaining('injected actual import transaction rejection') });
+      expect(cleanupSpy).toHaveBeenCalledOnce();
+      cleanupSpy.mockRestore();
+      expect(await snapshot()).toEqual(beforeFailure);
+      expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: previousAuthority.runId, worldEpoch: previousAuthority.worldEpoch,
+        generation: previousAuthority.generation
+      });
+      const recoveryDatabase = new Database(targetPath);
+      try { recoveryDatabase.exec('DROP TRIGGER reject_import_activation'); }
+      finally { recoveryDatabase.close(); }
       for (let attempt = 0; attempt < 2; attempt++) {
         const imported = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
           method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: archive
@@ -1299,25 +1428,11 @@ describeNetworkSuite('Rust server real sockets', () => {
 
       // A same-name corrupt elite must be preserved as evidence and reject the
       // import before any new inventory or immutable object becomes permanent.
-      const managedDirectory = `${targetPath}.checkpoints`;
       const elitePath = join(managedDirectory, expectedElites[0]!.relative_filename);
       const originalElite = await readFile(elitePath);
       const damaged = Buffer.from(originalElite);
       damaged[0] = damaged[0]! ^ 1;
       await writeFile(elitePath, damaged);
-      /** Capture every durable metadata table and managed file in this small fixture. */
-      const snapshot = async (): Promise<unknown> => {
-        const database = new Database(targetPath, { readonly: true });
-        try {
-          const tables = database.prepare(`SELECT name FROM sqlite_master
-            WHERE type = 'table' AND name LIKE 'rust_%' ORDER BY name`).all() as Array<{ name: string }>;
-          const names = (await readdir(managedDirectory)).sort();
-          return { tables: tables.map(({ name }) => ({ name,
-            rows: database.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all() })),
-          files: await Promise.all(names.map(async name => ({ name,
-            hash: createHash('sha256').update(await readFile(join(managedDirectory, name))).digest('hex') }))) };
-        } finally { database.close(); }
-      };
       const before = await snapshot();
       const beforeHealth = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
         runId: string; worldEpoch: string; generation: string;
@@ -1336,7 +1451,65 @@ describeNetworkSuite('Rust server real sockets', () => {
       const recovered = await fetch(`http://127.0.0.1:${target.port}/api/export/latest`);
       expect(recovered.status).toBe(200);
       expect(Buffer.from(await recovered.arrayBuffer())).toEqual(archive);
+      const exportCleanupDeadline = performance.now() + 2000;
+      let exportScratch: string[];
+      do {
+        exportScratch = (await readdir(managedDirectory)).filter(name =>
+          name.endsWith('.slither-save.ready') || name.endsWith('.export-inventory-v1'));
+        if (!exportScratch.length) break;
+        await new Promise<void>(done => setTimeout(done, 10));
+      } while (performance.now() < exportCleanupDeadline);
+      expect(exportScratch!).toEqual([]);
+      // Settle the preceding corruption case's deferred scan independently,
+      // so the next rejection must schedule its own cleanup.
+      const beforeSettlement = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
+        generation: string;
+      };
+      cleanupSpy = vi.spyOn(CheckpointPersistenceClient.prototype, 'reclaimManagedOrphans');
+      targetViewer!.socket.send(JSON.stringify({ type: 'settings', requestId: 'settle-corruption-cleanup',
+        updates: [{ path: 'simSpeed', value: 12 }] }));
+      await healthUntil(target.port, health =>
+        BigInt(`0x${health['generation'] as string}`) > BigInt(`0x${beforeSettlement.generation}`));
+      expect(cleanupSpy).toHaveBeenCalledOnce();
+      expect(await cleanupSpy.mock.results[0]!.value).toMatchObject({ completed: true });
+      cleanupSpy.mockRestore();
+      targetViewer!.socket.send(JSON.stringify({ type: 'settings', requestId: 'hold-deferred-cleanup-fixture',
+        updates: [{ path: 'simSpeed', value: 0.1 }] }));
+      await until(targetViewer!, () => targetViewer!.packets.some(packet =>
+        packet['type'] === 'settingsApplied' && packet['requestId'] === 'hold-deferred-cleanup-fixture'));
+
+      // Preparation has produced permanent files, but a busy/rejected stage
+      // still leaves the old game running. Reclaim at its next durable boundary.
+      stageSpy = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport')
+        .mockRejectedValueOnce(new Error('injected pre-stage rejection'));
+      const unstaged = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: initialArchive
+      });
+      expect(unstaged.status).toBe(400);
+      expect(await unstaged.json()).toMatchObject({ ok: false, message: 'injected pre-stage rejection' });
+      stageSpy.mockRestore();
+      const deferredFile = join(managedDirectory, `${initialCheckpointId}.checkpoint-v3`);
+      expect((await stat(deferredFile)).isFile()).toBe(true);
+      const unchanged = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
+        runId: string; generation: string;
+      };
+      expect(unchanged).toMatchObject({ ok: true, runId: beforeHealth.runId });
+      cleanupSpy = vi.spyOn(CheckpointPersistenceClient.prototype, 'reclaimManagedOrphans');
+      targetViewer!.socket.send(JSON.stringify({ type: 'settings', requestId: 'reach-orphan-cleanup-boundary',
+        updates: [{ path: 'simSpeed', value: 12 }] }));
+      await healthUntil(target.port, health =>
+        BigInt(`0x${health['generation'] as string}`) > BigInt(`0x${unchanged.generation}`));
+      expect(cleanupSpy).toHaveBeenCalledOnce();
+      expect(await readdir(managedDirectory)).not.toContain(`${initialCheckpointId}.checkpoint-v3`);
+      cleanupSpy.mockRestore();
+      const validRetry = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: initialArchive
+      });
+      expect(validRetry.status).toBe(200);
+      expect(await validRetry.json()).toMatchObject({ ok: true, checkpointId: initialCheckpointId });
     } finally {
+      stageSpy?.mockRestore();
+      cleanupSpy?.mockRestore();
       targetViewer?.socket.close();
       viewer?.socket.close();
       await target?.close();

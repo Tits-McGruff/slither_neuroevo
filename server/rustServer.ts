@@ -331,6 +331,13 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   let exportOperation: Promise<void> | undefined;
   let activeExportResponse: import('node:http').ServerResponse | undefined;
   let importOperation: Promise<void> | undefined;
+  /** Failed permanent publication awaits a held native boundary before reclamation. */
+  let orphanCleanupPending = false;
+  /** Reclaim only while this caller holds native publication and excludes other archive jobs. */
+  const reclaimFailedPublication = async (): Promise<void> => {
+    const result = await owner.persistence.reclaimManagedOrphans();
+    if (result.completed) orphanCleanupPending = false;
+  };
   let resurrectionOperation: Promise<void> | undefined;
   let activeImportRequest: import('node:http').IncomingMessage | undefined;
   let activeImportResponse: import('node:http').ServerResponse | undefined;
@@ -841,7 +848,14 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         if (retentionMaintenance) {
           throw new Error('checkpoint retention maintenance overlapped a durable generation');
         }
-        retentionMaintenance = owner.persistence.applyRetention().then(async result => {
+        retentionMaintenance = (async () => {
+          // SQLite has committed this generation; Rust still holds its durability
+          // boundary. Do not scan while another native publisher is live.
+          if (orphanCleanupPending && !importOperation && !exportOperation && !resurrectionOperation && !pinning) {
+            await reclaimFailedPublication();
+          }
+          return owner.persistence.applyRetention();
+        })().then(async result => {
           retention = result.inventory;
           retentionCleanup = { deletedCheckpointCount: result.deletedCheckpointCount,
             deletedStoredByteCount: result.deletedStoredByteCount };
@@ -929,6 +943,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       let staged = false;
       let commitAttempted = false;
       let committed = false;
+      let nativePreparationStarted = false;
       let previousCurrent: { runId: string; checkpointId: string } | undefined;
       try {
         const declaredUploadBytes = parseArchiveContentLength(
@@ -954,6 +969,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           candidateSpoolBytes: BigInt(`0x${diskEstimate.candidateSpoolBytes}`),
           finalManagedBytes: BigInt(`0x${diskEstimate.finalManagedBytes}`)
         });
+        nativePreparationStarted = true;
         const preparation = owner.runtime.prepareImportArchive(
           upload.readyPath,
           owner.managedDirectory,
@@ -1020,6 +1036,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           ...(branchRunId === null ? {} : { sourceRunId: descriptor.runId })
         };
       } catch (error) {
+        if (nativePreparationStarted && !committed) orphanCleanupPending = true;
         if (staged && !committed) {
           let oldPointerStillCurrent = !commitAttempted;
           if (commitAttempted) {
@@ -1029,7 +1046,12 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
                 selected.descriptor?.logicalRootSha256 === previousCurrent?.checkpointId;
             } catch { /* An unreadable commit outcome cannot release the old authority. */ }
           }
-          if (oldPointerStillCurrent) await output.cancelPreparedImport().catch(fail);
+          if (oldPointerStillCurrent) {
+            try {
+              await reclaimFailedPublication();
+              await output.cancelPreparedImport();
+            } catch (cleanupError) { fail(cleanupError); }
+          }
           else fail(error);
         }
         else if (prepared && !staged) {
@@ -1064,10 +1086,12 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       let commitAttempted = false;
       let committed = false;
       let newlyPublishedBudgetRejectedFile: string | undefined;
+      let nativePreparationStarted = false;
       let previousCurrent: { runId: string; checkpointId: string } | undefined;
       try {
         await owner.admitCheckpoint();
         const preexistingManagedNames = new Set(await readdir(owner.managedDirectory));
+        nativePreparationStarted = true;
         const candidate = await owner.runtime.prepareFreshRun(
           owner.managedDirectory,
           operationId,
@@ -1130,6 +1154,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         retention = await owner.persistence.inspectRetention();
         return { runId, seed, checkpointId: durable.checkpointId };
       } catch (error) {
+        if (nativePreparationStarted && !committed) orphanCleanupPending = true;
         if (staged && !committed) {
           let oldPointerStillCurrent = !commitAttempted;
           if (commitAttempted) {
@@ -1139,7 +1164,12 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
                 selected.descriptor?.logicalRootSha256 === previousCurrent?.checkpointId;
             } catch { /* An unreadable commit outcome cannot release the old authority. */ }
           }
-          if (oldPointerStillCurrent) await output.cancelPreparedImport().catch(fail);
+          if (oldPointerStillCurrent) {
+            try {
+              await reclaimFailedPublication();
+              await output.cancelPreparedImport();
+            } catch (cleanupError) { fail(cleanupError); }
+          }
           else fail(new Error('fresh replacement checkpoint outcome is unknown; restart from a valid retained checkpoint'));
         }
         else if (prepared && !staged) {

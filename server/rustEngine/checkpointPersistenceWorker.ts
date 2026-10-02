@@ -992,10 +992,14 @@ function cleanupUnreferencedHallOfFameWeights(): { files: number; storedBytes: b
  * @returns Exact file and byte counts reclaimed during this startup pass.
  */
 function scavengeUnreferencedManagedFiles(): {
+  completed: boolean;
   checkpointFiles: number;
   hallOfFameFiles: number;
   storedBytes: bigint;
 } {
+  if (activeExportLease || activeHallOfFameLease) {
+    return { completed: false, checkpointFiles: 0, hallOfFameFiles: 0, storedBytes: 0n };
+  }
   const referenced = new Set<string>();
   try {
     const checkpointRows = db.prepare(`SELECT
@@ -1068,11 +1072,12 @@ function scavengeUnreferencedManagedFiles(): {
     }
   } catch {
     // Recovery and repair must remain available; malformed retained metadata disables deletion.
-    return { checkpointFiles: 0, hallOfFameFiles: 0, storedBytes: 0n };
+    return { completed: false, checkpointFiles: 0, hallOfFameFiles: 0, storedBytes: 0n };
   }
 
   const removedWeights = cleanupUnreferencedHallOfFameWeights();
   const result = {
+    completed: true,
     checkpointFiles: 0,
     hallOfFameFiles: removedWeights.files,
     storedBytes: removedWeights.storedBytes
@@ -2813,7 +2818,7 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
   if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'selectLegacySnapshot' || request['type'] === 'scanRecoveryCandidate' ||
       request['type'] === 'inspectCheckpointRetention' || request['type'] === 'inspectManagedStorage' ||
       request['type'] === 'pinCurrentCheckpoint' ||
-      request['type'] === 'applyCheckpointRetention' || request['type'] === 'acquireCurrentExportLease' ||
+      request['type'] === 'applyCheckpointRetention' || request['type'] === 'reclaimManagedOrphans' || request['type'] === 'acquireCurrentExportLease' ||
       request['type'] === 'releaseExportLease' || request['type'] === 'readBrowserHistory' ||
       request['type'] === 'readBrowserHallOfFame' || request['type'] === 'selectHallOfFameEntry' ||
       request['type'] === 'releaseHallOfFameEntry' || request['type'] === 'saveGraphPreset' ||
@@ -2870,6 +2875,17 @@ port.on('message', (message: unknown) => {
     if (request['type'] === 'acquireCurrentExportLease') {
       if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid export lease request');
       post({ type: 'currentExportLeaseAcquired', lease: acquireCurrentExportLease(operationId) });
+      return;
+    }
+    if (request['type'] === 'reclaimManagedOrphans') {
+      if (!operationId || Object.keys(request).length !== 2) throw new TypeError('invalid managed orphan cleanup request');
+      const result = scavengeUnreferencedManagedFiles();
+      post({ type: 'managedOrphansReclaimed', operationId, result: {
+        completed: result.completed,
+        deletedCheckpointCount: storageU64(BigInt(result.checkpointFiles), 'deleted checkpoint count'),
+        deletedHallOfFameCount: storageU64(BigInt(result.hallOfFameFiles), 'deleted elite count'),
+        deletedStoredByteCount: storageU64(result.storedBytes, 'deleted bytes')
+      } });
       return;
     }
     if (request['type'] === 'applyCheckpointRetention') {

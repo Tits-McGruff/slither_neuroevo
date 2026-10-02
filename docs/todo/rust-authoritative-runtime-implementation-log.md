@@ -1700,3 +1700,22 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   closed/removed. This closes
   the observed validation-rejection orphan case; partial final-publication and
   later metadata-commit failure cleanup still need their complete A7 audit.
+
+- 2026-10-02 Failed import and Reset/New Run publication now schedules
+  reference-checked orphan reclamation in the SQLite worker. A confirmed
+  transaction rollback reclaims files while Rust still holds the old world,
+  before cancellation resumes it. A failure before staging defers cleanup to
+  the next durable generation boundary with no other publisher active. Live
+  export/elite leases or invalid retained references prevent deletion; an
+  unknown commit outcome still faults and preserves committed evidence.
+  Real SQLite activation triggers rejected evolved-save import and New Run
+  transactions after permanent files were present. Every Rust metadata row,
+  managed-file hash and old world identity remained unchanged after cleanup;
+  valid retries succeeded. A separate rejected-stage case independently
+  reclaimed its candidate at the next generation boundary. Worker tests cover
+  leases, missing retained files and invalid-response termination. The focused
+  persistence/generation/server set passed 86 tests with nine existing
+  conditional skips; TypeScript, ESLint and Vite passed. Rust is unchanged from
+  the preceding 472-test checkpoint. Disposable servers and fixture roots were
+  closed/removed. These prove the named rollback/deferred cases; the full A7
+  failure matrix and remaining Stage 7/8 acceptance still require their audit.
