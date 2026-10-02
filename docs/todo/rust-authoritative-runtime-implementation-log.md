@@ -1832,3 +1832,17 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   the mandatory native/MT overlay, TypeScript, ESLint and Vite passed. Rust is
   unchanged from the preceding checkpoint. Disposable test state was removed;
   the remaining A6/A7 matrix and Stage 7/8 gates stay open.
+
+- 2026-10-02 A8 compatibility evidence now covers v2 child rows and gzip or
+  embedded populations with missing, null or zero format columns. Actual
+  read-only Rust conversion writes a separate durable destination and leaves
+  the complete source database byte-identical. Writable startup preserves all
+  original population, Hall-of-Fame, player and graph-preset rows. These cases
+  and old browser JSON export/re-import through real archive HTTP with the
+  original Float32 population digest and unchanged logical archive contents.
+  Focused server/archive coverage, TypeScript and ESLint passed; production
+  and Rust are unchanged from the preceding fully green CI checkpoint.
+  Disposable servers, database copies and scratch were removed. A live v2
+  conversion round trip exposed the next defect: its population-only notice
+  is omitted from export, the archive kind remains exact-generation-boundary,
+  and the imported copy loses that notice. Full A8 and Stage 7/8 remain open.

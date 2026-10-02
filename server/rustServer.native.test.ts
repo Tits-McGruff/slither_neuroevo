@@ -1,8 +1,9 @@
-import { mkdtemp, rm, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { request as httpRequest, Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { expect, it, vi } from 'vitest';
@@ -18,6 +19,9 @@ import { startRustServer } from './rustServer.ts';
 import { WsHub } from './wsHub.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
+import { loadExperimentalFreshRunSession } from './rustEngine/experimentalFreshRunSession.ts';
+import type { ManagedLegacySnapshotFormat } from './rustEngine/checkpointPersistenceProtocol.ts';
+import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from './rustEngine/diskAdmission.ts';
 import type { RustArchiveWorkProgress } from './rustEngine/backgroundRuntime.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import { buildStackGraphSpec } from '../src/brains/stackBuilder.ts';
@@ -110,6 +114,117 @@ async function archiveFileSha256(path: string): Promise<string> {
   const hash = createHash('sha256');
   for await (const bytes of createReadStream(path)) hash.update(bytes);
   return hash.digest('hex');
+}
+
+/** Hash every original fixture row, including all scalar columns and exact stored BLOB bytes. */
+function legacyRecords(databasePath: string, originalTables?: readonly string[]): {
+  /** Original table names, excluding schema added by writable startup. */
+  tables: string[];
+  /** Digest of every original row and column, including BLOB bytes. */
+  sha256: string;
+} {
+  const database = new Database(databasePath, { readonly: true });
+  try {
+    const tables = originalTables ? [...originalTables] : (database.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).all() as Array<{ name: string }>).map(row => row.name);
+    const hash = createHash('sha256');
+    for (const name of tables) {
+      hash.update(JSON.stringify({ name, rows: database.prepare(
+        `SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).raw().all() }));
+    }
+    return { tables, sha256: hash.digest('hex') };
+  } finally { database.close(); }
+}
+
+/** Include reference companion tables so preservation also covers retained owner records. */
+function legacyCompanions(database: ReturnType<typeof Database>, graphJson: string, archKey: string, weightCount: number): void {
+  database.exec(`CREATE TABLE hof_entries (id INTEGER PRIMARY KEY, created_at INTEGER, gen INTEGER,
+    seed INTEGER, fitness REAL, points REAL, length REAL, genome_json TEXT, UNIQUE(gen, seed, fitness));
+    CREATE TABLE players (id TEXT PRIMARY KEY, name TEXT, created_at INTEGER);
+    CREATE TABLE graph_presets (id INTEGER PRIMARY KEY, created_at INTEGER, name TEXT, spec_json TEXT);`);
+  database.prepare('INSERT INTO hof_entries VALUES (1, 123456, 6, 1234567, 99, 42, 17, ?)')
+    .run(JSON.stringify({ archKey, brainType: 'mlp', fitness: 99, weights: new Array<number>(weightCount).fill(0) }));
+  database.prepare('INSERT INTO players VALUES (?, ?, 123456)').run('owner-player', 'Retained Ω player');
+  database.prepare('INSERT INTO graph_presets VALUES (1, 123456, ?, ?)').run('Retained Ω graph', graphJson);
+}
+
+/** Run the real read-only Rust converter with a separate durable destination, preserving source bytes. */
+async function readOnlyLegacyConversion(root: string, databasePath: string, sourceFormat: ManagedLegacySnapshotFormat): Promise<void> {
+  const sourceHash = await archiveFileSha256(databasePath);
+  const sourceRows = legacyRecords(databasePath);
+  const destination = join(root, 'read-only-conversion.sqlite');
+  const managedDirectory = `${destination}.checkpoints`;
+  await mkdir(managedDirectory);
+  await admitDiskOperation(managedDirectory, CHECKPOINT_DISK_ADMISSION_REQUEST);
+  const persistence = new CheckpointPersistenceClient({ databasePath: destination, managedRootPath: managedDirectory });
+  try {
+    const nativeRequire = createRequire(import.meta.url);
+    const session = await loadExperimentalFreshRunSession({ nativeManifestDirectory: resolve('native'),
+      loadBinding: () => nativeRequire(resolve('native/index.js')), runId: randomUUID(), seed: 0,
+      memoryCeilingBytes: 4n * 1024n * 1024n * 1024n, calculationWorkers: 1,
+      persistence, managedDirectory });
+    const converted = await session.initializeFromLegacySqlite(databasePath, 1);
+    expect(converted).toMatchObject({ generation: '0000000000000001', completedStep: '0000000000000000',
+      snakeCount: '0000000000000000', checkpointPublished: false });
+    const durable = await session.commitPendingRunStart('81'.repeat(16), {
+      snapshotId: 1, sourceFormat, completeness: 'population-only'
+    });
+    expect(durable.descriptor.populationCount).toBe('0000000000000002');
+    expect(await persistence.selectStartup()).toMatchObject({ runId: durable.runId,
+      descriptor: { logicalRootSha256: durable.checkpointId },
+      legacyConversion: { snapshotId: 1, sourceFormat, completeness: 'population-only' } });
+    expect((await readdir(managedDirectory)).filter(name => name.endsWith('.checkpoint-v3')))
+      .toEqual([`${durable.checkpointId}.checkpoint-v3`]);
+  } finally { await persistence.close(); }
+  expect(await archiveFileSha256(databasePath)).toBe(sourceHash);
+  expect(legacyRecords(databasePath, sourceRows.tables)).toEqual(sourceRows);
+}
+
+/** Read the small manifest from a bounded, actually exported nine-role test archive. */
+function legacyExportManifest(bytes: Buffer): {
+  runId: string; checkpointLogicalRootSha256: string; logicalRootSha256: string;
+  roles: Array<{ role: string; logicalSha256: string }>;
+} {
+  expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
+  let cursor = 0;
+  for (let entry = 0; entry < 9; entry++) {
+    const name = bytes.subarray(cursor, cursor + 100).toString().split('\0')[0];
+    const length = Number.parseInt(bytes.subarray(cursor + 124, cursor + 136).toString().replace(/\0.*$/su, '').trim(), 8);
+    expect(Number.isSafeInteger(length) && length >= 0).toBe(true);
+    if (entry === 8) {
+      expect(name).toBe('manifest.json');
+      return JSON.parse(bytes.subarray(cursor + 512, cursor + 512 + length).toString());
+    }
+    cursor += 512 + Math.ceil(length / 512) * 512;
+  }
+  throw new Error('legacy conversion export omitted its manifest');
+}
+
+/** Re-export and re-import a converted population through real archive HTTP, checking its original Float32 digest. */
+async function migratedArchiveRoundTrip(root: string, server: Awaited<ReturnType<typeof startRustServer>>, weightsSha256: string): Promise<void> {
+  const exported = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+  expect(exported.status).toBe(200);
+  const archive = Buffer.from(await exported.arrayBuffer());
+  const originalHash = createHash('sha256').update(archive).digest('hex');
+  const manifest = legacyExportManifest(archive);
+  expect(manifest.roles.find(role => role.role === 'population-weights')?.logicalSha256).toBe(weightsSha256);
+  expect(exported.headers.get('x-slither-checkpoint-id')).toBe(manifest.checkpointLogicalRootSha256);
+  const target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, seed: 99, resume: 'fresh',
+    dbPath: join(root, 'archive-round-trip.sqlite') });
+  try {
+    expect(target.startupFault).toBeUndefined();
+    const imported = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+      method: 'POST', body: new Uint8Array(archive)
+    });
+    expect(imported.status, await imported.clone().text()).toBe(200);
+    expect(await imported.json()).toMatchObject({ ok: true, runId: manifest.runId,
+      checkpointId: manifest.checkpointLogicalRootSha256, saveLogicalRootSha256: manifest.logicalRootSha256 });
+    const reexported = await fetch(`http://127.0.0.1:${target.port}/api/export/latest`);
+    expect(reexported.status).toBe(200);
+    const roundTrip = legacyExportManifest(Buffer.from(await reexported.arrayBuffer()));
+    expect(roundTrip).toEqual(manifest);
+    expect(createHash('sha256').update(archive).digest('hex')).toBe(originalHash);
+  } finally { await target.close(); }
 }
 
 describeNetworkSuite('Rust server real sockets', () => {
@@ -404,6 +519,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       });
       expect((await readdir(`${dbPath}.checkpoints`)).filter(name =>
         name.includes('upload') || name.includes('import-inventory'))).toEqual([]);
+      await migratedArchiveRoundTrip(root, server, createHash('sha256')
+        .update(Buffer.alloc(weights.length * 2 * Float32Array.BYTES_PER_ELEMENT)).digest('hex'));
     } finally {
       for (const peer of peers) peer.socket.terminate();
       await server.close();
@@ -475,7 +592,13 @@ describeNetworkSuite('Rust server real sockets', () => {
         insert.run(slot, graph.key, 10 - slot, graph.totalParams, weights,
           createHash('sha256').update(weights).digest('hex'));
       }
+      legacyCompanions(database, JSON.stringify(graphSpec), graph.key, graph.totalParams);
     } finally { database.close(); }
+    const originalRecords = legacyRecords(dbPath);
+    await readOnlyLegacyConversion(root, dbPath, 'typescript-v2').catch(async error => {
+      await rm(root, { recursive: true, force: true });
+      throw error;
+    });
     const { seed: _defaultSeed, ...resumeConfig } = DEFAULT_CONFIG;
     let server = await startRustServer({
       ...resumeConfig, port: 0, resume: 'latest', dbPath
@@ -514,6 +637,9 @@ describeNetworkSuite('Rust server real sockets', () => {
         ok: true, runId: health.runId, startupCheckpointId: health.startupCheckpointId,
         legacyConversion
       });
+      await migratedArchiveRoundTrip(root, server, createHash('sha256')
+        .update(firstWeights).update(secondWeights).digest('hex'));
+      expect(legacyRecords(dbPath, originalRecords.tables)).toEqual(originalRecords);
       const retained = new Database(dbPath, { readonly: true });
       try {
         const row = retained.prepare('SELECT payload_json FROM population_snapshots WHERE id = 1')
@@ -530,9 +656,10 @@ describeNetworkSuite('Rust server real sockets', () => {
     }
   }, 30_000);
 
-  it.each(['gzip', 'embedded'] as const)(
-    'converts a format-zero %s population without changing its source row',
-    async (storage) => {
+  it.each((['gzip', 'embedded'] as const).flatMap(storage =>
+    (['absent', 'null', 'zero'] as const).map(format => ({ storage, format }))))(
+    'converts a $storage population with $format format column without changing any source row',
+    async ({ storage, format }) => {
       const root = await mkdtemp(join(tmpdir(), `slither-rust-v0-${storage}-`));
       const dbPath = join(root, 'experiment.sqlite');
       const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: 2, simSpeed: 3 };
@@ -571,6 +698,7 @@ describeNetworkSuite('Rust server real sockets', () => {
         )` : `CREATE TABLE population_snapshots (
           id INTEGER PRIMARY KEY, created_at INTEGER, gen INTEGER, payload_json TEXT
         )`);
+        if (format !== 'absent') database.exec('ALTER TABLE population_snapshots ADD COLUMN format_version INTEGER');
         if (storage === 'gzip') {
           database.prepare(`INSERT INTO population_snapshots
             (id, created_at, gen, payload_json, settings_json, updates_json, genomes_blob)
@@ -580,7 +708,15 @@ describeNetworkSuite('Rust server real sockets', () => {
           database.prepare(`INSERT INTO population_snapshots
             (id, created_at, gen, payload_json) VALUES (1, ?, 7, ?)`).run(Date.now(), payload);
         }
+        if (format !== 'absent') database.prepare('UPDATE population_snapshots SET format_version = ? WHERE id = 1')
+          .run(format === 'zero' ? 0 : null);
+        legacyCompanions(database, JSON.stringify(graphSpec), graph.key, graph.totalParams);
       } finally { database.close(); }
+      const originalRecords = legacyRecords(dbPath);
+      await readOnlyLegacyConversion(root, dbPath, storage === 'gzip' ? 'legacy-gzip' : 'legacy-json').catch(async error => {
+        await rm(root, { recursive: true, force: true });
+        throw error;
+      });
 
       const { seed: _defaultSeed, ...resumeConfig } = DEFAULT_CONFIG;
       const server = await startRustServer({
@@ -620,6 +756,10 @@ describeNetworkSuite('Rust server real sockets', () => {
             completeness: 'population-only'
           });
         } finally { retained.close(); }
+        const packedWeights = Buffer.alloc(graph.totalParams * 2 * Float32Array.BYTES_PER_ELEMENT);
+        packedWeights.writeFloatLE(0.25, graph.totalParams * Float32Array.BYTES_PER_ELEMENT);
+        await migratedArchiveRoundTrip(root, server, createHash('sha256').update(packedWeights).digest('hex'));
+        expect(legacyRecords(dbPath, originalRecords.tables)).toEqual(originalRecords);
       } finally {
         for (const peer of peers) peer.socket.terminate();
         await server.close();
