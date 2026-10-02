@@ -59,6 +59,8 @@ import { normalizeSettingValue } from '../src/protocol/settingDefinitions.ts';
 const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
 /** P0 external routing cap, within the native admitted controller capacity. */
 const MAX_CONTROLLERS = 16;
+/** Maximum discard interval after the complete rejection body is already sent. */
+const ARCHIVE_REJECTION_DRAIN_MS = 1000;
 /** Browser asset MIME types emitted by Vite. */
 const CONTENT_TYPES: Readonly<Record<string, string>> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 
@@ -105,6 +107,41 @@ async function admitExportSpace(directory: string, lease: ManagedCheckpointExpor
     candidateSpoolBytes: projectedAdditionalBytes,
     finalManagedBytes: 0n
   });
+}
+
+/** Deliver a complete bounded error before closing a socket that may still carry upload bytes. */
+async function rejectArchiveUpload(
+  request: import('node:http').IncomingMessage,
+  response: import('node:http').ServerResponse,
+  status: number,
+  result: { ok: false; message: string; code?: string }
+): Promise<void> {
+  const body = JSON.stringify(result);
+  /** Finish on consumed input, peer closure, or a fixed deadline; empty chunks cannot extend it. */
+  const discarded = new Promise<void>(done => {
+    const finish = (): void => {
+      clearTimeout(deadline);
+      request.off('end', finish);
+      request.off('close', finish);
+      response.off('close', finish);
+      done();
+    };
+    const deadline = setTimeout(finish, ARCHIVE_REJECTION_DRAIN_MS);
+    deadline.unref();
+    request.once('end', finish);
+    request.once('close', finish);
+    response.once('close', finish);
+    if (request.readableEnded || request.destroyed || response.destroyed) finish();
+  });
+  request.resume();
+  if (!response.destroyed) {
+    response.writeHead(status, { 'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body), 'Connection': 'close' });
+    // A known length lets the client finish reading the error before end() closes pending input.
+    response.write(body);
+  }
+  await discarded;
+  if (!response.destroyed) response.end();
 }
 
 /** Rust-authoritative process ownership returned to tests and the CLI. */
@@ -514,16 +551,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         }
         const message = error instanceof Error ? error.message : String(error);
         const requiresBranch = message.includes('resume it as a branch');
-        // Let already-buffered input drain before closing; immediate close can reset Windows TCP.
-        // Yield once without waiting for the peer to finish an unbounded rejected body.
-        request.resume();
-        await new Promise<void>(done => setImmediate(done));
-        if (response.destroyed) return;
-        response.writeHead(requiresBranch ? 409 : fault ? 503 : 400, {
-          'Content-Type': 'application/json', 'Connection': 'close'
-        });
-        response.end(JSON.stringify({ ok: false, message,
-          ...(requiresBranch ? { code: 'IMPORT_REQUIRES_BRANCH' } : {}) }));
+        await rejectArchiveUpload(request, response, requiresBranch ? 409 : fault ? 503 : 400,
+          { ok: false, message, ...(requiresBranch ? { code: 'IMPORT_REQUIRES_BRANCH' } : {}) });
       });
       return;
     }

@@ -1891,3 +1891,19 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   unchanged Rust/browser code retains the preceding broad validation. Disposable
   servers and fixtures were removed. These prove the named failures; full A7
   and Stage 7/8 remain open.
+
+- 2026-10-02 A7 resource-admission HTTP coverage injects scarce temporary-quota,
+  SQLite/WAL-allowance and operating-reserve readings before upload, after the
+  actual synced upload, and after acquiring an export inventory lease. Production
+  admission arithmetic rejects each case; retained rows/files, active identity
+  and source bytes stay unchanged, stepping continues, and a later exact export
+  succeeds. Rejection before upload intermittently reset Windows TCP before the
+  small error arrived. Import now writes the complete length-delimited error
+  before a fixed, at-most-one-second discard interval and connection closure.
+  Repeated early rejections and a connected unfinished upload receive the entire
+  error without spooling. Affected server, framing, spool, admission and scavenger
+  tests, TypeScript and ESLint passed. The actual four-GiB-plus-one-MiB upload and
+  60-second stalled-upload gates also passed with clean scratch and continuing
+  authority. Rust/browser code retains prior broad validation. Disposable servers
+  and fixtures were removed. Physical filesystem exhaustion, process-memory
+  rejection and the remaining A7/Stage 7/8 acceptance scope remain open.

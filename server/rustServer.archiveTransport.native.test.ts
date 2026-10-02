@@ -19,6 +19,7 @@ import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { loadExperimentalFreshRunSession } from './rustEngine/experimentalFreshRunSession.ts';
 import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from './rustEngine/diskAdmission.ts';
+import * as diskAdmission from './rustEngine/diskAdmission.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import type { AssignMsg, SensorsMsg } from './protocol.ts';
 import type { ExperimentalRuntimeTelemetrySnapshot } from './rustEngine/runtimeTelemetry.ts';
@@ -284,7 +285,7 @@ async function advancing(fixture: Fixture): Promise<void> {
 }
 
 /** Exchange raw bytes so Node's client does not normalize deliberately malformed framing. */
-async function raw(fixture: Fixture, headers: string[], body = Buffer.alloc(0), endInput = false): Promise<string> {
+async function raw(fixture: Fixture, headers: string[], body: Buffer = Buffer.alloc(0), endInput = false): Promise<string> {
   return await new Promise<string>((done, reject) => {
     const socket = connect({ host: '127.0.0.1', port: fixture.server.port });
     fixture.sockets.add(socket);
@@ -422,6 +423,116 @@ async function heldInput(peers: ControllerPeer[]): Promise<void> {
 }
 
 describeNetworkSuite('Rust archive HTTP framing', () => {
+  it('delivers the whole resource rejection and closes a connected unfinished upload without spooling', async () => {
+    await experiment(async fixture => {
+      const admission = vi.spyOn(diskAdmission, 'admitDiskOperation')
+        .mockImplementation(async (_directory, request) => diskAdmission.evaluateDiskAdmission(request,
+          diskAdmission.ARCHIVE_TEMP_QUOTA_BYTES, 32n * 1024n ** 3n));
+      const spool = vi.spyOn(archiveUpload, 'spoolArchiveUpload');
+      try {
+        const started = performance.now();
+        const response = await raw(fixture, [`Content-Length: ${fixture.archive.byteLength}`],
+          fixture.archive.subarray(0, 64 * 1024));
+        expect(response).toMatch(/^HTTP\/1\.1 400 /u);
+        expect(performance.now() - started).toBeLessThan(2500);
+        const [headers, body] = response.split('\r\n\r\n');
+        const length = Number(headers!.match(/Content-Length: (\d+)/iu)?.[1]);
+        expect(length).toBeGreaterThan(0);
+        expect(Buffer.byteLength(body!)).toBe(length);
+        expect(JSON.parse(body!)).toMatchObject({ ok: false, message: expect.stringContaining('temporary bytes, above') });
+        expect(admission).toHaveBeenCalledOnce();
+        expect(spool).not.toHaveBeenCalled();
+        await preserved(fixture);
+        await advancing(fixture);
+      } finally { admission.mockRestore(); spool.mockRestore(); }
+    });
+  }, 10_000);
+
+  it.each(([
+    ['import upload', 1], ['import preparation', 2], ['export', 1]
+  ] as const).flatMap(([boundary, attempt]) =>
+    (['temporary quota', 'SQLite/WAL allowance', 'operating reserve'] as const)
+      .map(resource => ({ boundary, attempt, resource }))))(
+    'preserves the game when $resource rejects $boundary', async ({ boundary, attempt, resource }) => {
+      await experiment(async fixture => {
+        const originalAdmit = diskAdmission.admitDiskOperation;
+        const sourceHash = createHash('sha256').update(fixture.archive).digest('hex');
+        const operation = boundary === 'export' ? 'export' : 'import';
+        let seen = 0;
+        let refusal: diskAdmission.DiskAdmissionError | undefined;
+        const spool = vi.spyOn(archiveUpload, 'spoolArchiveUpload');
+        const stage = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport');
+        const commit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commitImport');
+        const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
+        /** Inject only scarce-resource readings; run the production admission arithmetic and transfer path. */
+        const admission = vi.spyOn(diskAdmission, 'admitDiskOperation')
+          .mockImplementation(async (directory, request) => {
+            if (request.operation !== operation || ++seen !== attempt) return originalAdmit(directory, request);
+            expect(directory).toBe(fixture.managedDirectory);
+            const actual = await diskAdmission.inspectManagedDisk(directory);
+            if (boundary === 'import preparation') {
+              expect(actual.tempByteCount).toBe(BigInt(fixture.archive.byteLength));
+              const upload = (await readdir(directory)).filter(name => name.endsWith('.upload.ready'));
+              expect(upload).toHaveLength(1);
+              const retained = await files(directory);
+              expect(retained.find(file => file.filename === upload[0])?.sha256).toBe(sourceHash);
+              expect(request.sourceSpoolBytes).toBe(0n);
+              expect(request.candidateSpoolBytes + request.finalManagedBytes).toBeGreaterThan(0n);
+            } else if (boundary === 'import upload') {
+              expect(actual.tempByteCount).toBe(0n);
+              expect(request.sourceSpoolBytes).toBe(BigInt(fixture.archive.byteLength));
+            } else {
+              expect(actual.tempByteCount).toBeGreaterThan(0n); // The real export inventory is already leased.
+              expect(request.candidateSpoolBytes).toBeGreaterThan(0n);
+            }
+            const plannedTemp = request.sourceSpoolBytes + request.candidateSpoolBytes;
+            const existingTemp = resource === 'temporary quota'
+              ? diskAdmission.ARCHIVE_TEMP_QUOTA_BYTES - plannedTemp + 1n : actual.tempByteCount;
+            const payloadBytes = existingTemp + plannedTemp + request.finalManagedBytes;
+            const freeBytes = resource === 'temporary quota' ? 32n * 1024n ** 3n :
+              payloadBytes + (resource === 'SQLite/WAL allowance'
+                ? diskAdmission.OPERATING_DISK_RESERVE_BYTES : diskAdmission.SQLITE_WAL_ALLOWANCE_BYTES);
+            try { return diskAdmission.evaluateDiskAdmission(request, existingTemp, freeBytes); }
+            catch (error) {
+              expect(error).toBeInstanceOf(diskAdmission.DiskAdmissionError);
+              refusal = error as diskAdmission.DiskAdmissionError;
+              throw error;
+            }
+          });
+        try {
+          for (let repetition = 0; repetition < (boundary === 'import upload' ? 12 : 1); repetition++) {
+            seen = 0;
+            const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/${operation === 'export' ? 'export/latest' : 'import/archive'}`,
+              operation === 'export' ? { signal: AbortSignal.timeout(5000) } :
+                { method: 'POST', body: new Uint8Array(fixture.archive), signal: AbortSignal.timeout(5000) })
+              .catch(error => { throw new Error(`resource rejection response failed (${repetition})`, { cause: error }); });
+            expect(response.status).toBe(operation === 'export' ? 500 : 400);
+            expect(refusal).toBeDefined();
+            expect(refusal?.code).toBe(resource === 'temporary quota' ? 'TEMP_QUOTA' : 'FREE_DISK');
+            expect(await response.json()).toMatchObject({ ok: false, message: refusal!.message });
+            await preserved(fixture);
+          }
+          expect(seen).toBe(attempt);
+          expect(spool).toHaveBeenCalledTimes(boundary === 'import preparation' ? 1 : 0);
+          expect(stage).not.toHaveBeenCalled();
+          expect(commit).not.toHaveBeenCalled();
+          await preserved(fixture);
+          await advancing(fixture);
+          expect(release).toHaveBeenCalledTimes(operation === 'export' ? 1 : 0);
+          expect(createHash('sha256').update(fixture.archive).digest('hex')).toBe(sourceHash);
+          admission.mockRestore();
+          const retry = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`)
+            .catch(error => { throw new Error('export retry response failed', { cause: error }); });
+          expect(retry.status).toBe(200);
+          expect(Buffer.from(await retry.arrayBuffer())).toEqual(fixture.archive);
+          await preserved(fixture);
+        } finally {
+          admission.mockRestore(); spool.mockRestore(); stage.mockRestore(); commit.mockRestore(); release.mockRestore();
+        }
+      });
+    }, 20_000
+  );
+
   it.each(['import', 'reset', 'newRun'] as const)(
     'preserves player and trainer leases and held input after a failed staged %s', async kind => {
     await experiment(async fixture => {
