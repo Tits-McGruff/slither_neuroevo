@@ -1994,3 +1994,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   contracts, TypeScript, full ESLint and Vite passed. Unchanged Rust retains the
   preceding full release suite. Disposable servers and fixtures were removed.
   Physical resource exhaustion, full A7 and remaining Stage 7/8 gates stay open.
+
+- 2026-10-03 A6 ordered-input continuation now uses an actually evolved
+  generation-two archive, a Dense/GRU/LSTM/RRU population, durable baseline bots,
+  and fresh player/trainer joins through the production native command boundary.
+  Direct continuation and imports with one or six calculation workers accept
+  identical ordered actions at identical completed steps, deliver bit-identical
+  ordered sensor/position events, and publish identical generation records,
+  successor checkpoint roots/files and winner-weight files. Reversing player
+  steering changes the observed gameplay; every replay preserves the original
+  archive bytes. This compares completed-step chronology; process wall debt and
+  OS-entropy reconnect tokens are outside the checkpoint replay contract.
+  All 483 release Rust tests and the documentation test, rustfmt, production and
+  test-inclusive Clippy passed. The production addon was rebuilt and 12 focused
+  source-identity, HTTP continuation/export/import/Hall-of-Fame and live controller
+  replacement checks passed. Unchanged TypeScript/browser sources retain the
+  preceding broad checks. All private fixtures and servers were cleaned. SQLite
+  durability and socket rejoining remain separate integrated evidence; this
+  closes the named ordered-input comparison, not full A6 or Stage 7/8 acceptance.

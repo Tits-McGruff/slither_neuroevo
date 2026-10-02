@@ -1383,6 +1383,10 @@ fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     }
 }
 
+#[cfg(test)]
+#[path = "archive_continuation_tests.rs"]
+mod archive_continuation_tests;
+
 #[cfg(all(test, feature = "engine-test-hooks"))]
 mod tests {
     use super::*;
