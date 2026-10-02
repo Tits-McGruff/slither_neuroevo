@@ -4256,12 +4256,12 @@ pub(crate) fn sync_parent_directory(_directory: &Path) -> Result<(), CheckpointE
 
 /// One strictly scanned ordinary regular-file entry.
 #[derive(Clone, Debug)]
-struct ScannedEntry {
-    name: String,
+pub(super) struct ScannedEntry {
+    pub(super) name: String,
     #[cfg(test)]
     header_offset: u64,
-    data_offset: u64,
-    size: u64,
+    pub(super) data_offset: u64,
+    pub(super) size: u64,
 }
 
 /// Scan the complete archive structure before allocating or decoding any role.
@@ -4270,9 +4270,21 @@ fn scan_strict_ustar(
     archive_length: u64,
     limits: &CheckpointLimits,
 ) -> Result<Vec<ScannedEntry>, CheckpointError> {
+    scan_strict_ustar_roles(file, archive_length, USTAR_ENTRY_COUNT, |name, size| {
+        validate_scanned_entry_size(name, size, limits)
+    })
+}
+
+/// Check the shared strict container envelope, then apply each caller's fixed role-size policy.
+pub(super) fn scan_strict_ustar_roles(
+    file: &mut File,
+    archive_length: u64,
+    entry_count: usize,
+    mut validate_role: impl FnMut(&str, u64) -> Result<(), CheckpointError>,
+) -> Result<Vec<ScannedEntry>, CheckpointError> {
     file.seek(SeekFrom::Start(0))?;
     let mut entries = Vec::new();
-    entries.try_reserve_exact(USTAR_ENTRY_COUNT).map_err(|_| {
+    entries.try_reserve_exact(entry_count).map_err(|_| {
         CheckpointError::format("ALLOCATION", "unable to reserve fixed USTAR entry table")
     })?;
     let mut offset = 0u64;
@@ -4308,7 +4320,7 @@ fn scan_strict_ustar(
             }
             break;
         }
-        if entries.len() >= USTAR_ENTRY_COUNT {
+        if entries.len() >= entry_count {
             return Err(CheckpointError::format(
                 "USTAR_ENTRY_COUNT",
                 "archive contains too many entries",
@@ -4324,7 +4336,7 @@ fn scan_strict_ustar(
                 format!("duplicate USTAR entry {name}"),
             ));
         }
-        validate_scanned_entry_size(&name, size, limits)?;
+        validate_role(&name, size)?;
         let data_offset = header_end;
         let padding = (USTAR_BLOCK_BYTES - (size % USTAR_BLOCK_BYTES)) % USTAR_BLOCK_BYTES;
         let next = data_offset
@@ -4360,14 +4372,14 @@ fn scan_strict_ustar(
         offset = next;
         file.seek(SeekFrom::Start(offset))?;
     }
-    if entries.len() != USTAR_ENTRY_COUNT
+    if entries.len() != entry_count
         || entries
             .last()
             .is_none_or(|entry| entry.name != MANIFEST_PATH)
     {
         return Err(CheckpointError::format(
             "USTAR_ENTRY_SET",
-            "archive must contain exactly five logical roles followed by manifest.json",
+            "archive must contain its fixed role set followed by manifest.json",
         ));
     }
     Ok(entries)
@@ -4431,7 +4443,6 @@ fn parse_ustar_header(header: &[u8; 512]) -> Result<(String, u64), CheckpointErr
     let name = std::str::from_utf8(name_bytes)
         .map_err(|_| CheckpointError::format("USTAR_PATH", "USTAR entry path is not UTF-8"))?
         .to_owned();
-    validate_fixed_safe_path(&name)?;
     let size = parse_ustar_octal(&header[124..136], "size")?;
     Ok((name, size))
 }
@@ -4489,11 +4500,12 @@ fn validate_fixed_safe_path(path: &str) -> Result<(), CheckpointError> {
 }
 
 /// Apply path-specific stored-byte limits during the structural scan.
-fn validate_scanned_entry_size(
+pub(super) fn validate_scanned_entry_size(
     path: &str,
     size: u64,
     limits: &CheckpointLimits,
 ) -> Result<(), CheckpointError> {
+    validate_fixed_safe_path(path)?;
     let limit = match path {
         STATE_PATH => limits.max_state_bytes as u64,
         GRAPH_PATH => limits.max_graph_bytes as u64,
@@ -5654,6 +5666,70 @@ mod tests {
             checkpoint,
             elite,
             archive_path,
+        }
+    }
+
+    /// Outer save validation rejects ignored container bytes before creating import scratch.
+    #[test]
+    fn save_import_rejects_noncanonical_padding_trailer_and_hidden_name_bytes() {
+        use crate::engine::export_archive::validate_import_archive;
+
+        let fixture = hall_of_fame_import_fixture();
+        let original = fs::read(&fixture.archive_path).unwrap();
+        let mut file = File::open(&fixture.archive_path).unwrap();
+        let entries =
+            scan_strict_ustar_roles(&mut file, original.len() as u64, 9, |_, _| Ok(())).unwrap();
+        let padded = entries.iter().find(|entry| entry.size % 512 != 0).unwrap();
+        for fault in ["padding", "trailer", "name"] {
+            let target = TestDirectory::new("save-container-rejection");
+            let path = target.path.join("damaged.slither-save");
+            let mut damaged = original.clone();
+            let expected = match fault {
+                "padding" => {
+                    damaged[(padded.data_offset + padded.size) as usize] = 1;
+                    "nonzero padding"
+                }
+                "trailer" => {
+                    let last = damaged.len() - 1;
+                    damaged[last] = 1;
+                    "second USTAR trailer block is nonzero"
+                }
+                "name" => {
+                    let nul = damaged[..100].iter().position(|byte| *byte == 0).unwrap();
+                    damaged[nul + 1] = b'x';
+                    refresh_test_ustar_checksum(&mut damaged[..512]);
+                    "hidden bytes after NUL"
+                }
+                _ => unreachable!(),
+            };
+            fs::write(&path, &damaged).unwrap();
+            let error = validate_import_archive(
+                &path,
+                &target.path,
+                &"d".repeat(32),
+                &checkpoint_limits(),
+                &graph_limits(),
+                &fixture.policy,
+            )
+            .expect_err("noncanonical outer bytes must be rejected before import extraction");
+            assert!(error.to_string().contains(expected), "{error}");
+            assert_eq!(fs::read_dir(&target.path).unwrap().count(), 1);
+            assert_eq!(fs::read(path).unwrap(), damaged);
+            assert_eq!(fs::read(&fixture.archive_path).unwrap(), original);
+            assert_eq!(
+                validate_import_archive(
+                    &fixture.archive_path,
+                    &target.path,
+                    &"e".repeat(32),
+                    &checkpoint_limits(),
+                    &graph_limits(),
+                    &fixture.policy,
+                )
+                .unwrap()
+                .hall_of_fame_count_hex,
+                encode_u64_hex(1)
+            );
+            assert_eq!(fs::read_dir(&target.path).unwrap().count(), 1);
         }
     }
 

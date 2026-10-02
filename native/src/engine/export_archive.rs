@@ -8,10 +8,10 @@
 use super::checkpoint::{
     decode_adaptive_numeric_reader, publication_descriptor_for_restored,
     publish_hall_of_fame_weights, read_validated_hall_of_fame_weights, rename_noreplace,
-    restore_committed_checkpoint, select_adaptive_numeric_file, sync_parent_directory,
-    validated_checkpoint_archive_layout, CheckpointDescriptor, CheckpointError, CheckpointLimits,
-    CheckpointManifest, CheckpointOperationId, HallOfFameWeightsDescriptor, NumericEncoding,
-    RestoredCheckpoint,
+    restore_committed_checkpoint, scan_strict_ustar_roles, select_adaptive_numeric_file,
+    sync_parent_directory, validate_scanned_entry_size, validated_checkpoint_archive_layout,
+    CheckpointDescriptor, CheckpointError, CheckpointLimits, CheckpointManifest,
+    CheckpointOperationId, HallOfFameWeightsDescriptor, NumericEncoding, RestoredCheckpoint,
 };
 use super::fresh_run::{
     prepare_stage6a_legacy_population_import, FreshRunSettingUpdate, LegacyPopulationGenome,
@@ -1665,7 +1665,7 @@ fn validate_import_candidate(
             "upload must be one nonempty regular file within the four-GiB archive limit",
         ));
     }
-    let scanned = scan_import_archive(archive_path)?;
+    let scanned = scan_import_archive(archive_path, checkpoint_limits)?;
     let manifest = scanned.manifest;
     validate_import_manifest(
         &manifest,
@@ -2437,9 +2437,28 @@ fn build_hall_of_fame_weights(
     Ok((total_bytes, total_weights, hasher.finalize().into()))
 }
 
-fn scan_import_archive(path: &Path) -> Result<ScannedImportArchive, CheckpointError> {
-    let file = File::open(path)?;
-    let mut archive = TarArchive::new(BufReader::new(file));
+fn scan_import_archive(
+    path: &Path,
+    checkpoint_limits: &CheckpointLimits,
+) -> Result<ScannedImportArchive, CheckpointError> {
+    let mut file = File::open(path)?;
+    let length = file.metadata()?.len();
+    let entries = scan_strict_ustar_roles(&mut file, length, 9, |name, size| {
+        let limit = match name {
+            HISTORY_PATH => MAX_EXPORT_GENERATIONS * HISTORY_RECORD_BYTES,
+            HOF_INDEX_PATH => MAX_EXPORT_GENERATIONS * HOF_RECORD_BYTES,
+            HOF_WEIGHTS_PATH | HOF_WEIGHTS_ZSTD_PATH => MAX_EXPORT_ARCHIVE_BYTES,
+            MANIFEST_PATH => 1024 * 1024,
+            _ => return validate_scanned_entry_size(name, size, checkpoint_limits),
+        };
+        if size > limit {
+            return Err(CheckpointError::format(
+                "IMPORT_ENTRY_LIMIT",
+                format!("save entry {name} exceeds its stored limit"),
+            ));
+        }
+        Ok(())
+    })?;
     let mut sizes = Vec::new();
     sizes.try_reserve_exact(9).map_err(|_| {
         CheckpointError::format("ALLOCATION", "unable to reserve save entry-size table")
@@ -2453,47 +2472,13 @@ fn scan_import_archive(path: &Path) -> Result<ScannedImportArchive, CheckpointEr
         CheckpointError::format("ALLOCATION", "unable to reserve save entry-path table")
     })?;
     let mut manifest = None;
-    let mut seen = 0usize;
-    for entry in archive.entries()? {
-        let mut entry = entry?;
-        if seen >= 9 || !entry.header().entry_type().is_file() {
-            return Err(CheckpointError::format(
-                "IMPORT_USTAR",
-                "save entries are unknown, unsafe, duplicated, or out of order",
-            ));
-        }
-        let path = entry.path()?.into_owned();
-        if path.is_absolute()
-            || path.components().any(|component| {
-                matches!(
-                    component,
-                    std::path::Component::ParentDir | std::path::Component::Prefix(_)
-                )
-            })
-        {
-            return Err(CheckpointError::format(
-                "IMPORT_USTAR",
-                "save entry path is not a safe relative role path",
-            ));
-        }
-        let size = entry.header().size()?;
-        let path_text = path.to_str().ok_or_else(|| {
-            CheckpointError::format("IMPORT_USTAR", "save entry path is not UTF-8")
-        })?;
-        paths.push(path_text.to_owned());
+    for (seen, extent) in entries.iter().enumerate() {
+        file.seek(SeekFrom::Start(extent.data_offset))?;
+        let mut entry = (&mut file).take(extent.size);
+        let size = extent.size;
+        paths.push(extent.name.clone());
         sizes.push(size);
         if seen < 8 {
-            let limit = match seen {
-                5 => MAX_EXPORT_GENERATIONS * HISTORY_RECORD_BYTES,
-                6 => MAX_EXPORT_GENERATIONS * HOF_RECORD_BYTES,
-                _ => MAX_EXPORT_ARCHIVE_BYTES,
-            };
-            if size > limit {
-                return Err(CheckpointError::format(
-                    "IMPORT_ENTRY_LIMIT",
-                    format!("save entry {} exceeds its stored limit", path.display()),
-                ));
-            }
             let mut hasher = Sha256::new();
             let copied = io::copy(&mut entry, &mut HashWriter(&mut hasher))?;
             if copied != size {
@@ -2504,7 +2489,7 @@ fn scan_import_archive(path: &Path) -> Result<ScannedImportArchive, CheckpointEr
             }
             hashes.push(hasher.finalize().into());
         } else {
-            if path != Path::new(MANIFEST_PATH) {
+            if extent.name != MANIFEST_PATH {
                 return Err(CheckpointError::format(
                     "IMPORT_USTAR",
                     "save manifest must be the final entry",
@@ -2528,13 +2513,6 @@ fn scan_import_archive(path: &Path) -> Result<ScannedImportArchive, CheckpointEr
                 )
             })?);
         }
-        seen += 1;
-    }
-    if seen != 9 {
-        return Err(CheckpointError::format(
-            "IMPORT_USTAR",
-            "save archive is missing required entries or its final manifest",
-        ));
     }
     Ok(ScannedImportArchive {
         manifest: manifest.ok_or_else(|| {

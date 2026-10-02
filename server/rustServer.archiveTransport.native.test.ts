@@ -163,6 +163,33 @@ function legacyPopulation(): Buffer {
       fitness, weights: new Array<number>(13458).fill(0) })) }));
 }
 
+/** Locate extents only in the canonical small archive produced by this test's real exporter. */
+function archiveEntries(archive: Buffer): Array<{ header: number; data: number; size: number; end: number }> {
+  const entries: Array<{ header: number; data: number; size: number; end: number }> = [];
+  let header = 0;
+  while (header < archive.byteLength - 1024) {
+    expect(archive.subarray(header + 257, header + 265).toString()).toBe('ustar\0' + '00');
+    const size = Number.parseInt(archive.subarray(header + 124, header + 136).toString().replaceAll('\0', '').trim(), 8);
+    expect(Number.isSafeInteger(size) && size >= 0).toBe(true);
+    const data = header + 512;
+    const end = data + Math.ceil(size / 512) * 512;
+    expect(end).toBeLessThanOrEqual(archive.byteLength - 1024);
+    entries.push({ header, data, size, end });
+    header = end;
+  }
+  expect(entries).toHaveLength(9);
+  expect(header + 1024).toBe(archive.byteLength);
+  expect(archive.subarray(header).every(byte => byte === 0)).toBe(true);
+  return entries;
+}
+
+/** Update a deliberately changed USTAR header so tests reach type/path validation beyond checksum. */
+function archiveHeaderChecksum(bytes: Buffer, header: number): void {
+  bytes.fill(0x20, header + 148, header + 156);
+  const checksum = bytes.subarray(header, header + 512).reduce((sum, byte) => sum + byte, 0);
+  bytes.write(checksum.toString(8).padStart(6, '0') + '\0 ', header + 148, 8, 'ascii');
+}
+
 /** Prove cancellation or publication releases the world to complete further fixed steps. */
 async function advancing(fixture: Fixture): Promise<void> {
   const initial = await health(fixture.server);
@@ -252,6 +279,65 @@ function observeDisconnect(fixture: Fixture): { closed: Promise<boolean>; restor
 }
 
 describeNetworkSuite('Rust archive HTTP framing', () => {
+  it.each(['nonzero role padding', 'nonzero second end block', 'hidden header name bytes',
+    'continuous-file entry', 'symbolic-link entry', 'device entry', 'sparse entry', 'PAX entry',
+    'duplicate role path', 'parent traversal path', 'missing role', 'unsupported save version',
+    'corrupted logical root', 'false decoded byte count', 'corrupted graph entry'] as const)(
+    'rejects %s in the uploaded save container before replacement', async fault => {
+      await experiment(async fixture => {
+        const entries = archiveEntries(fixture.archive);
+        let damaged = Buffer.from(fixture.archive);
+        if (fault === 'nonzero role padding') {
+          const entry = entries.find(value => value.size % 512 !== 0)!;
+          expect(entry).toBeDefined();
+          damaged[entry.data + entry.size] = 1;
+        } else if (fault === 'nonzero second end block') damaged[damaged.byteLength - 1] = 1;
+        else if (fault === 'missing role') damaged = Buffer.concat([damaged.subarray(entries[0]!.end)]);
+        else if (fault === 'corrupted graph entry') damaged[entries[1]!.data] = damaged[entries[1]!.data]! ^ 1;
+        else if (fault === 'unsupported save version' || fault === 'corrupted logical root' ||
+            fault === 'false decoded byte count') {
+          const entry = entries[8]!;
+          const manifest = JSON.parse(damaged.subarray(entry.data, entry.data + entry.size).toString()) as {
+            archiveVersion: number; logicalRootSha256: string; roles: Array<{ decodedBytesHex: string }>;
+          };
+          if (fault === 'unsupported save version') manifest.archiveVersion = 2;
+          else if (fault === 'corrupted logical root') {
+            manifest.logicalRootSha256 = (manifest.logicalRootSha256.startsWith('0') ? '1' : '0') +
+              manifest.logicalRootSha256.slice(1);
+          } else manifest.roles[3]!.decodedBytesHex = 'ffffffffffffffff';
+          const bytes = Buffer.from(JSON.stringify(manifest));
+          expect(bytes.byteLength).toBe(entry.size);
+          bytes.copy(damaged, entry.data);
+        }
+        else {
+          const header = fault === 'duplicate role path' ? entries[1]!.header : entries[0]!.header;
+          if (fault === 'hidden header name bytes') {
+            const nul = damaged.indexOf(0, header);
+            expect(nul).toBeLessThan(header + 99);
+            damaged[nul + 1] = 0x78;
+          } else if (fault === 'parent traversal path' || fault === 'duplicate role path') {
+            const name = fault === 'parent traversal path' ? '../outside'
+              : damaged.subarray(0, 100).toString().split('\0')[0]!;
+            damaged.fill(0, header, header + 100);
+            damaged.write(name, header, 'ascii');
+          } else {
+            const type = { 'continuous-file entry': '7', 'symbolic-link entry': '2',
+              'device entry': '3', 'sparse entry': 'S', 'PAX entry': 'x' }[fault];
+            damaged[header + 156] = type.charCodeAt(0);
+          }
+          archiveHeaderChecksum(damaged, header);
+        }
+        const originalHash = createHash('sha256').update(fixture.archive).digest('hex');
+        const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`, {
+          method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: damaged
+        });
+        expect(response.status, await response.text()).toBe(400);
+        await preserved(fixture);
+        expect(createHash('sha256').update(fixture.archive).digest('hex')).toBe(originalHash);
+      });
+    }
+  );
+
   it.each(['afterSpool', 'afterPreparation', 'afterStage', 'beforeCommit'] as const)(
     'preserves the experiment when the import client disconnects %s', async boundary => {
       await experiment(async fixture => {

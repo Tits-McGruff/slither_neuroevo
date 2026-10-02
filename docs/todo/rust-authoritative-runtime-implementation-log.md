@@ -1800,3 +1800,22 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Disposable servers/databases were closed and test scratch removed. These prove
   the named completed-upload disconnect boundaries; full A7 and Stage 7/8 gates
   remain open.
+
+- 2026-10-02 Real HTTP imports accepted nonzero outer-save padding, damage in
+  the second terminal zero block, and hidden filename bytes after NUL. The save
+  reader now shares the checkpoint reader's strict header/checksum/type/path,
+  duplicate/count, padding and complete-trailer scan, with separate fixed
+  role-size policies. Structural validation seeks past payloads; hashing and
+  numeric decoding remain streamed. Fifteen real HTTP rejection cases cover
+  those defects plus continuous/link/device/sparse/PAX entries, duplicate/unsafe
+  paths, missing roles, unsupported version, false decoded size and corrupted
+  graph/root bytes. Every retained metadata row, managed filename/hash, active
+  identity and original upload source remains unchanged. A Rust regression
+  rejects the three previously accepted defects before scratch creation and
+  still validates the original evolved archive with Hall of Fame data.
+  All 478 Rust tests plus the compile-fail doctest, 138 native/MT contracts,
+  Rustfmt, all-target Clippy, TypeScript, ESLint and Vite passed. Three existing
+  optional transfer cases were skipped; the unchanged HTTP/spool paths retain
+  their preceding full-size and idle-deadline evidence. Disposable test roots
+  and processes were closed/removed, including the isolated test-addon copy.
+  These prove the named container failures; full A7 and Stage 7/8 remain open.
