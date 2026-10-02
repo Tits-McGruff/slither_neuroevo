@@ -502,7 +502,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         if (response.destroyed) return;
         response.writeHead(200, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify(result));
-      }).catch(error => {
+      }).catch(async error => {
         finishImport();
         if (response.destroyed) return;
         if (response.headersSent) {
@@ -511,7 +511,14 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         }
         const message = error instanceof Error ? error.message : String(error);
         const requiresBranch = message.includes('resume it as a branch');
-        response.writeHead(requiresBranch ? 409 : fault ? 503 : 400, { 'Content-Type': 'application/json' });
+        // Let already-buffered input drain before closing; immediate close can reset Windows TCP.
+        // Yield once without waiting for the peer to finish an unbounded rejected body.
+        request.resume();
+        await new Promise<void>(done => setImmediate(done));
+        if (response.destroyed) return;
+        response.writeHead(requiresBranch ? 409 : fault ? 503 : 400, {
+          'Content-Type': 'application/json', 'Connection': 'close'
+        });
         response.end(JSON.stringify({ ok: false, message,
           ...(requiresBranch ? { code: 'IMPORT_REQUIRES_BRANCH' } : {}) }));
       });
@@ -957,7 +964,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           finalManagedBytes: 0n
         });
         const upload = await spoolArchiveUpload({
-          source: request,
+          // Early spool rejection must leave the socket alive until its HTTP error is sent.
+          source: request.iterator({ destroyOnReturn: false }),
           contentLength: request.headers['content-length'],
           scratchDirectory: owner.managedDirectory,
           operationId

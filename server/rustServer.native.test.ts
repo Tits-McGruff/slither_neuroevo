@@ -1313,13 +1313,25 @@ describeNetworkSuite('Rust server real sockets', () => {
     let targetViewer: Peer | undefined;
     let cleanupSpy: ReturnType<typeof vi.spyOn> | undefined;
     let stageSpy: ReturnType<typeof vi.spyOn> | undefined;
+    let releaseSpy: ReturnType<typeof vi.spyOn> | undefined;
     try {
+      let initialExportReleased = false;
+      const releaseExportLease = CheckpointPersistenceClient.prototype.releaseExportLease;
+      // Download completion precedes lease release; Reset must wait for the real release reply.
+      releaseSpy = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease')
+        .mockImplementationOnce(async function(this: CheckpointPersistenceClient, operationId) {
+          await releaseExportLease.call(this, operationId);
+          initialExportReleased = true;
+        });
       const initialExport = await fetch(`http://127.0.0.1:${source.port}/api/export/latest`);
       expect(initialExport.status).toBe(200);
       const initialCheckpointId = initialExport.headers.get('x-slither-checkpoint-id');
       const initialArchive = Buffer.from(await initialExport.arrayBuffer());
       viewer = await connect(source.port, 'ui');
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
+      await until(viewer, () => initialExportReleased);
+      releaseSpy.mockRestore();
+      releaseSpy = undefined;
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 12 },
         updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 0 }] }));
@@ -1517,6 +1529,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(validRetry.status).toBe(200);
       expect(await validRetry.json()).toMatchObject({ ok: true, checkpointId: initialCheckpointId });
     } finally {
+      releaseSpy?.mockRestore();
       stageSpy?.mockRestore();
       cleanupSpy?.mockRestore();
       targetViewer?.socket.close();

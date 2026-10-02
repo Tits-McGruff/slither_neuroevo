@@ -1762,3 +1762,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   closed/removed after retaining this compact evidence. These prove the named
   ownership and idle-transfer cases; the remaining A7 matrix and Stage 7/8
   gates stay open.
+
+- 2026-10-02 Real HTTP framing coverage rejects over-limit/noncanonical lengths,
+  conflicting chunked framing, empty and truncated requests, and a valid save
+  followed by bytes beyond its declared length; valid bounded chunked imports
+  still succeed. Rejections compare every retained Rust metadata row, managed
+  filename/hash, and active identity. An actual 4-GiB-plus-1-MiB chunked upload
+  exposed a socket reset before the intended error response. Import now returns
+  the request iterator without destroying its socket, discards buffered input
+  for one event-loop turn, and sends its rejection with connection closure.
+  The full-limit test passed with HTTP 400, a 4,292,501,366-byte observed partial
+  spool, unchanged saved state, and continuing simulation; its spool and private
+  server/database were removed. The actual 60-second stalled-upload deadline
+  also passed. Across framing, spool, real-server and category coverage, 43
+  distinct tests passed, with only the separate optional large-download case
+  skipped. TypeScript, ESLint and Vite passed. A reset fixture now waits for its
+  initial export's actual lease release before submitting Reset. Rust sources
+  remain unchanged from the preceding 477-test checkpoint. These prove the
+  named wire-framing/limit cases; complete A7 and Stage 7/8 acceptance stay open.
