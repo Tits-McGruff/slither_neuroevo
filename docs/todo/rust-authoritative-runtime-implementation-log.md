@@ -1780,3 +1780,23 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   initial export's actual lease release before submitting Reset. Rust sources
   remain unchanged from the preceding 477-test checkpoint. These prove the
   named wire-framing/limit cases; complete A7 and Stage 7/8 acceptance stay open.
+
+- 2026-10-02 Completed-upload disconnects reproduced unintended import commits
+  after spooling, preparation, and staging. Production now checks client/server
+  cancellation before preparation and before committing the replacement. A
+  prepared candidate first holds the old world so the existing reference-aware
+  worker can reclaim its unreferenced files before cancellation releases that
+  world. Real HTTP regressions disconnect after spool/preparation/stage and
+  immediately before commit, using a distinct supported legacy candidate;
+  every Rust metadata row, retained filename/hash and active identity is
+  unchanged, new candidate/scratch files disappear, and fixed steps resume.
+  Complementary disconnects after actual SQLite commit and after the Rust swap
+  finish publication: the new database pointer and live identity agree, retained
+  source files remain unchanged, and process restart resumes and exports that
+  same committed checkpoint. Across HTTP/server/persistence/scavenger coverage,
+  95 distinct tests passed; four existing optional cases were skipped.
+  TypeScript, ESLint and Vite passed. Rust and the spool/idle-transfer path are
+  unchanged, so the preceding full-size and 60-second deadline evidence applies.
+  Disposable servers/databases were closed and test scratch removed. These prove
+  the named completed-upload disconnect boundaries; full A7 and Stage 7/8 gates
+  remain open.

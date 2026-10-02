@@ -346,7 +346,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   let storageInspectionFault: string | undefined;
   const disconnectedDuringImport = new Set<number>();
   let executeImport: ((request: import('node:http').IncomingMessage,
-    resumeAsBranch: boolean) => Promise<ArchiveImportSuccess>) | undefined;
+    resumeAsBranch: boolean, isCancelled: () => boolean) => Promise<ArchiveImportSuccess>) | undefined;
   let executeResurrection: ((entryId: string) => Promise<number>) | undefined;
   let reportArchiveStall = (error: Error): void => { console.error('[rust.archive-watchdog]', error.message); process.exit(1); };
 
@@ -497,7 +497,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         importAuthorityPublished = false;
         importOperation = undefined;
       };
-      importOperation = executeImport(request, importMode === 'branch').then(result => {
+      importOperation = executeImport(request, importMode === 'branch',
+        () => response.destroyed || stopping).then(result => {
         finishImport();
         if (response.destroyed) return;
         response.writeHead(200, { 'Content-Type': 'application/json' });
@@ -939,7 +940,11 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       }
     };
     /** Keep upload bytes and the complete replacement outside JavaScript memory. */
-    executeImport = async (request, resumeAsBranch): Promise<ArchiveImportSuccess> => {
+    executeImport = async (request, resumeAsBranch, isCancelled): Promise<ArchiveImportSuccess> => {
+      /** Reject a disconnected peer before committing; a committed replacement must finish publication. */
+      const requireConnected = (): void => {
+        if (isCancelled()) throw new Error('archive import cancelled before commit');
+      };
       const operationId = randomBytes(16).toString('hex');
       const branchRunId = resumeAsBranch ? randomUUID() : null;
       const legacyRunId = randomUUID();
@@ -971,12 +976,14 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           operationId
         });
         uploadPath = upload.readyPath;
+        requireConnected();
         const diskEstimate = await owner.runtime.estimateImportDisk(upload.readyPath);
         await admitDiskOperation(owner.managedDirectory, {
           operation: 'import', sourceSpoolBytes: 0n,
           candidateSpoolBytes: BigInt(`0x${diskEstimate.candidateSpoolBytes}`),
           finalManagedBytes: BigInt(`0x${diskEstimate.finalManagedBytes}`)
         });
+        requireConnected();
         nativePreparationStarted = true;
         const preparation = owner.runtime.prepareImportArchive(
           upload.readyPath,
@@ -1002,14 +1009,17 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         }
         prepared = true;
         inventoryPath = resolve(owner.managedDirectory, inventory.relativeFilename);
+        // Hold the old world before cancelling so newly published, unreferenced files can be reclaimed safely.
         await output.stagePreparedImport();
         staged = true;
+        requireConnected();
         const selected = await owner.persistence.selectStartup();
         if (!selected.descriptor || selected.runId !== activeMetadata.runId) {
           throw new Error('staged import found no matching current checkpoint');
         }
         previousCurrent = { runId: selected.runId,
           checkpointId: selected.descriptor.logicalRootSha256 };
+        requireConnected();
         commitAttempted = true;
         const durable = await owner.persistence.commitImport(descriptor, inventory, branchRunId);
         committed = true;

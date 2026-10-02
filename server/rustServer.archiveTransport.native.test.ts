@@ -2,16 +2,19 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdtemp, readdir, rm, stat, statfs } from 'node:fs/promises';
-import { request, type ClientRequest } from 'node:http';
+import { request, Server, type ClientRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { connect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { DEFAULT_CONFIG } from './config.ts';
 import { startRustServer, type RustServer } from './rustServer.ts';
 import { P0_ARCHIVE_UPLOAD_LIMIT } from './rustEngine/archiveUpload.ts';
+import * as archiveUpload from './rustEngine/archiveUpload.ts';
+import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
+import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 
 /** One task-owned authority and its durable pre-request evidence. */
@@ -72,7 +75,8 @@ async function noTransferScratch(directory: string): Promise<void> {
   let leftovers: string[] = [];
   do {
     leftovers = (await readdir(directory)).filter(name =>
-      name.includes('upload') || name.includes('slither-save') || name.includes('export-inventory'));
+      name.includes('upload') || name.includes('slither-save') || name.includes('export-inventory') ||
+      name.includes('import-'));
     if (leftovers.length === 0) return;
     await new Promise<void>(done => setTimeout(done, 10));
   } while (performance.now() < deadline);
@@ -112,6 +116,7 @@ async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<
   const databasePath = join(root, 'experiment.sqlite');
   const managedDirectory = `${databasePath}.checkpoints`;
   let server: RustServer | undefined;
+  let fixture: Fixture | undefined;
   let socket: WebSocket | undefined;
   const sockets = new Set<Socket>();
   const requests = new Set<ClientRequest>();
@@ -130,13 +135,14 @@ async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<
     const identityKeys = ['runId', 'seed', 'generation', 'worldEpoch', 'configHash', 'startupCheckpointId'];
     for (const key of identityKeys) expect(before[key], `health omitted ${key}`).toBeDefined();
     const identity = Object.fromEntries(identityKeys.map(key => [key, before[key]]));
-    await action({ server, databasePath, managedDirectory, archive, identity,
-      metadata: metadata(databasePath), files: await files(managedDirectory), sockets, requests });
+    fixture = { server, databasePath, managedDirectory, archive, identity,
+      metadata: metadata(databasePath), files: await files(managedDirectory), sockets, requests };
+    await action(fixture);
   } finally {
     for (const client of requests) client.destroy();
     for (const client of sockets) client.destroy();
     socket?.terminate();
-    await server?.close();
+    await (fixture?.server ?? server)?.close();
     await rm(root, { recursive: true, force: true });
   }
 }
@@ -147,6 +153,29 @@ async function preserved(fixture: Fixture): Promise<void> {
   expect(metadata(fixture.databasePath)).toEqual(fixture.metadata);
   expect(await files(fixture.managedDirectory)).toEqual(fixture.files);
   expect(await health(fixture.server)).toMatchObject({ ok: true, ...fixture.identity });
+}
+
+/** Build a supported legacy population whose import creates a distinct candidate and run. */
+function legacyPopulation(): Buffer {
+  return Buffer.from(JSON.stringify({ generation: 37, archKey: 'legacy-default-graph',
+    worldSeed: 1234567, settings: { snakeCount: 2, simSpeed: 0.1 },
+    genomes: [1, 2].map(fitness => ({ archKey: 'legacy-default-graph', brainType: 'mlp',
+      fitness, weights: new Array<number>(13458).fill(0) })) }));
+}
+
+/** Prove cancellation or publication releases the world to complete further fixed steps. */
+async function advancing(fixture: Fixture): Promise<void> {
+  const initial = await health(fixture.server);
+  const before = BigInt(`0x${initial['completedStep'] as string}`);
+  const deadline = performance.now() + 5000;
+  let completed = before;
+  while (completed <= before && performance.now() < deadline) {
+    await new Promise<void>(done => setTimeout(done, 10));
+    const current = await health(fixture.server);
+    expect(current['ok']).toBe(true);
+    completed = BigInt(`0x${current['completedStep'] as string}`);
+  }
+  expect(completed).toBeGreaterThan(before);
 }
 
 /** Exchange raw bytes so Node's client does not normalize deliberately malformed framing. */
@@ -192,7 +221,175 @@ async function writeChunk(client: ClientRequest, chunk: Buffer): Promise<void> {
   });
 }
 
+/** Await a real boundary with a deadline that is cleared on every terminal outcome. */
+async function bounded<T>(promise: Promise<T>, description: string): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([promise, new Promise<never>((_done, reject) => {
+      timeout = setTimeout(() => reject(new Error(description)), 5000);
+    })]);
+  } finally { if (timeout) clearTimeout(timeout); }
+}
+
+/** Observe the actual server response closing before success, without changing HTTP dispatch. */
+function observeDisconnect(fixture: Fixture): { closed: Promise<boolean>; restore: () => void } {
+  let disconnected!: (beforeFinish: boolean) => void;
+  const closed = new Promise<boolean>(done => { disconnected = done; });
+  const originalEmit = Server.prototype.emit;
+  const dispatch = vi.spyOn(Server.prototype, 'emit').mockImplementation(function(
+    this: Server, event: string | symbol, ...args: unknown[]
+  ): boolean {
+    if (event === 'request') {
+      const incoming = args[0] as IncomingMessage;
+      const response = args[1] as ServerResponse;
+      if (incoming.socket.localPort === fixture.server.port && incoming.url === '/api/import/archive') {
+        response.once('close', () => disconnected(!response.writableFinished));
+      }
+    }
+    return Reflect.apply(originalEmit, this, [event, ...args]) as boolean;
+  });
+  return { closed, restore: () => dispatch.mockRestore() };
+}
+
 describeNetworkSuite('Rust archive HTTP framing', () => {
+  it.each(['afterSpool', 'afterPreparation', 'afterStage', 'beforeCommit'] as const)(
+    'preserves the experiment when the import client disconnects %s', async boundary => {
+      await experiment(async fixture => {
+        let reached!: () => void;
+        let release!: () => void;
+        const paused = new Promise<void>(done => { reached = done; });
+        const released = new Promise<void>(done => { release = done; });
+        /** Hold the actual completed boundary until the server observes the client disconnect. */
+        const hold = async (): Promise<void> => { reached(); await released; };
+        const originalSpool = archiveUpload.spoolArchiveUpload;
+        const originalStage = BackgroundOutputPump.prototype.stagePreparedImport;
+        const originalSelect = CheckpointPersistenceClient.prototype.selectStartup;
+        const boundarySpy = boundary === 'afterSpool'
+          ? vi.spyOn(archiveUpload, 'spoolArchiveUpload').mockImplementationOnce(async options => {
+            const result = await originalSpool(options);
+            await hold();
+            return result;
+          })
+          : boundary === 'beforeCommit'
+            ? vi.spyOn(CheckpointPersistenceClient.prototype, 'selectStartup')
+              .mockImplementationOnce(async function(this: CheckpointPersistenceClient, ...args) {
+                const result = await originalSelect.apply(this, args);
+                await hold();
+                return result;
+              })
+            : vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport')
+            .mockImplementationOnce(async function(this: BackgroundOutputPump) {
+              if (boundary === 'afterPreparation') await hold();
+              await originalStage.call(this);
+              if (boundary === 'afterStage') await hold();
+            });
+        const observation = observeDisconnect(fixture);
+        const body = legacyPopulation();
+        const sourceHash = createHash('sha256').update(body).digest('hex');
+        try {
+          const client = request(`http://127.0.0.1:${fixture.server.port}/api/import/archive`, {
+            method: 'POST', headers: { 'Content-Length': body.byteLength }
+          });
+          fixture.requests.add(client);
+          client.on('error', () => { /* The deliberate disconnect may reset the client socket. */ });
+          client.end(body);
+          await bounded(paused, `import never reached ${boundary}`);
+          if (boundary !== 'afterSpool') {
+            const checkpoints = (await readdir(fixture.managedDirectory)).filter(name => name.endsWith('.checkpoint-v3'));
+            expect(checkpoints.length).toBeGreaterThan(
+              fixture.files.filter(file => file.filename.endsWith('.checkpoint-v3')).length);
+          }
+          client.destroy();
+          expect(await bounded(observation.closed, 'server never observed disconnect')).toBe(true);
+          release();
+          await preserved(fixture);
+          expect(createHash('sha256').update(body).digest('hex')).toBe(sourceHash);
+          await advancing(fixture);
+        } finally {
+          release();
+          boundarySpy.mockRestore();
+          observation.restore();
+        }
+      });
+    }
+  );
+
+  it.each(['afterCommit', 'afterSwap'] as const)(
+    'finishes an import disconnected %s and resumes that same checkpoint on restart', async boundary => {
+    await experiment(async fixture => {
+      let reached!: () => void;
+      let release!: () => void;
+      const committed = new Promise<void>(done => { reached = done; });
+      const released = new Promise<void>(done => { release = done; });
+      const originalCommit = CheckpointPersistenceClient.prototype.commitImport;
+      const originalPublish = BackgroundOutputPump.prototype.publishPreparedImport;
+      let durable: Awaited<ReturnType<typeof originalCommit>> | undefined;
+      const commit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commitImport')
+        .mockImplementationOnce(async function(this: CheckpointPersistenceClient, ...args) {
+          durable = await originalCommit.apply(this, args);
+          if (boundary === 'afterCommit') { reached(); await released; }
+          return durable;
+        });
+      const publish = boundary === 'afterSwap'
+        ? vi.spyOn(BackgroundOutputPump.prototype, 'publishPreparedImport')
+          .mockImplementationOnce(async function(this: BackgroundOutputPump, ...args) {
+            const result = await originalPublish.apply(this, args);
+            reached();
+            await released;
+            return result;
+          })
+        : undefined;
+      const observation = observeDisconnect(fixture);
+      // A supported legacy population gives this import a new run and a distinct durable pointer.
+      const body = legacyPopulation();
+      const sourceHash = createHash('sha256').update(body).digest('hex');
+      try {
+        const client = request(`http://127.0.0.1:${fixture.server.port}/api/import/archive`, {
+          method: 'POST', headers: { 'Content-Length': body.byteLength, 'Content-Type': 'application/json' }
+        });
+        fixture.requests.add(client);
+        client.on('error', () => { /* The deliberate disconnect may reset the client socket. */ });
+        client.end(body);
+        await bounded(committed, `import never reached ${boundary}`);
+        expect(durable!.descriptor.runId).not.toBe(fixture.identity['runId']);
+        client.destroy();
+        expect(await bounded(observation.closed, 'server never observed disconnect')).toBe(true);
+        release();
+        await noTransferScratch(fixture.managedDirectory);
+        const published = await health(fixture.server);
+        expect(published).toMatchObject({ ok: true, runId: durable!.descriptor.runId,
+          startupCheckpointId: durable!.checkpointId });
+        expect(BigInt(`0x${published['worldEpoch'] as string}`))
+          .toBeGreaterThan(BigInt(`0x${fixture.identity['worldEpoch'] as string}`));
+        const database = new Database(fixture.databasePath, { readonly: true });
+        try {
+          expect(database.prepare(`SELECT active.run_id, current.checkpoint_id FROM rust_active_run_v1 AS active
+            JOIN rust_checkpoint_v3_current AS current ON current.run_id = active.run_id`).get())
+            .toEqual({ run_id: durable!.descriptor.runId, checkpoint_id: durable!.checkpointId });
+        } finally { database.close(); }
+        expect(await files(fixture.managedDirectory)).toEqual(expect.arrayContaining(fixture.files));
+        expect(createHash('sha256').update(body).digest('hex')).toBe(sourceHash);
+        await advancing(fixture);
+        await fixture.server.close();
+        fixture.server = await startRustServer({ ...DEFAULT_CONFIG, host: '127.0.0.1', port: 0,
+          resume: 'latest', dbPath: fixture.databasePath });
+        expect(fixture.server.startupFault).toBeUndefined();
+        expect(await health(fixture.server)).toMatchObject({ ok: true, runId: durable!.descriptor.runId,
+          startupCheckpointId: durable!.checkpointId });
+        const exported = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
+        expect(exported.status).toBe(200);
+        expect(exported.headers.get('x-slither-checkpoint-id')).toBe(durable!.checkpointId);
+        expect((await exported.arrayBuffer()).byteLength).toBeGreaterThan(1024);
+        await noTransferScratch(fixture.managedDirectory);
+      } finally {
+        release();
+        commit.mockRestore();
+        publish?.mockRestore();
+        observation.restore();
+      }
+    });
+  });
+
   it.each([
     ['over-limit declared length', [`Content-Length: ${P0_ARCHIVE_UPLOAD_LIMIT + 1n}`], Buffer.alloc(0), false],
     ['noncanonical declared length', ['Content-Length: 01'], Buffer.from('x'), false],
