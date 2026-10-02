@@ -197,20 +197,46 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     let startupSelectionCompleted = false;
     let legacyConversion: ManagedLegacyConversion | null = null;
     let session: ExperimentalFreshRunSession | undefined;
-    if (restoring) {
+    if (options.restoreCheckpointId) {
+      const exact = await persistence.selectRetainedCheckpoint(options.restoreCheckpointId);
+      const descriptor = exact.descriptor;
+      const context = exact.cursor.explicitResume;
+      if (!descriptor || !context || descriptor.logicalRootSha256 !== options.restoreCheckpointId) {
+        throw new Error('requested exact checkpoint selection is inconsistent');
+      }
+      if (context.activeCheckpointId === options.restoreCheckpointId) {
+        selection = await persistence.selectStartup();
+        if (!selection.runId || selection.descriptor?.logicalRootSha256 !== options.restoreCheckpointId) {
+          throw new Error('active pointer changed during exact checkpoint startup');
+        }
+        session = makeSession(selection.runId);
+        await session.initializeFromCheckpoint(selection.descriptor,
+          selection.descriptor.runId !== selection.runId ? selection.recovery ?? selection.importBranch ?? undefined : undefined);
+        legacyConversion = selection.legacyConversion;
+      } else {
+        const restored = makeSession(descriptor.runId);
+        await restored.initializeFromCheckpoint(descriptor);
+        const recovery = await persistence.commitRecoveryBranch({
+          operationId: randomBytes(16).toString('hex'), branchRunId: randomUUID(),
+          sourceRunId: exact.cursor.sourceRunId, failedCheckpointId: exact.cursor.failedCheckpointId,
+          recoveredDescriptor: descriptor, explicitResume: context
+        });
+        await restored.adoptRecoveryBranch(recovery);
+        session = restored;
+        selection = { descriptor, runId: recovery.branchRunId, recovery, importBranch: null, legacyConversion: null };
+      }
+    } else if (restoring) {
       try {
         selection = await persistence.selectStartup();
         startupSelectionCompleted = true;
         legacyConversion = selection.legacyConversion;
         if (!selection.descriptor || !selection.runId) {
-          if (options.restoreCheckpointId) throw new Error('requested exact checkpoint is not current');
           const legacySnapshot = await persistence.selectLegacySnapshot();
           if (legacySnapshot === null) throw new Error('no current managed or compatible legacy checkpoint to restore');
           session = makeSession(randomUUID());
           await session.initializeFromLegacySqlite(databasePath, legacySnapshot.snapshotId);
           legacyConversion = { ...legacySnapshot, completeness: 'population-only' };
         } else {
-          if (options.restoreCheckpointId && selection.descriptor.logicalRootSha256 !== options.restoreCheckpointId) throw new Error('requested exact checkpoint is not current');
           session = makeSession(selection.runId);
           await session.initializeFromCheckpoint(selection.descriptor,
             selection.descriptor.runId !== selection.runId
@@ -221,8 +247,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
         // Preserve its conversion error instead of replacing it with a
         // misleading "no active lineage available for recovery" rejection.
         if (startupSelectionCompleted && !selection?.descriptor) throw currentError;
-        if (!options.restoreLatest && !options.restoreCheckpointId) throw currentError;
-        if (options.restoreCheckpointId && selection?.descriptor?.logicalRootSha256 === options.restoreCheckpointId) throw currentError;
+        if (!options.restoreLatest) throw currentError;
         let compatibleRestored = false;
         if (options.restoreLatest && selection?.descriptor && selection.runId) {
           const descriptor = selection.descriptor;
@@ -261,17 +286,14 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
             const candidate = await persistence.scanRecoveryCandidate(cursor);
             cursor = candidate.cursor;
             if (candidate.exhausted) {
-              throw new Error(options.restoreCheckpointId ? 'requested exact managed checkpoint is not valid in the retained active lineage' : 'no valid retained managed checkpoint; startup remains faulted', { cause: currentError });
+              throw new Error('no valid retained managed checkpoint; startup remains faulted', { cause: currentError });
             }
-            if (options.restoreCheckpointId && candidate.cursor.checkpointId !== options.restoreCheckpointId) continue;
             const descriptor = candidate.descriptor;
-            if (options.restoreCheckpointId && !descriptor) throw new Error('requested exact managed checkpoint has invalid metadata');
-            if (!descriptor || (!options.restoreCheckpointId && descriptor.logicalRootSha256 === failedRoot)) continue;
+            if (!descriptor || descriptor.logicalRootSha256 === failedRoot) continue;
             let restored = makeSession(descriptor.runId);
             let compatibleBuild = false;
             try { await restored.initializeFromCheckpoint(descriptor); }
-            catch (error) {
-              if (options.restoreCheckpointId) throw error;
+            catch {
               // A different application build may have produced an older valid
               // boundary too. The failed private session cannot be reused.
               restored = makeSession(descriptor.runId);

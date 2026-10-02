@@ -271,6 +271,9 @@ export function formatServerRuntimeStatus(
  */
 export function formatRecoveryRuntimeStatus(recovery: RustRecoveryNotice): string {
   const generation = BigInt(`0x${recovery.recoveredGeneration}`).toString(10);
+  if (recovery.explicitResume) {
+    return `Selected retained checkpoint ${recovery.recoveredCheckpointId} at generation ${generation} from run ${recovery.failedRunId} into branch ${recovery.branchRunId}. Later source history remains preserved.`;
+  }
   const continuation = recovery.compatibleBuild
     ? ' Compatible application-build continuation; exact replay ends at the source checkpoint.'
     : '';

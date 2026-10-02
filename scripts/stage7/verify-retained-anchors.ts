@@ -65,19 +65,6 @@ async function copyFixture(sourcePath: string, destinationPath: string): Promise
   }
 }
 
-/** Select a prior run's retained current pointer only inside its isolated metadata copy. */
-function selectPriorRunInCopy(databasePath: string, anchor: Anchor): void {
-  const db = new Database(databasePath);
-  try {
-    const current = db.prepare('SELECT checkpoint_id AS checkpointId FROM rust_checkpoint_v3_current WHERE run_id = ?')
-      .get(anchor.runId) as { checkpointId: string } | undefined;
-    if (current?.checkpointId !== anchor.checkpointId) {
-      throw new Error('prior-run anchor is not its retained current pointer');
-    }
-    db.prepare('UPDATE rust_active_run_v1 SET run_id = ? WHERE singleton = 1').run(anchor.runId);
-  } finally { db.close(); }
-}
-
 /** Read only the bounded final USTAR manifest and compare its checkpoint identity. */
 async function inspectArchiveManifest(path: string, anchor: Anchor): Promise<string> {
   const file = await open(path, 'r');
@@ -144,7 +131,7 @@ export async function verifyRetainedAnchors(sourcePath: string, checkpointId?: s
   const scratchRoot = `${sourcePath}.anchor-verification`;
   if (existsSync(scratchRoot)) throw new Error(`verification scratch already exists: ${scratchRoot}`);
   await mkdir(scratchRoot);
-  const results: Array<Anchor & { selectedPriorRunInScratch: boolean;
+  const results: Array<Anchor & { restoredPriorRun: boolean;
     archiveBytes: number; saveLogicalRootSha256: string; elapsedSeconds: number }> = [];
   try {
     for (let index = 0; index < anchors.length; index++) {
@@ -155,7 +142,6 @@ export async function verifyRetainedAnchors(sourcePath: string, checkpointId?: s
       const started = performance.now();
       try {
         await copyFixture(sourcePath, dbPath);
-        if (anchor.runId !== activeRunId) selectPriorRunInCopy(dbPath, anchor);
         const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
           dbPath, resume: `sha256:${anchor.checkpointId}`, logLevel: 'error' });
         try {
@@ -167,7 +153,7 @@ export async function verifyRetainedAnchors(sourcePath: string, checkpointId?: s
           }
           const archive = await exportCheckpoint(server.port, anchor,
             resolve(workRoot, 'export.slither'));
-          results.push({ ...anchor, selectedPriorRunInScratch: anchor.runId !== activeRunId,
+          results.push({ ...anchor, restoredPriorRun: anchor.runId !== activeRunId,
             archiveBytes: archive.bytes, saveLogicalRootSha256: archive.saveLogicalRootSha256,
             elapsedSeconds: (performance.now() - started) / 1000 });
           process.stderr.write(`verified=${index + 1}/${anchors.length} generation=${BigInt(`0x${anchor.generation}`)} bytes=${archive.bytes}\n`);

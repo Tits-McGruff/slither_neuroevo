@@ -512,8 +512,21 @@ function commitRecoveryBranch(value: RecoveryBranchCommit): RecoveryBranchResult
     if (!source || source.pointer_checkpoint_id !== commit.failedCheckpointId) {
       throw new Error('failed source pointer changed during recovery');
     }
-    const active = db.prepare('SELECT 1 FROM rust_active_run_v1 WHERE singleton = 1 AND run_id != ?').get(commit.sourceRunId);
-    if (active) throw new Error('recovery source is no longer active');
+    if (commit.explicitResume) {
+      const expected = commit.explicitResume;
+      const active = db.prepare('SELECT 1 FROM rust_active_run_v1 WHERE singleton = 1 AND run_id = ?').get(expected.activeRunId);
+      const pointer = readCurrentPointer(expected.activeRunId);
+      if (!active || pointer?.pointer_checkpoint_id !== expected.activeCheckpointId) {
+        throw new Error('active pointer changed during explicit checkpoint resume');
+      }
+      if (!db.prepare(`SELECT 1 FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?
+          AND retention_kind IN ('automatic', 'pinned')`).get(selected.logicalRootSha256)) {
+        throw new Error('explicit checkpoint is no longer retained');
+      }
+    } else {
+      const active = db.prepare('SELECT 1 FROM rust_active_run_v1 WHERE singleton = 1 AND run_id != ?').get(commit.sourceRunId);
+      if (active) throw new Error('recovery source is no longer active');
+    }
     const lineage = recoveryLineage(commit.sourceRunId);
     if (!lineage.some(item => item.runId === selected.runId &&
         (item.maximumGeneration === null || selected.generation <= item.maximumGeneration))) {
@@ -2234,8 +2247,45 @@ function applyCheckpointRetention(physicalReserveBytes: bigint | null = null): {
   };
 }
 
+/** Select one exact retained root across runs and bind its later commit to both observed pointers. */
+function selectRetainedCheckpoint(checkpointId: string): RecoveryScanResult {
+  scavengeStartupOrphansOnce();
+  return db.transaction(() => {
+    const activeRunId = resolveSelectedRun(null);
+    const active = activeRunId ? readCurrentPointer(activeRunId) : undefined;
+    if (!activeRunId || !active) throw new Error('no active pointer available for explicit checkpoint resume');
+    const row = db.prepare(`SELECT metadata.checkpoint_id,
+      CASE WHEN length(CAST(metadata.run_id AS BLOB)) <= 256 THEN metadata.run_id END AS run_id,
+      CASE WHEN length(CAST(metadata.generation_hex AS BLOB)) <= 16 THEN metadata.generation_hex END AS generation_hex,
+      CASE WHEN length(CAST(metadata.operation_id AS BLOB)) <= 32 THEN metadata.operation_id END AS operation_id,
+      CASE WHEN length(CAST(metadata.transition_epoch AS BLOB)) <= 16 THEN metadata.transition_epoch END AS transition_epoch,
+      CASE WHEN length(CAST(metadata.completed_step_hex AS BLOB)) <= 16 THEN metadata.completed_step_hex END AS completed_step_hex,
+      CASE WHEN length(CAST(descriptor_json AS BLOB)) <= 16384 THEN descriptor_json END AS descriptor_json
+      FROM rust_checkpoint_v3_metadata AS metadata JOIN rust_checkpoint_retention_v1 AS retention USING(checkpoint_id)
+      WHERE metadata.checkpoint_id = ? AND retention.retention_kind IN ('automatic', 'pinned')`)
+      .get(checkpointId) as { run_id: string; generation_hex: string; checkpoint_id: string;
+        operation_id: string; transition_epoch: string; completed_step_hex: string; descriptor_json: string | null } | undefined;
+    if (!row) throw new Error('requested exact checkpoint is not retained');
+    const source = readCurrentPointer(row.run_id);
+    if (!source) throw new Error('requested exact checkpoint has no source current pointer');
+    const cursor = parseRecoveryScanCursor({ sourceRunId: row.run_id,
+      failedCheckpointId: source.pointer_checkpoint_id, generation: row.generation_hex, checkpointId,
+      explicitResume: { activeRunId, activeCheckpointId: active.pointer_checkpoint_id } });
+    if (!row.descriptor_json) throw new Error('requested exact checkpoint has invalid bounded metadata');
+    const descriptor = parseManagedCheckpointDescriptor(JSON.parse(row.descriptor_json));
+    if (descriptor.runId !== row.run_id || descriptor.generation !== row.generation_hex ||
+        descriptor.logicalRootSha256 !== checkpointId || descriptor.operationId !== row.operation_id ||
+        descriptor.transitionEpoch !== row.transition_epoch || descriptor.completedStep !== row.completed_step_hex) {
+      throw new Error('requested exact checkpoint metadata identity mismatch');
+    }
+    assertDescriptorBounds(descriptor);
+    return { cursor, descriptor, issue: null, exhausted: false };
+  }).deferred();
+}
+
 /** Visit one retained metadata record without materializing the retained population set. */
 function scanRecoveryCandidate(value: RecoveryScanCursor | null): RecoveryScanResult {
+  if (value?.explicitResume) throw new Error('explicit checkpoint selection cannot continue as an automatic recovery scan');
   return db.transaction(() => {
     const activeRun = resolveSelectedRun(null);
     if (!activeRun) throw new Error('no active lineage available for recovery');
@@ -2821,7 +2871,7 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
     const id = (commit as Record<string, unknown>)['operationId'];
     return typeof id === 'string' && /^[0-9a-f]{32}$/u.test(id) ? id : null;
   }
-  if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'selectLegacySnapshot' || request['type'] === 'scanRecoveryCandidate' ||
+  if (request['type'] === 'selectManagedCheckpoint' || request['type'] === 'selectLegacySnapshot' || request['type'] === 'scanRecoveryCandidate' || request['type'] === 'selectRetainedCheckpoint' ||
       request['type'] === 'inspectCheckpointRetention' || request['type'] === 'inspectManagedStorage' ||
       request['type'] === 'pinCurrentCheckpoint' ||
       request['type'] === 'applyCheckpointRetention' || request['type'] === 'reclaimManagedOrphans' || request['type'] === 'acquireCurrentExportLease' ||
@@ -2991,6 +3041,13 @@ port.on('message', (message: unknown) => {
       }
       post({ type: 'hallOfFameEntrySelected',
         selection: selectHallOfFameEntry(runId, entryId, operationId) });
+      return;
+    }
+    if (request['type'] === 'selectRetainedCheckpoint') {
+      const checkpointId = request['checkpointId'];
+      if (!operationId || Object.keys(request).length !== 3 || typeof checkpointId !== 'string' ||
+          !/^[0-9a-f]{64}$/u.test(checkpointId)) throw new TypeError('invalid exact retained checkpoint request');
+      post({ type: 'recoveryCandidate', operationId, result: selectRetainedCheckpoint(checkpointId) });
       return;
     }
     if (request['type'] === 'scanRecoveryCandidate') {

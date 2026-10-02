@@ -302,6 +302,7 @@ export interface CheckpointPersistenceShutdownRequest {
 export type CheckpointPersistenceWorkerRequest =
   | { type: 'selectLegacySnapshot'; operationId: CheckpointOperationId }
   | { type: 'scanRecoveryCandidate'; operationId: string; cursor: RecoveryScanCursor | null }
+  | { type: 'selectRetainedCheckpoint'; operationId: string; checkpointId: string }
   | { type: 'commitRecoveryBranch'; commit: RecoveryBranchCommit }
   | { type: 'inspectCheckpointRetention'; operationId: CheckpointOperationId }
   | { type: 'inspectManagedStorage'; operationId: CheckpointOperationId }

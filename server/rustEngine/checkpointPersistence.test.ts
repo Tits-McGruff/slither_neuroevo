@@ -443,6 +443,80 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect((await fixture.client.scanRecoveryCandidate()).descriptor).toEqual(second);
   });
 
+  it.each(['current', 'older'] as const)('selects a prior-run %s checkpoint by exact ID without rewriting either source', async boundary => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: '41'.repeat(16),
+      generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    const other = createDescriptor(fixture.managedRoot, { operationId: '42'.repeat(16), runId: 'newer-run' });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await fixture.client.commit(other, null, true);
+    const selected = boundary === 'current' ? second : first;
+    const beforeFiles = readdirSync(fixture.managedRoot).sort().map(name => ({ name,
+      bytes: readFileSync(join(fixture.managedRoot, name)) }));
+    /** Read unchanged immutable metadata and compact source records. */
+    const records = (): unknown => {
+      const database = new Database(fixture.databasePath, { readonly: true });
+      try { return ['rust_checkpoint_v3_metadata', 'rust_generation_history_v1', 'rust_hall_of_fame_v1',
+        'rust_checkpoint_retention_v1'].map(table => database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()); }
+      finally { database.close(); }
+    };
+    const before = records();
+    const selecting = fixture.client.selectRetainedCheckpoint(selected.logicalRootSha256);
+    await expect(fixture.client.selectRetainedCheckpoint(selected.logicalRootSha256)).rejects.toThrow('busy');
+    const exact = await selecting;
+    expect(exact).toMatchObject({ descriptor: selected, exhausted: false, cursor: {
+      sourceRunId: first.runId, failedCheckpointId: second.logicalRootSha256,
+      explicitResume: { activeRunId: other.runId, activeCheckpointId: other.logicalRootSha256 }
+    } });
+    expect(await fixture.client.selectCurrent()).toEqual(other);
+    await expect(fixture.client.scanRecoveryCandidate(exact.cursor)).rejects.toThrow('cannot continue as an automatic recovery scan');
+    await expect(fixture.client.selectRetainedCheckpoint('f'.repeat(64))).rejects.toThrow('not retained');
+    const request = { operationId: '43'.repeat(16), branchRunId: 'explicit-branch', sourceRunId: first.runId,
+      failedCheckpointId: second.logicalRootSha256, recoveredDescriptor: selected };
+    await expect(fixture.client.commitRecoveryBranch(request)).rejects.toThrow('source is no longer active');
+    const explicit = { ...request, explicitResume: exact.cursor.explicitResume! };
+    const branch = await fixture.client.commitRecoveryBranch(explicit);
+    expect(await fixture.client.commitRecoveryBranch(explicit)).toEqual(branch);
+    expect(await fixture.client.selectStartup()).toMatchObject({ descriptor: selected, runId: 'explicit-branch', recovery: branch });
+    expect(await fixture.client.selectCurrent(first.runId)).toEqual(second);
+    expect(await fixture.client.selectCurrent(other.runId)).toEqual(other);
+    expect(records()).toEqual(before);
+    expect(readdirSync(fixture.managedRoot).sort().map(name => ({ name,
+      bytes: readFileSync(join(fixture.managedRoot, name)) }))).toEqual(beforeFiles);
+  });
+
+  it.each(['active advances', 'source advances', 'target pruned'] as const)(
+    'rejects an explicit-resume transaction after %s', async change => {
+      const fixture = createFixture();
+      const source = createDescriptor(fixture.managedRoot);
+      const active = createDescriptor(fixture.managedRoot, { operationId: '51'.repeat(16), runId: 'active-run' });
+      await fixture.client.commit(source);
+      await fixture.client.commit(active, null, true);
+      const exact = await fixture.client.selectRetainedCheckpoint(source.logicalRootSha256);
+      if (change === 'target pruned') {
+        const database = new Database(fixture.databasePath);
+        try { database.prepare("UPDATE rust_checkpoint_retention_v1 SET retention_kind = 'pruned' WHERE checkpoint_id = ?")
+          .run(source.logicalRootSha256); } finally { database.close(); }
+      } else {
+        const prior = change === 'active advances' ? active : source;
+        const successor = createDescriptor(fixture.managedRoot, { operationId: '52'.repeat(16), runId: prior.runId,
+          generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+        await fixture.client.commit(successor, createGenerationCommit(1n));
+      }
+      const pointer = await fixture.client.selectStartup();
+      await expect(fixture.client.commitRecoveryBranch({ operationId: '53'.repeat(16), branchRunId: 'rejected-branch',
+        sourceRunId: source.runId, failedCheckpointId: source.logicalRootSha256, recoveredDescriptor: source,
+        explicitResume: exact.cursor.explicitResume! })).rejects.toThrow(
+          change === 'target pruned' ? 'no longer retained' : change === 'source advances' ? 'source pointer changed' : 'active pointer changed');
+      expect(await fixture.client.selectStartup()).toEqual(pointer);
+      const database = new Database(fixture.databasePath, { readonly: true });
+      try { expect(database.prepare('SELECT count(*) AS count FROM rust_recovery_branches_v1').get()).toEqual({ count: 0 }); }
+      finally { database.close(); }
+    }
+  );
+
   it('branches from an older retained boundary without changing the failed suffix and advances independently', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);

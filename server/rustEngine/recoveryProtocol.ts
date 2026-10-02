@@ -1,20 +1,30 @@
 import { parseManagedCheckpointDescriptor, parseCheckpointOperationId,
   type ManagedCheckpointDescriptor, type U64Hex } from './checkpointPersistenceProtocol.ts';
 
+/** Active pointer observed before validating an explicitly selected retained checkpoint. */
+export interface ExplicitResumeContext {
+  /** Newer active run whose current pointer must remain unchanged until branch commit. */
+  activeRunId: string;
+  /** Exact active root observed before native validation. */
+  activeCheckpointId: string;
+}
+
 /** Worker transaction input after Rust has validated the selected immutable content. */
 export interface RecoveryBranchCommit {
   /** Idempotent transaction correlation. */
   operationId: string;
   /** Fresh lineage, never an existing source run. */
   branchRunId: string;
-  /** Failed active lineage whose suffix remains preserved. */
+  /** Source lineage whose later history remains preserved. */
   sourceRunId: string;
-  /** Exact failed pointer identity observed before candidate validation. */
+  /** Exact source pointer observed before recovery or explicit selection validation. */
   failedCheckpointId: string;
   /** Original immutable descriptor, including its original lineage. */
   recoveredDescriptor: ManagedCheckpointDescriptor;
   /** True when compatibility, rather than exact build identity, admitted the source. */
   compatibleBuild?: true;
+  /** Owner-selected exact resume may branch from an inactive source, with an active-pointer guard. */
+  explicitResume?: ExplicitResumeContext;
 }
 
 /** Durable recovery provenance; history references stop before the recovered round. */
@@ -32,6 +42,17 @@ function runId(value: unknown): string {
   return value;
 }
 
+/** Validate the bounded optimistic guard without admitting unknown metadata. */
+function explicitResumeContext(value: unknown): ExplicitResumeContext {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid explicit resume context');
+  const raw = value as Record<string, unknown>;
+  if (Object.keys(raw).length !== 2 || !Object.hasOwn(raw, 'activeRunId') ||
+      typeof raw['activeCheckpointId'] !== 'string' || !/^[0-9a-f]{64}$/u.test(raw['activeCheckpointId'])) {
+    throw new TypeError('invalid explicit resume context');
+  }
+  return { activeRunId: runId(raw['activeRunId']), activeCheckpointId: raw['activeCheckpointId'] };
+}
+
 /** Validate all bounded recovery fields before they cross a worker boundary. */
 export function parseRecoveryBranchCommit(value: unknown): RecoveryBranchCommit {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid recovery commit');
@@ -39,7 +60,7 @@ export function parseRecoveryBranchCommit(value: unknown): RecoveryBranchCommit 
   const keys = ['operationId', 'branchRunId', 'sourceRunId', 'failedCheckpointId', 'recoveredDescriptor'];
   const actualKeys = Object.keys(raw);
   if (keys.some(key => !Object.hasOwn(raw, key)) ||
-      actualKeys.some(key => !keys.includes(key) && key !== 'compatibleBuild') ||
+      actualKeys.some(key => !keys.includes(key) && key !== 'compatibleBuild' && key !== 'explicitResume') ||
       (raw['compatibleBuild'] !== undefined && raw['compatibleBuild'] !== true)) {
     throw new TypeError('invalid recovery commit fields');
   }
@@ -54,7 +75,8 @@ export function parseRecoveryBranchCommit(value: unknown): RecoveryBranchCommit 
   }
   return { operationId: parseCheckpointOperationId(raw['operationId']), branchRunId, sourceRunId,
     failedCheckpointId: raw['failedCheckpointId'], recoveredDescriptor,
-    ...(raw['compatibleBuild'] === true ? { compatibleBuild: true as const } : {}) };
+    ...(raw['compatibleBuild'] === true ? { compatibleBuild: true as const } : {}),
+    ...(Object.hasOwn(raw, 'explicitResume') ? { explicitResume: explicitResumeContext(raw['explicitResume']) } : {}) };
 }
 
 /** Validate a complete durable branch acknowledgement, preserving exact chronology. */
@@ -79,6 +101,8 @@ export interface RecoveryScanCursor {
   generation: U64Hex | null;
   /** Last visited immutable root, breaking any generation tie. */
   checkpointId: string | null;
+  /** Present only for an exact retained-ID selection, never an automatic recovery scan. */
+  explicitResume?: ExplicitResumeContext;
 }
 
 /** One bounded metadata candidate; Rust still validates all immutable file content. */
@@ -98,7 +122,8 @@ export function parseRecoveryScanCursor(value: unknown): RecoveryScanCursor {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid recovery cursor');
   const raw = value as Record<string, unknown>;
   const keys = ['sourceRunId', 'failedCheckpointId', 'generation', 'checkpointId'];
-  if (Object.keys(raw).length !== keys.length || keys.some(key => !Object.hasOwn(raw, key))) throw new TypeError('invalid recovery cursor fields');
+  if (keys.some(key => !Object.hasOwn(raw, key)) ||
+      Object.keys(raw).some(key => !keys.includes(key) && key !== 'explicitResume')) throw new TypeError('invalid recovery cursor fields');
   const sourceRunId = runId(raw['sourceRunId']);
   const failedCheckpointId = raw['failedCheckpointId'];
   const generation = raw['generation'];
@@ -107,7 +132,8 @@ export function parseRecoveryScanCursor(value: unknown): RecoveryScanCursor {
       (generation !== null && (typeof generation !== 'string' || !/^[0-9a-f]{16}$/u.test(generation))) ||
       (checkpointId !== null && (typeof checkpointId !== 'string' || !/^[0-9a-f]{64}$/u.test(checkpointId))) ||
       (generation === null) !== (checkpointId === null)) throw new TypeError('invalid recovery cursor identity');
-  return { sourceRunId, failedCheckpointId, generation: generation as U64Hex | null, checkpointId: checkpointId as string | null };
+  return { sourceRunId, failedCheckpointId, generation: generation as U64Hex | null, checkpointId: checkpointId as string | null,
+    ...(Object.hasOwn(raw, 'explicitResume') ? { explicitResume: explicitResumeContext(raw['explicitResume']) } : {}) };
 }
 
 /** Parse one bounded scan response and bind its descriptor to the cursor. */

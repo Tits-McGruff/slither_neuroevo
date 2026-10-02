@@ -175,7 +175,8 @@ export class CheckpointPersistenceClient {
     reject(error: Error): void;
   } | undefined;
   /** One candidate read; a corrupt row advances only its stable scalar cursor. */
-  private scan: { operationId: string; cursor: RecoveryScanCursor | null; resolve(value: RecoveryScanResult): void; reject(error: Error): void } | undefined;
+  private scan: { operationId: string; cursor: RecoveryScanCursor | null; checkpointId?: string;
+    resolve(value: RecoveryScanResult): void; reject(error: Error): void } | undefined;
   /** One startup recovery transaction; retries use the same caller-owned operation token. */
   private recovery: { commit: RecoveryBranchCommit; resolve(value: RecoveryBranchResult): void; reject(error: Error): void } | undefined;
   /** At most one bounded retention inventory read may be in flight. */
@@ -418,6 +419,19 @@ export class CheckpointPersistenceClient {
       this.retention = { operationId, resolve, reject };
       try { this.postOperation({ type: 'inspectCheckpointRetention', operationId }, operationId); }
       catch (error) { this.retention = undefined; reject(asError(error)); }
+    });
+  }
+
+  /** Select one retained ID across all runs without scanning or changing the active pointer. */
+  selectRetainedCheckpoint(checkpointId: string): Promise<RecoveryScanResult> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.scan) return Promise.reject(new Error('retained checkpoint selection is busy or stopping'));
+    if (!/^[0-9a-f]{64}$/u.test(checkpointId)) return Promise.reject(new TypeError('invalid retained checkpoint ID'));
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.scan = { operationId, cursor: null, checkpointId, resolve, reject };
+      try { this.postOperation({ type: 'selectRetainedCheckpoint', operationId, checkpointId }, operationId); }
+      catch (error) { this.scan = undefined; reject(asError(error)); }
     });
   }
 
@@ -860,7 +874,9 @@ export class CheckpointPersistenceClient {
         const pending = this.scan;
         const cursor = response.result.cursor;
         const previous = pending?.cursor;
-        if (!pending || pending.operationId !== response.operationId || (previous &&
+        if (!pending || pending.operationId !== response.operationId ||
+            (pending.checkpointId !== undefined ? cursor.checkpointId !== pending.checkpointId ||
+              !cursor.explicitResume || response.result.exhausted : cursor.explicitResume !== undefined) || (previous &&
             (previous.sourceRunId !== cursor.sourceRunId || previous.failedCheckpointId !== cursor.failedCheckpointId ||
               (!response.result.exhausted && previous.generation !== null &&
                 (cursor.generation! > previous.generation || (cursor.generation === previous.generation && cursor.checkpointId! >= previous.checkpointId!)))))) {

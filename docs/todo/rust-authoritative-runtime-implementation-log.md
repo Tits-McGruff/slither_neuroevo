@@ -1907,3 +1907,19 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   authority. Rust/browser code retains prior broad validation. Disposable servers
   and fixtures were removed. Physical filesystem exhaustion, process-memory
   rejection and the remaining A7/Stage 7/8 acceptance scope remain open.
+
+- 2026-10-03 A9 exact startup now selects any retained checkpoint across runs;
+  the anchor verifier no longer rewrites the copied database's active pointer.
+  A non-current selection validates the original native payload, then commits a
+  separate branch under guards for both the source and observed active pointers.
+  Advancement or pruning during validation rejects the transaction. Real prior-run
+  generation-two and generation-three cases preserve both source runs' retained
+  files and compact history, reproduce complete export bytes, advance, and restart
+  on the new branch. The production verifier restores and re-exports every anchor
+  in the six-anchor fixture. Corrupt, missing and unknown exact selections remain
+  health-only faults without substitution or source mutation. Browser status labels
+  an explicitly selected checkpoint separately from corruption recovery. Affected
+  persistence, native startup/server/archive/continuation, browser status and test
+  registration checks, TypeScript, ESLint and Vite passed. Rust retains preceding
+  broad validation. Disposable servers and fixtures were removed. Full configured
+  retention-budget acceptance and the remaining A9/Stage 7/8 gates remain open.

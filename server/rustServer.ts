@@ -183,6 +183,7 @@ function recoveryNotice(owner: ExperimentalServerRuntime): RustRecoveryNotice | 
     failedCheckpointId: recovery.failedCheckpointId, recoveredCheckpointId: recovery.recoveredDescriptor.logicalRootSha256,
     recoveredGeneration: recovery.recoveredDescriptor.generation,
     ...(recovery.compatibleBuild ? { compatibleBuild: true as const } : {}),
+    ...(recovery.explicitResume ? { explicitResume: true as const } : {}),
     lostCompletedGenerations: through >= recovered ? { from: recovery.recoveredDescriptor.generation,
       through: through.toString(16).padStart(16, '0') } : null };
 }
@@ -307,7 +308,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   let recovery = recoveryNotice(owner);
   let importBranch = importBranchNotice(owner.importBranch);
   let legacyConversion = owner.metadata.legacyConversion ?? legacyConversionNotice(owner.legacyConversion);
-  if (recovery) console.warn('[rust.recovery]', recovery);
+  if (recovery) console.warn(recovery.explicitResume ? '[rust.resume]' : '[rust.recovery]', recovery);
   let activeMetadata = owner.metadata;
   let activeCheckpointId = owner.runStart.checkpointId;
   let retention: CheckpointRetentionInventory;

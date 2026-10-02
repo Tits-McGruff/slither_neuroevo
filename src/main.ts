@@ -1254,7 +1254,7 @@ function setConnectionStatus(mode: ConnectionMode): void {
       serverInferenceMode
     );
     connectionStatus.textContent = serverRecovery
-      ? runtime.replace('Server ·', 'Server · recovered ·')
+      ? runtime.replace('Server ·', serverRecovery.explicitResume ? 'Server · selected checkpoint ·' : 'Server · recovered ·')
       : serverImportBranch
         ? runtime.replace('Server ·', 'Server · imported branch ·')
         : serverLegacyConversion

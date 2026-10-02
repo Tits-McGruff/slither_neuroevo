@@ -105,7 +105,11 @@ may continue a checkpoint whose versioned state, target, release profile,
 settings schema, and math backend remain compatible. It records that
 cross-build continuation as a new branch before changing the live game. An
 exact SHA-256 selector still requires the producing build identity and is never
-silently replaced. If latest startup finds no valid retained boundary, the
+silently replaced. It can select any retained checkpoint, including an older
+generation or a prior run. Selecting a checkpoint other than the active current
+one creates a separate branch after validation and preserves the source's later
+history. The browser identifies it as a selected checkpoint. If latest startup
+finds no valid retained boundary, the
 process serves only a failing health endpoint and refuses game WebSockets
 instead of starting a new game.
 

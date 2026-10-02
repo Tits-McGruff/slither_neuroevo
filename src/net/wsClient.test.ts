@@ -130,6 +130,14 @@ describe('wsClient', () => {
     })).toBe('Started from legacy gzip snapshot 17. The population was converted, but this is a new run rather than an exact continuation.');
   });
 
+  it('labels an explicit retained-checkpoint selection without claiming a failed run', () => {
+    expect(formatRecoveryRuntimeStatus({ failedRunId: 'prior-run', branchRunId: 'selected-branch',
+      failedCheckpointId: 'b'.repeat(64), recoveredCheckpointId: 'a'.repeat(64),
+      recoveredGeneration: '0000000000000019',
+      lostCompletedGenerations: { from: '0000000000000019', through: '000000000000001b' }, explicitResume: true
+    })).toBe(`Selected retained checkpoint ${'a'.repeat(64)} at generation 25 from run prior-run into branch selected-branch. Later source history remains preserved.`);
+  });
+
   it('formats exact archive branch provenance without narrowing its generation', () => {
     expect(formatImportBranchRuntimeStatus({
       sourceRunId: 'source-run',

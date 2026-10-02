@@ -526,6 +526,8 @@ export interface RustRecoveryNotice {
   lostCompletedGenerations: { from: string; through: string } | null;
   /** True when a compatible upgrade, not corruption fallback, caused this branch. */
   compatibleBuild?: true;
+  /** True when the owner explicitly selected a retained checkpoint rather than recovering a fault. */
+  explicitResume?: true;
 }
 
 /** Compact provenance for an owner-selected older-checkpoint import branch. */
