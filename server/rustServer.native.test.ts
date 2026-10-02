@@ -105,6 +105,13 @@ function directionDelta(from: number, to: number): number {
   return Math.atan2(Math.sin(to - from), Math.cos(to - from));
 }
 
+/** Hash a large original save with bounded memory before and after a transfer test. */
+async function archiveFileSha256(path: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const bytes of createReadStream(path)) hash.update(bytes);
+  return hash.digest('hex');
+}
+
 describeNetworkSuite('Rust server real sockets', () => {
   it('admits 300 complete long initial bodies through the normal reset boundary', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-long-start-'));
@@ -945,6 +952,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       const archive = await stat(archivePath);
       expect(archive.isFile()).toBe(true);
       expect(archive.size).toBeGreaterThan(50 * 1024 * 1024);
+      const originalSha256 = await archiveFileSha256(archivePath);
       const root = await mkdtemp(join(tmpdir(), 'slither-rust-stalled-export-'));
       const dbPath = join(root, 'experiment.sqlite');
       const managedDirectory = `${dbPath}.checkpoints`;
@@ -1025,8 +1033,9 @@ describeNetworkSuite('Rust server real sockets', () => {
         };
         expect(after).toMatchObject({ ok: true, runId: before.runId, configHash: before.configHash });
         expect(BigInt(`0x${after.completedStep}`)).toBeGreaterThan(BigInt(`0x${before.completedStep}`));
+        expect(await archiveFileSha256(archivePath)).toBe(originalSha256);
         console.log(JSON.stringify({ idleDownload: result, advertisedBytes: advertised.contentLength,
-          generationAfterTimeout: after.generation }));
+          generationAfterTimeout: after.generation, originalArchiveSha256: originalSha256 }));
       } finally {
         request.destroy();
         try { await server.close(); }

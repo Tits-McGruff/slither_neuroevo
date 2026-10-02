@@ -102,7 +102,9 @@ function u64Hex(value: bigint): U64Hex {
  * Stream one raw request body to a synced operation-local file.
  *
  * The caller owns deletion of the returned ready file. Any unsuccessful path
- * removes both partial and ready names before rejecting.
+ * removes only files created by this invocation before rejecting. After syncing
+ * the partial file, publication reserves the ready name exclusively and renames
+ * over that owned reservation; it never replaces a pre-existing ready file.
  */
 export async function spoolArchiveUpload(options: ArchiveUploadOptions): Promise<SpooledArchiveUpload> {
   const maximumBytes = options.maximumBytes ?? P0_ARCHIVE_UPLOAD_LIMIT;
@@ -123,11 +125,15 @@ export async function spoolArchiveUpload(options: ArchiveUploadOptions): Promise
   const partialPath = join(directory, partialName);
   const readyPath = join(directory, readyName);
   let file: Awaited<ReturnType<typeof open>> | undefined;
+  let readyReservation: Awaited<ReturnType<typeof open>> | undefined;
+  let ownsPartial = false;
+  let ownsReady = false;
   let receivedBytes = 0n;
   let lastProgressAt = performance.now();
   const iterator = options.source[Symbol.asyncIterator]();
   try {
     file = await open(partialPath, 'wx');
+    ownsPartial = true;
     for (;;) {
       const remainingMs = noProgressTimeoutMs - (performance.now() - lastProgressAt);
       if (remainingMs <= 0) {
@@ -164,14 +170,20 @@ export async function spoolArchiveUpload(options: ArchiveUploadOptions): Promise
     await file.sync();
     await file.close();
     file = undefined;
+    readyReservation = await open(readyPath, 'wx');
+    ownsReady = true;
+    await readyReservation.close();
+    readyReservation = undefined;
     await rename(partialPath, readyPath);
+    ownsPartial = false;
     return { operationId: options.operationId, relativeFilename: readyName,
       readyPath, storedByteCount: u64Hex(receivedBytes) };
   } catch (error) {
     void Promise.resolve().then(() => iterator.return?.()).catch(() => {});
     await file?.close().catch(() => {});
-    await unlink(partialPath).catch(() => {});
-    await unlink(readyPath).catch(() => {});
+    await readyReservation?.close().catch(() => {});
+    if (ownsPartial) await unlink(partialPath).catch(() => {});
+    if (ownsReady) await unlink(readyPath).catch(() => {});
     throw error;
   }
 }

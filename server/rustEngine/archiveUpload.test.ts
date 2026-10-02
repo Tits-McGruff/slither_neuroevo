@@ -1,4 +1,4 @@
-import { readFileSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,6 +26,49 @@ afterEach(() => {
 });
 
 describe('raw archive upload spooling', () => {
+  it.each(['partial', 'ready'] as const)('preserves a pre-existing upload %s file when rejecting its operation ID', async suffix => {
+    const directory = fixtureDirectory();
+    const operationId = 'ab'.repeat(16) as CheckpointOperationId;
+    const filename = `.${operationId}.upload.${suffix}`;
+    writeFileSync(join(directory, filename), 'retained upload bytes');
+    await expect(spoolArchiveUpload({ source: chunks('different bytes'), contentLength: '15',
+      scratchDirectory: directory, operationId, maximumBytes: 64n })).rejects.toThrow();
+    expect(readdirSync(directory)).toEqual([filename]);
+    expect(readFileSync(join(directory, filename)).toString()).toBe('retained upload bytes');
+  });
+
+  it('rejects a concurrent duplicate operation without removing the first writer spool', async () => {
+    const directory = fixtureDirectory();
+    const operationId = 'cd'.repeat(16) as CheckpointOperationId;
+    const paused = Promise.withResolvers<void>();
+    const proceed = Promise.withResolvers<void>();
+    /** Hold a real writer after its first bytes reached disk. */
+    async function* firstBody(): AsyncIterable<Uint8Array> {
+      yield Buffer.from('first-');
+      paused.resolve();
+      await proceed.promise;
+      yield Buffer.from('body');
+    }
+    const first = spoolArchiveUpload({ source: firstBody(), contentLength: '10',
+      scratchDirectory: directory, operationId, maximumBytes: 64n });
+    try {
+      await paused.promise;
+      const partialName = `.${operationId}.upload.partial`;
+      expect(readFileSync(join(directory, partialName)).toString()).toBe('first-');
+      await expect(spoolArchiveUpload({ source: chunks('second body'), contentLength: '11',
+        scratchDirectory: directory, operationId, maximumBytes: 64n })).rejects.toMatchObject({ code: 'EEXIST' });
+      expect(readdirSync(directory)).toEqual([partialName]);
+      expect(readFileSync(join(directory, partialName)).toString()).toBe('first-');
+      proceed.resolve();
+      const result = await first;
+      expect(readFileSync(result.readyPath).toString()).toBe('first-body');
+      expect(readdirSync(directory)).toEqual([result.relativeFilename]);
+    } finally {
+      proceed.resolve();
+      await first.catch(() => {});
+    }
+  });
+
   it('syncs one exact streamed body to an operation-local ready file', async () => {
     const directory = fixtureDirectory();
     const operationId = '12'.repeat(16) as CheckpointOperationId;
