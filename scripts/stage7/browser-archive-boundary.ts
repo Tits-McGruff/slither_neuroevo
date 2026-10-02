@@ -76,7 +76,12 @@ export async function run(request: Options): Promise<void> {
         const digest = createHash('sha256');
         let bodyBytes = 0;
         record('request', { requestId, method: incoming.method, url: incoming.url,
-          userAgent: incoming.headers['user-agent'] });
+          userAgent: incoming.headers['user-agent'],
+          range: incoming.headers['range'] ?? null, ifRange: incoming.headers['if-range'] ?? null,
+          accept: incoming.headers['accept'] ?? null,
+          fetchDestination: incoming.headers['sec-fetch-dest'] ?? null,
+          fetchMode: incoming.headers['sec-fetch-mode'] ?? null,
+          fetchSite: incoming.headers['sec-fetch-site'] ?? null });
         const originalWrite = response.write;
         const originalEnd = response.end;
         const originalWriteHead = response.writeHead;

@@ -1699,10 +1699,21 @@ describeNetworkSuite('Rust server real sockets', () => {
         expect(targetDatabase.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_v1').get())
           .toEqual({ count: expectedElites.length });
       } finally { targetDatabase.close(); }
+      let retryExportReleased = false;
+      // Observe the actual cleanup reply before hashing immutable files; body
+      // delivery alone does not join deletion of the export inventory.
+      releaseSpy = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease')
+        .mockImplementationOnce(async function(this: CheckpointPersistenceClient, operationId) {
+          await releaseExportLease.call(this, operationId);
+          retryExportReleased = true;
+        });
       const retryExport = await fetch(`http://127.0.0.1:${target.port}/api/export/latest`);
       expect(retryExport.status).toBe(200);
       expect(retryExport.headers.get('x-slither-checkpoint-id')).toBe(checkpointId);
       expect(Buffer.from(await retryExport.arrayBuffer())).toEqual(archive);
+      await until(targetViewer!, () => retryExportReleased);
+      releaseSpy.mockRestore();
+      releaseSpy = undefined;
 
       // A same-name corrupt elite must be preserved as evidence and reject the
       // import before any new inventory or immutable object becomes permanent.

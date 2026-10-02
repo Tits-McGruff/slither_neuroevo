@@ -1939,3 +1939,24 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   broad validation. Disposable servers and fixtures were removed. This proves
   server binding and pruning across advancement; the earlier fresh-origin browser
   retry/filename anomaly, full A1 and remaining Stage 7/8 acceptance stay open.
+
+- 2026-10-03 The browser download investigation now records request Range,
+  If-Range and fetch-context headers. A current-source P2 fixture reproduces
+  the in-app browser's saved-name mismatch: one UI click selects generation 27,
+  its response closes unfinished, and a separate GET supplies generation 120
+  under the first name. A plain click without the download-wait helper closes
+  its original response immediately after headers; a later helper-assisted
+  click saves generation 246 under its initial generation-168 name. Neither
+  request pair uses Range or If-Range. Independent bounded decoding validates
+  every saved role/root and matches each complete later response's byte hash.
+  The duplicate transfer mechanism remains uninspected; rejecting Range requests
+  would not address these cases. Precise tab heap reporting works, but forced
+  collection is unsupported on this browser surface; two observations prove no
+  comparative memory gate. Compact traces and decoded identities are retained
+  as `browser-download-trace-6839782-20261003.json`. The evolved Hall-of-Fame
+  round-trip test now joins the actual export cleanup reply before hashing
+  immutable files. Focused native transport, retained-resume, export-binding,
+  Hall-of-Fame and graph-fixture tests, TypeScript and focused lint passed.
+  All diagnostic servers, tabs, copied databases and duplicate downloads
+  were cleaned; only the named ignored current-source archives remain for the
+  unfinished comparative gates. A1/A2/A3 and the remaining Stage 7/8 stay open.
