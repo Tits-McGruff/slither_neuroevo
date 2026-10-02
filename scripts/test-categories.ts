@@ -90,6 +90,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/stage7/compact-legacy-database.test.ts',
     'server/rustServer.native.test.ts',
     'server/rustServer.archiveTransport.native.test.ts',
+    'server/rustServer.continuation.native.test.ts',
     'server/rustServer.panic.native.test.ts',
     'server/integration.test.ts',
     'server/recoveryPhase0Startup.characterization.test.ts',
@@ -147,6 +148,7 @@ export const PRIMARY_TEST_CATEGORY_ORDER = [
 export const NATIVE_REQUIRED_TEST_FILES = [
   'server/rustServer.native.test.ts',
   'server/rustServer.archiveTransport.native.test.ts',
+  'server/rustServer.continuation.native.test.ts',
   'server/rustServer.panic.native.test.ts',
   'server/rustEngine/nativeSourceIdentity.native.test.ts',
   'server/rustEngine/experimentalNativeBridge.native.test.ts',

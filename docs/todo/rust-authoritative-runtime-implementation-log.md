@@ -1863,3 +1863,15 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   isolated test addon were removed. Already exported archives that omitted
   provenance cannot reconstruct it; owner-data inventory and full A8/Stage 7/8
   gates remain open.
+
+- 2026-10-02 A6 production continuation coverage exports actual generation-two
+  and generation-four boundaries, restores through HTTP, then compares the next
+  two generations with uninterrupted execution, including a process restart.
+  A Dense/GRU/LSTM/RRU graph and durable baseline bots produce identical
+  successor roots, complete archive bytes, history and retained unique winners
+  with one or six restore workers. Gates hold real FULL-commit replies;
+  population construction and stepping remain production code. Focused tests,
+  category registration, TypeScript and ESLint passed; the preceding broad
+  native/source validation applies. Disposable servers and fixtures were removed.
+  This proves the named no-external-input continuation cases; complete A6 and
+  the remaining Stage 7/8 gates stay open.
