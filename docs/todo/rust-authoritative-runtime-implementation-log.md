@@ -1923,3 +1923,19 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   registration checks, TypeScript, ESLint and Vite passed. Rust retains preceding
   broad validation. Disposable servers and fixtures were removed. Full configured
   retention-budget acceptance and the remaining A9/Stage 7/8 gates remain open.
+
+- 2026-10-03 A1/A9 production download binding now covers an actual generation-two
+  export lease held while nine successor checkpoints and retention passes finish.
+  The eligible old source stays byte-identical until download and lease cleanup;
+  the next real retention pass removes it while preserving all compact history.
+  The completed download matches its pre-advancement archive byte-for-byte, with
+  matching filename, manifest and HTTP identities, and passes production import.
+  Node previously accepted any safely shaped attachment name from the native
+  response. It now binds that name to the leased checkpoint and generation;
+  altered scalar names after real archive creation fail before HTTP success,
+  clean their operation files and leases, and permit a successful fresh request.
+  Affected native server/transport, direct browser path and category checks,
+  TypeScript and ESLint passed. Unchanged native/browser sources retain preceding
+  broad validation. Disposable servers and fixtures were removed. This proves
+  server binding and pruning across advancement; the earlier fresh-origin browser
+  retry/filename anomaly, full A1 and remaining Stage 7/8 acceptance stay open.

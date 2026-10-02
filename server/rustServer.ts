@@ -422,11 +422,13 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       let ready: Awaited<typeof preparation>;
       try { ready = await preparation; }
       finally { stopWatch(); }
+      const downloadGeneration = BigInt(`0x${lease.descriptor.generation}`).toString();
+      const downloadFilename = `slither-neuroevo-${lease.descriptor.logicalRootSha256.slice(0, 12)}-gen-${downloadGeneration}-v1.slither-save`;
       if (ready.operationId !== lease.operationId ||
           ready.checkpointId !== lease.descriptor.logicalRootSha256 ||
           ready.relativeFilename !== `.${lease.operationId}.slither-save.ready` ||
           !/^[0-9a-f]{64}$/u.test(ready.logicalRootSha256) ||
-          !/^slither-neuroevo-[0-9a-f]{12}-gen-[0-9]+-v1\.slither-save$/u.test(ready.downloadFilename) ||
+          ready.downloadFilename !== downloadFilename ||
           !/^[0-9a-f]{16}$/u.test(ready.storedByteCount)) {
         throw new Error('Rust returned an invalid export archive descriptor');
       }
