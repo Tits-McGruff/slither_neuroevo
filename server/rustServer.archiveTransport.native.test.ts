@@ -2,7 +2,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, readdir, rm, stat, statfs } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, statfs, unlink, writeFile } from 'node:fs/promises';
 import { request, Server, type ClientRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { connect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -528,6 +528,58 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           await preserved(fixture);
         } finally {
           admission.mockRestore(); spool.mockRestore(); stage.mockRestore(); commit.mockRestore(); release.mockRestore();
+        }
+      });
+    }, 20_000
+  );
+
+  it.each(['export-hof-weights.partial', 'slither-save.partial', 'slither-save.ready'] as const)(
+    'preserves an existing %s when actual export creation or publication fails', async suffix => {
+      await experiment(async fixture => {
+        const originalAcquire = CheckpointPersistenceClient.prototype.acquireCurrentExportLease;
+        const originalRelease = CheckpointPersistenceClient.prototype.releaseExportLease;
+        const earlierBytes = Buffer.from('pre-existing task evidence: preserve these exact bytes');
+        let earlierPath: string | undefined;
+        let released = false;
+        /** Create the collision after the genuine lease, before native encoding starts. */
+        const acquiring = vi.spyOn(CheckpointPersistenceClient.prototype, 'acquireCurrentExportLease')
+          .mockImplementationOnce(async function(this: CheckpointPersistenceClient, ...args) {
+            const lease = await originalAcquire.apply(this, args);
+            earlierPath = join(fixture.managedDirectory, `.${lease.operationId}.${suffix}`);
+            await writeFile(earlierPath, earlierBytes, { flag: 'wx' });
+            return lease;
+          });
+        /** Join real cleanup before examining the collision and immutable source files. */
+        const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease')
+          .mockImplementation(async function(this: CheckpointPersistenceClient, ...args) {
+            await originalRelease.apply(this, args);
+            released = true;
+          });
+        try {
+          const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`,
+            { signal: AbortSignal.timeout(5000) });
+          expect(response.status).toBe(500);
+          expect(response.headers.get('content-disposition')).toBeNull();
+          expect(await response.json()).toMatchObject({ ok: false, message: expect.any(String) });
+          const deadline = performance.now() + 5000;
+          while (!released && performance.now() < deadline) await new Promise<void>(done => setTimeout(done, 10));
+          expect(released).toBe(true);
+          expect(release).toHaveBeenCalledOnce();
+          expect(await readFile(earlierPath!)).toEqual(earlierBytes);
+          await unlink(earlierPath!);
+          earlierPath = undefined;
+          await preserved(fixture);
+          await advancing(fixture);
+          acquiring.mockRestore();
+          const retry = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
+          expect(retry.status).toBe(200);
+          expect(Buffer.from(await retry.arrayBuffer())).toEqual(fixture.archive);
+          await preserved(fixture);
+        } finally {
+          acquiring.mockRestore(); release.mockRestore();
+          if (earlierPath) await unlink(earlierPath).catch(error => {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          });
         }
       });
     }, 20_000

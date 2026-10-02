@@ -413,6 +413,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   ): Promise<void> => {
     const lease = await owner.persistence.acquireCurrentExportLease();
     const readyPath = resolve(owner.managedDirectory, `.${lease.operationId}.slither-save.ready`);
+    /** Successful native preparation transfers ownership of this exact ready file. */
+    let readyOwned = false;
     try {
       await admitExportSpace(owner.managedDirectory, lease);
       const preparation = owner.runtime.prepareExportArchive(
@@ -420,7 +422,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       );
       const stopWatch = watchArchiveWork(owner.runtime, lease.operationId, 'export', reportArchiveStall);
       let ready: Awaited<typeof preparation>;
-      try { ready = await preparation; }
+      try { ready = await preparation; readyOwned = true; }
       finally { stopWatch(); }
       const downloadGeneration = BigInt(`0x${lease.descriptor.generation}`).toString();
       const downloadFilename = `slither-neuroevo-${lease.descriptor.logicalRootSha256.slice(0, 12)}-gen-${downloadGeneration}-v1.slither-save`;
@@ -479,9 +481,11 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       });
     } finally {
       try {
-        await unlink(readyPath).catch(error => {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-        });
+        if (readyOwned) {
+          await unlink(readyPath).catch(error => {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          });
+        }
       } finally {
         await owner.persistence.releaseExportLease(lease.operationId);
       }

@@ -1648,13 +1648,9 @@ fn publish_empty_import_inventory(
     let relative_filename = format!(".{operation_id}.import-inventory-v1");
     let final_path = directory.join(&relative_filename);
     let mut cleanup = ScratchFiles::new();
-    cleanup.track(partial_path.clone());
     let mut header = [0u8; INVENTORY_HEADER_BYTES as usize];
     header[..INVENTORY_MAGIC.len()].copy_from_slice(INVENTORY_MAGIC);
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&partial_path)?;
+    let mut file = cleanup.create_file(&partial_path)?;
     file.write_all(&header)?;
     file.sync_all()?;
     drop(file);
@@ -1777,6 +1773,14 @@ impl ScratchFiles {
 
     fn track(&mut self, path: PathBuf) {
         self.paths.push(path);
+    }
+
+    /// Own a scratch file only after exclusive creation succeeds. A collision
+    /// remains the earlier owner's evidence and must never enter our cleanup.
+    fn create_file(&mut self, path: &Path) -> Result<File, CheckpointError> {
+        let file = OpenOptions::new().create_new(true).write(true).open(path)?;
+        self.track(path.to_path_buf());
+        Ok(file)
     }
 }
 
@@ -1970,12 +1974,12 @@ pub fn compose_export_archive(
     let mut scratch = ScratchFiles::new();
     let hof_weights_partial =
         managed_directory.join(format!(".{operation_id}.export-hof-weights.partial"));
-    scratch.track(hof_weights_partial.clone());
     let (hof_weights_bytes, hof_weight_count, hof_weights_sha256) = build_hall_of_fame_weights(
         &managed_directory,
         &inventory_facts,
         &hof_weights_partial,
         checkpoint,
+        &mut scratch,
     )?;
     let hof_numeric = select_adaptive_numeric_file(
         &hof_weights_partial,
@@ -2114,7 +2118,6 @@ pub fn compose_export_archive(
     let relative_filename = format!(".{operation_id}.slither-save.ready");
     let final_path = managed_directory.join(&relative_filename);
     let partial_path = managed_directory.join(format!(".{operation_id}.slither-save.partial"));
-    scratch.track(partial_path.clone());
     let mut entry_sizes = checkpoint_layout
         .roles
         .iter()
@@ -2135,10 +2138,7 @@ pub fn compose_export_archive(
     }
 
     let write_phase = ArchivePhaseScope::enter(ArchivePhase::TemporaryFileWrite);
-    let output = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&partial_path)?;
+    let output = scratch.create_file(&partial_path)?;
     let mut archive = TarBuilder::new(BufWriter::new(output));
     for role in &checkpoint_layout.roles {
         append_file(
@@ -2343,6 +2343,7 @@ fn build_hall_of_fame_weights(
     inventory: &InventoryFacts,
     output_path: &Path,
     checkpoint: &CheckpointDescriptor,
+    scratch: &mut ScratchFiles,
 ) -> Result<(u64, u64, [u8; 32]), CheckpointError> {
     let population_count = parse_hex_u64(&checkpoint.population_count_hex, "population count")?;
     let checkpoint_weights = parse_hex_u64(&checkpoint.weight_count_hex, "weight count")?;
@@ -2378,10 +2379,7 @@ fn build_hall_of_fame_weights(
     input.seek(SeekFrom::Start(
         INVENTORY_HEADER_BYTES + inventory.history_bytes,
     ))?;
-    let output = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(output_path)?;
+    let output = scratch.create_file(output_path)?;
     let mut output = BufWriter::new(output);
     let mut hasher = Sha256::new();
     let mut total_weights = 0u64;

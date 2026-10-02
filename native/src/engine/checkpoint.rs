@@ -5747,6 +5747,77 @@ mod tests {
         }
     }
 
+    /// Real evolved export failures preserve colliding files and release only
+    /// newly created scratch, including a failure inside numeric encoding.
+    #[test]
+    fn evolved_export_preserves_preexisting_scratch_and_ready_files() {
+        use crate::engine::export_archive::{compose_export_archive, ExportInventoryDescriptor};
+
+        let fixture = hall_of_fame_import_fixture();
+        let operation = "e".repeat(32);
+        let inventory_bytes = fs::read(
+            fixture
+                .source
+                .path
+                .join(format!(".{}.export-inventory-v1", "c".repeat(32))),
+        )
+        .unwrap();
+        let inventory = ExportInventoryDescriptor {
+            version: 1,
+            relative_filename: format!(".{operation}.export-inventory-v1"),
+            sha256: encode_digest(Sha256::digest(&inventory_bytes).into()),
+            stored_byte_count_hex: encode_u64_hex(inventory_bytes.len() as u64),
+            history_count_hex: encode_u64_hex(1),
+            hall_of_fame_count_hex: encode_u64_hex(1),
+        };
+        fs::write(
+            fixture.source.path.join(&inventory.relative_filename),
+            inventory_bytes,
+        )
+        .unwrap();
+        let snapshot = || {
+            fs::read_dir(&fixture.source.path)
+                .unwrap()
+                .map(|entry| {
+                    let path = entry.unwrap().path();
+                    let bytes = fs::read(&path).unwrap();
+                    (path, bytes)
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        for suffix in [
+            "export-hof-weights.partial",
+            "export-hof-weights.codec.partial",
+            "slither-save.partial",
+            "slither-save.ready",
+        ] {
+            let collision = fixture.source.path.join(format!(".{operation}.{suffix}"));
+            fs::write(&collision, b"earlier task-owned evidence").unwrap();
+            let before = snapshot();
+            let export = || {
+                compose_export_archive(
+                    &fixture.source.path,
+                    &operation,
+                    &fixture.checkpoint,
+                    &inventory,
+                    &checkpoint_limits(),
+                    &graph_limits(),
+                    &fixture.policy,
+                )
+            };
+            assert!(export().is_err(), "{suffix} must reject before publication");
+            assert_eq!(snapshot(), before, "{suffix} must preserve earlier files");
+            fs::remove_file(collision).unwrap();
+            let retried = export().unwrap();
+            let ready = fixture.source.path.join(retried.relative_filename);
+            assert_eq!(
+                fs::read(&ready).unwrap(),
+                fs::read(&fixture.archive_path).unwrap()
+            );
+            fs::remove_file(ready).unwrap();
+        }
+    }
+
     /// Outer save validation rejects ignored container bytes before creating import scratch.
     #[test]
     fn save_import_rejects_noncanonical_padding_trailer_and_hidden_name_bytes() {

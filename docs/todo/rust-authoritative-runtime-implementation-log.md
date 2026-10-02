@@ -1960,3 +1960,20 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   All diagnostic servers, tabs, copied databases and duplicate downloads
   were cleaned; only the named ignored current-source archives remain for the
   unfinished comparative gates. A1/A2/A3 and the remaining Stage 7/8 stay open.
+
+- 2026-10-03 A7 export failure checks reproduced deletion of pre-existing
+  Hall-of-Fame scratch, archive partial and ready files. Rust now registers
+  cleanup ownership only after exclusive creation succeeds; Node accepts ready
+  ownership only after native preparation succeeds. Real HTTP failures preserve
+  the colliding bytes, retained metadata/files and active identity, release their
+  leases, permit continuing steps and reproduce the complete archive on retry.
+  A native evolved fixture also rejects numeric-encoder scratch creation and
+  ready publication collisions without changing any prior file; every retry
+  reproduces its original export bytes. The full release Rust suite and doc test,
+  affected native server/archive/retained-resume and supporting JavaScript tests,
+  TypeScript, ESLint, Vite, rustfmt and Clippy passed. Disposable tests cleaned
+  their servers and fixtures. The previous browser fixture's three archives were
+  removed after the strict native source identity changed; its compact report
+  remains. These prove the named creation/publication failures; process-memory
+  rejection, physical filesystem exhaustion and remaining A7/Stage 7/8 gates
+  stay open.

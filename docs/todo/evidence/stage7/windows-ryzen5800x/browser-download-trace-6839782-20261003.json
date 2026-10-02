@@ -495,7 +495,7 @@
     "Fresh-browser one-request matching-name download acceptance.",
     "Supported precise peak/post-collection heap and comparative browser-process private memory."
   ],
-  "retainedFixturePurpose": "Current-source fresh/evolved P2 archives and the validated larger generation-246 archive remain in the ignored named fixture directory for unfinished comparative memory and browser-transfer gates.",
+  "retainedFixturePurpose": "At capture, fresh/evolved P2 archives and the validated larger generation-246 archive were retained for unfinished comparative gates. They were removed on 2026-10-03 after the export scratch-ownership fix changed the strict native source identity. The compact traces, role hashes and decoded identities remain in this report.",
   "cleanup": "All three bounded servers exited; their databases, managed directories and traces were removed after retaining this report. Both duplicate downloads were removed or moved into the named reusable fixture. Test tab closed. Screenshot records its disconnected teardown view, not download success.",
   "cleanupScreenshot": "browser-download-trace-6839782-20261003.png"
 }
