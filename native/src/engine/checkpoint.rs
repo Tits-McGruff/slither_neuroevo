@@ -76,6 +76,8 @@ const HALL_OF_FAME_WEIGHTS_SUFFIX: &str = ".hof-weights-v1";
 const MANIFEST_PATH: &str = "manifest.json";
 /// State-role binary magic.
 const STATE_MAGIC: &[u8; 8] = b"SLCSTV3\0";
+/// State-role encoding with a bounded optional legacy origin after allocator state.
+const STATE_ENCODING_WITH_LEGACY_ORIGIN: u32 = 4;
 /// Graph-role binary magic.
 const GRAPH_MAGIC: &[u8; 8] = b"SLCGRV1\0";
 /// Population-index binary magic.
@@ -1979,14 +1981,17 @@ impl<'a> BinaryReader<'a> {
 
     /// Decode a bounded UTF-8 string only after all declared lengths pass.
     fn string(&mut self) -> Result<String, CheckpointError> {
+        self.string_bounded(self.max_string_bytes)
+    }
+
+    /// Enforce a role-specific limit before allocating a UTF-8 string.
+    fn string_bounded(&mut self, maximum: usize) -> Result<String, CheckpointError> {
         let length = u32_to_usize(self.u32()?, "string byte length")?;
-        if length > self.max_string_bytes {
+        let maximum = maximum.min(self.max_string_bytes);
+        if length > maximum {
             return Err(CheckpointError::format(
                 "STRING_LIMIT",
-                format!(
-                    "declared string bytes {length} exceed limit {}",
-                    self.max_string_bytes
-                ),
+                format!("declared string bytes {length} exceed limit {}", maximum),
             ));
         }
         self.total_string_bytes = self.total_string_bytes.checked_add(length).ok_or_else(|| {
@@ -2028,7 +2033,7 @@ fn encode_state(
 ) -> Result<Vec<u8>, CheckpointError> {
     let mut output = BinaryWriter::new(limits.max_state_bytes, limits);
     output.raw(STATE_MAGIC)?;
-    output.u32(CHECKPOINT_VERSION)?;
+    output.u32(STATE_ENCODING_WITH_LEGACY_ORIGIN)?;
     let versions = &state.versions;
     for value in [
         versions.state,
@@ -2058,6 +2063,16 @@ fn encode_state(
     encode_generation(&mut output, &state.generation)?;
     encode_rng_bundle(&mut output, &state.rng, limits)?;
     encode_allocators(&mut output, &state.allocators)?;
+    match &state.identity.legacy_conversion {
+        None => output.u8(0)?,
+        Some(origin) => {
+            output.u8(1)?;
+            let encoded = origin
+                .encode()
+                .map_err(|error| CheckpointError::format("LEGACY_ORIGIN", error))?;
+            output.string(&encoded)?;
+        }
+    }
     Ok(output.finish())
 }
 
@@ -2240,7 +2255,8 @@ fn decode_state(
             "unsupported checkpoint state role",
         ));
     }
-    if input.u32()? != CHECKPOINT_VERSION {
+    let state_encoding = input.u32()?;
+    if state_encoding != CHECKPOINT_VERSION && state_encoding != STATE_ENCODING_WITH_LEGACY_ORIGIN {
         return Err(CheckpointError::format(
             "STATE_VERSION",
             "unsupported checkpoint state encoding",
@@ -2256,7 +2272,7 @@ fn decode_state(
         checkpoint: input.u32()?,
         graph_layout: input.u32()?,
     };
-    let identity = decode_identity(&mut input)?;
+    let mut identity = decode_identity(&mut input)?;
     let config = decode_config(&mut input, limits)?;
     let boundary_kind = match input.u8()? {
         1 => GenerationBoundaryKind::RunStart,
@@ -2271,6 +2287,23 @@ fn decode_state(
     let generation = decode_generation(&mut input)?;
     let rng = decode_rng_bundle(&mut input, limits)?;
     let allocators = decode_allocators(&mut input)?;
+    if state_encoding == STATE_ENCODING_WITH_LEGACY_ORIGIN {
+        identity.legacy_conversion = match input.u8()? {
+            0 => None,
+            1 => Some(
+                super::legacy_origin::LegacyPopulationOrigin::decode(
+                    &input.string_bounded(super::legacy_origin::MAX_LEGACY_ORIGIN_BYTES)?,
+                )
+                .map_err(|error| CheckpointError::format("LEGACY_ORIGIN", error))?,
+            ),
+            _ => {
+                return Err(CheckpointError::format(
+                    "LEGACY_ORIGIN",
+                    "unsupported legacy origin tag",
+                ))
+            }
+        };
+    }
     input.finish()?;
     Ok(DecodedStateParts {
         versions,
@@ -2286,6 +2319,7 @@ fn decode_state(
 /// Decode run/build identity fields.
 fn decode_identity(input: &mut BinaryReader<'_>) -> Result<RunIdentity, CheckpointError> {
     Ok(RunIdentity {
+        legacy_conversion: None,
         run_id: input.string()?,
         seed: input.u32()?,
         config_revision: input.u64()?,
@@ -5350,6 +5384,7 @@ mod tests {
             rustc_version: "rustc-test".into(),
             build_contract_sha256: format!("sha256:{}", "2".repeat(64)),
             math_backend: "scalar-test".into(),
+            legacy_conversion: None,
         };
         // Keep the assignment explicit if config construction changes in a future fixture.
         config.graph_architecture_key = graph.architecture_key.clone();
@@ -5459,6 +5494,49 @@ mod tests {
         .expect("checkpoint publication must succeed");
         let path = directory.path.join(&descriptor.relative_filename);
         (path, descriptor)
+    }
+
+    /// Origin records survive binary state saves while old states remain readable.
+    #[test]
+    fn legacy_origin_state_encoding_preserves_facts_and_reads_previous_encoding() {
+        let (authority, _graph, _policy) = admitted_state(2, false);
+        let limits = checkpoint_limits();
+        let mut old = encode_state(authority.state(), &limits).unwrap();
+        assert_eq!(old.pop(), Some(0));
+        old[8..12].copy_from_slice(&CHECKPOINT_VERSION.to_le_bytes());
+        assert_eq!(
+            decode_state(&old, &limits).unwrap().identity,
+            authority.state().identity
+        );
+
+        let mut candidate = authority.state().clone();
+        let mut origin = super::super::legacy_origin::LegacyPopulationOrigin::new(
+            super::super::legacy_origin::LegacyPopulationSource::BrowserJson,
+        );
+        origin.source_seed = Some(1234567);
+        origin.source_generation = Some("0000000000000025".into());
+        candidate.identity.legacy_conversion = Some(origin);
+        let encoded = encode_state(&candidate, &limits).unwrap();
+        assert_eq!(
+            decode_state(&encoded, &limits).unwrap().identity,
+            candidate.identity
+        );
+        assert_ne!(encoded, encode_state(authority.state(), &limits).unwrap());
+        assert!(decode_state(&encoded[..encoded.len() - 1], &limits).is_err());
+
+        let mut oversized = encode_state(authority.state(), &limits).unwrap();
+        *oversized.last_mut().unwrap() = 1;
+        oversized.extend_from_slice(
+            &((super::super::legacy_origin::MAX_LEGACY_ORIGIN_BYTES + 1) as u32).to_le_bytes(),
+        );
+        let error = decode_state(&oversized, &limits).err().unwrap();
+        assert!(matches!(
+            error,
+            CheckpointError::Format {
+                code: "STRING_LIMIT",
+                ..
+            }
+        ));
     }
 
     /// Recalculate one mutated USTAR header's standard checksum.

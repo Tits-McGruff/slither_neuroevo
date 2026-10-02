@@ -70,15 +70,17 @@ For a new experiment, start once with `--fresh`, then reuse that database with
 `--resume latest` or `--resume <checkpoint-sha256>`. `--resume latest` can also
 open a TypeScript reference-runtime database that uses the current per-genome
 checkpoint rows. Rust reads the newest compatible population directly from
-SQLite, preserves its seed, compatible settings, and ASCII-safe graph, and
+SQLite, preserves compatible settings and an ASCII-safe graph, and
 writes a new generation-one Rust checkpoint without changing the old snapshot
 rows. The same path incrementally reads older combined `genomes_blob`
 populations and format-zero populations embedded in parent JSON, without
 loading either complete source value into Node. Later restarts use the managed
 Rust checkpoint. Health and WebSocket welcome data keep a durable
-`legacyConversion` notice with the source row and format and explicitly mark
-the result as population-only, not an exact continuation. The browser status
-pill also labels converted saves and exact imported branches, with their source
+`legacyConversion` notice with the source row, format, generation and seed when
+available. The source seed is provenance; the new run initializes its missing
+state with its own seed. Exports and subsequent imports retain the population-only
+classification. The browser status pill also labels converted saves and exact
+imported branches, with their source
 details in its tooltip.
 
 The server defaults to five Rust calculation workers on new
@@ -611,8 +613,12 @@ Rust privately validates exact-save roles or incrementally parses bounded legacy
 genomes from disk. SQLite commits the replacement and active-run pointer before
 the running game switches. A legacy JSON population starts a new generation-one
 lineage because those files do not contain exact Rust history, allocator, or
-random-stream state; compatible settings, ASCII-identified graphs, and the
-source seed are retained when present.
+random-stream state. Compatible settings and ASCII-identified graphs are applied;
+the source seed is retained as source information when present. The new run uses
+its own seed for missing state. Its checkpoints retain a `legacyConversion`
+record, and its exports use the `legacy-population-import` archive kind through
+later generations and restarts. Reset and New Run start a fresh lineage and
+clear this record.
 A rejected upload leaves the prior game current. Successful replacement keeps
 browser/trainer sockets connected but invalidates every old assignment and
 requires a fresh ordered join. An older save from the same run cannot silently

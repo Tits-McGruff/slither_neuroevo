@@ -1846,3 +1846,20 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   conversion round trip exposed the next defect: its population-only notice
   is omitted from export, the archive kind remains exact-generation-boundary,
   and the imported copy loses that notice. Full A8 and Stage 7/8 remain open.
+
+- 2026-10-02 Fixed the lost legacy-origin notice: new conversions retain bounded,
+  versioned source facts inside checkpoint bytes, projected into archive v1 as
+  `legacy-population-import`. Import rejects a contradictory kind or origin
+  even when outer framing is valid; real HTTP cases preserve all retained rows
+  and managed-file hashes. The source seed remains provenance while normal reset
+  rules initialize missing state with the new run's seed. Browser JSON, v2 rows,
+  and all six gzip/embedded format-column cases preserve the notice through
+  export, import and restart. Real later-generation cases retain it after
+  evolution, and Reset/New Run clear it. Previous state encoding remains
+  readable; origin length is checked before allocation. All 481 Rust tests and
+  the compile-fail doctest, 150 native/MT contracts, 12 focused metadata/client
+  tests, Rustfmt, all-target Clippy, TypeScript, ESLint and Vite passed. Three
+  existing optional transfer cases were skipped. Disposable test roots and the
+  isolated test addon were removed. Already exported archives that omitted
+  provenance cannot reconstruct it; owner-data inventory and full A8/Stage 7/8
+  gates remain open.

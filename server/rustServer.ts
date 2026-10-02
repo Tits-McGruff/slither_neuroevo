@@ -152,6 +152,8 @@ function recoveryNotice(owner: ExperimentalServerRuntime): RustRecoveryNotice | 
 
 /** Small terminal archive-import response emitted only after all cleanup completes. */
 interface ArchiveImportSuccess {
+  /** Immutable partial-source classification when importing a converted legacy lineage. */
+  legacyConversion?: RustLegacyConversionNotice;
   ok: true;
   runId: string;
   generation: string;
@@ -267,7 +269,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   } catch (error) { return startFaultedServer(config, error); }
   let recovery = recoveryNotice(owner);
   let importBranch = importBranchNotice(owner.importBranch);
-  let legacyConversion = legacyConversionNotice(owner.legacyConversion);
+  let legacyConversion = owner.metadata.legacyConversion ?? legacyConversionNotice(owner.legacyConversion);
   if (recovery) console.warn('[rust.recovery]', recovery);
   let activeMetadata = owner.metadata;
   let activeCheckpointId = owner.runStart.checkpointId;
@@ -1036,7 +1038,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
         importBranch = importBranchNotice(durable.importBranch ?? null);
-        legacyConversion = undefined;
+        legacyConversion = metadata.legacyConversion;
         routing.resetAfterImport();
         routingHeld = false;
         disconnectedDuringImport.clear();
@@ -1054,6 +1056,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           completedStep: descriptor.completedStep,
           checkpointId: durable.checkpointId,
           saveLogicalRootSha256: imported.saveLogicalRootSha256,
+          ...(legacyConversion ? { legacyConversion } : {}),
           branched: branchRunId !== null,
           ...(branchRunId === null ? {} : { sourceRunId: descriptor.runId })
         };

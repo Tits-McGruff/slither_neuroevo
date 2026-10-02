@@ -302,8 +302,13 @@ export function formatLegacyConversionRuntimeStatus(
     ? 'TypeScript v2'
     : conversion.sourceFormat === 'legacy-gzip'
       ? 'legacy gzip'
-      : 'legacy JSON';
-  return `Started from ${source} snapshot ${conversion.sourceSnapshotId}. The population was converted, but this is a new run rather than an exact continuation.`;
+      : conversion.sourceFormat === 'browser-json'
+        ? 'browser JSON'
+        : 'legacy JSON';
+  const boundary = conversion.sourceSnapshotId !== undefined ? ` snapshot ${conversion.sourceSnapshotId}`
+    : conversion.sourceGeneration ? ` generation ${BigInt(`0x${conversion.sourceGeneration}`).toString()}` : '';
+  const seed = conversion.sourceSeed === undefined ? '' : ` Source seed: ${conversion.sourceSeed}.`;
+  return `Started from ${source}${boundary}. The population was converted, but this is a new run rather than an exact continuation.${seed}`;
 }
 
 /**

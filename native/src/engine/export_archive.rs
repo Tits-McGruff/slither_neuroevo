@@ -21,6 +21,7 @@ use super::graph::{
     typescript_default_graph_spec, GraphEdge, GraphLimits, GraphNodeKind, GraphNodeSpec,
     GraphOutputRef, GraphSpec,
 };
+use super::legacy_origin::{LegacyPopulationOrigin, LegacyPopulationSource};
 use super::state::{NormalizedSettingValue, StateAdmissionPolicy};
 use super::step_config::typescript_default_settings;
 use super::work_progress::{
@@ -289,6 +290,8 @@ pub struct ImportInventoryDescriptor {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SaveManifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    legacy_conversion: Option<LegacyPopulationOrigin>,
     magic: String,
     archive_version: u32,
     archive_kind: String,
@@ -321,6 +324,8 @@ struct SaveRole {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LegacyPopulationFile {
+    #[serde(default)]
+    run_id: Option<String>,
     #[serde(default)]
     generation: Option<u64>,
     #[serde(default)]
@@ -729,12 +734,16 @@ fn prepare_legacy_json_import(
         )
     })?;
     drop(decode_phase);
+    let save_sha256 = hex_digest(hash_file_range(archive_path, 0, metadata.len())?);
+    let mut origin = LegacyPopulationOrigin::new(LegacyPopulationSource::BrowserJson);
+    origin.source_sha256 = Some(save_sha256.clone());
     let construction_phase = ArchivePhaseScope::enter(ArchivePhase::CandidateConstruction);
     let mut transition = prepare_legacy_population_transition(
         legacy,
         legacy_run_id,
         legacy_seed,
         memory_ceiling_bytes,
+        origin,
     )?;
     drop(construction_phase);
     let operation = CheckpointOperationId::parse(operation_id.to_owned())?;
@@ -747,7 +756,6 @@ fn prepare_legacy_json_import(
         .startup_metadata_json()
         .map_err(|error| CheckpointError::format("LEGACY_IMPORT_METADATA", error))?;
     let inventory = publish_empty_import_inventory(managed_directory, operation_id)?;
-    let save_sha256 = hex_digest(hash_file_range(archive_path, 0, metadata.len())?);
     let facts = ValidatedImportArchive {
         run_id: descriptor.run_id.clone(),
         generation_hex: descriptor.generation_hex.clone(),
@@ -772,7 +780,11 @@ fn prepare_legacy_population_transition(
     run_id: &str,
     fallback_seed: u32,
     memory_ceiling_bytes: usize,
+    mut origin: LegacyPopulationOrigin,
 ) -> Result<super::run_start::PendingRunStartTransition, CheckpointError> {
+    origin.source_generation = legacy.generation.map(hex_u64);
+    origin.source_seed = legacy.world_seed;
+    origin.source_run_id = legacy.run_id.clone();
     if legacy.generation.is_some_and(|generation| generation == 0)
         || legacy.updates.len() > 128
         || legacy
@@ -821,12 +833,13 @@ fn prepare_legacy_population_transition(
     prepare_stage6a_legacy_population_import(
         Stage6aP0FreshRunRequest {
             run_id: run_id.to_owned(),
-            seed: legacy.world_seed.unwrap_or(fallback_seed),
+            seed: fallback_seed,
             memory_ceiling_bytes,
         },
         &settings,
         graph,
         genomes,
+        origin,
     )
     .map_err(|error| CheckpointError::format("LEGACY_IMPORT_CANDIDATE", error.to_string()))
 }
@@ -837,6 +850,7 @@ pub fn prepare_legacy_sqlite_population_import(
     database_path: &Path,
     snapshot_id: i64,
     run_id: &str,
+    seed: u32,
     memory_ceiling_bytes: usize,
 ) -> Result<super::run_start::PendingRunStartTransition, CheckpointError> {
     if snapshot_id <= 0 {
@@ -889,6 +903,7 @@ pub fn prepare_legacy_sqlite_population_import(
             &connection,
             snapshot_id,
             run_id,
+            seed,
             memory_ceiling_bytes,
         ),
         None | Some(0) => prepare_legacy_sqlite_v0_population_import(
@@ -896,6 +911,7 @@ pub fn prepare_legacy_sqlite_population_import(
             &columns,
             snapshot_id,
             run_id,
+            seed,
             memory_ceiling_bytes,
         ),
         Some(version) => Err(CheckpointError::format(
@@ -909,6 +925,7 @@ fn prepare_legacy_sqlite_v2_population_import(
     connection: &Connection,
     snapshot_id: i64,
     run_id: &str,
+    seed: u32,
     memory_ceiling_bytes: usize,
 ) -> Result<super::run_start::PendingRunStartTransition, CheckpointError> {
     let declared_population: i64 = connection
@@ -1058,15 +1075,21 @@ fn prepare_legacy_sqlite_v2_population_import(
     drop(statement);
     let settings = legacy_settings(Some(&metadata.settings), metadata.updates)?;
     let graph = legacy_graph_spec(metadata.graph_spec)?;
+    let mut origin = LegacyPopulationOrigin::new(LegacyPopulationSource::TypeScriptV2);
+    origin.source_snapshot_id = Some(snapshot_id as u64);
+    origin.source_run_id = Some(metadata.run_id);
+    origin.source_seed = Some(metadata.world_seed);
+    origin.source_generation = Some(hex_u64(metadata.generation));
     prepare_stage6a_legacy_population_import(
         Stage6aP0FreshRunRequest {
             run_id: run_id.to_owned(),
-            seed: metadata.world_seed,
+            seed,
             memory_ceiling_bytes,
         },
         &settings,
         graph,
         genomes,
+        origin,
     )
     .map_err(|error| CheckpointError::format("LEGACY_SQLITE_CANDIDATE", error.to_string()))
 }
@@ -1076,6 +1099,7 @@ fn prepare_legacy_sqlite_v0_population_import(
     columns: &[String],
     snapshot_id: i64,
     run_id: &str,
+    seed: u32,
     memory_ceiling_bytes: usize,
 ) -> Result<super::run_start::PendingRunStartTransition, CheckpointError> {
     let row_generation: i64 = connection
@@ -1192,7 +1216,13 @@ fn prepare_legacy_sqlite_v0_population_import(
             "legacy checkpoint population does not match its parent row",
         ));
     }
-    prepare_legacy_population_transition(legacy, run_id, 1, memory_ceiling_bytes)
+    let mut origin = LegacyPopulationOrigin::new(if combined_blob_bytes.is_some() {
+        LegacyPopulationSource::Gzip
+    } else {
+        LegacyPopulationSource::EmbeddedJson
+    });
+    origin.source_snapshot_id = Some(snapshot_id as u64);
+    prepare_legacy_population_transition(legacy, run_id, seed, memory_ceiling_bytes, origin)
 }
 
 fn legacy_sqlite_parent_columns(connection: &Connection) -> Result<Vec<String>, CheckpointError> {
@@ -1707,6 +1737,7 @@ fn validate_import_candidate(
         admission_policy,
     )?;
     if restored.content.run_id != manifest.run_id
+        || restored.state.state().identity.legacy_conversion != manifest.legacy_conversion
         || restored.content.generation_hex != manifest.generation_hex
         || restored.content.completed_step_hex != manifest.completed_step_hex
         || restored.content.logical_root_sha256 != manifest.checkpoint_logical_root_sha256
@@ -1905,6 +1936,7 @@ pub fn compose_export_archive(
     }
     // The verified source population is no longer needed. Release it before
     // composition and post-write validation allocate a second restored reader.
+    let legacy_conversion = restored.state.state().identity.legacy_conversion.clone();
     drop(restored);
     drop(source_population_phase);
     let checkpoint_layout =
@@ -2046,9 +2078,15 @@ pub fn compose_export_archive(
     ]);
     let save_root = logical_root(&roles)?;
     let manifest = SaveManifest {
+        archive_kind: if legacy_conversion.is_some() {
+            "legacy-population-import"
+        } else {
+            "exact-generation-boundary-v1"
+        }
+        .to_owned(),
+        legacy_conversion,
         magic: "slither-neuroevo-save".to_owned(),
         archive_version: 1,
-        archive_kind: "exact-generation-boundary-v1".to_owned(),
         run_id: checkpoint.run_id.clone(),
         generation_hex: checkpoint.generation_hex.clone(),
         completed_step_hex: checkpoint.completed_step_hex.clone(),
@@ -2531,9 +2569,19 @@ fn validate_import_manifest(
     entry_hashes: &[[u8; 32]],
     archive_bytes: u64,
 ) -> Result<(), CheckpointError> {
+    if let Some(origin) = &manifest.legacy_conversion {
+        origin
+            .validate()
+            .map_err(|error| CheckpointError::format("LEGACY_ORIGIN", error))?;
+    }
     if manifest.magic != "slither-neuroevo-save"
         || manifest.archive_version != 1
-        || manifest.archive_kind != "exact-generation-boundary-v1"
+        || manifest.archive_kind
+            != if manifest.legacy_conversion.is_some() {
+                "legacy-population-import"
+            } else {
+                "exact-generation-boundary-v1"
+            }
         || manifest.run_id.is_empty()
         || manifest.run_id.contains('\0')
         || manifest.run_id.len() > 256

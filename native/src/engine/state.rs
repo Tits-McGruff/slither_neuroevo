@@ -146,6 +146,8 @@ pub struct ContractVersions {
 /// Stable experiment identity and source/config provenance.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunIdentity {
+    /// Partial source provenance retained independently of this new run's exact continuation.
+    pub legacy_conversion: Option<super::legacy_origin::LegacyPopulationOrigin>,
     /// Evolutionary lineage identity.
     pub run_id: String,
     /// Normalized root seed.
@@ -3562,6 +3564,14 @@ fn validate_identity(
     identity: &RunIdentity,
     policy: &StateAdmissionPolicy,
 ) -> Result<(), StateError> {
+    if let Some(origin) = &identity.legacy_conversion {
+        origin
+            .validate()
+            .map_err(|reason| StateError::InvalidField {
+                field: "identity.legacy_conversion",
+                reason: reason.into(),
+            })?;
+    }
     validate_text("identity.run_id", &identity.run_id)?;
     validate_sha256("identity.config_hash", &identity.config_hash)?;
     validate_text("identity.source_revision", &identity.source_revision)?;
@@ -4988,6 +4998,18 @@ fn add_candidate_text(
     add_text(estimate, &candidate.identity.rustc_version)?;
     add_text(estimate, &candidate.identity.build_contract_sha256)?;
     add_text(estimate, &candidate.identity.math_backend)?;
+    if let Some(origin) = &candidate.identity.legacy_conversion {
+        for text in [
+            &origin.source_run_id,
+            &origin.source_generation,
+            &origin.source_sha256,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            add_text(estimate, text)?;
+        }
+    }
     for setting in &candidate.config.settings {
         add_text(estimate, &setting.path)?;
         if let NormalizedSettingValue::Text(value) = &setting.value {
@@ -5487,6 +5509,7 @@ mod tests {
                 build_contract_sha256:
                     "sha256:3333333333333333333333333333333333333333333333333333333333333333".into(),
                 math_backend: "rust-scalar-v1".into(),
+                legacy_conversion: None,
             },
             config,
             phase: AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart),

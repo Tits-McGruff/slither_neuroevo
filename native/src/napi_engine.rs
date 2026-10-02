@@ -1280,6 +1280,7 @@ impl Task for InitializeExperimentalFreshRunTask {
                         database_path,
                         *snapshot_id,
                         &self.request.run_id,
+                        self.request.seed,
                         self.request.memory_ceiling_bytes,
                     )
                     .map_err(|error| error.to_string())?

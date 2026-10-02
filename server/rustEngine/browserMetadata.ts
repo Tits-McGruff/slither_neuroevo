@@ -33,6 +33,7 @@ export function createRustWelcome(
 ): WelcomeMsg {
   return {
     type: 'welcome', protocolVersion: 2, serializerVersion: metadata.serializerVersion,
+    ...(metadata.legacyConversion ? { legacyConversion: metadata.legacyConversion } : {}),
     sessionId: randomUUID(), tickRate: 1 / metadata.fixedStepSeconds,
     worldSeed: metadata.seed, runId: metadata.runId, configHash: metadata.configHash,
     configRevision: wireInteger(metadata.configRevision), frameByteLength: 0,

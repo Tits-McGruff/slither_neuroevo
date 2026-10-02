@@ -112,6 +112,8 @@ export interface RustQueueDiagnostics {
 
 /** Immutable Rust-owned facts used to construct the initial server welcome. */
 export interface RustStartupMetadata {
+  /** Immutable population-only source facts when this lineage came from legacy data. */
+  legacyConversion?: RustLegacyConversionNotice;
   /** Exact admitted lineage. */
   runId: string;
   /** Normalized Uint32 seed. */
@@ -540,10 +542,20 @@ export interface RustImportBranchNotice {
 
 /** Durable notice that an old checkpoint supplied population weights but not an exact continuation. */
 export interface RustLegacyConversionNotice {
+  /** Version carried inside new immutable checkpoints; absent in older SQLite-only notices. */
+  version?: 1;
   /** Positive parent-row identity in the original SQLite database. */
-  sourceSnapshotId: number;
+  sourceSnapshotId?: number;
   /** Exact old storage representation independently consumed by Rust. */
-  sourceFormat: 'typescript-v2' | 'legacy-gzip' | 'legacy-json';
+  sourceFormat: 'typescript-v2' | 'legacy-gzip' | 'legacy-json' | 'browser-json';
+  /** Original lineage when present in the source. */
+  sourceRunId?: string;
+  /** Exact source generation, independent of the new lineage's generation. */
+  sourceGeneration?: RustBackgroundIdentity;
+  /** Source seed retained as provenance; the new run has its own seed. */
+  sourceSeed?: number;
+  /** SHA-256 of an original browser JSON file. */
+  sourceSha256?: string;
   /** Explicit limit of the converted state. */
   completeness: 'population-only';
   /** Prevent clients from mistaking population reuse for an exact resumed simulation. */

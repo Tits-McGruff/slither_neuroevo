@@ -29,4 +29,24 @@ describe('Rust startup metadata', () => {
       expect(() => parseRustStartupMetadata(JSON.stringify({ ...METADATA, ...override }))).toThrow();
     }
   });
+
+  it('preserves bounded legacy facts and rejects contradictory source claims', () => {
+    const origin = { version: 1, sourceFormat: 'browser-json', sourceRunId: 'old-run',
+      sourceGeneration: 'ffffffffffffffff', sourceSeed: 0, sourceSha256: 'a'.repeat(64),
+      completeness: 'population-only', exactContinuation: false };
+    expect(parseRustStartupMetadata(JSON.stringify({ ...METADATA, legacyConversion: origin })).legacyConversion).toEqual(origin);
+    expect(parseRustStartupMetadata(JSON.stringify({ ...METADATA, legacyConversion: null }))).toEqual(METADATA);
+    for (const override of [
+      { version: 2 }, { exactContinuation: true }, { completeness: 'exact' }, { invented: true },
+      { sourceSnapshotId: 1 }, { sourceFormat: 'typescript-v2' }, { sourceSeed: 0x1_0000_0000 },
+      { sourceRunId: 'bad\0lineage' }, { sourceRunId: 'Ω'.repeat(129) },
+      { sourceGeneration: '0000000000000000' }, { sourceGeneration: 'FFFFFFFFFFFFFFFF' },
+      { sourceSha256: 'A'.repeat(64) }
+    ]) {
+      expect(() => parseRustStartupMetadata(JSON.stringify({ ...METADATA, legacyConversion: { ...origin, ...override } }))).toThrow();
+    }
+    expect(parseRustStartupMetadata(JSON.stringify({ ...METADATA, legacyConversion: {
+      ...origin, sourceFormat: 'typescript-v2', sourceSnapshotId: 17
+    } })).legacyConversion).toMatchObject({ sourceSnapshotId: 17 });
+  });
 });

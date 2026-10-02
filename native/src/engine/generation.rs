@@ -1163,6 +1163,7 @@ mod tests {
                 rustc_version: "rustc generation-test".into(),
                 build_contract_sha256: format!("sha256:{}", "2".repeat(64)),
                 math_backend: "rust-scalar-v1".into(),
+                legacy_conversion: None,
             },
             config,
             phase: AuthorityPhase::Running,

@@ -1,4 +1,4 @@
-import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
+import type { RustLegacyConversionNotice, RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 import { validateGraph } from '../../src/brains/graph/validate.ts';
 
@@ -56,10 +56,46 @@ export function parseRustStartupMetadata(encoded: unknown): RustStartupMetadata 
   const graphSpec = rawGraph as GraphSpec;
   if (validateGraph(graphSpec).ok !== true) throw new TypeError('invalid Rust startup graphSpec');
   return {
+    ...(record['legacyConversion'] == null ? {} : { legacyConversion: parseRustLegacyOrigin(record['legacyConversion']) }),
     runId: text('runId', 256), seed: integer('seed', 0, 0xffff_ffff), configRevision,
     configHash: text('configHash', 256), fixedStepSeconds,
     maximumFrameBytes: integer('maximumFrameBytes', 1), graphKey: text('graphKey', 256 * 1024), graphSpec,
     parameterCount: integer('parameterCount', 1), mathBackend: text('mathBackend', 128),
     serializerVersion: integer('serializerVersion', 1, 1), sensorVersion: integer('sensorVersion', 3, 3), settings
   };
+}
+
+/** Validate only bounded immutable origin metadata; this never decodes a population. */
+export function parseRustLegacyOrigin(value: unknown): RustLegacyConversionNotice {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid Rust legacy origin');
+  const record = value as Record<string, unknown>;
+  const keys = ['version', 'sourceFormat', 'sourceSnapshotId', 'sourceRunId', 'sourceGeneration', 'sourceSeed',
+    'sourceSha256', 'completeness', 'exactContinuation'];
+  if (Object.keys(record).some(key => !keys.includes(key)) || record['version'] !== 1 ||
+      record['completeness'] !== 'population-only' || record['exactContinuation'] !== false ||
+      !['typescript-v2', 'legacy-gzip', 'legacy-json', 'browser-json'].includes(String(record['sourceFormat']))) {
+    throw new TypeError('invalid Rust legacy origin classification');
+  }
+  const browser = record['sourceFormat'] === 'browser-json';
+  const snapshot = record['sourceSnapshotId'];
+  if (browser ? snapshot !== undefined : typeof snapshot !== 'number' || !Number.isSafeInteger(snapshot) || snapshot <= 0) {
+    throw new TypeError('invalid Rust legacy origin snapshot');
+  }
+  const run = record['sourceRunId'];
+  if (run !== undefined && (typeof run !== 'string' || !run || Buffer.byteLength(run) > 256 || run.includes('\0'))) {
+    throw new TypeError('invalid Rust legacy origin lineage');
+  }
+  const generation = record['sourceGeneration'];
+  if (generation !== undefined && (typeof generation !== 'string' || !/^[0-9a-f]{16}$/u.test(generation) || BigInt(`0x${generation}`) === 0n)) {
+    throw new TypeError('invalid Rust legacy origin generation');
+  }
+  const seed = record['sourceSeed'];
+  if (seed !== undefined && (typeof seed !== 'number' || !Number.isInteger(seed) || seed < 0 || seed > 0xffff_ffff)) {
+    throw new TypeError('invalid Rust legacy origin seed');
+  }
+  const digest = record['sourceSha256'];
+  if (digest !== undefined && (typeof digest !== 'string' || !/^[0-9a-f]{64}$/u.test(digest))) {
+    throw new TypeError('invalid Rust legacy origin digest');
+  }
+  return { ...record } as unknown as RustLegacyConversionNotice;
 }

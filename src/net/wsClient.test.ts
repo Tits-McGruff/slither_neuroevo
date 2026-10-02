@@ -139,6 +139,14 @@ describe('wsClient', () => {
     })).toBe(`Imported checkpoint ${'c'.repeat(64)} at generation 25 from run source-run into branch branch-run.`);
   });
 
+  it('labels browser population origins with their source generation and seed', () => {
+    expect(formatLegacyConversionRuntimeStatus({ version: 1, sourceFormat: 'browser-json',
+      sourceGeneration: 'ffffffffffffffff', sourceSeed: 1234567,
+      completeness: 'population-only', exactContinuation: false })).toBe(
+      'Started from browser JSON generation 18446744073709551615. The population was converted, but this is a new run rather than an exact continuation. Source seed: 1234567.'
+    );
+  });
+
   it('dispatches welcome and frame messages', () => {
     /** WebSocket stub used to simulate connection events. */
     class StubWebSocket {

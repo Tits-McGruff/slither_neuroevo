@@ -1045,6 +1045,7 @@ fn build_fixture(
             rustc_version: rustc_version.clone(),
             build_contract_sha256: build_contract_sha256.clone(),
             math_backend: math_backend.label().to_owned(),
+            legacy_conversion: None,
         },
         config,
         phase: AuthorityPhase::Running,

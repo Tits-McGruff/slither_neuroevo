@@ -164,6 +164,9 @@ async function readOnlyLegacyConversion(root: string, databasePath: string, sour
       memoryCeilingBytes: 4n * 1024n * 1024n * 1024n, calculationWorkers: 1,
       persistence, managedDirectory });
     const converted = await session.initializeFromLegacySqlite(databasePath, 1);
+    expect(session.startupMetadata()).toMatchObject({ seed: 0, legacyConversion: {
+      version: 1, sourceFormat, sourceSnapshotId: 1, completeness: 'population-only', exactContinuation: false
+    } });
     expect(converted).toMatchObject({ generation: '0000000000000001', completedStep: '0000000000000000',
       snakeCount: '0000000000000000', checkpointPublished: false });
     const durable = await session.commitPendingRunStart('81'.repeat(16), {
@@ -182,6 +185,7 @@ async function readOnlyLegacyConversion(root: string, databasePath: string, sour
 
 /** Read the small manifest from a bounded, actually exported nine-role test archive. */
 function legacyExportManifest(bytes: Buffer): {
+  archiveKind: string; legacyConversion?: import('../src/protocol/rustBackground.ts').RustLegacyConversionNotice;
   runId: string; checkpointLogicalRootSha256: string; logicalRootSha256: string;
   roles: Array<{ role: string; logicalSha256: string }>;
 } {
@@ -201,16 +205,20 @@ function legacyExportManifest(bytes: Buffer): {
 }
 
 /** Re-export and re-import a converted population through real archive HTTP, checking its original Float32 digest. */
-async function migratedArchiveRoundTrip(root: string, server: Awaited<ReturnType<typeof startRustServer>>, weightsSha256: string): Promise<void> {
+async function migratedArchiveRoundTrip(root: string, server: Awaited<ReturnType<typeof startRustServer>>, weightsSha256?: string): Promise<void> {
+  const sourceHealth = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as Record<string, unknown>;
   const exported = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
   expect(exported.status).toBe(200);
   const archive = Buffer.from(await exported.arrayBuffer());
   const originalHash = createHash('sha256').update(archive).digest('hex');
   const manifest = legacyExportManifest(archive);
-  expect(manifest.roles.find(role => role.role === 'population-weights')?.logicalSha256).toBe(weightsSha256);
+  expect(manifest.archiveKind).toBe('legacy-population-import');
+  expect(manifest.legacyConversion).toEqual(sourceHealth['legacyConversion']);
+  expect(manifest.legacyConversion).toMatchObject({ version: 1, completeness: 'population-only', exactContinuation: false });
+  if (weightsSha256 !== undefined) expect(manifest.roles.find(role => role.role === 'population-weights')?.logicalSha256).toBe(weightsSha256);
   expect(exported.headers.get('x-slither-checkpoint-id')).toBe(manifest.checkpointLogicalRootSha256);
-  const target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, seed: 99, resume: 'fresh',
-    dbPath: join(root, 'archive-round-trip.sqlite') });
+  const targetPath = join(root, 'archive-round-trip.sqlite');
+  let target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, seed: 99, resume: 'fresh', dbPath: targetPath });
   try {
     expect(target.startupFault).toBeUndefined();
     const imported = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
@@ -218,13 +226,44 @@ async function migratedArchiveRoundTrip(root: string, server: Awaited<ReturnType
     });
     expect(imported.status, await imported.clone().text()).toBe(200);
     expect(await imported.json()).toMatchObject({ ok: true, runId: manifest.runId,
-      checkpointId: manifest.checkpointLogicalRootSha256, saveLogicalRootSha256: manifest.logicalRootSha256 });
+      checkpointId: manifest.checkpointLogicalRootSha256, saveLogicalRootSha256: manifest.logicalRootSha256,
+      legacyConversion: manifest.legacyConversion });
+    await target.close();
+    target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'latest', dbPath: targetPath });
+    expect(target.startupFault).toBeUndefined();
+    expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+      ok: true, runId: manifest.runId, seed: sourceHealth['seed'], legacyConversion: manifest.legacyConversion });
     const reexported = await fetch(`http://127.0.0.1:${target.port}/api/export/latest`);
     expect(reexported.status).toBe(200);
     const roundTrip = legacyExportManifest(Buffer.from(await reexported.arrayBuffer()));
     expect(roundTrip).toEqual(manifest);
     expect(createHash('sha256').update(archive).digest('hex')).toBe(originalHash);
   } finally { await target.close(); }
+}
+
+/** Replace only the final manifest in a private fixture, retaining valid USTAR framing. */
+function rewriteLegacyManifest(archive: Buffer, mutate: (manifest: Record<string, unknown>) => void): Buffer {
+  let cursor = 0;
+  while (cursor + 512 <= archive.length) {
+    const header = archive.subarray(cursor, cursor + 512);
+    const name = header.subarray(0, 100).toString().split('\0', 1)[0];
+    const length = Number.parseInt(header.subarray(124, 136).toString().replace(/\0.*$/u, '').trim(), 8);
+    if (name === 'manifest.json') {
+      const manifest = JSON.parse(archive.subarray(cursor + 512, cursor + 512 + length).toString()) as Record<string, unknown>;
+      mutate(manifest);
+      const payload = Buffer.from(JSON.stringify(manifest));
+      const rewritten = Buffer.from(header);
+      rewritten.fill(0, 124, 136);
+      rewritten.write(payload.length.toString(8).padStart(11, '0'), 124, 'ascii');
+      rewritten.fill(32, 148, 156);
+      const checksum = rewritten.reduce((sum, byte) => sum + byte, 0);
+      rewritten.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 'ascii');
+      return Buffer.concat([archive.subarray(0, cursor), rewritten, payload,
+        Buffer.alloc((512 - payload.length % 512) % 512 + 1024)]);
+    }
+    cursor += 512 + Math.ceil(length / 512) * 512;
+  }
+  throw new Error('fixture manifest not found');
 }
 
 describeNetworkSuite('Rust server real sockets', () => {
@@ -458,6 +497,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       const weights = new Array<number>(13_458).fill(0);
       const legacyFile = JSON.stringify({
+        runId: 'browser-source-run',
         generation: 37,
         archKey: 'legacy-default-graph',
         worldSeed: 1_234_567,
@@ -483,13 +523,17 @@ describeNetworkSuite('Rust server real sockets', () => {
       });
       expect(imported.runId).not.toBe(before.runId);
       expect(imported.checkpointId).toMatch(/^[0-9a-f]{64}$/u);
+      const currentHealth = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as { seed: number };
       await until(viewer, () => viewer.packets.some(packet =>
         packet['type'] === 'stateReplaced' && packet['reason'] === 'import'));
       expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')).toMatchObject({
         checkpointId: imported.checkpointId,
         welcome: {
           runId: imported.runId,
-          worldSeed: 1_234_567,
+          worldSeed: currentHealth.seed,
+          legacyConversion: { version: 1, sourceFormat: 'browser-json', sourceRunId: 'browser-source-run',
+            sourceGeneration: '0000000000000025', sourceSeed: 1_234_567,
+            sourceSha256: createHash('sha256').update(legacyFile).digest('hex'), completeness: 'population-only', exactContinuation: false },
           inferenceMode: { activeWorkerCount: 4 },
           settings: {
             core: { snakeCount: 2, simSpeed: 3 },
@@ -500,7 +544,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
         ok: true,
         runId: imported.runId,
-        seed: 1_234_567,
+        seed: currentHealth.seed,
         generation: '0000000000000001',
         startupCheckpointId: imported.checkpointId
       });
@@ -524,6 +568,77 @@ describeNetworkSuite('Rust server real sockets', () => {
     } finally {
       for (const peer of peers) peer.socket.terminate();
       await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it.each(['reset', 'newRun'] as const)('retains legacy origin through evolution and restart, then clears it on %s', async replacement => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-origin-lineage-'));
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    let viewer: Peer | undefined;
+    let releaseSpy: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42, dbPath: join(root, 'source.sqlite') });
+      const legacyFile = JSON.stringify({ generation: 37, worldSeed: 1234567, archKey: 'legacy-default-graph',
+        settings: { snakeCount: 2, simSpeed: 12, baselineBots: { count: 0 } },
+        updates: [{ path: 'generationSeconds', value: 8 }],
+        genomes: [0, 1].map(() => ({ archKey: 'legacy-default-graph', weights: new Array<number>(13_458).fill(0) })) });
+      const imported = await fetch(`http://127.0.0.1:${server.port}/api/import/archive`, { method: 'POST', body: legacyFile });
+      expect(imported.status, await imported.clone().text()).toBe(200);
+      const result = await imported.json() as { legacyConversion: unknown; runId: string };
+      await healthUntil(server.port, health => BigInt(`0x${health['generation'] as string}`) >= 3n);
+      viewer = await connect(server.port, 'ui');
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
+      expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ legacyConversion: result.legacyConversion });
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'hold-origin', updates: [{ path: 'simSpeed', value: 0.1 }] }));
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'settingsApplied' && packet['requestId'] === 'hold-origin'));
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({ legacyConversion: result.legacyConversion });
+      let released = false;
+      const originalRelease = CheckpointPersistenceClient.prototype.releaseExportLease;
+      releaseSpy = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease')
+        .mockImplementationOnce(async function(this: CheckpointPersistenceClient, operationId) {
+          await originalRelease.call(this, operationId);
+          released = true;
+        });
+      const exported = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+      expect(exported.status).toBe(200);
+      const archive = Buffer.from(await exported.arrayBuffer());
+      await until(viewer, () => released);
+      releaseSpy.mockRestore();
+      releaseSpy = undefined;
+      const retainedRows = legacyRecords(join(root, 'source.sqlite'));
+      const managedDirectory = join(root, 'source.sqlite.checkpoints');
+      /** Observe every durable file without materializing population data. */
+      const retainedFiles = async (): Promise<Array<{ filename: string; sha256: string }>> =>
+        Promise.all((await readdir(managedDirectory)).sort().map(async filename => ({
+          filename, sha256: await archiveFileSha256(join(managedDirectory, filename))
+        })));
+      const durableFiles = await retainedFiles();
+      for (const mutate of [
+        (manifest: Record<string, unknown>) => { manifest['archiveKind'] = 'exact-generation-boundary-v1'; },
+        (manifest: Record<string, unknown>) => { delete manifest['legacyConversion']; manifest['archiveKind'] = 'exact-generation-boundary-v1'; },
+        (manifest: Record<string, unknown>) => { (manifest['legacyConversion'] as Record<string, unknown>)['sourceSeed'] = 1234568; }
+      ]) {
+        const rejected = await fetch(`http://127.0.0.1:${server.port}/api/import/archive`, {
+          method: 'POST', body: new Uint8Array(rewriteLegacyManifest(archive, mutate)) });
+        expect(rejected.status, await rejected.clone().text()).toBe(400);
+        expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+          ok: true, runId: result.runId, legacyConversion: result.legacyConversion });
+        expect(legacyRecords(join(root, 'source.sqlite'))).toEqual(retainedRows);
+        expect(await retainedFiles()).toEqual(durableFiles);
+      }
+      await migratedArchiveRoundTrip(root, server);
+      viewer.socket.send(JSON.stringify({ type: replacement, ...(replacement === 'newRun' ? { requestId: 'clear-origin' } : {}) }));
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === replacement));
+      expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')?.['welcome']).not.toHaveProperty('legacyConversion');
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).not.toHaveProperty('legacyConversion');
+      const freshExport = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+      expect(legacyExportManifest(Buffer.from(await freshExport.arrayBuffer()))).toMatchObject({ archiveKind: 'exact-generation-boundary-v1' });
+    } finally {
+      releaseSpy?.mockRestore();
+      viewer?.socket.terminate();
+      await server?.close();
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
@@ -607,23 +722,24 @@ describeNetworkSuite('Rust server real sockets', () => {
     try {
       expect(server.startupFault).toBeUndefined();
       const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
-        runId: string; startupCheckpointId: string;
+        runId: string; startupCheckpointId: string; seed: number;
       };
       const legacyConversion = {
+        version: 1, sourceRunId: 'typescript-source-run', sourceGeneration: '0000000000000013', sourceSeed: 7_654_321,
         sourceSnapshotId: 1,
         sourceFormat: 'typescript-v2',
         completeness: 'population-only',
         exactContinuation: false
       };
       expect(health).toMatchObject({
-        ok: true, seed: 7_654_321, generation: '0000000000000001', legacyConversion
+        ok: true, seed: expect.any(Number), generation: '0000000000000001', legacyConversion
       });
       expect(health.runId).not.toBe('typescript-source-run');
       const viewer = await connect(server.port, 'ui');
       peers.push(viewer);
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
-        worldSeed: 7_654_321,
+        worldSeed: health.seed,
         settings: { core: { snakeCount: 2, simSpeed: 2 } },
         legacyConversion
       });
@@ -726,19 +842,20 @@ describeNetworkSuite('Rust server real sockets', () => {
       try {
         expect(server.startupFault).toBeUndefined();
         const legacyConversion = {
+          version: 1, sourceGeneration: '0000000000000007', sourceSeed: 1_234_567,
           sourceSnapshotId: 1,
           sourceFormat: storage === 'gzip' ? 'legacy-gzip' : 'legacy-json',
           completeness: 'population-only',
           exactContinuation: false
         };
         expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
-          ok: true, seed: 1_234_567, generation: '0000000000000001', legacyConversion
+          ok: true, seed: expect.any(Number), generation: '0000000000000001', legacyConversion
         });
         const viewer = await connect(server.port, 'ui');
         peers.push(viewer);
         await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
         expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
-          worldSeed: 1_234_567, settings: { core: { snakeCount: 2, simSpeed: 3 } },
+          worldSeed: expect.any(Number), settings: { core: { snakeCount: 2, simSpeed: 3 } },
           legacyConversion
         });
         const retained = new Database(dbPath, { readonly: true });

@@ -570,7 +570,7 @@ impl PendingRunStartTransition {
             state.config.graph_architecture_key.as_str(),
             state.identity.math_backend.as_str(),
         ];
-        let mut bound = Some(1024usize);
+        let mut bound = Some(1024usize + super::legacy_origin::MAX_LEGACY_ORIGIN_BYTES);
         for value in strings {
             bound = bound.and_then(|total| {
                 value
@@ -615,6 +615,7 @@ impl PendingRunStartTransition {
         let metadata = serde_json::json!({
             "runId": state.identity.run_id,
             "seed": state.identity.seed,
+            "legacyConversion": state.identity.legacy_conversion,
             "configRevision": format!("{:016x}", state.identity.config_revision),
             "configHash": state.identity.config_hash,
             "fixedStepSeconds": state.config.fixed_step_seconds,

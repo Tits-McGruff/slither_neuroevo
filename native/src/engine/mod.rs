@@ -72,6 +72,8 @@ pub mod inference;
 /// Deterministic Stage 4 whole-population inference evidence.
 #[cfg(feature = "engine-test-hooks")]
 pub mod inference_fixture;
+/// Bounded immutable origin of a population imported from an older representation.
+pub mod legacy_origin;
 /// Atomic runtime-setting replacement at a clean authoritative boundary.
 pub mod live_settings;
 /// Staged steering, boost, movement, and packed body-point proposals.

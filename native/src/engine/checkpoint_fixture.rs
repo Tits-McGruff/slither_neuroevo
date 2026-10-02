@@ -263,6 +263,7 @@ pub(crate) fn publish_stage3_fixture(
         rustc_version: rustc_version.clone(),
         build_contract_sha256: build_contract_sha256.clone(),
         math_backend: "rust-scalar-v1".to_owned(),
+        legacy_conversion: None,
     };
     let (population, brains) = fixture_population(&graph);
     let rng = || StatefulRng::new(7.0).export_state();
@@ -789,6 +790,7 @@ fn build_round_trip_state(
             rustc_version: rustc_version.clone(),
             build_contract_sha256: build_contract_sha256.clone(),
             math_backend: "rust-scalar-v1".to_owned(),
+            legacy_conversion: None,
         },
         config,
         phase: AuthorityPhase::GenerationBoundary(if scenario == RoundTripScenario::Small {

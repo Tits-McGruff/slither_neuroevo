@@ -159,6 +159,7 @@ pub fn prepare_stage6a_legacy_population_import(
     settings: &[FreshRunSettingUpdate],
     graph: GraphSpec,
     genomes: Vec<LegacyPopulationGenome>,
+    origin: super::legacy_origin::LegacyPopulationOrigin,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
     if genomes.is_empty() || genomes.len() > MAXIMUM_FRESH_RUN_POPULATION_COUNT {
         return Err(FreshRunError::Settings(
@@ -179,6 +180,7 @@ pub fn prepare_stage6a_legacy_population_import(
         });
     }
     let mut prepared = prepare_stage6a_p0_boundary(request, &replacement_settings, graph)?;
+    prepared.candidate.identity.legacy_conversion = Some(origin);
     let expected_weights = prepared.graph.total_parameters;
     if genomes
         .iter()
@@ -645,6 +647,7 @@ fn boundary_shell(
             rustc_version: crate::native_addon_rustc_version(),
             build_contract_sha256: crate::native_addon_build_contract_sha256(),
             math_backend: InferenceMathBackend::Scalar.label().to_owned(),
+            legacy_conversion: None,
         },
         config,
         phase: AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart),

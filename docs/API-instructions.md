@@ -348,8 +348,8 @@ not an automatic fallback.
 canonical content identity, so returning to an older configuration can repeat
 a hash at a newer revision.
 
-When the Rust server started by converting an older SQLite population,
-`legacyConversion` is present here with its source row and format. Clients must
+When the Rust run originates from an older SQLite or browser JSON population,
+`legacyConversion` is present here with its source facts. Clients must
 not treat that population-only conversion as exact continuation state.
 
 ### `assign`
@@ -558,8 +558,17 @@ The same startup conversion accepts the older combined `genomes_blob` layout
 and format-null/zero populations embedded in `payload_json`; both are read in
 bounded pieces rather than copied into Node. Both `GET /api/health` and the
 Protocol 2 `welcome` include a durable `legacyConversion` object for the
-converted run. It reports `sourceSnapshotId`, `sourceFormat`,
-`completeness: "population-only"`, and `exactContinuation: false`.
+converted run. New conversions carry `version: 1`, `sourceFormat`,
+`completeness: "population-only"`, and `exactContinuation: false` in the
+immutable checkpoint. SQLite sources also carry `sourceSnapshotId`; browser
+JSON sources carry `sourceSha256`. Optional `sourceRunId`, `sourceGeneration`
+(16 lowercase hexadecimal digits), and `sourceSeed` retain original facts.
+The active run uses its own seed to initialize missing state. Export manifests
+retain the same record and use `archiveKind: "legacy-population-import"`;
+import checks it against the hashed checkpoint bytes. Subsequent generations,
+imports and restarts retain the record. Reset and New Run clear it. Older
+SQLite-only conversion notices may omit `version` and optional source facts;
+already exported archives without provenance cannot reconstruct those facts.
 
 ### `GET /health`
 
