@@ -547,6 +547,7 @@ impl<'de> Deserialize<'de> for BoundedLegacyWeights {
 
 struct ScratchFiles {
     paths: Vec<PathBuf>,
+    owned_directories: Vec<PathBuf>,
 }
 
 struct ScannedImportArchive {
@@ -625,7 +626,6 @@ pub fn prepare_import_archive(
     let descriptor = publication_descriptor_for_restored(&candidate.restored, operation_id);
     let managed_directory = managed_directory.canonicalize()?;
     let final_path = managed_directory.join(&descriptor.relative_filename);
-    let publication_phase = ArchivePhaseScope::enter(ArchivePhase::ManagedPublication);
     if final_path.exists() {
         let existing = super::checkpoint::restore_checkpoint(
             &final_path,
@@ -643,12 +643,7 @@ pub fn prepare_import_archive(
             ));
         }
         fs::remove_file(&candidate.checkpoint_path)?;
-    } else {
-        rename_noreplace(&candidate.checkpoint_path, &final_path)?;
-        sync_parent_directory(&managed_directory)?;
     }
-    fs::remove_dir(&candidate.stage_directory)?;
-    drop(publication_phase);
     let construction_phase = ArchivePhaseScope::enter(ArchivePhase::CandidateConstruction);
     let transition = super::fresh_run::prepare_stage6a_p0_validated_import(
         candidate.restored,
@@ -660,13 +655,25 @@ pub fn prepare_import_archive(
     let startup_metadata_json = transition
         .startup_metadata_json()
         .map_err(|error| CheckpointError::format("IMPORT_METADATA", error))?;
+    let inventory = candidate.inventory.ok_or_else(|| {
+        CheckpointError::format("IMPORT_INVENTORY", "prepared import inventory is missing")
+    })?;
+    let publication_phase = ArchivePhaseScope::enter(ArchivePhase::ManagedPublication);
+    publish_staged_import_files(
+        &candidate.stage_directory,
+        &managed_directory,
+        &inventory.relative_filename,
+        &mut candidate.cleanup,
+    )?;
+    fs::remove_dir(&candidate.stage_directory)?;
+    sync_parent_directory(&managed_directory)?;
+    drop(publication_phase);
     candidate.cleanup.paths.clear();
+    candidate.cleanup.owned_directories.clear();
     Ok(PreparedImportArchive {
         facts: candidate.facts,
         descriptor,
-        inventory: candidate.inventory.ok_or_else(|| {
-            CheckpointError::format("IMPORT_INVENTORY", "prepared import inventory is missing")
-        })?,
+        inventory,
         startup_metadata_json,
         transition,
     })
@@ -1676,23 +1683,18 @@ fn validate_import_candidate(
         manifest.checkpoint_logical_root_sha256
     ));
     let mut cleanup = ScratchFiles::new();
-    cleanup.track(stage_directory.clone());
+    // Only a directory successfully created by this invocation is recursive
+    // scratch. No managed final or pre-existing directory enters this guard.
+    cleanup.owned_directories.push(stage_directory.clone());
     cleanup.track(checkpoint_path.clone());
     let inventory = extract_and_validate_import_roles(
         archive_path,
         &checkpoint_path,
         &manifest,
-        publication_directory,
+        publication_directory.map(|_| stage_directory.as_path()),
         operation_id,
         checkpoint_limits,
     )?;
-    if let (Some(directory), Some(descriptor)) = (publication_directory, &inventory) {
-        cleanup.track(
-            directory
-                .canonicalize()?
-                .join(&descriptor.relative_filename),
-        );
-    }
     #[cfg(test)]
     super::task_panic_fixture::hit(
         super::task_panic_fixture::PanicPoint::ImportExtracted,
@@ -1736,7 +1738,10 @@ fn validate_import_candidate(
 
 impl ScratchFiles {
     fn new() -> Self {
-        Self { paths: Vec::new() }
+        Self {
+            paths: Vec::new(),
+            owned_directories: Vec::new(),
+        }
     }
 
     fn track(&mut self, path: PathBuf) {
@@ -1751,7 +1756,107 @@ impl Drop for ScratchFiles {
                 let _ = fs::remove_dir(path);
             }
         }
+        for directory in self.owned_directories.iter().rev() {
+            let _ = fs::remove_dir_all(directory);
+        }
     }
+}
+
+/// Publish only validated operation-owned objects after private construction.
+/// Existing digest objects remain shared and are never owned by the scratch guard.
+fn publish_staged_import_files(
+    stage_directory: &Path,
+    managed_directory: &Path,
+    inventory_filename: &str,
+    cleanup: &mut ScratchFiles,
+) -> Result<(), CheckpointError> {
+    // Reject all known collisions before publishing any new shared object.
+    // Repeat the check on a raced no-replace failure below; files are immutable.
+    for entry in fs::read_dir(stage_directory)? {
+        let entry = entry?;
+        let filename = entry.file_name().into_string().map_err(|_| {
+            CheckpointError::format("IMPORT_PATH", "staged import filename is not UTF-8")
+        })?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(CheckpointError::format(
+                "IMPORT_PATH",
+                "staged import object must be a direct regular file",
+            ));
+        }
+        let destination = managed_directory.join(&filename);
+        if destination.try_exists()? {
+            if filename == inventory_filename {
+                return Err(CheckpointError::format(
+                    "IMPORT_INVENTORY_COLLISION",
+                    "operation-owned inventory already exists",
+                ));
+            }
+            verify_staged_import_collision(
+                &entry.path(),
+                managed_directory,
+                &filename,
+                metadata.len(),
+            )?;
+        }
+    }
+    for entry in fs::read_dir(stage_directory)? {
+        let entry = entry?;
+        let filename = entry.file_name().into_string().map_err(|_| {
+            CheckpointError::format("IMPORT_PATH", "staged import filename is not UTF-8")
+        })?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(CheckpointError::format(
+                "IMPORT_PATH",
+                "staged import object must be a direct regular file",
+            ));
+        }
+        let destination = managed_directory.join(&filename);
+        match rename_noreplace(&entry.path(), &destination) {
+            Ok(()) => {
+                if filename == inventory_filename {
+                    cleanup.track(destination);
+                }
+            }
+            Err(error)
+                if error.kind() == io::ErrorKind::AlreadyExists
+                    && filename != inventory_filename =>
+            {
+                verify_staged_import_collision(
+                    &entry.path(),
+                    managed_directory,
+                    &filename,
+                    metadata.len(),
+                )?;
+                fs::remove_file(entry.path())?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
+/// Reuse an immutable name only when the complete stored bytes agree.
+fn verify_staged_import_collision(
+    staged: &Path,
+    managed_directory: &Path,
+    filename: &str,
+    bytes: u64,
+) -> Result<(), CheckpointError> {
+    let existing = direct_file(
+        managed_directory,
+        filename,
+        bytes,
+        "imported immutable object",
+    )?;
+    if hash_file_range(&existing, 0, bytes)? != hash_file_range(staged, 0, bytes)? {
+        return Err(CheckpointError::format(
+            "IMPORT_OBJECT_COLLISION",
+            "existing immutable object differs from the validated import",
+        ));
+    }
+    Ok(())
 }
 
 /// Compose, fully re-read, and atomically publish one self-contained save archive.

@@ -3,6 +3,7 @@ import {
   mkdtempSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync
 } from 'node:fs';
@@ -37,6 +38,42 @@ afterEach(() => {
 });
 
 describe('archive startup scavenging', () => {
+  it('reclaims an abandoned private import stage while preserving shared finals and uncertain stages', async () => {
+    const directory = fixtureDirectory();
+    const now = Date.UTC(2026, 8, 13, 12);
+    const old = now - ARCHIVE_ARTIFACT_GRACE_MS - 1;
+    const checkpoint = `${'ab'.repeat(32)}.checkpoint-v3`;
+    const elite = `${'cd'.repeat(32)}.hof-weights-v1`;
+    writeAt(directory, checkpoint, old);
+    writeAt(directory, elite, old);
+    for (const [index, condition] of ['stale', 'fresh-directory', 'fresh-child', 'unknown', 'nested'].entries()) {
+      const operation = String(index + 1).repeat(32);
+      const path = join(directory, `.${operation}.import-validation`);
+      mkdirSync(path);
+      writeAt(path, checkpoint, old);
+      writeAt(path, elite, condition === 'fresh-child' ? now : old);
+      writeAt(path, `.${operation}.import-inventory-v1`, old);
+      if (condition === 'unknown') writeAt(path, 'owner-notes.txt', old);
+      if (condition === 'nested') mkdirSync(join(path, 'nested'));
+      const timestamp = new Date(condition === 'fresh-directory' ? now : old);
+      utimesSync(path, timestamp, timestamp);
+    }
+    const outside = join(directory, 'owner-directory');
+    mkdirSync(outside);
+    writeAt(outside, checkpoint, old);
+    symlinkSync(outside, join(directory, `.${'6'.repeat(32)}.import-validation`),
+      process.platform === 'win32' ? 'junction' : 'dir');
+    const before = readdirSync(directory).sort();
+    await expect(scavengeStaleArchiveArtifacts(directory, now)).resolves.toMatchObject({ examined: 3, removed: 3 });
+    expect(readdirSync(directory).sort()).toEqual(before.filter(name => name !== `.${'1'.repeat(32)}.import-validation`));
+    for (let index = 2; index <= 5; index++) {
+      const operation = String(index).repeat(32);
+      expect(readdirSync(join(directory, `.${operation}.import-validation`)))
+        .toEqual(expect.arrayContaining([checkpoint, elite, `.${operation}.import-inventory-v1`]));
+    }
+    expect(readdirSync(outside)).toEqual([checkpoint]);
+  });
+
   it('removes only exact old writer scratch names', async () => {
     const directory = fixtureDirectory();
     const operation = '12'.repeat(16);

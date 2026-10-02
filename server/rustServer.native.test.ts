@@ -1229,6 +1229,122 @@ describeNetworkSuite('Rust server real sockets', () => {
     }
   }, 30_000);
 
+  it('imports evolved Hall-of-Fame objects and reuses them on an exact retry', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-import-evolved-hof-'));
+    const sourcePath = join(root, 'source.sqlite');
+    const targetPath = join(root, 'target.sqlite');
+    const source = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+      resume: 'fresh', seed: 41, dbPath: sourcePath });
+    let target: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    let viewer: Peer | undefined;
+    let targetViewer: Peer | undefined;
+    try {
+      viewer = await connect(source.port, 'ui');
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 12 },
+        updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 0 }] }));
+      await until(viewer, () => viewer!.packets.some(packet =>
+        packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
+      await healthUntil(source.port, health => BigInt(`0x${health['generation'] as string}`) >= 2n);
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'hold-hof-fixture',
+        updates: [{ path: 'simSpeed', value: 0.1 }] }));
+      await until(viewer, () => viewer!.packets.some(packet =>
+        packet['type'] === 'settingsApplied' && packet['requestId'] === 'hold-hof-fixture'));
+      const exported = await fetch(`http://127.0.0.1:${source.port}/api/export/latest`);
+      expect(exported.status).toBe(200);
+      const checkpointId = exported.headers.get('x-slither-checkpoint-id');
+      const archive = Buffer.from(await exported.arrayBuffer());
+      const sourceDatabase = new Database(sourcePath, { readonly: true });
+      let expectedElites: Array<{ relative_filename: string }>;
+      try {
+        expectedElites = sourceDatabase.prepare(`SELECT DISTINCT weights.relative_filename
+          FROM rust_hall_of_fame_weights_v1 AS weights
+          JOIN rust_hall_of_fame_v1 AS hall ON hall.weights_sha256 = weights.logical_sha256`).all() as
+          Array<{ relative_filename: string }>;
+      } finally { sourceDatabase.close(); }
+      expect(expectedElites.length).toBeGreaterThan(0);
+      target = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+        resume: 'fresh', seed: 42, dbPath: targetPath });
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const imported = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+          method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: archive
+        });
+        expect(imported.status).toBe(200);
+        expect(await imported.json()).toMatchObject({ ok: true, checkpointId });
+        targetViewer ??= await connect(target.port, 'ui');
+        targetViewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+        const requestId = `hold-imported-hof-${attempt}`;
+        targetViewer.socket.send(JSON.stringify({ type: 'settings', requestId,
+          updates: [{ path: 'simSpeed', value: 0.1 }] }));
+        await until(targetViewer, () => targetViewer!.packets.some(packet =>
+          packet['type'] === 'settingsApplied' && packet['requestId'] === requestId));
+        for (const elite of expectedElites) {
+          expect(await readFile(join(`${targetPath}.checkpoints`, elite.relative_filename)))
+            .toEqual(await readFile(join(`${sourcePath}.checkpoints`, elite.relative_filename)));
+        }
+        const names = await readdir(`${targetPath}.checkpoints`);
+        expect(names.filter(name => name.includes('import-') || name.endsWith('.partial'))).toEqual([]);
+      }
+      const targetDatabase = new Database(targetPath, { readonly: true });
+      try {
+        expect(targetDatabase.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_v1').get())
+          .toEqual({ count: expectedElites.length });
+      } finally { targetDatabase.close(); }
+      const retryExport = await fetch(`http://127.0.0.1:${target.port}/api/export/latest`);
+      expect(retryExport.status).toBe(200);
+      expect(retryExport.headers.get('x-slither-checkpoint-id')).toBe(checkpointId);
+      expect(Buffer.from(await retryExport.arrayBuffer())).toEqual(archive);
+
+      // A same-name corrupt elite must be preserved as evidence and reject the
+      // import before any new inventory or immutable object becomes permanent.
+      const managedDirectory = `${targetPath}.checkpoints`;
+      const elitePath = join(managedDirectory, expectedElites[0]!.relative_filename);
+      const originalElite = await readFile(elitePath);
+      const damaged = Buffer.from(originalElite);
+      damaged[0] = damaged[0]! ^ 1;
+      await writeFile(elitePath, damaged);
+      /** Capture every durable metadata table and managed file in this small fixture. */
+      const snapshot = async (): Promise<unknown> => {
+        const database = new Database(targetPath, { readonly: true });
+        try {
+          const tables = database.prepare(`SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name LIKE 'rust_%' ORDER BY name`).all() as Array<{ name: string }>;
+          const names = (await readdir(managedDirectory)).sort();
+          return { tables: tables.map(({ name }) => ({ name,
+            rows: database.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all() })),
+          files: await Promise.all(names.map(async name => ({ name,
+            hash: createHash('sha256').update(await readFile(join(managedDirectory, name))).digest('hex') }))) };
+        } finally { database.close(); }
+      };
+      const before = await snapshot();
+      const beforeHealth = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
+        runId: string; worldEpoch: string; generation: string;
+      };
+      const rejected = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
+        method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: archive
+      });
+      expect(rejected.status).toBe(400);
+      expect(await rejected.json()).toMatchObject({ ok: false,
+        message: expect.stringContaining('existing immutable object differs') });
+      expect(await snapshot()).toEqual(before);
+      expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: beforeHealth.runId, worldEpoch: beforeHealth.worldEpoch, generation: beforeHealth.generation
+      });
+      await writeFile(elitePath, originalElite);
+      const recovered = await fetch(`http://127.0.0.1:${target.port}/api/export/latest`);
+      expect(recovered.status).toBe(200);
+      expect(Buffer.from(await recovered.arrayBuffer())).toEqual(archive);
+    } finally {
+      targetViewer?.socket.close();
+      viewer?.socket.close();
+      await target?.close();
+      await source.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it('keeps a later-generation Rust world ready after rejecting its older exact import', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-later-import-reject-'));
     const dbPath = join(root, 'experiment.sqlite');

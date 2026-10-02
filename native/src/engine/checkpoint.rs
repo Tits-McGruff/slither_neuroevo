@@ -5536,6 +5536,150 @@ mod tests {
         assert_eq!(second.transition_epoch_hex, "000000000000000a");
     }
 
+    /// A valid evolved save reaches HOF extraction before build rejection or panic.
+    /// Neither failure may publish elite objects or delete a pre-existing shared elite.
+    #[test]
+    fn rejected_import_with_hall_of_fame_cleans_only_its_private_stage() {
+        use crate::engine::export_archive::{
+            compose_export_archive, prepare_import_archive, validate_import_archive,
+            ExportInventoryDescriptor,
+        };
+        use crate::engine::task_panic_fixture::{PanicInjection, PanicPoint};
+
+        let source = TestDirectory::new("import-hof-source");
+        let (initial, graph, policy) = admitted_state(2, false);
+        let mut evolved = initial.state().clone();
+        evolved.phase = AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::Generation);
+        evolved.generation.generation = 2;
+        evolved.generation.completed_step = 480;
+        let state = AuthoritativeState::validate_and_own(evolved, graph, &policy).unwrap();
+        let (_, checkpoint) = publish_fixture(&source, &state, &policy, &"a".repeat(32));
+        let weights = &state.state().population[0].weights;
+        let elite = publish_hall_of_fame_weights(
+            &source.path,
+            &CheckpointOperationId::parse("b".repeat(32)).unwrap(),
+            weights,
+            &checkpoint_limits(),
+        )
+        .unwrap();
+        let mut inventory_bytes = vec![0u8; 32 + 56 + 120];
+        inventory_bytes[..13].copy_from_slice(b"SLITHER-EXPV1");
+        inventory_bytes[16..24].copy_from_slice(&1u64.to_le_bytes());
+        inventory_bytes[24..32].copy_from_slice(&1u64.to_le_bytes());
+        inventory_bytes[32..40].copy_from_slice(&1u64.to_le_bytes());
+        let record = &mut inventory_bytes[88..];
+        record[..8].copy_from_slice(&1u64.to_le_bytes());
+        record[56..88].copy_from_slice(&parse_digest(&elite.logical_sha256, "elite").unwrap());
+        record[88] = match elite.encoding {
+            NumericEncoding::RawF32LeV1 => 0,
+            NumericEncoding::F32LeShuffle4ZstdV1 => 1,
+        };
+        for (offset, value) in [
+            (96, &elite.stored_byte_count_hex),
+            (104, &elite.decoded_byte_count_hex),
+            (112, &elite.weight_count_hex),
+        ] {
+            record[offset..offset + 8]
+                .copy_from_slice(&parse_u64_hex(value, "elite size").unwrap().to_le_bytes());
+        }
+        let operation = "c".repeat(32);
+        let inventory = ExportInventoryDescriptor {
+            version: 1,
+            relative_filename: format!(".{operation}.export-inventory-v1"),
+            sha256: encode_digest(Sha256::digest(&inventory_bytes).into()),
+            stored_byte_count_hex: encode_u64_hex(inventory_bytes.len() as u64),
+            history_count_hex: encode_u64_hex(1),
+            hall_of_fame_count_hex: encode_u64_hex(1),
+        };
+        fs::write(
+            source.path.join(&inventory.relative_filename),
+            inventory_bytes,
+        )
+        .unwrap();
+        let archive = compose_export_archive(
+            &source.path,
+            &operation,
+            &checkpoint,
+            &inventory,
+            &checkpoint_limits(),
+            &graph_limits(),
+            &policy,
+        )
+        .unwrap();
+        let archive_path = source.path.join(archive.relative_filename);
+        let archive_before = fs::read(&archive_path).unwrap();
+        let elite_before = fs::read(source.path.join(&elite.relative_filename)).unwrap();
+        for existing_elite in [false, true] {
+            let target = TestDirectory::new("import-hof-rejected");
+            if existing_elite {
+                fs::write(target.path.join(&elite.relative_filename), &elite_before).unwrap();
+            }
+            let mut foreign = admission_policy(policy.expected_settings_schema_sha256.clone());
+            foreign.expected_engine_build_id = "incompatible-engine-build".into();
+            let error = prepare_import_archive(
+                &archive_path,
+                &target.path,
+                &target.path,
+                &"d".repeat(32),
+                "unused-exact-import",
+                0,
+                &checkpoint_limits(),
+                &graph_limits(),
+                &foreign,
+                policy.memory_ceiling_bytes,
+            )
+            .err()
+            .expect("foreign build must remain rejected");
+            assert!(error.to_string().contains("build identity is not admitted"));
+            let injection = PanicInjection::arm(PanicPoint::ImportExtracted);
+            let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                prepare_import_archive(
+                    &archive_path,
+                    &target.path,
+                    &target.path,
+                    &"e".repeat(32),
+                    "unused-exact-import",
+                    0,
+                    &checkpoint_limits(),
+                    &graph_limits(),
+                    &policy,
+                    policy.memory_ceiling_bytes,
+                )
+            }));
+            assert!(injection.reached() && panicked.is_err());
+            drop(injection);
+            let names: Vec<_> = fs::read_dir(&target.path)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            assert_eq!(names.len(), usize::from(existing_elite));
+            if existing_elite {
+                assert_eq!(
+                    fs::read(target.path.join(&elite.relative_filename)).unwrap(),
+                    elite_before
+                );
+            }
+            assert_eq!(fs::read(&archive_path).unwrap(), archive_before);
+            assert_eq!(
+                validate_import_archive(
+                    &archive_path,
+                    &target.path,
+                    &"f".repeat(32),
+                    &checkpoint_limits(),
+                    &graph_limits(),
+                    &policy,
+                )
+                .unwrap()
+                .hall_of_fame_count_hex,
+                encode_u64_hex(1)
+            );
+            assert_eq!(
+                fs::read_dir(&target.path).unwrap().count(),
+                usize::from(existing_elite)
+            );
+        }
+    }
+
     /// Winner weights are deduplicated by decoded bits and corrupt reuse is rejected.
     #[test]
     fn hall_of_fame_weights_publish_once_and_validate_before_reuse() {

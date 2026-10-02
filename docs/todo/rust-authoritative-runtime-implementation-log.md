@@ -1680,3 +1680,23 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Hall-of-Fame publication during import validation; fixing that rejection
   cleanup is the next slice. Disposable profile processes/databases/exports
   were stopped/removed; only compact reports are retained.
+
+- 2026-10-02 Rust save imports now rebuild Hall-of-Fame objects and their
+  inventory inside an operation-owned validation directory. Build/state
+  rejection, extraction panic, private construction and known object-collision
+  checks precede permanent publication; recursive cleanup owns only the newly
+  created private stage. Existing digest objects remain shared and untouched.
+  An evolved-save regression exercises foreign-build rejection and extraction
+  panic with and without a pre-existing elite, preserving the original upload.
+  Real HTTP import/retry/export preserves evolved elite bytes; a corrupt shared
+  elite rejects without changing any Rust metadata row, managed-file hash or
+  live world epoch, and restoring the task-owned elite allows export again.
+  All 472 Rust tests plus the compile-fail doctest and 24 real-server tests
+  passed, as did TypeScript, focused ESLint, rustfmt and Clippy. Startup
+  scavenging now recognizes stale private import stages under the existing
+  24-hour grace; all three scavenger tests and direct Node filesystem checks
+  preserved permanent finals, recent stages/children, unknown contents, nested
+  directories and junction targets. Test processes and temporary roots were
+  closed/removed. This closes
+  the observed validation-rejection orphan case; partial final-publication and
+  later metadata-commit failure cleanup still need their complete A7 audit.
