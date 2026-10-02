@@ -997,6 +997,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       let routingHeld = false;
       let previousCurrent: { runId: string; checkpointId: string } | undefined;
       try {
+        requireConnected();
         const declaredUploadBytes = parseArchiveContentLength(
           request.headers['content-length'],
           P0_ARCHIVE_UPLOAD_LIMIT
@@ -1007,6 +1008,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           candidateSpoolBytes: 0n,
           finalManagedBytes: 0n
         });
+        requireConnected();
         const upload = await spoolArchiveUpload({
           // Early spool rejection must leave the socket alive until its HTTP error is sent.
           source: request.iterator({ destroyOnReturn: false }),

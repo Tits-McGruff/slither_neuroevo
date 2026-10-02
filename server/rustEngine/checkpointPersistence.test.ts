@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it, type TestContext } from 'vitest';
+import { Worker } from 'node:worker_threads';
+import { afterEach, describe, expect, it, vi, type TestContext } from 'vitest';
 import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
 import type {
@@ -1183,6 +1184,73 @@ describe(SUITE, { timeout: 30_000 }, () => {
         WHERE run_id = ? AND generation_hex = ?`).get('legacy-page-b', u64(300n)))
         .toEqual({ fitness_value: 300.5 });
     } finally { inspect.close(); }
+  });
+
+  it.each(['partial', 'final'] as const)('preserves a pre-existing export inventory %s and permits a fresh lease', async suffix => {
+    const fixture = createFixture();
+    await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    const descriptor = createDescriptor(fixture.managedRoot, {
+      operationId: '22'.repeat(16), transitionEpoch: u64(2n), generation: u64(2n),
+      completedStep: u64(3_600n), boundaryKind: 'generation'
+    });
+    await fixture.client.commit(descriptor, createGenerationCommit(1n));
+    /** Read every compact Rust metadata row without changing the worker-owned database. */
+    const metadataRows = (): unknown => {
+      const database = new Database(fixture.databasePath, { readonly: true });
+      try {
+        const tables = database.prepare(`SELECT name FROM sqlite_master
+          WHERE type = 'table' AND name LIKE 'rust_%' ORDER BY name`).all() as Array<{ name: string }>;
+        return tables.map(({ name }) => ({ name, rows: database.prepare(
+          `SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`
+        ).all() }));
+      } finally { database.close(); }
+    };
+    const beforeMetadata = metadataRows();
+    /** Record every small managed fixture's bytes without including operation scratch. */
+    const managedFiles = () => readdirSync(fixture.managedRoot).sort().map(filename => ({
+      filename, bytes: readFileSync(join(fixture.managedRoot, filename))
+    }));
+    const before = managedFiles();
+    const pointer = readCurrentPointer(fixture.databasePath, descriptor.runId);
+    const earlierBytes = Buffer.from('pre-existing inventory evidence must survive exclusive-create failure');
+    let collisionPath: string | undefined;
+    const originalPost = Worker.prototype.postMessage;
+    /** Insert the collision before the real worker receives its unpredictable operation ID. */
+    const posting = vi.spyOn(Worker.prototype, 'postMessage').mockImplementation(function(this: Worker, ...args) {
+      const message = args[0] as { type?: string; operationId?: string };
+      if (message.type === 'acquireCurrentExportLease' && collisionPath === undefined) {
+        expect(message.operationId).toMatch(/^[0-9a-f]{32}$/u);
+        collisionPath = join(fixture.managedRoot,
+          `.${message.operationId}.export-inventory-v1${suffix === 'partial' ? '.partial' : ''}`);
+        writeFileSync(collisionPath, earlierBytes, { flag: 'wx' });
+      }
+      return Reflect.apply(originalPost, this, args);
+    });
+    try {
+      await expect(fixture.client.acquireCurrentExportLease()).rejects.toThrow(/EEXIST|exist/u);
+      expect(readFileSync(collisionPath!)).toEqual(earlierBytes);
+      unlinkSync(collisionPath!);
+      collisionPath = undefined;
+      posting.mockRestore();
+      expect(managedFiles()).toEqual(before);
+      expect(metadataRows()).toEqual(beforeMetadata);
+      expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toEqual(pointer);
+      const lease = await fixture.client.acquireCurrentExportLease();
+      expect(lease.descriptor).toEqual(descriptor);
+      const inventoryPath = join(fixture.managedRoot, lease.inventory.relativeFilename);
+      const bytes = readFileSync(inventoryPath);
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(lease.inventory.sha256);
+      expect(bytes.subarray(0, 13).toString('ascii')).toBe('SLITHER-EXPV1');
+      expect(lease.inventory).toMatchObject({ historyCount: u64(1n), hallOfFameCount: u64(1n),
+        storedByteCount: u64(208n) });
+      await fixture.client.releaseExportLease(lease.operationId);
+      expect(managedFiles()).toEqual(before);
+      expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toEqual(pointer);
+      expect(metadataRows()).toEqual(beforeMetadata);
+    } finally {
+      posting.mockRestore();
+      if (collisionPath && existsSync(collisionPath)) unlinkSync(collisionPath);
+    }
   });
 
   it('keeps one exact export lease alive across later checkpoints and pruning', async () => {

@@ -166,6 +166,25 @@ async function preserved(fixture: Fixture): Promise<void> {
   expect(await health(fixture.server)).toMatchObject({ ok: true, ...fixture.identity });
 }
 
+/** Prove the server finished disconnected work by completing a fresh real export. */
+async function exportAfterDisconnect(fixture: Fixture): Promise<void> {
+  const deadline = performance.now() + 5000;
+  while (performance.now() < deadline) {
+    const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`,
+      { signal: AbortSignal.timeout(5000) });
+    if (response.status === 409) {
+      expect(await response.json()).toMatchObject({ ok: false,
+        message: 'another persistence operation is in progress' });
+      await new Promise<void>(done => setTimeout(done, 10));
+      continue;
+    }
+    expect(response.status).toBe(200);
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(fixture.archive);
+    return;
+  }
+  throw new Error('disconnected import did not release its busy gate');
+}
+
 /** Build a supported legacy population whose import creates a distinct candidate and run. */
 function legacyPopulation(): Buffer {
   return Buffer.from(JSON.stringify({ generation: 37, archKey: 'legacy-default-graph',
@@ -1014,6 +1033,45 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
     });
   });
 
+  it('cancels an upload disconnected during disk admission before opening its spool', async () => {
+    await experiment(async fixture => {
+      const entered = Promise.withResolvers<void>();
+      const resume = Promise.withResolvers<void>();
+      const originalAdmit = diskAdmission.admitDiskOperation;
+      /** Hold actual admission after its filesystem reading until the peer closes. */
+      const admission = vi.spyOn(diskAdmission, 'admitDiskOperation').mockImplementation(async (directory, operation) => {
+        const result = await originalAdmit(directory, operation);
+        if (operation.operation === 'import') {
+          entered.resolve();
+          await resume.promise;
+        }
+        return result;
+      });
+      const spool = vi.spyOn(archiveUpload, 'spoolArchiveUpload');
+      const preparation = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport');
+      const commit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commitImport');
+      const disconnected = raw(fixture, ['Content-Length: 100'], Buffer.from('incomplete'), true);
+      try {
+        await bounded(entered.promise, 'upload did not reach disk admission');
+        expect(await disconnected).not.toContain('200 OK');
+        const busy = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
+        expect(busy.status).toBe(409);
+        await busy.arrayBuffer();
+        resume.resolve();
+        await exportAfterDisconnect(fixture);
+        expect(spool).not.toHaveBeenCalled();
+        expect(preparation).not.toHaveBeenCalled();
+        expect(commit).not.toHaveBeenCalled();
+        await preserved(fixture);
+        await advancing(fixture);
+      } finally {
+        resume.resolve();
+        try { await disconnected; }
+        finally { admission.mockRestore(); spool.mockRestore(); preparation.mockRestore(); commit.mockRestore(); }
+      }
+    });
+  }, 20_000);
+
   it.each([
     ['over-limit declared length', [`Content-Length: ${P0_ARCHIVE_UPLOAD_LIMIT + 1n}`], Buffer.alloc(0), false],
     ['noncanonical declared length', ['Content-Length: 01'], Buffer.from('x'), false],
@@ -1025,9 +1083,10 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
       const response = await raw(fixture, [...headers], body, endInput);
       expect(response).not.toContain('200 OK');
       if (!endInput) expect(response).toMatch(/^HTTP\/1\.1 400 /u);
+      await exportAfterDisconnect(fixture);
       await preserved(fixture);
     });
-  });
+  }, 20_000);
 
   it('rejects a valid archive followed by an extra byte beyond Content-Length before replacement', async () => {
     await experiment(async fixture => {

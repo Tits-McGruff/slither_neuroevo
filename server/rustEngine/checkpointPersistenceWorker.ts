@@ -1978,7 +1978,8 @@ function publishExportInventory(
   const finalPath = resolve(managedRootPath, relativeFilename);
   const partialPath = `${finalPath}.partial`;
   let file: number | undefined;
-  let published = false;
+  let ownsPartial = false;
+  let ownsFinal = false;
   const hasher = createHash('sha256');
   const write = (bytes: Buffer): void => {
     hasher.update(bytes);
@@ -1986,6 +1987,7 @@ function publishExportInventory(
   };
   try {
     file = openSync(partialPath, 'wx');
+    ownsPartial = true;
     const header = Buffer.alloc(EXPORT_INVENTORY_HEADER_BYTES);
     header.write('SLITHER-EXPV1', 0, 'ascii');
     header.writeBigUInt64LE(historyCount, 16);
@@ -2055,8 +2057,13 @@ function publishExportInventory(
     fsyncSync(file!);
     closeSync(file!);
     file = undefined;
+    // Reserve publication exclusively; rename may replace only our own reservation.
+    file = openSync(finalPath, 'wx');
+    ownsFinal = true;
+    closeSync(file);
+    file = undefined;
     renameSync(partialPath, finalPath);
-    published = true;
+    ownsPartial = false;
     const storedByteCount = BigInt(EXPORT_INVENTORY_HEADER_BYTES) + historyCount * 56n +
       hallOfFameCount * BigInt(EXPORT_INVENTORY_HALL_OF_FAME_BYTES);
     verifyManagedDirectFile(relativeFilename, storedByteCount);
@@ -2073,7 +2080,7 @@ function publishExportInventory(
     };
   } catch (error) {
     if (file !== undefined) closeSync(file);
-    for (const path of [partialPath, ...(published ? [finalPath] : [])]) {
+    for (const path of [...(ownsPartial ? [partialPath] : []), ...(ownsFinal ? [finalPath] : [])]) {
       try { unlinkSync(path); } catch (cleanupError) {
         if (!(cleanupError && typeof cleanupError === 'object' &&
           (cleanupError as NodeJS.ErrnoException).code === 'ENOENT')) throw cleanupError;

@@ -1977,3 +1977,20 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   remains. These prove the named creation/publication failures; process-memory
   rejection, physical filesystem exhaustion and remaining A7/Stage 7/8 gates
   stay open.
+
+- 2026-10-03 A7 worker inventory failure checks reproduced deletion of an
+  existing partial file and replacement of an existing final file. The SQLite
+  worker now owns cleanup only after exclusive creation, including a final-name
+  reservation before publication. Generation-two worker fixtures preserve every
+  compact metadata row and managed file byte, then acquire and release a valid
+  fresh inventory containing history and Hall-of-Fame references. Production
+  import now checks cancellation before admission and again before opening its
+  upload spool. A real disconnected peer held across disk admission creates no
+  spool or replacement, preserves the experiment, permits advancing steps and
+  reproduces its complete archive on retry. Malformed-upload checks now prove
+  the busy gate cleared with a real export before checking final files; socket
+  closure alone did not prove server cleanup finished. Affected worker/HTTP
+  transport and related native continuation/export-binding/upload/cleanup/browser
+  contracts, TypeScript, full ESLint and Vite passed. Unchanged Rust retains the
+  preceding full release suite. Disposable servers and fixtures were removed.
+  Physical resource exhaustion, full A7 and remaining Stage 7/8 gates stay open.
