@@ -16,6 +16,8 @@ import * as archiveUpload from './rustEngine/archiveUpload.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
+import type { AssignMsg, SensorsMsg } from './protocol.ts';
+import type { ExperimentalRuntimeTelemetrySnapshot } from './rustEngine/runtimeTelemetry.ts';
 
 /** One task-owned authority and its durable pre-request evidence. */
 interface Fixture {
@@ -37,6 +39,8 @@ interface Fixture {
   sockets: Set<Socket>;
   /** Actual HTTP clients that must close before fixture deletion. */
   requests: Set<ClientRequest>;
+  /** Additional real controllers that close before the private fixture is removed. */
+  peers: Set<WebSocket>;
 }
 
 /** Hash managed files incrementally; no population-sized buffer is constructed. */
@@ -120,6 +124,7 @@ async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<
   let socket: WebSocket | undefined;
   const sockets = new Set<Socket>();
   const requests = new Set<ClientRequest>();
+  const peers = new Set<WebSocket>();
   try {
     server = await startRustServer({ ...DEFAULT_CONFIG, host: '127.0.0.1', port: 0,
       resume: 'fresh', seed: 42, dbPath: databasePath });
@@ -136,11 +141,12 @@ async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<
     for (const key of identityKeys) expect(before[key], `health omitted ${key}`).toBeDefined();
     const identity = Object.fromEntries(identityKeys.map(key => [key, before[key]]));
     fixture = { server, databasePath, managedDirectory, archive, identity,
-      metadata: metadata(databasePath), files: await files(managedDirectory), sockets, requests };
+      metadata: metadata(databasePath), files: await files(managedDirectory), sockets, requests, peers };
     await action(fixture);
   } finally {
     for (const client of requests) client.destroy();
     for (const client of sockets) client.destroy();
+    for (const peer of peers) peer.terminate();
     socket?.terminate();
     await (fixture?.server ?? server)?.close();
     await rm(root, { recursive: true, force: true });
@@ -278,7 +284,225 @@ function observeDisconnect(fixture: Fixture): { closed: Promise<boolean>; restor
   return { closed, restore: () => dispatch.mockRestore() };
 }
 
+/** One actual controller's bounded protocol inbox and newest delivered observation. */
+interface ControllerPeer {
+  /** Real Protocol 2 socket. */
+  socket: WebSocket;
+  /** Latest Rust-issued lease assignment. */
+  assignment?: AssignMsg;
+  /** Latest delivered sample for that assignment. */
+  sample?: SensorsMsg;
+  /** Reliable lifecycle/error packets, excluding repetitive frames and statistics. */
+  packets: Array<Record<string, unknown>>;
+}
+
+/** Poll an observable outcome without retaining a pending task after its deadline. */
+async function outcome(predicate: () => boolean, description: string): Promise<void> {
+  const deadline = performance.now() + 5000;
+  while (!predicate() && performance.now() < deadline) await new Promise<void>(done => setTimeout(done, 10));
+  expect(predicate(), description).toBe(true);
+}
+
+/** Acquire an actual player or trainer lease, retaining only the newest sensor sample. */
+async function controller(fixture: Fixture, kind: 'ui' | 'bot'): Promise<ControllerPeer> {
+  const socket = new WebSocket(`ws://127.0.0.1:${fixture.server.port}`);
+  fixture.peers.add(socket);
+  const peer: ControllerPeer = { socket, packets: [] };
+  socket.on('error', error => peer.packets.push({ type: 'error', message: error.message }));
+  socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', version: 2, clientType: kind })));
+  socket.on('message', (bytes, binary) => {
+    if (binary) return;
+    const packet = JSON.parse(bytes.toString()) as Record<string, unknown>;
+    if (packet['type'] === 'welcome') socket.send(JSON.stringify({ type: 'join', mode: 'player', name: `Import-${kind}` }));
+    else if (packet['type'] === 'assign') { peer.assignment = packet as unknown as AssignMsg; delete peer.sample; }
+    else if (packet['type'] === 'stateReplaced') { delete peer.assignment; delete peer.sample; }
+    else if (packet['type'] === 'sensors' && packet['snakeId'] === peer.assignment?.snakeId) {
+      peer.sample = packet as unknown as SensorsMsg;
+    }
+    if (['assign', 'reclaimResult', 'stateReplaced', 'newRunResult', 'error'].includes(String(packet['type'])) && peer.packets.length < 128) {
+      peer.packets.push(packet);
+    }
+  });
+  await outcome(() => !!peer.assignment && !!peer.sample, `controller startup failed: ${kind}`);
+  expect(peer.packets.filter(packet => packet['type'] === 'error')).toEqual([]);
+  return peer;
+}
+
+/** Read delivered v3 heading while respecting the wrap at plus/minus pi. */
+function headingChange(before: SensorsMsg, after: SensorsMsg): number {
+  const first = Math.atan2(before.sensors[0]!, before.sensors[1]!);
+  const last = Math.atan2(after.sensors[0]!, after.sensors[1]!);
+  return Math.atan2(Math.sin(last - first), Math.cos(last - first));
+}
+
+/** Deliver held input through actual sockets, proving server receipt with ordered round trips. */
+async function heldInput(peers: ControllerPeer[]): Promise<void> {
+  await Promise.all(peers.map(async (peer, index) => {
+    // Players may replace unsent input; trainers retain their one action per observation boundary.
+    if (index === 0) peer.socket.send(JSON.stringify({ type: 'action',
+      snakeId: peer.assignment!.snakeId, tick: peer.sample!.tick, turn: 1, boost: 0 }));
+    peer.socket.send(JSON.stringify({ type: 'action',
+      snakeId: peer.assignment!.snakeId, tick: peer.sample!.tick, turn: -1, boost: 0 }));
+    const echo = new Promise<Buffer>(done => peer.socket.once('pong', bytes => done(bytes)));
+    peer.socket.ping(`held-input-${index}`);
+    expect((await bounded(echo, 'held input socket round trip failed')).toString()).toBe(`held-input-${index}`);
+  }));
+}
+
 describeNetworkSuite('Rust archive HTTP framing', () => {
+  it.each(['import', 'reset', 'newRun'] as const)(
+    'preserves player and trainer leases and held input after a failed staged %s', async kind => {
+    await experiment(async fixture => {
+      const peers = await Promise.all([controller(fixture, 'ui'), controller(fixture, 'bot')]);
+      let reached!: () => void;
+      let release!: () => void;
+      const staged = new Promise<void>(done => { reached = done; });
+      const released = new Promise<void>(done => { release = done; });
+      const originalStage = BackgroundOutputPump.prototype.stagePreparedImport;
+      const stage = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport')
+        .mockImplementationOnce(async function(this: BackgroundOutputPump) {
+          await originalStage.call(this);
+          reached();
+          await released;
+        });
+      const observation = observeDisconnect(fixture);
+      try {
+        let client: ClientRequest | undefined;
+        if (kind === 'import') {
+          const body = legacyPopulation();
+          client = request(`http://127.0.0.1:${fixture.server.port}/api/import/archive`, {
+            method: 'POST', headers: { 'Content-Length': body.byteLength }
+          });
+          fixture.requests.add(client);
+          client.on('error', () => {});
+          client.end(body);
+        } else {
+          const database = new Database(fixture.databasePath);
+          try {
+            database.exec(`CREATE TRIGGER reject_replacement_activation
+              BEFORE INSERT ON rust_active_run_v1 BEGIN
+                SELECT RAISE(ABORT, 'injected controller preservation rejection');
+              END`);
+          } finally { database.close(); }
+          peers[0]!.socket.send(JSON.stringify(kind === 'reset' ? { type: 'reset' } :
+            { type: 'newRun', requestId: 'held-controller-rejection' }));
+        }
+        await bounded(staged, 'import never held the old world');
+        const before = await health(fixture.server);
+        const activity = (before['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+        const baselines = peers.map(peer => ({ assignment: { ...peer.assignment! }, sample: peer.sample! }));
+        await heldInput(peers);
+        if (client) {
+          client.destroy();
+          expect(await bounded(observation.closed, 'server never observed disconnect')).toBe(true);
+        }
+        release();
+        if (kind !== 'import') {
+          await outcome(() => peers[0]!.packets.some(packet => kind === 'reset' ?
+            packet['type'] === 'error' && String(packet['message']).includes('injected controller preservation rejection') :
+            packet['type'] === 'newRunResult' && packet['applied'] === false &&
+              String(packet['reason']).includes('injected controller preservation rejection')), 'replacement did not reject its actual transaction');
+        }
+        await preserved(fixture);
+        await outcome(() => peers.every((peer, index) => peer.sample!.tick > baselines[index]!.sample.tick &&
+          headingChange(baselines[index]!.sample, peer.sample!) < -0.01), 'held steering was not applied after cancellation');
+        for (const [index, peer] of peers.entries()) {
+          expect(peer.socket.readyState).toBe(WebSocket.OPEN);
+          expect(peer.assignment).toEqual(baselines[index]!.assignment);
+          expect(peer.packets.filter(packet => packet['type'] === 'stateReplaced')).toEqual([]);
+          expect(peer.packets.filter(packet => packet['type'] === 'error')).toHaveLength(kind === 'reset' && index === 0 ? 1 : 0);
+        }
+        const after = await health(fixture.server);
+        const applied = (after['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+        expect(applied.player.appliedActions).toBe(activity.player.appliedActions + 1);
+        expect(applied.trainer.appliedActions).toBe(activity.trainer.appliedActions + 1);
+      } finally {
+        release();
+        stage.mockRestore();
+        observation.restore();
+      }
+    });
+  }, 15_000);
+
+  it.each(['import', 'reset', 'newRun'] as const)(
+    'discards held player/trainer input and old tokens after committed %s until explicit rejoin', async kind => {
+    await experiment(async fixture => {
+      const peers = await Promise.all([controller(fixture, 'ui'), controller(fixture, 'bot')]);
+      const baselines = peers.map(peer => ({ assignment: { ...peer.assignment! }, sample: peer.sample! }));
+      const activity = ((await health(fixture.server))['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+      let reached!: () => void;
+      let release!: () => void;
+      const staged = new Promise<void>(done => { reached = done; });
+      const released = new Promise<void>(done => { release = done; });
+      const originalStage = BackgroundOutputPump.prototype.stagePreparedImport;
+      const stage = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport')
+        .mockImplementationOnce(async function(this: BackgroundOutputPump) {
+          await originalStage.call(this);
+          reached();
+          await released;
+        });
+      let response: Promise<Response> | undefined;
+      try {
+        if (kind === 'import') response = fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`, {
+          method: 'POST', body: new Uint8Array(legacyPopulation())
+        });
+        else peers[0]!.socket.send(JSON.stringify(kind === 'reset' ? { type: 'reset' } :
+          { type: 'newRun', requestId: 'held-controller-publication' }));
+        await bounded(staged, 'replacement never held the old world');
+        await heldInput(peers);
+        release();
+        if (response) {
+          const imported = await bounded(response, 'import never responded');
+          expect(imported.status).toBe(200);
+          expect(await imported.json()).toMatchObject({ ok: true });
+        }
+        await outcome(() => peers.every(peer => peer.packets.some(packet =>
+          packet['type'] === 'stateReplaced' && packet['reason'] === kind)), 'replacement notice was not delivered');
+        expect((await health(fixture.server))['worldEpoch']).not.toBe(fixture.identity['worldEpoch']);
+        expect(await files(fixture.managedDirectory)).toEqual(expect.arrayContaining(fixture.files));
+        for (const [index, peer] of peers.entries()) {
+          expect(peer.socket.readyState).toBe(WebSocket.OPEN);
+          expect(peer.assignment).toBeUndefined();
+          expect(peer.sample).toBeUndefined();
+          expect(peer.packets.filter(packet => packet['type'] === 'stateReplaced')).toHaveLength(1);
+          peer.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}`,
+            resumeToken: baselines[index]!.assignment.resumeToken }));
+          // A rejected old-token join supplies no lease, even if public snake IDs happen to repeat.
+          peer.socket.send(JSON.stringify({ type: 'action', snakeId: baselines[index]!.assignment.snakeId,
+            tick: baselines[index]!.sample.tick, turn: 1, boost: 1 }));
+        }
+        await outcome(() => peers.every(peer => peer.packets.some(packet =>
+          packet['type'] === 'reclaimResult' && packet['reclaimed'] === false)), 'old tokens were not rejected');
+        await advancing(fixture);
+        const unassigned = ((await health(fixture.server))['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+        expect(unassigned.player.appliedActions).toBe(activity.player.appliedActions);
+        expect(unassigned.trainer.appliedActions).toBe(activity.trainer.appliedActions);
+        for (const [index, peer] of peers.entries()) {
+          expect(peer.assignment).toBeUndefined();
+          peer.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}` }));
+        }
+        await outcome(() => peers.every(peer => !!peer.assignment && !!peer.sample), 'explicit rejoin did not assign new leases');
+        const samples = peers.map(peer => peer.sample!);
+        for (const [index, peer] of peers.entries()) {
+          expect(peer.assignment!.resumeToken).not.toBe(baselines[index]!.assignment.resumeToken);
+          expect(peer.packets.filter(packet => packet['type'] === 'assign')).toHaveLength(2);
+          expect(peer.packets.filter(packet => packet['type'] === 'error')).toEqual([]);
+        }
+        await heldInput(peers);
+        await outcome(() => peers.every((peer, index) => peer.sample!.tick > samples[index]!.tick &&
+          headingChange(samples[index]!, peer.sample!) < -0.01), 'rejoined controllers could not steer');
+        const rejoined = ((await health(fixture.server))['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+        // The new player input may be admitted separately because the world is running again.
+        expect(rejoined.player.appliedActions).toBeGreaterThan(activity.player.appliedActions);
+        expect(rejoined.trainer.appliedActions).toBe(activity.trainer.appliedActions + 1);
+      } finally {
+        release();
+        stage.mockRestore();
+        await response?.catch(() => {});
+      }
+    });
+  }, 15_000);
+
   it.each(['nonzero role padding', 'nonzero second end block', 'hidden header name bytes',
     'continuous-file entry', 'symbolic-link entry', 'device entry', 'sparse entry', 'PAX entry',
     'duplicate role path', 'parent traversal path', 'missing role', 'unsupported save version',

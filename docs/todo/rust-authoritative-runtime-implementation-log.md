@@ -1819,3 +1819,16 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   their preceding full-size and idle-deadline evidence. Disposable test roots
   and processes were closed/removed, including the isolated test-addon copy.
   These prove the named container failures; full A7 and Stage 7/8 remain open.
+
+- 2026-10-02 Stage 7 controller preservation: replacement preparation silently
+  discarded player/trainer actions even when the replacement later failed.
+  Existing leases now keep control during preparation; a staged replacement
+  holds bounded newest input until cancellation resumes the unchanged world,
+  or discards it after the durable swap. Real sockets prove cancelled import
+  and actual SQLite-rejected Reset/New Run preserve leases, retained metadata
+  and files, and apply held steering. Successful counterparts discard held
+  actions, reject old tokens, deliver one replacement notice, and steer only
+  after explicit rejoin with new tokens. Focused server/routing/receipt tests,
+  the mandatory native/MT overlay, TypeScript, ESLint and Vite passed. Rust is
+  unchanged from the preceding checkpoint. Disposable test state was removed;
+  the remaining A6/A7 matrix and Stage 7/8 gates stay open.

@@ -956,6 +956,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       let commitAttempted = false;
       let committed = false;
       let nativePreparationStarted = false;
+      let routingHeld = false;
       let previousCurrent: { runId: string; checkpointId: string } | undefined;
       try {
         const declaredUploadBytes = parseArchiveContentLength(
@@ -1010,6 +1011,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         prepared = true;
         inventoryPath = resolve(owner.managedDirectory, inventory.relativeFilename);
         // Hold the old world before cancelling so newly published, unreferenced files can be reclaimed safely.
+        routing.pauseForReplacement();
+        routingHeld = true;
         await output.stagePreparedImport();
         staged = true;
         requireConnected();
@@ -1035,6 +1038,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         importBranch = importBranchNotice(durable.importBranch ?? null);
         legacyConversion = undefined;
         routing.resetAfterImport();
+        routingHeld = false;
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
         const welcome = { ...createRustWelcome(activeMetadata, owner.nativeBuildIdentifier, config.rustCalculationWorkers), ...(importBranch ? { importBranch } : {}) };
@@ -1083,6 +1087,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         if (committed) fail(error);
         throw error;
       } finally {
+        if (routingHeld && !fault && !stopping) routing.resumeAfterReplacement();
         for (const path of [uploadPath, inventoryPath]) {
           if (path) await unlink(path).catch(error => {
             if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -1105,6 +1110,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       let committed = false;
       let newlyPublishedBudgetRejectedFile: string | undefined;
       let nativePreparationStarted = false;
+      let routingHeld = false;
       let previousCurrent: { runId: string; checkpointId: string } | undefined;
       try {
         await owner.admitCheckpoint();
@@ -1142,6 +1148,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           }
           throw error;
         }
+        routing.pauseForReplacement();
+        routingHeld = true;
         await output.stagePreparedImport();
         staged = true;
         const selected = await owner.persistence.selectStartup();
@@ -1162,6 +1170,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         importBranch = undefined;
         legacyConversion = undefined;
         routing.resetAfterImport();
+        routingHeld = false;
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
         const welcome = createRustWelcome(activeMetadata, owner.nativeBuildIdentifier, config.rustCalculationWorkers);
@@ -1207,6 +1216,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         }
         if (committed) fail(error);
         throw error;
+      } finally {
+        if (routingHeld && !fault && !stopping) routing.resumeAfterReplacement();
       }
     };
     /** Serialize Reset/New Run with archive and retention work. */
@@ -1277,7 +1288,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         else routing.join(connection, message, client);
       }); },
       onAction(connection, message) { route(() => {
-        if (!fault && !stopping && (!importOperation || importAuthorityPublished)) routing.action(connection, message);
+        // Existing leases keep control during preparation; held input is coalesced until cancellation or swap.
+        if (!fault && !stopping) routing.action(connection, message);
       }); },
       onDisconnect(connection) { route(() => {
         visualizationConnections.delete(connection);

@@ -73,6 +73,8 @@ function hex(value: number): RustBackgroundIdentity {
 
 /** Keep only bounded socket tags, unadmitted lifecycle commands and newest input. */
 export class ExternalControllerRouting {
+  /** Retain transport requests while a replacement holds the old native world. */
+  private replacementPaused = false;
   /** One route per active or unresolved socket. */
   private readonly routes = new Map<number, Route>();
   /** Admitted action sequences awaiting their Rust application result. */
@@ -102,6 +104,18 @@ export class ExternalControllerRouting {
     this.routes.clear();
     this.pendingActions.clear();
     this.pendingDisconnects.clear();
+    this.replacementPaused = false;
+  }
+
+  /** Hold coalesced input and lifecycle requests before staging a private replacement. */
+  pauseForReplacement(): void {
+    this.replacementPaused = true;
+  }
+
+  /** Release retained requests only after cancellation has resumed the unchanged native world. */
+  resumeAfterReplacement(): void {
+    this.replacementPaused = false;
+    this.flush();
   }
 
   /** Request legacy or explicit-token reclaim before considering a fresh snake. */
@@ -225,6 +239,7 @@ export class ExternalControllerRouting {
 
   /** Admit lifecycle controls first, then at most one newest action per socket. */
   flush(): void {
+    if (this.replacementPaused) return;
     const { native, admission } = this.options;
     for (const route of this.routes.values()) {
       const pending = route.pending;
