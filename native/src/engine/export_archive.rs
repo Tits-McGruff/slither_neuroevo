@@ -2139,6 +2139,9 @@ pub fn compose_export_archive(
 
     let write_phase = ArchivePhaseScope::enter(ArchivePhase::TemporaryFileWrite);
     let output = scratch.create_file(&partial_path)?;
+    #[cfg(feature = "engine-test-hooks")]
+    let output =
+        super::export_failure_fixture::CompletionWriter::new(output, expected_archive_bytes);
     let mut archive = TarBuilder::new(BufWriter::new(output));
     for role in &checkpoint_layout.roles {
         append_file(
@@ -2181,6 +2184,8 @@ pub fn compose_export_archive(
     );
     let output = writer.into_inner().map_err(|error| error.into_error())?;
     output.sync_all()?;
+    #[cfg(feature = "engine-test-hooks")]
+    super::export_failure_fixture::before_length_check(&partial_path)?;
     if output.metadata()?.len() != expected_archive_bytes {
         return Err(CheckpointError::format(
             "EXPORT_ARCHIVE_LENGTH",
@@ -2189,6 +2194,8 @@ pub fn compose_export_archive(
     }
     drop(output);
     drop(write_phase);
+    #[cfg(feature = "engine-test-hooks")]
+    super::export_failure_fixture::before_validation(&partial_path)?;
     // The full import validator below already rescans every archive role,
     // checks its hashes and lengths, and restores the checkpoint. A separate
     // post-write scan would read the entire save a third time.

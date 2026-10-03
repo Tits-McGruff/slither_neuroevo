@@ -44,6 +44,9 @@ pub mod error;
 pub mod evolution;
 /// Self-contained save archive assembly from one leased managed checkpoint.
 pub mod export_archive;
+/// One-shot archive completion/validation failures confined to the test addon.
+#[cfg(feature = "engine-test-hooks")]
+pub(crate) mod export_failure_fixture;
 /// Atomic external-controller death replacement staging.
 pub mod external_replacement;
 /// Reusable corrected prefix of one complete authoritative fixed step.

@@ -15,7 +15,8 @@ const checkScript = `
     const valid = binding.nativeAddonSourceSha256() === process.argv[2] &&
       binding.nativeAddonBuildClass() === 'test-hooks' &&
       binding.nativeAddonBuildProfile() === 'release' &&
-      typeof binding.ExperimentalRunningAuthority.prototype.armCalculationPanicForTest === 'function';
+      typeof binding.ExperimentalRunningAuthority.prototype.armCalculationPanicForTest === 'function' &&
+      typeof binding.ExperimentalRunningAuthority.prototype.armExportFailureForTest === 'function';
     process.exit(valid ? 0 : 1);
   } catch { process.exit(1); }
 `;
@@ -25,7 +26,7 @@ const current = existsSync(destination) && spawnSync(process.execPath,
 if (!current) {
   console.info('[tests.panic-addon] building isolated release test hooks');
   const build = spawnSync('cargo', ['build', '--manifest-path', resolve('native/Cargo.toml'),
-    '--release', '--features', 'engine-test-hooks'], { stdio: 'inherit' });
+    '--release', '--lib', '--features', 'engine-test-hooks'], { stdio: 'inherit' });
   if (build.error) throw build.error;
   if (build.status !== 0) process.exit(build.status ?? 1);
   const library = process.platform === 'win32' ? 'slither_native.dll' : 'libslither_native.so';

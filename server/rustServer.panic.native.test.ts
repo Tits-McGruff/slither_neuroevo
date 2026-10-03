@@ -1,12 +1,14 @@
 /** Real release-addon worker panic through the production HTTP/WebSocket router. */
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { once } from 'node:events';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { expect, it, vi } from 'vitest';
+import { expect, it, vi, type MockInstance } from 'vitest';
 import WebSocket from 'ws';
 import Database from 'better-sqlite3';
 import { DEFAULT_CONFIG } from './config.ts';
@@ -16,6 +18,9 @@ import { computeNativeSourceIdentity } from './rustEngine/nativeSourceIdentity.t
 import { configurePanicFixture, loadPanicBinding, panicFixtureFrameSteps, startPreparedPanicRuntime } from './test/panicRuntime.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import type { RustBackgroundHealth } from '../src/protocol/rustBackground.ts';
+import type { AssignMsg, SensorsMsg } from './protocol.ts';
+import type { ExperimentalRuntimeTelemetrySnapshot } from './rustEngine/runtimeTelemetry.ts';
+import * as diskAdmission from './rustEngine/diskAdmission.ts';
 
 vi.mock('./rustEngine/experimentalStartup.ts', async importOriginal => {
   const original = await importOriginal<typeof import('./rustEngine/experimentalStartup.ts')>();
@@ -35,6 +40,10 @@ interface Health extends RustBackgroundHealth {
   startupCheckpointId: string;
   /** Native or interface fault reported to the browser. */
   interfaceFault?: string;
+  /** Production scalar counters for player and trainer input. */
+  telemetry: ExperimentalRuntimeTelemetrySnapshot;
+  /** Current authoritative settings identity. */
+  configHash: string;
 }
 
 /** Poll a real HTTP outcome within the existing five-second integration deadline. */
@@ -58,6 +67,88 @@ function durableState(databasePath: string): unknown {
       checkpoints: db.prepare('SELECT * FROM rust_checkpoint_v3_metadata ORDER BY checkpoint_id').all()
     };
   } finally { db.close(); }
+}
+
+/** Inspect all compact Rust metadata, including history, graphs, Hall of Fame and leases. */
+function archiveMetadata(databasePath: string): Array<{ name: string; rows: unknown[] }> {
+  const db = new Database(databasePath, { readonly: true });
+  try {
+    const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'
+      AND name LIKE 'rust_%' ORDER BY name`).all() as Array<{ name: string }>;
+    return tables.map(({ name }) => ({ name, rows: db.prepare(
+      `SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all() }));
+  } finally { db.close(); }
+}
+
+/** Hash the actual retained files without buffering their populations. */
+async function archiveFiles(directory: string): Promise<Array<{ filename: string; sha256: string }>> {
+  const result = [];
+  for (const filename of (await readdir(directory)).sort()) {
+    const hash = createHash('sha256');
+    for await (const bytes of createReadStream(join(directory, filename))) hash.update(bytes);
+    result.push({ filename, sha256: hash.digest('hex') });
+  }
+  return result;
+}
+
+/** Wait for actual export lease and scratch cleanup, preserving a hard failure deadline. */
+async function exportClean(directory: string): Promise<void> {
+  const deadline = performance.now() + 5000;
+  let scratch: string[] = [];
+  do {
+    scratch = (await readdir(directory)).filter(name => name.includes('slither-save') ||
+      name.includes('export-') || name.includes('import-') || name.includes('upload'));
+    if (scratch.length === 0) return;
+    await new Promise<void>(done => setTimeout(done, 10));
+  } while (performance.now() < deadline);
+  expect(scratch).toEqual([]);
+}
+
+/** One real external controller's current assignment and delivered observation. */
+interface ExportController {
+  /** Actual Protocol 2 connection. */
+  socket: WebSocket;
+  /** Latest Rust-issued lease identity. */
+  assignment?: AssignMsg;
+  /** Latest delivered observation for that assignment. */
+  sample?: SensorsMsg;
+  /** Bounded reliable packet evidence, excluding recurring stats and frames. */
+  packets: Array<Record<string, unknown>>;
+}
+
+/** Await a socket outcome without retaining a task beyond its five-second deadline. */
+async function controllerUntil(predicate: () => boolean, description: string | (() => string)): Promise<void> {
+  const deadline = performance.now() + 5000;
+  while (!predicate() && performance.now() < deadline) await new Promise<void>(done => setTimeout(done, 10));
+  expect(predicate(), typeof description === 'string' ? description : description()).toBe(true);
+}
+
+/** Join a player or trainer through the actual production hub and Rust controller boundary. */
+async function exportController(port: number, kind: 'ui' | 'bot', peers: WebSocket[]): Promise<ExportController> {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+  peers.push(socket);
+  const peer: ExportController = { socket, packets: [] };
+  socket.on('error', error => peer.packets.push({ type: 'error', message: error.message }));
+  socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', version: 2, clientType: kind })));
+  socket.on('message', (bytes, binary) => {
+    if (binary) return;
+    const packet = JSON.parse(bytes.toString()) as Record<string, unknown>;
+    if (packet['type'] === 'welcome') socket.send(JSON.stringify({ type: 'join', mode: 'player', name: `Export-${kind}` }));
+    if (packet['type'] === 'assign') { peer.assignment = packet as unknown as AssignMsg; delete peer.sample; }
+    if (packet['type'] === 'stateReplaced') { delete peer.assignment; delete peer.sample; }
+    if (packet['type'] === 'sensors' && packet['snakeId'] === peer.assignment?.snakeId) peer.sample = packet as unknown as SensorsMsg;
+    if (['assign', 'settingsApplied', 'stateReplaced', 'error'].includes(String(packet['type'])) && peer.packets.length < 64) peer.packets.push(packet);
+  });
+  await controllerUntil(() => !!peer.assignment && !!peer.sample, `export controller did not join: ${kind}`);
+  expect(peer.packets.filter(packet => packet['type'] === 'error')).toEqual([]);
+  return peer;
+}
+
+/** Measure delivered heading using sensor-v3 sine/cosine and circular subtraction. */
+function exportHeadingChange(before: SensorsMsg, after: SensorsMsg): number {
+  const first = Math.atan2(before.sensors[0]!, before.sensors[1]!);
+  const last = Math.atan2(after.sensors[0]!, after.sensors[1]!);
+  return Math.atan2(Math.sin(last - first), Math.cos(last - first));
 }
 
 /** Launch the explicit supervisor fixture in its own real Node process. */
@@ -107,10 +198,122 @@ describeNetworkSuite('Rust server caught calculation panic', () => {
     };
     expect(production.nativeAddonBuildClass()).toBe('production');
     expect(production.ExperimentalRunningAuthority.prototype['armCalculationPanicForTest']).toBeUndefined();
+    expect(production.ExperimentalRunningAuthority.prototype['armExportFailureForTest']).toBeUndefined();
     const hooks = loadPanicBinding();
     expect(() => validateExperimentalFreshRunBinding(hooks, computeNativeSourceIdentity(resolve('native'))))
       .toThrow(/production build class/);
   });
+
+  it.each([
+    { mode: 1, boundary: 'USTAR completion', diagnosis: /injected archive end-block write error/u },
+    { mode: 2, boundary: 'completed file length', diagnosis: /EXPORT_ARCHIVE_LENGTH/u },
+    { mode: 3, boundary: 'full post-write validation', diagnosis: /IMPORT_CHECKPOINT_ROLE.*SHA-256/u }
+  ])('preserves an evolved game and controller input after export fails at $boundary', async ({ mode, diagnosis }) => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-export-failure-'));
+    const databasePath = join(root, 'metadata.sqlite');
+    const directory = `${databasePath}.checkpoints`;
+    const peers: WebSocket[] = [];
+    let server: RustServer | undefined;
+    let admission: MockInstance<typeof diskAdmission.admitDiskOperation> | undefined;
+    try {
+      configurePanicFixture(false, false);
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42,
+        dbPath: databasePath, rustCalculationWorkers: 2 });
+      expect(server.startupFault).toBeUndefined();
+      const actual = startPreparedPanicRuntime();
+      expect(() => actual.armExportFailureForTest(0)).toThrow(/mode must be/u);
+      expect(() => actual.armExportFailureForTest(4)).toThrow(/mode must be/u);
+      const bootstrap = await exportController(server.port, 'ui', peers);
+      bootstrap.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 12 },
+        updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 },
+          { path: 'pelletCountTarget', value: 100 }] }));
+      await controllerUntil(() => bootstrap.packets.some(packet => packet['type'] === 'stateReplaced'), 'export fixture did not reset');
+      // Reset invalidates the old join. Rejoin through the real hub before changing live settings.
+      bootstrap.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      const rejoined = once(bootstrap.socket, 'pong', { signal: AbortSignal.timeout(5000) });
+      bootstrap.socket.ping('export-fixture-rejoin');
+      await rejoined;
+      await healthUntil(server.port, value => value.ok && BigInt(`0x${value.generation}`) >= 2n);
+      bootstrap.socket.send(JSON.stringify({ type: 'settings', requestId: 'export-failure-speed',
+        updates: [{ path: 'simSpeed', value: 0.1 }] }));
+      await controllerUntil(() => bootstrap.packets.some(packet => packet['type'] === 'settingsApplied' &&
+        packet['requestId'] === 'export-failure-speed' && packet['applied'] === true), () =>
+        `export fixture did not slow: ${JSON.stringify(bootstrap.packets.map(packet => ({
+          type: packet['type'], reason: packet['reason'], message: packet['message'],
+          requestId: packet['requestId'], applied: packet['applied'] })))}`);
+      bootstrap.socket.terminate();
+      const controllers = await Promise.all([exportController(server.port, 'ui', peers), exportController(server.port, 'bot', peers)]);
+      const baselineResponse = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`, { signal: AbortSignal.timeout(5000) });
+      expect(baselineResponse.status).toBe(200);
+      const baselineArchive = Buffer.from(await baselineResponse.arrayBuffer());
+      expect(baselineArchive.byteLength).toBeLessThan(4 * 1024 * 1024);
+      const userFile = join(root, 'retained-owner-copy.slither-save');
+      await writeFile(userFile, baselineArchive);
+      await exportClean(directory);
+      const before = await healthUntil(server.port, value => value.ok);
+      expect(BigInt(`0x${before.generation}`)).toBeGreaterThanOrEqual(2n);
+      const metadataBefore = archiveMetadata(databasePath);
+      expect(metadataBefore.find(table => table.name === 'rust_generation_history_v1')!.rows.length).toBeGreaterThan(0);
+      expect(metadataBefore.find(table => table.name === 'rust_hall_of_fame_v1')!.rows.length).toBeGreaterThan(0);
+      const filesBefore = await archiveFiles(directory);
+      expect(filesBefore.some(file => file.filename.endsWith('.hof-weights-v1'))).toBe(true);
+      const assignments = controllers.map(peer => ({ ...peer.assignment! }));
+      const samples = controllers.map(peer => peer.sample!);
+      const originalAdmit = diskAdmission.admitDiskOperation;
+      admission = vi.spyOn(diskAdmission, 'admitDiskOperation').mockImplementationOnce(async (...args) => {
+        const result = await originalAdmit(...args);
+        await Promise.all(controllers.map(async peer => {
+          peer.socket.send(JSON.stringify({ type: 'action', snakeId: peer.assignment!.snakeId,
+            tick: peer.sample!.tick, turn: -1, boost: 0 }));
+          const receipt = once(peer.socket, 'pong', { signal: AbortSignal.timeout(5000) });
+          peer.socket.ping('export-failure-input');
+          expect((await receipt)[0].toString()).toBe('export-failure-input');
+        }));
+        return result;
+      });
+      actual.armExportFailureForTest(mode);
+      expect(() => actual.armExportFailureForTest(mode)).toThrow(/already armed/u);
+      const failed = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`, { signal: AbortSignal.timeout(5000) });
+      expect(failed.status).toBe(500);
+      expect(failed.headers.has('content-disposition')).toBe(false);
+      expect(failed.headers.has('x-slither-checkpoint-id')).toBe(false);
+      expect(await failed.json()).toMatchObject({ ok: false, message: expect.stringMatching(diagnosis) });
+      expect(admission).toHaveBeenCalledOnce();
+      admission.mockRestore();
+      await exportClean(directory);
+      expect(archiveMetadata(databasePath)).toEqual(metadataBefore);
+      expect(await archiveFiles(directory)).toEqual(filesBefore);
+      expect(await readFile(userFile)).toEqual(baselineArchive);
+      const after = await healthUntil(server.port, value => value.ok &&
+        BigInt(`0x${value.completedStep}`) > BigInt(`0x${before.completedStep}`) &&
+        value.telemetry.controllerActivity.player.appliedActions === before.telemetry.controllerActivity.player.appliedActions + 1 &&
+        value.telemetry.controllerActivity.trainer.appliedActions === before.telemetry.controllerActivity.trainer.appliedActions + 1);
+      expect(after).toMatchObject({ runId: before.runId, generation: before.generation,
+        worldEpoch: before.worldEpoch, configHash: before.configHash, startupCheckpointId: before.startupCheckpointId });
+      await controllerUntil(() => controllers.every((peer, index) => peer.sample!.tick > samples[index]!.tick &&
+        exportHeadingChange(samples[index]!, peer.sample!) < -0.01), 'queued steering did not reach the unchanged game');
+      for (const [index, peer] of controllers.entries()) {
+        expect(peer.socket.readyState).toBe(WebSocket.OPEN);
+        expect(peer.assignment).toEqual(assignments[index]);
+        expect(peer.packets.filter(packet => ['stateReplaced', 'error'].includes(String(packet['type'])))).toEqual([]);
+      }
+      const retry = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`, { signal: AbortSignal.timeout(5000) });
+      expect(retry.status).toBe(200);
+      expect(Buffer.from(await retry.arrayBuffer())).toEqual(baselineArchive);
+      await exportClean(directory);
+      expect(archiveMetadata(databasePath)).toEqual(metadataBefore);
+      expect(await archiveFiles(directory)).toEqual(filesBefore);
+      expect(await readFile(userFile)).toEqual(baselineArchive);
+    } finally {
+      admission?.mockRestore();
+      for (const peer of peers) peer.terminate();
+      try { await server?.close(); }
+      finally {
+        configurePanicFixture(false);
+        await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      }
+    }
+  }, 20_000);
 
   it('contains a real Rayon panic, preserves health and its committed save, and restarts exactly', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-server-panic-'));

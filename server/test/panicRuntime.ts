@@ -28,6 +28,8 @@ const INIT: ExperimentalEngineInit = {
 };
 /** Whether the next unstarted authority must fail its first parallel calculation. */
 let injectPanic = true;
+/** Only the calculation-panic cases need to retain copied frame chronology. */
+let retainFrameChronology = true;
 /** Real handle retained only until this fixture's transport is ready. */
 let preparedRuntime: PanicRuntime | undefined;
 /** Chronology of real native frame copies requested by the production output router. */
@@ -37,6 +39,8 @@ const copiedFrameSteps: string[] = [];
 export interface PanicRuntime extends ExperimentalRunningAuthorityNativeHandle {
   /** Arm only before coordinator start; never mutate the live world from JavaScript. */
   armCalculationPanicForTest(): void;
+  /** Fail only the next export's end-block write, length check or stored-role validation. */
+  armExportFailureForTest(mode: number): void;
 }
 
 /** Load without falsifying provenance, and independently check exact source and release class. */
@@ -54,8 +58,9 @@ export function loadPanicBinding(): ExperimentalFreshRunNativeBinding {
 }
 
 /** Select the next disposable run's failure mode before starting its HTTP transport. */
-export function configurePanicFixture(armed: boolean): void {
+export function configurePanicFixture(armed: boolean, retainFrames = true): void {
   injectPanic = armed;
+  retainFrameChronology = retainFrames;
   preparedRuntime = undefined;
   copiedFrameSteps.length = 0;
 }
@@ -111,7 +116,7 @@ export async function createPanicTestRuntime(options: ExperimentalStartupOptions
         if (key === 'start') return (): void => {};
         if (key === 'copyLatestFrame') return (destination: Uint8Array, afterSequence: U64Hex) => {
           const copied = target.copyLatestFrame(destination, afterSequence);
-          if (copied.status === 'copied' && copied.display) {
+          if (retainFrameChronology && copied.status === 'copied' && copied.display) {
             assert(copiedFrameSteps.length < 128, 'short fixture must retain bounded frame chronology');
             copiedFrameSteps.push(copied.display.completedStep);
           }

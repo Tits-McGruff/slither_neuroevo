@@ -2,6 +2,8 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
+#[cfg(feature = "engine-test-hooks")]
+use std::sync::atomic::AtomicU8;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -400,6 +402,8 @@ pub struct PrepareExportArchiveTask {
     checkpoint: crate::engine::checkpoint::CheckpointDescriptor,
     inventory: ExportInventoryDescriptor,
     progress: Arc<ArchiveProgressJob>,
+    #[cfg(feature = "engine-test-hooks")]
+    export_failure: Arc<AtomicU8>,
 }
 
 impl Task for PrepareExportArchiveTask {
@@ -408,6 +412,10 @@ impl Task for PrepareExportArchiveTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         catch_background_task_panic("archive export", Some(&self.runtime), || {
+            #[cfg(feature = "engine-test-hooks")]
+            let _failure = crate::engine::export_failure_fixture::ExportFailureScope::enter(
+                self.export_failure.swap(0, Ordering::AcqRel),
+            );
             self.progress.started.store(true, Ordering::Release);
             let _progress = ProgressScope::enter_with_trace(
                 Arc::clone(&self.progress.completed_bytes),
@@ -630,6 +638,8 @@ pub struct ExperimentalRunningAuthority {
     prepared_import: PreparedImportSlot,
     import_active: Arc<AtomicBool>,
     archive_progress: Mutex<Option<Arc<ArchiveProgressJob>>>,
+    #[cfg(feature = "engine-test-hooks")]
+    export_failure: Arc<AtomicU8>,
 }
 
 impl ExperimentalRunningAuthority {
@@ -647,6 +657,8 @@ impl ExperimentalRunningAuthority {
             prepared_import: PreparedImportSlot::new(),
             import_active: Arc::new(AtomicBool::new(false)),
             archive_progress: Mutex::new(None),
+            #[cfg(feature = "engine-test-hooks")]
+            export_failure: Arc::new(AtomicU8::new(0)),
         }
     }
 
@@ -708,6 +720,23 @@ impl ExperimentalRunningAuthority {
 #[cfg(feature = "engine-test-hooks")]
 #[napi]
 impl ExperimentalRunningAuthority {
+    /// Test-addon-only one-shot failure for the next export on this handle.
+    #[napi(catch_unwind)]
+    pub fn arm_export_failure_for_test(&self, mode: u32) -> Result<()> {
+        if !(1..=3).contains(&mode) {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "export failure mode must be 1, 2 or 3",
+            ));
+        }
+        self.export_failure
+            .compare_exchange(0, mode as u8, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| {
+                Error::new(Status::GenericFailure, "an export failure is already armed")
+            })?;
+        Ok(())
+    }
+
     /// Test-addon-only trigger; production addons expose no panic injection method.
     #[napi(catch_unwind)]
     pub fn arm_calculation_panic_for_test(&self) -> Result<()> {
@@ -793,6 +822,8 @@ impl ExperimentalRunningAuthority {
             checkpoint,
             inventory,
             progress,
+            #[cfg(feature = "engine-test-hooks")]
+            export_failure: Arc::clone(&self.export_failure),
         }))
     }
 
@@ -2212,6 +2243,8 @@ mod task_panic_tests {
             checkpoint: checkpoint.clone(),
             inventory,
             progress: Arc::clone(&progress),
+            #[cfg(feature = "engine-test-hooks")]
+            export_failure: Arc::new(std::sync::atomic::AtomicU8::new(0)),
         };
         let injection = PanicInjection::arm(PanicPoint::ExportWritten);
         assert_task_panic(task.compute(), "archive export", &injection, &runtime);

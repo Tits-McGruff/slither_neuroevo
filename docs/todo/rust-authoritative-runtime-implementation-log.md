@@ -2047,3 +2047,20 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   build evidence. The namespace fixtures, cache, generated Rust target and
   disposable Oxygen checkout/addon were removed. These cover the named real
   filesystem failures; complete A7 and remaining Stage 7/8 gates stay open.
+
+- 2026-10-03 A7 archive completion and final validation failures now have real
+  HTTP/controller checks using an evolved population, history and Hall-of-Fame
+  weights. The isolated source-matched test addon rejects the USTAR end-block
+  write, truncates its completed private file before the length check, or alters
+  one stored role byte before the unchanged full validator. Each fails before
+  download headers, preserves every prior Rust metadata row and managed file
+  digest plus a retained source archive, cleans operation files/leases, keeps
+  player/trainer assignments and epochs, and applies steering sent during the
+  export request. A subsequent export reproduces the original bytes. Production
+  exposes none of these operation-local controls. All 521 feature-enabled release
+  library tests, three binary tests and the documentation test, 16 affected
+  production-identity/export-binding and isolated HTTP/panic checks, rustfmt,
+  production/test-inclusive Clippy, TypeScript, ESLint and Vite passed. Test-addon
+  preparation now builds only the required library. Disposable servers, fixtures
+  and the isolated addon were removed. These close the named completion/length/
+  full-validation cases; complete A7 and remaining Stage 7/8 gates stay open.
