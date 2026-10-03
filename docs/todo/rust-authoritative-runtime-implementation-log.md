@@ -2147,3 +2147,18 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   (72 tests; four opt-in quota/large-upload cases excluded), as do TypeScript
   and focused ESLint. This adds A6 controller-replacement evidence; remaining
   browser and final migration gates stay open.
+
+- 2026-10-04 Opt-in archive diagnostics now record whole-process resident memory
+  at each Rust stage's entry/exit and on a requested two-millisecond cadence.
+  The job joins its observer on success/unwind; ordinary jobs create none.
+  A 90,862,592-byte evolved P2 import/re-export preserves exact bytes and covers
+  all 59 stages, including 38 missed by HTTP polling. Passive upload/download
+  observations also preserve actual stream byte counts. Desktop peak RSS is
+  292.9 MiB, local health p95 is 16.2 ms, and player/protocol-bot action p95 is
+  at most 7.51 ms, including a post-response observation tail. The report is
+  `evidence/stage7/windows-ryzen5800x/archive-memory-bc14d09-20261004.json`.
+  These sampled whole-process readings do not prove isolated archive overhead,
+  all legacy readers, the 16 GiB VM or checkpoint-overlap durability. All 485
+  Rust tests plus the doctest, 104 affected JS checks (six optional cases
+  excluded), rustfmt, Clippy, TypeScript, ESLint and Vite pass. Task-owned
+  servers/databases and copied saves were removed after retaining the report.

@@ -191,6 +191,8 @@ pub struct ArchivePhaseDiagnostics {
     pub elapsed_micros: String,
     pub truncated: bool,
     pub intervals: Vec<ArchivePhaseTiming>,
+    pub rss_sampler_started: bool,
+    pub requested_rss_sample_interval_micros: String,
 }
 
 /// One bounded phase interval, including still-open outer stages.
@@ -199,6 +201,10 @@ pub struct ArchivePhaseTiming {
     pub phase: String,
     pub started_micros: String,
     pub finished_micros: Option<String>,
+    pub start_rss_bytes: Option<String>,
+    pub finish_rss_bytes: Option<String>,
+    pub sampled_peak_rss_bytes: Option<String>,
+    pub rss_samples: String,
 }
 
 struct ArchiveProgressJob {
@@ -236,12 +242,20 @@ impl ArchiveProgressJob {
                 ArchivePhaseDiagnostics {
                     elapsed_micros: u64_hex(elapsed),
                     truncated,
+                    rss_sampler_started: trace.rss_sampler_started.load(Ordering::Acquire),
+                    requested_rss_sample_interval_micros: u64_hex(
+                        crate::engine::work_progress::ARCHIVE_RSS_SAMPLE_INTERVAL_MICROS,
+                    ),
                     intervals: intervals
                         .into_iter()
                         .map(|interval| ArchivePhaseTiming {
                             phase: interval.phase.name().to_owned(),
                             started_micros: u64_hex(interval.started_micros),
                             finished_micros: interval.finished_micros.map(u64_hex),
+                            start_rss_bytes: interval.start_rss_bytes.map(u64_hex),
+                            finish_rss_bytes: interval.finish_rss_bytes.map(u64_hex),
+                            sampled_peak_rss_bytes: interval.sampled_peak_rss_bytes.map(u64_hex),
+                            rss_samples: u64_hex(interval.rss_samples),
                         })
                         .collect(),
                 }

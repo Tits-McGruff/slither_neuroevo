@@ -179,6 +179,10 @@ export interface RustArchivePhaseDiagnostics {
   truncated: boolean;
   /** At most 4096 fixed-name intervals; nested phases may overlap. */
   intervals: RustArchivePhaseTiming[];
+  /** True only if the native job created and later joins its diagnostic observer. */
+  rssSamplerStarted: boolean;
+  /** Requested cadence; scheduler delays can make actual observations farther apart. */
+  requestedRssSampleIntervalMicros: U64Hex;
 }
 
 /** One phase boundary; absent finish indicates a stage still in progress. */
@@ -189,6 +193,14 @@ export interface RustArchivePhaseTiming {
   startedMicros: U64Hex;
   /** Microseconds at guard completion, including error/unwind cleanup. */
   finishedMicros?: U64Hex | null;
+  /** Whole server-process memory at Rust stage entry, including Node/workers. */
+  startRssBytes?: U64Hex | null;
+  /** Whole server-process memory at guard exit, including failures/unwinds. */
+  finishRssBytes?: U64Hex | null;
+  /** Maximum successful endpoint or periodic reading; this is a sampled lower bound. */
+  sampledPeakRssBytes?: U64Hex | null;
+  /** Number of successful OS readings attributed to this interval. */
+  rssSamples: U64Hex;
 }
 
 /** Small ready-file facts returned by Rust; archive bytes remain on disk. */

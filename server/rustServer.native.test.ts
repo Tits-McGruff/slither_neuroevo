@@ -955,6 +955,15 @@ describeNetworkSuite('Rust server real sockets', () => {
         const timings = afterExport.archiveWork.phaseTrace!;
         expect(timings.truncated).toBe(false);
         expect(timings.intervals.length).toBeLessThanOrEqual(4096);
+        expect(timings.rssSamplerStarted).toBe(true);
+        expect(BigInt(`0x${timings.requestedRssSampleIntervalMicros}`)).toBe(2000n);
+        for (const interval of timings.intervals) {
+          expect(BigInt(`0x${interval.startRssBytes}`)).toBeGreaterThan(0n);
+          expect(BigInt(`0x${interval.finishRssBytes}`)).toBeGreaterThan(0n);
+          expect(BigInt(`0x${interval.rssSamples}`)).toBeGreaterThanOrEqual(2n);
+          expect(BigInt(`0x${interval.sampledPeakRssBytes}`)).toBeGreaterThanOrEqual(BigInt(`0x${interval.startRssBytes}`));
+          expect(BigInt(`0x${interval.sampledPeakRssBytes}`)).toBeGreaterThanOrEqual(BigInt(`0x${interval.finishRssBytes}`));
+        }
         expect(timings.intervals.every(interval => interval.finishedMicros !== undefined)).toBe(true);
         const source = timings.intervals.find(interval => interval.phase === 'export-source-population')!;
         const write = timings.intervals.find(interval => interval.phase === 'temporary-file-write')!;
@@ -993,6 +1002,12 @@ describeNetworkSuite('Rust server real sockets', () => {
       if (trace) {
         const timings = importedHealth.archiveWork.phaseTrace!;
         expect(timings.truncated).toBe(false);
+        expect(timings.rssSamplerStarted).toBe(true);
+        for (const interval of timings.intervals) {
+          expect(BigInt(`0x${interval.startRssBytes}`)).toBeGreaterThan(0n);
+          expect(BigInt(`0x${interval.finishRssBytes}`)).toBeGreaterThan(0n);
+          expect(BigInt(`0x${interval.rssSamples}`)).toBeGreaterThanOrEqual(2n);
+        }
         expect(timings.intervals.every(interval => interval.finishedMicros !== undefined)).toBe(true);
         expect(new Set(timings.intervals.map(interval => interval.phase))).toEqual(new Set([
           'import', 'validation', 'temporary-file-write', 'numeric-decode', 'checkpoint-restore',

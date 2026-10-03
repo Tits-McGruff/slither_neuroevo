@@ -3,13 +3,18 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { mkdir, realpath, rm, stat, statfs, writeFile } from 'node:fs/promises';
+import { IncomingMessage, Server, ServerResponse } from 'node:http';
+import { cpus, totalmem } from 'node:os';
 import { resolve } from 'node:path';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import WebSocket from 'ws';
 import { DEFAULT_CONFIG } from '../../server/config.ts';
 import { startRustServer } from '../../server/rustServer.ts';
 import { CheckpointPersistenceClient } from '../../server/rustEngine/checkpointPersistenceClient.ts';
 import type { RustArchiveWorkProgress } from '../../server/rustEngine/backgroundRuntime.ts';
+import { ExperimentalRuntimeTelemetry } from '../../server/rustEngine/runtimeTelemetry.ts';
+import { computeNativeSourceIdentity } from '../../server/rustEngine/nativeSourceIdentity.ts';
 
 /** Small authoritative health projection; all memory belongs to the child server. */
 interface Health {
@@ -55,6 +60,97 @@ async function stop(child: ChildProcess): Promise<void> {
 async function childServer(databasePath: string): Promise<void> {
   const originalCommit = CheckpointPersistenceClient.prototype.commitImport;
   const originalAcquire = CheckpointPersistenceClient.prototype.acquireCurrentExportLease;
+  const originalDispatch = Server.prototype.emit;
+  const originalIncoming = IncomingMessage.prototype.emit;
+  const originalWrite = ServerResponse.prototype.write;
+  const originalAction = ExperimentalRuntimeTelemetry.prototype.observeAction;
+  /** Retain response intervals so late applications remain attributed to their input window. */
+  const transfers: Array<{ phase: 'upload-import' | 'export-download'; started: number; finished?: number }> = [];
+  ExperimentalRuntimeTelemetry.prototype.observeAction = function(kind, durationMs) {
+    const receivedAt = performance.now() - durationMs;
+    originalAction.call(this, kind, durationMs);
+    const transfer = transfers.findLast(window => receivedAt >= window.started &&
+      (window.finished === undefined || receivedAt <= window.finished));
+    process.send?.({ type: 'action', phase: transfer?.phase ?? 'idle', kind, durationMs });
+  };
+  /** Scalar observations only; no body bytes or request objects enter reports. */
+  const uploads = new WeakMap<IncomingMessage, { started: number; rssBefore: number;
+    peakRssBytes: number; bodyBytes: number; samples: number }>();
+  /** Actual response writes after preparation; all file bytes remain in the original stream. */
+  const downloads = new WeakMap<ServerResponse, { started?: number; rssBefore?: number;
+    peakRssBytes: number; bodyBytes: number; samples: number }>();
+  Server.prototype.emit = function(event: string | symbol, ...args: unknown[]): boolean {
+    if (event === 'request') {
+      const request = args[0] as IncomingMessage;
+      const response = args[1] as ServerResponse;
+      if (request.url === '/api/import/archive' || request.url === '/api/export/latest') {
+        const transfer = { phase: request.method === 'POST' ? 'upload-import' as const : 'export-download' as const,
+          started: performance.now(), finished: undefined as number | undefined };
+        transfers.push(transfer);
+        response.once('close', () => { transfer.finished = performance.now(); });
+      }
+      if (request.method === 'POST' && request.url === '/api/import/archive') {
+        const rss = process.memoryUsage.rss();
+        const observation = { started: performance.now(), rssBefore: rss,
+          peakRssBytes: rss, bodyBytes: 0, samples: 1 };
+        uploads.set(request, observation);
+        request.once('end', () => {
+          observation.peakRssBytes = Math.max(observation.peakRssBytes, process.memoryUsage.rss());
+          process.send?.({ type: 'boundary', phase: 'http-upload-spooling',
+            durationMs: performance.now() - observation.started, ...observation, samples: observation.samples + 1 });
+          uploads.delete(request);
+        });
+        response.once('close', () => uploads.delete(request));
+      }
+      if (request.method === 'GET' && request.url === '/api/export/latest') {
+        const observation = { started: undefined as number | undefined, rssBefore: undefined as number | undefined,
+          peakRssBytes: 0, bodyBytes: 0, samples: 0 };
+        downloads.set(response, observation);
+        response.once('finish', () => {
+          observation.peakRssBytes = Math.max(observation.peakRssBytes, process.memoryUsage.rss());
+          process.send?.({ type: 'boundary', phase: 'http-file-download',
+            durationMs: observation.started === undefined ? null : performance.now() - observation.started,
+            ...observation, samples: observation.samples + 1 });
+          downloads.delete(response);
+        });
+        response.once('close', () => downloads.delete(response));
+      }
+    }
+    return Reflect.apply(originalDispatch, this, [event, ...args]) as boolean;
+  };
+  IncomingMessage.prototype.emit = function(event: string | symbol, ...args: unknown[]): boolean {
+    const upload = uploads.get(this);
+    if (upload && event === 'data') {
+      const chunk = args[0] as Buffer;
+      upload.bodyBytes += chunk.byteLength;
+      upload.peakRssBytes = Math.max(upload.peakRssBytes, process.memoryUsage.rss());
+      upload.samples++;
+    }
+    // Delegate the original dispatch; adding a data listener would start flowing
+    // the request before the real disk spooler is ready to consume it.
+    const result = Reflect.apply(originalIncoming, this, [event, ...args]) as boolean;
+    if (upload && event === 'data') {
+      upload.peakRssBytes = Math.max(upload.peakRssBytes, process.memoryUsage.rss());
+      upload.samples++;
+    }
+    return result;
+  };
+  ServerResponse.prototype.write = function(...args: unknown[]): boolean {
+    const download = downloads.get(this);
+    if (download) {
+      const rss = process.memoryUsage.rss();
+      if (download.started === undefined) { download.started = performance.now(); download.rssBefore = rss; }
+      download.bodyBytes += Buffer.isBuffer(args[0]) ? args[0].byteLength : Buffer.byteLength(String(args[0]));
+      download.peakRssBytes = Math.max(download.peakRssBytes, rss);
+      download.samples++;
+    }
+    const result = Reflect.apply(originalWrite, this, args) as boolean;
+    if (download) {
+      download.peakRssBytes = Math.max(download.peakRssBytes, process.memoryUsage.rss());
+      download.samples++;
+    }
+    return result;
+  };
   /** Report endpoint memory and duration around the real worker exchange. */
   async function measure<T>(phase: string, operation: () => Promise<T>): Promise<T> {
     const started = performance.now();
@@ -95,8 +191,61 @@ async function childServer(databasePath: string): Promise<void> {
     });
   } finally {
     await server.close();
+    Server.prototype.emit = originalDispatch;
+    IncomingMessage.prototype.emit = originalIncoming;
+    ServerResponse.prototype.write = originalWrite;
+    ExperimentalRuntimeTelemetry.prototype.observeAction = originalAction;
     if (process.connected) process.disconnect();
   }
+}
+
+/** Keep a real player timer independent of sensors and a protocol bot observation-driven. */
+async function control(port: number, kind: 'ui' | 'bot'): Promise<{ close(): void; check(): void;
+  report: { kind: 'ui' | 'bot'; actionsSent: number; assignments: number; replacements: number } }> {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+  const ready = Promise.withResolvers<void>();
+  const report = { kind, actionsSent: 0, assignments: 0, replacements: 0 };
+  let snakeId: number | undefined;
+  let tick = 0;
+  let lastBotTick = -1;
+  let fault: Error | undefined;
+  /** Send only current routing scalars through the unchanged production protocol. */
+  function send(): void {
+    if (snakeId === undefined || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ type: 'action', snakeId, tick, turn: 0.25, boost: 0 }));
+    report.actionsSent++;
+  }
+  socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', version: 2, clientType: kind })));
+  socket.on('message', (data, binary) => {
+    if (binary) return;
+    const message = JSON.parse(data.toString()) as Record<string, unknown>;
+    if (message['type'] === 'welcome' || message['type'] === 'stateReplaced') {
+      if (message['type'] === 'stateReplaced') { snakeId = undefined; report.replacements++; }
+      socket.send(JSON.stringify({ type: 'join', mode: 'player', name: `ArchiveProfile-${kind}` }));
+    }
+    if (message['type'] === 'assign') {
+      snakeId = Number(message['snakeId']); tick = 0; lastBotTick = -1; report.assignments++;
+    }
+    if (message['type'] === 'sensors' && message['snakeId'] === snakeId) {
+      tick = Number(message['tick']); ready.resolve();
+      if (kind === 'bot' && tick !== lastBotTick) { lastBotTick = tick; send(); }
+    }
+    if (message['type'] === 'error') { fault = new Error(String(message['message'])); ready.reject(fault); }
+  });
+  socket.on('error', error => { fault = error; ready.reject(error); });
+  const timer = kind === 'ui' ? setInterval(send, 1000 / 30) : undefined;
+  const timeout = setTimeout(() => ready.reject(new Error(`${kind} profile controller did not assign`)), 5000);
+  try { await ready.promise; }
+  catch (error) { if (timer) clearInterval(timer); socket.terminate(); throw error; }
+  finally { clearTimeout(timeout); }
+  return { report, check() {
+    if (fault) throw fault;
+    if (socket.readyState !== WebSocket.OPEN) throw new Error(`${kind} profile controller disconnected`);
+    if (report.replacements !== 1 || report.assignments < 2) throw new Error(`${kind} profile controller did not rejoin after import`);
+  }, close() {
+    if (timer) clearInterval(timer);
+    socket.terminate();
+  } };
 }
 
 /** Stream a file digest with bounded parent-process storage. */
@@ -126,16 +275,20 @@ async function profile(archivePath: string, outputRoot: string): Promise<void> {
   const databasePath = resolve(createdRoot, 'profile.db');
   const exportPath = resolve(createdRoot, 'export.slither-save');
   const originalSha256 = await digest(archivePath);
+  const profilerSha256 = await digest(fileURLToPath(import.meta.url));
+  const nativeSourceSha256 = computeNativeSourceIdentity(resolve('native')).sha256;
   const child = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), '--child', databasePath], {
     env: { ...process.env, SLITHER_TRACE_ARCHIVE_PHASES: '1' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc']
   });
   let errors = '';
   const boundaries: Record<string, unknown>[] = [];
+  const actions: Array<{ phase: string; kind: string; durationMs: number }> = [];
   child.stderr?.on('data', part => { errors = `${errors}${String(part)}`.slice(-8192); });
   child.stdout?.resume();
   child.on('message', value => {
     const message = value as Record<string, unknown>;
     if (message['type'] === 'boundary') boundaries.push(message);
+    if (message['type'] === 'action' && actions.length < 60_000) actions.push(message as unknown as typeof actions[number]);
   });
   let sampling = false;
   let sampler: Promise<void> | undefined;
@@ -145,6 +298,8 @@ async function profile(archivePath: string, outputRoot: string): Promise<void> {
   let samplingFailure: unknown;
   let baseline: Health | undefined;
   let final: Health | undefined;
+  let viewer: WebSocket | undefined;
+  const controllers: Array<Awaited<ReturnType<typeof control>>> = [];
   try {
     const port = await new Promise<number>((done, reject) => {
       const timeout = setTimeout(() => reject(new Error(`profile startup timed out: ${errors}`)), 30_000);
@@ -163,7 +318,36 @@ async function profile(archivePath: string, outputRoot: string): Promise<void> {
       if (!response.ok || !value.ok) throw new Error('profile authority faulted');
       return value;
     }
+    // Use the normal live protocol after replacement: the source archive may
+    // retain an accelerated fixture rate, which would advance the selected
+    // checkpoint during export and distort normal-speed memory measurements.
+    viewer = new WebSocket(`ws://127.0.0.1:${port}`);
+    const connected = Promise.withResolvers<void>();
+    const slowed = Promise.withResolvers<void>();
+    viewer.on('message', (data, binary) => {
+      if (binary) return;
+      const message = JSON.parse(data.toString()) as Record<string, unknown>;
+      if (message['type'] === 'welcome' || message['type'] === 'stateReplaced') {
+        viewer!.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+        if (message['type'] === 'welcome') connected.resolve();
+        else viewer!.send(JSON.stringify({ type: 'settings', requestId: 'profile-normal-rate',
+          updates: [{ path: 'simSpeed', value: 1 }] }));
+      }
+      if (message['type'] === 'settingsApplied' && message['requestId'] === 'profile-normal-rate') {
+        if (message['applied'] === true) slowed.resolve();
+        else slowed.reject(new Error('profile normal-speed request rejected'));
+      }
+    });
+    viewer.on('error', error => { connected.reject(error); slowed.reject(error); });
+    // Retain failure until the dependent wait without creating an unhandled rejection.
+    void slowed.promise.catch(() => {});
+    viewer.on('open', () => viewer!.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' })));
+    await Promise.race([connected.promise, new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error('profile viewer timed out')), 5000);
+      void connected.promise.finally(() => clearTimeout(timer)).catch(() => {});
+    })]);
     baseline = await health();
+    for (const kind of ['ui', 'bot'] as const) controllers.push(await control(port, kind));
     sampling = true;
     sampler = (async () => {
       while (sampling) {
@@ -188,6 +372,10 @@ async function profile(archivePath: string, outputRoot: string): Promise<void> {
       signal: AbortSignal.timeout(180_000) } as RequestInit & { duplex: 'half' });
     const receipt = await imported.json() as { ok: boolean; checkpointId: string; saveLogicalRootSha256: string };
     if (!imported.ok || !receipt.ok) throw new Error(`profile import failed: ${JSON.stringify(receipt)}`);
+    await Promise.race([slowed.promise, new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error('profile replacement settings timed out')), 5000);
+      void slowed.promise.finally(() => clearTimeout(timer)).catch(() => {});
+    })]);
     const importedHealth = await health();
     if (importedHealth.archiveWork?.phaseTrace) traces.set(importedHealth.archiveWork.operationId, importedHealth.archiveWork);
     const exported = await fetch(`http://127.0.0.1:${port}/api/export/latest`, { signal: AbortSignal.timeout(180_000) });
@@ -196,35 +384,66 @@ async function profile(archivePath: string, outputRoot: string): Promise<void> {
     }
     await exported.body.pipeTo(Writable.toWeb(createWriteStream(exportPath, { flags: 'wx' })));
     if ((await stat(exportPath)).size !== Number(exported.headers.get('content-length'))) throw new Error('export length mismatch');
+    // Confirm applications after the response too, retaining their original
+    // receive-window label rather than hiding slower input behind completion.
+    await new Promise<void>(done => setTimeout(done, 1000));
     final = await health();
     if (final.archiveWork?.phaseTrace) traces.set(final.archiveWork.operationId, final.archiveWork);
     sampling = false;
     await sampler;
     if (samplingFailure) throw samplingFailure;
     if (await digest(archivePath) !== originalSha256) throw new Error('source save changed');
+    if (await digest(exportPath) !== originalSha256) throw new Error('exact re-export changed the original archive');
+    if (boundaries.filter(boundary => boundary['phase'] === 'http-upload-spooling' &&
+        boundary['bodyBytes'] === archiveBytes).length !== 1) throw new Error('actual upload bytes were not observed exactly once');
+    if (boundaries.filter(boundary => boundary['phase'] === 'http-file-download' &&
+        boundary['bodyBytes'] === archiveBytes).length !== 1) throw new Error('actual download bytes were not observed exactly once');
     const jobs = [...traces.values()].map(job => ({ ...job, phases: job.phaseTrace!.intervals.map(interval => {
       if (!interval.finishedMicros) throw new Error('completed profile contains an open phase');
+      if (!job.phaseTrace!.rssSamplerStarted || !interval.startRssBytes || !interval.finishRssBytes ||
+          !interval.sampledPeakRssBytes || BigInt(`0x${interval.rssSamples}`) < 2n) {
+        throw new Error('completed profile lacks native stage memory observations');
+      }
       const start = Number(BigInt(`0x${interval.startedMicros}`));
       const end = Number(BigInt(`0x${interval.finishedMicros}`));
       const matched = samples.filter(sample => sample.operationId === job.operationId && sample.elapsedMicros >= start && sample.elapsedMicros <= end);
       return { phase: interval.phase, durationMs: (end - start) / 1000, samples: matched.length,
-        sampledPeakRssBytes: matched.length ? Math.max(...matched.map(sample => sample.rssBytes)) : null };
+        sampledPeakRssBytes: matched.length ? Math.max(...matched.map(sample => sample.rssBytes)) : null,
+        nativeStartRssBytes: interval.startRssBytes ? Number(BigInt(`0x${interval.startRssBytes}`)) : null,
+        nativeFinishRssBytes: interval.finishRssBytes ? Number(BigInt(`0x${interval.finishRssBytes}`)) : null,
+        nativeSampledPeakRssBytes: interval.sampledPeakRssBytes ? Number(BigInt(`0x${interval.sampledPeakRssBytes}`)) : null,
+        nativeRssSamples: Number(BigInt(`0x${interval.rssSamples}`)) };
     }) }));
     if (jobs.length !== 2 || jobs.some(job => !job.finished)) throw new Error('both complete archive jobs were not observed');
+    const actionLatencies = ['upload-import', 'export-download'].flatMap(phase =>
+      ['player', 'reinforcementLearning'].map(kind => {
+        const values = actions.filter(action => action.phase === phase && action.kind === kind)
+          .map(action => action.durationMs).sort((left, right) => left - right);
+        if (values.length === 0 || actions.length === 60_000) throw new Error(`incomplete ${phase}/${kind} action measurements`);
+        return { phase, kind, samples: values.length, p95Ms: values[Math.ceil(values.length * 0.95) - 1],
+          maxMs: values.at(-1) };
+      }));
+    for (const controller of controllers) controller.check();
     healthLatencyMs.sort((left, right) => left - right);
     await writeFile(resolve(createdRoot, 'profile.json'), JSON.stringify({ originalSha256, archiveBytes,
+      nativeSourceSha256, profilerSha256, host: { platform: process.platform, arch: process.arch,
+        cpuModel: cpus()[0]?.model, totalMemoryBytes: totalmem() },
       receipt, exportedSaveRoot: exported.headers.get('x-slither-save-root'), exportSha256: await digest(exportPath),
       baseline, afterImport: importedHealth, final, jobs, boundaries,
+      controls: controllers.map(controller => controller.report), actionLatencies,
+      postResponseObservationMs: 1000,
       sampleCount: samples.length, requestedSampleIntervalMs: 10,
       healthP95Ms: healthLatencyMs[Math.ceil(healthLatencyMs.length * 0.95) - 1],
       healthMaxMs: Math.max(...healthLatencyMs),
-      scope: 'Separate parent HTTP/file client and normal production child server. RSS comes from the child. Rust phases use its monotonic job clock; short phases without a matched periodic sample report null. Worker-request boundary memory includes IPC and FULL commit. This is preparatory sampled phase evidence, not archive I/O overhead accounting, all legacy readers, player latency or final A4 acceptance.' }, null, 2) + '\n', { flag: 'wx' });
+      scope: 'Separate parent HTTP/file client and production child server with opt-in Rust diagnostic sampling. Native readings observe whole-process RSS at each stage entry/exit and on a requested two-millisecond cadence; sampled peaks are lower bounds and include Node, workers, the current game and any staged candidate. HTTP samples are separate and may miss short stages. Upload spooling uses passive actual chunk/end observations, without a data listener or retained body. Worker-request boundary memory includes IPC and FULL commit. Real WebSocket player actions use an independent 30-Hz timer; the protocol bot sends one action per delivered observation. Action latency is actual server receipt to Rust application, attributed by its receive timestamp to the live HTTP response interval, with a one-second post-response observation tail. It is not physical browser/LAN or PyRL training evidence. This does not prove isolated archive I/O overhead, all legacy readers, checkpoint-overlap durability or final A4 acceptance.' }, null, 2) + '\n', { flag: 'wx' });
   } catch (error) {
     console.error('Archive profiling operation failed:', error);
     throw error;
   } finally {
     sampling = false;
     await sampler;
+    viewer?.terminate();
+    for (const controller of controllers) controller.close();
     try { await stop(child); }
     finally { await cleanup(outputRoot, createdRoot, databasePath, exportPath); }
   }
