@@ -2118,3 +2118,19 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   usability gates. Seven affected evolved-fixture checks, TypeScript and focused
   ESLint pass. Diagnostic processes, tabs and copied databases were removed; one
   validated original browser archive is retained for pending A2/A3 checks.
+
+- 2026-10-03 The reusable archive fixture now includes approved P1: 300 evolved
+  snakes with the default 13,458-parameter graph, ten baseline bots and 3,500
+  pellets. Its generation-13 archive is 13,964,288 bytes; exact streamed JS
+  numeric formatting gives an 84,356,588-byte decimal-JSON lower bound, including
+  81,099,508 bytes for population weights alone. Independent bounded decoding
+  verifies all payloads and the save root; compact evidence is
+  `evidence/stage7/windows-ryzen5800x/p1-archive-bfe20b7-20261003.json`.
+  The browser transport fixture also supports a fresh authority and passive
+  consumed-byte hashing. A real HTTP upload verifies the original 113,978,368-byte
+  P2 file's digest and restores its generation-30 checkpoint. That command-line
+  check is not A3 browser acceptance. The bounded browser upload observer is
+  prepared; actual browser upload, memory and usability gates remain open.
+  Focused existing transfer-path checks, TypeScript and ESLint passed. Disposable
+  servers/databases and duplicate saves were removed; the P1 save and validated
+  P2 browser file are retained for the pending browser checks.

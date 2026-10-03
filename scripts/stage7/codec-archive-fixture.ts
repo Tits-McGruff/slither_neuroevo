@@ -1,4 +1,4 @@
-/** Produce fresh and evolved P0/P2/P3 saves through the unchanged production Rust authority. */
+/** Produce fresh and evolved P0/P1/P2/P3 saves through the unchanged production Rust authority. */
 import { createWriteStream, existsSync } from 'node:fs';
 import { mkdir, realpath, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -12,7 +12,7 @@ import { buildLargeBrainGraph } from '../stage2/fixtures.ts';
 /** Workload names and an absent, explicitly selected scratch destination. */
 interface Options {
   /** Approved population and graph size. */
-  scenario: 'P0' | 'P2' | 'P3';
+  scenario: 'P0' | 'P1' | 'P2' | 'P3';
   /** Directory created by this invocation only. */
   outputRoot: string;
 }
@@ -30,9 +30,9 @@ interface Identity {
 /** Require an explicit workload and an absent task directory. */
 function options(): Options {
   const [scenarioFlag, scenario, rootFlag, root, ...extra] = process.argv.slice(2);
-  if (scenarioFlag !== '--scenario' || !['P0', 'P2', 'P3'].includes(scenario ?? '') ||
+  if (scenarioFlag !== '--scenario' || !['P0', 'P1', 'P2', 'P3'].includes(scenario ?? '') ||
       rootFlag !== '--output-root' || !root || extra.length) {
-    throw new Error('usage: --scenario P0|P2|P3 --output-root NEW_DIRECTORY');
+    throw new Error('usage: --scenario P0|P1|P2|P3 --output-root NEW_DIRECTORY');
   }
   const outputRoot = resolve(root);
   if (existsSync(outputRoot)) throw new Error('output directory already exists');
@@ -146,8 +146,8 @@ async function run(request: Options): Promise<void> {
     });
     await exchange(socket, { type: 'hello', version: 2, clientType: 'ui' }, message => message['type'] === 'welcome');
     socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
-    const large = request.scenario !== 'P0';
-    const snakeCount = request.scenario === 'P3' ? 300 : 55;
+    const large = request.scenario === 'P2' || request.scenario === 'P3';
+    const snakeCount = request.scenario === 'P1' || request.scenario === 'P3' ? 300 : 55;
     const reset = await exchange(socket, { type: 'reset', settings: { snakeCount, simSpeed: 0.1,
       ...(large ? { hiddenLayers: 5, neurons1: 256, neurons2: 256, neurons3: 256, neurons4: 256, neurons5: 256 } : {}) },
       updates: [{ path: 'generationSeconds', value: 8 }, { path: 'sense.bubbleBins', value: large ? 32 : 16 },
