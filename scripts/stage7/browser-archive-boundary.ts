@@ -153,21 +153,23 @@ export async function run(request: Options): Promise<void> {
       }
     };
     /** Stop this diagnostic without adding routes or controls to the production server. */
-    const close = async (): Promise<void> => {
+    const close = async (reason: string): Promise<void> => {
       if (closing) return;
       closing = true;
+      record('stopping', { reason });
       clearInterval(stopPoll); clearTimeout(lifetime);
       CheckpointPersistenceClient.prototype.acquireCurrentExportLease = originalAcquire;
       Server.prototype.emit = originalEmit;
       await server.close();
+      record('stopped', { reason });
     };
     /** Task-owned stop marker, checked independently of browser success or failure. */
     const stopPoll = setInterval(() => {
-      if (existsSync(resolve(request.outputRoot, 'stop'))) void close();
+      if (existsSync(resolve(request.outputRoot, 'stop'))) void close('stop marker');
     }, 500);
     /** Hard twenty-minute limit prevents abandoned diagnostic games. */
-    const lifetime = setTimeout(() => void close(), 1_200_000);
-    process.once('SIGINT', () => void close()); process.once('SIGTERM', () => void close());
+    const lifetime = setTimeout(() => void close('twenty-minute lifetime'), 1_200_000);
+    process.once('SIGINT', () => void close('SIGINT')); process.once('SIGTERM', () => void close('SIGTERM'));
     console.log(`BOUNDARY_UI_READY http://127.0.0.1:${server.port}/?server=ws://127.0.0.1:${server.port}`);
   } catch (error) {
     CheckpointPersistenceClient.prototype.acquireCurrentExportLease = originalAcquire;

@@ -428,7 +428,6 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
   viewer.send(JSON.stringify({ type: 'settings', requestId: 'ordering-fixture-speed',
     updates: [{ path: 'simSpeed', value: 0.1 }] }));
   await bounded(slowed, 'ordering fixture did not slow after evolution');
-  viewer.terminate();
   const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
   expect(response.status).toBe(200);
   fixture.archive = Buffer.from(await response.arrayBuffer());
@@ -440,6 +439,30 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
     { method: 'POST', body: new Uint8Array(repacked), signal: AbortSignal.timeout(5000) });
   expect(imported.status, await imported.clone().text()).toBe(200);
   expect(await imported.json()).toMatchObject({ ok: true, branched: false });
+  // Exact checkpoints retain the rate at their boundary; the live slowdown above is not saved.
+  // Rejoin the replacement and explicitly slow it before observing preserved files/controllers.
+  viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+  const slowedReplacement = new Promise<void>((done, reject) => {
+    /** Require the replacement world's actual settings acknowledgement. */
+    const receive = (bytes: WebSocket.RawData, binary: boolean): void => {
+      if (binary) return;
+      const packet = JSON.parse(bytes.toString()) as Record<string, unknown>;
+      if (packet['type'] === 'error') {
+        viewer.off('message', receive);
+        reject(new Error(String(packet['message'])));
+      }
+      if (packet['type'] === 'settingsApplied' && packet['requestId'] === 'ordering-replacement-speed') {
+        viewer.off('message', receive);
+        if (packet['applied'] === true) done();
+        else reject(new Error('ordering replacement speed was rejected'));
+      }
+    };
+    viewer.on('message', receive);
+  });
+  viewer.send(JSON.stringify({ type: 'settings', requestId: 'ordering-replacement-speed',
+    updates: [{ path: 'simSpeed', value: 0.1 }] }));
+  await bounded(slowedReplacement, 'ordering replacement did not slow after import');
+  viewer.terminate();
   await noTransferScratch(fixture.managedDirectory);
   const current = await health(fixture.server);
   fixture.identity = Object.fromEntries(Object.keys(fixture.identity).map(key => [key, current[key]]));

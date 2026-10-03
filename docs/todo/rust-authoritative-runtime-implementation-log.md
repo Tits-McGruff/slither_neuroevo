@@ -2104,3 +2104,17 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   transport plus normal roundtrip, source binding and production-addon identity
   checks, TypeScript and focused ESLint passed. Rust is unchanged. Disposable
   servers and fixtures were removed; complete A7 and Stage 7/8 gates stay open.
+
+- 2026-10-03 The P2 large-download boundary case passes through the ordinary
+  in-app UI and production Rust server at normal simulation speed. One original
+  request selects generation 30, waits until generation 31 is durable, and saves
+  a 113,978,368-byte attachment. Independent bounded TAR/Zstandard decoding
+  verifies all role hashes and both logical roots; filename, manifest, response
+  headers and complete body digest agree with the selected checkpoint. Compact
+  evidence is `evidence/stage7/windows-ryzen5800x/browser-download-9b59a0c-20261003.json`.
+  A standalone bounded probe reproduces differing plain-click/helper behavior;
+  an earlier real 12x download remained unfinished, with cause unproven. This
+  closes the named large-download case, not complete A1 or browser memory and
+  usability gates. Seven affected evolved-fixture checks, TypeScript and focused
+  ESLint pass. Diagnostic processes, tabs and copied databases were removed; one
+  validated original browser archive is retained for pending A2/A3 checks.
