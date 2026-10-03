@@ -108,7 +108,7 @@ function assertWorkload(welcome: Record<string, unknown>, scenario: Scenario, wo
 }
 
 /** Configure the approved 60-second workload by Reset and verify its welcome. */
-async function configure(port: number, scenario: Scenario, workers: number): Promise<void> {
+export async function configure(port: number, scenario: Scenario, workers: number): Promise<void> {
   const socket = new WebSocket(`ws://127.0.0.1:${port}`);
   await new Promise<void>((resolveReady, reject) => {
     let done = false;

@@ -5,6 +5,7 @@ import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { mkdir, realpath, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { cpus, totalmem } from 'node:os';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,8 @@ import { CheckpointPersistenceClient } from '../../server/rustEngine/checkpointP
 import type { RustArchiveWorkProgress } from '../../server/rustEngine/backgroundRuntime.ts';
 import { ExperimentalRuntimeTelemetry } from '../../server/rustEngine/runtimeTelemetry.ts';
 import { computeNativeSourceIdentity } from '../../server/rustEngine/nativeSourceIdentity.ts';
+import type { ExperimentalRunningAuthorityNativeHandle } from '../../server/rustEngine/backgroundRuntime.ts';
+import { BackgroundGenerationRouter } from '../../server/rustEngine/backgroundGeneration.ts';
 
 /** Small authoritative health projection; all memory belongs to the child server. */
 interface Health {
@@ -46,7 +49,7 @@ interface Sample {
 }
 
 /** Stop only this invocation's child and require normal shutdown. */
-async function stop(child: ChildProcess): Promise<void> {
+export async function stop(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   const closed = new Promise<void>((done, reject) => {
     child.once('close', code => code === 0 ? done() : reject(new Error(`profile server exited ${code}`)));
@@ -57,13 +60,61 @@ async function stop(child: ChildProcess): Promise<void> {
 }
 
 /** Observe actual metadata-worker requests without changing their arguments or results. */
-async function childServer(databasePath: string): Promise<void> {
+export async function childServer(databasePath: string, checkpointTimings = false): Promise<void> {
   const originalCommit = CheckpointPersistenceClient.prototype.commitImport;
   const originalAcquire = CheckpointPersistenceClient.prototype.acquireCurrentExportLease;
   const originalDispatch = Server.prototype.emit;
   const originalIncoming = IncomingMessage.prototype.emit;
   const originalWrite = ServerResponse.prototype.write;
   const originalAction = ExperimentalRuntimeTelemetry.prototype.observeAction;
+  const originalBarrier = ExperimentalRuntimeTelemetry.prototype.observeCheckpointBarrier;
+  const originalGeneration = BackgroundGenerationRouter.prototype.handle;
+  const originalCheckpointCommit = CheckpointPersistenceClient.prototype.commit;
+  const addon = checkpointTimings ? createRequire(import.meta.url)(resolve('native/index.js')) as {
+    ExperimentalRunningAuthority: { prototype: ExperimentalRunningAuthorityNativeHandle }
+  } : undefined;
+  const originalExport = addon?.ExperimentalRunningAuthority.prototype.prepareExportArchive;
+  if (addon && originalExport) {
+    /** Bracket the actual synchronous router start and finish clocks conservatively. */
+    let transitionClock: { beforeMs: number; afterMs: number } | undefined;
+    /** Original telemetry duration, captured during the unchanged finish handler. */
+    let observedBarrierDuration: number | undefined;
+    addon.ExperimentalRunningAuthority.prototype.prepareExportArchive = function(...args) {
+      const beforeMs = performance.now();
+      const result = originalExport.apply(this, args);
+      process.send?.({ type: 'export-clock', operationId: args[1], beforeMs, afterMs: performance.now(),
+        checkpointId: args[2].logicalRootSha256, generation: args[2].generation });
+      return result;
+    };
+    BackgroundGenerationRouter.prototype.handle = function(event) {
+      const beforeMs = performance.now();
+      const result = originalGeneration.call(this, event);
+      const afterMs = performance.now();
+      if (event.kind === 'generationTransitionPending') {
+        transitionClock = { beforeMs, afterMs };
+        observedBarrierDuration = undefined;
+        process.send?.({ type: 'checkpoint-start', atMs: beforeMs });
+      }
+      if (event.kind === 'generationStartPublished' && transitionClock && observedBarrierDuration !== undefined) {
+        process.send?.({ type: 'checkpoint-barrier', startedMs: transitionClock.afterMs, finishedMs: beforeMs,
+          durationMs: observedBarrierDuration, startClock: transitionClock, finishClock: { beforeMs, afterMs } });
+        transitionClock = undefined;
+      }
+      return result;
+    };
+    ExperimentalRuntimeTelemetry.prototype.observeCheckpointBarrier = function(durationMs) {
+      originalBarrier.call(this, durationMs);
+      observedBarrierDuration = durationMs;
+    };
+    CheckpointPersistenceClient.prototype.commit = async function(...args) {
+      const startedMs = performance.now();
+      const result = await originalCheckpointCommit.apply(this, args);
+      process.send?.({ type: 'checkpoint-commit', atMs: performance.now(), requestMs: performance.now() - startedMs,
+        generation: result.descriptor.generation, checkpointId: result.descriptor.logicalRootSha256,
+        operationId: result.descriptor.operationId, runId: result.descriptor.runId });
+      return result;
+    };
+  }
   /** Retain response intervals so late applications remain attributed to their input window. */
   const transfers: Array<{ phase: 'upload-import' | 'export-download'; started: number; finished?: number }> = [];
   ExperimentalRuntimeTelemetry.prototype.observeAction = function(kind, durationMs) {
@@ -185,8 +236,8 @@ async function childServer(databasePath: string): Promise<void> {
         }
       };
       const timeout = setTimeout(() => {
-        process.off('message', received); reject(new Error('profile child exceeded ten minutes'));
-      }, 600_000);
+        process.off('message', received); reject(new Error('profile child exceeded its bounded lifetime'));
+      }, checkpointTimings ? 1_200_000 : 600_000);
       process.on('message', received);
     });
   } finally {
@@ -195,12 +246,18 @@ async function childServer(databasePath: string): Promise<void> {
     IncomingMessage.prototype.emit = originalIncoming;
     ServerResponse.prototype.write = originalWrite;
     ExperimentalRuntimeTelemetry.prototype.observeAction = originalAction;
+    ExperimentalRuntimeTelemetry.prototype.observeCheckpointBarrier = originalBarrier;
+    BackgroundGenerationRouter.prototype.handle = originalGeneration;
+    CheckpointPersistenceClient.prototype.commit = originalCheckpointCommit;
+    CheckpointPersistenceClient.prototype.commitImport = originalCommit;
+    CheckpointPersistenceClient.prototype.acquireCurrentExportLease = originalAcquire;
+    if (addon && originalExport) addon.ExperimentalRunningAuthority.prototype.prepareExportArchive = originalExport;
     if (process.connected) process.disconnect();
   }
 }
 
 /** Keep a real player timer independent of sensors and a protocol bot observation-driven. */
-async function control(port: number, kind: 'ui' | 'bot'): Promise<{ close(): void; check(): void;
+export async function control(port: number, kind: 'ui' | 'bot', expectedReplacements = 1): Promise<{ close(): void; check(): void;
   report: { kind: 'ui' | 'bot'; actionsSent: number; assignments: number; replacements: number } }> {
   const socket = new WebSocket(`ws://127.0.0.1:${port}`);
   const ready = Promise.withResolvers<void>();
@@ -241,7 +298,9 @@ async function control(port: number, kind: 'ui' | 'bot'): Promise<{ close(): voi
   return { report, check() {
     if (fault) throw fault;
     if (socket.readyState !== WebSocket.OPEN) throw new Error(`${kind} profile controller disconnected`);
-    if (report.replacements !== 1 || report.assignments < 2) throw new Error(`${kind} profile controller did not rejoin after import`);
+    if (report.replacements !== expectedReplacements || report.assignments < expectedReplacements + 1) {
+      throw new Error(`${kind} profile controller did not retain the expected lifecycle`);
+    }
   }, close() {
     if (timer) clearInterval(timer);
     socket.terminate();
@@ -249,7 +308,7 @@ async function control(port: number, kind: 'ui' | 'bot'): Promise<{ close(): voi
 }
 
 /** Stream a file digest with bounded parent-process storage. */
-async function digest(path: string): Promise<string> {
+export async function digest(path: string): Promise<string> {
   const hash = createHash('sha256');
   for await (const bytes of createReadStream(path)) hash.update(bytes);
   return hash.digest('hex');
@@ -460,4 +519,6 @@ async function main(): Promise<void> {
   console.log('Archive phase profile completed; disposable server/database/export removed.');
 }
 
-void main().catch(error => { console.error(error); process.exitCode = 1; });
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void main().catch(error => { console.error(error); process.exitCode = 1; });
+}

@@ -2162,3 +2162,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Rust tests plus the doctest, 104 affected JS checks (six optional cases
   excluded), rustfmt, Clippy, TypeScript, ESLint and Vite pass. Task-owned
   servers/databases and copied saves were removed after retaining the report.
+
+- 2026-10-04 A bounded production P2 measurement now triggers ordinary exports
+  from actual generation-transition events without delaying the checkpoint path.
+  Native job-clock brackets and conservative router start/finish bounds prove
+  export-source assembly overlaps each of eight complete durability barriers
+  by at least 258.8–285.5 ms. Selected source generations 2–9 bind to their
+  successor FULL commits; original downloads are 75.9–84.1 MB and their actual
+  streamed byte counts/digests are retained. Complete barrier p95/max is
+  763.0 ms, local health p95 is 16.7 ms, event-loop p95/p99 is 19.99/21.74 ms,
+  and player/protocol-bot applied-input p95 is 7.73/7.91 ms. Both connections
+  remain open across reassignment, with zero discarded scheduler time. Evidence
+  is `evidence/stage7/windows-ryzen5800x/archive-checkpoint-overlap-7f7be75-20261004.json`.
+  Six timing-bound/registration tests, TypeScript, ESLint and Vite pass; Rust
+  source is unchanged and reuses the preceding native validation. The exact
+  child exited normally and its database, managed files and downloads were
+  removed. This adds desktop overlap evidence; 16 GiB VM, isolated archive
+  overhead, legacy-reader, physical browser/LAN and final Stage 7/8 gates remain
+  open.
