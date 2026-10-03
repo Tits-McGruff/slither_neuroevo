@@ -18,6 +18,7 @@ import { startRustServer, type RustServer } from './rustServer.ts';
 import { P0_ARCHIVE_UPLOAD_LIMIT } from './rustEngine/archiveUpload.ts';
 import * as archiveUpload from './rustEngine/archiveUpload.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
+import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { loadExperimentalFreshRunSession } from './rustEngine/experimentalFreshRunSession.ts';
 import * as freshRunSessions from './rustEngine/experimentalFreshRunSession.ts';
@@ -705,7 +706,7 @@ async function outcome(predicate: () => boolean, description: string): Promise<v
 }
 
 /** Acquire an actual player or trainer lease, retaining only the newest sensor sample. */
-async function controller(fixture: Fixture, kind: 'ui' | 'bot'): Promise<ControllerPeer> {
+async function controller(fixture: Fixture, kind: 'ui' | 'bot', name = `Import-${kind}`): Promise<ControllerPeer> {
   const socket = new WebSocket(`ws://127.0.0.1:${fixture.server.port}`);
   fixture.peers.add(socket);
   const peer: ControllerPeer = { socket, packets: [] };
@@ -714,7 +715,7 @@ async function controller(fixture: Fixture, kind: 'ui' | 'bot'): Promise<Control
   socket.on('message', (bytes, binary) => {
     if (binary) return;
     const packet = JSON.parse(bytes.toString()) as Record<string, unknown>;
-    if (packet['type'] === 'welcome') socket.send(JSON.stringify({ type: 'join', mode: 'player', name: `Import-${kind}` }));
+    if (packet['type'] === 'welcome') socket.send(JSON.stringify({ type: 'join', mode: 'player', name }));
     else if (packet['type'] === 'assign') { peer.assignment = packet as unknown as AssignMsg; delete peer.sample; }
     else if (packet['type'] === 'stateReplaced') { delete peer.assignment; delete peer.sample; }
     else if (packet['type'] === 'sensors' && packet['snakeId'] === peer.assignment?.snakeId) {
@@ -1434,6 +1435,135 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
       });
     }, 20_000
   );
+
+  it('replaces evolved controller leases, drops held input and repeats an identical exact import', async () => {
+    await experiment(async fixture => {
+      await evolvedArchiveFixture(fixture);
+      const sourcePath = join(dirname(fixture.databasePath), 'user-original.save');
+      await writeFile(sourcePath, fixture.archive, { flag: 'wx' });
+      const peers = await Promise.all([controller(fixture, 'ui'), controller(fixture, 'bot')]);
+      const nativeRequire = createRequire(import.meta.url);
+      const addon = nativeRequire(resolve('native/index.js')) as {
+        ExperimentalRunningAuthority: { prototype: ExperimentalRunningAuthorityNativeHandle };
+      };
+      const submit = vi.spyOn(addon.ExperimentalRunningAuthority.prototype, 'submitControllerAction');
+      const input = vi.spyOn(ExternalControllerRouting.prototype, 'action');
+      const originalStage = BackgroundOutputPump.prototype.stagePreparedImport;
+      const viewer = new WebSocket(`ws://127.0.0.1:${fixture.server.port}`);
+      fixture.peers.add(viewer);
+      const replies: Array<Record<string, unknown>> = [];
+      let replacement = 0;
+      // Rejoin through the actual UI protocol and restore the slow live rate after each replacement.
+      // The checkpoint retains its boundary's 12x rate, not the later live slowdown.
+      viewer.on('message', (bytes, binary) => {
+        if (binary) return;
+        const packet = JSON.parse(bytes.toString()) as Record<string, unknown>;
+        if (replies.length < 64) replies.push(packet);
+        if (packet['type'] === 'welcome' || packet['type'] === 'stateReplaced') {
+          viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+          if (packet['type'] === 'stateReplaced') viewer.send(JSON.stringify({ type: 'settings',
+            requestId: `replacement-speed-${++replacement}`, updates: [{ path: 'simSpeed', value: 0.1 }] }));
+        }
+      });
+      viewer.on('open', () => viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' })));
+      const restore = testCleanup(() => { submit.mockRestore(); input.mockRestore(); });
+      try {
+        await outcome(() => replies.some(packet => packet['type'] === 'welcome'), 'replacement viewer did not connect');
+        for (const round of [1, 2]) {
+          const probe = await controller(fixture, 'ui', `Import-probe-${round}`);
+          const probeBefore = { assignment: { ...probe.assignment! }, sample: probe.sample! };
+          const before = await health(fixture.server);
+          const baselines = peers.map(peer => ({ assignment: { ...peer.assignment! }, packetCount: peer.packets.length }));
+          const staged = Promise.withResolvers<void>();
+          const release = Promise.withResolvers<void>();
+          const stage = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport')
+            .mockImplementationOnce(async function(this: BackgroundOutputPump) {
+              await originalStage.call(this);
+              staged.resolve();
+              await release.promise;
+            });
+          const cleanup = testCleanup(() => { release.resolve(); stage.mockRestore(); });
+          let response: Promise<Response> | undefined;
+          try {
+            const submittedBefore = submit.mock.calls.length;
+            const inputBefore = input.mock.calls.length;
+            response = fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`, {
+              method: 'POST', body: new Uint8Array(fixture.archive), signal: AbortSignal.timeout(10_000) });
+            await bounded(staged.promise, 'exact import did not stage its actual replacement');
+            await heldInput(peers, false);
+            expect(input.mock.calls.length).toBe(inputBefore + 2);
+            expect(submit.mock.calls.length).toBe(submittedBefore);
+            release.resolve();
+            const imported = await bounded(response, 'exact import did not finish');
+            expect(imported.status).toBe(200);
+            expect(await imported.json()).toMatchObject({ ok: true, branched: false,
+              runId: fixture.identity['runId'], generation: fixture.identity['generation'],
+              checkpointId: fixture.identity['startupCheckpointId'] });
+            await outcome(() => peers.every((peer, index) => peer.packets.slice(baselines[index]!.packetCount)
+              .some(packet => packet['type'] === 'stateReplaced')), 'live controllers missed replacement');
+            await outcome(() => replies.some(packet => packet['type'] === 'settingsApplied' &&
+              packet['requestId'] === `replacement-speed-${round}` && packet['applied'] === true),
+            'replacement world did not accept its live slowdown');
+            expect(submit.mock.calls.length).toBe(submittedBefore);
+            const replaced = await health(fixture.server);
+            expect(BigInt(`0x${replaced['worldEpoch'] as string}`)).toBeGreaterThan(BigInt(`0x${before['worldEpoch'] as string}`));
+            for (const [index, peer] of peers.entries()) {
+              expect(peer.socket.readyState).toBe(WebSocket.OPEN);
+              expect(peer.assignment).toBeUndefined();
+              expect(peer.sample).toBeUndefined();
+              const packets = peer.packets.slice(baselines[index]!.packetCount);
+              expect(packets.filter(packet => packet['type'] === 'stateReplaced')).toHaveLength(1);
+              expect(packets.filter(packet => ['assign', 'error'].includes(String(packet['type'])))).toEqual([]);
+            }
+            // A separate old client demonstrates the actual awaiting-rejoin protocol rejection.
+            const closed = new Promise<number>(done => probe.socket.once('close', code => done(code)));
+            probe.socket.send(JSON.stringify({ type: 'action', snakeId: probeBefore.assignment.snakeId,
+              tick: probeBefore.sample.tick, turn: 1, boost: 0 }));
+            expect(await bounded(closed, 'unjoined old input was not rejected')).toBe(1008);
+            expect(probe.packets.findLast(packet => packet['type'] === 'error'))
+              .toMatchObject({ message: 'join required before action' });
+            expect(submit.mock.calls.length).toBe(submittedBefore);
+            for (const [index, peer] of peers.entries()) peer.socket.send(JSON.stringify({ type: 'join',
+              mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}`,
+              resumeToken: baselines[index]!.assignment.resumeToken }));
+            await outcome(() => peers.every((peer, index) => peer.packets.slice(baselines[index]!.packetCount)
+              .some(packet => packet['type'] === 'reclaimResult')), 'old replacement tokens were not resolved');
+            for (const [index, peer] of peers.entries()) {
+              expect(peer.assignment).toBeUndefined();
+              expect(peer.sample).toBeUndefined();
+              expect(peer.packets.slice(baselines[index]!.packetCount).filter(packet => packet['type'] === 'reclaimResult'))
+                .toEqual([{ type: 'reclaimResult', reclaimed: false, reason: 'invalid' }]);
+              peer.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}` }));
+            }
+            await outcome(() => peers.every(peer => !!peer.assignment && !!peer.sample), 'fresh replacement assignments were lost');
+            for (const [index, peer] of peers.entries()) {
+              const packets = peer.packets.slice(baselines[index]!.packetCount);
+              expect(packets.filter(packet => packet['type'] === 'reclaimResult'))
+                .toEqual([expect.objectContaining({ reclaimed: false })]);
+              expect(packets.filter(packet => packet['type'] === 'assign')).toHaveLength(1);
+              expect(peer.assignment!.reclaimed).not.toBe(true);
+              expect(peer.assignment!.resumeToken).not.toBe(baselines[index]!.assignment.resumeToken);
+              expect(peer.socket.readyState).toBe(WebSocket.OPEN);
+            }
+            const fresh = peers.map(peer => peer.sample!);
+            const active = (await health(fixture.server))['telemetry'] as ExperimentalRuntimeTelemetrySnapshot;
+            await heldInput(peers, false);
+            await outcome(() => peers.every((peer, index) => peer.sample!.tick > fresh[index]!.tick &&
+              headingChange(fresh[index]!, peer.sample!) < -0.01), 'fresh steering was lost after exact replacement');
+            expect(submit.mock.calls.length).toBe(submittedBefore + 2);
+            const applied = ((await health(fixture.server))['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+            expect(applied.player.appliedActions).toBe(active.controllerActivity.player.appliedActions + 1);
+            expect(applied.trainer.appliedActions).toBe(active.controllerActivity.trainer.appliedActions + 1);
+            await exportAfterDisconnect(fixture);
+            await noTransferScratch(fixture.managedDirectory);
+            expect(metadata(fixture.databasePath)).toEqual(fixture.metadata);
+            expect(await files(fixture.managedDirectory)).toEqual(fixture.files);
+            expect((await readFile(sourcePath)).equals(fixture.archive)).toBe(true);
+          } finally { cleanup(); await response?.catch(() => {}); }
+        }
+      } finally { restore(); }
+    });
+  }, 30_000);
 
   it.each([
     ['incompatible Concat input ordering', 'GRAPH_IDENTITY'],

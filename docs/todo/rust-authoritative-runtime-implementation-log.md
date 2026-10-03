@@ -2134,3 +2134,16 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Focused existing transfer-path checks, TypeScript and ESLint passed. Disposable
   servers/databases and duplicate saves were removed; the P1 save and validated
   P2 browser file are retained for the pending browser checks.
+
+- 2026-10-03 An evolved successful-import check now combines live browser-player
+  and trainer sockets, held old input, stale reconnect tokens and two identical
+  imports. Each replacement advances the world epoch, emits one state-replaced
+  result, keeps valid sockets open, rejects stale ownership and allows an
+  explicit fresh join with working steering. Repeated imports preserve every
+  metadata row, immutable managed-file digest and original save byte; re-export
+  matches the original archive. Existing exact-continuation tests additionally
+  compare the next generation and restart with Dense/GRU/LSTM/RRU and one/six
+  workers. The combined transport, continuation and routing suites pass
+  (72 tests; four opt-in quota/large-upload cases excluded), as do TypeScript
+  and focused ESLint. This adds A6 controller-replacement evidence; remaining
+  browser and final migration gates stay open.
