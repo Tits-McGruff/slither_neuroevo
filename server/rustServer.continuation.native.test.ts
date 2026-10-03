@@ -72,7 +72,8 @@ async function archive(server: RustServer, boundary: HeldBoundary): Promise<Buff
 }
 
 describeNetworkSuite('Rust archive exact continuation', () => {
-  it.each([{ generation: 2, workers: 1 }, { generation: 4, workers: 6 }])(
+  it.each([{ generation: 2, workers: 1 }, { generation: 4, workers: 4 },
+    { generation: 4, workers: 5 }, { generation: 4, workers: 6 }])(
     'matches direct successors from generation $generation through import and restart with $workers workers', async scenario => {
       const root = await mkdtemp(join(tmpdir(), 'slither-rust-archive-continuation-'));
       const sourcePath = join(root, 'direct.sqlite');

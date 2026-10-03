@@ -699,7 +699,7 @@ impl<'a> FloatSource<'a> {
     }
 }
 
-/// Reader that streams borrowed Float32 bits as packed little-endian bytes.
+/// Reader that packs whole borrowed Float32 spans directly and retains only partial-float bytes.
 struct FloatByteReader<'a> {
     source: &'a FloatSource<'a>,
     slice_index: usize,
@@ -743,6 +743,28 @@ impl Read for FloatByteReader<'_> {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
         let mut written = 0usize;
         while written < output.len() {
+            if !self.pending_valid && output.len() - written >= 4 {
+                let Some(slice) = self.source.slices.get(self.slice_index) else {
+                    break;
+                };
+                if self.value_index == slice.len() {
+                    self.slice_index += 1;
+                    self.value_index = 0;
+                    continue;
+                }
+                let take = (slice.len() - self.value_index).min((output.len() - written) / 4);
+                let byte_count = take * 4;
+                let destinations = output[written..written + byte_count].as_chunks_mut::<4>().0;
+                for (destination, value) in destinations
+                    .iter_mut()
+                    .zip(&slice[self.value_index..self.value_index + take])
+                {
+                    *destination = value.to_bits().to_le_bytes();
+                }
+                self.value_index += take;
+                written += byte_count;
+                continue;
+            }
             if !self.pending_valid && !self.load_pending() {
                 break;
             }
@@ -6475,6 +6497,91 @@ mod tests {
         assert_eq!(candidate.encoded_blocks, 4);
         assert_eq!(candidate.scratch_capacity_growths, 0);
         assert_eq!(candidate.encoding, NumericEncoding::F32LeShuffle4ZstdV1);
+    }
+
+    /// Variable-sized reads preserve exact packed bits across owner and partial-float boundaries.
+    #[test]
+    fn float_byte_reader_bulk_and_partial_reads_preserve_exact_bytes() {
+        let patterns: [u32; 12] = [
+            0,
+            0x8000_0000,
+            1,
+            0x8000_0001,
+            0x3f12_3456,
+            0x7f7f_ffff,
+            0xff7f_ffff,
+            0x7fc1_2345,
+            0x7f80_0000,
+            0xff80_0000,
+            0x7fa1_2345,
+            0xffff_ffff,
+        ];
+        for count in [37, SHUFFLED_BLOCK_BYTES / 4 + 17] {
+            let bits = (0..count)
+                .map(|index| patterns[index % patterns.len()])
+                .collect::<Vec<_>>();
+            let values = bits
+                .iter()
+                .map(|bits| f32::from_bits(*bits))
+                .collect::<Vec<_>>();
+            let expected = bits
+                .iter()
+                .flat_map(|bits| bits.to_le_bytes())
+                .collect::<Vec<_>>();
+            let source = FloatSource::new(
+                vec![
+                    &[],
+                    &values[..3],
+                    &[],
+                    &values[3..count - 2],
+                    &values[count - 2..],
+                    &[],
+                ],
+                count,
+                "packed-reader-test",
+            )
+            .unwrap();
+            for sizes in [
+                vec![1, 2, 3, 4, 5, 7, 8, 13],
+                vec![3, SHUFFLED_BLOCK_BYTES + 1, 1, 4097, 2],
+            ] {
+                let mut reader = FloatByteReader::new(&source);
+                let mut actual = Vec::new();
+                let mut reads = 0usize;
+                loop {
+                    assert_eq!(reader.read(&mut []).unwrap(), 0);
+                    let capacity = sizes[reads % sizes.len()];
+                    let mut buffer = vec![0xa5; capacity + 2];
+                    let written = reader.read(&mut buffer[1..capacity + 1]).unwrap();
+                    assert!(written <= capacity);
+                    assert_eq!(buffer[0], 0xa5);
+                    assert!(buffer[written + 1..].iter().all(|byte| *byte == 0xa5));
+                    actual.extend_from_slice(&buffer[1..written + 1]);
+                    if written == 0 {
+                        break;
+                    }
+                    reads += 1;
+                }
+                assert_eq!(actual, expected);
+                let mut tail = [0xa5; 17];
+                assert_eq!(reader.read(&mut tail).unwrap(), 0);
+                assert_eq!(tail, [0xa5; 17]);
+            }
+        }
+    }
+
+    /// All-empty owners and an absent population return EOF without touching the caller's buffer.
+    #[test]
+    fn float_byte_reader_empty_sources_leave_output_untouched() {
+        for slices in [Vec::new(), vec![&[][..], &[][..], &[][..]]] {
+            let source = FloatSource::new(slices, 0, "empty-packed-reader-test").unwrap();
+            let mut reader = FloatByteReader::new(&source);
+            let mut output = [0xa5; 11];
+            assert_eq!(reader.read(&mut []).unwrap(), 0);
+            assert_eq!(reader.read(&mut output).unwrap(), 0);
+            assert_eq!(reader.read(&mut output[..3]).unwrap(), 0);
+            assert_eq!(output, [0xa5; 11]);
+        }
     }
 
     /// Packed unshuffle preserves known byte order and never grows its admitted scratch.

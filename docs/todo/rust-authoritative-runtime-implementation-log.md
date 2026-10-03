@@ -2258,3 +2258,26 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   report digests match, and the stopped task-owned checkout, fixtures, cache
   and generated build artifacts were removed. Worker count alone does not
   clear the VM gate; next inspect the remaining numeric writer/transition cost.
+
+- 2026-10-04 Checkpoint numeric writing now packs complete borrowed Float32
+  spans into the caller's buffer, retaining the four-byte pending cell only
+  for partial reads. No allocation, format, RNG or durability policy changes.
+  Ragged/empty owners, block boundaries, special bits and untouched buffer
+  tails are checked. All 491 Rust tests plus the doctest, rustfmt, all-target
+  Clippy, 105 affected server/archive checks (six opt-in cases excluded),
+  TypeScript, ESLint and Vite pass. Exact import/restart successor comparisons
+  now include four/five workers alongside one/six and pass on Windows/Linux;
+  Linux identity and trace-off/on archive roundtrips pass. Ten actual P2
+  checkpoint/export overlaps with five workers cover 614.95 measured seconds:
+  barrier p95/max is 912.75 ms, discarded wall time is zero and overload is
+  false. Health p95 is 3.67 ms, player/protocol-bot input p95 is
+  20.10/18.17 ms, event-loop p95/p99 is 10.90/11.75 ms and peak process RSS is
+  544.5 MB. Playable-generation intervals average 61.26 seconds (max 61.38),
+  but simulated/wall progress is 0.979323, below the required 0.98; the complete
+  VM gate remains open. Reports and paired point-sampled host context are
+  `evidence/stage7/oxygen-ryzen2700/*bulk-writer-92da6d0-20261004.json`.
+  The copied report digest matches, and the stopped task-owned checkout,
+  fixtures, dependencies/cache and build artifacts were removed. The pause
+  gate passes in this run without establishing a controlled causal speedup;
+  next profile the remaining terminal evolution/transition cost. Remaining
+  Stage 7/8 browser, memory, compatibility, LAN/trainer and final gates stay open.
