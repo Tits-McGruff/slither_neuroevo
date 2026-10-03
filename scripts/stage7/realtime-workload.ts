@@ -8,6 +8,9 @@ import WebSocket from 'ws';
 import { DEFAULT_CONFIG } from '../../server/config.ts';
 import { startRustServer } from '../../server/rustServer.ts';
 import { buildLargeBrainGraph } from '../stage2/fixtures.ts';
+import { counterWindow } from './archive-overlap-summary.ts';
+import { generationInterval, generationPublication } from './generation-window-summary.ts';
+import type { GenerationPublication } from './generation-window-summary.ts';
 
 /** Mandatory real-time workload names from the approved plan. */
 type Scenario = 'P0' | 'P1' | 'P2';
@@ -26,6 +29,8 @@ interface Options {
 
 /** Small subset of production health used to evaluate one measured interval. */
 interface Health {
+  /** Source-derived identity independently enforced by production startup. */
+  nativeBuildIdentifier: string;
   /** False when any native or interface fault has stopped authority. */
   ok: boolean;
   /** Current exact generation as sixteen hexadecimal digits. */
@@ -153,15 +158,16 @@ export async function configure(port: number, scenario: Scenario, workers: numbe
 }
 
 /** Read one bounded health response and its local request latency. */
-async function readHealth(port: number): Promise<{ health: Health; latencyMs: number }> {
-  const started = performance.now();
+async function readHealth(port: number): Promise<{ health: Health; latencyMs: number; beforeMs: number; afterMs: number }> {
+  const beforeMs = performance.now();
   const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
     signal: AbortSignal.timeout(5_000)
   });
   const health = await response.json() as Health;
-  const latencyMs = performance.now() - started;
+  const afterMs = performance.now();
+  const latencyMs = afterMs - beforeMs;
   if (!response.ok || !health.ok) throw new Error(`Rust authority faulted: ${health.interfaceFault ?? response.status}`);
-  return { health, latencyMs };
+  return { health, latencyMs, beforeMs, afterMs };
 }
 
 /** Return the upper sampled percentile without assuming a normal distribution. */
@@ -208,44 +214,57 @@ export async function run(request: Options): Promise<Record<string, unknown>> {
     if (BigInt(`0x${initial.health.generation}`) !== 2n) {
       throw new Error('evolved-checkpoint restart did not begin at generation two');
     }
-    const startedAt = performance.now();
+    const startedAt = initial.afterMs;
     const startedCpu = process.cpuUsage();
     const endAt = startedAt + request.measureSeconds * 1000;
     const latencies: number[] = [initial.latencyMs];
-    const transitions: Array<{ generation: string; wallSeconds: number }> = [];
-    let previousGeneration = initial.health.generation;
+    const transitions: Array<GenerationPublication & { wallSeconds: number }> = [];
+    let previous = initial;
+    let finalRead = initial;
     let final = initial.health;
+    let overloaded = final.schedulerOverloaded;
     let nextProgress = startedAt + 30_000;
-    while (performance.now() < endAt) {
+    do {
+      await new Promise<void>(done => setTimeout(done, 250));
       const sample = await readHealth(server.port);
+      finalRead = sample;
       final = sample.health;
+      overloaded ||= final.schedulerOverloaded;
       latencies.push(sample.latencyMs);
-      if (final.generation !== previousGeneration) {
-        transitions.push({ generation: final.generation,
-          wallSeconds: (performance.now() - startedAt) / 1000 });
-        previousGeneration = final.generation;
-      }
+      const publication = generationPublication(
+        { ...previous, generation: previous.health.generation },
+        { ...sample, generation: final.generation });
+      if (publication) transitions.push({ ...publication,
+        wallSeconds: (sample.afterMs - startedAt) / 1000 });
+      previous = sample;
       if (performance.now() >= nextProgress) {
         process.stderr.write(`scenario=${request.scenario} generation=${BigInt(`0x${final.generation}`)} step=${BigInt(`0x${final.completedStep}`)} dropped=${BigInt(`0x${final.schedulerDroppedWallMicros}`)}\n`);
         nextProgress += 30_000;
       }
-      await new Promise<void>(done => setTimeout(done, 250));
-    }
-    const wallSeconds = (performance.now() - startedAt) / 1000;
-    const deltaSteps = BigInt(`0x${final.completedStep}`) - BigInt(`0x${initial.health.completedStep}`);
+    } while (finalRead.beforeMs < endAt);
+    const progressWindow = counterWindow(
+      { ...initial, completedStep: initial.health.completedStep },
+      { ...finalRead, completedStep: final.completedStep });
+    const wallSeconds = progressWindow.maximumWallSeconds;
     const droppedWallMicros = BigInt(`0x${final.schedulerDroppedWallMicros}`) -
       BigInt(`0x${initial.health.schedulerDroppedWallMicros}`);
     const cpu = process.cpuUsage(startedCpu);
-    const transitionIntervals = transitions.slice(1).map((transition, index) =>
-      transition.wallSeconds - transitions[index]!.wallSeconds);
-    const simulatedWallRatio = Number(deltaSteps) / 60 / wallSeconds;
+    const generationIntervalBounds = transitions.slice(1).map((transition, index) =>
+      generationInterval(transitions[index]!, transition));
+    const transitionIntervals = generationIntervalBounds.map(interval => interval.maximumSeconds);
+    const simulatedWallRatio = progressWindow.minimumSimulatedWallRatio;
     return { scenario: request.scenario, rustWorkers: request.rustWorkers,
+      nativeBuildIdentifier: initial.health.nativeBuildIdentifier,
       measuredEvolvedPopulation: true, measurementStartedFromCheckpoint: true,
       requestedMeasureSeconds: request.measureSeconds,
-      wallSeconds, deltaSteps: deltaSteps.toString(), simulatedWallRatio,
+      wallSeconds, deltaSteps: progressWindow.deltaSteps, simulatedWallRatio, progressWindow,
+      clockScope: 'Counter readings lie inside complete HTTP request brackets; acceptance uses the lowest possible rate and requires at least 600 seconds inside both brackets. Generation intervals are conservative publication bounds. Later sleeps, cleanup and report construction are excluded.',
+      counterClockBrackets: { initial: { beforeMs: initial.beforeMs, afterMs: initial.afterMs },
+        final: { beforeMs: finalRead.beforeMs, afterMs: finalRead.afterMs } },
       droppedWallMicros: droppedWallMicros.toString(), schedulerOverloadedAtEnd: final.schedulerOverloaded,
+      overloadedDuringSamples: overloaded,
       startGeneration: initial.health.generation, endGeneration: final.generation,
-      transitions, transitionIntervals,
+      transitions, transitionIntervals, generationIntervalBounds,
       healthLatencyP95Ms: percentile(latencies, 0.95), healthLatencyMaxMs: Math.max(...latencies),
       stepSamples: final.telemetry.step.samples,
       stepP95Ms: final.telemetry.step.p95Ms, stepP99Ms: final.telemetry.step.p99Ms,
@@ -257,7 +276,8 @@ export async function run(request: Options): Promise<Record<string, unknown>> {
       frame: final.telemetry.frame,
       maxRssBytes: final.telemetry.process.maxRssBytes,
       cpuUserSeconds: cpu.user / 1_000_000, cpuSystemSeconds: cpu.system / 1_000_000,
-      meetsMeasuredRatioAndDebtGate: simulatedWallRatio >= 0.98 && droppedWallMicros === 0n };
+      meetsMeasuredRatioAndDebtGate: progressWindow.minimumWallSeconds >= 600 &&
+        simulatedWallRatio >= 0.98 && droppedWallMicros === 0n && !overloaded };
   } finally { await server.close(); }
 }
 

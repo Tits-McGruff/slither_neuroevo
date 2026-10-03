@@ -1,5 +1,6 @@
 /** Sample an already running production workload while an independent real trainer supplies load. */
-import { writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import WebSocket from 'ws';
 import type { RustBackgroundHealth, RustQueueDiagnostics } from '../../src/protocol/rustBackground.ts';
@@ -7,6 +8,9 @@ import type { ExperimentalRuntimeTelemetrySnapshot } from '../../server/rustEngi
 import type { WsOutboundDiagnostics } from '../../server/wsHub.ts';
 import { summarizeRssSoak } from './rss-soak-summary.ts';
 import { summarizeQueueSoak } from './queue-soak-summary.ts';
+import { counterWindow } from './archive-overlap-summary.ts';
+import { generationInterval, generationPublication } from './generation-window-summary.ts';
+import type { GenerationPublication } from './generation-window-summary.ts';
 
 /** Mandatory real-time workloads in the approved migration plan. */
 type Scenario = 'P0' | 'P1' | 'P2';
@@ -41,12 +45,13 @@ function counter(value: string): bigint {
 }
 
 /** Read a bounded response and keep observation failures distinct from authority faults. */
-async function readHealth(url: URL): Promise<{ health: Health; latencyMs: number }> {
-  const started = performance.now();
+async function readHealth(url: URL): Promise<{ health: Health; latencyMs: number; beforeMs: number; afterMs: number }> {
+  const beforeMs = performance.now();
   const response = await fetch(new URL('/api/health', url), { signal: AbortSignal.timeout(15_000) });
   const health = await response.json() as Health;
+  const afterMs = performance.now();
   if (!response.ok || health.ok !== true) throw new Error(`authority fault: ${JSON.stringify(health)}`);
-  return { health, latencyMs: performance.now() - started };
+  return { health, latencyMs: afterMs - beforeMs, beforeMs, afterMs };
 }
 
 /** Read actual workload settings without joining a display stream or changing authority. */
@@ -102,6 +107,14 @@ function percentile(values: readonly number[], fraction: number): number {
   return sorted[Math.ceil(sorted.length * fraction) - 1]!;
 }
 
+/** Identify the exact sampler and summary bytes independently of the server revision. */
+async function measurementSourceDigests(): Promise<Record<string, string>> {
+  const paths = ['./loaded-runtime-window.ts', './archive-overlap-summary.ts', './generation-window-summary.ts',
+    './rss-soak-summary.ts', './queue-soak-summary.ts'];
+  return Object.fromEntries(await Promise.all(paths.map(async path =>
+    [path, createHash('sha256').update(await readFile(new URL(path, import.meta.url))).digest('hex')])));
+}
+
 /** Measure one uninterrupted authority and preserve a compact report even if sampling fails. */
 async function run(): Promise<void> {
   const [base, output, secondsText, sourceRevision, scenarioText = 'P1', workersText = '6'] = process.argv.slice(2);
@@ -113,34 +126,41 @@ async function run(): Promise<void> {
     throw new Error('usage: loaded-runtime-window.ts URL NEW_REPORT_PATH SECONDS>=600 SOURCE_COMMIT [P0|P1|P2] [WORKERS]');
   }
   const scenario = scenarioText as Scenario;
+  const measurementSources = await measurementSourceDigests();
   const url = new URL(base);
   const metadata = await welcome(url);
-  const initial = (await readHealth(url)).health;
+  const initialRead = await readHealth(url);
+  const initial = initialRead.health;
   if (!initial.nativeBuildIdentifier.includes(`+${sourceRevision.slice(0, 12)}.`)) {
     throw new Error('running addon does not identify the requested source revision');
   }
   assertWorkload(metadata, initial, scenario, workers);
-  const started = performance.now();
+  const started = initialRead.afterMs;
   const startedAtUtc = new Date().toISOString();
-  const transitions: Array<{ generation: string; wallSeconds: number }> = [];
+  const transitions: Array<GenerationPublication & { wallSeconds: number }> = [];
   const observationFailures: Array<{ wallSeconds: number; error: string }> = [];
   const latencies: number[] = [];
   const resourceSamples: Array<{ wallSeconds: number; rssBytes: number; heapUsedBytes: number;
+    beforeMs: number; afterMs: number;
     externalBytes: number; trainerAppliedActions: number;
     generation: string; nativeQueues: RustQueueDiagnostics; outbound: Health['outbound']; storage: Health['storage'];
     automaticStoredBytes: string; automaticByteCap: string }> = [];
-  /** Keep actual resident memory, output occupancy and durable bytes at the same boundary. */
-  const recordResources = (health: Health, wallSeconds: number): void => {
+  /** Retain the resource diagnostics and clock brackets from one health observation. */
+  const recordResources = (read: Awaited<ReturnType<typeof readHealth>>, wallSeconds: number): void => {
+    const health = read.health;
     resourceSamples.push({ wallSeconds, rssBytes: health.telemetry.process.rssBytes,
+      beforeMs: read.beforeMs, afterMs: read.afterMs,
       heapUsedBytes: health.telemetry.process.heapUsedBytes, externalBytes: health.telemetry.process.externalBytes,
       trainerAppliedActions: health.telemetry.controllerActivity.trainer.appliedActions,
       generation: health.generation, nativeQueues: health.nativeQueues, outbound: health.outbound, storage: health.storage,
       automaticStoredBytes: counter(health.retention.automaticStoredByteCount).toString(),
       automaticByteCap: counter(health.retention.automaticByteCap).toString() });
   };
-  recordResources(initial, 0);
+  recordResources(initialRead, 0);
+  let finalRead = initialRead;
   let final = initial;
   let previous = initial;
+  let previousRead = initialRead;
   let overloaded = initial.schedulerOverloaded;
   let failure: string | undefined;
   let nextProgress = 30;
@@ -155,6 +175,7 @@ async function run(): Promise<void> {
         if (observationFailures.length >= 3) throw new Error('three health observation failures');
         continue;
       }
+      finalRead = sample;
       final = sample.health;
       latencies.push(sample.latencyMs);
       if (final.runId !== initial.runId ||
@@ -167,46 +188,67 @@ async function run(): Promise<void> {
         throw new Error('authority identity changed or a monotonic counter regressed');
       }
       overloaded ||= final.schedulerOverloaded;
-      const elapsed = (performance.now() - started) / 1000;
-      if (final.generation !== previous.generation) transitions.push({ generation: final.generation, wallSeconds: elapsed });
+      const elapsed = (sample.afterMs - started) / 1000;
+      const publication = generationPublication(
+        { ...previousRead, generation: previous.generation },
+        { ...sample, generation: final.generation });
+      if (publication) transitions.push({ ...publication, wallSeconds: elapsed });
       previous = final;
+      previousRead = sample;
       if (elapsed >= nextProgress) {
-        recordResources(final, elapsed);
+        recordResources(sample, elapsed);
         process.stderr.write(`elapsed=${elapsed.toFixed(1)}s generation=${counter(final.generation)} p99=${final.telemetry.step.p99Ms}ms dropped=${counter(final.schedulerDroppedWallMicros)} rssMiB=${(final.telemetry.process.rssBytes / 1024 ** 2).toFixed(1)} trainerActions=${final.telemetry.controllerActivity.trainer.appliedActions}\n`);
         nextProgress += 30;
       }
-    } while ((performance.now() - started) / 1000 < seconds);
+    } while ((finalRead.beforeMs - started) / 1000 < seconds);
   } catch (error) { failure = String(error); }
-  const wallSeconds = (performance.now() - started) / 1000;
-  if (wallSeconds - resourceSamples.at(-1)!.wallSeconds >= 1) recordResources(final, wallSeconds);
-  else resourceSamples.at(-1)!.wallSeconds = wallSeconds;
-  const memorySoak = seconds >= 1800 && wallSeconds >= 1800 ? summarizeRssSoak(resourceSamples) : undefined;
+  let progressWindow: ReturnType<typeof counterWindow> | undefined;
+  try { progressWindow = counterWindow(
+    { ...initialRead, completedStep: initial.completedStep },
+    { ...finalRead, completedStep: final.completedStep }); }
+  catch (error) { failure ??= String(error); }
+  const wallSeconds = progressWindow?.maximumWallSeconds ?? 0;
+  if (JSON.stringify(await measurementSourceDigests()) !== JSON.stringify(measurementSources)) {
+    failure ??= 'measurement source changed during the window';
+  }
+  const finalObservationSeconds = (finalRead.afterMs - started) / 1000;
+  if (finalObservationSeconds > resourceSamples.at(-1)!.wallSeconds) recordResources(finalRead, finalObservationSeconds);
+  let memorySoak: ReturnType<typeof summarizeRssSoak> | undefined;
+  try { if (seconds >= 1800 && progressWindow && progressWindow.minimumWallSeconds >= 1800) {
+    memorySoak = summarizeRssSoak(resourceSamples);
+  } } catch (error) { failure ??= String(error); }
   let queueSoak: ReturnType<typeof summarizeQueueSoak> | undefined;
   try { queueSoak = summarizeQueueSoak(resourceSamples); }
   catch (error) { failure ??= String(error); }
   const deltaSteps = counter(final.completedStep) - counter(initial.completedStep);
   const dropped = counter(final.schedulerDroppedWallMicros) - counter(initial.schedulerDroppedWallMicros);
-  const ratio = Number(deltaSteps) / 60 / wallSeconds;
-  const intervals = transitions.slice(1).map((item, index) => item.wallSeconds - transitions[index]!.wallSeconds);
+  const ratio = progressWindow?.minimumSimulatedWallRatio ?? 0;
+  const intervals = transitions.slice(1).map((item, index) => generationInterval(transitions[index]!, item));
   const trainerActions = final.telemetry.controllerActivity.trainer.appliedActions - initial.telemetry.controllerActivity.trainer.appliedActions;
   const timing = final.telemetry;
   const healthLatencyP95Ms = latencies.length ? percentile(latencies, 0.95) : null;
-  const meetsMeasuredGates = !failure && wallSeconds >= seconds && ratio >= 0.98 && dropped === 0n &&
-    !overloaded && (scenario === 'P2' || timing.step.p99Ms <= 16.667) && intervals.length > 0 && intervals.every(value => value <= 62) &&
+  const meetsMeasuredGates = !failure && progressWindow !== undefined && progressWindow.minimumWallSeconds >= seconds && ratio >= 0.98 && dropped === 0n &&
+    !overloaded && (scenario === 'P2' || timing.step.p99Ms <= 16.667) && intervals.length > 0 && intervals.every(value => value.maximumSeconds <= 62) &&
     timing.checkpointBarrier.samples > 0 && timing.checkpointBarrier.p95Ms <= 1000 && timing.checkpointBarrier.maxMs <= 2000 &&
     timing.process.eventLoopDelayP95Ms <= 20 && timing.process.eventLoopDelayP99Ms <= 50 &&
     healthLatencyP95Ms !== null && healthLatencyP95Ms <= 100 &&
     timing.process.maxRssBytes < 12 * 1024 ** 3 &&
     trainerActions > 0 && timing.trainerAction.p95Ms <= 100 &&
     (seconds < 1800 || memorySoak?.meetsMemoryGate === true) && queueSoak?.meetsQueueGate === true;
-  const report = { scenario, rustWorkers: workers, sourceRevision, startedAtUtc, requestedSeconds: seconds, wallSeconds,
+  const report = { scenario, rustWorkers: workers, sourceRevision, measurementSources,
+    startedAtUtc, requestedSeconds: seconds, wallSeconds,
     measuredScope: 'Production server with two independent real PyRL actors; connected-player timings are server receipt-to-application measurements. Browser rendering requires separate evidence.',
     histogramScope: 'Native and interface histograms cover this server process lifetime, including pre-window trainer warm-up.',
+    clockScope: 'Counter clocks bracket the complete initial/final HTTP reads. Acceptance uses the longest possible duration and lowest possible progress; minimum duration must cover the request. Generation intervals use last-old/first-new request brackets. Resource timestamps are response-receipt offsets from the initial reply; request brackets bound the health observations, not internal diagnostic sampling times. No sample is retimed after a failure or sampler shutdown.',
+    counterClockBrackets: { initial: { beforeMs: initialRead.beforeMs, afterMs: initialRead.afterMs },
+      final: { beforeMs: finalRead.beforeMs, afterMs: finalRead.afterMs } }, progressWindow,
     healthLatencyScope: 'Sampler-to-server route; loopback only if URL is loopback.',
     workloadWelcome: metadata, initialHealth: initial, finalHealth: final,
     deltaSteps: deltaSteps.toString(), simulatedWallRatio: ratio, droppedWallMicros: dropped.toString(),
     overloadedDuringSamples: overloaded, trainerAppliedActionsDelta: trainerActions,
-    transitions, generationIntervalsSeconds: intervals, observationFailures, resourceSamples, memorySoak, queueSoak,
+    transitions, generationIntervalBounds: intervals,
+    generationIntervalsSeconds: intervals.map(interval => interval.maximumSeconds),
+    observationFailures, resourceSamples, memorySoak, queueSoak,
     healthLatencyP95Ms,
     healthLatencyMaxMs: latencies.length ? Math.max(...latencies) : null,
     failure, meetsMeasuredGates };

@@ -14,6 +14,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/stage6/frameV1Fixture.test.ts',
     'scripts/stage7/rss-soak-summary.test.ts',
     'scripts/stage7/archive-overlap-summary.test.ts',
+    'scripts/stage7/generation-window-summary.test.ts',
     'scripts/stage7/dense-world-capacity.test.ts',
     'scripts/stage7/queue-soak-summary.test.ts',
     'scripts/stage7/turn-response-marker.test.ts',

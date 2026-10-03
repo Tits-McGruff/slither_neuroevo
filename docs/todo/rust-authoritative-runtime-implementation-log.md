@@ -2437,3 +2437,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   the combined checks for this P2 window; later evolved/soak, remaining
   P0/P1, browser/memory/compatibility/LAN/trainer and final Stage 7/8 gates
   remain open.
+
+- 2026-10-04 The ordinary P0/P1/P2 and trainer-loaded/soak samplers now use
+  the same conservative completed-step clock bounds as the overlap runner.
+  Final reads begin after the requested duration, and ordinary acceptance
+  requires at least 600 seconds with no sampled overload or discarded time.
+  Consecutive generation observations retain last-old/first-new publication
+  brackets; interval checks use the longest permitted duration and reject
+  missed generations. Soak resource samples keep their actual response times
+  and observation brackets instead of being retimed at shutdown or failure.
+  The loaded report identifies its sampler/summary bytes and rejects edits
+  during a window. Five new generation-clock tests and 21 existing clock,
+  memory, queue, manifest and native-identity checks pass; script type/lint
+  checks pass. A real evolved P0 three-second operational smoke completes
+  193 steps with zero debt and correctly leaves its acceptance flag false.
+  Both smoke servers are closed and the exact task-owned fixture is removed.
+  No engine behavior changes; prior Rust and continuation evidence remains
+  applicable. P0/P1 target windows, later evolved/soak and remaining Stage 7/8
+  acceptance gates remain open.
