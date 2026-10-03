@@ -264,6 +264,10 @@ export interface RustBackgroundHealth {
   terminalStepPreparationMicros: RustBackgroundIdentity;
   /** Serial evolution within preparation; this is a subset of preparation time. */
   terminalStepEvolutionMicros: RustBackgroundIdentity;
+  /** Statistics/species scan within evolution, disjoint from reproduction. */
+  terminalStepEvolutionSummaryMicros: RustBackgroundIdentity;
+  /** Elite copying and breeding/mutation within evolution. */
+  terminalStepEvolutionReproductionMicros: RustBackgroundIdentity;
   /** Successor admission and validation before the transition announcement. */
   terminalStepAdmissionMicros: RustBackgroundIdentity;
   /** Remaining terminal computation after bounding disjoint coarse costs. */

@@ -158,6 +158,10 @@ pub struct RunningAuthorityHealth {
     pub terminal_step_preparation_micros: u64,
     /// Serial evolution within successor preparation; do not add it to preparation again.
     pub terminal_step_evolution_micros: u64,
+    /// Statistics/species scan within evolution, disjoint from reproduction.
+    pub terminal_step_evolution_summary_micros: u64,
+    /// Elite copying and breeding/mutation within evolution.
+    pub terminal_step_evolution_reproduction_micros: u64,
     /// Full successor admission and validation before announcing the transition.
     pub terminal_step_admission_micros: u64,
     /// Unattributed terminal computation after bounding all disjoint coarse costs.
@@ -202,6 +206,8 @@ pub(crate) struct RunningAuthorityMetrics {
     terminal_step_world_micros: AtomicU64,
     terminal_step_preparation_micros: AtomicU64,
     terminal_step_evolution_micros: AtomicU64,
+    terminal_step_evolution_summary_micros: AtomicU64,
+    terminal_step_evolution_reproduction_micros: AtomicU64,
     terminal_step_admission_micros: AtomicU64,
     terminal_step_other_micros: AtomicU64,
 }
@@ -248,6 +254,8 @@ impl RunningAuthorityMetrics {
             terminal_step_world_micros: AtomicU64::new(0),
             terminal_step_preparation_micros: AtomicU64::new(0),
             terminal_step_evolution_micros: AtomicU64::new(0),
+            terminal_step_evolution_summary_micros: AtomicU64::new(0),
+            terminal_step_evolution_reproduction_micros: AtomicU64::new(0),
             terminal_step_admission_micros: AtomicU64::new(0),
             terminal_step_other_micros: AtomicU64::new(0),
         }
@@ -354,6 +362,10 @@ impl RunningAuthorityMetrics {
         let world = cost.world_step.min(micros - control);
         let preparation = cost.generation_preparation.min(micros - control - world);
         let evolution = cost.generation_evolution.min(preparation);
+        let summary = cost.generation_evolution_summary.min(evolution);
+        let reproduction = cost
+            .generation_evolution_reproduction
+            .min(evolution - summary);
         let admission = cost
             .generation_admission
             .min(micros - control - world - preparation);
@@ -362,6 +374,11 @@ impl RunningAuthorityMetrics {
         saturating_increment(&self.terminal_step_world_micros, world);
         saturating_increment(&self.terminal_step_preparation_micros, preparation);
         saturating_increment(&self.terminal_step_evolution_micros, evolution);
+        saturating_increment(&self.terminal_step_evolution_summary_micros, summary);
+        saturating_increment(
+            &self.terminal_step_evolution_reproduction_micros,
+            reproduction,
+        );
         saturating_increment(&self.terminal_step_admission_micros, admission);
         saturating_increment(
             &self.terminal_step_other_micros,
@@ -455,6 +472,12 @@ impl RunningAuthorityMetrics {
                 .load(Ordering::Relaxed),
             terminal_step_evolution_micros: self
                 .terminal_step_evolution_micros
+                .load(Ordering::Relaxed),
+            terminal_step_evolution_summary_micros: self
+                .terminal_step_evolution_summary_micros
+                .load(Ordering::Relaxed),
+            terminal_step_evolution_reproduction_micros: self
+                .terminal_step_evolution_reproduction_micros
                 .load(Ordering::Relaxed),
             terminal_step_admission_micros: self
                 .terminal_step_admission_micros
@@ -1669,6 +1692,8 @@ mod tests {
             world_step: 8_000,
             generation_preparation: 20_000,
             generation_evolution: 17_000,
+            generation_evolution_summary: 6_000,
+            generation_evolution_reproduction: 10_000,
             generation_admission: 10_000,
             ..RunningStepCostMicros::default()
         };
@@ -1682,6 +1707,8 @@ mod tests {
                 world_step: 2_000,
                 generation_preparation: 20_000,
                 generation_evolution: u64::MAX,
+                generation_evolution_summary: 4_000,
+                generation_evolution_reproduction: u64::MAX,
                 generation_admission: u64::MAX,
                 ..RunningStepCostMicros::default()
             },
@@ -1696,6 +1723,8 @@ mod tests {
         assert_eq!(health.terminal_step_world_micros, 10_000);
         assert_eq!(health.terminal_step_preparation_micros, 35_000);
         assert_eq!(health.terminal_step_evolution_micros, 32_000);
+        assert_eq!(health.terminal_step_evolution_summary_micros, 10_000);
+        assert_eq!(health.terminal_step_evolution_reproduction_micros, 21_000);
         assert_eq!(health.terminal_step_admission_micros, 10_000);
         assert_eq!(health.terminal_step_other_micros, 5_000);
         metrics
@@ -1703,6 +1732,16 @@ mod tests {
             .store(u64::MAX - 1, Ordering::Relaxed);
         metrics.record_terminal_step_duration(Duration::from_micros(2), cost);
         assert_eq!(metrics.snapshot().terminal_step_total_micros, u64::MAX);
+        metrics
+            .terminal_step_evolution_summary_micros
+            .store(u64::MAX - 1, Ordering::Relaxed);
+        metrics
+            .terminal_step_evolution_reproduction_micros
+            .store(u64::MAX - 1, Ordering::Relaxed);
+        metrics.record_terminal_step_duration(Duration::from_micros(50_000), cost);
+        let health = metrics.snapshot();
+        assert_eq!(health.terminal_step_evolution_summary_micros, u64::MAX);
+        assert_eq!(health.terminal_step_evolution_reproduction_micros, u64::MAX);
     }
 
     /// Resume the existing connected-controller fixture into a normal generation.

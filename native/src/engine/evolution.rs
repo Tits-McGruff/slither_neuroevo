@@ -224,6 +224,15 @@ pub struct HallOfFameCandidate {
     pub length: usize,
 }
 
+/// Disjoint diagnostic phases inside serial evolution, never checkpoint state.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct EvolutionCostMicros {
+    /// Weight statistics and greedy species classification.
+    pub summary: u64,
+    /// Elite copying, tournament selection, crossover and mutation.
+    pub reproduction: u64,
+}
+
 /// Complete non-authoritative evolution result.
 #[derive(Debug)]
 pub struct PreparedEvolution<'source> {
@@ -239,6 +248,8 @@ pub struct PreparedEvolution<'source> {
     hall_of_fame: HallOfFameCandidate,
     next_evolution_rng: SerializedRngState,
     next_best_fitness_ever: f64,
+    /// Allocation-free phase clocks, excluded from durable transition parts.
+    cost_micros: EvolutionCostMicros,
 }
 
 /// Owned evolution values moved into the durable generation-boundary builder.
@@ -255,6 +266,11 @@ pub(crate) struct EvolutionTransitionParts<'source> {
 }
 
 impl<'source> PreparedEvolution<'source> {
+    /// Read disjoint evolution costs before consuming the prepared population.
+    pub(crate) const fn cost_micros(&self) -> EvolutionCostMicros {
+        self.cost_micros
+    }
+
     /// Read the exact retained source world.
     #[must_use]
     pub const fn source_world(&self) -> &'source WorldState {
@@ -463,12 +479,14 @@ pub fn prepare_evolution<'source>(
             .then_with(|| left.cmp(right))
     });
 
+    let summary_started = std::time::Instant::now();
     let summary = calculate_summary(
         population,
         &sorted_source_slots,
         &source_fitness,
         source_generation,
     )?;
+    let summary_micros = u64::try_from(summary_started.elapsed().as_micros()).unwrap_or(u64::MAX);
     let best_source_slot = sorted_source_slots[0];
     let best_snake = &world.snakes[snake_indices[best_source_slot]];
     let hall_of_fame = HallOfFameCandidate {
@@ -484,6 +502,7 @@ pub fn prepare_evolution<'source>(
         length: best_snake.body.len,
     };
 
+    let reproduction_started = std::time::Instant::now();
     let mut rng = StatefulRng::from_state(evolution_rng)?;
     let elite_count = ((config.elite_fraction * count as f64).floor() as usize)
         .max(1)
@@ -535,6 +554,8 @@ pub fn prepare_evolution<'source>(
         advance_work_progress(completed_weight_bytes);
     }
 
+    let reproduction_micros =
+        u64::try_from(reproduction_started.elapsed().as_micros()).unwrap_or(u64::MAX);
     Ok(PreparedEvolution {
         source_world: world,
         source_population: population,
@@ -548,6 +569,10 @@ pub fn prepare_evolution<'source>(
         hall_of_fame,
         next_evolution_rng: rng.export_state(),
         next_best_fitness_ever: source_best_fitness_ever.max(summary.best),
+        cost_micros: EvolutionCostMicros {
+            summary: summary_micros,
+            reproduction: reproduction_micros,
+        },
     })
 }
 

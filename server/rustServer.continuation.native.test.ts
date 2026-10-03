@@ -156,6 +156,10 @@ describeNetworkSuite('Rust archive exact continuation', () => {
         expect(terminalCounter('terminalStepEvolutionMicros')).toBeLessThanOrEqual(
           terminalCounter('terminalStepPreparationMicros')
         );
+        expect(terminalCounter('terminalStepEvolutionSummaryMicros') +
+          terminalCounter('terminalStepEvolutionReproductionMicros')).toBeLessThanOrEqual(
+          terminalCounter('terminalStepEvolutionMicros')
+        );
         expect(['Control', 'World', 'Preparation', 'Admission', 'Other'].reduce(
           (sum, phase) => sum + terminalCounter(`terminalStep${phase}Micros`), 0n
         )).toBe(terminalTotal);

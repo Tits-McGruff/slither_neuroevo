@@ -547,6 +547,8 @@ pub struct Stage6BackgroundGenerationHealth {
     pub terminal_step_world_micros: String,
     pub terminal_step_preparation_micros: String,
     pub terminal_step_evolution_micros: String,
+    pub terminal_step_evolution_summary_micros: String,
+    pub terminal_step_evolution_reproduction_micros: String,
     pub terminal_step_admission_micros: String,
     pub terminal_step_other_micros: String,
     pub fault_code: Option<String>,
@@ -3761,6 +3763,12 @@ pub(crate) fn background_generation_health_to_napi(
         terminal_step_world_micros: u64_hex(running.terminal_step_world_micros),
         terminal_step_preparation_micros: u64_hex(running.terminal_step_preparation_micros),
         terminal_step_evolution_micros: u64_hex(running.terminal_step_evolution_micros),
+        terminal_step_evolution_summary_micros: u64_hex(
+            running.terminal_step_evolution_summary_micros,
+        ),
+        terminal_step_evolution_reproduction_micros: u64_hex(
+            running.terminal_step_evolution_reproduction_micros,
+        ),
         terminal_step_admission_micros: u64_hex(running.terminal_step_admission_micros),
         terminal_step_other_micros: u64_hex(running.terminal_step_other_micros),
         fault_code: health

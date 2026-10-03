@@ -106,12 +106,21 @@ pub struct PreparedGenerationBoundary {
     metadata: PreparedGenerationMetadata,
     /// Serial evolution duration; diagnostic only and never persisted in the candidate.
     evolution_micros: u64,
+    /// Disjoint evolution phases, excluded from candidate and checkpoint metadata.
+    evolution_cost_micros: crate::engine::evolution::EvolutionCostMicros,
 }
 
 impl PreparedGenerationBoundary {
     /// Read the measured serial evolution cost before consuming this candidate.
     pub(crate) const fn evolution_micros(&self) -> u64 {
         self.evolution_micros
+    }
+
+    /// Read nested diagnostic phases before consuming this boundary.
+    pub(crate) const fn evolution_cost_micros(
+        &self,
+    ) -> crate::engine::evolution::EvolutionCostMicros {
+        self.evolution_cost_micros
     }
 
     /// Inspect the exact pre-spawn candidate before ownership/checkpoint admission.
@@ -572,6 +581,7 @@ pub fn prepare_generation_boundary(
     )?;
     let evolution_micros =
         u64::try_from(evolution_started.elapsed().as_micros()).unwrap_or(u64::MAX);
+    let evolution_cost_micros = prepared.cost_micros();
     let parts = prepared.into_transition_parts();
 
     let next_generation = source.generation.generation.checked_add(1).ok_or(
@@ -733,6 +743,7 @@ pub fn prepare_generation_boundary(
         candidate,
         metadata,
         evolution_micros,
+        evolution_cost_micros,
     })
 }
 

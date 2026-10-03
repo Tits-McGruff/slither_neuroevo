@@ -80,6 +80,10 @@ pub(crate) struct RunningStepCostMicros {
     pub world_step: u64,
     pub generation_preparation: u64,
     pub generation_evolution: u64,
+    /// Weight statistics and species classification inside evolution.
+    pub generation_evolution_summary: u64,
+    /// Elite copying and breeding/mutation inside evolution.
+    pub generation_evolution_reproduction: u64,
     pub generation_admission: u64,
 }
 
@@ -821,6 +825,9 @@ impl RunningStepCoordinator {
                 self.last_step_cost.generation_preparation =
                     u64::try_from(preparation_started.elapsed().as_micros()).unwrap_or(u64::MAX);
                 self.last_step_cost.generation_evolution = next.evolution_micros();
+                let evolution_cost = next.evolution_cost_micros();
+                self.last_step_cost.generation_evolution_summary = evolution_cost.summary;
+                self.last_step_cost.generation_evolution_reproduction = evolution_cost.reproduction;
                 let admission_started = Instant::now();
                 let boundary = admit_prepared_generation_boundary(authority, key, next)?;
                 self.last_step_cost.generation_admission =

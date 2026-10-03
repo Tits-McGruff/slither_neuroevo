@@ -30,6 +30,8 @@ function health(completedStep: number): RustBackgroundHealth {
     terminalStepWorldMicros: hex(0),
     terminalStepPreparationMicros: hex(0),
     terminalStepEvolutionMicros: hex(0),
+    terminalStepEvolutionSummaryMicros: hex(0),
+    terminalStepEvolutionReproductionMicros: hex(0),
     terminalStepAdmissionMicros: hex(0),
     terminalStepOtherMicros: hex(0),
   };

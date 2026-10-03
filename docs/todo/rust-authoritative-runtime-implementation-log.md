@@ -2331,3 +2331,23 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Next separate evolution's statistic/species and reproduction costs before
   further optimization; remaining browser, memory, compatibility, LAN/trainer
   and final Stage 7/8 gates stay open.
+
+- 2026-10-04 Production terminal health now separates statistics/species
+  scanning from elite copying and breeding/mutation inside serial evolution.
+  These bounded clocks never enter checkpoint data; nested bounds and counter
+  saturation are checked. The 531-test feature Rust suite, three benchmark
+  contract tests, doctest, rustfmt, all-target/all-feature Clippy, TypeScript,
+  ESLint, source identity, telemetry projection and real one/four/five/six-worker
+  durable-boundary continuation on Windows/Linux pass. A short five-worker
+  P2 diagnostic proves three actual checkpoint/export overlaps over
+  186.33 measured seconds. Mean terminal computation is 476.32 ms; evolution
+  is 454.27 ms, containing 195.80 ms statistics/species scanning and
+  243.90 ms reproduction, with 14.57 ms remaining validation/fitness/sorting
+  and other evolution work. Persistence-barrier p95/max is 848.18 ms, dropped
+  wall time is zero and simulated/wall progress is 0.978483. This is attribution,
+  not a ten-minute acceptance pass. Evidence and paired point context are
+  `evidence/stage7/oxygen-ryzen2700/*evolution-profile-55160bf-20261004.json`.
+  The retained report digest matches; the stopped task-owned Oxygen checkout,
+  fixtures, dependencies/cache and generated builds are removed. Both scanning
+  and reproduction are substantial optimization targets. The full target-VM
+  performance and remaining Stage 7/8 acceptance gates stay open.
