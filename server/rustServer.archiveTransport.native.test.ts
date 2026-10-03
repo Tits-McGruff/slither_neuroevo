@@ -22,6 +22,8 @@ import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceC
 import { loadExperimentalFreshRunSession } from './rustEngine/experimentalFreshRunSession.ts';
 import * as freshRunSessions from './rustEngine/experimentalFreshRunSession.ts';
 import { buildLargeBrainGraph } from '../scripts/stage2/fixtures.ts';
+import { compileGraph } from '../src/brains/graph/compiler.ts';
+import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from './rustEngine/diskAdmission.ts';
 import * as diskAdmission from './rustEngine/diskAdmission.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
@@ -77,7 +79,7 @@ async function files(directory: string): Promise<Fixture['files']> {
 }
 
 /** Read every Rust metadata table through a task-owned read-only SQLite connection. */
-function metadata(path: string): unknown {
+function metadata(path: string): Array<{ name: string; rows: unknown[] }> {
   const database = new Database(path, { readonly: true });
   try {
     const tables = database.prepare(`SELECT name FROM sqlite_master
@@ -250,6 +252,200 @@ function archiveHeaderChecksum(bytes: Buffer, header: number): void {
   bytes.fill(0x20, header + 148, header + 156);
   const checksum = bytes.subarray(header, header + 512).reduce((sum, byte) => sum + byte, 0);
   bytes.write(checksum.toString(8).padStart(6, '0') + '\0 ', header + 148, 8, 'ascii');
+}
+
+/** Manifest fields needed to independently rehash a small semantic failure fixture. */
+interface SemanticRole {
+  /** Ordered logical role name. */
+  role: string;
+  /** Stored role codec; these fixtures change raw binary roles only. */
+  encoding: string;
+  /** Exact stored length as a fixed-width unsigned hexadecimal value. */
+  storedBytesHex: string;
+  /** Exact logical length with the same fixed-width encoding. */
+  decodedBytesHex: string;
+  /** Hash of the decoded role bytes. */
+  logicalSha256: string;
+}
+
+/** Selected manifest fields; JSON parsing retains all other production fields. */
+interface SemanticManifest {
+  /** Save root over all eight ordered roles. */
+  logicalRootSha256: string;
+  /** Nested checkpoint root referenced by the save. */
+  checkpointLogicalRootSha256: string;
+  /** Complete ordered save roles. */
+  roles: SemanticRole[];
+  /** Complete nested manifest, retaining unchanged configuration/layout/counts. */
+  checkpointManifest: {
+    /** Root over the five checkpoint roles. */
+    logicalRootSha256: string;
+    /** Total stored bytes across those roles. */
+    roleStoredBytesHex: string;
+    /** Total decoded bytes across those roles. */
+    roleDecodedBytesHex: string;
+    /** Mirrored checkpoint roles. */
+    roles: SemanticRole[];
+  };
+}
+
+/** Independently implement the published ordered-role digest, checked against real exports. */
+function semanticRoot(domain: string, roles: SemanticRole[]): string {
+  const hash = createHash('sha256').update(domain);
+  const count = Buffer.alloc(4);
+  count.writeUInt32LE(roles.length);
+  hash.update(count);
+  for (const role of roles) {
+    const name = Buffer.from(role.role);
+    const nameLength = Buffer.alloc(2);
+    nameLength.writeUInt16LE(name.byteLength);
+    const logicalLength = Buffer.alloc(8);
+    logicalLength.writeBigUInt64LE(BigInt(`0x${role.decodedBytesHex}`));
+    hash.update(nameLength).update(name).update(logicalLength).update(Buffer.from(role.logicalSha256, 'hex'));
+  }
+  return hash.digest('hex');
+}
+
+/** Repack a canonical small save with honest hashes, lengths and both logical roots. */
+function semanticArchive(archive: Buffer, roleIndex?: number, changed?: Buffer): Buffer {
+  const entries = archiveEntries(archive);
+  const bodies: Buffer[] = entries.map(entry => Buffer.from(archive.subarray(entry.data, entry.data + entry.size)));
+  const manifest = JSON.parse(bodies[8]!.toString()) as SemanticManifest;
+  const checkpointDomain = 'slither-neuroevo-logical-checkpoint-root\0v1\0';
+  const saveDomain = 'slither-neuroevo-save-root\0v1\0';
+  expect(semanticRoot(checkpointDomain, manifest.checkpointManifest.roles)).toBe(manifest.checkpointLogicalRootSha256);
+  expect(semanticRoot(saveDomain, manifest.roles)).toBe(manifest.logicalRootSha256);
+  if (roleIndex !== undefined) {
+    expect(changed).toBeDefined();
+    expect(manifest.roles[roleIndex]!.encoding).toBe('raw-binary-v1');
+    bodies[roleIndex] = changed!;
+    const role = manifest.roles[roleIndex]!;
+    role.storedBytesHex = changed!.byteLength.toString(16).padStart(16, '0');
+    role.decodedBytesHex = role.storedBytesHex;
+    role.logicalSha256 = createHash('sha256').update(changed!).digest('hex');
+    manifest.checkpointManifest.roles[roleIndex] = { ...role };
+  }
+  for (const [field, roleField] of [['roleStoredBytesHex', 'storedBytesHex'],
+    ['roleDecodedBytesHex', 'decodedBytesHex']] as const) {
+    manifest.checkpointManifest[field] = manifest.checkpointManifest.roles.reduce((sum, role) =>
+      sum + BigInt(`0x${role[roleField]}`), 0n).toString(16).padStart(16, '0');
+  }
+  manifest.checkpointManifest.logicalRootSha256 = semanticRoot(checkpointDomain, manifest.checkpointManifest.roles);
+  manifest.checkpointLogicalRootSha256 = manifest.checkpointManifest.logicalRootSha256;
+  manifest.logicalRootSha256 = semanticRoot(saveDomain, manifest.roles);
+  bodies[8] = Buffer.from(JSON.stringify(manifest));
+  const chunks: Buffer[] = [];
+  for (const [index, body] of bodies.entries()) {
+    const header = Buffer.from(archive.subarray(entries[index]!.header, entries[index]!.data));
+    header.write(body.byteLength.toString(8).padStart(11, '0') + '\0', 124, 12, 'ascii');
+    archiveHeaderChecksum(header, 0);
+    chunks.push(header, body, Buffer.alloc((512 - body.byteLength % 512) % 512));
+  }
+  chunks.push(Buffer.alloc(1024));
+  return Buffer.concat(chunks);
+}
+
+/** Change actual Concat input ordering while retaining the encoded original compiled identity. */
+function reversedConcatRole(role: Buffer): Buffer {
+  const changed = Buffer.from(role);
+  /** Encode the checkpoint's length-prefixed UTF-8 node identifier. */
+  const text = (value: string): Buffer => {
+    const bytes = Buffer.from(value);
+    const size = Buffer.alloc(4);
+    size.writeUInt32LE(bytes.byteLength);
+    return Buffer.concat([size, bytes]);
+  };
+  for (const port of [0n, 1n]) {
+    const ports = Buffer.alloc(18);
+    ports[0] = 1;
+    ports[9] = 1;
+    ports.writeBigInt64LE(port, 1);
+    ports.writeBigInt64LE(port, 10);
+    const edge = Buffer.concat([text('split'), text('concat'), ports]);
+    const offset = changed.indexOf(edge);
+    expect(offset).toBeGreaterThanOrEqual(0);
+    expect(changed.indexOf(edge, offset + 1)).toBe(-1);
+    changed.writeBigInt64LE(1n - port, offset + edge.byteLength - 8);
+  }
+  return changed;
+}
+
+/** Valid equal-total-width graphs whose explicit merge order changes their weight interpretation. */
+function orderingGraph(reversed = false): GraphSpec {
+  return {
+    type: 'graph',
+    nodes: [{ id: 'input', type: 'Input', outputSize: 83 },
+      { id: 'split', type: 'Split', outputSizes: [41, 42] }, { id: 'concat', type: 'Concat' },
+      { id: 'head', type: 'Dense', inputSize: 83, outputSize: 2 }],
+    edges: [{ from: 'input', to: 'split', fromPort: 0 },
+      { from: 'split', to: 'concat', fromPort: 0, toPort: reversed ? 1 : 0 },
+      { from: 'split', to: 'concat', fromPort: 1, toPort: reversed ? 0 : 1 },
+      { from: 'concat', to: 'head', fromPort: 0 }],
+    outputs: [{ nodeId: 'head', port: 0 }], outputSize: 2
+  };
+}
+
+/** Admit a real Split/Concat checkpoint and prove the independent repacker's valid control imports. */
+async function orderingFixture(fixture: Fixture): Promise<void> {
+  const viewer = new WebSocket(`ws://127.0.0.1:${fixture.server.port}`);
+  fixture.peers.add(viewer);
+  await slow(viewer);
+  const reset = new Promise<void>((done, reject) => viewer.on('message', (bytes, binary) => {
+    if (binary) return;
+    const packet = JSON.parse(bytes.toString()) as Record<string, unknown>;
+    if (packet['type'] === 'error') reject(new Error(String(packet['message'])));
+    if (packet['type'] === 'stateReplaced' && packet['reason'] === 'reset') done();
+  }));
+  viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 12 },
+    updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 },
+      { path: 'pelletCountTarget', value: 100 }],
+    graphSpec: orderingGraph() }));
+  await bounded(reset, 'ordering fixture reset did not commit');
+  viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+  const rejoined = new Promise<Buffer>(done => viewer.once('pong', done));
+  viewer.ping('ordering-fixture-rejoin');
+  expect((await bounded(rejoined, 'ordering fixture rejoin was not received')).toString()).toBe('ordering-fixture-rejoin');
+  const deadline = performance.now() + 5000;
+  let generation = 1n;
+  while (generation < 2n && performance.now() < deadline) {
+    const current = await health(fixture.server);
+    expect(current['ok']).toBe(true);
+    generation = BigInt(`0x${current['generation'] as string}`);
+    if (generation < 2n) await new Promise<void>(done => setTimeout(done, 10));
+  }
+  expect(generation).toBeGreaterThanOrEqual(2n);
+  const slowed = new Promise<void>((done, reject) => viewer.on('message', (bytes, binary) => {
+    if (binary) return;
+    const packet = JSON.parse(bytes.toString()) as Record<string, unknown>;
+    if (packet['type'] === 'error') reject(new Error(String(packet['message'])));
+    if (packet['type'] === 'settingsApplied' && packet['requestId'] === 'ordering-fixture-speed') {
+      if (packet['applied'] === true) done();
+      else reject(new Error('ordering fixture speed was rejected'));
+    }
+  }));
+  viewer.send(JSON.stringify({ type: 'settings', requestId: 'ordering-fixture-speed',
+    updates: [{ path: 'simSpeed', value: 0.1 }] }));
+  await bounded(slowed, 'ordering fixture did not slow after evolution');
+  viewer.terminate();
+  const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
+  expect(response.status).toBe(200);
+  fixture.archive = Buffer.from(await response.arrayBuffer());
+  expect(fixture.archive.byteLength).toBeLessThan(4 * 1024 * 1024);
+  await noTransferScratch(fixture.managedDirectory);
+  const repacked = semanticArchive(fixture.archive);
+  const imported = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`,
+    { method: 'POST', body: new Uint8Array(repacked), signal: AbortSignal.timeout(5000) });
+  expect(imported.status, await imported.clone().text()).toBe(200);
+  expect(await imported.json()).toMatchObject({ ok: true, branched: false });
+  await noTransferScratch(fixture.managedDirectory);
+  const current = await health(fixture.server);
+  fixture.identity = Object.fromEntries(Object.keys(fixture.identity).map(key => [key, current[key]]));
+  const rows = metadata(fixture.databasePath);
+  expect(rows.find(table => table.name === 'rust_generation_history_v1')!.rows.length).toBeGreaterThan(0);
+  expect(rows.find(table => table.name === 'rust_hall_of_fame_v1')!.rows.length).toBeGreaterThan(0);
+  fixture.metadata = rows;
+  fixture.files = await files(fixture.managedDirectory);
+  expect(fixture.files.some(file => file.filename.endsWith('.hof-weights-v1'))).toBe(true);
 }
 
 /** A valid dictionary-free frame with no content-size field and 128 repeated 128-KiB blocks. */
@@ -514,10 +710,10 @@ function headingChange(before: SensorsMsg, after: SensorsMsg): number {
 }
 
 /** Deliver held input through actual sockets, proving server receipt with ordered round trips. */
-async function heldInput(peers: ControllerPeer[]): Promise<void> {
+async function heldInput(peers: ControllerPeer[], replacePlayer = true): Promise<void> {
   await Promise.all(peers.map(async (peer, index) => {
     // Players may replace unsent input; trainers retain their one action per observation boundary.
-    if (index === 0) peer.socket.send(JSON.stringify({ type: 'action',
+    if (index === 0 && replacePlayer) peer.socket.send(JSON.stringify({ type: 'action',
       snakeId: peer.assignment!.snakeId, tick: peer.sample!.tick, turn: 1, boost: 0 }));
     peer.socket.send(JSON.stringify({ type: 'action',
       snakeId: peer.assignment!.snakeId, tick: peer.sample!.tick, turn: -1, boost: 0 }));
@@ -1025,6 +1221,78 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         stage.mockRestore();
         await response?.catch(() => {});
       }
+    });
+  }, 15_000);
+
+  it.each([
+    ['incompatible Concat input ordering', 'GRAPH_IDENTITY'],
+    ['missing population record', 'INDEX_LENGTH'],
+    ['missing dense population slot', 'INDEX_DENSE']
+  ] as const)('rejects a correctly hashed save with %s before replacement', async (fault, code) => {
+    await experiment(async fixture => {
+      await orderingFixture(fixture);
+      const entries = archiveEntries(fixture.archive);
+      const graph = compileGraph(orderingGraph());
+      const reversed = compileGraph(orderingGraph(true));
+      expect(reversed.totalParams).toBe(graph.totalParams);
+      expect(reversed.key).not.toBe(graph.key);
+      const roleIndex = code === 'GRAPH_IDENTITY' ? 1 : 2;
+      const entry = entries[roleIndex]!;
+      let role: Buffer = Buffer.from(fixture.archive.subarray(entry.data, entry.data + entry.size));
+      if (code === 'GRAPH_IDENTITY') role = reversedConcatRole(role);
+      else {
+        const recordBytes = role.readUInt32LE(12);
+        expect(recordBytes).toBe(104);
+        expect(role.readBigUInt64LE(16)).toBe(12n);
+        expect(role.byteLength).toBe(40 + 12 * recordBytes);
+        if (code === 'INDEX_LENGTH') role = role.subarray(0, role.byteLength - recordBytes);
+        else role.writeUInt32LE(0, 40 + recordBytes);
+      }
+      const damaged = semanticArchive(fixture.archive, roleIndex, role);
+      const sourcePath = join(dirname(fixture.databasePath), 'user-original.save');
+      await writeFile(sourcePath, fixture.archive, { flag: 'wx' });
+      const sourceHash = createHash('sha256').update(fixture.archive).digest('hex');
+      const peers = await Promise.all([controller(fixture, 'ui'), controller(fixture, 'bot')]);
+      const before = await health(fixture.server);
+      const activity = (before['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+      const baselines = peers.map(peer => ({ assignment: { ...peer.assignment! }, sample: peer.sample! }));
+      const stage = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport');
+      const commit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commitImport');
+      const originalSpool = archiveUpload.spoolArchiveUpload;
+      const spool = vi.spyOn(archiveUpload, 'spoolArchiveUpload').mockImplementationOnce(async options => {
+        const result = await originalSpool(options);
+        await heldInput(peers, false);
+        return result;
+      });
+      const cleanup = testCleanup(() => { spool.mockRestore(); stage.mockRestore(); commit.mockRestore(); });
+      try {
+        const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`, {
+          method: 'POST', body: new Uint8Array(damaged), signal: AbortSignal.timeout(5000) });
+        expect(response.status).toBe(400);
+        expect(await response.json(), fault).toMatchObject({ ok: false,
+          message: expect.stringContaining(`checkpoint ${code}:`) });
+        expect(spool).toHaveBeenCalledOnce();
+        expect(stage).not.toHaveBeenCalled();
+        expect(commit).not.toHaveBeenCalled();
+        await preserved(fixture);
+        await outcome(() => peers.every((peer, index) => peer.sample!.tick > baselines[index]!.sample.tick &&
+          headingChange(baselines[index]!.sample, peer.sample!) < -0.01), 'steering during invalid import was lost');
+        for (const [index, peer] of peers.entries()) {
+          expect(peer.socket.readyState).toBe(WebSocket.OPEN);
+          expect(peer.assignment).toEqual(baselines[index]!.assignment);
+          expect(peer.packets.filter(packet => packet['type'] === 'assign')).toHaveLength(1);
+          expect(peer.packets.filter(packet => ['error', 'stateReplaced'].includes(String(packet['type'])))).toEqual([]);
+        }
+        const after = await health(fixture.server);
+        const applied = (after['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+        expect(applied.player.appliedActions).toBe(activity.player.appliedActions + 1);
+        expect(applied.trainer.appliedActions).toBe(activity.trainer.appliedActions + 1);
+        expect(BigInt(`0x${after['completedStep'] as string}`)).toBeGreaterThan(BigInt(`0x${before['completedStep'] as string}`));
+        expect(createHash('sha256').update(await readFile(sourcePath)).digest('hex')).toBe(sourceHash);
+        expect(createHash('sha256').update(fixture.archive).digest('hex')).toBe(sourceHash);
+        await exportAfterDisconnect(fixture);
+        await preserved(fixture);
+      } finally { cleanup(); }
     });
   }, 15_000);
 

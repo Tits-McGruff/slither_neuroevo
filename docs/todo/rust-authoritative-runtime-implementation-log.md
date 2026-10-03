@@ -2064,3 +2064,20 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   preparation now builds only the required library. Disposable servers, fixtures
   and the isolated addon were removed. These close the named completion/length/
   full-validation cases; complete A7 and remaining Stage 7/8 gates stay open.
+
+- 2026-10-03 A7 real HTTP import checks now reject correctly hashed archives
+  with incompatible explicit Concat input ordering, a missing population record,
+  or a missing dense slot. The independent small-archive repacker checks both
+  published logical-root formulas against actual exports and successfully imports
+  its unchanged control before constructing each semantic failure. Existing Rust
+  validation rejects graph identity, index length or dense ordering before any
+  replacement staging or persistence commit. An evolved fixture proves every
+  prior metadata row, managed file digest, history/Hall-of-Fame entry, controller
+  assignment/epoch and retained source archive survives; steering sent during
+  upload completion applies and a fresh export reproduces the original bytes.
+  The affected transport file passed 63 checks with four existing optional skips;
+  all three cases also pass with nonempty evolved history/Hall-of-Fame fixtures.
+  Four production-identity/graph compiler checks, TypeScript and focused ESLint
+  passed. Production code and Rust source are
+  unchanged. Disposable servers and fixtures were removed; complete A7 and
+  remaining Stage 7/8 gates stay open.
