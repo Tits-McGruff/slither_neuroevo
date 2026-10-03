@@ -1040,6 +1040,7 @@ impl ExperimentalStage6aFreshRunSession {
         Ok(AsyncTask::new(CreateExperimentalBackgroundTask {
             inner: Arc::clone(&self.inner),
             calculation_workers: self.calculation_workers,
+            memory_ceiling_bytes: self.request.memory_ceiling_bytes,
             active_operation: Arc::clone(&self.active_operation),
             init,
             wake: Arc::new(NapiWakeSink::new(wake)),
@@ -1051,6 +1052,7 @@ impl ExperimentalStage6aFreshRunSession {
 pub struct CreateExperimentalBackgroundTask {
     inner: Arc<Mutex<ExperimentalFreshRunInner>>,
     calculation_workers: usize,
+    memory_ceiling_bytes: usize,
     active_operation: Arc<AtomicU8>,
     init: EngineInit,
     wake: Arc<NapiWakeSink>,
@@ -1119,6 +1121,7 @@ impl Task for CreateExperimentalBackgroundTask {
         Ok(ExperimentalRunningAuthority::from_runtime(
             runtime,
             self.calculation_workers,
+            self.memory_ceiling_bytes,
         ))
     }
 

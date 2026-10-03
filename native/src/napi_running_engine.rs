@@ -394,6 +394,7 @@ impl Task for PrepareFreshRunTask {
 /// Libuv task for file/codec work that must not block the Node event loop.
 pub struct PrepareExportArchiveTask {
     runtime: Arc<EngineRuntime>,
+    memory_ceiling_bytes: usize,
     managed_directory: PathBuf,
     operation_id: String,
     checkpoint: crate::engine::checkpoint::CheckpointDescriptor,
@@ -412,12 +413,7 @@ impl Task for PrepareExportArchiveTask {
                 Arc::clone(&self.progress.completed_bytes),
                 self.progress.phase_trace.clone(),
             );
-            let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
-                Error::new(
-                    Status::GenericFailure,
-                    "P0 export memory ceiling exceeds usize",
-                )
-            })?;
+            let memory_ceiling = self.memory_ceiling_bytes;
             let (checkpoint_limits, graph_limits, admission_policy) =
                 stage6a_p0_archive_validation_contract(memory_ceiling, false)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
@@ -454,6 +450,7 @@ impl Task for PrepareExportArchiveTask {
 /// Libuv task for validating an untrusted upload without touching authority.
 pub struct ValidateImportArchiveTask {
     runtime: Arc<EngineRuntime>,
+    memory_ceiling_bytes: usize,
     archive_path: PathBuf,
     scratch_directory: PathBuf,
     operation_id: String,
@@ -488,6 +485,7 @@ impl Task for EstimateImportDiskTask {
 /// Libuv preparation task retaining its admitted candidate in the native handle.
 pub struct PrepareImportArchiveTask {
     runtime: Arc<EngineRuntime>,
+    memory_ceiling_bytes: usize,
     archive_path: PathBuf,
     scratch_directory: PathBuf,
     managed_directory: PathBuf,
@@ -511,12 +509,7 @@ impl Task for PrepareImportArchiveTask {
                 Arc::clone(&self.progress.completed_bytes),
                 self.progress.phase_trace.clone(),
             );
-            let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
-                Error::new(
-                    Status::GenericFailure,
-                    "P0 import memory ceiling exceeds usize",
-                )
-            })?;
+            let memory_ceiling = self.memory_ceiling_bytes;
             let (checkpoint_limits, graph_limits, admission_policy) =
                 stage6a_p0_archive_validation_contract(memory_ceiling, true)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
@@ -589,12 +582,7 @@ impl Task for ValidateImportArchiveTask {
                 Arc::clone(&self.progress.completed_bytes),
                 self.progress.phase_trace.clone(),
             );
-            let memory_ceiling = usize::try_from(4u64 * 1024 * 1024 * 1024).map_err(|_| {
-                Error::new(
-                    Status::GenericFailure,
-                    "P0 import memory ceiling exceeds usize",
-                )
-            })?;
+            let memory_ceiling = self.memory_ceiling_bytes;
             let (checkpoint_limits, graph_limits, admission_policy) =
                 stage6a_p0_archive_validation_contract(memory_ceiling, true)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
@@ -635,6 +623,8 @@ impl Task for ValidateImportArchiveTask {
 pub struct ExperimentalRunningAuthority {
     runtime: Arc<EngineRuntime>,
     calculation_workers: usize,
+    /// Admission ceiling inherited from the session that owns the running authority.
+    memory_ceiling_bytes: usize,
     drain_active: AtomicBool,
     join_scheduled: Arc<AtomicBool>,
     prepared_import: PreparedImportSlot,
@@ -643,10 +633,15 @@ pub struct ExperimentalRunningAuthority {
 }
 
 impl ExperimentalRunningAuthority {
-    pub(crate) fn from_runtime(runtime: Arc<EngineRuntime>, calculation_workers: usize) -> Self {
+    pub(crate) fn from_runtime(
+        runtime: Arc<EngineRuntime>,
+        calculation_workers: usize,
+        memory_ceiling_bytes: usize,
+    ) -> Self {
         Self {
             runtime,
             calculation_workers,
+            memory_ceiling_bytes,
             drain_active: AtomicBool::new(false),
             join_scheduled: Arc::new(AtomicBool::new(false)),
             prepared_import: PreparedImportSlot::new(),
@@ -792,6 +787,7 @@ impl ExperimentalRunningAuthority {
         let progress = self.begin_archive_job(operation_id.as_str().to_owned(), "export")?;
         Ok(AsyncTask::new(PrepareExportArchiveTask {
             runtime: Arc::clone(&self.runtime),
+            memory_ceiling_bytes: self.memory_ceiling_bytes,
             managed_directory,
             operation_id: operation_id.as_str().to_owned(),
             checkpoint,
@@ -830,6 +826,7 @@ impl ExperimentalRunningAuthority {
             self.begin_archive_job(operation_id.as_str().to_owned(), "validate-import")?;
         Ok(AsyncTask::new(ValidateImportArchiveTask {
             runtime: Arc::clone(&self.runtime),
+            memory_ceiling_bytes: self.memory_ceiling_bytes,
             archive_path,
             scratch_directory,
             operation_id: operation_id.as_str().to_owned(),
@@ -895,16 +892,7 @@ impl ExperimentalRunningAuthority {
                 "another prepared replacement is awaiting its durability decision",
             ));
         }
-        let memory_ceiling_bytes = match usize::try_from(4u64 * 1024 * 1024 * 1024) {
-            Ok(value) => value,
-            Err(_) => {
-                self.import_active.store(false, Ordering::Release);
-                return Err(Error::new(
-                    Status::GenericFailure,
-                    "P0 fresh-run memory ceiling exceeds usize",
-                ));
-            }
-        };
+        let memory_ceiling_bytes = self.memory_ceiling_bytes;
         Ok(AsyncTask::new(PrepareFreshRunTask {
             runtime: Arc::clone(&self.runtime),
             managed_directory,
@@ -981,6 +969,7 @@ impl ExperimentalRunningAuthority {
         };
         Ok(AsyncTask::new(PrepareImportArchiveTask {
             runtime: Arc::clone(&self.runtime),
+            memory_ceiling_bytes: self.memory_ceiling_bytes,
             archive_path,
             scratch_directory,
             managed_directory,
@@ -2217,6 +2206,7 @@ mod task_panic_tests {
         let progress = Arc::new(ArchiveProgressJob::new(operation.clone(), "export"));
         let mut task = PrepareExportArchiveTask {
             runtime: Arc::clone(&runtime),
+            memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
             managed_directory: files.0.clone(),
             operation_id: operation,
             checkpoint: checkpoint.clone(),
@@ -2245,6 +2235,7 @@ mod task_panic_tests {
         let runtime = running_test_runtime();
         let mut task = ValidateImportArchiveTask {
             runtime: Arc::clone(&runtime),
+            memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
             archive_path: archive.clone(),
             scratch_directory: files.0.clone(),
             operation_id: "c".repeat(32),
@@ -2273,6 +2264,7 @@ mod task_panic_tests {
         let prepared = PreparedImportSlot::new();
         let mut task = PrepareImportArchiveTask {
             runtime: Arc::clone(&runtime),
+            memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
             archive_path: archive.clone(),
             scratch_directory: target.0.clone(),
             managed_directory: target.0.clone(),
@@ -2314,6 +2306,7 @@ mod task_panic_tests {
             let make_task =
                 |runtime: &Arc<EngineRuntime>, operation: &str| PrepareImportArchiveTask {
                     runtime: Arc::clone(runtime),
+                    memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
                     archive_path: archive.clone(),
                     scratch_directory: target.0.clone(),
                     managed_directory: target.0.clone(),
@@ -2441,7 +2434,11 @@ mod task_panic_tests {
     #[test]
     fn synchronous_napi_root_panic_faults_the_retained_engine() {
         let runtime = running_test_runtime();
-        let handle = ExperimentalRunningAuthority::from_runtime(Arc::clone(&runtime), 1);
+        let handle = ExperimentalRunningAuthority::from_runtime(
+            Arc::clone(&runtime),
+            1,
+            4 * 1024 * 1024 * 1024,
+        );
         let result: napi::Result<()> = handle.root(|| panic!("synchronous N-API root panic"));
         let error = result.expect_err("root panic must become an N-API error");
         assert_eq!(error.status, Status::GenericFailure);

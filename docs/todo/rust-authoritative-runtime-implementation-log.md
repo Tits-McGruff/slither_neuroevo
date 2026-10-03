@@ -2012,3 +2012,20 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   preceding broad checks. All private fixtures and servers were cleaned. SQLite
   durability and socket rejoining remain separate integrated evidence; this
   closes the named ordered-input comparison, not full A6 or Stage 7/8 acceptance.
+
+- 2026-10-03 A7 native admission checks reproduced an accepted import that
+  exceeded its session's supplied memory ceiling. Background transfer and cold
+  archive/replacement jobs now retain that ceiling instead of substituting four
+  GiB. A real production HTTP fixture independently exports and re-imports a
+  valid large-brain archive under the normal budget, then rejects that import and
+  an equivalent Reset under a smaller native budget before staging or commit.
+  Both failures preserve every prior metadata row, managed file byte and active
+  identity, release scratch, and allow further steps; a valid smaller archive
+  then imports successfully. The two-snake fixture isolates admission and is not
+  a full P2 performance or physical out-of-memory measurement. All 483 release
+  Rust tests and the documentation test, rustfmt, test-inclusive Clippy,
+  TypeScript, full ESLint and Vite passed. The rebuilt production addon passed
+  119 affected native construction/source-identity/server/archive/continuation
+  checks, with three existing optional skips. Disposable servers and fixtures
+  were cleaned. Physical memory/filesystem exhaustion, full A7 and remaining
+  Stage 7/8 gates stay open.

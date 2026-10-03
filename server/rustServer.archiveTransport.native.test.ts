@@ -18,6 +18,8 @@ import * as archiveUpload from './rustEngine/archiveUpload.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { loadExperimentalFreshRunSession } from './rustEngine/experimentalFreshRunSession.ts';
+import * as freshRunSessions from './rustEngine/experimentalFreshRunSession.ts';
+import { buildLargeBrainGraph } from '../scripts/stage2/fixtures.ts';
 import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from './rustEngine/diskAdmission.ts';
 import * as diskAdmission from './rustEngine/diskAdmission.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
@@ -288,6 +290,42 @@ async function conflictingArchive(fixture: Fixture): Promise<Buffer> {
   } finally { await server.close(); }
 }
 
+/** Produce and independently re-import a small valid archive using the approved large-brain graph. */
+async function largeBrainArchive(fixture: Fixture): Promise<Buffer> {
+  const source = await startRustServer({ ...DEFAULT_CONFIG, host: '127.0.0.1', port: 0,
+    resume: 'fresh', seed: 99, dbPath: join(dirname(fixture.databasePath), 'large-brain.sqlite') });
+  let viewer: WebSocket | undefined;
+  try {
+    expect(source.startupFault).toBeUndefined();
+    viewer = new WebSocket(`ws://127.0.0.1:${source.port}`);
+    await slow(viewer);
+    const reset = new Promise<void>((done, reject) => {
+      viewer!.on('message', (bytes, binary) => {
+        if (binary) return;
+        const message = JSON.parse(bytes.toString()) as Record<string, unknown>;
+        if (message['type'] === 'error') reject(new Error(String(message['message'])));
+        if (message['type'] === 'stateReplaced' && message['reason'] === 'reset') done();
+      });
+      viewer!.once('error', reject);
+    });
+    viewer.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(147),
+      settings: { snakeCount: 2, simSpeed: 0.1 }, updates: [
+        { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 }
+      ] }));
+    await bounded(reset, 'large-brain source did not complete reset');
+    const exported = await fetch(`http://127.0.0.1:${source.port}/api/export/latest`);
+    expect(exported.status).toBe(200);
+    const bytes = Buffer.from(await exported.arrayBuffer());
+    expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
+    await noTransferScratch(`${join(dirname(fixture.databasePath), 'large-brain.sqlite')}.checkpoints`);
+    const imported = await fetch(`http://127.0.0.1:${source.port}/api/import/archive`,
+      { method: 'POST', body: new Uint8Array(bytes), signal: AbortSignal.timeout(5000) });
+    expect(imported.status).toBe(200);
+    expect(await imported.json()).toMatchObject({ ok: true, branched: false });
+    return bytes;
+  } finally { viewer?.terminate(); await source.close(); }
+}
+
 /** Prove cancellation or publication releases the world to complete further fixed steps. */
 async function advancing(fixture: Fixture): Promise<void> {
   const initial = await health(fixture.server);
@@ -551,6 +589,66 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
       });
     }, 20_000
   );
+
+  it('rejects independently valid import and reset exceeding native state memory before replacement', async () => {
+    const ceiling = 1400n * 1024n ** 2n;
+    const originalCreate = freshRunSessions.createExperimentalFreshRunSession;
+    /** Change only the target's native admission budget; retain the production constructor. */
+    const construction = vi.spyOn(freshRunSessions, 'createExperimentalFreshRunSession')
+      .mockImplementation(options => originalCreate({ ...options,
+        memoryCeilingBytes: options.seed === 42 ? ceiling : options.memoryCeilingBytes }));
+    try {
+      await experiment(async fixture => {
+        const candidate = await largeBrainArchive(fixture);
+        const candidateHash = createHash('sha256').update(candidate).digest('hex');
+        const stage = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport');
+        const commit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commitImport');
+        try {
+          const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`,
+            { method: 'POST', body: new Uint8Array(candidate), signal: AbortSignal.timeout(5000) });
+          expect(response.status).toBe(400);
+          const rejected = await response.json() as { ok: boolean; message: string };
+          expect(rejected).toMatchObject({ ok: false });
+          expect(rejected.message).toMatch(/checkpoint state admission failed: state requires an estimated \d+ bytes/iu);
+          expect(rejected.message).toContain(`exceeding the ${ceiling}-byte ceiling`);
+          expect(stage).not.toHaveBeenCalled();
+          expect(commit).not.toHaveBeenCalled();
+          await preserved(fixture);
+          await advancing(fixture);
+          expect(createHash('sha256').update(candidate).digest('hex')).toBe(candidateHash);
+          const peer = await controller(fixture, 'ui');
+          peer.socket.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(147),
+            settings: { snakeCount: 2, simSpeed: 0.1 }, updates: [
+              { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 }
+            ] }));
+          await outcome(() => peer.packets.some(packet => packet['type'] === 'error' &&
+            String(packet['message']).includes(`${ceiling}-byte ceiling`)),
+          'oversized reset did not reject the retained native ceiling');
+          expect(peer.packets.filter(packet => packet['type'] === 'stateReplaced')).toEqual([]);
+          expect(stage).not.toHaveBeenCalled();
+          expect(commit).not.toHaveBeenCalled();
+          await preserved(fixture);
+          await advancing(fixture);
+          const retry = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`,
+            { method: 'POST', body: new Uint8Array(fixture.archive), signal: AbortSignal.timeout(5000) });
+          expect(retry.status).toBe(200);
+          expect(await retry.json()).toMatchObject({ ok: true, runId: fixture.identity['runId'] });
+          await noTransferScratch(fixture.managedDirectory);
+          expect(metadata(fixture.databasePath)).toEqual(
+            (fixture.metadata as Array<{ name: string; rows: unknown[] }>).map(table =>
+              table.name === 'rust_active_run_v1' ? { ...table,
+                rows: [{ singleton: 1, run_id: fixture.identity['runId'] }] } : table));
+          expect(await files(fixture.managedDirectory)).toEqual(fixture.files);
+          const replaced = await health(fixture.server);
+          expect(replaced).toMatchObject({ ok: true, runId: fixture.identity['runId'],
+            seed: fixture.identity['seed'], generation: fixture.identity['generation'] });
+          expect(BigInt(`0x${replaced['worldEpoch'] as string}`))
+            .toBeGreaterThan(BigInt(`0x${fixture.identity['worldEpoch'] as string}`));
+          await advancing(fixture);
+        } finally { stage.mockRestore(); commit.mockRestore(); }
+      });
+    } finally { construction.mockRestore(); }
+  }, 30_000);
 
   it.each(['export-hof-weights.partial', 'slither-save.partial', 'slither-save.ready'] as const)(
     'preserves an existing %s when actual export creation or publication fails', async suffix => {
