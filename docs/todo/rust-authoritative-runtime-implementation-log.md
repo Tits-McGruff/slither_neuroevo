@@ -2198,3 +2198,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   processes, database/managed files, checkout, dependency cache and build
   artifacts were removed after the copied report digest was verified. VM
   overlap latency and remaining Stage 7/8 gates stay open.
+
+- 2026-10-04 Compressed population decoding now hashes reconstructed packed
+  blocks instead of issuing one SHA update per Float32. One reusable 1 MiB
+  scratch buffer is included in admission accounting; exact bits, per-brain
+  ownership, block limits and final digest rejection remain checked. All 487
+  Rust tests plus the doctest, rustfmt, all-target Clippy and 105 affected real
+  server/archive checks pass (six opt-in cases excluded). The rebuilt Linux
+  addon passes identity and trace-off/on archive roundtrips. A second eight-
+  overlap P2 VM run still fails: barrier p95/max is 1,131.5 ms, six barriers
+  exceed one second, simulated/wall progress is 0.9749, and discarded scheduler
+  time is 183,667 microseconds. Source numeric-decode mean is 442.0 ms versus
+  426.1 ms in the preceding run; these runs do not establish a speed improvement.
+  Health p95 is 5.06 ms and player/protocol-bot input p95 is 24.48/21.54 ms.
+  Exact-source evidence and paired point-sampled host context are
+  `evidence/stage7/oxygen-ryzen2700/*block-hash-e1902f1-20261004.json`.
+  The copied report digest matches; the stopped task-owned checkout, generated
+  databases, dependencies and build artifacts were removed. The VM performance
+  gate and remaining Stage 7/8 requirements remain open.

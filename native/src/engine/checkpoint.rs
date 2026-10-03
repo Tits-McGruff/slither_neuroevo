@@ -1689,12 +1689,17 @@ fn checkpoint_workspace_bound(
     .ok_or_else(|| {
         CheckpointError::format("COUNT_OVERFLOW", "encoder workspace bound overflows")
     })?;
-    let decoder_workspace = [SHUFFLED_BLOCK_BYTES, frame_bytes, decompressor_context]
-        .into_iter()
-        .try_fold(0usize, |total, value| total.checked_add(value))
-        .ok_or_else(|| {
-            CheckpointError::format("COUNT_OVERFLOW", "decoder workspace bound overflows")
-        })?;
+    let decoder_workspace = [
+        SHUFFLED_BLOCK_BYTES,
+        SHUFFLED_BLOCK_BYTES,
+        frame_bytes,
+        decompressor_context,
+    ]
+    .into_iter()
+    .try_fold(0usize, |total, value| total.checked_add(value))
+    .ok_or_else(|| {
+        CheckpointError::format("COUNT_OVERFLOW", "decoder workspace bound overflows")
+    })?;
     let role_buffers = [
         limits.max_manifest_bytes,
         limits.max_state_bytes,
@@ -3357,6 +3362,34 @@ fn shuffle_f32_bytes_into(raw: &[u8], shuffled: &mut Vec<u8>) -> Result<(), Chec
     Ok(())
 }
 
+/// Reconstruct one bounded packed block in reusable scratch before bulk hashing.
+fn unshuffle_f32_bytes_into(shuffled: &[u8], raw: &mut Vec<u8>) -> Result<(), CheckpointError> {
+    if !shuffled.len().is_multiple_of(4) || shuffled.len() > SHUFFLED_BLOCK_BYTES {
+        return Err(CheckpointError::format(
+            "SHUFFLED_BLOCK",
+            "invalid shuffled Float32 block length",
+        ));
+    }
+    if raw.capacity() < shuffled.len() {
+        return Err(CheckpointError::format(
+            "SHUFFLED_SCRATCH",
+            "reusable raw scratch capacity is too small",
+        ));
+    }
+    raw.clear();
+    raw.resize(shuffled.len(), 0);
+    let count = shuffled.len() / 4;
+    for (value_index, bytes) in raw.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        *bytes = [
+            shuffled[value_index],
+            shuffled[count + value_index],
+            shuffled[2 * count + value_index],
+            shuffled[3 * count + value_index],
+        ];
+    }
+    Ok(())
+}
+
 /// Final packed buffers allocated in their authoritative per-brain ownership shape.
 struct SegmentedF32Builder {
     segments: Vec<Vec<f32>>,
@@ -3749,14 +3782,7 @@ fn decode_adaptive_numeric_reader_inner<R: Read, W: Write>(
                         "decoded numeric block length changed after preflight",
                     ));
                 }
-                raw.clear();
-                raw.resize(decoded_bytes, 0);
-                for value_index in 0..float_count {
-                    for byte_index in 0..4 {
-                        raw[value_index * 4 + byte_index] =
-                            shuffled[byte_index * float_count + value_index];
-                    }
-                }
+                unshuffle_f32_bytes_into(&shuffled, &mut raw)?;
                 hasher.update(&raw);
                 output.write_all(&raw)?;
                 advance_work_progress(decoded_bytes);
@@ -3853,6 +3879,13 @@ fn decode_numeric_role(
                         "unable to reserve reusable decoded Zstandard scratch",
                     )
                 })?;
+            let mut raw = Vec::new();
+            raw.try_reserve_exact(SHUFFLED_BLOCK_BYTES).map_err(|_| {
+                CheckpointError::format(
+                    "ALLOCATION",
+                    "unable to reserve reusable packed numeric scratch",
+                )
+            })?;
             while remaining > 0 {
                 if remaining < SHUFFLED_BLOCK_HEADER_BYTES as u64 {
                     return Err(CheckpointError::format(
@@ -3926,15 +3959,10 @@ fn decode_numeric_role(
                         "decoded Zstandard block length mismatch",
                     ));
                 }
-                for value_index in 0..float_count {
-                    let bytes = [
-                        shuffled[value_index],
-                        shuffled[float_count + value_index],
-                        shuffled[2 * float_count + value_index],
-                        shuffled[3 * float_count + value_index],
-                    ];
-                    hasher.update(bytes);
-                    output.push_bits(u32::from_le_bytes(bytes))?;
+                unshuffle_f32_bytes_into(&shuffled, &mut raw)?;
+                hasher.update(&raw);
+                for bytes in raw.as_chunks::<4>().0 {
+                    output.push_bits(u32::from_le_bytes(*bytes))?;
                 }
                 advance_work_progress(decoded_bytes);
             }
@@ -6428,6 +6456,130 @@ mod tests {
         assert_eq!(candidate.encoded_blocks, 4);
         assert_eq!(candidate.scratch_capacity_growths, 0);
         assert_eq!(candidate.encoding, NumericEncoding::F32LeShuffle4ZstdV1);
+    }
+
+    /// Packed unshuffle preserves known byte order and never grows its admitted scratch.
+    #[test]
+    fn unshuffle_reuses_bounded_scratch_and_checks_shape() {
+        let shuffled = [1, 5, 9, 2, 6, 10, 3, 7, 11, 4, 8, 12];
+        let mut raw = Vec::with_capacity(SHUFFLED_BLOCK_BYTES);
+        let pointer = raw.as_ptr();
+        let capacity = raw.capacity();
+        unshuffle_f32_bytes_into(&shuffled, &mut raw).unwrap();
+        assert_eq!(raw, (1u8..=12).collect::<Vec<_>>());
+        let full = vec![0xa5; SHUFFLED_BLOCK_BYTES];
+        unshuffle_f32_bytes_into(&full, &mut raw).unwrap();
+        assert_eq!(raw, full);
+        unshuffle_f32_bytes_into(&shuffled, &mut raw).unwrap();
+        assert_eq!(raw.as_ptr(), pointer);
+        assert_eq!(raw.capacity(), capacity);
+        assert!(matches!(
+            unshuffle_f32_bytes_into(&shuffled[..3], &mut raw),
+            Err(CheckpointError::Format {
+                code: "SHUFFLED_BLOCK",
+                ..
+            })
+        ));
+        assert!(matches!(
+            unshuffle_f32_bytes_into(&vec![0; SHUFFLED_BLOCK_BYTES + 4], &mut raw),
+            Err(CheckpointError::Format {
+                code: "SHUFFLED_BLOCK",
+                ..
+            })
+        ));
+        let mut too_small = Vec::with_capacity(4);
+        assert!(matches!(
+            unshuffle_f32_bytes_into(&shuffled, &mut too_small),
+            Err(CheckpointError::Format {
+                code: "SHUFFLED_SCRATCH",
+                ..
+            })
+        ));
+        assert_eq!(too_small.capacity(), 4);
+    }
+
+    /// Bulk hashing preserves bits across block/owner boundaries and rejects the wrong digest.
+    #[test]
+    fn compressed_segmented_decode_preserves_bits_and_requires_digest() {
+        let directory = TestDirectory::new("segmented-block-hash");
+        let segment_length = SHUFFLED_BLOCK_BYTES / 4 + 17;
+        let count = 3 * segment_length;
+        let patterns = [
+            0,
+            0x8000_0000,
+            1,
+            0x8000_0001,
+            0x3f12_3456,
+            0x7f7f_ffff,
+            0xff7f_ffff,
+            0x7fc1_2345,
+            0x7f80_0000,
+            0xff80_0000,
+            0x7fa1_2345,
+            0xffff_ffff,
+        ];
+        let values = (0..count)
+            .map(|index| f32::from_bits(patterns[index % patterns.len()]))
+            .collect::<Vec<_>>();
+        let source =
+            FloatSource::new(vec![values.as_slice()], count, "segmented-block-hash").unwrap();
+        let mut artifacts = TemporaryArtifacts::new();
+        let candidate = select_numeric_candidate(
+            &directory.path,
+            "00000000000000000000000000000010",
+            "segmented-block-hash",
+            &source,
+            &checkpoint_limits(),
+            &mut artifacts,
+        )
+        .unwrap();
+        assert_eq!(candidate.encoding, NumericEncoding::F32LeShuffle4ZstdV1);
+        assert_eq!(candidate.encoded_blocks, 4);
+        let entry = ScannedEntry {
+            name: WEIGHTS_ZSTD_PATH.to_owned(),
+            header_offset: 0,
+            data_offset: 0,
+            size: candidate.stored_bytes,
+        };
+        let mut file = File::open(candidate.compressed_path.as_ref().unwrap()).unwrap();
+        let decoded = decode_numeric_role(
+            &mut file,
+            &entry,
+            candidate.encoding,
+            count,
+            3,
+            segment_length,
+            candidate.logical_sha256,
+        )
+        .unwrap();
+        assert_eq!(decoded.len(), 3);
+        for segment in &decoded {
+            assert_eq!(segment.len(), segment_length);
+        }
+        for (actual, expected) in decoded
+            .iter()
+            .flat_map(|segment| segment.iter())
+            .zip(&values)
+        {
+            assert_eq!(actual.to_bits(), expected.to_bits());
+        }
+        let error = decode_numeric_role(
+            &mut file,
+            &entry,
+            candidate.encoding,
+            count,
+            3,
+            segment_length,
+            [0; 32],
+        )
+        .expect_err("a completed decode still requires its exact logical digest");
+        assert!(matches!(
+            error,
+            CheckpointError::Format {
+                code: "LOGICAL_ROLE_SHA256",
+                ..
+            }
+        ));
     }
 
     /// An encoded stream decodes directly to identical logical bytes.
