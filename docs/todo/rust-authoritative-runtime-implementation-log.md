@@ -2093,3 +2093,14 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   TypeScript and focused ESLint passed; production code and Rust source are
   unchanged. Disposable servers and fixtures were removed. These cover the
   named streaming boundaries; complete A7 and remaining Stage 7/8 gates stay open.
+
+- 2026-10-03 Cancelled downloads were still starting native archive preparation
+  after the server had observed the disconnect. Export now checks cancellation
+  after source selection and disk admission, releasing the real source lease
+  without starting population decode/encoding. Real HTTP regressions reproduce
+  both former native calls and now prove neither occurs, while preserving evolved
+  metadata/files, history/Hall-of-Fame data, controller leases, steering and a
+  retained source archive. A later direct export remains byte-identical. Archive
+  transport plus normal roundtrip, source binding and production-addon identity
+  checks, TypeScript and focused ESLint passed. Rust is unchanged. Disposable
+  servers and fixtures were removed; complete A7 and Stage 7/8 gates stay open.

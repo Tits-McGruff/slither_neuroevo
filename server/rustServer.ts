@@ -416,7 +416,10 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     /** Successful native preparation transfers ownership of this exact ready file. */
     let readyOwned = false;
     try {
+      // Source selection may outlive the client; release its lease without starting population work.
+      if (response.destroyed) return;
       await admitExportSpace(owner.managedDirectory, lease);
+      if (response.destroyed) return;
       const preparation = owner.runtime.prepareExportArchive(
         owner.managedDirectory, lease.operationId, lease.descriptor, lease.inventory
       );

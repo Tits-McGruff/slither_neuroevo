@@ -29,6 +29,7 @@ import * as diskAdmission from './rustEngine/diskAdmission.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import type { AssignMsg, SensorsMsg } from './protocol.ts';
 import type { ExperimentalRuntimeTelemetrySnapshot } from './rustEngine/runtimeTelemetry.ts';
+import type { ExperimentalRunningAuthorityNativeHandle } from './rustEngine/backgroundRuntime.ts';
 
 /** Bounded native mount commands used only by the explicitly selected Linux quota fixture. */
 const runFile = promisify(execFile);
@@ -636,7 +637,8 @@ function testCleanup(action: () => void): () => void {
 }
 
 /** Observe the actual server response closing before success, without changing HTTP dispatch. */
-function observeDisconnect(server: Pick<RustServer, 'port'>): { closed: Promise<boolean>; restore: () => void } {
+function observeDisconnect(server: Pick<RustServer, 'port'>, endpoint = '/api/import/archive'):
+  { closed: Promise<boolean>; restore: () => void } {
   let disconnected!: (beforeFinish: boolean) => void;
   const closed = new Promise<boolean>(done => { disconnected = done; });
   /** Forward directly to Node, never through an earlier fixture's still-installed wrapper. */
@@ -646,7 +648,7 @@ function observeDisconnect(server: Pick<RustServer, 'port'>): { closed: Promise<
     if (event === 'request') {
       const incoming = args[0] as IncomingMessage;
       const response = args[1] as ServerResponse;
-      if (incoming.socket.localPort === server.port && incoming.url === '/api/import/archive') {
+      if (incoming.socket.localPort === server.port && incoming.url === endpoint) {
         response.once('close', () => disconnected(!response.writableFinished));
       }
     }
@@ -1225,6 +1227,87 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
       }
     });
   }, 15_000);
+
+  it.each(['after source selection', 'after disk admission'] as const)(
+    'skips native export work when the client disconnects %s', async boundary => {
+      await experiment(async fixture => {
+        await evolvedArchiveFixture(fixture);
+        const sourcePath = join(dirname(fixture.databasePath), 'user-original.save');
+        await writeFile(sourcePath, fixture.archive, { flag: 'wx' });
+        const peers = await Promise.all([controller(fixture, 'ui'), controller(fixture, 'bot')]);
+        const before = await health(fixture.server);
+        const activity = (before['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+        const baselines = peers.map(peer => ({ assignment: { ...peer.assignment! }, sample: peer.sample! }));
+        // Production startup has already validated this exact source-identified addon.
+        const binding = createRequire(import.meta.url)(resolve('native/index.js')) as {
+          ExperimentalRunningAuthority: { prototype: ExperimentalRunningAuthorityNativeHandle };
+        };
+        expect(binding.ExperimentalRunningAuthority).toBeTypeOf('function');
+        const prepare = vi.spyOn(binding.ExperimentalRunningAuthority.prototype, 'prepareExportArchive');
+        const reached = Promise.withResolvers<void>();
+        const gate = Promise.withResolvers<void>();
+        const originalAcquire = CheckpointPersistenceClient.prototype.acquireCurrentExportLease;
+        const acquire = vi.spyOn(CheckpointPersistenceClient.prototype, 'acquireCurrentExportLease')
+          .mockImplementationOnce(async function(this: CheckpointPersistenceClient) {
+            const lease = await originalAcquire.call(this);
+            if (boundary === 'after source selection') { reached.resolve(); await gate.promise; }
+            return lease;
+          });
+        const originalAdmit = diskAdmission.admitDiskOperation;
+        const admission = vi.spyOn(diskAdmission, 'admitDiskOperation').mockImplementationOnce(async (...args) => {
+          const decision = await originalAdmit(...args);
+          if (boundary === 'after disk admission') { reached.resolve(); await gate.promise; }
+          return decision;
+        });
+        const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
+        const observation = observeDisconnect(fixture.server, '/api/export/latest');
+        const client = request(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
+        fixture.requests.add(client);
+        let receivedHeaders = false;
+        client.on('error', () => { /* Deliberately cancelled before any response headers. */ });
+        client.on('response', response => { receivedHeaders = true; response.resume(); });
+        const cleanup = testCleanup(() => {
+          gate.resolve(); client.destroy(); observation.restore();
+          prepare.mockRestore(); acquire.mockRestore(); admission.mockRestore(); release.mockRestore();
+        });
+        try {
+          client.end();
+          await bounded(reached.promise, 'export did not reach its actual preparation boundary');
+          await heldInput(peers, false);
+          client.destroy();
+          expect(await bounded(observation.closed, 'server did not observe early export cancellation')).toBe(true);
+          gate.resolve();
+          await outcome(() => release.mock.calls.length === 1, 'early cancellation did not release its source');
+          await release.mock.results[0]!.value;
+          expect(receivedHeaders).toBe(false);
+          expect(prepare).not.toHaveBeenCalled();
+          if (boundary === 'after source selection') expect(admission).not.toHaveBeenCalled();
+          else expect(admission).toHaveBeenCalledOnce();
+          await preserved(fixture);
+          await outcome(() => peers.every((peer, index) => peer.sample!.tick > baselines[index]!.sample.tick &&
+            headingChange(baselines[index]!.sample, peer.sample!) < -0.01), 'steering during early cancellation was lost');
+          for (const [index, peer] of peers.entries()) {
+            expect(peer.socket.readyState).toBe(WebSocket.OPEN);
+            expect(peer.assignment).toEqual(baselines[index]!.assignment);
+            expect(peer.packets.filter(packet => packet['type'] === 'assign')).toHaveLength(1);
+            expect(peer.packets.filter(packet => ['error', 'stateReplaced'].includes(String(packet['type'])))).toEqual([]);
+          }
+          const after = await health(fixture.server);
+          const applied = (after['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+          expect(applied.player.appliedActions).toBe(activity.player.appliedActions + 1);
+          expect(applied.trainer.appliedActions).toBe(activity.trainer.appliedActions + 1);
+          expect(BigInt(`0x${after['completedStep'] as string}`)).toBeGreaterThan(BigInt(`0x${before['completedStep'] as string}`));
+          expect((await readFile(sourcePath)).equals(fixture.archive)).toBe(true);
+          await exportAfterDisconnect(fixture);
+          await outcome(() => release.mock.calls.length === 2, 'retry did not release its source');
+          await release.mock.results[1]!.value;
+          expect(prepare).toHaveBeenCalledOnce();
+          await preserved(fixture);
+          expect((await readFile(sourcePath)).equals(fixture.archive)).toBe(true);
+        } finally { cleanup(); }
+      });
+    }, 15_000
+  );
 
   it.each(['during body delivery', 'while waiting for drain'] as const)(
     'cleans an evolved export cancelled %s and preserves live controllers', async boundary => {
