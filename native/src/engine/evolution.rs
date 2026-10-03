@@ -19,6 +19,8 @@ pub const EVOLUTION_VERSION: u32 = 1;
 pub const TOURNAMENT_SIZE: usize = 5;
 /// Current TypeScript RMS threshold used for diagnostic species buckets.
 pub const SPECIES_DISTANCE_THRESHOLD: f64 = 0.35;
+/// Bound delayed far-distance rejection while keeping the original scalar sum order.
+const SPECIES_DISTANCE_SCAN_BLOCK: usize = 256;
 /// Current mutation clamp applied after Gaussian noise.
 const MUTATION_WEIGHT_LIMIT: f64 = 5.0;
 /// Current tolerance for awarding the top-points bonus.
@@ -739,16 +741,16 @@ fn calculate_summary(
     let mut sum_absolute_squared = 0.0_f64;
     let mut weight_count = 0usize;
     for &slot in sorted_slots {
+        // Count once per owned span; the floating sums retain their original order.
+        weight_count = weight_count
+            .checked_add(population[slot].weights.len())
+            .ok_or(EvolutionError::ArithmeticOverflow {
+                context: "network statistic weight count",
+            })?;
         for &weight in population[slot].weights.iter() {
             let absolute = f64::from(weight).abs();
             sum_absolute += absolute;
             sum_absolute_squared += absolute * absolute;
-            weight_count =
-                weight_count
-                    .checked_add(1)
-                    .ok_or(EvolutionError::ArithmeticOverflow {
-                        context: "network statistic weight count",
-                    })?;
         }
         advance_work_progress(population[slot].weights.len() * std::mem::size_of::<f32>());
     }
@@ -812,9 +814,17 @@ fn genomes_share_species(
         * left.weights.len() as f64
         * 1.000_001;
     let mut sum_squared = 0.0_f64;
-    for (&left_weight, &right_weight) in left.weights.iter().zip(right.weights.iter()) {
-        let difference = f64::from(left_weight) - f64::from(right_weight);
-        sum_squared += difference * difference;
+    for (left_block, right_block) in left
+        .weights
+        .chunks(SPECIES_DISTANCE_SCAN_BLOCK)
+        .zip(right.weights.chunks(SPECIES_DISTANCE_SCAN_BLOCK))
+    {
+        for (&left_weight, &right_weight) in left_block.iter().zip(right_block) {
+            let difference = f64::from(left_weight) - f64::from(right_weight);
+            sum_squared += difference * difference;
+        }
+        // Later nonnegative terms cannot undo a far rejection. Close decisions
+        // still use every original addition and the original final sqrt.
         if sum_squared > far_limit {
             return Ok(false);
         }
@@ -1592,25 +1602,131 @@ mod tests {
     fn species_early_rejection_preserves_complete_distance_decisions() {
         let mut left = source_state(&fixture()).1.remove(0);
         let mut right = left.clone();
-        left.weights = vec![0.0; 8_192].into_boxed_slice();
-        for difference in [0.1_f32, 0.35, 0.36, 2.0] {
-            right.weights = vec![difference; left.weights.len()].into_boxed_slice();
-            let sum_squared = left
-                .weights
-                .iter()
-                .zip(right.weights.iter())
-                .map(|(&a, &b)| {
-                    let distance = f64::from(a) - f64::from(b);
-                    distance * distance
-                })
-                .sum::<f64>();
-            let expected =
-                (sum_squared / left.weights.len() as f64).sqrt() <= SPECIES_DISTANCE_THRESHOLD;
-            assert_eq!(genomes_share_species(&left, &right).unwrap(), expected);
+        for count in [1, 255, 256, 257, 511, 512, 8_192, 400_003] {
+            left.weights = vec![0.0; count].into_boxed_slice();
+            for difference in [
+                0.1_f32,
+                f32::from_bits(0.35_f32.to_bits() - 1),
+                0.35,
+                f32::from_bits(0.35_f32.to_bits() + 1),
+                0.36,
+                2.0,
+            ] {
+                right.weights = vec![difference; count].into_boxed_slice();
+                assert_eq!(
+                    genomes_share_species(&left, &right).unwrap(),
+                    scalar_species(&left, &right),
+                    "count={count}, difference={difference}"
+                );
+            }
+            for spike in [0, count / 2, count - 1] {
+                right.weights = vec![0.0; count].into_boxed_slice();
+                right.weights[spike] = 100.0;
+                assert_eq!(
+                    genomes_share_species(&left, &right).unwrap(),
+                    scalar_species(&left, &right)
+                );
+            }
         }
-        right.weights = vec![0.0; left.weights.len()].into_boxed_slice();
-        right.weights[0] = 100.0;
-        assert!(!genomes_share_species(&left, &right).unwrap());
+        right.weights = vec![0.0; left.weights.len() - 1].into_boxed_slice();
+        assert!(matches!(
+            genomes_share_species(&left, &right),
+            Err(EvolutionError::PopulationShape { .. })
+        ));
+    }
+
+    /// Independent complete scalar distance with no early-exit or block policy.
+    fn scalar_species(left: &PopulationGenome, right: &PopulationGenome) -> bool {
+        let mut sum = 0.0;
+        for (&a, &b) in left.weights.iter().zip(right.weights.iter()) {
+            let difference = f64::from(a) - f64::from(b);
+            sum += difference * difference;
+        }
+        (sum / left.weights.len() as f64).sqrt() <= SPECIES_DISTANCE_THRESHOLD
+    }
+
+    /// Large-owner statistics keep exact original bits and greedy species decisions.
+    #[test]
+    fn summary_span_counts_preserve_scalar_statistics_and_species() {
+        let patterns = [
+            0.0_f32,
+            -0.0,
+            f32::from_bits(1),
+            -f32::from_bits(1),
+            0.125,
+            -0.125,
+            0.35,
+            -0.35,
+            1.0,
+            -1.0,
+            5.0,
+            -5.0,
+        ];
+        let source = source_state(&fixture()).1.remove(0);
+        let sorted = [2, 0, 1];
+        let fitness = [2.0, 1.0, 3.0];
+        for count in [0, 257, 262_147] {
+            let population = (0..3)
+                .map(|slot| {
+                    let mut genome = source.clone();
+                    genome.slot = slot;
+                    genome.weights = (0..count)
+                        .map(|index| {
+                            let value = patterns[index % patterns.len()];
+                            match slot {
+                                1 => value + 0.01,
+                                2 => -value,
+                                _ => value,
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice();
+                    genome
+                })
+                .collect::<Vec<_>>();
+            let mut absolute_sum = 0.0_f64;
+            let mut squared_sum = 0.0_f64;
+            let mut weight_count = 0usize;
+            let mut representatives: Vec<usize> = Vec::new();
+            let mut species_sizes: Vec<u64> = Vec::new();
+            for &slot in &sorted {
+                for &weight in population[slot].weights.iter() {
+                    let absolute = f64::from(weight).abs();
+                    absolute_sum += absolute;
+                    squared_sum += absolute * absolute;
+                    weight_count += 1;
+                }
+                if let Some(species) = representatives.iter().position(|&representative| {
+                    scalar_species(&population[slot], &population[representative])
+                }) {
+                    species_sizes[species] += 1;
+                } else {
+                    representatives.push(slot);
+                    species_sizes.push(1);
+                }
+            }
+            let (average, variance) = if weight_count == 0 {
+                (0.0, 0.0)
+            } else {
+                let average = absolute_sum / weight_count as f64;
+                (
+                    average,
+                    (squared_sum / weight_count as f64 - average * average).max(0.0),
+                )
+            };
+            let actual = calculate_summary(&population, &sorted, &fitness, 9).unwrap();
+            assert_eq!(actual.average_weight.to_bits(), average.to_bits());
+            assert_eq!(actual.weight_variance.to_bits(), variance.to_bits());
+            assert_eq!(actual.species_count, representatives.len() as u64);
+            assert_eq!(
+                actual.top_species_size,
+                *species_sizes.iter().max().unwrap()
+            );
+            assert_eq!(actual.generation, 9);
+            assert_eq!(actual.average, 2.0);
+            assert_eq!(actual.best, 3.0);
+            assert_eq!(actual.minimum, 1.0);
+        }
     }
 
     #[test]

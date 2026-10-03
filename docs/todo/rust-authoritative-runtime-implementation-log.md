@@ -2305,3 +2305,29 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   checkout, fixtures, dependencies/cache and generated builds are removed.
   Next inspect evolution's species/statistics and reproduction costs; the full
   VM performance and remaining Stage 7/8 acceptance gates stay open.
+
+- 2026-10-04 Evolution counts statistic weights once per owned span and checks
+  far-species rejection once per 256 weights. Floating additions, final RMS
+  decisions, RNG draws and population policy remain unchanged. Independent
+  scalar comparisons cover threshold neighbors, block boundaries, isolated
+  spikes, large owners and exact statistic bits. All 492 production Rust
+  tests plus the doctest, rustfmt, all-target Clippy, native source identity,
+  exact one/four/five/six-worker archive continuation on Windows/Linux,
+  TypeScript and ESLint pass. Ten actual five-worker P2 checkpoint/export
+  overlaps cover 614.95 measured seconds: barrier p95/max is 895.11 ms,
+  dropped wall time is zero, health p95 is 3.26 ms, local player/protocol-bot
+  input p95 is 18.21/16.21 ms, event-loop p95/p99 is 10.88/11.57 ms and peak
+  process RSS is 557.0 MB. Nine playable-generation intervals average
+  61.25 seconds (max 61.31). Mean terminal computation is 440.06 ms,
+  including 419.20 ms of evolution nested within 419.61 ms preparation;
+  admission is 13.72 ms. The preceding short diagnostic observed 462.78 ms
+  evolution; differing run lengths and point-sampled host load do not prove
+  a controlled causal speedup. Simulated/wall progress is 0.979478, below
+  the required 0.98, so the complete VM performance gate remains open.
+  Reports and paired context are
+  `evidence/stage7/oxygen-ryzen2700/*evolution-span-81bc541-20261004.json`.
+  The copied report digest matches, and the stopped task-owned Oxygen
+  checkout, fixtures, dependencies/cache and generated builds are removed.
+  Next separate evolution's statistic/species and reproduction costs before
+  further optimization; remaining browser, memory, compatibility, LAN/trainer
+  and final Stage 7/8 gates stay open.
