@@ -540,6 +540,15 @@ pub struct Stage6BackgroundGenerationHealth {
     pub slow_step_control_inference_micros: String,
     pub slow_step_world_micros: String,
     pub slow_step_other_micros: String,
+    pub terminal_step_samples: String,
+    pub terminal_step_total_micros: String,
+    pub terminal_step_max_micros: String,
+    pub terminal_step_control_micros: String,
+    pub terminal_step_world_micros: String,
+    pub terminal_step_preparation_micros: String,
+    pub terminal_step_evolution_micros: String,
+    pub terminal_step_admission_micros: String,
+    pub terminal_step_other_micros: String,
     pub fault_code: Option<String>,
     pub fault_detail: Option<String>,
 }
@@ -3745,6 +3754,15 @@ pub(crate) fn background_generation_health_to_napi(
         slow_step_control_inference_micros: u64_hex(running.slow_step_control_inference_micros),
         slow_step_world_micros: u64_hex(running.slow_step_world_micros),
         slow_step_other_micros: u64_hex(running.slow_step_other_micros),
+        terminal_step_samples: u64_hex(running.terminal_step_samples),
+        terminal_step_total_micros: u64_hex(running.terminal_step_total_micros),
+        terminal_step_max_micros: u64_hex(running.terminal_step_max_micros),
+        terminal_step_control_micros: u64_hex(running.terminal_step_control_micros),
+        terminal_step_world_micros: u64_hex(running.terminal_step_world_micros),
+        terminal_step_preparation_micros: u64_hex(running.terminal_step_preparation_micros),
+        terminal_step_evolution_micros: u64_hex(running.terminal_step_evolution_micros),
+        terminal_step_admission_micros: u64_hex(running.terminal_step_admission_micros),
+        terminal_step_other_micros: u64_hex(running.terminal_step_other_micros),
         fault_code: health
             .fault
             .as_ref()

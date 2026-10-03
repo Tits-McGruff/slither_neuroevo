@@ -2281,3 +2281,27 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   gate passes in this run without establishing a controlled causal speedup;
   next profile the remaining terminal evolution/transition cost. Remaining
   Stage 7/8 browser, memory, compatibility, LAN/trainer and final gates stay open.
+
+- 2026-10-04 Bounded production health counters now attribute successful
+  terminal steps separately from ordinary slow-step costs and the later Node
+  persistence barrier. They report control, physics, successor preparation,
+  nested serial evolution, admission and remainder without retaining a step
+  history or changing candidate/checkpoint data. Partition, nesting and
+  saturation checks pass; real durable-boundary HTTP assertions pass with
+  one/four/five/six workers on Windows/Linux. The 491-test production Rust suite,
+  530-test feature suite, three benchmark-contract tests, doctests, rustfmt,
+  all-target/all-feature Clippy, native identity, telemetry projection,
+  TypeScript and ESLint pass. A short five-worker P2 diagnostic proves three
+  actual export overlaps over 185.90 measured seconds. Mean terminal cost is
+  485.17 ms: preparation 463.23 ms, including serial evolution 462.78 ms;
+  admission 13.81 ms; control/physics 5.20/2.80 ms; remainder 0.13 ms.
+  Persistence-barrier p95/max is 839.72 ms, dropped wall time is zero and
+  simulated/wall progress is 0.97891. This identifies evolution as 95.4% of the
+  measured terminal computation, not a ten-minute acceptance pass or a finer
+  attribution within evolution. The process-lifetime terminal maximum includes
+  warmup. Evidence and paired point context are
+  `evidence/stage7/oxygen-ryzen2700/*terminal-profile-d9edda0-20261004.json`.
+  The retained report digest matches, and the stopped task-owned Oxygen
+  checkout, fixtures, dependencies/cache and generated builds are removed.
+  Next inspect evolution's species/statistics and reproduction costs; the full
+  VM performance and remaining Stage 7/8 acceptance gates stay open.

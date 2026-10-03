@@ -78,6 +78,9 @@ pub(crate) struct RunningStepCostMicros {
     pub control_sensing: u64,
     pub control_inference: u64,
     pub world_step: u64,
+    pub generation_preparation: u64,
+    pub generation_evolution: u64,
+    pub generation_admission: u64,
 }
 
 /// Test-hook-only allocation-operation counts for coarse fixed-step phases.
@@ -806,6 +809,7 @@ impl RunningStepCoordinator {
                         allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
                 }
                 let elapsed_seconds = prepared.generation_elapsed_seconds();
+                let preparation_started = Instant::now();
                 let next = prepare_generation_boundary(
                     state,
                     prepared.world(),
@@ -814,7 +818,13 @@ impl RunningStepCoordinator {
                     elapsed_seconds,
                     authority.graph(),
                 )?;
+                self.last_step_cost.generation_preparation =
+                    u64::try_from(preparation_started.elapsed().as_micros()).unwrap_or(u64::MAX);
+                self.last_step_cost.generation_evolution = next.evolution_micros();
+                let admission_started = Instant::now();
                 let boundary = admit_prepared_generation_boundary(authority, key, next)?;
+                self.last_step_cost.generation_admission =
+                    u64::try_from(admission_started.elapsed().as_micros()).unwrap_or(u64::MAX);
                 return Ok(StagedStep::Generation(Box::new(
                     PendingGenerationTransition {
                         reason,

@@ -250,6 +250,24 @@ export interface RustBackgroundHealth {
   slowStepWorldMicros: RustBackgroundIdentity;
   /** Remaining service microseconds accumulated across attributed slow steps. */
   slowStepOtherMicros: RustBackgroundIdentity;
+  /** Successful terminal steps that staged a complete successor before persistence. */
+  terminalStepSamples: RustBackgroundIdentity;
+  /** Terminal computation time before Node persistence begins. */
+  terminalStepTotalMicros: RustBackgroundIdentity;
+  /** Largest terminal computation in microseconds. */
+  terminalStepMaxMicros: RustBackgroundIdentity;
+  /** Control selection within terminal computations. */
+  terminalStepControlMicros: RustBackgroundIdentity;
+  /** Physics within terminal computations. */
+  terminalStepWorldMicros: RustBackgroundIdentity;
+  /** Successor preparation, including serial evolution and candidate construction. */
+  terminalStepPreparationMicros: RustBackgroundIdentity;
+  /** Serial evolution within preparation; this is a subset of preparation time. */
+  terminalStepEvolutionMicros: RustBackgroundIdentity;
+  /** Successor admission and validation before the transition announcement. */
+  terminalStepAdmissionMicros: RustBackgroundIdentity;
+  /** Remaining terminal computation after bounding disjoint coarse costs. */
+  terminalStepOtherMicros: RustBackgroundIdentity;
   /** First terminal fault category. */
   faultCode?: string;
   /** First bounded terminal fault detail. */

@@ -144,6 +144,24 @@ pub struct RunningAuthorityHealth {
     pub slow_step_world_micros: u64,
     /// Sum of remaining service time within attributed slow steps.
     pub slow_step_other_micros: u64,
+    /// Successful terminal steps that staged a complete generation boundary.
+    pub terminal_step_samples: u64,
+    /// Terminal computation time before the Node persistence barrier begins.
+    pub terminal_step_total_micros: u64,
+    /// Largest successful terminal computation, independent of ordinary-step percentiles.
+    pub terminal_step_max_micros: u64,
+    /// Control selection within terminal computations.
+    pub terminal_step_control_micros: u64,
+    /// Physics within terminal computations.
+    pub terminal_step_world_micros: u64,
+    /// Successor preparation, including serial evolution and candidate construction.
+    pub terminal_step_preparation_micros: u64,
+    /// Serial evolution within successor preparation; do not add it to preparation again.
+    pub terminal_step_evolution_micros: u64,
+    /// Full successor admission and validation before announcing the transition.
+    pub terminal_step_admission_micros: u64,
+    /// Unattributed terminal computation after bounding all disjoint coarse costs.
+    pub terminal_step_other_micros: u64,
 }
 
 /// Atomics updated only by the authority thread and read by health callers.
@@ -177,6 +195,15 @@ pub(crate) struct RunningAuthorityMetrics {
     slow_step_control_inference_micros: AtomicU64,
     slow_step_world_micros: AtomicU64,
     slow_step_other_micros: AtomicU64,
+    terminal_step_samples: AtomicU64,
+    terminal_step_total_micros: AtomicU64,
+    terminal_step_max_micros: AtomicU64,
+    terminal_step_control_micros: AtomicU64,
+    terminal_step_world_micros: AtomicU64,
+    terminal_step_preparation_micros: AtomicU64,
+    terminal_step_evolution_micros: AtomicU64,
+    terminal_step_admission_micros: AtomicU64,
+    terminal_step_other_micros: AtomicU64,
 }
 
 impl RunningAuthorityMetrics {
@@ -214,6 +241,15 @@ impl RunningAuthorityMetrics {
             slow_step_control_inference_micros: AtomicU64::new(0),
             slow_step_world_micros: AtomicU64::new(0),
             slow_step_other_micros: AtomicU64::new(0),
+            terminal_step_samples: AtomicU64::new(0),
+            terminal_step_total_micros: AtomicU64::new(0),
+            terminal_step_max_micros: AtomicU64::new(0),
+            terminal_step_control_micros: AtomicU64::new(0),
+            terminal_step_world_micros: AtomicU64::new(0),
+            terminal_step_preparation_micros: AtomicU64::new(0),
+            terminal_step_evolution_micros: AtomicU64::new(0),
+            terminal_step_admission_micros: AtomicU64::new(0),
+            terminal_step_other_micros: AtomicU64::new(0),
         }
     }
 
@@ -311,6 +347,35 @@ impl RunningAuthorityMetrics {
         }
     }
 
+    /// Attribute successful terminal computation separately from the later durability barrier.
+    fn record_terminal_step_duration(&self, duration: Duration, cost: RunningStepCostMicros) {
+        let micros = u64::try_from(duration.as_micros()).unwrap_or(u64::MAX);
+        let control = cost.control_selection.min(micros);
+        let world = cost.world_step.min(micros - control);
+        let preparation = cost.generation_preparation.min(micros - control - world);
+        let evolution = cost.generation_evolution.min(preparation);
+        let admission = cost
+            .generation_admission
+            .min(micros - control - world - preparation);
+        saturating_increment(&self.terminal_step_total_micros, micros);
+        saturating_increment(&self.terminal_step_control_micros, control);
+        saturating_increment(&self.terminal_step_world_micros, world);
+        saturating_increment(&self.terminal_step_preparation_micros, preparation);
+        saturating_increment(&self.terminal_step_evolution_micros, evolution);
+        saturating_increment(&self.terminal_step_admission_micros, admission);
+        saturating_increment(
+            &self.terminal_step_other_micros,
+            micros - control - world - preparation - admission,
+        );
+        #[allow(deprecated)]
+        let _ = self.terminal_step_max_micros.fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |previous| Some(previous.max(micros)),
+        );
+        saturating_increment(&self.terminal_step_samples, 1);
+    }
+
     /// Return the conservative inclusive bucket ceiling for one percentile.
     fn step_percentile_micros(&self, samples: u64, percentile: u64) -> u64 {
         if samples == 0 {
@@ -380,6 +445,21 @@ impl RunningAuthorityMetrics {
                 .load(Ordering::Relaxed),
             slow_step_world_micros: self.slow_step_world_micros.load(Ordering::Relaxed),
             slow_step_other_micros: self.slow_step_other_micros.load(Ordering::Relaxed),
+            terminal_step_samples: self.terminal_step_samples.load(Ordering::Relaxed),
+            terminal_step_total_micros: self.terminal_step_total_micros.load(Ordering::Relaxed),
+            terminal_step_max_micros: self.terminal_step_max_micros.load(Ordering::Relaxed),
+            terminal_step_control_micros: self.terminal_step_control_micros.load(Ordering::Relaxed),
+            terminal_step_world_micros: self.terminal_step_world_micros.load(Ordering::Relaxed),
+            terminal_step_preparation_micros: self
+                .terminal_step_preparation_micros
+                .load(Ordering::Relaxed),
+            terminal_step_evolution_micros: self
+                .terminal_step_evolution_micros
+                .load(Ordering::Relaxed),
+            terminal_step_admission_micros: self
+                .terminal_step_admission_micros
+                .load(Ordering::Relaxed),
+            terminal_step_other_micros: self.terminal_step_other_micros.load(Ordering::Relaxed),
         }
     }
 }
@@ -660,7 +740,11 @@ pub(crate) fn run_running_coordinator(
                 RunningAuthorityLoopProgress::GenerationTransitionPending { .. } => None,
                 _ => Some(running.last_step_cost()),
             };
-            metrics.record_step_duration(service_started.elapsed(), cost);
+            let duration = service_started.elapsed();
+            metrics.record_step_duration(duration, cost);
+            if cost.is_none() {
+                metrics.record_terminal_step_duration(duration, running.last_step_cost());
+            }
         }
         metrics.observe(running);
         wait = match progress {
@@ -1545,6 +1629,7 @@ mod tests {
             control_sensing: 2_500,
             control_inference: 1_000,
             world_step: 8_000,
+            ..RunningStepCostMicros::default()
         };
         metrics.record_step_duration(Duration::from_micros(16_667), Some(cost));
         metrics.record_step_duration(Duration::from_micros(50_000), None);
@@ -1558,6 +1643,7 @@ mod tests {
                 control_sensing: 20_000,
                 control_inference: 20_000,
                 world_step: 20_000,
+                ..RunningStepCostMicros::default()
             }),
         );
 
@@ -1571,6 +1657,52 @@ mod tests {
         assert_eq!(health.slow_step_control_inference_micros, 1_000);
         assert_eq!(health.slow_step_world_micros, 8_000);
         assert_eq!(health.slow_step_other_micros, 5_000);
+    }
+
+    /// Terminal attribution partitions the service clock, bounds nested costs and saturates counters.
+    #[test]
+    fn terminal_step_costs_partition_successful_service_without_changing_step_metrics() {
+        let running = background_generation_handoff_fixture().unwrap().running;
+        let metrics = RunningAuthorityMetrics::new(&running);
+        let cost = RunningStepCostMicros {
+            control_selection: 7_000,
+            world_step: 8_000,
+            generation_preparation: 20_000,
+            generation_evolution: 17_000,
+            generation_admission: 10_000,
+            ..RunningStepCostMicros::default()
+        };
+        metrics.record_step_duration(Duration::from_micros(50_000), None);
+        assert_eq!(metrics.snapshot().terminal_step_samples, 0);
+        metrics.record_terminal_step_duration(Duration::from_micros(50_000), cost);
+        metrics.record_terminal_step_duration(
+            Duration::from_micros(18_000),
+            RunningStepCostMicros {
+                control_selection: 1_000,
+                world_step: 2_000,
+                generation_preparation: 20_000,
+                generation_evolution: u64::MAX,
+                generation_admission: u64::MAX,
+                ..RunningStepCostMicros::default()
+            },
+        );
+        let health = metrics.snapshot();
+        assert_eq!(health.step_timing_samples, 1);
+        assert_eq!(health.slow_step_samples, 0);
+        assert_eq!(health.terminal_step_samples, 2);
+        assert_eq!(health.terminal_step_total_micros, 68_000);
+        assert_eq!(health.terminal_step_max_micros, 50_000);
+        assert_eq!(health.terminal_step_control_micros, 8_000);
+        assert_eq!(health.terminal_step_world_micros, 10_000);
+        assert_eq!(health.terminal_step_preparation_micros, 35_000);
+        assert_eq!(health.terminal_step_evolution_micros, 32_000);
+        assert_eq!(health.terminal_step_admission_micros, 10_000);
+        assert_eq!(health.terminal_step_other_micros, 5_000);
+        metrics
+            .terminal_step_total_micros
+            .store(u64::MAX - 1, Ordering::Relaxed);
+        metrics.record_terminal_step_duration(Duration::from_micros(2), cost);
+        assert_eq!(metrics.snapshot().terminal_step_total_micros, u64::MAX);
     }
 
     /// Resume the existing connected-controller fixture into a normal generation.

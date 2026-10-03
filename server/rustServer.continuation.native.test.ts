@@ -139,6 +139,26 @@ describeNetworkSuite('Rust archive exact continuation', () => {
             { path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 }
           ]) } });
         const original = await observed(() => selected);
+        const healthResponse = await fetch(`http://127.0.0.1:${source.port}/api/health`, {
+          signal: AbortSignal.timeout(5000)
+        });
+        expect(healthResponse.status).toBe(200);
+        const terminalHealth = await healthResponse.json() as Record<string, unknown>;
+        /** Decode diagnostic counters while the real durable reply holds this terminal boundary. */
+        const terminalCounter = (field: string): bigint => {
+          const value = terminalHealth[field];
+          expect(value).toMatch(/^[0-9a-f]{16}$/);
+          return BigInt(`0x${value as string}`);
+        };
+        expect(terminalCounter('terminalStepSamples')).toBeGreaterThanOrEqual(1n);
+        const terminalTotal = terminalCounter('terminalStepTotalMicros');
+        expect(terminalTotal).toBeGreaterThanOrEqual(terminalCounter('terminalStepMaxMicros'));
+        expect(terminalCounter('terminalStepEvolutionMicros')).toBeLessThanOrEqual(
+          terminalCounter('terminalStepPreparationMicros')
+        );
+        expect(['Control', 'World', 'Preparation', 'Admission', 'Other'].reduce(
+          (sum, phase) => sum + terminalCounter(`terminalStep${phase}Micros`), 0n
+        )).toBe(terminalTotal);
         expect(original.descriptor.recurrentStateCount).not.toBe('0000000000000000');
         const exported = await archive(source, original);
         const target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: targetPath,

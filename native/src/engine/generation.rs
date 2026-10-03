@@ -104,9 +104,16 @@ pub struct GenerationCommitRecord {
 pub struct PreparedGenerationBoundary {
     candidate: StateCandidate,
     metadata: PreparedGenerationMetadata,
+    /// Serial evolution duration; diagnostic only and never persisted in the candidate.
+    evolution_micros: u64,
 }
 
 impl PreparedGenerationBoundary {
+    /// Read the measured serial evolution cost before consuming this candidate.
+    pub(crate) const fn evolution_micros(&self) -> u64 {
+        self.evolution_micros
+    }
+
     /// Inspect the exact pre-spawn candidate before ownership/checkpoint admission.
     #[must_use]
     pub const fn candidate(&self) -> &StateCandidate {
@@ -553,6 +560,7 @@ pub fn prepare_generation_boundary(
 
     let evolution_config = project_evolution_config(&source.config, graph.total_parameters)?;
     let baseline_config = project_baseline_generation_config(&source.config)?;
+    let evolution_started = std::time::Instant::now();
     let prepared = prepare_evolution(
         completed_world,
         &source.population,
@@ -562,6 +570,8 @@ pub fn prepare_generation_boundary(
         source.generation.best_fitness_ever,
         evolution_config,
     )?;
+    let evolution_micros =
+        u64::try_from(evolution_started.elapsed().as_micros()).unwrap_or(u64::MAX);
     let parts = prepared.into_transition_parts();
 
     let next_generation = source.generation.generation.checked_add(1).ok_or(
@@ -722,6 +732,7 @@ pub fn prepare_generation_boundary(
     Ok(PreparedGenerationBoundary {
         candidate,
         metadata,
+        evolution_micros,
     })
 }
 

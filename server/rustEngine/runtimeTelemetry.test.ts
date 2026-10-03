@@ -22,7 +22,16 @@ function health(completedStep: number): RustBackgroundHealth {
     slowStepControlMicros: hex(0), slowStepControlIndexMicros: hex(0),
     slowStepControlNeuralMicros: hex(0), slowStepControlSensingMicros: hex(0),
     slowStepControlInferenceMicros: hex(0), slowStepWorldMicros: hex(0),
-    slowStepOtherMicros: hex(0)
+    slowStepOtherMicros: hex(0),
+    terminalStepSamples: hex(0),
+    terminalStepTotalMicros: hex(0),
+    terminalStepMaxMicros: hex(0),
+    terminalStepControlMicros: hex(0),
+    terminalStepWorldMicros: hex(0),
+    terminalStepPreparationMicros: hex(0),
+    terminalStepEvolutionMicros: hex(0),
+    terminalStepAdmissionMicros: hex(0),
+    terminalStepOtherMicros: hex(0),
   };
 }
 
