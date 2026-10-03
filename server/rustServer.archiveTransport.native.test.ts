@@ -213,7 +213,7 @@ async function exportAfterDisconnect(fixture: Fixture): Promise<void> {
       continue;
     }
     expect(response.status).toBe(200);
-    expect(Buffer.from(await response.arrayBuffer())).toEqual(fixture.archive);
+    expect(Buffer.from(await response.arrayBuffer()).equals(fixture.archive)).toBe(true);
     return;
   }
   throw new Error('disconnected import did not release its busy gate');
@@ -385,8 +385,9 @@ function orderingGraph(reversed = false): GraphSpec {
   };
 }
 
-/** Admit a real Split/Concat checkpoint and prove the independent repacker's valid control imports. */
-async function orderingFixture(fixture: Fixture): Promise<void> {
+/** Admit an evolved checkpoint and prove the independent repacker's valid control imports. */
+async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'streaming' = 'ordering'): Promise<void> {
+  const streaming = mode === 'streaming';
   const viewer = new WebSocket(`ws://127.0.0.1:${fixture.server.port}`);
   fixture.peers.add(viewer);
   await slow(viewer);
@@ -396,10 +397,10 @@ async function orderingFixture(fixture: Fixture): Promise<void> {
     if (packet['type'] === 'error') reject(new Error(String(packet['message'])));
     if (packet['type'] === 'stateReplaced' && packet['reason'] === 'reset') done();
   }));
-  viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 12 },
+  viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: streaming ? 300 : 12, simSpeed: 12 },
     updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 },
-      { path: 'pelletCountTarget', value: 100 }],
-    graphSpec: orderingGraph() }));
+      { path: 'pelletCountTarget', value: 100 }, ...(streaming ? [{ path: 'worldRadius', value: 10000 }] : [])],
+    graphSpec: streaming ? null : orderingGraph() }));
   await bounded(reset, 'ordering fixture reset did not commit');
   viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
   const rejoined = new Promise<Buffer>(done => viewer.once('pong', done));
@@ -430,7 +431,8 @@ async function orderingFixture(fixture: Fixture): Promise<void> {
   const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
   expect(response.status).toBe(200);
   fixture.archive = Buffer.from(await response.arrayBuffer());
-  expect(fixture.archive.byteLength).toBeLessThan(4 * 1024 * 1024);
+  expect(fixture.archive.byteLength).toBeLessThan((streaming ? 64 : 4) * 1024 * 1024);
+  if (streaming) expect(fixture.archive.byteLength).toBeGreaterThan(8 * 1024 * 1024);
   await noTransferScratch(fixture.managedDirectory);
   const repacked = semanticArchive(fixture.archive);
   const imported = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`,
@@ -1224,13 +1226,116 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
     });
   }, 15_000);
 
+  it.each(['during body delivery', 'while waiting for drain'] as const)(
+    'cleans an evolved export cancelled %s and preserves live controllers', async boundary => {
+      await experiment(async fixture => {
+        await evolvedArchiveFixture(fixture, 'streaming');
+        const sourcePath = join(dirname(fixture.databasePath), 'user-original.save');
+        await writeFile(sourcePath, fixture.archive, { flag: 'wx' });
+        const peers = await Promise.all([controller(fixture, 'ui'), controller(fixture, 'bot')]);
+        const before = await health(fixture.server);
+        const activity = (before['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+        const baselines = peers.map(peer => ({ assignment: { ...peer.assignment! }, sample: peer.sample! }));
+        let actualResponse: ServerResponse | undefined;
+        let closedBeforeFinish: boolean | undefined;
+        let clientResponse: IncomingMessage | undefined;
+        let receivedBytes = 0;
+        let reached!: () => void;
+        const bodyReceived = new Promise<void>(done => { reached = done; });
+        let serverClosed!: () => void;
+        const disconnected = new Promise<void>(done => { serverClosed = done; });
+        /** Observe this server's actual response; no writes, buffering or drain events are fabricated. */
+        const dispatch = function(this: Server, event: string | symbol, ...args: unknown[]): boolean {
+          if (event === 'request') {
+            const incoming = args[0] as IncomingMessage;
+            const response = args[1] as ServerResponse;
+            if (incoming.socket.localPort === fixture.server.port && incoming.url === '/api/export/latest') {
+              actualResponse = response;
+              response.once('close', () => {
+                closedBeforeFinish = !response.writableFinished;
+                serverClosed();
+              });
+            }
+          }
+          return Reflect.apply(originalHttpEmit, this, [event, ...args]) as boolean;
+        };
+        Server.prototype.emit = dispatch;
+        const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
+        const client = request(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
+        fixture.requests.add(client);
+        client.on('error', () => { /* This test deliberately disconnects an unfinished response. */ });
+        client.on('response', response => {
+          clientResponse = response;
+          response.on('error', () => { /* The deliberate cancellation may report ECONNRESET. */ });
+          response.on('data', (bytes: Buffer) => {
+            receivedBytes += bytes.byteLength;
+            response.pause();
+            reached();
+          });
+        });
+        const cleanup = testCleanup(() => {
+          client.destroy();
+          clientResponse?.destroy();
+          release.mockRestore();
+          if (Server.prototype.emit === dispatch) Server.prototype.emit = originalHttpEmit;
+        });
+        try {
+          client.end();
+          await bounded(bodyReceived, 'download did not deliver body bytes');
+          expect(clientResponse!.statusCode).toBe(200);
+          expect(receivedBytes).toBeGreaterThan(0);
+          expect(receivedBytes).toBeLessThan(fixture.archive.byteLength);
+          expect(actualResponse!.writableFinished).toBe(false);
+          if (boundary === 'while waiting for drain') {
+            await outcome(() => actualResponse!.writableNeedDrain && !actualResponse!.writableFinished,
+              'real download did not wait for socket drain');
+          }
+          await heldInput(peers, false);
+          expect(actualResponse!.writableFinished).toBe(false);
+          if (boundary === 'while waiting for drain') {
+            expect(actualResponse!.writableNeedDrain).toBe(true);
+            expect(actualResponse!.writableLength).toBeGreaterThan(0);
+          }
+          clientResponse!.destroy();
+          client.destroy();
+          await bounded(disconnected, 'server did not observe mid-body cancellation');
+          expect(closedBeforeFinish).toBe(true);
+          await noTransferScratch(fixture.managedDirectory);
+          await outcome(() => release.mock.calls.length === 1, 'cancelled download did not release its lease');
+          await release.mock.results[0]!.value;
+          await preserved(fixture);
+          await outcome(() => peers.every((peer, index) => peer.sample!.tick > baselines[index]!.sample.tick &&
+            headingChange(baselines[index]!.sample, peer.sample!) < -0.01), 'steering during cancelled export was lost');
+          for (const [index, peer] of peers.entries()) {
+            expect(peer.socket.readyState).toBe(WebSocket.OPEN);
+            expect(peer.assignment).toEqual(baselines[index]!.assignment);
+            expect(peer.packets.filter(packet => packet['type'] === 'assign')).toHaveLength(1);
+            expect(peer.packets.filter(packet => ['error', 'stateReplaced'].includes(String(packet['type'])))).toEqual([]);
+          }
+          const after = await health(fixture.server);
+          const applied = (after['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+          expect(applied.player.appliedActions).toBe(activity.player.appliedActions + 1);
+          expect(applied.trainer.appliedActions).toBe(activity.trainer.appliedActions + 1);
+          expect(BigInt(`0x${after['completedStep'] as string}`)).toBeGreaterThan(BigInt(`0x${before['completedStep'] as string}`));
+          expect((await readFile(sourcePath)).equals(fixture.archive)).toBe(true);
+          await exportAfterDisconnect(fixture);
+          await outcome(() => release.mock.calls.length === 2, 'retry download did not release its lease');
+          expect(release).toHaveBeenCalledTimes(2);
+          await release.mock.results[1]!.value;
+          await preserved(fixture);
+          expect((await readFile(sourcePath)).equals(fixture.archive)).toBe(true);
+        } finally { cleanup(); }
+      });
+    }, 20_000
+  );
+
   it.each([
     ['incompatible Concat input ordering', 'GRAPH_IDENTITY'],
     ['missing population record', 'INDEX_LENGTH'],
     ['missing dense population slot', 'INDEX_DENSE']
   ] as const)('rejects a correctly hashed save with %s before replacement', async (fault, code) => {
     await experiment(async fixture => {
-      await orderingFixture(fixture);
+      await evolvedArchiveFixture(fixture);
       const entries = archiveEntries(fixture.archive);
       const graph = compileGraph(orderingGraph());
       const reversed = compileGraph(orderingGraph(true));

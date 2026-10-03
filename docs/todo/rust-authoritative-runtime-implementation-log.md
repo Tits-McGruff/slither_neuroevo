@@ -2081,3 +2081,15 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   passed. Production code and Rust source are
   unchanged. Disposable servers and fixtures were removed; complete A7 and
   remaining Stage 7/8 gates stay open.
+
+- 2026-10-03 A7 real download cancellation now covers body delivery and a
+  paused client with the actual server response waiting for socket drain.
+  Both use an evolved archive above eight MiB with nonempty history and
+  Hall-of-Fame weights. The unfinished response closes, its ready file and
+  source lease are released, every prior metadata row and managed file digest
+  is preserved, and player/trainer assignments and steering remain usable.
+  A fresh direct download is byte-identical to the retained original source
+  archive and finishes its own lease cleanup. The affected transport file,
+  TypeScript and focused ESLint passed; production code and Rust source are
+  unchanged. Disposable servers and fixtures were removed. These cover the
+  named streaming boundaries; complete A7 and remaining Stage 7/8 gates stay open.
