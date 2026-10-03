@@ -2351,3 +2351,29 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   fixtures, dependencies/cache and generated builds are removed. Both scanning
   and reproduction are substantial optimization targets. The full target-VM
   performance and remaining Stage 7/8 acceptance gates stay open.
+
+- 2026-10-04 Mutation selection now compares the original Uint32 RNG word
+  against `ceil(rate * 2^32)` once computed per graph node, avoiding per-weight
+  Float64 conversion. Every original draw, Gaussian calculation and clamp is
+  retained. Probability-boundary neighbors, zero/subnormal/maximal rates,
+  large mixed GRU/LSTM/RRU owners, exact weight bits and cached/uncached RNG
+  continuation match the original floating scan. All 12 RNG checks, the
+  534-test feature Rust suite, three benchmark contracts, doctest, rustfmt,
+  all-target/all-feature Clippy, native identity and real one/four/five/six-worker
+  archive continuation on Windows/Linux pass. TypeScript/ESLint evidence reuses
+  the preceding unchanged source. Ten actual five-worker P2 checkpoint/export
+  overlaps cover 615.24 measured seconds: barrier p95/max is 982.97 ms,
+  dropped wall time is zero, overload is false, health p95 is 3.51 ms,
+  local player/protocol-bot input p95 is 18.36/16.19 ms, event-loop p95/p99
+  is 10.89/11.59 ms and peak process RSS is 557.1 MB. Nine playable-generation
+  intervals average 61.27 seconds (max 61.37). Mean terminal computation is
+  443.66 ms; evolution is 421.36 ms, including 175.08 ms statistics/species
+  scanning and 232.52 ms reproduction. Simulated/wall progress is 0.979155,
+  below 0.98; the full VM gate remains open and these differing-run/host
+  measurements do not establish a controlled causal speedup. Reports and
+  paired point context are
+  `evidence/stage7/oxygen-ryzen2700/*mutation-cutoff-a2ca260-20261004.json`.
+  The copied report digest matches; stopped task-owned Oxygen checkout,
+  fixtures, dependencies/cache and generated builds are removed. Next examine
+  conservative species bounds that can avoid full comparisons without changing
+  classification. Remaining Stage 7/8 acceptance gates stay open.

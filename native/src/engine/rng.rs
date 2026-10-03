@@ -247,12 +247,17 @@ impl StatefulRng {
 
     /// Return the next uniform sample in `[0, 1)`.
     pub fn next_f64(&mut self) -> f64 {
+        f64::from(self.next_u32()) / 4_294_967_296.0
+    }
+
+    /// Advance the same uniform stream without converting its exact word to Float64.
+    pub(crate) fn next_u32(&mut self) -> u32 {
         let mut value = self.state;
         value ^= value.wrapping_shl(13);
         value ^= value >> 17;
         value ^= value.wrapping_shl(5);
         self.state = value;
-        f64::from(self.state) / 4_294_967_296.0
+        self.state
     }
 
     /// Return a uniformly sampled value in `[min, max)`.
@@ -481,6 +486,25 @@ mod tests {
                 "0x2c6f5bd0",
             ]
         );
+    }
+
+    /// Raw-word draws share uniform and cached-Gaussian continuation exactly.
+    #[test]
+    fn raw_uniform_draws_preserve_float_and_gaussian_continuation() {
+        for seed in [0.0, 1.0, 42.0, f64::from(u32::MAX)] {
+            let mut floating = StatefulRng::new(seed);
+            let mut words = StatefulRng::new(seed);
+            for index in 0..10_000 {
+                assert_eq!(
+                    floating.next_f64().to_bits(),
+                    (f64::from(words.next_u32()) / 4_294_967_296.0).to_bits()
+                );
+                if index % 7 == 0 {
+                    assert_eq!(floating.gaussian().to_bits(), words.gaussian().to_bits());
+                }
+            }
+            assert_eq!(floating.export_state(), words.export_state());
+        }
     }
 
     #[test]

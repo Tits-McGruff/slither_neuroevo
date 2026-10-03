@@ -1025,6 +1025,16 @@ fn copy_row(output: &mut [f32], source: &[f32], start: usize, length: usize) {
     output[start..start + length].copy_from_slice(&source[start..start + length]);
 }
 
+/// Exact integer boundary for a validated mutation rate in `[0, 0.5]`.
+///
+/// Uniform draws are exact `word / 2^32`, so `draw < rate` is equivalent to
+/// `word < ceil(rate * 2^32)`. Scaling by a power of two retains every boundary;
+/// the admitted maximum keeps the cutoff inside Uint32, including zero rates.
+fn mutation_cutoff(rate: f64) -> u32 {
+    debug_assert!((0.0..=0.5).contains(&rate));
+    (rate * 4_294_967_296.0).ceil() as u32
+}
+
 fn mutate(
     weights: &mut [f32],
     graph: &CompiledGraph,
@@ -1044,13 +1054,14 @@ fn mutate(
         } else {
             config.mutation_rate
         };
+        let cutoff = mutation_cutoff(rate);
         let standard_deviation = if recurrent {
             config.recurrent_mutation_std
         } else {
             config.mutation_std
         };
         for (parameter, weight) in weights[node.parameter_offset..end].iter_mut().enumerate() {
-            if rng.next_f64() < rate {
+            if rng.next_u32() < cutoff {
                 let mutated = (f64::from(*weight) + rng.gaussian() * standard_deviation)
                     .clamp(-MUTATION_WEIGHT_LIMIT, MUTATION_WEIGHT_LIMIT);
                 *weight = mutated as f32;
@@ -1233,6 +1244,17 @@ mod tests {
     }
 
     fn graph() -> CompiledGraph {
+        graph_with_memory(
+            GraphNodeKind::Gru {
+                input_size: 3,
+                hidden_size: 2,
+            },
+            2,
+        )
+    }
+
+    /// Compile mixed feed-forward/recurrent owners at small and large valid sizes.
+    fn graph_with_memory(memory: GraphNodeKind, hidden: usize) -> CompiledGraph {
         let spec = GraphSpec {
             nodes: vec![
                 GraphNodeSpec {
@@ -1249,15 +1271,12 @@ mod tests {
                 },
                 GraphNodeSpec {
                     id: "memory".to_owned(),
-                    kind: GraphNodeKind::Gru {
-                        input_size: 3,
-                        hidden_size: 2,
-                    },
+                    kind: memory,
                 },
                 GraphNodeSpec {
                     id: "head".to_owned(),
                     kind: GraphNodeKind::Dense {
-                        input_size: 2,
+                        input_size: hidden,
                         output_size: 2,
                     },
                 },
@@ -1281,11 +1300,11 @@ mod tests {
                 max_graph_outputs: 4,
                 max_identifier_bytes: 64,
                 max_total_referenced_identifier_bytes: 1_024,
-                max_tensor_width: 256,
+                max_tensor_width: 512,
                 max_mlp_hidden_layers: 8,
                 max_split_output_ports: 8,
-                max_parameter_floats: 10_000,
-                max_recurrent_state_floats: 1_000,
+                max_parameter_floats: 1_000_000,
+                max_recurrent_state_floats: 4_096,
                 max_canonical_layout_bytes: 100_000,
                 max_architecture_key_bytes: 4_096,
             },
@@ -1418,6 +1437,156 @@ mod tests {
             (actual - expected).abs() <= tolerance,
             "{label}: actual {actual}, expected {expected}, tolerance {tolerance}"
         );
+    }
+
+    /// Probe Float64 neighbors around exact uniform words, including zero/subnormal rates.
+    #[test]
+    fn mutation_cutoffs_match_float_decisions_at_probability_boundaries() {
+        let mut rates = vec![-0.0, 0.0, f64::from_bits(1), 0.025, 0.03, 0.35, 0.5];
+        for word in [1_u32, 2, 123, 128_849_019, 1_073_741_823, 2_147_483_648] {
+            let boundary = f64::from(word) / 4_294_967_296.0;
+            for bits in [
+                boundary.to_bits() - 1,
+                boundary.to_bits(),
+                boundary.to_bits() + 1,
+            ] {
+                let rate = f64::from_bits(bits);
+                if rate <= 0.5 {
+                    rates.push(rate);
+                }
+            }
+        }
+        for rate in rates {
+            let cutoff = mutation_cutoff(rate);
+            for word in [0, 1, u32::MAX, cutoff.saturating_sub(1), cutoff, cutoff + 1] {
+                assert_eq!(
+                    word < cutoff,
+                    f64::from(word) / 4_294_967_296.0 < rate,
+                    "word={word}, rate={rate}"
+                );
+            }
+        }
+    }
+
+    /// Retained original probability scan, independent from integer threshold selection.
+    fn mutate_with_float_reference(
+        weights: &mut [f32],
+        graph: &CompiledGraph,
+        config: EvolutionConfig,
+        rng: &mut StatefulRng,
+    ) {
+        for node in &graph.nodes {
+            let recurrent = matches!(
+                node.node_type,
+                CompiledNodeType::Gru | CompiledNodeType::Lstm | CompiledNodeType::Rru
+            );
+            let (rate, deviation) = if recurrent {
+                (
+                    config.recurrent_mutation_rate,
+                    config.recurrent_mutation_std,
+                )
+            } else {
+                (config.mutation_rate, config.mutation_std)
+            };
+            for weight in
+                &mut weights[node.parameter_offset..node.parameter_offset + node.parameter_length]
+            {
+                if rng.next_f64() < rate {
+                    *weight =
+                        (f64::from(*weight) + rng.gaussian() * deviation).clamp(-5.0, 5.0) as f32;
+                    assert!(weight.is_finite());
+                }
+            }
+        }
+    }
+
+    /// Large mixed owners preserve every weight bit and the complete Gaussian continuation.
+    #[test]
+    fn integer_mutation_selection_preserves_weight_bits_and_gaussian_state() {
+        let graphs = [
+            graph(),
+            graph_with_memory(
+                GraphNodeKind::Gru {
+                    input_size: 3,
+                    hidden_size: 384,
+                },
+                384,
+            ),
+            graph_with_memory(
+                GraphNodeKind::Lstm {
+                    input_size: 3,
+                    hidden_size: 384,
+                },
+                384,
+            ),
+            graph_with_memory(
+                GraphNodeKind::Rru {
+                    input_size: 3,
+                    hidden_size: 384,
+                },
+                384,
+            ),
+        ];
+        assert!(graphs.iter().any(|graph| graph.total_parameters > 400_000));
+        let pattern = [
+            0.0_f32,
+            -0.0,
+            f32::from_bits(1),
+            -f32::from_bits(1),
+            0.125,
+            -0.125,
+            4.9999,
+            -4.9999,
+            5.0,
+            -5.0,
+        ];
+        for graph in &graphs {
+            for (rate, recurrent_rate, deviation, recurrent_deviation) in [
+                (0.0, 0.0, 0.0, 0.0),
+                (0.03, 0.025, 0.35, 0.22),
+                (0.5, 0.35, 2.5, 1.6),
+            ] {
+                let config = EvolutionConfig {
+                    mutation_rate: rate,
+                    recurrent_mutation_rate: recurrent_rate,
+                    mutation_std: deviation,
+                    recurrent_mutation_std: recurrent_deviation,
+                    ..EvolutionConfig::typescript_defaults()
+                };
+                config.validate().unwrap();
+                for seed in [1.0, 42.0, f64::from(u32::MAX)] {
+                    for cached in [false, true] {
+                        let mut source = StatefulRng::new(seed);
+                        if cached {
+                            source.gaussian();
+                        }
+                        let continuation = source.export_state();
+                        let mut actual_rng = StatefulRng::from_state(&continuation).unwrap();
+                        let mut expected_rng = StatefulRng::from_state(&continuation).unwrap();
+                        let mut actual = (0..graph.total_parameters)
+                            .map(|index| pattern[index % pattern.len()])
+                            .collect::<Vec<_>>();
+                        let mut expected = actual.clone();
+                        mutate(&mut actual, graph, config, &mut actual_rng).unwrap();
+                        mutate_with_float_reference(
+                            &mut expected,
+                            graph,
+                            config,
+                            &mut expected_rng,
+                        );
+                        assert!(
+                            actual
+                                .iter()
+                                .zip(&expected)
+                                .all(|(a, b)| a.to_bits() == b.to_bits()),
+                            "weights={}, rate={rate}, seed={seed}, cached={cached}",
+                            graph.total_parameters
+                        );
+                        assert_eq!(actual_rng.export_state(), expected_rng.export_state());
+                    }
+                }
+            }
+        }
     }
 
     #[test]
