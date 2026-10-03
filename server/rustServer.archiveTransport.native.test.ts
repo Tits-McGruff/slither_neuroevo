@@ -171,10 +171,20 @@ async function experiment(action: (fixture: Fixture) => Promise<void>, privateQu
     expect(server.startupFault).toBeUndefined();
     socket = new WebSocket(`ws://127.0.0.1:${server.port}`);
     await slow(socket);
-    const response = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
-    expect(response.status).toBe(200);
-    const archive = Buffer.from(await response.arrayBuffer());
-    expect(archive.byteLength).toBeLessThan(4 * 1024 * 1024);
+    const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
+    let archive: Buffer;
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+      expect(response.status).toBe(200);
+      archive = Buffer.from(await response.arrayBuffer());
+      expect(archive.byteLength).toBeLessThan(4 * 1024 * 1024);
+      // Body completion and ready-file removal precede the worker's actual
+      // lease-release acknowledgement. Observe that real completion before
+      // testing another operation; keep the existing five-second deadline.
+      await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1), { timeout: 5000, interval: 10 });
+      await release.mock.results[0]!.value;
+      await new Promise<void>(done => setImmediate(done));
+    } finally { release.mockRestore(); }
     await noTransferScratch(managedDirectory);
     const before = await health(server);
     const identityKeys = ['runId', 'seed', 'generation', 'worldEpoch', 'configHash', 'startupCheckpointId'];

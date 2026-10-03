@@ -2180,3 +2180,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   removed. This adds desktop overlap evidence; 16 GiB VM, isolated archive
   overhead, legacy-reader, physical browser/LAN and final Stage 7/8 gates remain
   open.
+
+- 2026-10-04 The same P2 overlap measurement now runs on Oxygen's 16 GiB KVM
+  VM with unchanged 1 GiB operating reserve, 9 GiB temporary quota and 4 GiB
+  checkpoint budget, using the separate persistent filesystem. All eight
+  source-assembly overlaps are proven, but this target-host run misses the
+  one-second barrier p95: 1,103.6 ms, also its maximum, with two samples above
+  one second. Health p95 is 4.02 ms, player/protocol-bot input p95 is
+  16.07/15.64 ms, and event-loop p95/p99 is 10.94/12.17 ms. There is no
+  discarded scheduler time, but simulated/wall progress is 0.9763 during
+  concurrent exports. The report and point-sampled host context are
+  `evidence/stage7/oxygen-ryzen2700/*overlap*52659f9-20261004.json`.
+  First-export source population decoding alone takes 543 ms and repeats
+  during final validation. This identifies a concrete codec cost; host
+  contention is recorded without attributing the miss to it. The Linux addon
+  identity and real archive trace-off/on roundtrip checks pass. All disposable
+  processes, database/managed files, checkout, dependency cache and build
+  artifacts were removed after the copied report digest was verified. VM
+  overlap latency and remaining Stage 7/8 gates stay open.

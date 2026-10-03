@@ -2,11 +2,13 @@
 import { spawn } from 'node:child_process';
 import { createWriteStream, existsSync } from 'node:fs';
 import { mkdir, realpath, rm, stat, statfs, writeFile } from 'node:fs/promises';
-import { cpus, totalmem } from 'node:os';
+import { cpus, loadavg, totalmem } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import type { RustArchiveWorkProgress } from '../../server/rustEngine/backgroundRuntime.ts';
+import { DEFAULT_CONFIG } from '../../server/config.ts';
+import { ARCHIVE_TEMP_QUOTA_BYTES, OPERATING_DISK_RESERVE_BYTES, SQLITE_WAL_ALLOWANCE_BYTES } from '../../server/rustEngine/diskAdmission.ts';
 import { computeNativeSourceIdentity } from '../../server/rustEngine/nativeSourceIdentity.ts';
 import { childServer, control, digest, stop } from './archive-phase-profile.ts';
 import { archiveOverlap } from './archive-overlap-summary.ts';
@@ -282,9 +284,16 @@ async function measure(outputRoot: string, reportPath: string, requestedSamples:
     const barrierP95Ms = percentile(durations, 0.95);
     const barrierMaxMs = Math.max(...durations);
     const healthP95Ms = percentile(healthLatencies, 0.95);
+    const finalFilesystem = await statfs(createdRoot, { bigint: true });
     await mkdir(dirname(reportPath), { recursive: true });
     await writeFile(reportPath, JSON.stringify({ requestedSamples, attempts,
-      host: { platform: process.platform, arch: process.arch, cpuModel: cpus()[0]?.model, totalMemoryBytes: totalmem() },
+      host: { platform: process.platform, arch: process.arch, cpuModel: cpus()[0]?.model,
+        logicalCpuCount: cpus().length, totalMemoryBytes: totalmem(), loadAverageAtEnd: loadavg() },
+      filesystem: { availableBytesBefore: (filesystem.bavail * filesystem.bsize).toString(),
+        availableBytesAfterMeasurement: (finalFilesystem.bavail * finalFilesystem.bsize).toString() },
+      diskPolicy: { operatingReserveBytes: OPERATING_DISK_RESERVE_BYTES.toString(),
+        archiveTempQuotaBytes: ARCHIVE_TEMP_QUOTA_BYTES.toString(), sqliteWalAllowanceBytes: SQLITE_WAL_ALLOWANCE_BYTES.toString(),
+        checkpointBudgetMiB: DEFAULT_CONFIG.checkpointBudgetMiB },
       nativeSourceSha256: computeNativeSourceIdentity(resolve('native')).sha256,
       runnerSha256: await digest(fileURLToPath(import.meta.url)),
       observerSha256: await digest(resolve('scripts/stage7/archive-phase-profile.ts')),
@@ -299,7 +308,7 @@ async function measure(outputRoot: string, reportPath: string, requestedSamples:
       meetsMeasuredBudgets: barrierP95Ms <= 1000 && barrierMaxMs <= 2000 && healthP95Ms <= 100 &&
         actionLatencies.every(item => item.p95Ms <= 100) && final.telemetry.process.eventLoopDelayP95Ms <= 20 &&
         final.telemetry.process.eventLoopDelayP99Ms <= 50,
-      scope: 'Actual evolved P2 production game at 1x. Downloads are triggered from observed generation-transition events; no native operation, scheduler, disk admission, publication, FULL/WAL metadata transaction, retention, delivery or resume is delayed or replaced. Export clock brackets bound the native archive origin; the overlap window lies inside conservative bounds on the actual router barrier start/finish. Guaranteed overlap is valid for every permitted clock origin. Barrier duration is separately the original complete production telemetry duration. All attempts are retained. Local WebSocket input uses independent 30-Hz player and observation-driven protocol-bot peers; actual server-receipt-to-Rust-application latency is attributed to the response receive window with a one-second tail. This is not physical browser/LAN, PyRL training, isolated archive overhead, legacy-reader coverage, 16-GiB VM or complete A4 acceptance.' }, null, 2) + '\n', { flag: 'wx' });
+      scope: 'Actual evolved P2 production game at 1x on the listed host. Downloads are triggered from observed generation-transition events; no native operation, scheduler, disk admission, publication, FULL/WAL metadata transaction, retention, delivery or resume is delayed or replaced. Export clock brackets bound the native archive origin; the overlap window lies inside conservative bounds on the actual router barrier start/finish. Guaranteed overlap is valid for every permitted clock origin. Barrier duration is separately the original complete production telemetry duration. All attempts are retained. Local WebSocket input uses independent 30-Hz player and observation-driven protocol-bot peers; actual server-receipt-to-Rust-application latency is attributed to the response receive window with a one-second tail. This does not establish physical browser/LAN, PyRL training, isolated archive overhead, legacy-reader coverage or complete A4 acceptance.' }, null, 2) + '\n', { flag: 'wx' });
     console.log(`report=${reportPath} barrierP95=${barrierP95Ms.toFixed(2)}ms barrierMax=${barrierMaxMs.toFixed(2)}ms healthP95=${healthP95Ms.toFixed(2)}ms`);
   } catch (error) {
     measuring = false;
