@@ -90,17 +90,18 @@ async function cleanup(outputRoot: string, createdRoot: string): Promise<void> {
 }
 
 /** Require a new invocation-owned scratch directory and separate permanent report. */
-async function measure(outputRoot: string, reportPath: string, requestedSamples: number): Promise<void> {
+async function measure(outputRoot: string, reportPath: string, requestedSamples: number, rustWorkers: number): Promise<void> {
   if (dirname(outputRoot) !== resolve('data') || !basename(outputRoot).startsWith('codex-browser-fixture-overlap-') ||
       existsSync(outputRoot) || existsSync(reportPath) || reportPath.startsWith(`${outputRoot}/`) ||
       reportPath.startsWith(`${outputRoot}\\`)) throw new Error('require absent task-owned scratch and separate new report');
+  await mkdir(dirname(outputRoot), { recursive: true });
   const filesystem = await statfs(dirname(outputRoot), { bigint: true });
   if (filesystem.bavail * filesystem.bsize < 12n * 1024n ** 3n) throw new Error('overlap run requires 12 GiB free');
   await mkdir(outputRoot);
   const createdRoot = await realpath(outputRoot);
   const databasePath = resolve(createdRoot, 'overlap.db');
   const exportPath = resolve(createdRoot, 'export.slither-save');
-  const child = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), '--child', databasePath], {
+  const child = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), '--child', databasePath, String(rustWorkers)], {
     env: { ...process.env, SLITHER_TRACE_ARCHIVE_PHASES: '1' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc']
   });
   /** Keep only the last bounded diagnostics if this exact child fails. */
@@ -225,7 +226,7 @@ async function measure(outputRoot: string, reportPath: string, requestedSamples:
   try {
     port = await ready.promise;
     clearTimeout(readyTimeout);
-    await configure(port, 'P2', 6);
+    await configure(port, 'P2', rustWorkers);
     deadline = performance.now() + 600_000;
     let nextWarmProgress = performance.now() + 30_000;
     for (;;) {
@@ -298,7 +299,7 @@ async function measure(outputRoot: string, reportPath: string, requestedSamples:
       runnerSha256: await digest(fileURLToPath(import.meta.url)),
       observerSha256: await digest(resolve('scripts/stage7/archive-phase-profile.ts')),
       configuredWorkload: { scenario: 'P2', neuralSnakes: 55, baselineBots: 10, pellets: 3500,
-        sensorCount: 147, generationSeconds: 60, simSpeed: 1, rustWorkers: 6 },
+        sensorCount: 147, generationSeconds: 60, simSpeed: 1, rustWorkers },
       initial: { ...initial, archiveWork: undefined }, final: { ...final, archiveWork: undefined },
       wallSeconds, deltaSteps: (BigInt(`0x${final.completedStep}`) - BigInt(`0x${initial.completedStep}`)).toString(),
       droppedWallMicros: (BigInt(`0x${final.schedulerDroppedWallMicros}`) - BigInt(`0x${initial.schedulerDroppedWallMicros}`)).toString(),
@@ -317,7 +318,7 @@ async function measure(outputRoot: string, reportPath: string, requestedSamples:
     await sampler;
     await mkdir(dirname(reportPath), { recursive: true });
     if (!existsSync(reportPath)) await writeFile(reportPath, JSON.stringify({ status: 'failed',
-      error: error instanceof Error ? error.message : String(error), requestedSamples, attempts,
+      error: error instanceof Error ? error.message : String(error), requestedSamples, rustWorkers, attempts,
       latest: latest ? { ...latest, archiveWork: undefined } : null,
       journal: journal.filter(item => item.type !== 'action'),
       controls: controllers.map(controller => controller.report), childErrors,
@@ -339,19 +340,22 @@ async function measure(outputRoot: string, reportPath: string, requestedSamples:
 /** Dispatch the bounded isolated child or require explicit absent destinations. */
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  if (args[0] === '--child' && args[1] && args.length === 2 && process.send) {
-    await childServer(resolve(args[1]), true); return;
+  if (args[0] === '--child' && args[1] && args[2] && /^[456]$/u.test(args[2]) && args.length === 3 && process.send) {
+    await childServer(resolve(args[1]), true, Number(args[2])); return;
   }
   const values = new Map<string, string>();
   for (let index = 0; index < args.length; index += 2) {
     const key = args[index]; const value = args[index + 1];
-    if (!key || !value || !['--output-root', '--report-path', '--samples'].includes(key) || values.has(key)) throw new Error('invalid overlap options');
+    if (!key || !value || !['--output-root', '--report-path', '--samples', '--rust-workers'].includes(key) || values.has(key)) throw new Error('invalid overlap options');
     values.set(key, value);
   }
   const root = values.get('--output-root'); const report = values.get('--report-path');
   const count = values.get('--samples') ?? '8';
-  if (!root || !report || !/^(?:[3-9]|10)$/u.test(count)) throw new Error('require --output-root NEW_DATA_FIXTURE --report-path NEW_REPORT [--samples 3..10]');
-  await measure(resolve(root), resolve(report), Number(count));
+  const workers = values.get('--rust-workers') ?? '6';
+  if (!root || !report || !/^(?:[3-9]|10)$/u.test(count) || !/^[456]$/u.test(workers)) {
+    throw new Error('require --output-root NEW_DATA_FIXTURE --report-path NEW_REPORT [--samples 3..10] [--rust-workers 4|5|6]');
+  }
+  await measure(resolve(root), resolve(report), Number(count), Number(workers));
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

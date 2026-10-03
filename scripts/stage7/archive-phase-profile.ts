@@ -60,7 +60,8 @@ export async function stop(child: ChildProcess): Promise<void> {
 }
 
 /** Observe actual metadata-worker requests without changing their arguments or results. */
-export async function childServer(databasePath: string, checkpointTimings = false): Promise<void> {
+export async function childServer(databasePath: string, checkpointTimings = false, rustWorkers = 6): Promise<void> {
+  if (![4, 5, 6].includes(rustWorkers)) throw new Error('archive profile requires four, five or six calculation workers');
   const originalCommit = CheckpointPersistenceClient.prototype.commitImport;
   const originalAcquire = CheckpointPersistenceClient.prototype.acquireCurrentExportLease;
   const originalDispatch = Server.prototype.emit;
@@ -224,7 +225,7 @@ export async function childServer(databasePath: string, checkpointTimings = fals
     return measure('sqlite-export-source-worker-request', () => originalAcquire.call(this));
   };
   const server = await startRustServer({ ...DEFAULT_CONFIG, host: '127.0.0.1', port: 0,
-    resume: 'fresh', seed: 1511506142, dbPath: databasePath, rustCalculationWorkers: 6, logLevel: 'error' });
+    resume: 'fresh', seed: 1511506142, dbPath: databasePath, rustCalculationWorkers: rustWorkers, logLevel: 'error' });
   try {
     if (server.startupFault) throw new Error(`profile startup fault: ${server.startupFault}`);
     process.send?.({ type: 'ready', port: server.port });

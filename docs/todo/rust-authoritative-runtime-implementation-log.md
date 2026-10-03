@@ -2237,3 +2237,24 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   an observed codec cost; the full VM performance and Stage 7/8 gates remain
   open. Next measure four/five/six calculation workers with archive activity
   before selecting the supported configuration.
+
+- 2026-10-04 The P2 overlap runner now accepts four/five/six calculation
+  workers, verifies the actual welcome count and records the requested count
+  in success/failure evidence. Fresh-checkout data parents are created before
+  free-space admission. Sequential four/five-worker measurements each prove
+  eight actual overlaps on the 16 GiB VM and share the preceding six-worker
+  run's unchanged native source. Four/five/six barrier p95/max is
+  1,093.1/1,061.9/1,068.2 ms; simulated/wall progress is
+  0.9744/0.9759/0.9754, with 178,334/5,667/4,334 microseconds discarded.
+  None meets the complete performance gate. Local health p95 is 4.39–4.58 ms,
+  player/protocol-bot input p95 is 22.24–26.75 ms and event-loop p95/p99 remains
+  below 11.04/12.78 ms. The default remains five; these point-context runs do
+  not establish a worker-count winner under controlled host load. Reports and
+  paired context are `evidence/stage7/oxygen-ryzen2700/*workers*-3d31070-20261004.json`;
+  six-worker evidence is the preceding packed-append report. Six clock-bound
+  and registration tests, invalid-count preflight, TypeScript, ESLint, Linux
+  identity and real trace-off/on archive roundtrips pass. Native correctness
+  reuses the preceding checkpoint's unchanged-source validation. Both retained
+  report digests match, and the stopped task-owned checkout, fixtures, cache
+  and generated build artifacts were removed. Worker count alone does not
+  clear the VM gate; next inspect the remaining numeric writer/transition cost.
