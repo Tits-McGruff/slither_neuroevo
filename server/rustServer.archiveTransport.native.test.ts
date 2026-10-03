@@ -4,14 +4,14 @@ import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createReadStream } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, statfs, unlink, writeFile } from 'node:fs/promises';
-import { request, Server, type ClientRequest, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, request, Server, type ClientRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { connect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { constants as zstdConstants, createZstdDecompress, zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import Database from 'better-sqlite3';
-import { expect, it, vi } from 'vitest';
+import { expect, it, onTestFinished, vi } from 'vitest';
 import WebSocket from 'ws';
 import { DEFAULT_CONFIG } from './config.ts';
 import { startRustServer, type RustServer } from './rustServer.ts';
@@ -30,6 +30,9 @@ import type { ExperimentalRuntimeTelemetrySnapshot } from './rustEngine/runtimeT
 
 /** Bounded native mount commands used only by the explicitly selected Linux quota fixture. */
 const runFile = promisify(execFile);
+
+/** Original HTTP dispatch, captured before a timed-out fixture can install an observer. */
+const originalHttpEmit = Server.prototype.emit;
 
 /** Change the task's private tmpfs quota without allocating its advertised capacity. */
 async function quota(directory: string, bytes: bigint): Promise<void> {
@@ -421,24 +424,42 @@ async function bounded<T>(promise: Promise<T>, description: string): Promise<T> 
   } finally { if (timeout) clearTimeout(timeout); }
 }
 
+/** Release a held boundary on test timeout as well as normal completion, exactly once. */
+function testCleanup(action: () => void): () => void {
+  let cleaned = false;
+  /** A delayed finally block cannot restore global methods belonging to the next test. */
+  const cleanup = (): void => {
+    if (cleaned) return;
+    cleaned = true;
+    action();
+  };
+  onTestFinished(cleanup);
+  return cleanup;
+}
+
 /** Observe the actual server response closing before success, without changing HTTP dispatch. */
-function observeDisconnect(fixture: Fixture): { closed: Promise<boolean>; restore: () => void } {
+function observeDisconnect(server: Pick<RustServer, 'port'>): { closed: Promise<boolean>; restore: () => void } {
   let disconnected!: (beforeFinish: boolean) => void;
   const closed = new Promise<boolean>(done => { disconnected = done; });
-  const originalEmit = Server.prototype.emit;
-  const dispatch = vi.spyOn(Server.prototype, 'emit').mockImplementation(function(
+  /** Forward directly to Node, never through an earlier fixture's still-installed wrapper. */
+  const dispatch = function(
     this: Server, event: string | symbol, ...args: unknown[]
   ): boolean {
     if (event === 'request') {
       const incoming = args[0] as IncomingMessage;
       const response = args[1] as ServerResponse;
-      if (incoming.socket.localPort === fixture.server.port && incoming.url === '/api/import/archive') {
+      if (incoming.socket.localPort === server.port && incoming.url === '/api/import/archive') {
         response.once('close', () => disconnected(!response.writableFinished));
       }
     }
-    return Reflect.apply(originalEmit, this, [event, ...args]) as boolean;
-  });
-  return { closed, restore: () => dispatch.mockRestore() };
+    return Reflect.apply(originalHttpEmit, this, [event, ...args]) as boolean;
+  };
+  Server.prototype.emit = dispatch;
+  /** Late cleanup must not remove a newer fixture's observer after a test deadline. */
+  const restore = (): void => {
+    if (Server.prototype.emit === dispatch) Server.prototype.emit = originalHttpEmit;
+  };
+  return { closed, restore: testCleanup(restore) };
 }
 
 /** One actual controller's bounded protocol inbox and newest delivered observation. */
@@ -507,6 +528,40 @@ async function heldInput(peers: ControllerPeer[]): Promise<void> {
 }
 
 describeNetworkSuite('Rust archive HTTP framing', () => {
+  it('keeps the newer HTTP disconnect observer when an older fixture cleans up late', async () => {
+    let requests = 0;
+    const server = createServer((_incoming, response) => {
+      requests++;
+      response.writeHead(400, { 'Connection': 'close' });
+      response.end('fixture import rejected');
+    });
+    let previous: ReturnType<typeof observeDisconnect> | undefined;
+    let current: ReturnType<typeof observeDisconnect> | undefined;
+    try {
+      await new Promise<void>((done, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', () => { server.off('error', reject); done(); });
+      });
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('observer fixture has no bound port');
+      previous = observeDisconnect({ port: address.port });
+      current = observeDisconnect({ port: address.port });
+      previous.restore();
+      previous.restore();
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/import/archive`, {
+        method: 'POST', body: 'invalid', signal: AbortSignal.timeout(5000)
+      });
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('fixture import rejected');
+      expect(await bounded(current.closed, 'newer observer lost the actual HTTP close')).toBe(false);
+      expect(requests).toBe(1);
+    } finally {
+      previous?.restore(); current?.restore();
+      await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));
+    }
+    expect(Server.prototype.emit).toBe(originalHttpEmit);
+  });
+
   it('delivers the whole resource rejection and closes a connected unfinished upload without spooling', async () => {
     await experiment(async fixture => {
       const admission = vi.spyOn(diskAdmission, 'admitDiskOperation')
@@ -832,7 +887,12 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           reached();
           await released;
         });
-      const observation = observeDisconnect(fixture);
+      const observation = observeDisconnect(fixture.server);
+      const cleanup = testCleanup(() => {
+        release();
+        stage.mockRestore();
+        observation.restore();
+      });
       try {
         let client: ClientRequest | undefined;
         if (kind === 'import') {
@@ -884,9 +944,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         expect(applied.player.appliedActions).toBe(activity.player.appliedActions + 1);
         expect(applied.trainer.appliedActions).toBe(activity.trainer.appliedActions + 1);
       } finally {
-        release();
-        stage.mockRestore();
-        observation.restore();
+        cleanup();
       }
     });
   }, 15_000);
@@ -1139,7 +1197,12 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
               await originalStage.call(this);
               if (boundary === 'afterStage') await hold();
             });
-        const observation = observeDisconnect(fixture);
+        const observation = observeDisconnect(fixture.server);
+        const cleanup = testCleanup(() => {
+          release();
+          boundarySpy.mockRestore();
+          observation.restore();
+        });
         const body = legacyPopulation();
         const sourceHash = createHash('sha256').update(body).digest('hex');
         try {
@@ -1162,9 +1225,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect(createHash('sha256').update(body).digest('hex')).toBe(sourceHash);
           await advancing(fixture);
         } finally {
-          release();
-          boundarySpy.mockRestore();
-          observation.restore();
+          cleanup();
         }
       });
     }
@@ -1195,7 +1256,13 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
             return result;
           })
         : undefined;
-      const observation = observeDisconnect(fixture);
+      const observation = observeDisconnect(fixture.server);
+      const cleanup = testCleanup(() => {
+        release();
+        commit.mockRestore();
+        publish?.mockRestore();
+        observation.restore();
+      });
       // A supported legacy population gives this import a new run and a distinct durable pointer.
       const body = legacyPopulation();
       const sourceHash = createHash('sha256').update(body).digest('hex');
@@ -1238,10 +1305,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         expect((await exported.arrayBuffer()).byteLength).toBeGreaterThan(1024);
         await noTransferScratch(fixture.managedDirectory);
       } finally {
-        release();
-        commit.mockRestore();
-        publish?.mockRestore();
-        observation.restore();
+        cleanup();
       }
     });
   });
