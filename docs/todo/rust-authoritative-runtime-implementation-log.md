@@ -2029,3 +2029,21 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   checks, with three existing optional skips. Disposable servers and fixtures
   were cleaned. Physical memory/filesystem exhaustion, full A7 and remaining
   Stage 7/8 gates stay open.
+
+- 2026-10-03 A7 actual filesystem-failure checks pass on Oxygen through the
+  production server and source-matched Linux addon. An unprivileged private
+  namespace mounts only the test's managed directory; successful production
+  disk admission precedes reducing that filesystem's capacity to its used
+  blocks. Real ENOSPC during upload spooling, native import preparation and
+  export encoding preserves every prior metadata row, managed file byte and
+  active identity, cleans transfer scratch, and permits continued steps.
+  Player/trainer sockets, assignments and epochs survive, and steering sent
+  during the failure reaches the unchanged world. Restoring capacity permits
+  the same import/export to complete. The reproducible launcher is
+  `scripts/stage7/private-filesystem-failures.sh`; its advertised capacity is
+  not allocated, and the server's disk is never filled. All three Linux checks,
+  four affected Windows fixture regressions, TypeScript and full ESLint passed.
+  Product code is unchanged and retains the preceding full Rust and browser
+  build evidence. The namespace fixtures, cache, generated Rust target and
+  disposable Oxygen checkout/addon were removed. These cover the named real
+  filesystem failures; complete A7 and remaining Stage 7/8 gates stay open.

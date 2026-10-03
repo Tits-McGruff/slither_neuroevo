@@ -1,12 +1,14 @@
 /** Real HTTP archive framing and wire-limit acceptance with an unchanged prior experiment. */
 import { createHash, randomBytes } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, statfs, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, statfs, unlink, writeFile } from 'node:fs/promises';
 import { request, Server, type ClientRequest, type IncomingMessage, type ServerResponse } from 'node:http';
 import { connect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { constants as zstdConstants, createZstdDecompress, zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import Database from 'better-sqlite3';
 import { expect, it, vi } from 'vitest';
@@ -25,6 +27,16 @@ import * as diskAdmission from './rustEngine/diskAdmission.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import type { AssignMsg, SensorsMsg } from './protocol.ts';
 import type { ExperimentalRuntimeTelemetrySnapshot } from './rustEngine/runtimeTelemetry.ts';
+
+/** Bounded native mount commands used only by the explicitly selected Linux quota fixture. */
+const runFile = promisify(execFile);
+
+/** Change the task's private tmpfs quota without allocating its advertised capacity. */
+async function quota(directory: string, bytes: bigint): Promise<void> {
+  // Do not reparse host-mapped uid/gid options from mountinfo inside the user namespace.
+  await runFile('mount', ['--options-mode', 'replace', '--types', 'tmpfs', '--options',
+    `remount,size=${bytes},uid=0,gid=0`, 'slither-a7-quota', directory], { timeout: 5000 });
+}
 
 /** One task-owned authority and its durable pre-request evidence. */
 interface Fixture {
@@ -122,7 +134,7 @@ async function slow(socket: WebSocket): Promise<void> {
 }
 
 /** Create, close and remove one exact fixture; owner databases are never opened. */
-async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<void> {
+async function experiment(action: (fixture: Fixture) => Promise<void>, privateQuota = false): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'slither-archive-transport-'));
   const databasePath = join(root, 'experiment.sqlite');
   const managedDirectory = `${databasePath}.checkpoints`;
@@ -132,7 +144,21 @@ async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<
   const sockets = new Set<Socket>();
   const requests = new Set<ClientRequest>();
   const peers = new Set<WebSocket>();
+  let mounted = false;
   try {
+    if (privateQuota) {
+      // Refuse host-root or shared-namespace execution before invoking mount.
+      expect(process.platform).toBe('linux');
+      expect(await readFile('/proc/self/uid_map', 'utf8')).toMatch(/^\s*0\s+[1-9]\d*\s+1\s*$/mu);
+      const parentNamespace = process.env['SLITHER_PARENT_MOUNT_NAMESPACE'];
+      expect(parentNamespace).toMatch(/^mnt:\[\d+\]$/u);
+      expect(await readlink('/proc/self/ns/mnt')).not.toBe(parentNamespace);
+      await mkdir(managedDirectory);
+      await runFile('mount', ['--types', 'tmpfs', '--options', 'size=3G,nosuid,nodev,mode=0700',
+        'slither-a7-quota', managedDirectory], { timeout: 5000 });
+      mounted = true;
+      expect((await statfs(managedDirectory, { bigint: true })).type).toBe(0x01021994n);
+    }
     server = await startRustServer({ ...DEFAULT_CONFIG, host: '127.0.0.1', port: 0,
       resume: 'fresh', seed: 42, dbPath: databasePath });
     expect(server.startupFault).toBeUndefined();
@@ -156,6 +182,7 @@ async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<
     for (const peer of peers) peer.terminate();
     socket?.terminate();
     await (fixture?.server ?? server)?.close();
+    if (mounted) await runFile('umount', [managedDirectory], { timeout: 5000 });
     await rm(root, { recursive: true, force: true });
   }
 }
@@ -589,6 +616,94 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
       });
     }, 20_000
   );
+
+  it.runIf(process.platform === 'linux' && process.env['SLITHER_PRIVATE_QUOTA_TEST'] === '1').each([
+    ['import upload', 'import', 1], ['import preparation', 'import', 2], ['export encoding', 'export', 1]
+  ] as const)('preserves the game after real private-filesystem exhaustion during %s',
+    async (_boundary, operation, attempt) => {
+      await experiment(async fixture => {
+        const peers = await Promise.all([controller(fixture, 'ui'), controller(fixture, 'bot')]);
+        const baselines = peers.map(peer => ({ assignment: { ...peer.assignment! }, sample: peer.sample! }));
+        const activity = ((await health(fixture.server))['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+        const originalAdmit = diskAdmission.admitDiskOperation;
+        let admitted = 0;
+        let constrained = false;
+        let beforeFree: bigint | undefined;
+        const stage = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport');
+        const commit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commitImport');
+        /** Reduce actual filesystem capacity only after successful production admission. */
+        const admission = vi.spyOn(diskAdmission, 'admitDiskOperation')
+          .mockImplementation(async (directory, request) => {
+            const decision = await originalAdmit(directory, request);
+            if (request.operation === operation && ++admitted === attempt) {
+              expect(directory).toBe(fixture.managedDirectory);
+              const capacity = await statfs(directory, { bigint: true });
+              beforeFree = capacity.bavail * capacity.bsize;
+              expect(beforeFree).toBeGreaterThan(decision.requiredFreeBytes);
+              await quota(directory, (capacity.blocks - capacity.bfree) * capacity.bsize);
+              constrained = true;
+              expect((await statfs(directory, { bigint: true })).bavail).toBe(0n);
+              await heldInput(peers);
+            }
+            return decision;
+          });
+        try {
+          const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/${operation === 'export'
+            ? 'export/latest' : 'import/archive'}`, operation === 'export'
+            ? { signal: AbortSignal.timeout(5000) }
+            : { method: 'POST', body: new Uint8Array(fixture.archive), signal: AbortSignal.timeout(5000) });
+          expect(response.status).toBe(operation === 'export' ? 500 : 400);
+          const rejected = await response.json() as { ok: boolean; message: string };
+          expect(rejected.ok).toBe(false);
+          expect(rejected.message).toMatch(/ENOSPC|no space left on device|os error 28/iu);
+          expect(constrained).toBe(true);
+          expect(admitted).toBe(attempt);
+          expect(stage).not.toHaveBeenCalled();
+          expect(commit).not.toHaveBeenCalled();
+          await quota(fixture.managedDirectory, 3n * 1024n ** 3n);
+          await preserved(fixture);
+          await advancing(fixture);
+          await outcome(() => peers.every((peer, index) => peer.sample!.tick > baselines[index]!.sample.tick &&
+            headingChange(baselines[index]!.sample, peer.sample!) < -0.01),
+          'steering delivered during disk exhaustion did not reach the preserved world');
+          for (const [index, peer] of peers.entries()) {
+            expect(peer.socket.readyState).toBe(WebSocket.OPEN);
+            expect(peer.assignment).toEqual(baselines[index]!.assignment);
+            expect(peer.packets.filter(packet => ['stateReplaced', 'error'].includes(String(packet['type'])))).toEqual([]);
+          }
+          const applied = ((await health(fixture.server))['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
+          expect(applied.player.appliedActions).toBeGreaterThanOrEqual(activity.player.appliedActions + 1);
+          expect(applied.trainer.appliedActions).toBe(activity.trainer.appliedActions + 1);
+          admission.mockRestore();
+          const retry = await fetch(`http://127.0.0.1:${fixture.server.port}/api/${operation === 'export'
+            ? 'export/latest' : 'import/archive'}`, operation === 'export'
+            ? { signal: AbortSignal.timeout(5000) }
+            : { method: 'POST', body: new Uint8Array(fixture.archive), signal: AbortSignal.timeout(5000) });
+          expect(retry.status).toBe(200);
+          if (operation === 'export') {
+            expect(Buffer.from(await retry.arrayBuffer())).toEqual(fixture.archive);
+            await preserved(fixture);
+          } else {
+            expect(await retry.json()).toMatchObject({ ok: true, runId: fixture.identity['runId'] });
+            await noTransferScratch(fixture.managedDirectory);
+            expect(metadata(fixture.databasePath)).toEqual(
+              (fixture.metadata as Array<{ name: string; rows: unknown[] }>).map(table =>
+                table.name === 'rust_active_run_v1' ? { ...table,
+                  rows: [{ singleton: 1, run_id: fixture.identity['runId'] }] } : table));
+            expect(await files(fixture.managedDirectory)).toEqual(fixture.files);
+            const replaced = await health(fixture.server);
+            expect(replaced).toMatchObject({ ok: true, runId: fixture.identity['runId'],
+              seed: fixture.identity['seed'], generation: fixture.identity['generation'] });
+            expect(BigInt(`0x${replaced['worldEpoch'] as string}`))
+              .toBeGreaterThan(BigInt(`0x${fixture.identity['worldEpoch'] as string}`));
+          }
+          await advancing(fixture);
+        } finally {
+          admission.mockRestore(); stage.mockRestore(); commit.mockRestore();
+          if (constrained) await quota(fixture.managedDirectory, 3n * 1024n ** 3n);
+        }
+      }, true);
+    }, 20_000);
 
   it('rejects independently valid import and reset exceeding native state memory before replacement', async () => {
     const ceiling = 1400n * 1024n ** 2n;
