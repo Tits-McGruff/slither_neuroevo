@@ -21,6 +21,12 @@ pub const TOURNAMENT_SIZE: usize = 5;
 pub const SPECIES_DISTANCE_THRESHOLD: f64 = 0.35;
 /// Bound delayed far-distance rejection while keeping the original scalar sum order.
 const SPECIES_DISTANCE_SCAN_BLOCK: usize = 256;
+/// Extra per-genome norm storage beyond the previous slot/count species scratch.
+pub(crate) const SPECIES_NORM_BYTES_PER_GENOME: usize = std::mem::size_of::<f64>();
+/// Restrict the norm proof to sums with a small, documented rounding bound.
+const SPECIES_NORM_MAX_WEIGHTS: usize = 1 << 30;
+/// Leave much more room than both scalar reductions' accumulated rounding error.
+const SPECIES_NORM_ROUNDING_GUARD: f64 = 1.000_1;
 /// Current mutation clamp applied after Gaussian noise.
 const MUTATION_WEIGHT_LIMIT: f64 = 5.0;
 /// Current tolerance for awarding the top-points bonus.
@@ -735,6 +741,16 @@ fn calculate_fitness(
     Ok(())
 }
 
+/// One greedy species representative and its norm from the ordered statistics pass.
+struct SpeciesRepresentative {
+    /// Source population index, preserving the original representative order.
+    slot: usize,
+    /// Number of genomes assigned to this representative.
+    size: u64,
+    /// Ordered sum of squared weights used only for conservative acceptance.
+    squared_norm: f64,
+}
+
 fn calculate_summary(
     population: &[PopulationGenome],
     sorted_slots: &[usize],
@@ -745,23 +761,8 @@ fn calculate_summary(
     let last = sorted_slots[sorted_slots.len() - 1];
     let average =
         sorted_slots.iter().map(|slot| fitness[*slot]).sum::<f64>() / fitness.len() as f64;
-    let mut representatives = reserve_vec(sorted_slots.len(), "species representatives")?;
-    let mut species_sizes = reserve_vec(sorted_slots.len(), "species sizes")?;
-    for &slot in sorted_slots {
-        let mut assigned = false;
-        for (species_index, &representative) in representatives.iter().enumerate() {
-            if genomes_share_species(&population[slot], &population[representative])? {
-                species_sizes[species_index] += 1_u64;
-                assigned = true;
-                break;
-            }
-        }
-        if !assigned {
-            representatives.push(slot);
-            species_sizes.push(1_u64);
-        }
-        advance_work_progress(population[slot].weights.len() * std::mem::size_of::<f32>());
-    }
+    let mut representatives: Vec<SpeciesRepresentative> =
+        reserve_vec(sorted_slots.len(), "species representatives")?;
     let mut sum_absolute = 0.0_f64;
     let mut sum_absolute_squared = 0.0_f64;
     let mut weight_count = 0usize;
@@ -772,10 +773,36 @@ fn calculate_summary(
             .ok_or(EvolutionError::ArithmeticOverflow {
                 context: "network statistic weight count",
             })?;
+        let mut squared_norm = 0.0_f64;
         for &weight in population[slot].weights.iter() {
             let absolute = f64::from(weight).abs();
+            let squared = absolute * absolute;
             sum_absolute += absolute;
-            sum_absolute_squared += absolute * absolute;
+            sum_absolute_squared += squared;
+            squared_norm += squared;
+        }
+        advance_work_progress(population[slot].weights.len() * std::mem::size_of::<f32>());
+        let mut assigned = false;
+        for representative in &mut representatives {
+            let other: &PopulationGenome = &population[representative.slot];
+            if species_norms_prove_close(
+                population[slot].weights.len(),
+                other.weights.len(),
+                squared_norm,
+                representative.squared_norm,
+            ) || genomes_share_species(&population[slot], other)?
+            {
+                representative.size += 1;
+                assigned = true;
+                break;
+            }
+        }
+        if !assigned {
+            representatives.push(SpeciesRepresentative {
+                slot,
+                size: 1,
+                squared_norm,
+            });
         }
         advance_work_progress(population[slot].weights.len() * std::mem::size_of::<f32>());
     }
@@ -794,7 +821,11 @@ fn calculate_summary(
         average,
         minimum: fitness[last],
         species_count: representatives.len() as u64,
-        top_species_size: species_sizes.iter().copied().max().unwrap_or(0),
+        top_species_size: representatives
+            .iter()
+            .map(|species| species.size)
+            .max()
+            .unwrap_or(0),
         average_weight,
         weight_variance,
     };
@@ -814,6 +845,36 @@ fn calculate_summary(
         });
     }
     Ok(summary)
+}
+
+/// Prove that the original scalar RMS comparison accepts using the triangle bound.
+///
+/// Each finite Float32 square is exact in Float64 and normal even for Float32
+/// subnormals. With at most 2^30 terms, the positive-sum relative error bound
+/// n*epsilon/(1-n*epsilon) is below 2^-21 (using full epsilon conservatively).
+/// The norm square roots/addition and the original difference/square/sum/divide/
+/// square-root path together remain well inside the 1e-4 guard. This bound is
+/// deliberately loose: uncertain, empty, mismatched, or longer owners keep the
+/// original scalar calculation. It never rejects a pair or changes its cutoff.
+fn species_norms_prove_close(
+    left_count: usize,
+    right_count: usize,
+    left_squared_norm: f64,
+    right_squared_norm: f64,
+) -> bool {
+    if left_count == 0
+        || left_count != right_count
+        || left_count > SPECIES_NORM_MAX_WEIGHTS
+        || !left_squared_norm.is_finite()
+        || !right_squared_norm.is_finite()
+        || left_squared_norm < 0.0
+        || right_squared_norm < 0.0
+    {
+        return false;
+    }
+    let upper_rms =
+        (left_squared_norm.sqrt() + right_squared_norm.sqrt()) / (left_count as f64).sqrt();
+    upper_rms * SPECIES_NORM_ROUNDING_GUARD < SPECIES_DISTANCE_THRESHOLD
 }
 
 fn genomes_share_species(
@@ -1839,6 +1900,80 @@ mod tests {
         (sum / left.weights.len() as f64).sqrt() <= SPECIES_DISTANCE_THRESHOLD
     }
 
+    /// Norm acceptance is checked against complete scalar distance, including fallback cases.
+    #[test]
+    fn species_norm_acceptance_preserves_scalar_boundary_decisions() {
+        let mut left = source_state(&fixture()).1.remove(0);
+        let mut right = left.clone();
+        let patterns = [
+            (0.0_f32, -0.0_f32),
+            (f32::from_bits(1), -f32::from_bits(1)),
+            (0.02, -0.08),
+            (0.174_98, -0.174_98),
+            (0.174_99, -0.174_99),
+            (f32::from_bits(0.175_f32.to_bits() - 1), -0.175),
+            (0.175, -0.175),
+            (f32::from_bits(0.175_f32.to_bits() + 1), -0.175),
+            (0.18, -0.18),
+            (5.0, 5.0),
+            (f32::MAX, f32::MAX),
+            (f32::MAX, -f32::MAX),
+            (f32::MAX, f32::from_bits(1)),
+        ];
+        let mut accepted = 0;
+        let mut fallback = 0;
+        for count in [0, 1, 255, 256, 257, 8_192, 400_003] {
+            for &(a, b) in &patterns {
+                left.weights = vec![a; count].into_boxed_slice();
+                right.weights = vec![b; count].into_boxed_slice();
+                for spike in [None, Some(0), Some(count / 2), count.checked_sub(1)] {
+                    if let Some(index) = spike.filter(|&index| index < count) {
+                        left.weights[index] = 5.0;
+                    }
+                    let norm = |genome: &PopulationGenome| {
+                        genome.weights.iter().fold(0.0, |sum, &weight| {
+                            let value = f64::from(weight);
+                            sum + value * value
+                        })
+                    };
+                    let proven = species_norms_prove_close(count, count, norm(&left), norm(&right));
+                    let expected = scalar_species(&left, &right);
+                    assert!(
+                        !proven || expected,
+                        "count={count}, a={a}, b={b}, spike={spike:?}"
+                    );
+                    assert_eq!(
+                        proven || genomes_share_species(&left, &right).unwrap(),
+                        expected,
+                        "count={count}, a={a}, b={b}, spike={spike:?}"
+                    );
+                    accepted += usize::from(proven);
+                    fallback += usize::from(!proven);
+                }
+            }
+        }
+        assert!(accepted > 0);
+        assert!(fallback > 0);
+        assert!(species_norms_prove_close(400_003, 400_003, 100.0, 100.0));
+        assert!(!species_norms_prove_close(
+            1,
+            1,
+            0.175_f64.powi(2),
+            0.175_f64.powi(2)
+        ));
+        for (a, b) in [(f64::NAN, 0.0), (0.0, f64::INFINITY), (-1.0, 0.0)] {
+            assert!(!species_norms_prove_close(1, 1, a, b));
+        }
+        assert!(!species_norms_prove_close(1, 2, 0.0, 0.0));
+        assert!(!species_norms_prove_close(0, 0, 0.0, 0.0));
+        assert!(!species_norms_prove_close(
+            SPECIES_NORM_MAX_WEIGHTS + 1,
+            SPECIES_NORM_MAX_WEIGHTS + 1,
+            0.0,
+            0.0
+        ));
+    }
+
     /// Large-owner statistics keep exact original bits and greedy species decisions.
     #[test]
     fn summary_span_counts_preserve_scalar_statistics_and_species() {
@@ -1859,14 +1994,14 @@ mod tests {
         let source = source_state(&fixture()).1.remove(0);
         let sorted = [2, 0, 1];
         let fitness = [2.0, 1.0, 3.0];
-        for count in [0, 257, 262_147] {
+        for (count, scale) in [(0, 1.0), (257, 1.0), (262_147, 1.0), (400_003, 0.005)] {
             let population = (0..3)
                 .map(|slot| {
                     let mut genome = source.clone();
                     genome.slot = slot;
                     genome.weights = (0..count)
                         .map(|index| {
-                            let value = patterns[index % patterns.len()];
+                            let value = patterns[index % patterns.len()] * scale;
                             match slot {
                                 1 => value + 0.01,
                                 2 => -value,

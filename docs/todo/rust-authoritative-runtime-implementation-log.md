@@ -2377,3 +2377,32 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   fixtures, dependencies/cache and generated builds are removed. Next examine
   conservative species bounds that can avoid full comparisons without changing
   classification. Remaining Stage 7/8 acceptance gates stay open.
+
+- 2026-10-04 Species classification can now accept clearly close genomes from
+  a guarded triangle bound on cached weight norms, computed during the original
+  ordered statistics pass. Empty/mismatched/uncertain or very long owners keep
+  the scalar distance path; the species cutoff, greedy representative order,
+  statistic bits and RNG draws are unchanged. The additional eight bytes per
+  population slot are charged in admission. Threshold neighbors, subnormals,
+  large/extreme owners and independent scalar summaries pass, as do the
+  535-test feature Rust suite, three benchmark contracts, doctest, rustfmt,
+  all-target/all-feature Clippy and real one/four/five/six-worker archive
+  continuation/source identity on Windows/Linux. TypeScript/ESLint evidence
+  reuses the preceding unchanged source. Ten actual five-worker P2 overlaps
+  cover 612.67 reported seconds: persistence-barrier p95/max is 946.29 ms,
+  discarded wall time is zero, overload is false, health p95 is 3.36 ms,
+  local player/protocol-bot input p95 is 16.46/16.81 ms, event-loop p95/p99
+  is 10.89/11.64 ms and peak process RSS is 557.6 MB. Nine barrier-finish
+  intervals average 61.02 seconds (max 61.31), preserving actual early-death
+  transitions. Mean terminal computation is 430.22 ms; evolution is 408.36 ms,
+  including 165.05 ms statistics/species and 229.67 ms reproduction.
+  Simulated/wall progress is 0.979616, below 0.98; differing external-input
+  timing and point host snapshots do not establish a controlled speedup.
+  Reports/context are `evidence/stage7/oxygen-ryzen2700/*species-norm-6459de1-20261004.json`.
+  Their copied report digest matches; stopped task-owned Oxygen checkout,
+  fixtures, dependencies/cache and generated builds are removed. The unchanged
+  measurement runner includes sampler shutdown/report aggregation after its
+  final counter read and starts timing after the initial health reply; next
+  bracket those reads explicitly without reclassifying retained results.
+  Ordered player/trainer replay still needs four/five-worker coverage beyond
+  its current one/six-worker check. Remaining Stage 7/8 gates stay open.

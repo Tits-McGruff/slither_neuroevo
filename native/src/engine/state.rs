@@ -3176,6 +3176,16 @@ pub fn estimate_state_memory(
         candidate.config.checkpoint_scratch_bytes,
         "declared engine scratch",
     )?;
+    // The species norm cache extends the previous slot/count summary scratch.
+    estimate.scratch_bytes = checked_add(
+        estimate.scratch_bytes,
+        checked_allocation_bytes(
+            candidate.config.population_count,
+            super::evolution::SPECIES_NORM_BYTES_PER_GENOME,
+            "species norm scratch",
+        )?,
+        "species norm scratch",
+    )?;
     estimate.validation_bytes = estimate_validation_memory(candidate)?;
     estimate.total_bytes = checked_sum(&[
         estimate.structural_bytes,
@@ -6395,6 +6405,12 @@ mod tests {
         let graph = default_graph();
         let compact = candidate(&graph, 1);
         let compact_estimate = estimate_state_memory(&compact, &graph).unwrap();
+        assert_eq!(
+            compact_estimate.scratch_bytes,
+            compact.config.worker_scratch_bytes
+                + compact.config.checkpoint_scratch_bytes
+                + std::mem::size_of::<f64>()
+        );
 
         let mut expanded = candidate(&graph, 1);
         expanded.config.max_body_points += 500_000;
