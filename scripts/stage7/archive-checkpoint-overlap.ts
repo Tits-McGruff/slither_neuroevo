@@ -11,7 +11,7 @@ import { DEFAULT_CONFIG } from '../../server/config.ts';
 import { ARCHIVE_TEMP_QUOTA_BYTES, OPERATING_DISK_RESERVE_BYTES, SQLITE_WAL_ALLOWANCE_BYTES } from '../../server/rustEngine/diskAdmission.ts';
 import { computeNativeSourceIdentity } from '../../server/rustEngine/nativeSourceIdentity.ts';
 import { childServer, control, digest, stop } from './archive-phase-profile.ts';
-import { archiveOverlap } from './archive-overlap-summary.ts';
+import { archiveOverlap, counterWindow } from './archive-overlap-summary.ts';
 import { configure } from './realtime-workload.ts';
 
 /** Bounded scalar child observations; no population or file body crosses IPC. */
@@ -240,8 +240,10 @@ async function measure(outputRoot: string, reportPath: string, requestedSamples:
       await pause(250);
     }
     for (const kind of ['ui', 'bot'] as const) controllers.push(await control(port, kind, 0));
+    const initialBeforeMs = performance.now();
     const initial = await health();
-    const started = performance.now();
+    const initialAfterMs = performance.now();
+    const started = initialAfterMs;
     deadline = started + (requestedSamples + 3) * 90_000;
     measuring = true;
     sampler = (async () => {
@@ -252,7 +254,8 @@ async function measure(outputRoot: string, reportPath: string, requestedSamples:
       }
     })();
     let nextProgress = started + 30_000;
-    while (attempts.filter(attempt => attempt.proven).length < requestedSamples || active) {
+    while (attempts.filter(attempt => attempt.proven).length < requestedSamples || active ||
+      (requestedSamples === 10 && performance.now() - started < 600_000)) {
       if (failure) throw failure;
       if (performance.now() >= deadline || (attempts.length >= requestedSamples + 2 && !active)) {
         throw new Error('bounded attempts did not prove the requested actual overlaps');
@@ -263,7 +266,13 @@ async function measure(outputRoot: string, reportPath: string, requestedSamples:
       }
       await pause(100);
     }
+    const finalBeforeMs = performance.now();
     const final = await health();
+    const finalAfterMs = performance.now();
+    const progressWindow = counterWindow(
+      { beforeMs: initialBeforeMs, afterMs: initialAfterMs, completedStep: initial.completedStep },
+      { beforeMs: finalBeforeMs, afterMs: finalAfterMs, completedStep: final.completedStep }
+    );
     measuring = false;
     sampling = false;
     await sampler;
@@ -281,10 +290,18 @@ async function measure(outputRoot: string, reportPath: string, requestedSamples:
     const downloads = journal.filter(item => item.type === 'boundary' && item.phase === 'http-file-download');
     if (downloads.length !== attempts.length || downloads.some((item, index) =>
       item.type !== 'boundary' || item.bodyBytes !== attempts[index]!.archive!.bytes)) throw new Error('actual download bytes were not observed exactly once');
-    const wallSeconds = (performance.now() - started) / 1000;
+    // Keep the existing denominator field conservative for report readers.
+    const wallSeconds = progressWindow.maximumWallSeconds;
     const barrierP95Ms = percentile(durations, 0.95);
     const barrierMaxMs = Math.max(...durations);
     const healthP95Ms = percentile(healthLatencies, 0.95);
+    const droppedWallMicros = (BigInt(`0x${final.schedulerDroppedWallMicros}`) -
+      BigInt(`0x${initial.schedulerDroppedWallMicros}`)).toString();
+    const meetsLatencyBudgets = barrierP95Ms <= 1000 && barrierMaxMs <= 2000 && healthP95Ms <= 100 &&
+      actionLatencies.every(item => item.p95Ms <= 100) && final.telemetry.process.eventLoopDelayP95Ms <= 20 &&
+      final.telemetry.process.eventLoopDelayP99Ms <= 50;
+    const meetsProgressBudgets = progressWindow.minimumWallSeconds >= 600 &&
+      progressWindow.minimumSimulatedWallRatio >= 0.98 && droppedWallMicros === '0' && !final.schedulerOverloaded;
     const finalFilesystem = await statfs(createdRoot, { bigint: true });
     await mkdir(dirname(reportPath), { recursive: true });
     await writeFile(reportPath, JSON.stringify({ requestedSamples, attempts,
@@ -298,19 +315,23 @@ async function measure(outputRoot: string, reportPath: string, requestedSamples:
       nativeSourceSha256: computeNativeSourceIdentity(resolve('native')).sha256,
       runnerSha256: await digest(fileURLToPath(import.meta.url)),
       observerSha256: await digest(resolve('scripts/stage7/archive-phase-profile.ts')),
+      summarySha256: await digest(resolve('scripts/stage7/archive-overlap-summary.ts')),
       configuredWorkload: { scenario: 'P2', neuralSnakes: 55, baselineBots: 10, pellets: 3500,
         sensorCount: 147, generationSeconds: 60, simSpeed: 1, rustWorkers },
       initial: { ...initial, archiveWork: undefined }, final: { ...final, archiveWork: undefined },
-      wallSeconds, deltaSteps: (BigInt(`0x${final.completedStep}`) - BigInt(`0x${initial.completedStep}`)).toString(),
-      droppedWallMicros: (BigInt(`0x${final.schedulerDroppedWallMicros}`) - BigInt(`0x${initial.schedulerDroppedWallMicros}`)).toString(),
+      wallSeconds, deltaSteps: progressWindow.deltaSteps, droppedWallMicros, progressWindow,
+      counterClockBrackets: {
+        initial: { beforeMs: initialBeforeMs, afterMs: initialAfterMs },
+        final: { beforeMs: finalBeforeMs, afterMs: finalAfterMs }
+      },
+      measurementClockScope: 'Initial/final health request brackets bound the counter-read interval. wallSeconds is its conservative maximum; progress acceptance uses its minimum ratio and minimum duration. Later sampler shutdown and report aggregation are excluded. Ten-sample runs require at least 600 seconds inside the brackets.',
       barrierP95Ms, barrierMaxMs, healthSamples: healthLatencies.length, healthP95Ms,
       healthMaxMs: Math.max(...healthLatencies), controls: controllers.map(controller => controller.report),
       actionLatencies, journal: journal.filter(item => item.type !== 'action'),
-      meetsMeasuredBudgets: barrierP95Ms <= 1000 && barrierMaxMs <= 2000 && healthP95Ms <= 100 &&
-        actionLatencies.every(item => item.p95Ms <= 100) && final.telemetry.process.eventLoopDelayP95Ms <= 20 &&
-        final.telemetry.process.eventLoopDelayP99Ms <= 50,
+      meetsLatencyBudgets, meetsProgressBudgets,
+      meetsMeasuredBudgets: meetsLatencyBudgets && meetsProgressBudgets,
       scope: 'Actual evolved P2 production game at 1x on the listed host. Downloads are triggered from observed generation-transition events; no native operation, scheduler, disk admission, publication, FULL/WAL metadata transaction, retention, delivery or resume is delayed or replaced. Export clock brackets bound the native archive origin; the overlap window lies inside conservative bounds on the actual router barrier start/finish. Guaranteed overlap is valid for every permitted clock origin. Barrier duration is separately the original complete production telemetry duration. All attempts are retained. Local WebSocket input uses independent 30-Hz player and observation-driven protocol-bot peers; actual server-receipt-to-Rust-application latency is attributed to the response receive window with a one-second tail. This does not establish physical browser/LAN, PyRL training, isolated archive overhead, legacy-reader coverage or complete A4 acceptance.' }, null, 2) + '\n', { flag: 'wx' });
-    console.log(`report=${reportPath} barrierP95=${barrierP95Ms.toFixed(2)}ms barrierMax=${barrierMaxMs.toFixed(2)}ms healthP95=${healthP95Ms.toFixed(2)}ms`);
+    console.log(`report=${reportPath} barrierP95=${barrierP95Ms.toFixed(2)}ms barrierMax=${barrierMaxMs.toFixed(2)}ms healthP95=${healthP95Ms.toFixed(2)}ms progressLower=${progressWindow.minimumSimulatedWallRatio.toFixed(6)} measuredBudgets=${meetsLatencyBudgets && meetsProgressBudgets}`);
   } catch (error) {
     measuring = false;
     await active;

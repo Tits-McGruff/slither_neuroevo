@@ -505,7 +505,7 @@ fn archive_import_replays_ordered_player_and_trainer_input_across_worker_counts(
     let successor = direct
         .publish_pending_generation_checkpoint(&source, operation(4))
         .unwrap();
-    for (workers, invert) in [(1, false), (6, false), (1, true)] {
+    for (workers, invert) in [(1, false), (4, false), (5, false), (6, false), (1, true)] {
         let imported = fixture.directory(&format!("import-{workers}-{invert}"));
         let mut restored = prepare_import_archive(
             &archive_path,

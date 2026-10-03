@@ -2406,3 +2406,34 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   bracket those reads explicitly without reclassifying retained results.
   Ordered player/trainer replay still needs four/five-worker coverage beyond
   its current one/six-worker check. Remaining Stage 7/8 gates stay open.
+
+- 2026-10-04 Completed-step measurements now bracket initial/final health
+  requests and use the conservative longest duration for the rate denominator.
+  Sampler shutdown/report aggregation are excluded; ten-sample runs require
+  at least 600 seconds inside the brackets. Reports retain both bounds and
+  separate latency/progress checks; combined success requires both. Nine clock
+  tests, including threshold-straddling uncertainty and exact large counters,
+  pass on Windows/Linux. Ordered player/trainer archive replay now covers
+  one/four/five/six workers on both platforms, matching actions, observations
+  and successor checkpoint bytes; changed steering remains a positive control.
+  Source identity, rustfmt, all-target/all-feature Clippy, TypeScript and
+  affected-file ESLint pass. Unchanged engine behavior reuses the preceding
+  535-test feature suite and real HTTP continuation evidence. Ten actual
+  five-worker P2 checkpoint/export overlaps span 613.94183–613.94544 seconds:
+  36,134 complete steps bound simulated/wall progress to 0.980923–0.980929,
+  with zero discarded time and no overload. The conservative rate passes 0.98.
+  Nine conservative generation-publication interval upper bounds average
+  61.19 seconds (max 61.27). Barrier p95/max is 880.91 ms, health p95 3.48 ms,
+  local player/protocol-bot input p95 18.80/17.53 ms, event-loop p95/p99
+  10.89/11.70 ms and peak process RSS 557.8 MB. P2's ordinary-step p99 upper
+  bucket is 24 ms; its permitted rate/generation gate passes without debt.
+  Mean terminal computation is 406.92 ms, including 386.37 ms evolution
+  (141.83 ms statistics/species, 230.82 ms reproduction). This is a new bounded
+  P2 result, not a reclassification of earlier reports or proof of a causal
+  engine speedup. Reports/context are
+  `evidence/stage7/oxygen-ryzen2700/*clock-window-445ef44-20261004.json`.
+  The retained report digest matches; stopped task-owned Oxygen checkout,
+  fixtures, dependencies/cache and generated builds are removed. This passes
+  the combined checks for this P2 window; later evolved/soak, remaining
+  P0/P1, browser/memory/compatibility/LAN/trainer and final Stage 7/8 gates
+  remain open.

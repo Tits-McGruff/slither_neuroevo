@@ -26,3 +26,56 @@ export function archiveOverlap(
     originUncertaintyMs: clock.afterMs - clock.beforeMs
   };
 }
+
+/** One completed-step counter read bounded by its actual health request/reply. */
+export interface CounterRead {
+  /** Monotonic time immediately before the request. */
+  beforeMs: number;
+  /** Monotonic time after the complete response has been read. */
+  afterMs: number;
+  /** Exact Rust completed-step counter, encoded as canonical Uint64 hex. */
+  completedStep: string;
+}
+
+/** Conservative duration/progress bounds for two exact completed-step readings. */
+export interface CounterWindow {
+  /** Exact decimal difference, before conversion for this bounded measurement. */
+  deltaSteps: string;
+  /** Shortest elapsed interval allowed by both request brackets. */
+  minimumWallSeconds: number;
+  /** Longest elapsed interval allowed by both request brackets. */
+  maximumWallSeconds: number;
+  /** Progress at the longest possible elapsed interval; used for acceptance. */
+  minimumSimulatedWallRatio: number;
+  /** Progress at the shortest possible elapsed interval; diagnostic only. */
+  maximumSimulatedWallRatio: number;
+}
+
+/** Bound elapsed time and 60-Hz progress without including later sampler cleanup. */
+export function counterWindow(initial: CounterRead, final: CounterRead): CounterWindow {
+  for (const read of [initial, final]) {
+    if (![read.beforeMs, read.afterMs].every(value => Number.isFinite(value) && value >= 0)) {
+      throw new Error('invalid counter clock observation');
+    }
+    if (read.afterMs < read.beforeMs) throw new Error('reversed counter clock interval');
+    if (!/^[0-9a-f]{16}$/u.test(read.completedStep)) throw new Error('invalid completed-step counter');
+  }
+  if (final.beforeMs <= initial.afterMs) throw new Error('counter request intervals overlap or touch');
+  const steps = BigInt(`0x${final.completedStep}`) - BigInt(`0x${initial.completedStep}`);
+  if (steps < 0n || steps > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('regressed or inexact step delta');
+  const minimumWallSeconds = (final.beforeMs - initial.afterMs) / 1000;
+  const maximumWallSeconds = (final.afterMs - initial.beforeMs) / 1000;
+  if (!(minimumWallSeconds > 0) || !Number.isFinite(maximumWallSeconds)) {
+    throw new Error('unrepresentable counter duration');
+  }
+  const simulatedSeconds = Number(steps) / 60;
+  const minimumSimulatedWallRatio = simulatedSeconds / maximumWallSeconds;
+  const maximumSimulatedWallRatio = simulatedSeconds / minimumWallSeconds;
+  if (![minimumSimulatedWallRatio, maximumSimulatedWallRatio].every(Number.isFinite)) {
+    throw new Error('unrepresentable counter progress');
+  }
+  return {
+    deltaSteps: steps.toString(), minimumWallSeconds, maximumWallSeconds,
+    minimumSimulatedWallRatio, maximumSimulatedWallRatio
+  };
+}

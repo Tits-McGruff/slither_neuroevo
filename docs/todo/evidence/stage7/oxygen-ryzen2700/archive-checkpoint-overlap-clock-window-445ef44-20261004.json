@@ -1,0 +1,3457 @@
+{
+  "requestedSamples": 10,
+  "attempts": [
+    {
+      "transitionStartedMs": 123484.10183,
+      "proven": true,
+      "archive": {
+        "bytes": 75884544,
+        "checkpointId": "23815c0d297c49b6dd51dfd9033ff0b6aabb77f5079be7a0d9f3ad61991f7091",
+        "saveRoot": "4011d738c350c552a447bc927afe194a4a616729e28a2f627302a22f11c28e2f",
+        "sha256": "5506fd97e6e0af346c5de69056db5b994ec3e5354d5eb000a1cff60da4da8662"
+      },
+      "clock": {
+        "type": "export-clock",
+        "operationId": "c80ff43443141ae35bd7febc70fab4c4",
+        "beforeMs": 123504.46114,
+        "afterMs": 123504.586102,
+        "checkpointId": "23815c0d297c49b6dd51dfd9033ff0b6aabb77f5079be7a0d9f3ad61991f7091",
+        "generation": "0000000000000002"
+      },
+      "job": {
+        "operationId": "c80ff43443141ae35bd7febc70fab4c4",
+        "kind": "export",
+        "completedBytes": "00000000217f4bde",
+        "started": true,
+        "finished": true,
+        "phaseTrace": {
+          "elapsedMicros": "00000000001add7a",
+          "truncated": false,
+          "intervals": [
+            {
+              "phase": "export",
+              "startedMicros": "00000000000000d8",
+              "rssSamples": "00000000000001be",
+              "finishedMicros": "00000000000fec70",
+              "startRssBytes": "00000000144c4000",
+              "finishRssBytes": "0000000011f1c000",
+              "sampledPeakRssBytes": "0000000019c50000"
+            },
+            {
+              "phase": "export-source-population",
+              "startedMicros": "0000000000000114",
+              "rssSamples": "000000000000006c",
+              "finishedMicros": "000000000003b84c",
+              "startRssBytes": "00000000144c4000",
+              "finishRssBytes": "0000000018341000",
+              "sampledPeakRssBytes": "0000000019c50000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "0000000000000148",
+              "rssSamples": "000000000000006b",
+              "finishedMicros": "000000000003ac94",
+              "startRssBytes": "00000000144c4000",
+              "finishRssBytes": "0000000019c50000",
+              "sampledPeakRssBytes": "0000000019c50000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000000028a",
+              "rssSamples": "0000000000000066",
+              "finishedMicros": "0000000000037101",
+              "startRssBytes": "00000000144c7000",
+              "finishRssBytes": "0000000019c49000",
+              "sampledPeakRssBytes": "0000000019c49000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003711e",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "00000000000371c6",
+              "startRssBytes": "0000000019c49000",
+              "finishRssBytes": "0000000019c4c000",
+              "sampledPeakRssBytes": "0000000019c4c000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003b95b",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003c835",
+              "startRssBytes": "000000001835a000",
+              "finishRssBytes": "000000001835c000",
+              "sampledPeakRssBytes": "000000001835c000"
+            },
+            {
+              "phase": "numeric-encode",
+              "startedMicros": "000000000003fa85",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "0000000000041479",
+              "startRssBytes": "0000000018360000",
+              "finishRssBytes": "0000000018362000",
+              "sampledPeakRssBytes": "0000000018362000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "00000000000414f3",
+              "rssSamples": "000000000000004e",
+              "finishedMicros": "0000000000071448",
+              "startRssBytes": "0000000018362000",
+              "finishRssBytes": "0000000018392000",
+              "sampledPeakRssBytes": "0000000018392000"
+            },
+            {
+              "phase": "validation",
+              "startedMicros": "0000000000071463",
+              "rssSamples": "00000000000000f2",
+              "finishedMicros": "00000000000f70a7",
+              "startRssBytes": "0000000018392000",
+              "finishRssBytes": "0000000013827000",
+              "sampledPeakRssBytes": "0000000018545000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "0000000000081ec2",
+              "rssSamples": "0000000000000062",
+              "finishedMicros": "00000000000b641b",
+              "startRssBytes": "00000000183ce000",
+              "finishRssBytes": "000000000e346000",
+              "sampledPeakRssBytes": "0000000018545000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000b0942",
+              "rssSamples": "0000000000000005",
+              "finishedMicros": "00000000000b279a",
+              "startRssBytes": "000000000e04e000",
+              "finishRssBytes": "000000000e343000",
+              "sampledPeakRssBytes": "000000000e343000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "00000000000b6436",
+              "rssSamples": "000000000000007a",
+              "finishedMicros": "00000000000f7083",
+              "startRssBytes": "000000000e346000",
+              "finishRssBytes": "0000000013827000",
+              "sampledPeakRssBytes": "0000000013827000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000b657c",
+              "rssSamples": "0000000000000072",
+              "finishedMicros": "00000000000f2fdb",
+              "startRssBytes": "000000000e34c000",
+              "finishRssBytes": "0000000013822000",
+              "sampledPeakRssBytes": "0000000013822000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000f2ff8",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "00000000000f3052",
+              "startRssBytes": "0000000013822000",
+              "finishRssBytes": "0000000013824000",
+              "sampledPeakRssBytes": "0000000013824000"
+            },
+            {
+              "phase": "managed-publication",
+              "startedMicros": "00000000000fc356",
+              "rssSamples": "0000000000000006",
+              "finishedMicros": "00000000000fe836",
+              "startRssBytes": "0000000011f1b000",
+              "finishRssBytes": "0000000011f1b000",
+              "sampledPeakRssBytes": "0000000011f1b000"
+            }
+          ],
+          "rssSamplerStarted": true,
+          "requestedRssSampleIntervalMicros": "00000000000007d0"
+        }
+      },
+      "barrier": {
+        "type": "checkpoint-barrier",
+        "startedMs": 123484.252252,
+        "finishedMs": 124207.172306,
+        "durationMs": 723.0738760000095,
+        "startClock": {
+          "beforeMs": 123484.10183,
+          "afterMs": 123484.252252
+        },
+        "finishClock": {
+          "beforeMs": 124207.172306,
+          "afterMs": 124207.188727
+        }
+      },
+      "commit": {
+        "type": "checkpoint-commit",
+        "atMs": 124141.198454,
+        "requestMs": 13.246248999988893,
+        "generation": "0000000000000003",
+        "checkpointId": "c6f2e1d306e6db63d4e45fb2b868f7e036a3d80f2cdca4ee5a7b5db4b81620ab",
+        "operationId": "fd13195dc220a620934a9f558748d1e0",
+        "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+      },
+      "overlap": {
+        "guaranteedMs": 243.38703800000076,
+        "possibleMs": 243.63696200000413,
+        "originUncertaintyMs": 0.12496200000168756
+      }
+    },
+    {
+      "transitionStartedMs": 184620.309971,
+      "proven": true,
+      "archive": {
+        "bytes": 77245952,
+        "checkpointId": "c6f2e1d306e6db63d4e45fb2b868f7e036a3d80f2cdca4ee5a7b5db4b81620ab",
+        "saveRoot": "f2760b37928e8b3c7f3f69e320b8e4f8b7c96fc55ded5aefcde9ddeaa60ea726",
+        "sha256": "fb11a37477dc6ffbdabe474dd4830d3a1c31f55105f3349bdce4a0de253d9f57"
+      },
+      "clock": {
+        "type": "export-clock",
+        "operationId": "85c6f3dad54189450510970766dd08ea",
+        "beforeMs": 184637.70359,
+        "afterMs": 184637.833201,
+        "checkpointId": "c6f2e1d306e6db63d4e45fb2b868f7e036a3d80f2cdca4ee5a7b5db4b81620ab",
+        "generation": "0000000000000003"
+      },
+      "job": {
+        "operationId": "85c6f3dad54189450510970766dd08ea",
+        "kind": "export",
+        "completedBytes": "00000000223900c7",
+        "started": true,
+        "finished": true,
+        "phaseTrace": {
+          "elapsedMicros": "00000000001b51cb",
+          "truncated": false,
+          "intervals": [
+            {
+              "phase": "export",
+              "startedMicros": "00000000000000d1",
+              "rssSamples": "0000000000000210",
+              "finishedMicros": "000000000011ec98",
+              "startRssBytes": "000000001969d000",
+              "finishRssBytes": "0000000014400000",
+              "sampledPeakRssBytes": "000000001ece7000"
+            },
+            {
+              "phase": "export-source-population",
+              "startedMicros": "0000000000000113",
+              "rssSamples": "0000000000000074",
+              "finishedMicros": "000000000003dedf",
+              "startRssBytes": "000000001969e000",
+              "finishRssBytes": "000000001eb64000",
+              "sampledPeakRssBytes": "000000001ece7000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "0000000000000145",
+              "rssSamples": "0000000000000074",
+              "finishedMicros": "000000000003de99",
+              "startRssBytes": "00000000196a0000",
+              "finishRssBytes": "000000001eb64000",
+              "sampledPeakRssBytes": "000000001ece7000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000000284",
+              "rssSamples": "000000000000006e",
+              "finishedMicros": "000000000003a3a0",
+              "startRssBytes": "00000000196ab000",
+              "finishRssBytes": "000000001eb62000",
+              "sampledPeakRssBytes": "000000001ece7000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003a3ba",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "000000000003a46d",
+              "startRssBytes": "000000001eb62000",
+              "finishRssBytes": "000000001eb62000",
+              "sampledPeakRssBytes": "000000001eb62000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003e02d",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003ee2e",
+              "startRssBytes": "000000001eb70000",
+              "finishRssBytes": "000000001eb73000",
+              "sampledPeakRssBytes": "000000001eb73000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003f901",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "0000000000040525",
+              "startRssBytes": "000000001eb73000",
+              "finishRssBytes": "000000001eb73000",
+              "sampledPeakRssBytes": "000000001eb73000"
+            },
+            {
+              "phase": "numeric-encode",
+              "startedMicros": "00000000000443fc",
+              "rssSamples": "0000000000000008",
+              "finishedMicros": "00000000000475db",
+              "startRssBytes": "000000001eb76000",
+              "finishRssBytes": "000000001eb81000",
+              "sampledPeakRssBytes": "000000001eb81000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "000000000004769d",
+              "rssSamples": "0000000000000080",
+              "finishedMicros": "000000000008bede",
+              "startRssBytes": "000000001eb82000",
+              "finishRssBytes": "000000001eb48000",
+              "sampledPeakRssBytes": "000000001eb92000"
+            },
+            {
+              "phase": "validation",
+              "startedMicros": "000000000008bf02",
+              "rssSamples": "0000000000000101",
+              "finishedMicros": "0000000000116ec4",
+              "startRssBytes": "000000001eb48000",
+              "finishRssBytes": "0000000014769000",
+              "sampledPeakRssBytes": "000000001eba4000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "000000000009c998",
+              "rssSamples": "000000000000006a",
+              "finishedMicros": "00000000000d621c",
+              "startRssBytes": "000000001eb81000",
+              "finishRssBytes": "000000000f2c5000",
+              "sampledPeakRssBytes": "000000001eba4000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000cf04a",
+              "rssSamples": "0000000000000007",
+              "finishedMicros": "00000000000d1c60",
+              "startRssBytes": "000000000ef50000",
+              "finishRssBytes": "000000000f23d000",
+              "sampledPeakRssBytes": "000000000f23d000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "00000000000d6238",
+              "rssSamples": "0000000000000079",
+              "finishedMicros": "0000000000116ea0",
+              "startRssBytes": "000000000f2c5000",
+              "finishRssBytes": "0000000014769000",
+              "sampledPeakRssBytes": "0000000014769000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000d6352",
+              "rssSamples": "0000000000000071",
+              "finishedMicros": "0000000000112ba4",
+              "startRssBytes": "000000000f2c6000",
+              "finishRssBytes": "0000000014764000",
+              "sampledPeakRssBytes": "0000000014764000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000112bc0",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "0000000000112c35",
+              "startRssBytes": "0000000014764000",
+              "finishRssBytes": "0000000014766000",
+              "sampledPeakRssBytes": "0000000014766000"
+            },
+            {
+              "phase": "managed-publication",
+              "startedMicros": "000000000011b1a7",
+              "rssSamples": "0000000000000007",
+              "finishedMicros": "000000000011e4f5",
+              "startRssBytes": "0000000014400000",
+              "finishRssBytes": "0000000014400000",
+              "sampledPeakRssBytes": "0000000014400000"
+            }
+          ],
+          "rssSamplerStarted": true,
+          "requestedRssSampleIntervalMicros": "00000000000007d0"
+        }
+      },
+      "barrier": {
+        "type": "checkpoint-barrier",
+        "startedMs": 184620.701156,
+        "finishedMs": 185342.924771,
+        "durationMs": 722.5388699999894,
+        "startClock": {
+          "beforeMs": 184620.309971,
+          "afterMs": 184620.701156
+        },
+        "finishClock": {
+          "beforeMs": 185342.924771,
+          "afterMs": 185343.113154
+        }
+      },
+      "commit": {
+        "type": "checkpoint-commit",
+        "atMs": 185276.335982,
+        "requestMs": 12.308883999998216,
+        "generation": "0000000000000004",
+        "checkpointId": "263e7ecc56283fa6f3fa3b8193d61d501f15c64e01984eb4cb2ab52924218eff",
+        "operationId": "1e37bd7d158fd405f4099c705bbc89de",
+        "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+      },
+      "overlap": {
+        "guaranteedMs": 253.25838899999508,
+        "possibleMs": 253.5176110000175,
+        "originUncertaintyMs": 0.1296110000112094
+      }
+    },
+    {
+      "transitionStartedMs": 245788.408528,
+      "proven": true,
+      "archive": {
+        "bytes": 77253632,
+        "checkpointId": "263e7ecc56283fa6f3fa3b8193d61d501f15c64e01984eb4cb2ab52924218eff",
+        "saveRoot": "c9350d42910848bec0be14d48bd9a23d5f239f61c18af34a23f89bfaecda2715",
+        "sha256": "f167e8c498a0a3c42c449b31df491b7b1be35603fd8c892519ef855a2e02cff0"
+      },
+      "clock": {
+        "type": "export-clock",
+        "operationId": "9991ac1368e564c2592306043e568d9c",
+        "beforeMs": 245807.190901,
+        "afterMs": 245807.357843,
+        "checkpointId": "263e7ecc56283fa6f3fa3b8193d61d501f15c64e01984eb4cb2ab52924218eff",
+        "generation": "0000000000000004"
+      },
+      "job": {
+        "operationId": "9991ac1368e564c2592306043e568d9c",
+        "kind": "export",
+        "completedBytes": "0000000022399b89",
+        "started": true,
+        "finished": true,
+        "phaseTrace": {
+          "elapsedMicros": "00000000001b680c",
+          "truncated": false,
+          "intervals": [
+            {
+              "phase": "export",
+              "startedMicros": "00000000000000e8",
+              "rssSamples": "0000000000000206",
+              "finishedMicros": "00000000001225c5",
+              "startRssBytes": "000000001ad4f000",
+              "finishRssBytes": "0000000012de4000",
+              "sampledPeakRssBytes": "00000000204d1000"
+            },
+            {
+              "phase": "export-source-population",
+              "startedMicros": "0000000000000120",
+              "rssSamples": "000000000000006f",
+              "finishedMicros": "000000000003ac06",
+              "startRssBytes": "000000001ad50000",
+              "finishRssBytes": "000000001ebc2000",
+              "sampledPeakRssBytes": "00000000204d1000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "000000000000014a",
+              "rssSamples": "000000000000006d",
+              "finishedMicros": "000000000003a074",
+              "startRssBytes": "000000001ad50000",
+              "finishRssBytes": "00000000204d1000",
+              "sampledPeakRssBytes": "00000000204d1000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000000275",
+              "rssSamples": "0000000000000065",
+              "finishedMicros": "00000000000355b1",
+              "startRssBytes": "000000001ad53000",
+              "finishRssBytes": "00000000204ce000",
+              "sampledPeakRssBytes": "00000000204ce000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000355d5",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "0000000000035651",
+              "startRssBytes": "00000000204ce000",
+              "finishRssBytes": "00000000204cf000",
+              "sampledPeakRssBytes": "00000000204cf000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003ad51",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "000000000003be0f",
+              "startRssBytes": "000000001ebc2000",
+              "finishRssBytes": "000000001ebc2000",
+              "sampledPeakRssBytes": "000000001ebc2000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003cafb",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003db93",
+              "startRssBytes": "000000001ebc2000",
+              "finishRssBytes": "000000001ebc2000",
+              "sampledPeakRssBytes": "000000001ebc2000"
+            },
+            {
+              "phase": "numeric-encode",
+              "startedMicros": "00000000000419af",
+              "rssSamples": "0000000000000009",
+              "finishedMicros": "000000000004542c",
+              "startRssBytes": "000000001ebc2000",
+              "finishRssBytes": "000000001ebc5000",
+              "sampledPeakRssBytes": "000000001ebc5000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "00000000000454e8",
+              "rssSamples": "0000000000000081",
+              "finishedMicros": "000000000008c03c",
+              "startRssBytes": "000000001ebc5000",
+              "finishRssBytes": "000000001ebe3000",
+              "sampledPeakRssBytes": "000000001ebe3000"
+            },
+            {
+              "phase": "validation",
+              "startedMicros": "000000000008c05b",
+              "rssSamples": "00000000000000f8",
+              "finishedMicros": "000000000011aa7e",
+              "startRssBytes": "000000001ebe3000",
+              "finishRssBytes": "00000000146e6000",
+              "sampledPeakRssBytes": "000000001ed70000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "000000000009e957",
+              "rssSamples": "0000000000000060",
+              "finishedMicros": "00000000000d58ff",
+              "startRssBytes": "000000001ec70000",
+              "finishRssBytes": "000000000f247000",
+              "sampledPeakRssBytes": "000000001ed70000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000cce67",
+              "rssSamples": "0000000000000006",
+              "finishedMicros": "00000000000cf9b6",
+              "startRssBytes": "000000000ef56000",
+              "finishRssBytes": "000000000f245000",
+              "sampledPeakRssBytes": "000000000f245000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "00000000000d5926",
+              "rssSamples": "0000000000000077",
+              "finishedMicros": "000000000011aa55",
+              "startRssBytes": "000000000f247000",
+              "finishRssBytes": "00000000146e6000",
+              "sampledPeakRssBytes": "00000000146e6000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000d5a96",
+              "rssSamples": "0000000000000071",
+              "finishedMicros": "0000000000116701",
+              "startRssBytes": "000000000f249000",
+              "finishRssBytes": "00000000146e2000",
+              "sampledPeakRssBytes": "00000000146e2000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000116723",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "000000000011679c",
+              "startRssBytes": "00000000146e2000",
+              "finishRssBytes": "00000000146e4000",
+              "sampledPeakRssBytes": "00000000146e4000"
+            },
+            {
+              "phase": "managed-publication",
+              "startedMicros": "000000000011fa2f",
+              "rssSamples": "0000000000000006",
+              "finishedMicros": "0000000000121d9a",
+              "startRssBytes": "0000000012de4000",
+              "finishRssBytes": "0000000012de4000",
+              "sampledPeakRssBytes": "0000000012de4000"
+            }
+          ],
+          "rssSamplerStarted": true,
+          "requestedRssSampleIntervalMicros": "00000000000007d0"
+        }
+      },
+      "barrier": {
+        "type": "checkpoint-barrier",
+        "startedMs": 245788.780173,
+        "finishedMs": 246533.324106,
+        "durationMs": 744.8543869999994,
+        "startClock": {
+          "beforeMs": 245788.408528,
+          "afterMs": 245788.780173
+        },
+        "finishClock": {
+          "beforeMs": 246533.324106,
+          "afterMs": 246533.496028
+        }
+      },
+      "commit": {
+        "type": "checkpoint-commit",
+        "atMs": 246456.270746,
+        "requestMs": 11.278363000019453,
+        "generation": "0000000000000005",
+        "checkpointId": "f23e079ff7ff5cee1f1ef10f8d801c002c5a6f3461aa9a7e3d0b7e7244df882b",
+        "operationId": "ea880571f73821357ce9a0f8af8b751f",
+        "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+      },
+      "overlap": {
+        "guaranteedMs": 240.1910579999967,
+        "possibleMs": 240.5249420000182,
+        "originUncertaintyMs": 0.16694200001074933
+      }
+    },
+    {
+      "transitionStartedMs": 306943.854224,
+      "proven": true,
+      "archive": {
+        "bytes": 78620160,
+        "checkpointId": "f23e079ff7ff5cee1f1ef10f8d801c002c5a6f3461aa9a7e3d0b7e7244df882b",
+        "saveRoot": "34d9c8e824db3f573675b74910d2321823a21bbd892715fbfe6c233f7550e604",
+        "sha256": "68c5623dbb90931f8004d4a8adec61908272e2c80774dd836ed1c32e1114f3cb"
+      },
+      "clock": {
+        "type": "export-clock",
+        "operationId": "28bfddabb030900c7a5809e5e84522c2",
+        "beforeMs": 306964.251285,
+        "afterMs": 306964.389307,
+        "checkpointId": "f23e079ff7ff5cee1f1ef10f8d801c002c5a6f3461aa9a7e3d0b7e7244df882b",
+        "generation": "0000000000000005"
+      },
+      "job": {
+        "operationId": "28bfddabb030900c7a5809e5e84522c2",
+        "kind": "export",
+        "completedBytes": "0000000022f360f8",
+        "started": true,
+        "finished": true,
+        "phaseTrace": {
+          "elapsedMicros": "00000000001b245e",
+          "truncated": false,
+          "intervals": [
+            {
+              "phase": "export",
+              "startedMicros": "00000000000000c1",
+              "rssSamples": "0000000000000216",
+              "finishedMicros": "00000000001230da",
+              "startRssBytes": "000000001a176000",
+              "finishRssBytes": "0000000013c50000",
+              "sampledPeakRssBytes": "000000001f8c9000"
+            },
+            {
+              "phase": "export-source-population",
+              "startedMicros": "0000000000000101",
+              "rssSamples": "0000000000000072",
+              "finishedMicros": "000000000003c3e5",
+              "startRssBytes": "000000001a177000",
+              "finishRssBytes": "000000001e06b000",
+              "sampledPeakRssBytes": "000000001f8c9000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "000000000000013c",
+              "rssSamples": "0000000000000071",
+              "finishedMicros": "000000000003ba77",
+              "startRssBytes": "000000001a179000",
+              "finishRssBytes": "000000001f8c9000",
+              "sampledPeakRssBytes": "000000001f8c9000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000000024b",
+              "rssSamples": "000000000000006a",
+              "finishedMicros": "0000000000037b86",
+              "startRssBytes": "000000001a184000",
+              "finishRssBytes": "000000001f8c8000",
+              "sampledPeakRssBytes": "000000001f8c8000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000037baa",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "0000000000037c32",
+              "startRssBytes": "000000001f8c8000",
+              "finishRssBytes": "000000001f8c9000",
+              "sampledPeakRssBytes": "000000001f8c9000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003c4eb",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003d2b5",
+              "startRssBytes": "000000001e077000",
+              "finishRssBytes": "000000001e077000",
+              "sampledPeakRssBytes": "000000001e077000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003dd79",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003eab0",
+              "startRssBytes": "000000001e077000",
+              "finishRssBytes": "000000001e077000",
+              "sampledPeakRssBytes": "000000001e077000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003f523",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "000000000004017c",
+              "startRssBytes": "000000001e077000",
+              "finishRssBytes": "000000001e077000",
+              "sampledPeakRssBytes": "000000001e077000"
+            },
+            {
+              "phase": "numeric-encode",
+              "startedMicros": "000000000004498f",
+              "rssSamples": "000000000000000b",
+              "finishedMicros": "0000000000049681",
+              "startRssBytes": "000000001e077000",
+              "finishRssBytes": "000000001e077000",
+              "sampledPeakRssBytes": "000000001e077000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "00000000000496e9",
+              "rssSamples": "0000000000000084",
+              "finishedMicros": "000000000008e99b",
+              "startRssBytes": "000000001e077000",
+              "finishRssBytes": "000000001e037000",
+              "sampledPeakRssBytes": "000000001e077000"
+            },
+            {
+              "phase": "validation",
+              "startedMicros": "000000000008e9ba",
+              "rssSamples": "00000000000000fc",
+              "finishedMicros": "000000000011ab89",
+              "startRssBytes": "000000001e037000",
+              "finishRssBytes": "00000000154ac000",
+              "sampledPeakRssBytes": "000000001e08b000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "000000000009f5a3",
+              "rssSamples": "000000000000006a",
+              "finishedMicros": "00000000000d9238",
+              "startRssBytes": "000000001e051000",
+              "finishRssBytes": "000000000fffa000",
+              "sampledPeakRssBytes": "000000001e08a000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000cf636",
+              "rssSamples": "0000000000000009",
+              "finishedMicros": "00000000000d354f",
+              "startRssBytes": "000000000fd0b000",
+              "finishRssBytes": "000000000fff9000",
+              "sampledPeakRssBytes": "000000000fff9000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "00000000000d9258",
+              "rssSamples": "0000000000000074",
+              "finishedMicros": "000000000011ab58",
+              "startRssBytes": "000000000fffa000",
+              "finishRssBytes": "00000000154ac000",
+              "sampledPeakRssBytes": "00000000154ac000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000d9370",
+              "rssSamples": "000000000000006c",
+              "finishedMicros": "00000000001169bc",
+              "startRssBytes": "000000000fffb000",
+              "finishRssBytes": "00000000154a8000",
+              "sampledPeakRssBytes": "00000000154a8000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000001169d7",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "0000000000116a30",
+              "startRssBytes": "00000000154a8000",
+              "finishRssBytes": "00000000154ac000",
+              "sampledPeakRssBytes": "00000000154ac000"
+            },
+            {
+              "phase": "managed-publication",
+              "startedMicros": "000000000011ff85",
+              "rssSamples": "0000000000000006",
+              "finishedMicros": "0000000000122474",
+              "startRssBytes": "0000000013c4f000",
+              "finishRssBytes": "0000000013c50000",
+              "sampledPeakRssBytes": "0000000013c50000"
+            }
+          ],
+          "rssSamplerStarted": true,
+          "requestedRssSampleIntervalMicros": "00000000000007d0"
+        }
+      },
+      "barrier": {
+        "type": "checkpoint-barrier",
+        "startedMs": 306944.228259,
+        "finishedMs": 307690.450673,
+        "durationMs": 746.5422379999654,
+        "startClock": {
+          "beforeMs": 306943.854224,
+          "afterMs": 306944.228259
+        },
+        "finishClock": {
+          "beforeMs": 307690.450673,
+          "afterMs": 307690.609945
+        }
+      },
+      "commit": {
+        "type": "checkpoint-commit",
+        "atMs": 307624.967168,
+        "requestMs": 11.743486000050325,
+        "generation": "0000000000000006",
+        "checkpointId": "89e149b2767a6235f7665b63706029792837223c27c353af75fe168b1c33851b",
+        "operationId": "e6f5ebcc2614242c8f92eaee97008908",
+        "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+      },
+      "overlap": {
+        "guaranteedMs": 246.36197800002992,
+        "possibleMs": 246.63802199997008,
+        "originUncertaintyMs": 0.13802199997007847
+      }
+    },
+    {
+      "transitionStartedMs": 368156.673703,
+      "proven": true,
+      "archive": {
+        "bytes": 79976960,
+        "checkpointId": "89e149b2767a6235f7665b63706029792837223c27c353af75fe168b1c33851b",
+        "saveRoot": "7b08bde52e99a3351330274d5413c07a5f2f7e38945680efb85cbf807ff9c5fc",
+        "sha256": "1241591b05435cdcc3ec7e8cf128ebcb841a24834f0618452284e4cb92272c14"
+      },
+      "clock": {
+        "type": "export-clock",
+        "operationId": "ee57a67e717212c2cd01a4577370c05e",
+        "beforeMs": 368180.284562,
+        "afterMs": 368180.426104,
+        "checkpointId": "89e149b2767a6235f7665b63706029792837223c27c353af75fe168b1c33851b",
+        "generation": "0000000000000006"
+      },
+      "job": {
+        "operationId": "ee57a67e717212c2cd01a4577370c05e",
+        "kind": "export",
+        "completedBytes": "0000000023acd906",
+        "started": true,
+        "finished": true,
+        "phaseTrace": {
+          "elapsedMicros": "00000000001c988b",
+          "truncated": false,
+          "intervals": [
+            {
+              "phase": "export",
+              "startedMicros": "00000000000000e3",
+              "rssSamples": "0000000000000233",
+              "finishedMicros": "00000000001323da",
+              "startRssBytes": "000000001a1cd000",
+              "finishRssBytes": "0000000013cc8000",
+              "sampledPeakRssBytes": "000000001f833000"
+            },
+            {
+              "phase": "export-source-population",
+              "startedMicros": "000000000000011b",
+              "rssSamples": "0000000000000071",
+              "finishedMicros": "000000000003cbba",
+              "startRssBytes": "000000001a1cd000",
+              "finishRssBytes": "000000001e105000",
+              "sampledPeakRssBytes": "000000001f833000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "0000000000000147",
+              "rssSamples": "0000000000000070",
+              "finishedMicros": "000000000003c394",
+              "startRssBytes": "000000001a1cd000",
+              "finishRssBytes": "000000001f6a9000",
+              "sampledPeakRssBytes": "000000001f833000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000000279",
+              "rssSamples": "000000000000006a",
+              "finishedMicros": "0000000000038a5e",
+              "startRssBytes": "000000001a1d7000",
+              "finishRssBytes": "000000001f6a4000",
+              "sampledPeakRssBytes": "000000001f833000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000038a7c",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "0000000000038b12",
+              "startRssBytes": "000000001f6a4000",
+              "finishRssBytes": "000000001f6a6000",
+              "sampledPeakRssBytes": "000000001f6a6000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003ccb7",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "000000000003dbf2",
+              "startRssBytes": "000000001e105000",
+              "finishRssBytes": "000000001e109000",
+              "sampledPeakRssBytes": "000000001e109000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003e899",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003fa66",
+              "startRssBytes": "000000001e109000",
+              "finishRssBytes": "000000001e109000",
+              "sampledPeakRssBytes": "000000001e109000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000405fd",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "0000000000041302",
+              "startRssBytes": "000000001e109000",
+              "finishRssBytes": "000000001e10b000",
+              "sampledPeakRssBytes": "000000001e10b000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000041e87",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "0000000000042dc9",
+              "startRssBytes": "000000001e10b000",
+              "finishRssBytes": "000000001e10b000",
+              "sampledPeakRssBytes": "000000001e10b000"
+            },
+            {
+              "phase": "numeric-encode",
+              "startedMicros": "0000000000048ae4",
+              "rssSamples": "0000000000000010",
+              "finishedMicros": "000000000004fde6",
+              "startRssBytes": "000000001e110000",
+              "finishRssBytes": "000000001e124000",
+              "sampledPeakRssBytes": "000000001e124000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "000000000004fe99",
+              "rssSamples": "000000000000008e",
+              "finishedMicros": "0000000000099e23",
+              "startRssBytes": "000000001e125000",
+              "finishRssBytes": "000000001e0ec000",
+              "sampledPeakRssBytes": "000000001e126000"
+            },
+            {
+              "phase": "validation",
+              "startedMicros": "0000000000099e3f",
+              "rssSamples": "000000000000010a",
+              "finishedMicros": "000000000012a7a0",
+              "startRssBytes": "000000001e0ec000",
+              "finishRssBytes": "000000001526b000",
+              "sampledPeakRssBytes": "000000001e141000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "00000000000ab501",
+              "rssSamples": "000000000000006e",
+              "finishedMicros": "00000000000e65fd",
+              "startRssBytes": "000000001e0fd000",
+              "finishRssBytes": "000000001008f000",
+              "sampledPeakRssBytes": "000000001e113000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000da720",
+              "rssSamples": "000000000000000b",
+              "finishedMicros": "00000000000df9cc",
+              "startRssBytes": "000000000fd9c000",
+              "finishRssBytes": "000000001008b000",
+              "sampledPeakRssBytes": "000000001008b000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "00000000000e6621",
+              "rssSamples": "000000000000007e",
+              "finishedMicros": "000000000012a76f",
+              "startRssBytes": "000000001008f000",
+              "finishRssBytes": "000000001526b000",
+              "sampledPeakRssBytes": "0000000015511000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000e6858",
+              "rssSamples": "0000000000000076",
+              "finishedMicros": "000000000012600a",
+              "startRssBytes": "0000000010094000",
+              "finishRssBytes": "0000000015266000",
+              "sampledPeakRssBytes": "0000000015511000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000126026",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "00000000001260b5",
+              "startRssBytes": "0000000015266000",
+              "finishRssBytes": "0000000015267000",
+              "sampledPeakRssBytes": "0000000015267000"
+            },
+            {
+              "phase": "managed-publication",
+              "startedMicros": "000000000012f5e4",
+              "rssSamples": "0000000000000006",
+              "finishedMicros": "00000000001315ff",
+              "startRssBytes": "0000000013cc8000",
+              "finishRssBytes": "0000000013cc8000",
+              "sampledPeakRssBytes": "0000000013cc8000"
+            }
+          ],
+          "rssSamplerStarted": true,
+          "requestedRssSampleIntervalMicros": "00000000000007d0"
+        }
+      },
+      "barrier": {
+        "type": "checkpoint-barrier",
+        "startedMs": 368157.017898,
+        "finishedMs": 368957.884416,
+        "durationMs": 801.1470119999722,
+        "startClock": {
+          "beforeMs": 368156.673703,
+          "afterMs": 368157.017898
+        },
+        "finishClock": {
+          "beforeMs": 368957.884416,
+          "afterMs": 368958.026888
+        }
+      },
+      "commit": {
+        "type": "checkpoint-commit",
+        "atMs": 368890.382235,
+        "requestMs": 11.237590999982785,
+        "generation": "0000000000000007",
+        "checkpointId": "0001f62f4976f86da80477635641827ff1f8e615ab65b1969da115733affa5b4",
+        "operationId": "07ab9c2d4f04aca8cbf36262ba6a4947",
+        "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+      },
+      "overlap": {
+        "guaranteedMs": 248.3374579999945,
+        "possibleMs": 248.62054199998965,
+        "originUncertaintyMs": 0.1415419999975711
+      }
+    },
+    {
+      "transitionStartedMs": 429324.266647,
+      "proven": true,
+      "archive": {
+        "bytes": 81339392,
+        "checkpointId": "0001f62f4976f86da80477635641827ff1f8e615ab65b1969da115733affa5b4",
+        "saveRoot": "e7061c3aaee4ffe296ad45cfc118149471092531d0ab580a41da3c3226f4be88",
+        "sha256": "2a8d8a218077ba5a750362dd68d3fdeb328f7a3a227aa3ed55c8956ab738a1d3"
+      },
+      "clock": {
+        "type": "export-clock",
+        "operationId": "68e5a0b839c72158097396d619ad5564",
+        "beforeMs": 429342.759253,
+        "afterMs": 429342.929435,
+        "checkpointId": "0001f62f4976f86da80477635641827ff1f8e615ab65b1969da115733affa5b4",
+        "generation": "0000000000000007"
+      },
+      "job": {
+        "operationId": "68e5a0b839c72158097396d619ad5564",
+        "kind": "export",
+        "completedBytes": "0000000024668918",
+        "started": true,
+        "finished": true,
+        "phaseTrace": {
+          "elapsedMicros": "00000000001cc5dd",
+          "truncated": false,
+          "intervals": [
+            {
+              "phase": "export",
+              "startedMicros": "00000000000000cc",
+              "rssSamples": "000000000000023e",
+              "finishedMicros": "0000000000136574",
+              "startRssBytes": "000000001a8d5000",
+              "finishRssBytes": "0000000015605000",
+              "sampledPeakRssBytes": "000000002003b000"
+            },
+            {
+              "phase": "export-source-population",
+              "startedMicros": "0000000000000105",
+              "rssSamples": "0000000000000071",
+              "finishedMicros": "000000000003b3d9",
+              "startRssBytes": "000000001a8d5000",
+              "finishRssBytes": "000000001fcd5000",
+              "sampledPeakRssBytes": "000000002003b000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "0000000000000150",
+              "rssSamples": "0000000000000071",
+              "finishedMicros": "000000000003b16d",
+              "startRssBytes": "000000001a8d5000",
+              "finishRssBytes": "000000002003e000",
+              "sampledPeakRssBytes": "000000002003e000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000000291",
+              "rssSamples": "000000000000006b",
+              "finishedMicros": "0000000000037889",
+              "startRssBytes": "000000001a8d8000",
+              "finishRssBytes": "0000000020036000",
+              "sampledPeakRssBytes": "0000000020036000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000378a6",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "00000000000378f9",
+              "startRssBytes": "0000000020036000",
+              "finishRssBytes": "0000000020037000",
+              "sampledPeakRssBytes": "0000000020037000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003b50c",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003c2f5",
+              "startRssBytes": "000000001fcd5000",
+              "finishRssBytes": "000000001fcd5000",
+              "sampledPeakRssBytes": "000000001fcd5000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003cdbb",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003db38",
+              "startRssBytes": "000000001fcd5000",
+              "finishRssBytes": "000000001fcd5000",
+              "sampledPeakRssBytes": "000000001fcd5000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003e656",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "000000000003f447",
+              "startRssBytes": "000000001fcd7000",
+              "finishRssBytes": "000000001fcd7000",
+              "sampledPeakRssBytes": "000000001fcd7000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003fea6",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "0000000000040af0",
+              "startRssBytes": "000000001fcd7000",
+              "finishRssBytes": "000000001fcd7000",
+              "sampledPeakRssBytes": "000000001fcd7000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000004181f",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "00000000000425e0",
+              "startRssBytes": "000000001fcd9000",
+              "finishRssBytes": "000000001fcd9000",
+              "sampledPeakRssBytes": "000000001fcd9000"
+            },
+            {
+              "phase": "numeric-encode",
+              "startedMicros": "0000000000048318",
+              "rssSamples": "0000000000000010",
+              "finishedMicros": "000000000004fd44",
+              "startRssBytes": "000000001fcde000",
+              "finishRssBytes": "000000001fce3000",
+              "sampledPeakRssBytes": "000000001fce3000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "000000000004fdbf",
+              "rssSamples": "000000000000007e",
+              "finishedMicros": "00000000000945cf",
+              "startRssBytes": "000000001fce3000",
+              "finishRssBytes": "000000001fcd6000",
+              "sampledPeakRssBytes": "000000001fcf5000"
+            },
+            {
+              "phase": "validation",
+              "startedMicros": "00000000000945eb",
+              "rssSamples": "000000000000011e",
+              "finishedMicros": "000000000012e1d3",
+              "startRssBytes": "000000001fcd6000",
+              "finishRssBytes": "000000001596e000",
+              "sampledPeakRssBytes": "000000001fd32000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "00000000000a7ccd",
+              "rssSamples": "000000000000007c",
+              "finishedMicros": "00000000000e9b4d",
+              "startRssBytes": "000000001fd0b000",
+              "finishRssBytes": "00000000104f8000",
+              "sampledPeakRssBytes": "000000001fd22000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000db1eb",
+              "rssSamples": "000000000000000d",
+              "finishedMicros": "00000000000e167a",
+              "startRssBytes": "0000000010200000",
+              "finishRssBytes": "00000000104f8000",
+              "sampledPeakRssBytes": "00000000104f8000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "00000000000e9b80",
+              "rssSamples": "000000000000007f",
+              "finishedMicros": "000000000012e1b1",
+              "startRssBytes": "00000000104f8000",
+              "finishRssBytes": "000000001596e000",
+              "sampledPeakRssBytes": "000000001596e000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000e9c7e",
+              "rssSamples": "0000000000000077",
+              "finishedMicros": "000000000012a0c4",
+              "startRssBytes": "00000000104fa000",
+              "finishRssBytes": "000000001596b000",
+              "sampledPeakRssBytes": "000000001596b000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000012a0e7",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "000000000012a215",
+              "startRssBytes": "000000001596b000",
+              "finishRssBytes": "000000001596d000",
+              "sampledPeakRssBytes": "000000001596d000"
+            },
+            {
+              "phase": "managed-publication",
+              "startedMicros": "00000000001329bd",
+              "rssSamples": "0000000000000007",
+              "finishedMicros": "000000000013528f",
+              "startRssBytes": "0000000015605000",
+              "finishRssBytes": "0000000015605000",
+              "sampledPeakRssBytes": "0000000015605000"
+            }
+          ],
+          "rssSamplerStarted": true,
+          "requestedRssSampleIntervalMicros": "00000000000007d0"
+        }
+      },
+      "barrier": {
+        "type": "checkpoint-barrier",
+        "startedMs": 429324.711273,
+        "finishedMs": 430102.258851,
+        "durationMs": 777.9074229999678,
+        "startClock": {
+          "beforeMs": 429324.266647,
+          "afterMs": 429324.711273
+        },
+        "finishClock": {
+          "beforeMs": 430102.258851,
+          "afterMs": 430102.381303
+        }
+      },
+      "commit": {
+        "type": "checkpoint-commit",
+        "atMs": 430032.658838,
+        "requestMs": 10.932845000002999,
+        "generation": "0000000000000008",
+        "checkpointId": "58abba4dd65c9efe6cc306c7bb4aec136721c2236568a9b09b0c39108d47c5b4",
+        "operationId": "b322e7b40317796461246d15660505da",
+        "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+      },
+      "overlap": {
+        "guaranteedMs": 242.21781800000463,
+        "possibleMs": 242.55818199994974,
+        "originUncertaintyMs": 0.1701819999725558
+      }
+    },
+    {
+      "transitionStartedMs": 490432.590631,
+      "proven": true,
+      "archive": {
+        "bytes": 82700288,
+        "checkpointId": "58abba4dd65c9efe6cc306c7bb4aec136721c2236568a9b09b0c39108d47c5b4",
+        "saveRoot": "1422f58a74454e6b8cf5c69a5164087ded0372bb834afaf1b49b7989d1e88669",
+        "sha256": "6f7fbfff427864eca0168b611f609c994de054611905ea56694242cacc4eb1e7"
+      },
+      "clock": {
+        "type": "export-clock",
+        "operationId": "756fdb78989baabc0ffaa82c21c764b5",
+        "beforeMs": 490453.212412,
+        "afterMs": 490453.395185,
+        "checkpointId": "58abba4dd65c9efe6cc306c7bb4aec136721c2236568a9b09b0c39108d47c5b4",
+        "generation": "0000000000000008"
+      },
+      "job": {
+        "operationId": "756fdb78989baabc0ffaa82c21c764b5",
+        "kind": "export",
+        "completedBytes": "000000002520037c",
+        "started": true,
+        "finished": true,
+        "phaseTrace": {
+          "elapsedMicros": "00000000001ddc4e",
+          "truncated": false,
+          "intervals": [
+            {
+              "phase": "export",
+              "startedMicros": "00000000000000d1",
+              "rssSamples": "0000000000000268",
+              "finishedMicros": "000000000014bf82",
+              "startRssBytes": "000000001bd4b000",
+              "finishRssBytes": "0000000013f8a000",
+              "sampledPeakRssBytes": "00000000214cb000"
+            },
+            {
+              "phase": "export-source-population",
+              "startedMicros": "0000000000000114",
+              "rssSamples": "0000000000000075",
+              "finishedMicros": "000000000003ec9a",
+              "startRssBytes": "000000001bd4b000",
+              "finishRssBytes": "000000001fbbc000",
+              "sampledPeakRssBytes": "00000000214cb000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "000000000000014f",
+              "rssSamples": "0000000000000074",
+              "finishedMicros": "000000000003e35e",
+              "startRssBytes": "000000001bd4b000",
+              "finishRssBytes": "00000000214cb000",
+              "sampledPeakRssBytes": "00000000214cb000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000000025a",
+              "rssSamples": "000000000000006d",
+              "finishedMicros": "000000000003a6ba",
+              "startRssBytes": "000000001bd4f000",
+              "finishRssBytes": "00000000214ca000",
+              "sampledPeakRssBytes": "00000000214ca000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003a6e2",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "000000000003a762",
+              "startRssBytes": "00000000214ca000",
+              "finishRssBytes": "00000000214cb000",
+              "sampledPeakRssBytes": "00000000214cb000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003ed7e",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003fb9c",
+              "startRssBytes": "000000001fbbd000",
+              "finishRssBytes": "000000001fbbd000",
+              "sampledPeakRssBytes": "000000001fbbd000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000040666",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "00000000000415b4",
+              "startRssBytes": "000000001fbbd000",
+              "finishRssBytes": "000000001fbbd000",
+              "sampledPeakRssBytes": "000000001fbbd000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000420c2",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "0000000000043099",
+              "startRssBytes": "000000001fbbd000",
+              "finishRssBytes": "000000001fbbd000",
+              "sampledPeakRssBytes": "000000001fbbd000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000043c76",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "00000000000449b7",
+              "startRssBytes": "000000001fbbd000",
+              "finishRssBytes": "000000001fbbd000",
+              "sampledPeakRssBytes": "000000001fbbd000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000453fd",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "0000000000046190",
+              "startRssBytes": "000000001fbbd000",
+              "finishRssBytes": "000000001fbbd000",
+              "sampledPeakRssBytes": "000000001fbbd000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000046d9a",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "0000000000047b97",
+              "startRssBytes": "000000001fbbd000",
+              "finishRssBytes": "000000001fbbd000",
+              "sampledPeakRssBytes": "000000001fbbd000"
+            },
+            {
+              "phase": "numeric-encode",
+              "startedMicros": "000000000004f6fc",
+              "rssSamples": "0000000000000015",
+              "finishedMicros": "0000000000059a1d",
+              "startRssBytes": "000000001fbbd000",
+              "finishRssBytes": "000000001fb7e000",
+              "sampledPeakRssBytes": "000000001fbc0000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "0000000000059a97",
+              "rssSamples": "0000000000000086",
+              "finishedMicros": "00000000000a0748",
+              "startRssBytes": "000000001fb7e000",
+              "finishRssBytes": "000000001fb82000",
+              "sampledPeakRssBytes": "000000001fb82000"
+            },
+            {
+              "phase": "validation",
+              "startedMicros": "00000000000a0766",
+              "rssSamples": "000000000000012f",
+              "finishedMicros": "00000000001436dd",
+              "startRssBytes": "000000001fb82000",
+              "finishRssBytes": "0000000015897000",
+              "sampledPeakRssBytes": "000000001fbd5000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "00000000000b1fdc",
+              "rssSamples": "000000000000008b",
+              "finishedMicros": "00000000000fb4ab",
+              "startRssBytes": "000000001fb91000",
+              "finishRssBytes": "00000000103fb000",
+              "sampledPeakRssBytes": "000000001fb92000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000e9aca",
+              "rssSamples": "0000000000000010",
+              "finishedMicros": "00000000000f1447",
+              "startRssBytes": "00000000100fa000",
+              "finishRssBytes": "00000000103e9000",
+              "sampledPeakRssBytes": "00000000103e9000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "00000000000fb4c9",
+              "rssSamples": "0000000000000086",
+              "finishedMicros": "00000000001436b0",
+              "startRssBytes": "00000000103fb000",
+              "finishRssBytes": "0000000015897000",
+              "sampledPeakRssBytes": "0000000015897000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000fb62a",
+              "rssSamples": "000000000000007d",
+              "finishedMicros": "000000000013ee75",
+              "startRssBytes": "00000000103fe000",
+              "finishRssBytes": "0000000015894000",
+              "sampledPeakRssBytes": "0000000015894000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000013ee97",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "000000000013ef00",
+              "startRssBytes": "0000000015894000",
+              "finishRssBytes": "0000000015895000",
+              "sampledPeakRssBytes": "0000000015895000"
+            },
+            {
+              "phase": "managed-publication",
+              "startedMicros": "0000000000148ae7",
+              "rssSamples": "0000000000000006",
+              "finishedMicros": "000000000014a7ff",
+              "startRssBytes": "0000000013f8a000",
+              "finishRssBytes": "0000000013f8a000",
+              "sampledPeakRssBytes": "0000000013f8a000"
+            }
+          ],
+          "rssSamplerStarted": true,
+          "requestedRssSampleIntervalMicros": "00000000000007d0"
+        }
+      },
+      "barrier": {
+        "type": "checkpoint-barrier",
+        "startedMs": 490432.940275,
+        "finishedMs": 491286.923855,
+        "durationMs": 854.2782540000044,
+        "startClock": {
+          "beforeMs": 490432.590631,
+          "afterMs": 490432.940275
+        },
+        "finishClock": {
+          "beforeMs": 491286.923855,
+          "afterMs": 491287.138928
+        }
+      },
+      "commit": {
+        "type": "checkpoint-commit",
+        "atMs": 491178.349017,
+        "requestMs": 12.294276000000536,
+        "generation": "0000000000000009",
+        "checkpointId": "6fd5e2fe3d6a4f5ef11239ff385bd8a4b4bcdcd93d951762913e961a39fd1bfe",
+        "operationId": "a24b4a23ab0a977a3609bb0d4202909a",
+        "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+      },
+      "overlap": {
+        "guaranteedMs": 256.71922700002324,
+        "possibleMs": 257.0847729999805,
+        "originUncertaintyMs": 0.18277299997862428
+      }
+    },
+    {
+      "transitionStartedMs": 551675.155106,
+      "proven": true,
+      "archive": {
+        "bytes": 84064256,
+        "checkpointId": "6fd5e2fe3d6a4f5ef11239ff385bd8a4b4bcdcd93d951762913e961a39fd1bfe",
+        "saveRoot": "fc8006416c9333ed5da51cca8af09d98bb10af9b354cdde44e4b4d7a5ae5f30e",
+        "sha256": "2f9f32963690ba41e27a5eed083348c4836ed06c77cf434ee88c3d5e4a1070cc"
+      },
+      "clock": {
+        "type": "export-clock",
+        "operationId": "3d03e180aa33d05332627420ffd4f5cc",
+        "beforeMs": 551716.810696,
+        "afterMs": 551716.957948,
+        "checkpointId": "6fd5e2fe3d6a4f5ef11239ff385bd8a4b4bcdcd93d951762913e961a39fd1bfe",
+        "generation": "0000000000000009"
+      },
+      "job": {
+        "operationId": "3d03e180aa33d05332627420ffd4f5cc",
+        "kind": "export",
+        "completedBytes": "0000000025d99748",
+        "started": true,
+        "finished": true,
+        "phaseTrace": {
+          "elapsedMicros": "00000000001e04a4",
+          "truncated": false,
+          "intervals": [
+            {
+              "phase": "export",
+              "startedMicros": "00000000000000a8",
+              "rssSamples": "0000000000000248",
+              "finishedMicros": "0000000000149ca4",
+              "startRssBytes": "000000001aa06000",
+              "finishRssBytes": "000000001433d000",
+              "sampledPeakRssBytes": "000000001c317000"
+            },
+            {
+              "phase": "export-source-population",
+              "startedMicros": "00000000000000d6",
+              "rssSamples": "0000000000000050",
+              "finishedMicros": "0000000000032925",
+              "startRssBytes": "000000001aa06000",
+              "finishRssBytes": "000000001aa08000",
+              "sampledPeakRssBytes": "000000001c317000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "00000000000000fd",
+              "rssSamples": "000000000000004e",
+              "finishedMicros": "0000000000031ce2",
+              "startRssBytes": "000000001aa06000",
+              "finishRssBytes": "000000001c317000",
+              "sampledPeakRssBytes": "000000001c317000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000001fb",
+              "rssSamples": "0000000000000048",
+              "finishedMicros": "000000000002e692",
+              "startRssBytes": "000000001aa07000",
+              "finishRssBytes": "000000001c317000",
+              "sampledPeakRssBytes": "000000001c317000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000002e6ae",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "000000000002e6ff",
+              "startRssBytes": "000000001c317000",
+              "finishRssBytes": "000000001c317000",
+              "sampledPeakRssBytes": "000000001c317000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000032a3d",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003392c",
+              "startRssBytes": "000000001aa08000",
+              "finishRssBytes": "000000001aa08000",
+              "sampledPeakRssBytes": "000000001aa08000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000343e7",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "000000000003517b",
+              "startRssBytes": "000000001aa08000",
+              "finishRssBytes": "000000001aa08000",
+              "sampledPeakRssBytes": "000000001aa08000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000035c45",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "0000000000036a16",
+              "startRssBytes": "000000001aa08000",
+              "finishRssBytes": "000000001aa08000",
+              "sampledPeakRssBytes": "000000001aa08000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000037485",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "00000000000382fa",
+              "startRssBytes": "000000001aa08000",
+              "finishRssBytes": "000000001aa08000",
+              "sampledPeakRssBytes": "000000001aa08000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000038db0",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "00000000000399c5",
+              "startRssBytes": "000000001aa08000",
+              "finishRssBytes": "000000001aa08000",
+              "sampledPeakRssBytes": "000000001aa08000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003a4a7",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003b3fd",
+              "startRssBytes": "000000001aa08000",
+              "finishRssBytes": "000000001aa08000",
+              "sampledPeakRssBytes": "000000001aa08000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003bf63",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003cdef",
+              "startRssBytes": "000000001aa08000",
+              "finishRssBytes": "000000001aa08000",
+              "sampledPeakRssBytes": "000000001aa08000"
+            },
+            {
+              "phase": "numeric-encode",
+              "startedMicros": "0000000000044194",
+              "rssSamples": "0000000000000018",
+              "finishedMicros": "000000000004fbf6",
+              "startRssBytes": "000000001aa08000",
+              "finishRssBytes": "000000001aa09000",
+              "sampledPeakRssBytes": "000000001aa09000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "000000000004fc7e",
+              "rssSamples": "000000000000008d",
+              "finishedMicros": "000000000009b22c",
+              "startRssBytes": "000000001aa09000",
+              "finishRssBytes": "000000001a9c6000",
+              "sampledPeakRssBytes": "000000001aa09000"
+            },
+            {
+              "phase": "validation",
+              "startedMicros": "000000000009b248",
+              "rssSamples": "000000000000011f",
+              "finishedMicros": "000000000013b109",
+              "startRssBytes": "000000001a9c6000",
+              "finishRssBytes": "0000000015c47000",
+              "sampledPeakRssBytes": "000000001aa19000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "00000000000ac891",
+              "rssSamples": "0000000000000086",
+              "finishedMicros": "00000000000f7faf",
+              "startRssBytes": "000000001a9d5000",
+              "finishRssBytes": "00000000107b1000",
+              "sampledPeakRssBytes": "000000001a9d5000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000e59ff",
+              "rssSamples": "000000000000000f",
+              "finishedMicros": "00000000000ed5c1",
+              "startRssBytes": "000000001049b000",
+              "finishRssBytes": "000000001078b000",
+              "sampledPeakRssBytes": "000000001078b000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "00000000000f7fe9",
+              "rssSamples": "000000000000007a",
+              "finishedMicros": "000000000013b0e5",
+              "startRssBytes": "00000000107b1000",
+              "finishRssBytes": "0000000015c47000",
+              "sampledPeakRssBytes": "0000000015c47000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000f8137",
+              "rssSamples": "0000000000000072",
+              "finishedMicros": "00000000001373be",
+              "startRssBytes": "00000000107b3000",
+              "finishRssBytes": "0000000015c45000",
+              "sampledPeakRssBytes": "0000000015c45000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000001373da",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "0000000000137436",
+              "startRssBytes": "0000000015c45000",
+              "finishRssBytes": "0000000015c46000",
+              "sampledPeakRssBytes": "0000000015c46000"
+            },
+            {
+              "phase": "managed-publication",
+              "startedMicros": "0000000000140075",
+              "rssSamples": "0000000000000011",
+              "finishedMicros": "0000000000148339",
+              "startRssBytes": "000000001433d000",
+              "finishRssBytes": "000000001433d000",
+              "sampledPeakRssBytes": "000000001433d000"
+            }
+          ],
+          "rssSamplerStarted": true,
+          "requestedRssSampleIntervalMicros": "00000000000007d0"
+        }
+      },
+      "barrier": {
+        "type": "checkpoint-barrier",
+        "startedMs": 551675.590692,
+        "finishedMs": 552505.470377,
+        "durationMs": 830.2230690000579,
+        "startClock": {
+          "beforeMs": 551675.155106,
+          "afterMs": 551675.590692
+        },
+        "finishClock": {
+          "beforeMs": 552505.470377,
+          "afterMs": 552505.610249
+        }
+      },
+      "commit": {
+        "type": "checkpoint-commit",
+        "atMs": 552408.052207,
+        "requestMs": 10.152418000041507,
+        "generation": "000000000000000a",
+        "checkpointId": "4b414a993db5549d31cf93f16df8d506e7a8bc62e3fc2b8ae1c45bf445e55f70",
+        "operationId": "4eef3077c685e231ff3d9f653dcbdc59",
+        "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+      },
+      "overlap": {
+        "guaranteedMs": 206.77974799985532,
+        "possibleMs": 207.07425199996214,
+        "originUncertaintyMs": 0.1472520000534132
+      }
+    },
+    {
+      "transitionStartedMs": 612836.152755,
+      "proven": true,
+      "archive": {
+        "bytes": 84070400,
+        "checkpointId": "4b414a993db5549d31cf93f16df8d506e7a8bc62e3fc2b8ae1c45bf445e55f70",
+        "saveRoot": "3d3dbf7ef4dacab8bb796bdb31154db83a3414bdd0b43155ff88a0a04bfe4178",
+        "sha256": "a84f913987fe92d95dc8c50579a6ec6b01cf35dd11f3cf0e7bb6074fa3db5bf1"
+      },
+      "clock": {
+        "type": "export-clock",
+        "operationId": "ecdc49f8e7438d23e77fa6ec60fd11ad",
+        "beforeMs": 612854.534501,
+        "afterMs": 612854.690823,
+        "checkpointId": "4b414a993db5549d31cf93f16df8d506e7a8bc62e3fc2b8ae1c45bf445e55f70",
+        "generation": "000000000000000a"
+      },
+      "job": {
+        "operationId": "ecdc49f8e7438d23e77fa6ec60fd11ad",
+        "kind": "export",
+        "completedBytes": "0000000025da0ff2",
+        "started": true,
+        "finished": true,
+        "phaseTrace": {
+          "elapsedMicros": "000000000020f57e",
+          "truncated": false,
+          "intervals": [
+            {
+              "phase": "export",
+              "startedMicros": "00000000000000bd",
+              "rssSamples": "0000000000000285",
+              "finishedMicros": "000000000016afaa",
+              "startRssBytes": "000000001a90d000",
+              "finishRssBytes": "0000000014202000",
+              "sampledPeakRssBytes": "0000000020089000"
+            },
+            {
+              "phase": "export-source-population",
+              "startedMicros": "00000000000000f2",
+              "rssSamples": "0000000000000073",
+              "finishedMicros": "000000000003d02e",
+              "startRssBytes": "000000001a90d000",
+              "finishRssBytes": "000000001e82b000",
+              "sampledPeakRssBytes": "0000000020089000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "000000000000011d",
+              "rssSamples": "0000000000000072",
+              "finishedMicros": "000000000003c5f2",
+              "startRssBytes": "000000001a90d000",
+              "finishRssBytes": "0000000020089000",
+              "sampledPeakRssBytes": "0000000020089000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000000215",
+              "rssSamples": "000000000000006b",
+              "finishedMicros": "00000000000389f8",
+              "startRssBytes": "000000001a910000",
+              "finishRssBytes": "0000000020088000",
+              "sampledPeakRssBytes": "0000000020088000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000038a14",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "0000000000038a69",
+              "startRssBytes": "0000000020088000",
+              "finishRssBytes": "0000000020088000",
+              "sampledPeakRssBytes": "0000000020088000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003d12d",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "000000000003dfc2",
+              "startRssBytes": "000000001e82b000",
+              "finishRssBytes": "000000001e82b000",
+              "sampledPeakRssBytes": "000000001e82b000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003eb68",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "000000000003f95e",
+              "startRssBytes": "000000001e82b000",
+              "finishRssBytes": "000000001e82b000",
+              "sampledPeakRssBytes": "000000001e82b000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000004043d",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "000000000004135e",
+              "startRssBytes": "000000001e82b000",
+              "finishRssBytes": "000000001e82b000",
+              "sampledPeakRssBytes": "000000001e82b000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000041fd6",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "0000000000042f9e",
+              "startRssBytes": "000000001e82b000",
+              "finishRssBytes": "000000001e82b000",
+              "sampledPeakRssBytes": "000000001e82b000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000043cb0",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "0000000000044c58",
+              "startRssBytes": "000000001e82b000",
+              "finishRssBytes": "000000001e82b000",
+              "sampledPeakRssBytes": "000000001e82b000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000045820",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "0000000000046608",
+              "startRssBytes": "000000001e82b000",
+              "finishRssBytes": "000000001e82b000",
+              "sampledPeakRssBytes": "000000001e82b000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000004705c",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "0000000000047ecb",
+              "startRssBytes": "000000001e82b000",
+              "finishRssBytes": "000000001e82b000",
+              "sampledPeakRssBytes": "000000001e82b000"
+            },
+            {
+              "phase": "numeric-encode",
+              "startedMicros": "000000000004efb1",
+              "rssSamples": "000000000000001a",
+              "finishedMicros": "000000000005bd8d",
+              "startRssBytes": "000000001e82b000",
+              "finishRssBytes": "000000001e7e8000",
+              "sampledPeakRssBytes": "000000001e82b000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "000000000005bdff",
+              "rssSamples": "000000000000008b",
+              "finishedMicros": "00000000000a5146",
+              "startRssBytes": "000000001e7e8000",
+              "finishRssBytes": "000000001e7e8000",
+              "sampledPeakRssBytes": "000000001e7e8000"
+            },
+            {
+              "phase": "validation",
+              "startedMicros": "00000000000a5162",
+              "rssSamples": "0000000000000127",
+              "finishedMicros": "00000000001465dc",
+              "startRssBytes": "000000001e7e8000",
+              "finishRssBytes": "0000000015a5f000",
+              "sampledPeakRssBytes": "000000001e83b000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "00000000000b7910",
+              "rssSamples": "0000000000000086",
+              "finishedMicros": "00000000000ff878",
+              "startRssBytes": "000000001e7f4000",
+              "finishRssBytes": "00000000105b9000",
+              "sampledPeakRssBytes": "000000001e7f4000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000ebc44",
+              "rssSamples": "0000000000000012",
+              "finishedMicros": "00000000000f4cb3",
+              "startRssBytes": "00000000102ca000",
+              "finishRssBytes": "00000000105b9000",
+              "sampledPeakRssBytes": "00000000105b9000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "00000000000ff89c",
+              "rssSamples": "0000000000000081",
+              "finishedMicros": "00000000001465ac",
+              "startRssBytes": "00000000105b9000",
+              "finishRssBytes": "0000000015a5f000",
+              "sampledPeakRssBytes": "0000000015a5f000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000ff9e8",
+              "rssSamples": "000000000000007a",
+              "finishedMicros": "0000000000141bbf",
+              "startRssBytes": "00000000105ba000",
+              "finishRssBytes": "0000000015a5e000",
+              "sampledPeakRssBytes": "0000000015a5e000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000141bdc",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "0000000000141c45",
+              "startRssBytes": "0000000015a5e000",
+              "finishRssBytes": "0000000015a5e000",
+              "sampledPeakRssBytes": "0000000015a5e000"
+            },
+            {
+              "phase": "managed-publication",
+              "startedMicros": "0000000000160a29",
+              "rssSamples": "000000000000000f",
+              "finishedMicros": "000000000016993b",
+              "startRssBytes": "0000000014201000",
+              "finishRssBytes": "0000000014202000",
+              "sampledPeakRssBytes": "0000000014202000"
+            }
+          ],
+          "rssSamplerStarted": true,
+          "requestedRssSampleIntervalMicros": "00000000000007d0"
+        }
+      },
+      "barrier": {
+        "type": "checkpoint-barrier",
+        "startedMs": 612836.607171,
+        "finishedMs": 613679.297443,
+        "durationMs": 843.0436080000363,
+        "startClock": {
+          "beforeMs": 612836.152755,
+          "afterMs": 612836.607171
+        },
+        "finishClock": {
+          "beforeMs": 613679.297443,
+          "afterMs": 613679.465836
+        }
+      },
+      "commit": {
+        "type": "checkpoint-commit",
+        "atMs": 613579.64629,
+        "requestMs": 10.505240000085905,
+        "generation": "000000000000000b",
+        "checkpointId": "9ff0a6c577247316a9ae2763a7585129e3468abaa9228cb725271506d6f25a62",
+        "operationId": "83ec8d988f06c1a586ef9896b3d83a4f",
+        "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+      },
+      "overlap": {
+        "guaranteedMs": 249.50367799995,
+        "possibleMs": 249.81632200011518,
+        "originUncertaintyMs": 0.15632200008258224
+      }
+    },
+    {
+      "transitionStartedMs": 674010.904899,
+      "proven": true,
+      "archive": {
+        "bytes": 84073984,
+        "checkpointId": "9ff0a6c577247316a9ae2763a7585129e3468abaa9228cb725271506d6f25a62",
+        "saveRoot": "29991394d5cbd3acea771c7a05fb995f80a3a3b0396bddd44ea835b6ddaad5d9",
+        "sha256": "4e401d50f228e9a92ee7b2d06cfa1174854659a4ae499bbb459de878ccdffc35"
+      },
+      "clock": {
+        "type": "export-clock",
+        "operationId": "5d154d50d86ec2a436508cd62af6ecaf",
+        "beforeMs": 674027.82566,
+        "afterMs": 674027.949582,
+        "checkpointId": "9ff0a6c577247316a9ae2763a7585129e3468abaa9228cb725271506d6f25a62",
+        "generation": "000000000000000b"
+      },
+      "job": {
+        "operationId": "5d154d50d86ec2a436508cd62af6ecaf",
+        "kind": "export",
+        "completedBytes": "0000000025da4c63",
+        "started": true,
+        "finished": true,
+        "phaseTrace": {
+          "elapsedMicros": "00000000001e1a68",
+          "truncated": false,
+          "intervals": [
+            {
+              "phase": "export",
+              "startedMicros": "00000000000000b9",
+              "rssSamples": "0000000000000262",
+              "finishedMicros": "0000000000146a59",
+              "startRssBytes": "000000001a8f6000",
+              "finishRssBytes": "000000001439f000",
+              "sampledPeakRssBytes": "0000000020078000"
+            },
+            {
+              "phase": "export-source-population",
+              "startedMicros": "00000000000000f2",
+              "rssSamples": "000000000000006e",
+              "finishedMicros": "000000000003a7b1",
+              "startRssBytes": "000000001a8f6000",
+              "finishRssBytes": "000000001e769000",
+              "sampledPeakRssBytes": "0000000020078000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "0000000000000124",
+              "rssSamples": "000000000000006c",
+              "finishedMicros": "0000000000039d26",
+              "startRssBytes": "000000001a8f6000",
+              "finishRssBytes": "0000000020078000",
+              "sampledPeakRssBytes": "0000000020078000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000000028a",
+              "rssSamples": "0000000000000065",
+              "finishedMicros": "0000000000035fd4",
+              "startRssBytes": "000000001a8fa000",
+              "finishRssBytes": "0000000020077000",
+              "sampledPeakRssBytes": "0000000020077000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000035ff1",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "0000000000036054",
+              "startRssBytes": "0000000020077000",
+              "finishRssBytes": "0000000020078000",
+              "sampledPeakRssBytes": "0000000020078000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003a8c4",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003b547",
+              "startRssBytes": "000000001e769000",
+              "finishRssBytes": "000000001e769000",
+              "sampledPeakRssBytes": "000000001e769000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003bfa3",
+              "rssSamples": "0000000000000003",
+              "finishedMicros": "000000000003cd2b",
+              "startRssBytes": "000000001e769000",
+              "finishRssBytes": "000000001e769000",
+              "sampledPeakRssBytes": "000000001e769000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003d84f",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "000000000003e5a4",
+              "startRssBytes": "000000001e769000",
+              "finishRssBytes": "000000001e769000",
+              "sampledPeakRssBytes": "000000001e769000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "000000000003f09a",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "0000000000040098",
+              "startRssBytes": "000000001e769000",
+              "finishRssBytes": "000000001e769000",
+              "sampledPeakRssBytes": "000000001e769000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000040b64",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "000000000004196a",
+              "startRssBytes": "000000001e769000",
+              "finishRssBytes": "000000001e769000",
+              "sampledPeakRssBytes": "000000001e769000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000042377",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "00000000000432df",
+              "startRssBytes": "000000001e769000",
+              "finishRssBytes": "000000001e769000",
+              "sampledPeakRssBytes": "000000001e769000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000043e0b",
+              "rssSamples": "0000000000000004",
+              "finishedMicros": "0000000000044d38",
+              "startRssBytes": "000000001e769000",
+              "finishRssBytes": "000000001e769000",
+              "sampledPeakRssBytes": "000000001e769000"
+            },
+            {
+              "phase": "numeric-encode",
+              "startedMicros": "000000000004c468",
+              "rssSamples": "0000000000000018",
+              "finishedMicros": "000000000005820b",
+              "startRssBytes": "000000001e769000",
+              "finishRssBytes": "000000001e729000",
+              "sampledPeakRssBytes": "000000001e76c000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "000000000005829c",
+              "rssSamples": "0000000000000094",
+              "finishedMicros": "00000000000a568c",
+              "startRssBytes": "000000001e729000",
+              "finishRssBytes": "000000001e72b000",
+              "sampledPeakRssBytes": "000000001e72b000"
+            },
+            {
+              "phase": "validation",
+              "startedMicros": "00000000000a56a8",
+              "rssSamples": "0000000000000113",
+              "finishedMicros": "0000000000138f29",
+              "startRssBytes": "000000001e72b000",
+              "finishRssBytes": "0000000015cad000",
+              "sampledPeakRssBytes": "000000001e77a000"
+            },
+            {
+              "phase": "temporary-file-write",
+              "startedMicros": "00000000000b6af0",
+              "rssSamples": "000000000000007b",
+              "finishedMicros": "00000000000f8477",
+              "startRssBytes": "000000001e743000",
+              "finishRssBytes": "000000001080e000",
+              "sampledPeakRssBytes": "000000001e74c000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000e44d3",
+              "rssSamples": "0000000000000013",
+              "finishedMicros": "00000000000ed101",
+              "startRssBytes": "0000000010515000",
+              "finishRssBytes": "0000000010805000",
+              "sampledPeakRssBytes": "0000000010805000"
+            },
+            {
+              "phase": "checkpoint-restore",
+              "startedMicros": "00000000000f849a",
+              "rssSamples": "0000000000000079",
+              "finishedMicros": "0000000000138f07",
+              "startRssBytes": "000000001080e000",
+              "finishRssBytes": "0000000015cad000",
+              "sampledPeakRssBytes": "0000000015cad000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "00000000000f85b9",
+              "rssSamples": "0000000000000072",
+              "finishedMicros": "000000000013501d",
+              "startRssBytes": "000000001080f000",
+              "finishRssBytes": "0000000015ca9000",
+              "sampledPeakRssBytes": "0000000015ca9000"
+            },
+            {
+              "phase": "numeric-decode",
+              "startedMicros": "0000000000135039",
+              "rssSamples": "0000000000000002",
+              "finishedMicros": "000000000013508c",
+              "startRssBytes": "0000000015ca9000",
+              "finishRssBytes": "0000000015cab000",
+              "sampledPeakRssBytes": "0000000015cab000"
+            },
+            {
+              "phase": "managed-publication",
+              "startedMicros": "000000000013e849",
+              "rssSamples": "000000000000000f",
+              "finishedMicros": "000000000014514f",
+              "startRssBytes": "000000001439f000",
+              "finishRssBytes": "000000001439f000",
+              "sampledPeakRssBytes": "000000001439f000"
+            }
+          ],
+          "rssSamplerStarted": true,
+          "requestedRssSampleIntervalMicros": "00000000000007d0"
+        }
+      },
+      "barrier": {
+        "type": "checkpoint-barrier",
+        "startedMs": 674011.251934,
+        "finishedMs": 674891.880836,
+        "durationMs": 880.9143660000991,
+        "startClock": {
+          "beforeMs": 674010.904899,
+          "afterMs": 674011.251934
+        },
+        "finishClock": {
+          "beforeMs": 674891.880836,
+          "afterMs": 674892.133209
+        }
+      },
+      "commit": {
+        "type": "checkpoint-commit",
+        "atMs": 674787.782296,
+        "requestMs": 14.616646999958903,
+        "generation": "000000000000000c",
+        "checkpointId": "274c15527811882fbc249caac927f0766eded332e0f1de5c0afcd78869232974",
+        "operationId": "05210d8a0812765fd1224f68afebdbdd",
+        "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+      },
+      "overlap": {
+        "guaranteedMs": 239.17107799998485,
+        "possibleMs": 239.41892200009897,
+        "originUncertaintyMs": 0.123922000057064
+      }
+    }
+  ],
+  "host": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+    "logicalCpuCount": 8,
+    "totalMemoryBytes": 16775348224,
+    "loadAverageAtEnd": [
+      0.92,
+      1.02,
+      1.19
+    ]
+  },
+  "filesystem": {
+    "availableBytesBefore": "171342954496",
+    "availableBytesAfterMeasurement": "170731732992"
+  },
+  "diskPolicy": {
+    "operatingReserveBytes": "1073741824",
+    "archiveTempQuotaBytes": "9663676416",
+    "sqliteWalAllowanceBytes": "67108864",
+    "checkpointBudgetMiB": 4096
+  },
+  "nativeSourceSha256": "61ba97f5b2825aeaa9552c90390e3f0ecbf601e56ab5da92567e106cc4d760ad",
+  "runnerSha256": "cbff6e99f63a213363da6320115db404d433d1f96e13ade3724c93b1eca5554b",
+  "observerSha256": "db6e0c5c694084ec9be97827bb507ff190d8f775955f503c05b7ca3be28f784d",
+  "summarySha256": "3f8b0acf207cbee8703a7eb585a7d6b692718cad9e4ceca503028a5aa8b7ec0e",
+  "configuredWorkload": {
+    "scenario": "P2",
+    "neuralSnakes": 55,
+    "baselineBots": 10,
+    "pellets": 3500,
+    "sensorCount": 147,
+    "generationSeconds": 60,
+    "simSpeed": 1,
+    "rustWorkers": 5
+  },
+  "initial": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:0c3d5dd12f4057b538ed24e6d4ed10c07eb7a5ce98a4279420baa2d35b4d236e",
+    "startupCheckpointId": "676f25ad75b34778ec10f67482c2eec3dba77c0b3107f4eb436e364f7dcc2ca1",
+    "calculationWorkers": 5,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "0000000000000003",
+    "generation": "0000000000000002",
+    "completedStep": "0000000000000e18",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "0000000000000e18",
+    "schedulerDroppedWallMicros": "0000000000000000",
+    "schedulerOverloaded": false,
+    "commandServiceBoundaries": "0000000000002024",
+    "coordinatorWorkBytes": "0000000015688139",
+    "processedCommands": "0000000000000013",
+    "stepTimingSamples": "0000000000000e46",
+    "stepTimingTotalMicros": "00000000018e19de",
+    "stepTimingMaxMicros": "00000000000a2e66",
+    "stepTimingP95Micros": "0000000000002ee0",
+    "stepTimingP99Micros": "0000000000003e80",
+    "slowStepSamples": "000000000000000d",
+    "slowStepControlMicros": "0000000000031b05",
+    "slowStepControlIndexMicros": "00000000000030b8",
+    "slowStepControlNeuralMicros": "000000000002a429",
+    "slowStepControlSensingMicros": "0000000000007d1f",
+    "slowStepControlInferenceMicros": "000000000002265e",
+    "slowStepWorldMicros": "00000000000180d0",
+    "slowStepOtherMicros": "000000000000205c",
+    "terminalStepSamples": "0000000000000001",
+    "terminalStepTotalMicros": "00000000000a2e66",
+    "terminalStepMaxMicros": "00000000000a2e66",
+    "terminalStepControlMicros": "00000000000009d6",
+    "terminalStepWorldMicros": "00000000000007a9",
+    "terminalStepPreparationMicros": "000000000009e785",
+    "terminalStepEvolutionMicros": "000000000009e5f9",
+    "terminalStepEvolutionSummaryMicros": "000000000005f5ad",
+    "terminalStepEvolutionReproductionMicros": "000000000003bf86",
+    "terminalStepAdmissionMicros": "00000000000034fd",
+    "terminalStepOtherMicros": "0000000000000065",
+    "nativeBuildIdentifier": "slither_native/0.1.0+445ef44d1e15.4a60b65eeac31fe3",
+    "telemetry": {
+      "uptimeSeconds": 62.283197204000004,
+      "authoritativeSteps": 3608,
+      "simulatedSeconds": 60.13333333333333,
+      "simulatedWallRatio": 0.9654824420200349,
+      "step": {
+        "samples": 3654,
+        "meanMs": 7.140106732348112,
+        "p95Ms": 12,
+        "p99Ms": 16,
+        "maxMs": 667.238,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 247394304,
+        "heapUsedBytes": 17380376,
+        "externalBytes": 32075463,
+        "maxRssBytes": 357175296,
+        "eventLoopDelayMeanMs": 10.185289621462458,
+        "eventLoopDelayP95Ms": 10.813439,
+        "eventLoopDelayP99Ms": 11.927551,
+        "eventLoopDelayMaxMs": 17.268735
+      },
+      "frame": {
+        "latestBytes": 74836,
+        "maximumObservedBytes": 75336
+      },
+      "checkpointBarrier": {
+        "samples": 1,
+        "meanMs": 686.3527449999965,
+        "p95Ms": 1000,
+        "maxMs": 686.3527449999965
+      },
+      "playerAction": {
+        "samples": 1,
+        "meanMs": 0.31706499999563675,
+        "p95Ms": 0.5,
+        "maxMs": 0.31706499999563675
+      },
+      "trainerAction": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "controllerLifecycle": {
+        "samples": 2,
+        "meanMs": 14.190065499999037,
+        "p95Ms": 16,
+        "maxMs": 15.102138000002014
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 1,
+          "successfulReclaims": 0,
+          "appliedActions": 1,
+          "appliedDisconnects": 0
+        },
+        "trainer": {
+          "freshAssignments": 1,
+          "successfulReclaims": 0,
+          "appliedActions": 0,
+          "appliedDisconnects": 0
+        }
+      }
+    },
+    "nativeQueues": {
+      "inbound": {
+        "batches": "0000000000000000",
+        "commands": "0000000000000000",
+        "ownedBytes": "0000000000000000",
+        "highWaterBatches": "0000000000000002",
+        "highWaterCommands": "0000000000000002",
+        "highWaterOwnedBytes": "0000000000000397",
+        "maxBatches": "0000000000000040",
+        "maxCommands": "0000000000000040",
+        "maxOwnedBytes": "0000000000400000",
+        "maxBatchCommands": "0000000000000001",
+        "maxBatchOwnedBytes": "0000000000100000",
+        "rejections": "0000000000000000",
+        "faultDiscardedCommands": "0000000000000000"
+      },
+      "output": {
+        "reliable": "0000000000000003",
+        "reliableOwnedBytes": "0000000000000390",
+        "discrete": "0000000000000000",
+        "discreteOwnedBytes": "0000000000000000",
+        "frames": "0000000000000000",
+        "hasStats": false,
+        "ownedBytes": "0000000000000390",
+        "highWaterCount": "0000000000000003",
+        "highWaterOwnedBytes": "0000000000000788",
+        "maxReliable": "0000000000000020",
+        "highWaterReliable": "0000000000000003",
+        "highWaterReliableOwnedBytes": "0000000000000788",
+        "highWaterDiscrete": "0000000000000000",
+        "highWaterDiscreteOwnedBytes": "0000000000000000",
+        "highWaterFrames": "0000000000000000",
+        "highWaterFrameOwnedBytes": "0000000000000000",
+        "highWaterStats": "0000000000000001",
+        "highWaterStatsOwnedBytes": "0000000000000068",
+        "maxReliableOwnedBytes": "0000000001000000",
+        "maxDiscrete": "0000000000000004",
+        "maxDiscreteOwnedBytes": "0000000000100000",
+        "maxFrames": "0000000000000004",
+        "maxOwnedBytes": "0000000002000000",
+        "maxEventOwnedBytes": "0000000000100000",
+        "capacityWaits": "0000000000000000",
+        "priorityOverflows": "0000000000000000",
+        "hasReservedFault": false,
+        "statsReplacements": "0000000000000000",
+        "frameReplacements": "0000000000000000",
+        "staleStats": "0000000000000000",
+        "staleFrames": "0000000000000000",
+        "statsRejections": "0000000000000000",
+        "frameRejections": "0000000000000000",
+        "statsEvictions": "0000000000000000",
+        "frameEvictions": "0000000000000000"
+      }
+    },
+    "outbound": {
+      "connections": 2,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0,
+      "highWaterReliableMessagesPerConnection": 1,
+      "highWaterReliableBytesPerConnection": 7783,
+      "maxReliableMessagesPerConnection": 1024,
+      "maxReliableBytesPerConnection": 4194304,
+      "maxConnections": 64
+    },
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "0000000009085e00",
+      "protectedAutomaticStoredByteCount": "0000000009085e00",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000004710a00",
+          "decodedByteCount": "0000000005491493",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "recent": {
+          "checkpointCount": 1,
+          "storedByteCount": "000000000470ee00",
+          "decodedByteCount": "0000000005491493",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "milestone": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2d",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 0,
+      "deletedStoredByteCount": "0000000000000000"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "4096",
+        "walBytes": "391432",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "37",
+        "freelistPageCount": "0",
+        "usedPageBytes": "151552"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "171189604352",
+        "operatingReserveBytes": "1073741824"
+      }
+    }
+  },
+  "final": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:0c3d5dd12f4057b538ed24e6d4ed10c07eb7a5ce98a4279420baa2d35b4d236e",
+    "startupCheckpointId": "676f25ad75b34778ec10f67482c2eec3dba77c0b3107f4eb436e364f7dcc2ca1",
+    "calculationWorkers": 5,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "000000000000001f",
+    "generation": "000000000000000c",
+    "completedStep": "0000000000009b3e",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "0000000000009b3e",
+    "schedulerDroppedWallMicros": "0000000000000000",
+    "schedulerOverloaded": false,
+    "commandServiceBoundaries": "0000000000017bc9",
+    "coordinatorWorkBytes": "00000000eb7db555",
+    "processedCommands": "000000000001e9b1",
+    "stepTimingSamples": "0000000000009b6c",
+    "stepTimingTotalMicros": "0000000014361aac",
+    "stepTimingMaxMicros": "00000000000a2e66",
+    "stepTimingP95Micros": "0000000000003e80",
+    "stepTimingP99Micros": "0000000000005dc0",
+    "slowStepSamples": "0000000000000190",
+    "slowStepControlMicros": "0000000000575cd6",
+    "slowStepControlIndexMicros": "0000000000037df6",
+    "slowStepControlNeuralMicros": "00000000004bdbd2",
+    "slowStepControlSensingMicros": "0000000000108a8e",
+    "slowStepControlInferenceMicros": "00000000003b34ea",
+    "slowStepWorldMicros": "00000000001e6806",
+    "slowStepOtherMicros": "000000000010bd74",
+    "terminalStepSamples": "000000000000000b",
+    "terminalStepTotalMicros": "00000000004845bd",
+    "terminalStepMaxMicros": "00000000000a2e66",
+    "terminalStepControlMicros": "0000000000009a10",
+    "terminalStepWorldMicros": "0000000000005fb8",
+    "terminalStepPreparationMicros": "000000000044ed88",
+    "terminalStepEvolutionMicros": "000000000044dab9",
+    "terminalStepEvolutionSummaryMicros": "00000000001b99c6",
+    "terminalStepEvolutionReproductionMicros": "000000000026f7e0",
+    "terminalStepAdmissionMicros": "00000000000257e7",
+    "terminalStepOtherMicros": "0000000000000686",
+    "nativeBuildIdentifier": "slither_native/0.1.0+445ef44d1e15.4a60b65eeac31fe3",
+    "telemetry": {
+      "uptimeSeconds": 676.226719165,
+      "authoritativeSteps": 39742,
+      "simulatedSeconds": 662.3666666666667,
+      "simulatedWallRatio": 0.9795038378320106,
+      "step": {
+        "samples": 39788,
+        "meanMs": 8.522421131999597,
+        "p95Ms": 16,
+        "p99Ms": 24,
+        "maxMs": 667.238,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 352567296,
+        "heapUsedBytes": 16570624,
+        "externalBytes": 33251065,
+        "maxRssBytes": 557776896,
+        "eventLoopDelayMeanMs": 10.162337246028764,
+        "eventLoopDelayP95Ms": 10.887167,
+        "eventLoopDelayP99Ms": 11.698175,
+        "eventLoopDelayMaxMs": 28.327935
+      },
+      "frame": {
+        "latestBytes": 74848,
+        "maximumObservedBytes": 76984
+      },
+      "checkpointBarrier": {
+        "samples": 11,
+        "meanMs": 782.8068952727361,
+        "p95Ms": 1000,
+        "maxMs": 880.9143660000991
+      },
+      "playerAction": {
+        "samples": 18142,
+        "meanMs": 3.455201404145224,
+        "p95Ms": 16,
+        "maxMs": 116.57062199991196
+      },
+      "trainerAction": {
+        "samples": 34533,
+        "meanMs": 0.6567977235399101,
+        "p95Ms": 1,
+        "maxMs": 57.38925399999425
+      },
+      "controllerLifecycle": {
+        "samples": 2,
+        "meanMs": 14.190065499999037,
+        "p95Ms": 16,
+        "maxMs": 15.102138000002014
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 1,
+          "successfulReclaims": 0,
+          "appliedActions": 18142,
+          "appliedDisconnects": 0
+        },
+        "trainer": {
+          "freshAssignments": 1,
+          "successfulReclaims": 0,
+          "appliedActions": 34533,
+          "appliedDisconnects": 0
+        }
+      }
+    },
+    "nativeQueues": {
+      "inbound": {
+        "batches": "0000000000000000",
+        "commands": "0000000000000000",
+        "ownedBytes": "0000000000000000",
+        "highWaterBatches": "0000000000000027",
+        "highWaterCommands": "0000000000000027",
+        "highWaterOwnedBytes": "0000000000000397",
+        "maxBatches": "0000000000000040",
+        "maxCommands": "0000000000000040",
+        "maxOwnedBytes": "0000000000400000",
+        "maxBatchCommands": "0000000000000001",
+        "maxBatchOwnedBytes": "0000000000100000",
+        "rejections": "0000000000000000",
+        "faultDiscardedCommands": "0000000000000000"
+      },
+      "output": {
+        "reliable": "0000000000000000",
+        "reliableOwnedBytes": "0000000000000000",
+        "discrete": "0000000000000000",
+        "discreteOwnedBytes": "0000000000000000",
+        "frames": "0000000000000000",
+        "hasStats": false,
+        "ownedBytes": "0000000000000000",
+        "highWaterCount": "0000000000000021",
+        "highWaterOwnedBytes": "0000000000002de8",
+        "maxReliable": "0000000000000020",
+        "highWaterReliable": "0000000000000020",
+        "highWaterReliableOwnedBytes": "0000000000002d80",
+        "highWaterDiscrete": "0000000000000000",
+        "highWaterDiscreteOwnedBytes": "0000000000000000",
+        "highWaterFrames": "0000000000000000",
+        "highWaterFrameOwnedBytes": "0000000000000000",
+        "highWaterStats": "0000000000000001",
+        "highWaterStatsOwnedBytes": "0000000000000068",
+        "maxReliableOwnedBytes": "0000000001000000",
+        "maxDiscrete": "0000000000000004",
+        "maxDiscreteOwnedBytes": "0000000000100000",
+        "maxFrames": "0000000000000004",
+        "maxOwnedBytes": "0000000002000000",
+        "maxEventOwnedBytes": "0000000000100000",
+        "capacityWaits": "0000000000000024",
+        "priorityOverflows": "0000000000000000",
+        "hasReservedFault": false,
+        "statsReplacements": "0000000000000000",
+        "frameReplacements": "0000000000000000",
+        "staleStats": "0000000000000000",
+        "staleFrames": "0000000000000000",
+        "statsRejections": "0000000000000000",
+        "frameRejections": "0000000000000000",
+        "statsEvictions": "0000000000000000",
+        "frameEvictions": "0000000000000000"
+      }
+    },
+    "outbound": {
+      "connections": 2,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0,
+      "highWaterReliableMessagesPerConnection": 1,
+      "highWaterReliableBytesPerConnection": 7783,
+      "maxReliableMessagesPerConnection": 1024,
+      "maxReliableBytesPerConnection": 4194304,
+      "maxConnections": 64
+    },
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "0000000023b3fc00",
+      "protectedAutomaticStoredByteCount": "00000000090a3600",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "000000000471ee00",
+          "decodedByteCount": "00000000054914a9",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "recent": {
+          "checkpointCount": 7,
+          "storedByteCount": "000000001f1ba800",
+          "decodedByteCount": "0000000024ff901b",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 7,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 7
+          }
+        },
+        "milestone": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2d",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 1,
+      "deletedStoredByteCount": "0000000004714c00"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "4096",
+        "walBytes": "1252512",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "42",
+        "freelistPageCount": "0",
+        "usedPageBytes": "172032"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "170731732992",
+        "operatingReserveBytes": "1073741824"
+      }
+    }
+  },
+  "wallSeconds": 613.945438908,
+  "deltaSteps": "36134",
+  "droppedWallMicros": "0",
+  "progressWindow": {
+    "deltaSteps": "36134",
+    "minimumWallSeconds": 613.9418284580001,
+    "maximumWallSeconds": 613.945438908,
+    "minimumSimulatedWallRatio": 0.9809232142916502,
+    "maximumSimulatedWallRatio": 0.980928982874364
+  },
+  "counterClockBrackets": {
+    "initial": {
+      "beforeMs": 63745.208453,
+      "afterMs": 63747.389166
+    },
+    "final": {
+      "beforeMs": 677689.217624,
+      "afterMs": 677690.647361
+    }
+  },
+  "measurementClockScope": "Initial/final health request brackets bound the counter-read interval. wallSeconds is its conservative maximum; progress acceptance uses its minimum ratio and minimum duration. Later sampler shutdown and report aggregation are excluded. Ten-sample runs require at least 600 seconds inside the brackets.",
+  "barrierP95Ms": 880.9143660000991,
+  "barrierMaxMs": 880.9143660000991,
+  "healthSamples": 4585,
+  "healthP95Ms": 3.4781870000006165,
+  "healthMaxMs": 20.495305999997072,
+  "controls": [
+    {
+      "kind": "ui",
+      "actionsSent": 18512,
+      "assignments": 24,
+      "replacements": 0
+    },
+    {
+      "kind": "bot",
+      "actionsSent": 36128,
+      "assignments": 25,
+      "replacements": 0
+    }
+  ],
+  "actionLatencies": [
+    {
+      "kind": "player",
+      "samples": 306,
+      "p95Ms": 18.798108999995748,
+      "maxMs": 116.57062199991196
+    },
+    {
+      "kind": "reinforcementLearning",
+      "samples": 506,
+      "p95Ms": 17.525806999998167,
+      "maxMs": 33.536305000016
+    }
+  ],
+  "journal": [
+    {
+      "type": "checkpoint-start",
+      "atMs": 123484.10183
+    },
+    {
+      "type": "boundary",
+      "phase": "sqlite-export-source-worker-request",
+      "durationMs": 17.017304999986663,
+      "rssBefore": 337543168,
+      "peakRssBytes": 339902464,
+      "samples": 3
+    },
+    {
+      "type": "export-clock",
+      "operationId": "c80ff43443141ae35bd7febc70fab4c4",
+      "beforeMs": 123504.46114,
+      "afterMs": 123504.586102,
+      "checkpointId": "23815c0d297c49b6dd51dfd9033ff0b6aabb77f5079be7a0d9f3ad61991f7091",
+      "generation": "0000000000000002"
+    },
+    {
+      "type": "checkpoint-commit",
+      "atMs": 124141.198454,
+      "requestMs": 13.246248999988893,
+      "generation": "0000000000000003",
+      "checkpointId": "c6f2e1d306e6db63d4e45fb2b868f7e036a3d80f2cdca4ee5a7b5db4b81620ab",
+      "operationId": "fd13195dc220a620934a9f558748d1e0",
+      "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+    },
+    {
+      "type": "checkpoint-barrier",
+      "startedMs": 123484.252252,
+      "finishedMs": 124207.172306,
+      "durationMs": 723.0738760000095,
+      "startClock": {
+        "beforeMs": 123484.10183,
+        "afterMs": 123484.252252
+      },
+      "finishClock": {
+        "beforeMs": 124207.172306,
+        "afterMs": 124207.188727
+      }
+    },
+    {
+      "type": "boundary",
+      "phase": "http-file-download",
+      "durationMs": 562.484408999997,
+      "started": 124550.584672,
+      "rssBefore": 300474368,
+      "peakRssBytes": 313700352,
+      "bodyBytes": 75884544,
+      "samples": 2317
+    },
+    {
+      "type": "checkpoint-start",
+      "atMs": 184620.309971
+    },
+    {
+      "type": "boundary",
+      "phase": "sqlite-export-source-worker-request",
+      "durationMs": 14.903048000007402,
+      "rssBefore": 422817792,
+      "peakRssBytes": 425570304,
+      "samples": 3
+    },
+    {
+      "type": "export-clock",
+      "operationId": "85c6f3dad54189450510970766dd08ea",
+      "beforeMs": 184637.70359,
+      "afterMs": 184637.833201,
+      "checkpointId": "c6f2e1d306e6db63d4e45fb2b868f7e036a3d80f2cdca4ee5a7b5db4b81620ab",
+      "generation": "0000000000000003"
+    },
+    {
+      "type": "checkpoint-commit",
+      "atMs": 185276.335982,
+      "requestMs": 12.308883999998216,
+      "generation": "0000000000000004",
+      "checkpointId": "263e7ecc56283fa6f3fa3b8193d61d501f15c64e01984eb4cb2ab52924218eff",
+      "operationId": "1e37bd7d158fd405f4099c705bbc89de",
+      "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+    },
+    {
+      "type": "checkpoint-barrier",
+      "startedMs": 184620.701156,
+      "finishedMs": 185342.924771,
+      "durationMs": 722.5388699999894,
+      "startClock": {
+        "beforeMs": 184620.309971,
+        "afterMs": 184620.701156
+      },
+      "finishClock": {
+        "beforeMs": 185342.924771,
+        "afterMs": 185343.113154
+      }
+    },
+    {
+      "type": "boundary",
+      "phase": "http-file-download",
+      "durationMs": 489.0299140000134,
+      "started": 185814.516339,
+      "rssBefore": 339038208,
+      "peakRssBytes": 352145408,
+      "bodyBytes": 77245952,
+      "samples": 2359
+    },
+    {
+      "type": "checkpoint-start",
+      "atMs": 245788.408528
+    },
+    {
+      "type": "boundary",
+      "phase": "sqlite-export-source-worker-request",
+      "durationMs": 16.505031999986386,
+      "rssBefore": 445464576,
+      "peakRssBytes": 449265664,
+      "samples": 3
+    },
+    {
+      "type": "export-clock",
+      "operationId": "9991ac1368e564c2592306043e568d9c",
+      "beforeMs": 245807.190901,
+      "afterMs": 245807.357843,
+      "checkpointId": "263e7ecc56283fa6f3fa3b8193d61d501f15c64e01984eb4cb2ab52924218eff",
+      "generation": "0000000000000004"
+    },
+    {
+      "type": "checkpoint-commit",
+      "atMs": 246456.270746,
+      "requestMs": 11.278363000019453,
+      "generation": "0000000000000005",
+      "checkpointId": "f23e079ff7ff5cee1f1ef10f8d801c002c5a6f3461aa9a7e3d0b7e7244df882b",
+      "operationId": "ea880571f73821357ce9a0f8af8b751f",
+      "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+    },
+    {
+      "type": "checkpoint-barrier",
+      "startedMs": 245788.780173,
+      "finishedMs": 246533.324106,
+      "durationMs": 744.8543869999994,
+      "startClock": {
+        "beforeMs": 245788.408528,
+        "afterMs": 245788.780173
+      },
+      "finishClock": {
+        "beforeMs": 246533.324106,
+        "afterMs": 246533.496028
+      }
+    },
+    {
+      "type": "boundary",
+      "phase": "http-file-download",
+      "durationMs": 465.6186480000033,
+      "started": 246998.636724,
+      "rssBefore": 315797504,
+      "peakRssBytes": 330403840,
+      "bodyBytes": 77253632,
+      "samples": 2359
+    },
+    {
+      "type": "checkpoint-start",
+      "atMs": 306943.854224
+    },
+    {
+      "type": "boundary",
+      "phase": "sqlite-export-source-worker-request",
+      "durationMs": 17.48475000000326,
+      "rssBefore": 433303552,
+      "peakRssBytes": 436973568,
+      "samples": 3
+    },
+    {
+      "type": "export-clock",
+      "operationId": "28bfddabb030900c7a5809e5e84522c2",
+      "beforeMs": 306964.251285,
+      "afterMs": 306964.389307,
+      "checkpointId": "f23e079ff7ff5cee1f1ef10f8d801c002c5a6f3461aa9a7e3d0b7e7244df882b",
+      "generation": "0000000000000005"
+    },
+    {
+      "type": "checkpoint-commit",
+      "atMs": 307624.967168,
+      "requestMs": 11.743486000050325,
+      "generation": "0000000000000006",
+      "checkpointId": "89e149b2767a6235f7665b63706029792837223c27c353af75fe168b1c33851b",
+      "operationId": "e6f5ebcc2614242c8f92eaee97008908",
+      "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+    },
+    {
+      "type": "checkpoint-barrier",
+      "startedMs": 306944.228259,
+      "finishedMs": 307690.450673,
+      "durationMs": 746.5422379999654,
+      "startClock": {
+        "beforeMs": 306943.854224,
+        "afterMs": 306944.228259
+      },
+      "finishClock": {
+        "beforeMs": 307690.450673,
+        "afterMs": 307690.609945
+      }
+    },
+    {
+      "type": "boundary",
+      "phase": "http-file-download",
+      "durationMs": 470.21077700000023,
+      "started": 308159.122191,
+      "rssBefore": 331128832,
+      "peakRssBytes": 344236032,
+      "bodyBytes": 78620160,
+      "samples": 2401
+    },
+    {
+      "type": "checkpoint-start",
+      "atMs": 368156.673703
+    },
+    {
+      "type": "boundary",
+      "phase": "sqlite-export-source-worker-request",
+      "durationMs": 21.402678999991622,
+      "rssBefore": 435331072,
+      "peakRssBytes": 437166080,
+      "samples": 4
+    },
+    {
+      "type": "export-clock",
+      "operationId": "ee57a67e717212c2cd01a4577370c05e",
+      "beforeMs": 368180.284562,
+      "afterMs": 368180.426104,
+      "checkpointId": "89e149b2767a6235f7665b63706029792837223c27c353af75fe168b1c33851b",
+      "generation": "0000000000000006"
+    },
+    {
+      "type": "checkpoint-commit",
+      "atMs": 368890.382235,
+      "requestMs": 11.237590999982785,
+      "generation": "0000000000000007",
+      "checkpointId": "0001f62f4976f86da80477635641827ff1f8e615ab65b1969da115733affa5b4",
+      "operationId": "07ab9c2d4f04aca8cbf36262ba6a4947",
+      "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+    },
+    {
+      "type": "checkpoint-barrier",
+      "startedMs": 368157.017898,
+      "finishedMs": 368957.884416,
+      "durationMs": 801.1470119999722,
+      "startClock": {
+        "beforeMs": 368156.673703,
+        "afterMs": 368157.017898
+      },
+      "finishClock": {
+        "beforeMs": 368957.884416,
+        "afterMs": 368958.026888
+      }
+    },
+    {
+      "type": "boundary",
+      "phase": "http-file-download",
+      "durationMs": 486.5040610000142,
+      "started": 369439.703316,
+      "rssBefore": 331411456,
+      "peakRssBytes": 350007296,
+      "bodyBytes": 79976960,
+      "samples": 2443
+    },
+    {
+      "type": "checkpoint-start",
+      "atMs": 429324.266647
+    },
+    {
+      "type": "boundary",
+      "phase": "sqlite-export-source-worker-request",
+      "durationMs": 16.086142000043765,
+      "rssBefore": 441626624,
+      "peakRssBytes": 444772352,
+      "samples": 3
+    },
+    {
+      "type": "export-clock",
+      "operationId": "68e5a0b839c72158097396d619ad5564",
+      "beforeMs": 429342.759253,
+      "afterMs": 429342.929435,
+      "checkpointId": "0001f62f4976f86da80477635641827ff1f8e615ab65b1969da115733affa5b4",
+      "generation": "0000000000000007"
+    },
+    {
+      "type": "checkpoint-commit",
+      "atMs": 430032.658838,
+      "requestMs": 10.932845000002999,
+      "generation": "0000000000000008",
+      "checkpointId": "58abba4dd65c9efe6cc306c7bb4aec136721c2236568a9b09b0c39108d47c5b4",
+      "operationId": "b322e7b40317796461246d15660505da",
+      "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+    },
+    {
+      "type": "checkpoint-barrier",
+      "startedMs": 429324.711273,
+      "finishedMs": 430102.258851,
+      "durationMs": 777.9074229999678,
+      "startClock": {
+        "beforeMs": 429324.266647,
+        "afterMs": 429324.711273
+      },
+      "finishClock": {
+        "beforeMs": 430102.258851,
+        "afterMs": 430102.381303
+      }
+    },
+    {
+      "type": "boundary",
+      "phase": "http-file-download",
+      "durationMs": 482.66851300001144,
+      "started": 430617.663356,
+      "rssBefore": 357908480,
+      "peakRssBytes": 371146752,
+      "bodyBytes": 81339392,
+      "samples": 2485
+    },
+    {
+      "type": "checkpoint-start",
+      "atMs": 490432.590631
+    },
+    {
+      "type": "boundary",
+      "phase": "sqlite-export-source-worker-request",
+      "durationMs": 16.94668500003172,
+      "rssBefore": 464453632,
+      "peakRssBytes": 466026496,
+      "samples": 3
+    },
+    {
+      "type": "export-clock",
+      "operationId": "756fdb78989baabc0ffaa82c21c764b5",
+      "beforeMs": 490453.212412,
+      "afterMs": 490453.395185,
+      "checkpointId": "58abba4dd65c9efe6cc306c7bb4aec136721c2236568a9b09b0c39108d47c5b4",
+      "generation": "0000000000000008"
+    },
+    {
+      "type": "checkpoint-commit",
+      "atMs": 491178.349017,
+      "requestMs": 12.294276000000536,
+      "generation": "0000000000000009",
+      "checkpointId": "6fd5e2fe3d6a4f5ef11239ff385bd8a4b4bcdcd93d951762913e961a39fd1bfe",
+      "operationId": "a24b4a23ab0a977a3609bb0d4202909a",
+      "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+    },
+    {
+      "type": "checkpoint-barrier",
+      "startedMs": 490432.940275,
+      "finishedMs": 491286.923855,
+      "durationMs": 854.2782540000044,
+      "startClock": {
+        "beforeMs": 490432.590631,
+        "afterMs": 490432.940275
+      },
+      "finishClock": {
+        "beforeMs": 491286.923855,
+        "afterMs": 491287.138928
+      }
+    },
+    {
+      "type": "boundary",
+      "phase": "http-file-download",
+      "durationMs": 487.9511089999578,
+      "started": 491815.863108,
+      "rssBefore": 334606336,
+      "peakRssBytes": 348237824,
+      "bodyBytes": 82700288,
+      "samples": 2525
+    },
+    {
+      "type": "checkpoint-start",
+      "atMs": 551675.155106
+    },
+    {
+      "type": "boundary",
+      "phase": "sqlite-export-source-worker-request",
+      "durationMs": 39.379063999978825,
+      "rssBefore": 442454016,
+      "peakRssBytes": 445861888,
+      "samples": 5
+    },
+    {
+      "type": "export-clock",
+      "operationId": "3d03e180aa33d05332627420ffd4f5cc",
+      "beforeMs": 551716.810696,
+      "afterMs": 551716.957948,
+      "checkpointId": "6fd5e2fe3d6a4f5ef11239ff385bd8a4b4bcdcd93d951762913e961a39fd1bfe",
+      "generation": "0000000000000009"
+    },
+    {
+      "type": "checkpoint-commit",
+      "atMs": 552408.052207,
+      "requestMs": 10.152418000041507,
+      "generation": "000000000000000a",
+      "checkpointId": "4b414a993db5549d31cf93f16df8d506e7a8bc62e3fc2b8ae1c45bf445e55f70",
+      "operationId": "4eef3077c685e231ff3d9f653dcbdc59",
+      "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+    },
+    {
+      "type": "checkpoint-barrier",
+      "startedMs": 551675.590692,
+      "finishedMs": 552505.470377,
+      "durationMs": 830.2230690000579,
+      "startClock": {
+        "beforeMs": 551675.155106,
+        "afterMs": 551675.590692
+      },
+      "finishClock": {
+        "beforeMs": 552505.470377,
+        "afterMs": 552505.610249
+      }
+    },
+    {
+      "type": "boundary",
+      "phase": "http-file-download",
+      "durationMs": 476.8475310000358,
+      "started": 553069.804917,
+      "rssBefore": 338300928,
+      "peakRssBytes": 351141888,
+      "bodyBytes": 84064256,
+      "samples": 2567
+    },
+    {
+      "type": "checkpoint-start",
+      "atMs": 612836.152755
+    },
+    {
+      "type": "boundary",
+      "phase": "sqlite-export-source-worker-request",
+      "durationMs": 15.88978299999144,
+      "rssBefore": 443351040,
+      "peakRssBytes": 445054976,
+      "samples": 3
+    },
+    {
+      "type": "export-clock",
+      "operationId": "ecdc49f8e7438d23e77fa6ec60fd11ad",
+      "beforeMs": 612854.534501,
+      "afterMs": 612854.690823,
+      "checkpointId": "4b414a993db5549d31cf93f16df8d506e7a8bc62e3fc2b8ae1c45bf445e55f70",
+      "generation": "000000000000000a"
+    },
+    {
+      "type": "checkpoint-commit",
+      "atMs": 613579.64629,
+      "requestMs": 10.505240000085905,
+      "generation": "000000000000000b",
+      "checkpointId": "9ff0a6c577247316a9ae2763a7585129e3468abaa9228cb725271506d6f25a62",
+      "operationId": "83ec8d988f06c1a586ef9896b3d83a4f",
+      "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+    },
+    {
+      "type": "checkpoint-barrier",
+      "startedMs": 612836.607171,
+      "finishedMs": 613679.297443,
+      "durationMs": 843.0436080000363,
+      "startClock": {
+        "beforeMs": 612836.152755,
+        "afterMs": 612836.607171
+      },
+      "finishClock": {
+        "beforeMs": 613679.297443,
+        "afterMs": 613679.465836
+      }
+    },
+    {
+      "type": "boundary",
+      "phase": "http-file-download",
+      "durationMs": 514.336040000082,
+      "started": 614345.04337,
+      "rssBefore": 337149952,
+      "peakRssBytes": 351305728,
+      "bodyBytes": 84070400,
+      "samples": 2567
+    },
+    {
+      "type": "checkpoint-start",
+      "atMs": 674010.904899
+    },
+    {
+      "type": "boundary",
+      "phase": "sqlite-export-source-worker-request",
+      "durationMs": 14.771517000044696,
+      "rssBefore": 441012224,
+      "peakRssBytes": 444551168,
+      "samples": 3
+    },
+    {
+      "type": "export-clock",
+      "operationId": "5d154d50d86ec2a436508cd62af6ecaf",
+      "beforeMs": 674027.82566,
+      "afterMs": 674027.949582,
+      "checkpointId": "9ff0a6c577247316a9ae2763a7585129e3468abaa9228cb725271506d6f25a62",
+      "generation": "000000000000000b"
+    },
+    {
+      "type": "checkpoint-commit",
+      "atMs": 674787.782296,
+      "requestMs": 14.616646999958903,
+      "generation": "000000000000000c",
+      "checkpointId": "274c15527811882fbc249caac927f0766eded332e0f1de5c0afcd78869232974",
+      "operationId": "05210d8a0812765fd1224f68afebdbdd",
+      "runId": "27b39afc-7b3b-4ae3-ac73-994b6be752a0"
+    },
+    {
+      "type": "checkpoint-barrier",
+      "startedMs": 674011.251934,
+      "finishedMs": 674891.880836,
+      "durationMs": 880.9143660000991,
+      "startClock": {
+        "beforeMs": 674010.904899,
+        "afterMs": 674011.251934
+      },
+      "finishClock": {
+        "beforeMs": 674891.880836,
+        "afterMs": 674892.133209
+      }
+    },
+    {
+      "type": "boundary",
+      "phase": "http-file-download",
+      "durationMs": 492.1964030000381,
+      "started": 675368.581573,
+      "rssBefore": 338673664,
+      "peakRssBytes": 352174080,
+      "bodyBytes": 84073984,
+      "samples": 2567
+    }
+  ],
+  "meetsLatencyBudgets": true,
+  "meetsProgressBudgets": true,
+  "meetsMeasuredBudgets": true,
+  "scope": "Actual evolved P2 production game at 1x on the listed host. Downloads are triggered from observed generation-transition events; no native operation, scheduler, disk admission, publication, FULL/WAL metadata transaction, retention, delivery or resume is delayed or replaced. Export clock brackets bound the native archive origin; the overlap window lies inside conservative bounds on the actual router barrier start/finish. Guaranteed overlap is valid for every permitted clock origin. Barrier duration is separately the original complete production telemetry duration. All attempts are retained. Local WebSocket input uses independent 30-Hz player and observation-driven protocol-bot peers; actual server-receipt-to-Rust-application latency is attributed to the response receive window with a one-second tail. This does not establish physical browser/LAN, PyRL training, isolated archive overhead, legacy-reader coverage or complete A4 acceptance."
+}
