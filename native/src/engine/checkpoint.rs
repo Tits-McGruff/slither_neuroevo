@@ -3430,13 +3430,23 @@ impl SegmentedF32Builder {
         })
     }
 
-    /// Append one decoded bit pattern to its final segment.
-    fn push_bits(&mut self, bits: u32) -> Result<(), CheckpointError> {
-        if self.total_written >= self.total_expected {
+    /// Append packed little-endian values, checking once per block and final owner.
+    fn append_packed(&mut self, bytes: &[u8]) -> Result<(), CheckpointError> {
+        let (values, remainder) = bytes.as_chunks::<4>();
+        if !remainder.is_empty() {
+            return Err(CheckpointError::format(
+                "NUMERIC_LENGTH",
+                "decoded numeric chunk is not Float32 aligned",
+            ));
+        }
+        if values.len() > self.total_expected - self.total_written {
             return Err(CheckpointError::format(
                 "NUMERIC_COUNT",
                 "decoded numeric role exceeds declared count",
             ));
+        }
+        if values.is_empty() {
+            return Ok(());
         }
         if self.segment_length == 0 {
             return Err(CheckpointError::format(
@@ -3444,9 +3454,22 @@ impl SegmentedF32Builder {
                 "nonempty payload has zero-length segments",
             ));
         }
-        let segment_index = self.total_written / self.segment_length;
-        self.segments[segment_index].push(f32::from_bits(bits));
-        self.total_written += 1;
+        let mut remaining = values;
+        while !remaining.is_empty() {
+            let segment_index = self.total_written / self.segment_length;
+            let segment = &mut self.segments[segment_index];
+            let take = remaining.len().min(self.segment_length - segment.len());
+            let (chunk, rest) = remaining.split_at(take);
+            // Every segment reserved its full declared length before decoding;
+            // this exact-size iterator cannot extend beyond that allocation.
+            segment.extend(
+                chunk
+                    .iter()
+                    .map(|bytes| f32::from_bits(u32::from_le_bytes(*bytes))),
+            );
+            self.total_written += take;
+            remaining = rest;
+        }
         Ok(())
     }
 
@@ -3850,9 +3873,7 @@ fn decode_numeric_role(
                     ));
                 }
                 hasher.update(&buffer[..take]);
-                for bytes in buffer[..take].as_chunks::<4>().0 {
-                    output.push_bits(u32::from_le_bytes(*bytes))?;
-                }
+                output.append_packed(&buffer[..take])?;
                 advance_work_progress(take);
                 remaining -= take as u64;
             }
@@ -3961,9 +3982,7 @@ fn decode_numeric_role(
                 }
                 unshuffle_f32_bytes_into(&shuffled, &mut raw)?;
                 hasher.update(&raw);
-                for bytes in raw.as_chunks::<4>().0 {
-                    output.push_bits(u32::from_le_bytes(*bytes))?;
-                }
+                output.append_packed(&raw)?;
                 advance_work_progress(decoded_bytes);
             }
             if decoded_total != expected_floats || expected_bytes != (decoded_total as u64) * 4 {
@@ -6496,6 +6515,110 @@ mod tests {
             })
         ));
         assert_eq!(too_small.capacity(), 4);
+    }
+
+    /// Packed appends cross owner boundaries without reallocating or accepting partial bad chunks.
+    #[test]
+    fn segmented_packed_appends_preserve_bits_and_reserved_owners() {
+        let patterns = [0, 0x8000_0000, 1, 0x7fa1_2345, 0xff80_0000, 0xffff_ffff];
+        let bytes = patterns
+            .iter()
+            .flat_map(|bits: &u32| bits.to_le_bytes())
+            .collect::<Vec<_>>();
+        let mut builder = SegmentedF32Builder::new(3, 2, patterns.len()).unwrap();
+        let allocations = builder
+            .segments
+            .iter()
+            .map(|segment| (segment.as_ptr(), segment.capacity()))
+            .collect::<Vec<_>>();
+        builder.append_packed(&bytes[..4]).unwrap();
+        assert!(matches!(
+            builder.append_packed(&bytes[4..7]),
+            Err(CheckpointError::Format {
+                code: "NUMERIC_LENGTH",
+                ..
+            })
+        ));
+        assert!(matches!(
+            builder.append_packed(&bytes),
+            Err(CheckpointError::Format {
+                code: "NUMERIC_COUNT",
+                ..
+            })
+        ));
+        assert_eq!(builder.total_written, 1);
+        assert_eq!(
+            builder.segments.iter().map(Vec::len).collect::<Vec<_>>(),
+            [1, 0, 0]
+        );
+        builder.append_packed(&bytes[4..20]).unwrap();
+        builder.append_packed(&bytes[20..]).unwrap();
+        builder.append_packed(&[]).unwrap();
+        assert!(matches!(
+            builder.append_packed(&bytes[..4]),
+            Err(CheckpointError::Format {
+                code: "NUMERIC_COUNT",
+                ..
+            })
+        ));
+        assert_eq!(
+            builder
+                .segments
+                .iter()
+                .map(|segment| (segment.as_ptr(), segment.capacity()))
+                .collect::<Vec<_>>(),
+            allocations
+        );
+        let decoded = builder.finish().unwrap();
+        assert_eq!(
+            decoded
+                .iter()
+                .map(|segment| segment.len())
+                .collect::<Vec<_>>(),
+            [2, 2, 2]
+        );
+        assert_eq!(
+            decoded
+                .iter()
+                .flat_map(|segment| segment.iter().map(|value| value.to_bits()))
+                .collect::<Vec<_>>(),
+            patterns
+        );
+    }
+
+    /// Empty owners remain empty, incomplete output fails, and overflowing shapes never allocate.
+    #[test]
+    fn segmented_packed_appends_check_empty_incomplete_and_overflow_shapes() {
+        let mut empty = SegmentedF32Builder::new(3, 0, 0).unwrap();
+        empty.append_packed(&[]).unwrap();
+        assert!(matches!(
+            empty.append_packed(&[0; 4]),
+            Err(CheckpointError::Format {
+                code: "NUMERIC_COUNT",
+                ..
+            })
+        ));
+        assert!(empty
+            .finish()
+            .unwrap()
+            .iter()
+            .all(|segment| segment.is_empty()));
+        let mut incomplete = SegmentedF32Builder::new(2, 3, 6).unwrap();
+        incomplete.append_packed(&[0; 20]).unwrap();
+        assert!(matches!(
+            incomplete.finish(),
+            Err(CheckpointError::Format {
+                code: "NUMERIC_COUNT",
+                ..
+            })
+        ));
+        assert!(matches!(
+            SegmentedF32Builder::new(usize::MAX, 2, 0),
+            Err(CheckpointError::Format {
+                code: "NUMERIC_SEGMENTS",
+                ..
+            })
+        ));
     }
 
     /// Bulk hashing preserves bits across block/owner boundaries and rejects the wrong digest.

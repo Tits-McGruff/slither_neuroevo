@@ -2216,3 +2216,24 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   The copied report digest matches; the stopped task-owned checkout, generated
   databases, dependencies and build artifacts were removed. The VM performance
   gate and remaining Stage 7/8 requirements remain open.
+
+- 2026-10-04 Raw and compressed numeric restoration now appends packed blocks
+  into each already-reserved brain allocation, replacing per-Float32 owner
+  division/checks. Misaligned/oversized appends fail before partial writes;
+  owner buffers do not grow and special Float32 bits survive block/owner
+  boundaries. All 489 Rust tests plus the doctest, rustfmt, all-target Clippy,
+  105 affected real server/archive checks (six opt-in cases excluded),
+  TypeScript, ESLint and Vite pass. Linux identity and trace-off/on real archive
+  roundtrips also pass. Eight P2 overlaps on the 16 GiB VM are proven with
+  unchanged disk admission: mean source numeric decoding is 234.2 ms versus
+  442.0 ms in the preceding run. Complete barrier p95/max is still 1,068.2 ms,
+  with four samples above one second; simulated/wall progress is 0.9754 and
+  discarded scheduler time is 4,334 microseconds. Health p95 is 4.58 ms,
+  player/protocol-bot input p95 is 22.49/26.75 ms, and event-loop p95/p99 is
+  11.00/12.74 ms. Evidence and paired point-sampled host context are
+  `evidence/stage7/oxygen-ryzen2700/*packed-append-742842e-20261004.json`.
+  The report digest matches its retained copy; the stopped task-owned checkout,
+  databases, dependency cache and generated builds were removed. This reduces
+  an observed codec cost; the full VM performance and Stage 7/8 gates remain
+  open. Next measure four/five/six calculation workers with archive activity
+  before selecting the supported configuration.
