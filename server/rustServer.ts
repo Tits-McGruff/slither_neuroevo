@@ -288,9 +288,9 @@ function applyMetadataSettings(
 
 /** Start native authority from fresh or retained managed state. */
 export async function startRustServer(config: ServerConfig): Promise<RustServer> {
-  if (config.inferenceBackend !== 'native' || config.mtEnabled || config.controllerInputHoldMs !== 500 ||
+  if (config.inferenceBackend !== 'native' || config.mtEnabled || config.mtWorkers !== 0 || config.controllerInputHoldMs !== 500 ||
       config.controllerDisconnectGraceMs !== 30_000 || config.checkpointEveryGenerations !== 1) {
-    throw new Error('Rust startup requires the native backend, reference MT disabled, default controller timing, and every-generation checkpoints');
+    throw new Error('Rust startup requires the native backend, reference MT disabled, default controller timing, and every-generation checkpoints; use --rust-workers for Rust or npm run server:reference for backend/Node-MT options');
   }
   let schedule = (): void => {};
   let owner: ExperimentalServerRuntime;

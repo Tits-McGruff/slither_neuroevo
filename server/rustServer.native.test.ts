@@ -267,6 +267,16 @@ function rewriteLegacyManifest(archive: Buffer, mutate: (manifest: Record<string
 }
 
 describeNetworkSuite('Rust server real sockets', () => {
+  it.each([
+    { inferenceBackend: 'js' as const },
+    { mtEnabled: true },
+    { mtWorkers: 4 }
+  ])('rejects reference backend/pool configuration before production startup: %j', async reference => {
+    await expect(startRustServer({ ...DEFAULT_CONFIG, ...reference })).rejects.toThrow(
+      /use --rust-workers for Rust or npm run server:reference/u
+    );
+  });
+
   it('admits 300 complete long initial bodies through the normal reset boundary', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-long-start-'));
     let server: Awaited<ReturnType<typeof startRustServer>> | undefined;

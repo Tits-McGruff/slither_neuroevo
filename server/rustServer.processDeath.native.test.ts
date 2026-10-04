@@ -68,8 +68,7 @@ function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | '
     : [
       '--import', 'tsx', resolve('server/rustServer.ts'),
       '--host', '127.0.0.1', '--port', String(port),
-      '--db-path', databasePath, '--checkpoint-every', '1', '--mt', 'false',
-      '--backend', 'native', '--rust-workers', '1',
+      '--db-path', databasePath, '--checkpoint-every', '1', '--rust-workers', '1',
       ...(resume === 'fresh' ? ['--fresh', '--seed', '42'] : ['--resume', 'latest'])
     ];
   if (crashFixture?.kind === 'pruning') {

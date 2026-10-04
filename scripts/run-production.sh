@@ -63,8 +63,6 @@ exec node ./node_modules/tsx/dist/cli.mjs server/rustServer.ts \
   --host "$HOST" \
   --port "$PORT" \
   --db-path "$DB_PATH" \
-  --backend native \
-  --mt=false \
   --input-hold-ms 500 \
   --disconnect-grace-ms 30000 \
   --checkpoint-every 1 \

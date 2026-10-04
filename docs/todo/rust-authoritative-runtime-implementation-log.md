@@ -2571,3 +2571,14 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   existing deadlines and assertions remain. Six workers are the next candidate
   for P1 checkpoint/archive overlap and later acceptance; production defaults
   are unchanged. Remaining Stage 7/8 gates stay open.
+
+- 2026-10-04 Production launchers no longer pass reference backend/Node-MT
+  flags. Rust startup also rejects a nonzero reference worker count instead of
+  silently ignoring it, with directions to `--rust-workers` or the explicit
+  reference runner. Focused launcher/LAN/import-boundary checks, actual CLI
+  startup and resume after OS kill, and fresh/exact-resume/player/trainer/
+  Reset/New Run/pin acceptance pass, plus TypeScript, affected lint and shell
+  syntax. Native calculations are unchanged, so passing P1 worker, P2 overlap
+  and soak evidence is reused. The unfinished overlap-harness expansion was
+  discarded. Browser upload/heap acceptance and administrator-enabled Debian
+  user lingering remain incomplete; the branch is not yet ready to merge.

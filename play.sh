@@ -100,9 +100,9 @@ start_server_process() {
   echo "[INFO] Mode: $_mode"
   : >"$LOG_FILE"
   if [ "$_mode" = "fresh" ]; then
-    nohup setsid npm run server -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --fresh </dev/null >"$LOG_FILE" 2>&1 &
+    nohup setsid npm run server -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --fresh </dev/null >"$LOG_FILE" 2>&1 &
   else
-    nohup setsid npm run server -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --backend native --mt=false --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --resume "$RESUME_TARGET" </dev/null >"$LOG_FILE" 2>&1 &
+    nohup setsid npm run server -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --resume "$RESUME_TARGET" </dev/null >"$LOG_FILE" 2>&1 &
   fi
   SERVER_PID=$!
   echo "$SERVER_PID" >"$PID_FILE"
