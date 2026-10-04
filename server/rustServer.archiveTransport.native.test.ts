@@ -418,7 +418,10 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
   const rejoined = new Promise<Buffer>(done => viewer.once('pong', done));
   viewer.ping('ordering-fixture-rejoin');
   expect((await bounded(rejoined, 'ordering fixture rejoin was not received')).toString()).toBe('ordering-fixture-rejoin');
-  const deadline = performance.now() + 5000;
+  // The streaming fixture must execute 480 full population steps and commit
+  // generation two. Allow its eight simulated seconds at the supported 1x
+  // rate plus durability time; this setup is not a >96-step/s speed gate.
+  const deadline = performance.now() + (streaming ? 10_000 : 5000);
   let generation = 1n;
   while (generation < 2n && performance.now() < deadline) {
     const current = await health(fixture.server);

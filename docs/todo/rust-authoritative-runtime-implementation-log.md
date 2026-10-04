@@ -2615,3 +2615,18 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   dependencies and build products are removed. Browser archive memory/usability,
   laptop browser acceptance and administrator-enabled Debian user lingering
   remain incomplete; the branch is not yet ready to merge.
+
+- 2026-10-04 Administrator-enabled lingering is now verified on Oxygen.
+  An isolated unit built from the production template is enabled, starts the
+  release addon and built browser assets, retains its PID and advances after
+  the initiating SSH session ends, and resumes the same run/checkpoint after
+  normal systemd stop/start. Nitrogen receives successful LAN health and HTML
+  responses; this does not establish laptop rendering. The owner's installed
+  unit and production store are untouched. Repeated Windows CI failures occur
+  before cancellation testing because the 300-genome fixture's five-second
+  generation wait requires over 96 steps/second. Its setup alone now allows
+  eight simulated seconds at the supported 1x rate plus two seconds for
+  durability; cancellation/cleanup deadlines, the overall test deadline and
+  all preservation/liveness assertions remain. Both cancellation cases,
+  TypeScript and affected lint pass. Browser archive memory/usability and
+  physical laptop browser acceptance remain incomplete.
