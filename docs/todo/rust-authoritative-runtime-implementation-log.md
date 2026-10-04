@@ -2582,3 +2582,15 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   and soak evidence is reused. The unfinished overlap-harness expansion was
   discarded. Browser upload/heap acceptance and administrator-enabled Debian
   user lingering remain incomplete; the branch is not yet ready to merge.
+
+- 2026-10-04 Stage 8 acceptance now proves successful Hall-of-Fame HTTP
+  resurrection appears in a real Rust frame without altering saved metadata or
+  managed files. A real deployment copy first starts with its release addon,
+  then an ordinary source edit makes that untouched addon stale: both fresh and
+  latest-resume commands remain health-only with build instructions, create no
+  fresh store, and preserve all retained database/sidecar/managed-file hashes.
+  The disposable deployment and processes are removed. Focused checks,
+  TypeScript and affected lint pass; preceding production/continuation and
+  named acceptance/regression results remain applicable. Browser archive
+  memory/usability, complete A4 memory coverage, laptop browser acceptance and
+  unattended service setup remain open.

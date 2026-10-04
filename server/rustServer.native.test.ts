@@ -1740,6 +1740,21 @@ describeNetworkSuite('Rust server real sockets', () => {
       releaseSpy.mockRestore();
       releaseSpy = undefined;
 
+      const winnersResponse = await fetch(`http://127.0.0.1:${target.port}/api/hof`);
+      expect(winnersResponse.status).toBe(200);
+      const winners = await winnersResponse.json() as { hof: Array<{ entryId: string }> };
+      expect(winners.hof.length).toBe(expectedElites.length);
+      const beforeResurrection = await snapshot();
+      const resurrectedResponse = await fetch(`http://127.0.0.1:${target.port}/api/resurrect`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entryId: winners.hof[0]!.entryId })
+      });
+      expect(resurrectedResponse.status).toBe(200);
+      const resurrected = await resurrectedResponse.json() as { ok: boolean; snakeId: number };
+      expect(resurrected).toMatchObject({ ok: true, snakeId: expect.any(Number) });
+      await until(targetViewer!, () => frameDirection(targetViewer!.latestFrame, resurrected.snakeId) !== undefined);
+      expect(await snapshot()).toEqual(beforeResurrection);
+
       // A same-name corrupt elite must be preserved as evidence and reject the
       // import before any new inventory or immutable object becomes permanent.
       const elitePath = join(managedDirectory, expectedElites[0]!.relative_filename);

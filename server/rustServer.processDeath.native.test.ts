@@ -1,10 +1,11 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, readdir, rm, utimes } from 'node:fs/promises';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { appendFile, copyFile, mkdir, mkdtemp, readFile, readdir, rm, utimes } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
@@ -55,7 +56,7 @@ async function availablePort(): Promise<number> {
 
 /** Start the server or its replacement-death fixture in a distinct OS process. */
 function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | 'latest',
-  crashFixture?: ProcessCrashFixture): {
+  crashFixture?: ProcessCrashFixture, deploymentRoot = resolve()): {
   child: ChildProcess;
   output: () => string;
 } {
@@ -66,7 +67,7 @@ function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | '
       : 'server/test/killDuringArchiveExport.ts'),
     String(port), databasePath, crashFixture.point]
     : [
-      '--import', 'tsx', resolve('server/rustServer.ts'),
+      '--import', 'tsx', resolve(deploymentRoot, 'server/rustServer.ts'),
       '--host', '127.0.0.1', '--port', String(port),
       '--db-path', databasePath, '--checkpoint-every', '1', '--rust-workers', '1',
       ...(resume === 'fresh' ? ['--fresh', '--seed', '42'] : ['--resume', 'latest'])
@@ -74,7 +75,7 @@ function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | '
   if (crashFixture?.kind === 'pruning') {
     args.splice(2, 0, '--import', pathToFileURL(resolve('server/test/killDuringCheckpointPruning.ts')).href);
   }
-  const child = spawn(process.execPath, args, { cwd: resolve(), stdio: ['ignore', 'pipe', 'pipe'],
+  const child = spawn(process.execPath, args, { cwd: deploymentRoot, stdio: ['ignore', 'pipe', 'pipe'],
     ...(crashFixture?.kind === 'pruning'
       ? { env: { ...process.env, SLITHER_PRUNE_CRASH_POINT: crashFixture.point } } : {}) });
   let transcript = '';
@@ -158,6 +159,69 @@ async function waitForReplacementDeath(child: ChildProcess, output: () => string
 }
 
 describeNetworkSuite('Rust process-death recovery', () => {
+  it('refuses fresh and resumed deployment with an unchanged addon after source updates', async () => {
+    await mkdir(resolve('data'), { recursive: true });
+    const root = await mkdtemp(resolve('data/codex-stale-addon-'));
+    if (dirname(root) !== resolve('data')) throw new Error('unexpected deployment fixture cleanup path');
+    let child: ChildProcess | undefined;
+    try {
+      // Copy tracked source only; owner config/databases and build caches stay out.
+      const sources = execFileSync('git', ['ls-files', '-z', '--', 'src', 'server', 'native', 'package.json'],
+        { encoding: 'utf8' }).split('\0').filter(Boolean);
+      for (const source of sources) {
+        const destination = join(root, source);
+        await mkdir(dirname(destination), { recursive: true });
+        await copyFile(resolve(source), destination);
+      }
+      const addon = process.platform === 'win32'
+        ? 'slither-native.win32-x64-msvc.node' : 'slither-native.linux-x64-gnu.node';
+      for (const filename of ['index.js', addon]) {
+        await copyFile(resolve('native', filename), join(root, 'native', filename));
+      }
+      const databasePath = join(root, 'retained.sqlite');
+      const managedRoot = `${databasePath}.checkpoints`;
+      const baselinePort = await availablePort();
+      const baseline = spawnRustServer(baselinePort, databasePath, 'fresh', undefined, root);
+      child = baseline.child;
+      await readyHealth(baselinePort, child, baseline.output);
+      await terminate(child, 'SIGTERM');
+      /** Hash the closed metadata store and every retained immutable file. */
+      const snapshot = async (): Promise<Array<{ path: string; sha256: string }>> => {
+        const paths = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`].filter(path => existsSync(path));
+        paths.push(...(await readdir(managedRoot)).sort().map(name => join(managedRoot, name)));
+        return Promise.all(paths.map(async path => ({ path,
+          sha256: createHash('sha256').update(await readFile(path)).digest('hex') })));
+      };
+      const retained = await snapshot();
+      // An ordinary source update makes the untouched, previously usable binary stale.
+      await appendFile(join(root, 'native/src/lib.rs'), '\n// Deployment source updated without rebuilding.\n');
+      for (const resume of ['fresh', 'latest'] as const) {
+        const database = resume === 'fresh' ? join(root, 'fresh.sqlite') : databasePath;
+        const port = await availablePort();
+        const rejected = spawnRustServer(port, database, resume, undefined, root);
+        child = rejected.child;
+        let response: Response | undefined;
+        const deadline = performance.now() + 15_000;
+        while (!response && child.exitCode === null && child.signalCode === null && performance.now() < deadline) {
+          try { response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1000) }); }
+          catch { await new Promise<void>(done => setTimeout(done, 25)); }
+        }
+        expect(response, rejected.output()).toBeDefined();
+        expect(response!.status).toBe(503);
+        expect(await response!.json()).toMatchObject({ ok: false, authority: 'rust', lifecycle: 'startup-fault',
+          interfaceFault: expect.stringMatching(/addon is stale:.*npm --prefix native run build/u) });
+        expect((await fetch(`http://127.0.0.1:${port}/api/export/latest`)).status).toBe(503);
+        await terminate(child, 'SIGTERM');
+        expect(await snapshot()).toEqual(retained);
+        expect(existsSync(join(root, 'fresh.sqlite'))).toBe(false);
+        expect(existsSync(join(root, 'fresh.sqlite.checkpoints'))).toBe(false);
+      }
+    } finally {
+      if (child) await terminate(child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it.each(['afterIntent', 'afterDelete'] as const)('finishes pruning after an OS kill $0', async point => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-pruning-death-'));
     const databasePath = join(root, 'experiment.sqlite');
