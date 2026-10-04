@@ -4,7 +4,7 @@ import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
-import { expect, it, vi } from 'vitest';
+import { expect, it, onTestFinished, vi } from 'vitest';
 import WebSocket from 'ws';
 import { DEFAULT_CONFIG } from './config.ts';
 import { startRustServer, type RustServer } from './rustServer.ts';
@@ -197,6 +197,14 @@ describeNetworkSuite('Rust exact download binding', () => {
       const generation = BigInt(`0x${checkpoint.generation}`) + (mismatch === 'generation' ? 1n : 0n);
       return { ...result, downloadFilename: `slither-neuroevo-${prefix}-gen-${generation}-v1.slither-save` };
     });
+    let restored = false;
+    /** Restore at timeout too; a delayed finally must not undo a newer test's mock. */
+    const restore = (): void => {
+      if (restored) return;
+      restored = true;
+      changed.mockRestore();
+    };
+    onTestFinished(restore);
     try {
       server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: databasePath, resume: 'fresh', seed: 42 });
       expect(server.startupFault).toBeUndefined();
@@ -208,7 +216,7 @@ describeNetworkSuite('Rust exact download binding', () => {
       await cleanTransfer(`${databasePath}.checkpoints`);
       expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
         ok: true, startupCheckpointId: health.startupCheckpointId });
-      changed.mockRestore();
+      restore();
       const retry = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
       expect(retry.status).toBe(200);
       expect(retry.headers.get('content-disposition')).toBe(
@@ -216,7 +224,7 @@ describeNetworkSuite('Rust exact download binding', () => {
       expect(manifest(Buffer.from(await retry.arrayBuffer()))).toMatchObject({ checkpointLogicalRootSha256: health.startupCheckpointId });
       await cleanTransfer(`${databasePath}.checkpoints`);
     } finally {
-      changed.mockRestore(); await server?.close();
+      restore(); await server?.close();
       await rm(root, { recursive: true, force: true });
     }
   });

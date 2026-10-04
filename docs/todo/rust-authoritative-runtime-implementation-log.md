@@ -2539,3 +2539,35 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Next compare four/six workers from equivalent evolved P1 boundaries before
   choosing another sensing/world optimization. P1 timing and the remaining
   Stage 7/8 acceptance gates remain open.
+
+- 2026-10-04 Sequential four/five/six-worker P1 windows at `8e7113a` use
+  byte-identical copies of one evolved generation-two database and managed
+  files. Each starts measurement in generation three with two actual PyRL
+  actors and a programmatic player, then covers ten crossings and nine complete
+  generation intervals over at least 600 seconds. Live action scheduling and
+  measurement-start world states are not identical replay inputs. Four workers
+  yield conservative progress 0.993160, 123,667 discarded microseconds and
+  p50/p95/p99 upper buckets 8/16/24 ms: the combined gate fails. Five workers
+  yield 0.993386, zero discarded time and 8/16/16.667 ms; six yield 0.993377,
+  zero discarded time and 8/12/16.667 ms. Both pass these measured gates.
+  Steps above 16.667 ms are respectively 611/35,765 (1.708%), 326/35,775
+  (0.911%) and 306/35,777 (0.855%). Across the candidates, generation interval
+  upper bounds stay below 61.30 seconds, barrier p95 is 250 ms with maximum
+  below 211 ms, local health p95 below 3.32 ms and peak RSS below 188 MB.
+  Trainer action deltas are 68,966/69,305/68,943; measured queues remain bounded
+  with zero reliable-send failure deltas. Post-window disconnect diagnostics
+  are separately retained. Shared source/build, fixture/config/graph/sensors,
+  sampler digests, exact timing/progress summaries and generation bounds are
+  verified before cleanup. Reports/context are
+  `evidence/stage7/oxygen-ryzen2700/p1-worker-*-8e7113a-20261004.json`.
+  Earlier five-worker misses remain valid; these windows do not establish
+  browser rendering, archive overlap, later-generation or thirty-minute soak
+  gates. All disposable clients/server are stopped, report digests match and
+  exact task-owned remote/local fixture/build/client scratch is removed.
+  Native source identity and Vite pass on Oxygen. Two actual export-name
+  rejection/retry cases and the existing Hall-of-Fame case pass on Windows,
+  plus TypeScript and affected lint. Export-name mock cleanup now runs at test
+  completion and cannot let an older finally restore a newer test's mock;
+  existing deadlines and assertions remain. Six workers are the next candidate
+  for P1 checkpoint/archive overlap and later acceptance; production defaults
+  are unchanged. Remaining Stage 7/8 gates stay open.

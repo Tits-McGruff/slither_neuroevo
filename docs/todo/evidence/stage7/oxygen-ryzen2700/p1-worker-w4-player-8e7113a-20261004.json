@@ -1,0 +1,27 @@
+{
+  "sourceRevision": "8e7113a62b8febe0b7e64b8a97a7515915e7b276",
+  "candidate": "w4",
+  "scope": "Bounded programmatic frame/action load; no browser rendering or reconnect claim.",
+  "endpoint": "ws://192.168.0.200:5180",
+  "frames": 21596,
+  "frameBytes": 1737963752,
+  "actions": 19961,
+  "assignments": 35,
+  "generations": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+  ],
+  "errors": [],
+  "completedByExplicitStop": true,
+  "wallSeconds": 701.1943483999999
+}
