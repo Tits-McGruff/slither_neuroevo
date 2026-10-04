@@ -208,23 +208,29 @@ TypeScript comparison implementation.
 
 ### Measured workloads and remaining acceptance
 
-The retained Rust measurements use Oxygen's Ryzen 7 2700/Debian host with
-**six calculation workers**, 1x simulation speed, 3,500 target pellets and ten
-baseline bots. Population snakes have individually owned neural weights. The
+The retained Rust measurements use Oxygen's Ryzen 7 2700/Debian host at
+1x simulation speed, with 3,500 target pellets and ten baseline bots.
+Population snakes have individually owned neural weights. The
 large graph has 402,914 parameters per snake; the P3 startup probe uses a
-deterministic packed-weight capacity fixture. The default configuration still
-starts with five workers; use `--rust-workers 6` to match these measurements.
+deterministic packed-weight capacity fixture. The default configuration starts
+with five calculation workers. The table lists the worker counts used for
+the server timing or capacity results; use `--rust-workers N` to select one.
 
-| Case | Population | Sensors per snake | Brain | Completed measurements |
-|---|---:|---:|---|---|
-| P0 | 55 | 83, with 16 angular bins | Default graph | Server timing, LAN steering and desktop drawing |
-| P1 | 300 | 83, with 16 angular bins | Default graph | Server timing, thirty-minute loaded player/trainer soak, LAN steering and desktop drawing |
-| P2 | 55 | 147, with 32 angular bins | Large custom graph | Server timing, LAN steering and desktop drawing |
-| P3 | 300 | 147, with 32 angular bins | Large custom graph | Large-population persistence and startup-capacity checks; real-time performance remains unqualified |
+| Case | Population | Sensors per snake | Brain | Server workers | Completed measurements |
+|---|---:|---:|---|---:|---|
+| P0 | 55 | 83, with 16 angular bins | Default graph | 5 | Server timing, LAN steering and desktop drawing |
+| P1 | 300 | 83, with 16 angular bins | Default graph | 5 or 6 | Server timing, thirty-minute loaded player/trainer soak, LAN steering and desktop drawing |
+| P2 | 55 | 147, with 32 angular bins | Large custom graph | 5 | Server timing, checkpoint/export overlap, LAN steering and desktop drawing |
+| P3 | 300 | 147, with 32 angular bins | Large custom graph | 6 | Large-population persistence and startup-capacity checks; real-time performance remains unqualified |
 
-The corrected P1 thirty-minute run completed 107,195 steps at 0.9924
-simulated/wall time with zero discarded scheduler time and a 16 ms step-p99
-histogram upper bound. The separate LAN steering measurements covered 200
+The corrected five-worker P1 thirty-minute run completed 107,216 steps at
+0.9927 simulated/wall time with zero discarded scheduler time. Separate
+ten-minute windows with two real trainer actors pass the step timing target
+with five and six workers: both have a 16.667 ms step-p99 upper bound and zero
+discarded time. The four-worker P1 comparison missed the required timing
+target. P2's five-worker checkpoint/export overlap run achieved at least
+0.9809 simulated/wall time with zero discarded time and a maximum checkpoint
+barrier below one second. The separate LAN steering measurements covered 200
 attempts for each player and bot route in each P0/P1/P2 case; p95 upper bounds
 were at most 42.6 ms, including unknown responses in the ranking. Separate
 sixty-second foreground desktop drawing samples had p95 intervals of
@@ -239,11 +245,14 @@ The fixture preserved all legacy source rows. Actual admission depends on the
 protected checkpoints, new payload size and available disk space; keep the
 normal 4096 MiB default unless a deliberate storage budget requires otherwise.
 
-Migration acceptance remains open for laptop rendering, the dense-world case
-with more than 200,000 body segments in follow and overview modes, browser
-memory/usability during large archive download and upload, unattended service
-startup and the final feature audit. Server archive round trips and desktop
-drawing have separate retained evidence. The current scope and links to the
+The dense-world desktop drawing checks also pass in follow and overview modes
+with more than 200,000 body segments. That fixture remains a capacity case
+whose server simulation is slower than real time.
+
+Migration acceptance remains open for laptop rendering, browser memory/usability
+during large archive download and upload, unattended service startup and the
+final feature audit. Server archive round trips and desktop drawing have
+separate retained evidence. The current scope and links to the
 raw reports are in the
 [factual implementation log](docs/todo/rust-authoritative-runtime-implementation-log.md).
 
