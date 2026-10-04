@@ -1,0 +1,2478 @@
+{
+  "version": 1,
+  "sourceRevision": "c02cc489b5b29df066c8690e229c0f107e60f63c",
+  "fixture": {
+    "population": 300,
+    "parameters": 13458,
+    "jsonBytes": 85342533,
+    "weightsSha256": "06629e5658e6f9ec0eb116152146f4d62fbd8e3966b532d9b9d690e4aecfe963"
+  },
+  "dbFixtures": {
+    "population": 300,
+    "parameters": 13458,
+    "gzipBytes": 36892035,
+    "cases": [
+      "v2",
+      "embedded-null",
+      "embedded-zero",
+      "gzip-null",
+      "gzip-zero"
+    ]
+  },
+  "fixtureRecipe": "Same legacy layouts as server/rustServer.native.test.ts. Default compiled 83-input stack graph, 300 genomes, generation 7, default core settings with snakeCount=300 and simSpeed=1, 10 baseline bots, 3500 pellets, 60-second generations. Weights use sequential xorshift32 (13,17,5), seed 0x5a17c0de, Float32(((u32/2^32)-0.5)*0.1), fitness 300-slot. Browser JSON is written one genome at a time; SQLite JSON contains that population, gzip stores length-prefixed genome JSON, and v2 rows contain little-endian Float32 and per-row SHA-256. Fixture generation belongs to the parent and precedes the measured production child.",
+  "interpretation": "Each observed entire-process increase, including current/staged populations and other startup allocations, is below the provisional 256 MiB archive-only allowance; each total peak is below 12 GiB. These are sampled observations, not an instantaneous upper-bound claim. Windows gzip-null event-loop p95 is 21.282815 ms and misses the 20 ms target; all required Debian reader windows meet event-loop, health and live-control targets. Browser JSON upload reuses its passing Windows result; the attempted Debian JSON transfer produced no in-window player sample and is not acceptance evidence. No production calculation changed.",
+  "compressedCompatibility": "The Stage 2 source-history inventory identifies framed gzip SQLite BLOB as the historical compressed population format; no implemented standalone compressed browser save was found. This report measures that actual compressed reader rather than inventing a new file format.",
+  "reuse": [
+    "evidence/stage7/windows-ryzen5800x/archive-memory-bc14d09-20261004.json (P2 native phase memory, entire observed increase 175.8125 MiB)",
+    "evidence/stage7/oxygen-ryzen2700/p3-startup-budget-a700d86-20261001.json (full P3 v2 startup admission and source-row preservation)",
+    "evidence/stage7/oxygen-ryzen2700/archive-checkpoint-overlap-clock-window-445ef44-20261004.json (P2 durability and loaded overlap)"
+  ],
+  "cases": [
+    {
+      "name": "windows/json",
+      "reportSha256": "3413101c90a4dfc9fea4f03377076d05c3cc9eab9070b6b424a0050249bb539d",
+      "sourceSha256": "c340cf2dc25d948763137fc0f992acdfd5d35982f62b49945cb588ffa7996861",
+      "sourceFormat": "legacy-json",
+      "nativeBuildIdentifier": "slither_native/0.1.0+7f2ee36b5f29.62e68d86759551d3",
+      "nativeSourceSha256": "11be041b82c2a2dd5b8e1b05b1e841d93233e59855e2e8047d592aaf0d14a1a4",
+      "profilerSha256": "cf66433e5a75d3c1110a4db58ade2737b5413f37060550b8880019f1a3df309f",
+      "host": {
+        "platform": "win32",
+        "arch": "x64",
+        "cpuModel": "AMD Ryzen 7 5800X 8-Core Processor             ",
+        "totalMemoryBytes": 68627632128
+      },
+      "legacyConversion": {
+        "completeness": "population-only",
+        "exactContinuation": false,
+        "sourceFormat": "browser-json",
+        "sourceGeneration": "0000000000000007",
+        "sourceRunId": "a4-legacy-population-fixture",
+        "sourceSeed": 1234567,
+        "sourceSha256": "c340cf2dc25d948763137fc0f992acdfd5d35982f62b49945cb588ffa7996861",
+        "version": 1
+      },
+      "inputBytes": 85342533,
+      "exportBytes": 13643776,
+      "exportSha256": "9e5e345f79e525d4a72b5f0a7d603d0888ce10df4fdbfc7befd037b3328d3869",
+      "baselineRssBytes": 116211712,
+      "observedPeakRssBytes": 161603584,
+      "wholeProcessIncreaseMiB": 43.2890625,
+      "observedMemoryTargetPassed": true,
+      "eventLoopDelayP95Ms": 18.071551,
+      "eventLoopDelayP99Ms": 22.282239,
+      "healthP95Ms": 9.462800000000016,
+      "actionLatencies": [
+        {
+          "phase": "upload-import",
+          "kind": "player",
+          "samples": 19,
+          "p95Ms": 3.475200000000086,
+          "maxMs": 3.475200000000086
+        },
+        {
+          "phase": "upload-import",
+          "kind": "reinforcementLearning",
+          "samples": 40,
+          "p95Ms": 0.24750000000005912,
+          "maxMs": 2.8179999999999836
+        },
+        {
+          "phase": "export-download",
+          "kind": "player",
+          "samples": 5,
+          "p95Ms": 8.163000000000011,
+          "maxMs": 8.163000000000011
+        },
+        {
+          "phase": "export-download",
+          "kind": "reinforcementLearning",
+          "samples": 12,
+          "p95Ms": 7.852200000000039,
+          "maxMs": 7.852200000000039
+        }
+      ],
+      "boundaries": [
+        {
+          "type": "boundary",
+          "phase": "http-upload-spooling",
+          "durationMs": 265.4923,
+          "started": 494.5816,
+          "rssBefore": 119705600,
+          "peakRssBytes": 137863168,
+          "bodyBytes": 85342533,
+          "samples": 2610
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-import-worker-request",
+          "durationMs": 5.338600000000042,
+          "rssBefore": 142364672,
+          "peakRssBytes": 142508032,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-export-source-worker-request",
+          "durationMs": 6.78690000000006,
+          "rssBefore": 139755520,
+          "peakRssBytes": 139829248,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "http-file-download",
+          "durationMs": 45.20499999999993,
+          "started": 1331.9874,
+          "rssBefore": 142450688,
+          "peakRssBytes": 147197952,
+          "bodyBytes": 13643776,
+          "samples": 419
+        }
+      ],
+      "phases": [
+        {
+          "phase": "import",
+          "durationMs": 361.322,
+          "samples": 21,
+          "sampledPeakRssBytes": 144293888,
+          "nativeStartRssBytes": 121692160,
+          "nativeFinishRssBytes": 141770752,
+          "nativeSampledPeakRssBytes": 152285184,
+          "nativeRssSamples": 26
+        },
+        {
+          "phase": "legacy-decode",
+          "durationMs": 207.476,
+          "samples": 11,
+          "sampledPeakRssBytes": 138502144,
+          "nativeStartRssBytes": 121696256,
+          "nativeFinishRssBytes": 139628544,
+          "nativeSampledPeakRssBytes": 139628544,
+          "nativeRssSamples": 16
+        },
+        {
+          "phase": "candidate-construction",
+          "durationMs": 13.979,
+          "samples": 0,
+          "sampledPeakRssBytes": null,
+          "nativeStartRssBytes": 139751424,
+          "nativeFinishRssBytes": 139124736,
+          "nativeSampledPeakRssBytes": 152285184,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 67.506,
+          "samples": 5,
+          "sampledPeakRssBytes": 144293888,
+          "nativeStartRssBytes": 139124736,
+          "nativeFinishRssBytes": 141754368,
+          "nativeSampledPeakRssBytes": 143818752,
+          "nativeRssSamples": 6
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 37.303,
+          "samples": 3,
+          "sampledPeakRssBytes": 144293888,
+          "nativeStartRssBytes": 139268096,
+          "nativeFinishRssBytes": 141279232,
+          "nativeSampledPeakRssBytes": 143818752,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.398,
+          "samples": 0,
+          "sampledPeakRssBytes": null,
+          "nativeStartRssBytes": 141279232,
+          "nativeFinishRssBytes": 141328384,
+          "nativeSampledPeakRssBytes": 141328384,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "export",
+          "durationMs": 131.51,
+          "samples": 6,
+          "sampledPeakRssBytes": 159068160,
+          "nativeStartRssBytes": 139948032,
+          "nativeFinishRssBytes": 142233600,
+          "nativeSampledPeakRssBytes": 158089216,
+          "nativeRssSamples": 11
+        },
+        {
+          "phase": "export-source-population",
+          "durationMs": 29.09,
+          "samples": 2,
+          "sampledPeakRssBytes": 159068160,
+          "nativeStartRssBytes": 139948032,
+          "nativeFinishRssBytes": 140402688,
+          "nativeSampledPeakRssBytes": 158089216,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 27.945,
+          "samples": 2,
+          "sampledPeakRssBytes": 159068160,
+          "nativeStartRssBytes": 139956224,
+          "nativeFinishRssBytes": 157421568,
+          "nativeSampledPeakRssBytes": 158089216,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 25.24,
+          "samples": 2,
+          "sampledPeakRssBytes": 159068160,
+          "nativeStartRssBytes": 140161024,
+          "nativeFinishRssBytes": 157392896,
+          "nativeSampledPeakRssBytes": 158089216,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.096,
+          "samples": 0,
+          "sampledPeakRssBytes": null,
+          "nativeStartRssBytes": 157392896,
+          "nativeFinishRssBytes": 157392896,
+          "nativeSampledPeakRssBytes": 157392896,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.005,
+          "samples": 0,
+          "sampledPeakRssBytes": null,
+          "nativeStartRssBytes": 140431360,
+          "nativeFinishRssBytes": 140435456,
+          "nativeSampledPeakRssBytes": 140435456,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 29.393,
+          "samples": 1,
+          "sampledPeakRssBytes": 140664832,
+          "nativeStartRssBytes": 140443648,
+          "nativeFinishRssBytes": 141078528,
+          "nativeSampledPeakRssBytes": 141078528,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "validation",
+          "durationMs": 64.695,
+          "samples": 3,
+          "sampledPeakRssBytes": 150622208,
+          "nativeStartRssBytes": 141078528,
+          "nativeFinishRssBytes": 158613504,
+          "nativeSampledPeakRssBytes": 158613504,
+          "nativeRssSamples": 6
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 25.784,
+          "samples": 1,
+          "sampledPeakRssBytes": 141725696,
+          "nativeStartRssBytes": 141332480,
+          "nativeFinishRssBytes": 141881344,
+          "nativeSampledPeakRssBytes": 141881344,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.001,
+          "samples": 0,
+          "sampledPeakRssBytes": null,
+          "nativeStartRssBytes": 141877248,
+          "nativeFinishRssBytes": 141877248,
+          "nativeSampledPeakRssBytes": 141877248,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 27.718,
+          "samples": 1,
+          "sampledPeakRssBytes": 150622208,
+          "nativeStartRssBytes": 141881344,
+          "nativeFinishRssBytes": 158613504,
+          "nativeSampledPeakRssBytes": 158613504,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 24.962,
+          "samples": 1,
+          "sampledPeakRssBytes": 150622208,
+          "nativeStartRssBytes": 141914112,
+          "nativeFinishRssBytes": 158576640,
+          "nativeSampledPeakRssBytes": 158576640,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.096,
+          "samples": 0,
+          "sampledPeakRssBytes": null,
+          "nativeStartRssBytes": 158576640,
+          "nativeFinishRssBytes": 158576640,
+          "nativeSampledPeakRssBytes": 158576640,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 1.013,
+          "samples": 0,
+          "sampledPeakRssBytes": null,
+          "nativeStartRssBytes": 142233600,
+          "nativeFinishRssBytes": 142233600,
+          "nativeSampledPeakRssBytes": 142233600,
+          "nativeRssSamples": 2
+        }
+      ],
+      "scope": "Separate parent HTTP/file client and production child server with opt-in Rust diagnostic sampling. Native readings observe whole-process RSS at each stage entry/exit and on a requested two-millisecond cadence; sampled peaks are lower bounds and include Node, workers, the current game and any staged candidate. HTTP samples are separate and may miss short stages. Upload spooling uses passive actual chunk/end observations, without a data listener or retained body. Worker-request boundary memory includes IPC and FULL commit. Real WebSocket player actions use an independent 30-Hz timer; the protocol bot sends one action per delivered observation. Action latency is actual server receipt to Rust application, attributed by its receive timestamp to the live HTTP response interval, with a one-second post-response observation tail. It is not physical browser/LAN or PyRL training evidence. This does not prove isolated archive I/O overhead, all legacy readers, checkpoint-overlap durability or final A4 acceptance."
+    },
+    {
+      "name": "windows/v2",
+      "reportSha256": "59575f7da68eb85f7538ce70523d6c4813e6cc08736597e06b5a34574daa657c",
+      "sourceSha256": "62e0c4a8e72fef5e318f673e83b27fe8a27ef5dbf3d742d58f4d838e21f0ee1f",
+      "sourceFormat": "typescript-v2",
+      "nativeBuildIdentifier": "slither_native/0.1.0+7f2ee36b5f29.62e68d86759551d3",
+      "nativeSourceSha256": "11be041b82c2a2dd5b8e1b05b1e841d93233e59855e2e8047d592aaf0d14a1a4",
+      "profilerSha256": "4c2d60219d9a5dd09045d4bf19a286b8537096762c2a3ae31702b792b500d8c7",
+      "host": {
+        "platform": "win32",
+        "arch": "x64",
+        "cpuModel": "AMD Ryzen 7 5800X 8-Core Processor             ",
+        "totalMemoryBytes": 68627632128
+      },
+      "legacyConversion": {
+        "completeness": "population-only",
+        "exactContinuation": false,
+        "sourceFormat": "typescript-v2",
+        "sourceGeneration": "0000000000000007",
+        "sourceRunId": "a4-legacy-population-fixture",
+        "sourceSeed": 1234567,
+        "sourceSnapshotId": 1,
+        "version": 1
+      },
+      "exportBytes": 13642752,
+      "exportSha256": "a3807baf87b0f6fff9d1522372a3621b769a2554e01d5707d671a08560830354",
+      "baselineRssBytes": 70778880,
+      "observedPeakRssBytes": 158474240,
+      "wholeProcessIncreaseMiB": 83.6328125,
+      "observedMemoryTargetPassed": true,
+      "eventLoopDelayP95Ms": 17.563647,
+      "eventLoopDelayP99Ms": 22.315007,
+      "healthP95Ms": 9.97569999999996,
+      "actionLatencies": [
+        {
+          "kind": "player",
+          "samples": 34,
+          "p95Ms": 8.759800000000041,
+          "maxMs": 9.480099999999993
+        },
+        {
+          "kind": "reinforcementLearning",
+          "samples": 75,
+          "p95Ms": 7.670499999999947,
+          "maxMs": 7.929899999999975
+        }
+      ],
+      "boundaries": [
+        {
+          "type": "boundary",
+          "phase": "before-legacy-startup",
+          "rssBefore": 70778880,
+          "peakRssBytes": 70778880,
+          "samples": 1
+        },
+        {
+          "type": "boundary",
+          "phase": "legacy-database-decode-and-candidate",
+          "durationMs": 50.40089999999998,
+          "rssBefore": 105107456,
+          "peakRssBytes": 124416000,
+          "samples": 4
+        },
+        {
+          "type": "boundary",
+          "phase": "managed-publication-and-sqlite-commit",
+          "durationMs": 69.67690000000005,
+          "rssBefore": 125358080,
+          "peakRssBytes": 128999424,
+          "samples": 6
+        },
+        {
+          "type": "boundary",
+          "phase": "candidate-activation",
+          "durationMs": 4.268100000000004,
+          "rssBefore": 126173184,
+          "peakRssBytes": 126767104,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-export-source-worker-request",
+          "durationMs": 7.557299999999941,
+          "rssBefore": 138113024,
+          "peakRssBytes": 138121216,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "http-file-download",
+          "durationMs": 45.00959999999998,
+          "started": 715.6053,
+          "rssBefore": 140156928,
+          "peakRssBytes": 148217856,
+          "bodyBytes": 13642752,
+          "samples": 419
+        }
+      ],
+      "phases": [
+        {
+          "phase": "export",
+          "durationMs": 134.059,
+          "nativeStartRssBytes": 138170368,
+          "nativeFinishRssBytes": 139997184,
+          "nativeSampledPeakRssBytes": 154783744,
+          "nativeRssSamples": 11
+        },
+        {
+          "phase": "export-source-population",
+          "durationMs": 30.251,
+          "nativeStartRssBytes": 138178560,
+          "nativeFinishRssBytes": 138645504,
+          "nativeSampledPeakRssBytes": 154783744,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 29.149,
+          "nativeStartRssBytes": 138186752,
+          "nativeFinishRssBytes": 154783744,
+          "nativeSampledPeakRssBytes": 154783744,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 26.353,
+          "nativeStartRssBytes": 138321920,
+          "nativeFinishRssBytes": 154783744,
+          "nativeSampledPeakRssBytes": 154783744,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.109,
+          "nativeStartRssBytes": 154783744,
+          "nativeFinishRssBytes": 154783744,
+          "nativeSampledPeakRssBytes": 154783744,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.004,
+          "nativeStartRssBytes": 138702848,
+          "nativeFinishRssBytes": 138706944,
+          "nativeSampledPeakRssBytes": 138706944,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 29.081,
+          "nativeStartRssBytes": 138715136,
+          "nativeFinishRssBytes": 138833920,
+          "nativeSampledPeakRssBytes": 138833920,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "validation",
+          "durationMs": 66.209,
+          "nativeStartRssBytes": 138833920,
+          "nativeFinishRssBytes": 155693056,
+          "nativeSampledPeakRssBytes": 155693056,
+          "nativeRssSamples": 6
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 26.634,
+          "nativeStartRssBytes": 139022336,
+          "nativeFinishRssBytes": 139370496,
+          "nativeSampledPeakRssBytes": 139370496,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.002,
+          "nativeStartRssBytes": 139366400,
+          "nativeFinishRssBytes": 139366400,
+          "nativeSampledPeakRssBytes": 139366400,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 28.027,
+          "nativeStartRssBytes": 139370496,
+          "nativeFinishRssBytes": 155693056,
+          "nativeSampledPeakRssBytes": 155693056,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 25.17,
+          "nativeStartRssBytes": 139407360,
+          "nativeFinishRssBytes": 155463680,
+          "nativeSampledPeakRssBytes": 155463680,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.103,
+          "nativeStartRssBytes": 155463680,
+          "nativeFinishRssBytes": 155467776,
+          "nativeSampledPeakRssBytes": 155467776,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 0.985,
+          "nativeStartRssBytes": 139993088,
+          "nativeFinishRssBytes": 139993088,
+          "nativeSampledPeakRssBytes": 139993088,
+          "nativeRssSamples": 2
+        }
+      ],
+      "scope": "Fresh production child converts a copied legacy database. Startup calls report whole-process RSS before/after and every ten milliseconds; legacy decode and initial candidate preparation are one native call. Managed publication/SQLite commit and candidate activation are separately bracketed. Ordinary export retains native two-millisecond stage observations. Live player/protocol-bot and health latency apply only after the listener opens, with a one-second response tail; no startup HTTP, browser, physical LAN or PyRL claim. Sampled peaks are lower bounds. Original source-file digest is unchanged."
+    },
+    {
+      "name": "windows/embedded-null",
+      "reportSha256": "45c4645dbb4849c61387ea23cf2cac72088aaf918dd7b42b3e44d7f99616997a",
+      "sourceSha256": "9843918feaf3d8a16f064f569d256ea194e350ba3575ebb9a06c3b12ff80d254",
+      "sourceFormat": "legacy-json",
+      "nativeBuildIdentifier": "slither_native/0.1.0+7f2ee36b5f29.62e68d86759551d3",
+      "nativeSourceSha256": "11be041b82c2a2dd5b8e1b05b1e841d93233e59855e2e8047d592aaf0d14a1a4",
+      "profilerSha256": "4c2d60219d9a5dd09045d4bf19a286b8537096762c2a3ae31702b792b500d8c7",
+      "host": {
+        "platform": "win32",
+        "arch": "x64",
+        "cpuModel": "AMD Ryzen 7 5800X 8-Core Processor             ",
+        "totalMemoryBytes": 68627632128
+      },
+      "legacyConversion": {
+        "completeness": "population-only",
+        "exactContinuation": false,
+        "sourceFormat": "legacy-json",
+        "sourceGeneration": "0000000000000007",
+        "sourceRunId": "a4-legacy-population-fixture",
+        "sourceSeed": 1234567,
+        "sourceSnapshotId": 1,
+        "version": 1
+      },
+      "exportBytes": 13642752,
+      "exportSha256": "7bbbc2adc738e3112794df30f5dacac2442c07a9c4930aed60e312c1235dbcf9",
+      "baselineRssBytes": 68349952,
+      "observedPeakRssBytes": 191909888,
+      "wholeProcessIncreaseMiB": 117.8359375,
+      "observedMemoryTargetPassed": true,
+      "eventLoopDelayP95Ms": 17.760255,
+      "eventLoopDelayP99Ms": 22.052863,
+      "healthP95Ms": 10.429800000000341,
+      "actionLatencies": [
+        {
+          "kind": "player",
+          "samples": 34,
+          "p95Ms": 8.333599999999933,
+          "maxMs": 9.533100000000104
+        },
+        {
+          "kind": "reinforcementLearning",
+          "samples": 78,
+          "p95Ms": 7.307500000000118,
+          "maxMs": 7.869300000000067
+        }
+      ],
+      "boundaries": [
+        {
+          "type": "boundary",
+          "phase": "before-legacy-startup",
+          "rssBefore": 68349952,
+          "peakRssBytes": 68349952,
+          "samples": 1
+        },
+        {
+          "type": "boundary",
+          "phase": "legacy-database-decode-and-candidate",
+          "durationMs": 508.7621,
+          "rssBefore": 105369600,
+          "peakRssBytes": 170639360,
+          "samples": 34
+        },
+        {
+          "type": "boundary",
+          "phase": "managed-publication-and-sqlite-commit",
+          "durationMs": 71.44060000000002,
+          "rssBefore": 126001152,
+          "peakRssBytes": 129703936,
+          "samples": 6
+        },
+        {
+          "type": "boundary",
+          "phase": "candidate-activation",
+          "durationMs": 4.411200000000008,
+          "rssBefore": 127131648,
+          "peakRssBytes": 127803392,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-export-source-worker-request",
+          "durationMs": 7.903099999999995,
+          "rssBefore": 138620928,
+          "peakRssBytes": 138772480,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "http-file-download",
+          "durationMs": 43.011999999999944,
+          "started": 1272.6437,
+          "rssBefore": 139657216,
+          "peakRssBytes": 148135936,
+          "bodyBytes": 13642752,
+          "samples": 419
+        }
+      ],
+      "phases": [
+        {
+          "phase": "export",
+          "durationMs": 136.4,
+          "nativeStartRssBytes": 138842112,
+          "nativeFinishRssBytes": 139567104,
+          "nativeSampledPeakRssBytes": 156151808,
+          "nativeRssSamples": 12
+        },
+        {
+          "phase": "export-source-population",
+          "durationMs": 31.523,
+          "nativeStartRssBytes": 138850304,
+          "nativeFinishRssBytes": 139546624,
+          "nativeSampledPeakRssBytes": 155607040,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 30.309,
+          "nativeStartRssBytes": 138858496,
+          "nativeFinishRssBytes": 155750400,
+          "nativeSampledPeakRssBytes": 155750400,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 27.497,
+          "nativeStartRssBytes": 139055104,
+          "nativeFinishRssBytes": 155721728,
+          "nativeSampledPeakRssBytes": 155721728,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.109,
+          "nativeStartRssBytes": 155721728,
+          "nativeFinishRssBytes": 155721728,
+          "nativeSampledPeakRssBytes": 155721728,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.004,
+          "nativeStartRssBytes": 139571200,
+          "nativeFinishRssBytes": 139575296,
+          "nativeSampledPeakRssBytes": 139575296,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 30.467,
+          "nativeStartRssBytes": 139587584,
+          "nativeFinishRssBytes": 139825152,
+          "nativeSampledPeakRssBytes": 139825152,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "validation",
+          "durationMs": 65.737,
+          "nativeStartRssBytes": 139825152,
+          "nativeFinishRssBytes": 156168192,
+          "nativeSampledPeakRssBytes": 156168192,
+          "nativeRssSamples": 7
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 26.559,
+          "nativeStartRssBytes": 139931648,
+          "nativeFinishRssBytes": 140062720,
+          "nativeSampledPeakRssBytes": 140062720,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.001,
+          "nativeStartRssBytes": 140054528,
+          "nativeFinishRssBytes": 140054528,
+          "nativeSampledPeakRssBytes": 140054528,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 27.924,
+          "nativeStartRssBytes": 140062720,
+          "nativeFinishRssBytes": 156168192,
+          "nativeSampledPeakRssBytes": 156168192,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 24.943,
+          "nativeStartRssBytes": 140148736,
+          "nativeFinishRssBytes": 156094464,
+          "nativeSampledPeakRssBytes": 156094464,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.09,
+          "nativeStartRssBytes": 156094464,
+          "nativeFinishRssBytes": 156102656,
+          "nativeSampledPeakRssBytes": 156102656,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 1.072,
+          "nativeStartRssBytes": 139563008,
+          "nativeFinishRssBytes": 139563008,
+          "nativeSampledPeakRssBytes": 139563008,
+          "nativeRssSamples": 2
+        }
+      ],
+      "scope": "Fresh production child converts a copied legacy database. Startup calls report whole-process RSS before/after and every ten milliseconds; legacy decode and initial candidate preparation are one native call. Managed publication/SQLite commit and candidate activation are separately bracketed. Ordinary export retains native two-millisecond stage observations. Live player/protocol-bot and health latency apply only after the listener opens, with a one-second response tail; no startup HTTP, browser, physical LAN or PyRL claim. Sampled peaks are lower bounds. Original source-file digest is unchanged."
+    },
+    {
+      "name": "windows/embedded-zero",
+      "reportSha256": "1fce3a8b7415995c54ca76859cb4e1fc23a956e3cbe8313d2fc4d9e0ab95b79c",
+      "sourceSha256": "0b65423f2310e0db15fe7dab7f3bc7f154190fdc04854e876b423c748cf7d5f9",
+      "sourceFormat": "legacy-json",
+      "nativeBuildIdentifier": "slither_native/0.1.0+7f2ee36b5f29.62e68d86759551d3",
+      "nativeSourceSha256": "11be041b82c2a2dd5b8e1b05b1e841d93233e59855e2e8047d592aaf0d14a1a4",
+      "profilerSha256": "4c2d60219d9a5dd09045d4bf19a286b8537096762c2a3ae31702b792b500d8c7",
+      "host": {
+        "platform": "win32",
+        "arch": "x64",
+        "cpuModel": "AMD Ryzen 7 5800X 8-Core Processor             ",
+        "totalMemoryBytes": 68627632128
+      },
+      "legacyConversion": {
+        "completeness": "population-only",
+        "exactContinuation": false,
+        "sourceFormat": "legacy-json",
+        "sourceGeneration": "0000000000000007",
+        "sourceRunId": "a4-legacy-population-fixture",
+        "sourceSeed": 1234567,
+        "sourceSnapshotId": 1,
+        "version": 1
+      },
+      "exportBytes": 13642752,
+      "exportSha256": "d40b1ca36ace256c30ec29b811b2bea46f38c560ae657b1cd784c65f402e7053",
+      "baselineRssBytes": 68210688,
+      "observedPeakRssBytes": 192540672,
+      "wholeProcessIncreaseMiB": 118.5703125,
+      "observedMemoryTargetPassed": true,
+      "eventLoopDelayP95Ms": 17.399807,
+      "eventLoopDelayP99Ms": 20.840447,
+      "healthP95Ms": 15.288000000000011,
+      "actionLatencies": [
+        {
+          "kind": "player",
+          "samples": 36,
+          "p95Ms": 8.748000000000047,
+          "maxMs": 8.946500000000015
+        },
+        {
+          "kind": "reinforcementLearning",
+          "samples": 80,
+          "p95Ms": 7.470100000000002,
+          "maxMs": 8.072499999999991
+        }
+      ],
+      "boundaries": [
+        {
+          "type": "boundary",
+          "phase": "before-legacy-startup",
+          "rssBefore": 68210688,
+          "peakRssBytes": 68210688,
+          "samples": 1
+        },
+        {
+          "type": "boundary",
+          "phase": "legacy-database-decode-and-candidate",
+          "durationMs": 503.64910000000003,
+          "rssBefore": 105996288,
+          "peakRssBytes": 180441088,
+          "samples": 33
+        },
+        {
+          "type": "boundary",
+          "phase": "managed-publication-and-sqlite-commit",
+          "durationMs": 71.23130000000003,
+          "rssBefore": 125988864,
+          "peakRssBytes": 129646592,
+          "samples": 6
+        },
+        {
+          "type": "boundary",
+          "phase": "candidate-activation",
+          "durationMs": 4.340799999999945,
+          "rssBefore": 127066112,
+          "peakRssBytes": 127717376,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-export-source-worker-request",
+          "durationMs": 7.598999999999933,
+          "rssBefore": 138792960,
+          "peakRssBytes": 138801152,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "http-file-download",
+          "durationMs": 45.475099999999884,
+          "started": 1288.3514,
+          "rssBefore": 139337728,
+          "peakRssBytes": 148459520,
+          "bodyBytes": 13642752,
+          "samples": 419
+        }
+      ],
+      "phases": [
+        {
+          "phase": "export",
+          "durationMs": 146.662,
+          "nativeStartRssBytes": 138870784,
+          "nativeFinishRssBytes": 139264000,
+          "nativeSampledPeakRssBytes": 155549696,
+          "nativeRssSamples": 12
+        },
+        {
+          "phase": "export-source-population",
+          "durationMs": 31.35,
+          "nativeStartRssBytes": 138878976,
+          "nativeFinishRssBytes": 138948608,
+          "nativeSampledPeakRssBytes": 155549696,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 30.265,
+          "nativeStartRssBytes": 138887168,
+          "nativeFinishRssBytes": 155660288,
+          "nativeSampledPeakRssBytes": 155660288,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 27.537,
+          "nativeStartRssBytes": 139018240,
+          "nativeFinishRssBytes": 155643904,
+          "nativeSampledPeakRssBytes": 155643904,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.103,
+          "nativeStartRssBytes": 155643904,
+          "nativeFinishRssBytes": 155652096,
+          "nativeSampledPeakRssBytes": 155652096,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.005,
+          "nativeStartRssBytes": 138973184,
+          "nativeFinishRssBytes": 138977280,
+          "nativeSampledPeakRssBytes": 138977280,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 35.153,
+          "nativeStartRssBytes": 138985472,
+          "nativeFinishRssBytes": 139087872,
+          "nativeSampledPeakRssBytes": 139087872,
+          "nativeRssSamples": 5
+        },
+        {
+          "phase": "validation",
+          "durationMs": 71.852,
+          "nativeStartRssBytes": 139087872,
+          "nativeFinishRssBytes": 155725824,
+          "nativeSampledPeakRssBytes": 155725824,
+          "nativeRssSamples": 6
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 32.344,
+          "nativeStartRssBytes": 139202560,
+          "nativeFinishRssBytes": 139583488,
+          "nativeSampledPeakRssBytes": 139583488,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.001,
+          "nativeStartRssBytes": 139579392,
+          "nativeFinishRssBytes": 139579392,
+          "nativeSampledPeakRssBytes": 139579392,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 28.375,
+          "nativeStartRssBytes": 139583488,
+          "nativeFinishRssBytes": 155725824,
+          "nativeSampledPeakRssBytes": 155725824,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 25.614,
+          "nativeStartRssBytes": 139608064,
+          "nativeFinishRssBytes": 155705344,
+          "nativeSampledPeakRssBytes": 155705344,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.116,
+          "nativeStartRssBytes": 155705344,
+          "nativeFinishRssBytes": 155725824,
+          "nativeSampledPeakRssBytes": 155725824,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 1.031,
+          "nativeStartRssBytes": 139259904,
+          "nativeFinishRssBytes": 139259904,
+          "nativeSampledPeakRssBytes": 139259904,
+          "nativeRssSamples": 2
+        }
+      ],
+      "scope": "Fresh production child converts a copied legacy database. Startup calls report whole-process RSS before/after and every ten milliseconds; legacy decode and initial candidate preparation are one native call. Managed publication/SQLite commit and candidate activation are separately bracketed. Ordinary export retains native two-millisecond stage observations. Live player/protocol-bot and health latency apply only after the listener opens, with a one-second response tail; no startup HTTP, browser, physical LAN or PyRL claim. Sampled peaks are lower bounds. Original source-file digest is unchanged."
+    },
+    {
+      "name": "windows/gzip-null",
+      "reportSha256": "e00352263216f17ec8c405bb7090241df2fbd84f4097957d9d027f452027f622",
+      "sourceSha256": "ba895eadbfd5662e36c3f49fa1f3829f06490044376becbd46fbd2bf800d40c5",
+      "sourceFormat": "legacy-gzip",
+      "nativeBuildIdentifier": "slither_native/0.1.0+7f2ee36b5f29.62e68d86759551d3",
+      "nativeSourceSha256": "11be041b82c2a2dd5b8e1b05b1e841d93233e59855e2e8047d592aaf0d14a1a4",
+      "profilerSha256": "4c2d60219d9a5dd09045d4bf19a286b8537096762c2a3ae31702b792b500d8c7",
+      "host": {
+        "platform": "win32",
+        "arch": "x64",
+        "cpuModel": "AMD Ryzen 7 5800X 8-Core Processor             ",
+        "totalMemoryBytes": 68627632128
+      },
+      "legacyConversion": {
+        "completeness": "population-only",
+        "exactContinuation": false,
+        "sourceFormat": "legacy-gzip",
+        "sourceGeneration": "0000000000000007",
+        "sourceRunId": "a4-legacy-population-fixture",
+        "sourceSeed": 1234567,
+        "sourceSnapshotId": 1,
+        "version": 1
+      },
+      "exportBytes": 13642752,
+      "exportSha256": "1c0cd651a0e6fd522b02b8c37706a6be6289e435ffa50a7503bc78fa46e3f1ca",
+      "baselineRssBytes": 68050944,
+      "observedPeakRssBytes": 158900224,
+      "wholeProcessIncreaseMiB": 86.640625,
+      "observedMemoryTargetPassed": true,
+      "eventLoopDelayP95Ms": 21.282815,
+      "eventLoopDelayP99Ms": 23.511039,
+      "healthP95Ms": 10.62760000000003,
+      "actionLatencies": [
+        {
+          "kind": "player",
+          "samples": 35,
+          "p95Ms": 8.221399999999903,
+          "maxMs": 9.158100000000104
+        },
+        {
+          "kind": "reinforcementLearning",
+          "samples": 76,
+          "p95Ms": 7.207699999999932,
+          "maxMs": 9.171699999999873
+        }
+      ],
+      "boundaries": [
+        {
+          "type": "boundary",
+          "phase": "before-legacy-startup",
+          "rssBefore": 68050944,
+          "peakRssBytes": 68050944,
+          "samples": 1
+        },
+        {
+          "type": "boundary",
+          "phase": "legacy-database-decode-and-candidate",
+          "durationMs": 397.59710000000007,
+          "rssBefore": 104996864,
+          "peakRssBytes": 127614976,
+          "samples": 27
+        },
+        {
+          "type": "boundary",
+          "phase": "managed-publication-and-sqlite-commit",
+          "durationMs": 75.66980000000001,
+          "rssBefore": 125988864,
+          "peakRssBytes": 129642496,
+          "samples": 6
+        },
+        {
+          "type": "boundary",
+          "phase": "candidate-activation",
+          "durationMs": 4.281700000000001,
+          "rssBefore": 126943232,
+          "peakRssBytes": 127664128,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-export-source-worker-request",
+          "durationMs": 7.550500000000056,
+          "rssBefore": 138641408,
+          "peakRssBytes": 138665984,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "http-file-download",
+          "durationMs": 42.63350000000014,
+          "started": 1126.6807,
+          "rssBefore": 139169792,
+          "peakRssBytes": 148815872,
+          "bodyBytes": 13642752,
+          "samples": 419
+        }
+      ],
+      "phases": [
+        {
+          "phase": "export",
+          "durationMs": 135.565,
+          "nativeStartRssBytes": 138797056,
+          "nativeFinishRssBytes": 139104256,
+          "nativeSampledPeakRssBytes": 158011392,
+          "nativeRssSamples": 12
+        },
+        {
+          "phase": "export-source-population",
+          "durationMs": 30.128,
+          "nativeStartRssBytes": 138805248,
+          "nativeFinishRssBytes": 139513856,
+          "nativeSampledPeakRssBytes": 158011392,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 29.023,
+          "nativeStartRssBytes": 138813440,
+          "nativeFinishRssBytes": 155275264,
+          "nativeSampledPeakRssBytes": 158011392,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 26.015,
+          "nativeStartRssBytes": 138940416,
+          "nativeFinishRssBytes": 155250688,
+          "nativeSampledPeakRssBytes": 158011392,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.116,
+          "nativeStartRssBytes": 155250688,
+          "nativeFinishRssBytes": 155254784,
+          "nativeSampledPeakRssBytes": 155254784,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.004,
+          "nativeStartRssBytes": 139612160,
+          "nativeFinishRssBytes": 139616256,
+          "nativeSampledPeakRssBytes": 139616256,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 28.169,
+          "nativeStartRssBytes": 139628544,
+          "nativeFinishRssBytes": 140083200,
+          "nativeSampledPeakRssBytes": 140083200,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "validation",
+          "durationMs": 68.671,
+          "nativeStartRssBytes": 140083200,
+          "nativeFinishRssBytes": 155971584,
+          "nativeSampledPeakRssBytes": 155971584,
+          "nativeRssSamples": 6
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 28.217,
+          "nativeStartRssBytes": 140169216,
+          "nativeFinishRssBytes": 140476416,
+          "nativeSampledPeakRssBytes": 140476416,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.001,
+          "nativeStartRssBytes": 140328960,
+          "nativeFinishRssBytes": 140328960,
+          "nativeSampledPeakRssBytes": 140328960,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 29.358,
+          "nativeStartRssBytes": 140476416,
+          "nativeFinishRssBytes": 155971584,
+          "nativeSampledPeakRssBytes": 155971584,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 25.036,
+          "nativeStartRssBytes": 140480512,
+          "nativeFinishRssBytes": 155910144,
+          "nativeSampledPeakRssBytes": 155910144,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.162,
+          "nativeStartRssBytes": 155910144,
+          "nativeFinishRssBytes": 155918336,
+          "nativeSampledPeakRssBytes": 155918336,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 0.957,
+          "nativeStartRssBytes": 139100160,
+          "nativeFinishRssBytes": 139100160,
+          "nativeSampledPeakRssBytes": 139100160,
+          "nativeRssSamples": 2
+        }
+      ],
+      "scope": "Fresh production child converts a copied legacy database. Startup calls report whole-process RSS before/after and every ten milliseconds; legacy decode and initial candidate preparation are one native call. Managed publication/SQLite commit and candidate activation are separately bracketed. Ordinary export retains native two-millisecond stage observations. Live player/protocol-bot and health latency apply only after the listener opens, with a one-second response tail; no startup HTTP, browser, physical LAN or PyRL claim. Sampled peaks are lower bounds. Original source-file digest is unchanged."
+    },
+    {
+      "name": "windows/gzip-zero",
+      "reportSha256": "ad53ef316f437ab88ff80b237aa2660e1d2478ffe946956668062c753cc088ff",
+      "sourceSha256": "8e3b98202878360495587d6768992444cdc4af1b93a55c758361ecb9d8799a3d",
+      "sourceFormat": "legacy-gzip",
+      "nativeBuildIdentifier": "slither_native/0.1.0+7f2ee36b5f29.62e68d86759551d3",
+      "nativeSourceSha256": "11be041b82c2a2dd5b8e1b05b1e841d93233e59855e2e8047d592aaf0d14a1a4",
+      "profilerSha256": "4c2d60219d9a5dd09045d4bf19a286b8537096762c2a3ae31702b792b500d8c7",
+      "host": {
+        "platform": "win32",
+        "arch": "x64",
+        "cpuModel": "AMD Ryzen 7 5800X 8-Core Processor             ",
+        "totalMemoryBytes": 68627632128
+      },
+      "legacyConversion": {
+        "completeness": "population-only",
+        "exactContinuation": false,
+        "sourceFormat": "legacy-gzip",
+        "sourceGeneration": "0000000000000007",
+        "sourceRunId": "a4-legacy-population-fixture",
+        "sourceSeed": 1234567,
+        "sourceSnapshotId": 1,
+        "version": 1
+      },
+      "exportBytes": 13642752,
+      "exportSha256": "ad7708949d69e2f27ad145ccc9c91241e9d7c101589936c40e8b7a168af7d8f5",
+      "baselineRssBytes": 68214784,
+      "observedPeakRssBytes": 158953472,
+      "wholeProcessIncreaseMiB": 86.53515625,
+      "observedMemoryTargetPassed": true,
+      "eventLoopDelayP95Ms": 17.678335,
+      "eventLoopDelayP99Ms": 22.396927,
+      "healthP95Ms": 16.96120000000019,
+      "actionLatencies": [
+        {
+          "kind": "player",
+          "samples": 35,
+          "p95Ms": 7.873299999999972,
+          "maxMs": 7.961500000000115
+        },
+        {
+          "kind": "reinforcementLearning",
+          "samples": 76,
+          "p95Ms": 8.048900000000003,
+          "maxMs": 10.481899999999996
+        }
+      ],
+      "boundaries": [
+        {
+          "type": "boundary",
+          "phase": "before-legacy-startup",
+          "rssBefore": 68214784,
+          "peakRssBytes": 68214784,
+          "samples": 1
+        },
+        {
+          "type": "boundary",
+          "phase": "legacy-database-decode-and-candidate",
+          "durationMs": 395.8767,
+          "rssBefore": 105140224,
+          "peakRssBytes": 132673536,
+          "samples": 27
+        },
+        {
+          "type": "boundary",
+          "phase": "managed-publication-and-sqlite-commit",
+          "durationMs": 70.00979999999993,
+          "rssBefore": 126484480,
+          "peakRssBytes": 130154496,
+          "samples": 6
+        },
+        {
+          "type": "boundary",
+          "phase": "candidate-activation",
+          "durationMs": 4.37259999999992,
+          "rssBefore": 127561728,
+          "peakRssBytes": 128012288,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-export-source-worker-request",
+          "durationMs": 7.928299999999922,
+          "rssBefore": 138919936,
+          "peakRssBytes": 138948608,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "http-file-download",
+          "durationMs": 47.149200000000064,
+          "started": 1118.0716,
+          "rssBefore": 140095488,
+          "peakRssBytes": 148688896,
+          "bodyBytes": 13642752,
+          "samples": 419
+        }
+      ],
+      "phases": [
+        {
+          "phase": "export",
+          "durationMs": 138.391,
+          "nativeStartRssBytes": 139022336,
+          "nativeFinishRssBytes": 140021760,
+          "nativeSampledPeakRssBytes": 157392896,
+          "nativeRssSamples": 12
+        },
+        {
+          "phase": "export-source-population",
+          "durationMs": 32.56,
+          "nativeStartRssBytes": 139030528,
+          "nativeFinishRssBytes": 139022336,
+          "nativeSampledPeakRssBytes": 157392896,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 31.252,
+          "nativeStartRssBytes": 139038720,
+          "nativeFinishRssBytes": 155713536,
+          "nativeSampledPeakRssBytes": 157392896,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 26.554,
+          "nativeStartRssBytes": 139239424,
+          "nativeFinishRssBytes": 155701248,
+          "nativeSampledPeakRssBytes": 157392896,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.151,
+          "nativeStartRssBytes": 155701248,
+          "nativeFinishRssBytes": 155701248,
+          "nativeSampledPeakRssBytes": 155701248,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.004,
+          "nativeStartRssBytes": 139128832,
+          "nativeFinishRssBytes": 139132928,
+          "nativeSampledPeakRssBytes": 139132928,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 26.749,
+          "nativeStartRssBytes": 139141120,
+          "nativeFinishRssBytes": 139337728,
+          "nativeSampledPeakRssBytes": 139337728,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "validation",
+          "durationMs": 70.288,
+          "nativeStartRssBytes": 139337728,
+          "nativeFinishRssBytes": 155963392,
+          "nativeSampledPeakRssBytes": 155963392,
+          "nativeRssSamples": 6
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 28.835,
+          "nativeStartRssBytes": 139681792,
+          "nativeFinishRssBytes": 139898880,
+          "nativeSampledPeakRssBytes": 139898880,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.002,
+          "nativeStartRssBytes": 139894784,
+          "nativeFinishRssBytes": 139894784,
+          "nativeSampledPeakRssBytes": 139894784,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 29.766,
+          "nativeStartRssBytes": 139898880,
+          "nativeFinishRssBytes": 155963392,
+          "nativeSampledPeakRssBytes": 155963392,
+          "nativeRssSamples": 4
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 26.991,
+          "nativeStartRssBytes": 139907072,
+          "nativeFinishRssBytes": 155947008,
+          "nativeSampledPeakRssBytes": 155947008,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.089,
+          "nativeStartRssBytes": 155947008,
+          "nativeFinishRssBytes": 155947008,
+          "nativeSampledPeakRssBytes": 155947008,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 0.948,
+          "nativeStartRssBytes": 139988992,
+          "nativeFinishRssBytes": 140017664,
+          "nativeSampledPeakRssBytes": 140017664,
+          "nativeRssSamples": 2
+        }
+      ],
+      "scope": "Fresh production child converts a copied legacy database. Startup calls report whole-process RSS before/after and every ten milliseconds; legacy decode and initial candidate preparation are one native call. Managed publication/SQLite commit and candidate activation are separately bracketed. Ordinary export retains native two-millisecond stage observations. Live player/protocol-bot and health latency apply only after the listener opens, with a one-second response tail; no startup HTTP, browser, physical LAN or PyRL claim. Sampled peaks are lower bounds. Original source-file digest is unchanged."
+    },
+    {
+      "name": "debian/v2",
+      "reportSha256": "9f346fa77ae079a5552bfc804c82ccde51b250592c782a136a8890135209b55b",
+      "sourceSha256": "62e0c4a8e72fef5e318f673e83b27fe8a27ef5dbf3d742d58f4d838e21f0ee1f",
+      "sourceFormat": "typescript-v2",
+      "nativeBuildIdentifier": "slither_native/0.1.0+c02cc489b5b2.62e68d86759551d3",
+      "nativeSourceSha256": "11be041b82c2a2dd5b8e1b05b1e841d93233e59855e2e8047d592aaf0d14a1a4",
+      "profilerSha256": "4c2d60219d9a5dd09045d4bf19a286b8537096762c2a3ae31702b792b500d8c7",
+      "host": {
+        "platform": "linux",
+        "arch": "x64",
+        "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+        "totalMemoryBytes": 16775348224
+      },
+      "legacyConversion": {
+        "completeness": "population-only",
+        "exactContinuation": false,
+        "sourceFormat": "typescript-v2",
+        "sourceGeneration": "0000000000000007",
+        "sourceRunId": "a4-legacy-population-fixture",
+        "sourceSeed": 1234567,
+        "sourceSnapshotId": 1,
+        "version": 1
+      },
+      "exportBytes": 13642752,
+      "exportSha256": "d297937b1ba128477f2257ef1a1a84d80f319ef84eddd3b684d237e23811688c",
+      "baselineRssBytes": 84238336,
+      "observedPeakRssBytes": 194338816,
+      "wholeProcessIncreaseMiB": 105,
+      "observedMemoryTargetPassed": true,
+      "eventLoopDelayP95Ms": 10.797055,
+      "eventLoopDelayP99Ms": 12.443647,
+      "healthP95Ms": 3.960401000000047,
+      "actionLatencies": [
+        {
+          "kind": "player",
+          "samples": 44,
+          "p95Ms": 15.634204000000182,
+          "maxMs": 16.91382800000008
+        },
+        {
+          "kind": "reinforcementLearning",
+          "samples": 85,
+          "p95Ms": 19.80139300000019,
+          "maxMs": 24.429509999999937
+        }
+      ],
+      "boundaries": [
+        {
+          "type": "boundary",
+          "phase": "before-legacy-startup",
+          "rssBefore": 84238336,
+          "peakRssBytes": 84238336,
+          "samples": 1
+        },
+        {
+          "type": "boundary",
+          "phase": "legacy-database-decode-and-candidate",
+          "durationMs": 65.239821,
+          "rssBefore": 122470400,
+          "peakRssBytes": 160710656,
+          "samples": 8
+        },
+        {
+          "type": "boundary",
+          "phase": "managed-publication-and-sqlite-commit",
+          "durationMs": 124.79481500000009,
+          "rssBefore": 163225600,
+          "peakRssBytes": 167157760,
+          "samples": 14
+        },
+        {
+          "type": "boundary",
+          "phase": "candidate-activation",
+          "durationMs": 7.814354999999978,
+          "rssBefore": 163983360,
+          "peakRssBytes": 164638720,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-export-source-worker-request",
+          "durationMs": 10.845493999999917,
+          "rssBefore": 173146112,
+          "peakRssBytes": 173146112,
+          "samples": 3
+        },
+        {
+          "type": "boundary",
+          "phase": "http-file-download",
+          "durationMs": 89.38461600000005,
+          "started": 1222.20396,
+          "rssBefore": 175407104,
+          "peakRssBytes": 179601408,
+          "bodyBytes": 13642752,
+          "samples": 419
+        }
+      ],
+      "phases": [
+        {
+          "phase": "export",
+          "durationMs": 234.035,
+          "nativeStartRssBytes": 173973504,
+          "nativeFinishRssBytes": 176443392,
+          "nativeSampledPeakRssBytes": 194240512,
+          "nativeRssSamples": 101
+        },
+        {
+          "phase": "export-source-population",
+          "durationMs": 55.343,
+          "nativeStartRssBytes": 173977600,
+          "nativeFinishRssBytes": 174567424,
+          "nativeSampledPeakRssBytes": 192712704,
+          "nativeRssSamples": 21
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 53.7,
+          "nativeStartRssBytes": 173985792,
+          "nativeFinishRssBytes": 190816256,
+          "nativeSampledPeakRssBytes": 192712704,
+          "nativeRssSamples": 21
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 49.488,
+          "nativeStartRssBytes": 174034944,
+          "nativeFinishRssBytes": 190808064,
+          "nativeSampledPeakRssBytes": 192712704,
+          "nativeRssSamples": 20
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.165,
+          "nativeStartRssBytes": 190808064,
+          "nativeFinishRssBytes": 190808064,
+          "nativeSampledPeakRssBytes": 190808064,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.034,
+          "nativeStartRssBytes": 174690304,
+          "nativeFinishRssBytes": 174690304,
+          "nativeSampledPeakRssBytes": 174690304,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 44.822,
+          "nativeStartRssBytes": 174690304,
+          "nativeFinishRssBytes": 174792704,
+          "nativeSampledPeakRssBytes": 174792704,
+          "nativeRssSamples": 20
+        },
+        {
+          "phase": "validation",
+          "durationMs": 110.967,
+          "nativeStartRssBytes": 174792704,
+          "nativeFinishRssBytes": 192552960,
+          "nativeSampledPeakRssBytes": 194240512,
+          "nativeRssSamples": 53
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 52.386,
+          "nativeStartRssBytes": 174907392,
+          "nativeFinishRssBytes": 175562752,
+          "nativeSampledPeakRssBytes": 175562752,
+          "nativeRssSamples": 26
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.034,
+          "nativeStartRssBytes": 175464448,
+          "nativeFinishRssBytes": 175464448,
+          "nativeSampledPeakRssBytes": 175464448,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 46.218,
+          "nativeStartRssBytes": 175562752,
+          "nativeFinishRssBytes": 192552960,
+          "nativeSampledPeakRssBytes": 194240512,
+          "nativeRssSamples": 23
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 43.151,
+          "nativeStartRssBytes": 175562752,
+          "nativeFinishRssBytes": 192528384,
+          "nativeSampledPeakRssBytes": 194240512,
+          "nativeRssSamples": 21
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.169,
+          "nativeStartRssBytes": 192528384,
+          "nativeFinishRssBytes": 192532480,
+          "nativeSampledPeakRssBytes": 192544768,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 8.754,
+          "nativeStartRssBytes": 176283648,
+          "nativeFinishRssBytes": 176443392,
+          "nativeSampledPeakRssBytes": 176443392,
+          "nativeRssSamples": 6
+        }
+      ],
+      "scope": "Fresh production child converts a copied legacy database. Startup calls report whole-process RSS before/after and every ten milliseconds; legacy decode and initial candidate preparation are one native call. Managed publication/SQLite commit and candidate activation are separately bracketed. Ordinary export retains native two-millisecond stage observations. Live player/protocol-bot and health latency apply only after the listener opens, with a one-second response tail; no startup HTTP, browser, physical LAN or PyRL claim. Sampled peaks are lower bounds. Original source-file digest is unchanged."
+    },
+    {
+      "name": "debian/embedded-null",
+      "reportSha256": "23e3b0a1c52e348d5cf0b6729ae771aec43d37bc1d7d675e925445d4689a348f",
+      "sourceSha256": "9843918feaf3d8a16f064f569d256ea194e350ba3575ebb9a06c3b12ff80d254",
+      "sourceFormat": "legacy-json",
+      "nativeBuildIdentifier": "slither_native/0.1.0+c02cc489b5b2.62e68d86759551d3",
+      "nativeSourceSha256": "11be041b82c2a2dd5b8e1b05b1e841d93233e59855e2e8047d592aaf0d14a1a4",
+      "profilerSha256": "4c2d60219d9a5dd09045d4bf19a286b8537096762c2a3ae31702b792b500d8c7",
+      "host": {
+        "platform": "linux",
+        "arch": "x64",
+        "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+        "totalMemoryBytes": 16775348224
+      },
+      "legacyConversion": {
+        "completeness": "population-only",
+        "exactContinuation": false,
+        "sourceFormat": "legacy-json",
+        "sourceGeneration": "0000000000000007",
+        "sourceRunId": "a4-legacy-population-fixture",
+        "sourceSeed": 1234567,
+        "sourceSnapshotId": 1,
+        "version": 1
+      },
+      "exportBytes": 13642752,
+      "exportSha256": "1294f0163e46f6e8818232b4e7de84e68e3cdda8b94ec5496292660d215e32de",
+      "baselineRssBytes": 87416832,
+      "observedPeakRssBytes": 213213184,
+      "wholeProcessIncreaseMiB": 119.96875,
+      "observedMemoryTargetPassed": true,
+      "eventLoopDelayP95Ms": 11.747327,
+      "eventLoopDelayP99Ms": 13.172735,
+      "healthP95Ms": 3.2820189999997638,
+      "actionLatencies": [
+        {
+          "kind": "player",
+          "samples": 47,
+          "p95Ms": 16.75349499999993,
+          "maxMs": 22.43626600000016
+        },
+        {
+          "kind": "reinforcementLearning",
+          "samples": 91,
+          "p95Ms": 19.489399999999932,
+          "maxMs": 25.244711000000052
+        }
+      ],
+      "boundaries": [
+        {
+          "type": "boundary",
+          "phase": "before-legacy-startup",
+          "rssBefore": 87416832,
+          "peakRssBytes": 87416832,
+          "samples": 1
+        },
+        {
+          "type": "boundary",
+          "phase": "legacy-database-decode-and-candidate",
+          "durationMs": 572.3853619999999,
+          "rssBefore": 125276160,
+          "peakRssBytes": 202727424,
+          "samples": 58
+        },
+        {
+          "type": "boundary",
+          "phase": "managed-publication-and-sqlite-commit",
+          "durationMs": 120.80275199999983,
+          "rssBefore": 151654400,
+          "peakRssBytes": 155455488,
+          "samples": 14
+        },
+        {
+          "type": "boundary",
+          "phase": "candidate-activation",
+          "durationMs": 8.020946999999978,
+          "rssBefore": 152326144,
+          "peakRssBytes": 153174016,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-export-source-worker-request",
+          "durationMs": 11.840447999999924,
+          "rssBefore": 161480704,
+          "peakRssBytes": 161480704,
+          "samples": 3
+        },
+        {
+          "type": "boundary",
+          "phase": "http-file-download",
+          "durationMs": 99.76981799999999,
+          "started": 1801.798908,
+          "rssBefore": 165175296,
+          "peakRssBytes": 167141376,
+          "bodyBytes": 13642752,
+          "samples": 419
+        }
+      ],
+      "phases": [
+        {
+          "phase": "export",
+          "durationMs": 229.422,
+          "nativeStartRssBytes": 162357248,
+          "nativeFinishRssBytes": 165867520,
+          "nativeSampledPeakRssBytes": 183656448,
+          "nativeRssSamples": 94
+        },
+        {
+          "phase": "export-source-population",
+          "durationMs": 50.868,
+          "nativeStartRssBytes": 162361344,
+          "nativeFinishRssBytes": 162910208,
+          "nativeSampledPeakRssBytes": 181043200,
+          "nativeRssSamples": 19
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 49.194,
+          "nativeStartRssBytes": 162361344,
+          "nativeFinishRssBytes": 178323456,
+          "nativeSampledPeakRssBytes": 181043200,
+          "nativeRssSamples": 18
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 44.983,
+          "nativeStartRssBytes": 162361344,
+          "nativeFinishRssBytes": 178225152,
+          "nativeSampledPeakRssBytes": 181043200,
+          "nativeRssSamples": 17
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.177,
+          "nativeStartRssBytes": 178225152,
+          "nativeFinishRssBytes": 178229248,
+          "nativeSampledPeakRssBytes": 178229248,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.028,
+          "nativeStartRssBytes": 163147776,
+          "nativeFinishRssBytes": 163147776,
+          "nativeSampledPeakRssBytes": 163147776,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 45.102,
+          "nativeStartRssBytes": 163147776,
+          "nativeFinishRssBytes": 164134912,
+          "nativeSampledPeakRssBytes": 164134912,
+          "nativeRssSamples": 20
+        },
+        {
+          "phase": "validation",
+          "durationMs": 110.576,
+          "nativeStartRssBytes": 164134912,
+          "nativeFinishRssBytes": 181100544,
+          "nativeSampledPeakRssBytes": 183656448,
+          "nativeRssSamples": 49
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 53.303,
+          "nativeStartRssBytes": 164347904,
+          "nativeFinishRssBytes": 165060608,
+          "nativeSampledPeakRssBytes": 165060608,
+          "nativeRssSamples": 25
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.028,
+          "nativeStartRssBytes": 165011456,
+          "nativeFinishRssBytes": 165011456,
+          "nativeSampledPeakRssBytes": 165011456,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 45.132,
+          "nativeStartRssBytes": 165064704,
+          "nativeFinishRssBytes": 181100544,
+          "nativeSampledPeakRssBytes": 183656448,
+          "nativeRssSamples": 22
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 41.13,
+          "nativeStartRssBytes": 165085184,
+          "nativeFinishRssBytes": 181035008,
+          "nativeSampledPeakRssBytes": 183656448,
+          "nativeRssSamples": 21
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.17,
+          "nativeStartRssBytes": 181035008,
+          "nativeFinishRssBytes": 181051392,
+          "nativeSampledPeakRssBytes": 181051392,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 7.822,
+          "nativeStartRssBytes": 165691392,
+          "nativeFinishRssBytes": 165867520,
+          "nativeSampledPeakRssBytes": 165867520,
+          "nativeRssSamples": 5
+        }
+      ],
+      "scope": "Fresh production child converts a copied legacy database. Startup calls report whole-process RSS before/after and every ten milliseconds; legacy decode and initial candidate preparation are one native call. Managed publication/SQLite commit and candidate activation are separately bracketed. Ordinary export retains native two-millisecond stage observations. Live player/protocol-bot and health latency apply only after the listener opens, with a one-second response tail; no startup HTTP, browser, physical LAN or PyRL claim. Sampled peaks are lower bounds. Original source-file digest is unchanged."
+    },
+    {
+      "name": "debian/embedded-zero",
+      "reportSha256": "fcffc08386bd3898d13b1b3533f366a1418d8ba0d06c444dfa5949e103fd6889",
+      "sourceSha256": "0b65423f2310e0db15fe7dab7f3bc7f154190fdc04854e876b423c748cf7d5f9",
+      "sourceFormat": "legacy-json",
+      "nativeBuildIdentifier": "slither_native/0.1.0+c02cc489b5b2.62e68d86759551d3",
+      "nativeSourceSha256": "11be041b82c2a2dd5b8e1b05b1e841d93233e59855e2e8047d592aaf0d14a1a4",
+      "profilerSha256": "4c2d60219d9a5dd09045d4bf19a286b8537096762c2a3ae31702b792b500d8c7",
+      "host": {
+        "platform": "linux",
+        "arch": "x64",
+        "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+        "totalMemoryBytes": 16775348224
+      },
+      "legacyConversion": {
+        "completeness": "population-only",
+        "exactContinuation": false,
+        "sourceFormat": "legacy-json",
+        "sourceGeneration": "0000000000000007",
+        "sourceRunId": "a4-legacy-population-fixture",
+        "sourceSeed": 1234567,
+        "sourceSnapshotId": 1,
+        "version": 1
+      },
+      "exportBytes": 13642752,
+      "exportSha256": "c8fff2ff0fc5f3695a072fccbce5e3c30602a5fca16a2d12559766e2acb98069",
+      "baselineRssBytes": 89137152,
+      "observedPeakRssBytes": 213581824,
+      "wholeProcessIncreaseMiB": 118.6796875,
+      "observedMemoryTargetPassed": true,
+      "eventLoopDelayP95Ms": 11.075583,
+      "eventLoopDelayP99Ms": 14.704639,
+      "healthP95Ms": 3.4077390000002197,
+      "actionLatencies": [
+        {
+          "kind": "player",
+          "samples": 47,
+          "p95Ms": 14.686252000000195,
+          "maxMs": 17.80715699999996
+        },
+        {
+          "kind": "reinforcementLearning",
+          "samples": 90,
+          "p95Ms": 17.68097499999999,
+          "maxMs": 22.09447699999987
+        }
+      ],
+      "boundaries": [
+        {
+          "type": "boundary",
+          "phase": "before-legacy-startup",
+          "rssBefore": 89137152,
+          "peakRssBytes": 89137152,
+          "samples": 1
+        },
+        {
+          "type": "boundary",
+          "phase": "legacy-database-decode-and-candidate",
+          "durationMs": 586.566721,
+          "rssBefore": 125730816,
+          "peakRssBytes": 203096064,
+          "samples": 60
+        },
+        {
+          "type": "boundary",
+          "phase": "managed-publication-and-sqlite-commit",
+          "durationMs": 125.24683899999991,
+          "rssBefore": 151740416,
+          "peakRssBytes": 155541504,
+          "samples": 14
+        },
+        {
+          "type": "boundary",
+          "phase": "candidate-activation",
+          "durationMs": 7.848032000000103,
+          "rssBefore": 152416256,
+          "peakRssBytes": 153202688,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-export-source-worker-request",
+          "durationMs": 15.953441999999995,
+          "rssBefore": 161640448,
+          "peakRssBytes": 161902592,
+          "samples": 3
+        },
+        {
+          "type": "boundary",
+          "phase": "http-file-download",
+          "durationMs": 87.45383700000002,
+          "started": 1827.867337,
+          "rssBefore": 165412864,
+          "peakRssBytes": 166461440,
+          "bodyBytes": 13642752,
+          "samples": 419
+        }
+      ],
+      "phases": [
+        {
+          "phase": "export",
+          "durationMs": 240.689,
+          "nativeStartRssBytes": 162787328,
+          "nativeFinishRssBytes": 166121472,
+          "nativeSampledPeakRssBytes": 184786944,
+          "nativeRssSamples": 102
+        },
+        {
+          "phase": "export-source-population",
+          "durationMs": 61.15,
+          "nativeStartRssBytes": 162787328,
+          "nativeFinishRssBytes": 163532800,
+          "nativeSampledPeakRssBytes": 181219328,
+          "nativeRssSamples": 25
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 59.05,
+          "nativeStartRssBytes": 162795520,
+          "nativeFinishRssBytes": 179793920,
+          "nativeSampledPeakRssBytes": 181219328,
+          "nativeRssSamples": 25
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 54.987,
+          "nativeStartRssBytes": 162840576,
+          "nativeFinishRssBytes": 179724288,
+          "nativeSampledPeakRssBytes": 181219328,
+          "nativeRssSamples": 24
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.176,
+          "nativeStartRssBytes": 179728384,
+          "nativeFinishRssBytes": 179736576,
+          "nativeSampledPeakRssBytes": 179736576,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.04,
+          "nativeStartRssBytes": 163811328,
+          "nativeFinishRssBytes": 163811328,
+          "nativeSampledPeakRssBytes": 163811328,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 49.349,
+          "nativeStartRssBytes": 163815424,
+          "nativeFinishRssBytes": 164466688,
+          "nativeSampledPeakRssBytes": 164466688,
+          "nativeRssSamples": 23
+        },
+        {
+          "phase": "validation",
+          "durationMs": 106.096,
+          "nativeStartRssBytes": 164466688,
+          "nativeFinishRssBytes": 182251520,
+          "nativeSampledPeakRssBytes": 184786944,
+          "nativeRssSamples": 47
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 49.796,
+          "nativeStartRssBytes": 164651008,
+          "nativeFinishRssBytes": 165388288,
+          "nativeSampledPeakRssBytes": 165388288,
+          "nativeRssSamples": 22
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.036,
+          "nativeStartRssBytes": 165273600,
+          "nativeFinishRssBytes": 165277696,
+          "nativeSampledPeakRssBytes": 165277696,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 44.025,
+          "nativeStartRssBytes": 165388288,
+          "nativeFinishRssBytes": 182251520,
+          "nativeSampledPeakRssBytes": 184786944,
+          "nativeRssSamples": 20
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 40.773,
+          "nativeStartRssBytes": 165388288,
+          "nativeFinishRssBytes": 182161408,
+          "nativeSampledPeakRssBytes": 184786944,
+          "nativeRssSamples": 19
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.161,
+          "nativeStartRssBytes": 182161408,
+          "nativeFinishRssBytes": 182161408,
+          "nativeSampledPeakRssBytes": 182161408,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 8.383,
+          "nativeStartRssBytes": 166047744,
+          "nativeFinishRssBytes": 166117376,
+          "nativeSampledPeakRssBytes": 166117376,
+          "nativeRssSamples": 6
+        }
+      ],
+      "scope": "Fresh production child converts a copied legacy database. Startup calls report whole-process RSS before/after and every ten milliseconds; legacy decode and initial candidate preparation are one native call. Managed publication/SQLite commit and candidate activation are separately bracketed. Ordinary export retains native two-millisecond stage observations. Live player/protocol-bot and health latency apply only after the listener opens, with a one-second response tail; no startup HTTP, browser, physical LAN or PyRL claim. Sampled peaks are lower bounds. Original source-file digest is unchanged."
+    },
+    {
+      "name": "debian/gzip-null",
+      "reportSha256": "844b3aef2ed1ff92a61b00b48bd624712745a8103097d2648173e69a4258e9ae",
+      "sourceSha256": "ba895eadbfd5662e36c3f49fa1f3829f06490044376becbd46fbd2bf800d40c5",
+      "sourceFormat": "legacy-gzip",
+      "nativeBuildIdentifier": "slither_native/0.1.0+c02cc489b5b2.62e68d86759551d3",
+      "nativeSourceSha256": "11be041b82c2a2dd5b8e1b05b1e841d93233e59855e2e8047d592aaf0d14a1a4",
+      "profilerSha256": "4c2d60219d9a5dd09045d4bf19a286b8537096762c2a3ae31702b792b500d8c7",
+      "host": {
+        "platform": "linux",
+        "arch": "x64",
+        "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+        "totalMemoryBytes": 16775348224
+      },
+      "legacyConversion": {
+        "completeness": "population-only",
+        "exactContinuation": false,
+        "sourceFormat": "legacy-gzip",
+        "sourceGeneration": "0000000000000007",
+        "sourceRunId": "a4-legacy-population-fixture",
+        "sourceSeed": 1234567,
+        "sourceSnapshotId": 1,
+        "version": 1
+      },
+      "exportBytes": 13642752,
+      "exportSha256": "5c2e458732a2d425692d9d0ab4718240c5fe995672c2fa8cdbb75da6d5f91d59",
+      "baselineRssBytes": 85925888,
+      "observedPeakRssBytes": 187793408,
+      "wholeProcessIncreaseMiB": 97.1484375,
+      "observedMemoryTargetPassed": true,
+      "eventLoopDelayP95Ms": 10.969087,
+      "eventLoopDelayP99Ms": 14.950399,
+      "healthP95Ms": 3.1720779999998285,
+      "actionLatencies": [
+        {
+          "kind": "player",
+          "samples": 45,
+          "p95Ms": 10.276346000000103,
+          "maxMs": 14.14695400000005
+        },
+        {
+          "kind": "reinforcementLearning",
+          "samples": 87,
+          "p95Ms": 18.740068000000065,
+          "maxMs": 22.201556999999866
+        }
+      ],
+      "boundaries": [
+        {
+          "type": "boundary",
+          "phase": "before-legacy-startup",
+          "rssBefore": 85925888,
+          "peakRssBytes": 85925888,
+          "samples": 1
+        },
+        {
+          "type": "boundary",
+          "phase": "legacy-database-decode-and-candidate",
+          "durationMs": 604.6942720000001,
+          "rssBefore": 126849024,
+          "peakRssBytes": 165847040,
+          "samples": 61
+        },
+        {
+          "type": "boundary",
+          "phase": "managed-publication-and-sqlite-commit",
+          "durationMs": 121.77890400000001,
+          "rssBefore": 155541504,
+          "peakRssBytes": 159211520,
+          "samples": 14
+        },
+        {
+          "type": "boundary",
+          "phase": "candidate-activation",
+          "durationMs": 7.752321000000165,
+          "rssBefore": 156278784,
+          "peakRssBytes": 157126656,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-export-source-worker-request",
+          "durationMs": 13.21241699999996,
+          "rssBefore": 165302272,
+          "peakRssBytes": 165302272,
+          "samples": 3
+        },
+        {
+          "type": "boundary",
+          "phase": "http-file-download",
+          "durationMs": 95.85129099999995,
+          "started": 1763.104597,
+          "rssBefore": 168566784,
+          "peakRssBytes": 171188224,
+          "bodyBytes": 13642752,
+          "samples": 419
+        }
+      ],
+      "phases": [
+        {
+          "phase": "export",
+          "durationMs": 225.826,
+          "nativeStartRssBytes": 166301696,
+          "nativeFinishRssBytes": 169377792,
+          "nativeSampledPeakRssBytes": 187793408,
+          "nativeRssSamples": 95
+        },
+        {
+          "phase": "export-source-population",
+          "durationMs": 50.477,
+          "nativeStartRssBytes": 166305792,
+          "nativeFinishRssBytes": 166879232,
+          "nativeSampledPeakRssBytes": 184725504,
+          "nativeRssSamples": 20
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 48.888,
+          "nativeStartRssBytes": 166313984,
+          "nativeFinishRssBytes": 183140352,
+          "nativeSampledPeakRssBytes": 184725504,
+          "nativeRssSamples": 19
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 45.619,
+          "nativeStartRssBytes": 166359040,
+          "nativeFinishRssBytes": 183128064,
+          "nativeSampledPeakRssBytes": 184725504,
+          "nativeRssSamples": 17
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.159,
+          "nativeStartRssBytes": 183128064,
+          "nativeFinishRssBytes": 183128064,
+          "nativeSampledPeakRssBytes": 183177216,
+          "nativeRssSamples": 3
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.055,
+          "nativeStartRssBytes": 167133184,
+          "nativeFinishRssBytes": 167133184,
+          "nativeSampledPeakRssBytes": 167133184,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 44.047,
+          "nativeStartRssBytes": 167137280,
+          "nativeFinishRssBytes": 167702528,
+          "nativeSampledPeakRssBytes": 167702528,
+          "nativeRssSamples": 21
+        },
+        {
+          "phase": "validation",
+          "durationMs": 111.228,
+          "nativeStartRssBytes": 167702528,
+          "nativeFinishRssBytes": 185483264,
+          "nativeSampledPeakRssBytes": 187793408,
+          "nativeRssSamples": 50
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 50.701,
+          "nativeStartRssBytes": 167845888,
+          "nativeFinishRssBytes": 168607744,
+          "nativeSampledPeakRssBytes": 168607744,
+          "nativeRssSamples": 24
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.027,
+          "nativeStartRssBytes": 168525824,
+          "nativeFinishRssBytes": 168525824,
+          "nativeSampledPeakRssBytes": 168525824,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 48.164,
+          "nativeStartRssBytes": 168607744,
+          "nativeFinishRssBytes": 185483264,
+          "nativeSampledPeakRssBytes": 187793408,
+          "nativeRssSamples": 23
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 45.064,
+          "nativeStartRssBytes": 168607744,
+          "nativeFinishRssBytes": 185479168,
+          "nativeSampledPeakRssBytes": 187793408,
+          "nativeRssSamples": 21
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.155,
+          "nativeStartRssBytes": 185479168,
+          "nativeFinishRssBytes": 185479168,
+          "nativeSampledPeakRssBytes": 185479168,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 6.821,
+          "nativeStartRssBytes": 169361408,
+          "nativeFinishRssBytes": 169377792,
+          "nativeSampledPeakRssBytes": 169377792,
+          "nativeRssSamples": 5
+        }
+      ],
+      "scope": "Fresh production child converts a copied legacy database. Startup calls report whole-process RSS before/after and every ten milliseconds; legacy decode and initial candidate preparation are one native call. Managed publication/SQLite commit and candidate activation are separately bracketed. Ordinary export retains native two-millisecond stage observations. Live player/protocol-bot and health latency apply only after the listener opens, with a one-second response tail; no startup HTTP, browser, physical LAN or PyRL claim. Sampled peaks are lower bounds. Original source-file digest is unchanged."
+    },
+    {
+      "name": "debian/gzip-zero",
+      "reportSha256": "ab636d141cfa9a5975ccf36125b48e39ba9d5d266141d8a7bfbeb5a983e5fd61",
+      "sourceSha256": "8e3b98202878360495587d6768992444cdc4af1b93a55c758361ecb9d8799a3d",
+      "sourceFormat": "legacy-gzip",
+      "nativeBuildIdentifier": "slither_native/0.1.0+c02cc489b5b2.62e68d86759551d3",
+      "nativeSourceSha256": "11be041b82c2a2dd5b8e1b05b1e841d93233e59855e2e8047d592aaf0d14a1a4",
+      "profilerSha256": "4c2d60219d9a5dd09045d4bf19a286b8537096762c2a3ae31702b792b500d8c7",
+      "host": {
+        "platform": "linux",
+        "arch": "x64",
+        "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+        "totalMemoryBytes": 16775348224
+      },
+      "legacyConversion": {
+        "completeness": "population-only",
+        "exactContinuation": false,
+        "sourceFormat": "legacy-gzip",
+        "sourceGeneration": "0000000000000007",
+        "sourceRunId": "a4-legacy-population-fixture",
+        "sourceSeed": 1234567,
+        "sourceSnapshotId": 1,
+        "version": 1
+      },
+      "exportBytes": 13642752,
+      "exportSha256": "8967d627c94097e199fdf0ceeb7e9fce9221942faec02739051dda8c06f761ba",
+      "baselineRssBytes": 90415104,
+      "observedPeakRssBytes": 191627264,
+      "wholeProcessIncreaseMiB": 96.5234375,
+      "observedMemoryTargetPassed": true,
+      "eventLoopDelayP95Ms": 11.689983,
+      "eventLoopDelayP99Ms": 16.146431,
+      "healthP95Ms": 3.5676710000000185,
+      "actionLatencies": [
+        {
+          "kind": "player",
+          "samples": 45,
+          "p95Ms": 12.718554999999924,
+          "maxMs": 17.056736
+        },
+        {
+          "kind": "reinforcementLearning",
+          "samples": 83,
+          "p95Ms": 17.770676999999978,
+          "maxMs": 24.47301799999991
+        }
+      ],
+      "boundaries": [
+        {
+          "type": "boundary",
+          "phase": "before-legacy-startup",
+          "rssBefore": 90415104,
+          "peakRssBytes": 90415104,
+          "samples": 1
+        },
+        {
+          "type": "boundary",
+          "phase": "legacy-database-decode-and-candidate",
+          "durationMs": 606.75888,
+          "rssBefore": 130600960,
+          "peakRssBytes": 168726528,
+          "samples": 61
+        },
+        {
+          "type": "boundary",
+          "phase": "managed-publication-and-sqlite-commit",
+          "durationMs": 120.69023100000004,
+          "rssBefore": 159399936,
+          "peakRssBytes": 163069952,
+          "samples": 13
+        },
+        {
+          "type": "boundary",
+          "phase": "candidate-activation",
+          "durationMs": 7.964852000000064,
+          "rssBefore": 160014336,
+          "peakRssBytes": 160931840,
+          "samples": 2
+        },
+        {
+          "type": "boundary",
+          "phase": "sqlite-export-source-worker-request",
+          "durationMs": 13.21041799999989,
+          "rssBefore": 169635840,
+          "peakRssBytes": 169635840,
+          "samples": 3
+        },
+        {
+          "type": "boundary",
+          "phase": "http-file-download",
+          "durationMs": 102.609332,
+          "started": 1776.265937,
+          "rssBefore": 172953600,
+          "peakRssBytes": 174526464,
+          "bodyBytes": 13642752,
+          "samples": 419
+        }
+      ],
+      "phases": [
+        {
+          "phase": "export",
+          "durationMs": 233.479,
+          "nativeStartRssBytes": 170582016,
+          "nativeFinishRssBytes": 173768704,
+          "nativeSampledPeakRssBytes": 191266816,
+          "nativeRssSamples": 102
+        },
+        {
+          "phase": "export-source-population",
+          "durationMs": 56.255,
+          "nativeStartRssBytes": 170586112,
+          "nativeFinishRssBytes": 171192320,
+          "nativeSampledPeakRssBytes": 188948480,
+          "nativeRssSamples": 23
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 54.234,
+          "nativeStartRssBytes": 170594304,
+          "nativeFinishRssBytes": 187453440,
+          "nativeSampledPeakRssBytes": 188948480,
+          "nativeRssSamples": 22
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 50.249,
+          "nativeStartRssBytes": 170639360,
+          "nativeFinishRssBytes": 187404288,
+          "nativeSampledPeakRssBytes": 188948480,
+          "nativeRssSamples": 20
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.312,
+          "nativeStartRssBytes": 187404288,
+          "nativeFinishRssBytes": 187412480,
+          "nativeSampledPeakRssBytes": 187412480,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "numeric-encode",
+          "durationMs": 0.028,
+          "nativeStartRssBytes": 171421696,
+          "nativeFinishRssBytes": 171421696,
+          "nativeSampledPeakRssBytes": 171421696,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 44.491,
+          "nativeStartRssBytes": 171421696,
+          "nativeFinishRssBytes": 171954176,
+          "nativeSampledPeakRssBytes": 171954176,
+          "nativeRssSamples": 20
+        },
+        {
+          "phase": "validation",
+          "durationMs": 111.065,
+          "nativeStartRssBytes": 171958272,
+          "nativeFinishRssBytes": 189800448,
+          "nativeSampledPeakRssBytes": 191266816,
+          "nativeRssSamples": 52
+        },
+        {
+          "phase": "temporary-file-write",
+          "durationMs": 53.217,
+          "nativeStartRssBytes": 172163072,
+          "nativeFinishRssBytes": 172937216,
+          "nativeSampledPeakRssBytes": 172937216,
+          "nativeRssSamples": 27
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.028,
+          "nativeStartRssBytes": 172830720,
+          "nativeFinishRssBytes": 172830720,
+          "nativeSampledPeakRssBytes": 172830720,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "checkpoint-restore",
+          "durationMs": 45.424,
+          "nativeStartRssBytes": 172937216,
+          "nativeFinishRssBytes": 189800448,
+          "nativeSampledPeakRssBytes": 191266816,
+          "nativeRssSamples": 22
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 41.635,
+          "nativeStartRssBytes": 172937216,
+          "nativeFinishRssBytes": 189763584,
+          "nativeSampledPeakRssBytes": 191266816,
+          "nativeRssSamples": 21
+        },
+        {
+          "phase": "numeric-decode",
+          "durationMs": 0.128,
+          "nativeStartRssBytes": 189763584,
+          "nativeFinishRssBytes": 189763584,
+          "nativeSampledPeakRssBytes": 189763584,
+          "nativeRssSamples": 2
+        },
+        {
+          "phase": "managed-publication",
+          "durationMs": 7.555,
+          "nativeStartRssBytes": 173592576,
+          "nativeFinishRssBytes": 173764608,
+          "nativeSampledPeakRssBytes": 173764608,
+          "nativeRssSamples": 6
+        }
+      ],
+      "scope": "Fresh production child converts a copied legacy database. Startup calls report whole-process RSS before/after and every ten milliseconds; legacy decode and initial candidate preparation are one native call. Managed publication/SQLite commit and candidate activation are separately bracketed. Ordinary export retains native two-millisecond stage observations. Live player/protocol-bot and health latency apply only after the listener opens, with a one-second response tail; no startup HTTP, browser, physical LAN or PyRL claim. Sampled peaks are lower bounds. Original source-file digest is unchanged."
+    }
+  ]
+}

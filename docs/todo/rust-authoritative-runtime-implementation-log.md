@@ -2594,3 +2594,24 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   named acceptance/regression results remain applicable. Browser archive
   memory/usability, complete A4 memory coverage, laptop browser acceptance and
   unattended service setup remain open.
+
+- 2026-10-04 The existing archive profiler now measures legacy JSON uploads
+  and copied legacy SQLite startup without changing production calculations.
+  An 85,342,533-byte JSON population imports and exports with honest
+  population-only provenance. Separate production children cover 300 default
+  genomes through v2 rows, gzip BLOBs and embedded JSON with null/zero format
+  versions. All observed whole-process increases, including staged population
+  and startup allocations, remain below 256 MiB and total RSS below 12 GiB.
+  The five Debian reader windows meet event-loop, health and live control
+  limits; Windows gzip-null retains its 21.28 ms event-loop p95 miss. Existing
+  P2 phase memory (175.81 MiB entire observed growth), full P3 startup admission
+  and P2 checkpoint overlap are reused. The compact report is
+  `evidence/stage7/archive-legacy-memory-c02cc48-20261004.json`; sampled peaks
+  remain observations, and database startup combines decode/initial candidate
+  preparation while publication/commit and activation are separately timed.
+  Source-file digests are unchanged. TypeScript, affected lint and the focused
+  export-cancellation regression pass. All disposable servers are stopped;
+  retained report digests match and exact local/remote fixtures, copied stores,
+  dependencies and build products are removed. Browser archive memory/usability,
+  laptop browser acceptance and administrator-enabled Debian user lingering
+  remain incomplete; the branch is not yet ready to merge.

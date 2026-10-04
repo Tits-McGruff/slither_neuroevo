@@ -2,7 +2,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
-import { mkdir, realpath, rm, stat, statfs, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, realpath, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { cpus, totalmem } from 'node:os';
 import { createRequire } from 'node:module';
@@ -18,6 +18,7 @@ import { ExperimentalRuntimeTelemetry } from '../../server/rustEngine/runtimeTel
 import { computeNativeSourceIdentity } from '../../server/rustEngine/nativeSourceIdentity.ts';
 import type { ExperimentalRunningAuthorityNativeHandle } from '../../server/rustEngine/backgroundRuntime.ts';
 import { BackgroundGenerationRouter } from '../../server/rustEngine/backgroundGeneration.ts';
+import { ExperimentalFreshRunSession } from '../../server/rustEngine/experimentalFreshRunSession.ts';
 
 /** Small authoritative health projection; all memory belongs to the child server. */
 interface Health {
@@ -27,6 +28,8 @@ interface Health {
   nativeBuildIdentifier: string;
   /** Current generation. */
   generation: string;
+  /** Honest compatibility classification after an old JSON population upload. */
+  legacyConversion?: { sourceFormat: string; completeness: string; exactContinuation: boolean };
   /** Most recent exact Rust archive job. */
   archiveWork: RustArchiveWorkProgress | null;
   /** Child-process memory and event-loop measurements. */
@@ -60,7 +63,7 @@ export async function stop(child: ChildProcess): Promise<void> {
 }
 
 /** Observe actual metadata-worker requests without changing their arguments or results. */
-export async function childServer(databasePath: string, checkpointTimings = false, rustWorkers = 6): Promise<void> {
+export async function childServer(databasePath: string, checkpointTimings = false, rustWorkers = 6, resumeLegacy = false): Promise<void> {
   if (![4, 5, 6].includes(rustWorkers)) throw new Error('archive profile requires four, five or six calculation workers');
   const originalCommit = CheckpointPersistenceClient.prototype.commitImport;
   const originalAcquire = CheckpointPersistenceClient.prototype.acquireCurrentExportLease;
@@ -224,8 +227,26 @@ export async function childServer(databasePath: string, checkpointTimings = fals
   CheckpointPersistenceClient.prototype.acquireCurrentExportLease = function() {
     return measure('sqlite-export-source-worker-request', () => originalAcquire.call(this));
   };
-  const server = await startRustServer({ ...DEFAULT_CONFIG, host: '127.0.0.1', port: 0,
-    resume: 'fresh', seed: 1511506142, dbPath: databasePath, rustCalculationWorkers: rustWorkers, logLevel: 'error' });
+  const originalLegacy = ExperimentalFreshRunSession.prototype.initializeFromLegacySqlite;
+  const originalRunStart = ExperimentalFreshRunSession.prototype.commitPendingRunStart;
+  const originalActivation = ExperimentalFreshRunSession.prototype.activateRunningAuthority;
+  if (resumeLegacy) {
+    ExperimentalFreshRunSession.prototype.initializeFromLegacySqlite = function(...args) {
+      return measure('legacy-database-decode-and-candidate', () => originalLegacy.apply(this, args));
+    };
+    ExperimentalFreshRunSession.prototype.commitPendingRunStart = function(...args) {
+      return measure('managed-publication-and-sqlite-commit', () => originalRunStart.apply(this, args));
+    };
+    ExperimentalFreshRunSession.prototype.activateRunningAuthority = function() {
+      return measure('candidate-activation', () => originalActivation.call(this));
+    };
+    process.send?.({ type: 'boundary', phase: 'before-legacy-startup', rssBefore: process.memoryUsage.rss(),
+      peakRssBytes: process.memoryUsage.rss(), samples: 1 });
+  }
+  const { seed: _defaultSeed, ...resumeConfig } = DEFAULT_CONFIG;
+  const server = await startRustServer({ ...(resumeLegacy ? resumeConfig : DEFAULT_CONFIG), host: '127.0.0.1', port: 0,
+    resume: resumeLegacy ? 'latest' : 'fresh', ...(resumeLegacy ? {} : { seed: 1511506142 }),
+    dbPath: databasePath, rustCalculationWorkers: rustWorkers, logLevel: 'error' });
   try {
     if (server.startupFault) throw new Error(`profile startup fault: ${server.startupFault}`);
     process.send?.({ type: 'ready', port: server.port });
@@ -252,6 +273,9 @@ export async function childServer(databasePath: string, checkpointTimings = fals
     CheckpointPersistenceClient.prototype.commit = originalCheckpointCommit;
     CheckpointPersistenceClient.prototype.commitImport = originalCommit;
     CheckpointPersistenceClient.prototype.acquireCurrentExportLease = originalAcquire;
+    ExperimentalFreshRunSession.prototype.initializeFromLegacySqlite = originalLegacy;
+    ExperimentalFreshRunSession.prototype.commitPendingRunStart = originalRunStart;
+    ExperimentalFreshRunSession.prototype.activateRunningAuthority = originalActivation;
     if (addon && originalExport) addon.ExperimentalRunningAuthority.prototype.prepareExportArchive = originalExport;
     if (process.connected) process.disconnect();
   }
@@ -324,7 +348,7 @@ async function cleanup(outputRoot: string, createdRoot: string, databasePath: st
 }
 
 /** Exercise actual upload, replacement and download while sampling only the child server. */
-async function profile(archivePath: string, outputRoot: string): Promise<void> {
+async function profile(archivePath: string, outputRoot: string, legacyJson = false): Promise<void> {
   if (existsSync(outputRoot)) throw new Error('profile output directory already exists');
   const archiveBytes = (await stat(archivePath)).size;
   if (archiveBytes <= 50 * 1024 * 1024) throw new Error('profile requires an actual save over 50 MiB');
@@ -437,13 +461,19 @@ async function profile(archivePath: string, outputRoot: string): Promise<void> {
       void slowed.promise.finally(() => clearTimeout(timer)).catch(() => {});
     })]);
     const importedHealth = await health();
+    if (legacyJson && (importedHealth.legacyConversion?.sourceFormat !== 'browser-json' ||
+        importedHealth.legacyConversion.completeness !== 'population-only' ||
+        importedHealth.legacyConversion.exactContinuation !== false)) {
+      throw new Error('legacy profile did not publish honest population-only provenance');
+    }
     if (importedHealth.archiveWork?.phaseTrace) traces.set(importedHealth.archiveWork.operationId, importedHealth.archiveWork);
     const exported = await fetch(`http://127.0.0.1:${port}/api/export/latest`, { signal: AbortSignal.timeout(180_000) });
     if (!exported.ok || !exported.body || exported.headers.get('x-slither-checkpoint-id') !== receipt.checkpointId) {
       throw new Error('profile export selected a different checkpoint');
     }
     await exported.body.pipeTo(Writable.toWeb(createWriteStream(exportPath, { flags: 'wx' })));
-    if ((await stat(exportPath)).size !== Number(exported.headers.get('content-length'))) throw new Error('export length mismatch');
+    const exportBytes = (await stat(exportPath)).size;
+    if (exportBytes !== Number(exported.headers.get('content-length'))) throw new Error('export length mismatch');
     // Confirm applications after the response too, retaining their original
     // receive-window label rather than hiding slower input behind completion.
     await new Promise<void>(done => setTimeout(done, 1000));
@@ -453,11 +483,11 @@ async function profile(archivePath: string, outputRoot: string): Promise<void> {
     await sampler;
     if (samplingFailure) throw samplingFailure;
     if (await digest(archivePath) !== originalSha256) throw new Error('source save changed');
-    if (await digest(exportPath) !== originalSha256) throw new Error('exact re-export changed the original archive');
+    if (!legacyJson && await digest(exportPath) !== originalSha256) throw new Error('exact re-export changed the original archive');
     if (boundaries.filter(boundary => boundary['phase'] === 'http-upload-spooling' &&
         boundary['bodyBytes'] === archiveBytes).length !== 1) throw new Error('actual upload bytes were not observed exactly once');
     if (boundaries.filter(boundary => boundary['phase'] === 'http-file-download' &&
-        boundary['bodyBytes'] === archiveBytes).length !== 1) throw new Error('actual download bytes were not observed exactly once');
+        boundary['bodyBytes'] === exportBytes).length !== 1) throw new Error('actual download bytes were not observed exactly once');
     const jobs = [...traces.values()].map(job => ({ ...job, phases: job.phaseTrace!.intervals.map(interval => {
       if (!interval.finishedMicros) throw new Error('completed profile contains an open phase');
       if (!job.phaseTrace!.rssSamplerStarted || !interval.startRssBytes || !interval.finishRssBytes ||
@@ -485,7 +515,8 @@ async function profile(archivePath: string, outputRoot: string): Promise<void> {
       }));
     for (const controller of controllers) controller.check();
     healthLatencyMs.sort((left, right) => left - right);
-    await writeFile(resolve(createdRoot, 'profile.json'), JSON.stringify({ originalSha256, archiveBytes,
+    await writeFile(resolve(createdRoot, 'profile.json'), JSON.stringify({ originalSha256, archiveBytes, exportBytes,
+      sourceFormat: legacyJson ? 'legacy-json' : 'archive-v1',
       nativeSourceSha256, profilerSha256, host: { platform: process.platform, arch: process.arch,
         cpuModel: cpus()[0]?.model, totalMemoryBytes: totalmem() },
       receipt, exportedSaveRoot: exported.headers.get('x-slither-save-root'), exportSha256: await digest(exportPath),
@@ -509,14 +540,123 @@ async function profile(archivePath: string, outputRoot: string): Promise<void> {
   }
 }
 
+/** Measure old database conversion in a fresh child, then its ordinary archive export. */
+async function profileLegacyDatabase(sourcePath: string, outputRoot: string): Promise<void> {
+  if (existsSync(outputRoot)) throw new Error('profile output directory already exists');
+  await mkdir(outputRoot, { recursive: true });
+  const createdRoot = await realpath(outputRoot);
+  const filesystem = await statfs(createdRoot, { bigint: true });
+  if (filesystem.bavail * filesystem.bsize < 12n * 1024n ** 3n) throw new Error('profile requires 12 GiB free');
+  const databasePath = resolve(createdRoot, 'profile.db');
+  const exportPath = resolve(createdRoot, 'export.slither-save');
+  const sourceSha256 = await digest(sourcePath);
+  await copyFile(sourcePath, databasePath);
+  const child = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), '--child-legacy', databasePath], {
+    env: { ...process.env, SLITHER_TRACE_ARCHIVE_PHASES: '1' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+  });
+  const boundaries: Record<string, unknown>[] = [];
+  const actions: Array<{ kind: string; durationMs: number }> = [];
+  const traces = new Map<string, RustArchiveWorkProgress>();
+  const healthLatencies: number[] = [];
+  let errors = '';
+  child.stdout?.resume();
+  child.stderr?.on('data', part => { errors = `${errors}${String(part)}`.slice(-8192); });
+  child.on('message', value => {
+    const message = value as Record<string, unknown>;
+    if (message['type'] === 'boundary') boundaries.push(message);
+    if (message['type'] === 'action') actions.push(message as unknown as typeof actions[number]);
+  });
+  const controllers: Array<Awaited<ReturnType<typeof control>>> = [];
+  let sampling = false;
+  let sampler: Promise<void> | undefined;
+  let samplingFailure: unknown;
+  try {
+    const port = await new Promise<number>((done, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`legacy startup timed out: ${errors}`)), 30_000);
+      child.once('exit', code => { clearTimeout(timeout); reject(new Error(`legacy child exited ${code}: ${errors}`)); });
+      child.on('message', value => {
+        const message = value as { type?: string; port?: number };
+        if (message.type === 'ready' && message.port) { clearTimeout(timeout); done(message.port); }
+      });
+    });
+    /** Read only scalar health after the production listener becomes available. */
+    async function health(): Promise<Health> {
+      const started = performance.now();
+      const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(10_000) });
+      const value = await response.json() as Health;
+      healthLatencies.push(performance.now() - started);
+      if (!response.ok || !value.ok || value.legacyConversion?.exactContinuation !== false) {
+        throw new Error('legacy database conversion faulted or claimed exact continuation');
+      }
+      return value;
+    }
+    const afterStartup = await health();
+    for (const kind of ['ui', 'bot'] as const) controllers.push(await control(port, kind, 0));
+    sampling = true;
+    sampler = (async () => {
+      while (sampling) {
+        try {
+          const value = await health();
+          if (value.archiveWork?.phaseTrace) traces.set(value.archiveWork.operationId, value.archiveWork);
+        } catch (error) { samplingFailure = error; break; }
+        await new Promise<void>(done => setTimeout(done, 10));
+      }
+    })();
+    const exported = await fetch(`http://127.0.0.1:${port}/api/export/latest`, { signal: AbortSignal.timeout(180_000) });
+    if (!exported.ok || !exported.body) throw new Error('converted database export failed');
+    await exported.body.pipeTo(Writable.toWeb(createWriteStream(exportPath, { flags: 'wx' })));
+    const exportBytes = (await stat(exportPath)).size;
+    if (exportBytes !== Number(exported.headers.get('content-length'))) throw new Error('legacy export length mismatch');
+    await new Promise<void>(done => setTimeout(done, 1000));
+    const final = await health();
+    if (final.archiveWork?.phaseTrace) traces.set(final.archiveWork.operationId, final.archiveWork);
+    sampling = false;
+    await sampler;
+    if (samplingFailure) throw samplingFailure;
+    const jobs = [...traces.values()];
+    if (jobs.length !== 1 || !jobs[0]!.finished || !jobs[0]!.phaseTrace?.rssSamplerStarted ||
+        jobs[0]!.phaseTrace.truncated) throw new Error('legacy export phase trace is incomplete');
+    if (await digest(sourcePath) !== sourceSha256) throw new Error('original legacy database changed');
+    for (const controller of controllers) controller.check();
+    const actionLatencies = ['player', 'reinforcementLearning'].map(kind => {
+      const values = actions.filter(action => action.kind === kind).map(action => action.durationMs).sort((a, b) => a - b);
+      if (!values.length) throw new Error(`legacy export lacks ${kind} control samples`);
+      return { kind, samples: values.length, p95Ms: values[Math.ceil(values.length * 0.95) - 1], maxMs: values.at(-1) };
+    });
+    healthLatencies.sort((a, b) => a - b);
+    await writeFile(resolve(createdRoot, 'profile.json'), JSON.stringify({ sourceSha256,
+      nativeSourceSha256: computeNativeSourceIdentity(resolve('native')).sha256,
+      profilerSha256: await digest(fileURLToPath(import.meta.url)),
+      host: { platform: process.platform, arch: process.arch, cpuModel: cpus()[0]?.model, totalMemoryBytes: totalmem() },
+      sourceFormat: afterStartup.legacyConversion?.sourceFormat, afterStartup, final, boundaries, jobs,
+      exportBytes, exportSha256: await digest(exportPath), actionLatencies,
+      healthP95Ms: healthLatencies[Math.ceil(healthLatencies.length * 0.95) - 1],
+      scope: 'Fresh production child converts a copied legacy database. Startup calls report whole-process RSS before/after and every ten milliseconds; legacy decode and initial candidate preparation are one native call. Managed publication/SQLite commit and candidate activation are separately bracketed. Ordinary export retains native two-millisecond stage observations. Live player/protocol-bot and health latency apply only after the listener opens, with a one-second response tail; no startup HTTP, browser, physical LAN or PyRL claim. Sampled peaks are lower bounds. Original source-file digest is unchanged.'
+    }, null, 2) + '\n', { flag: 'wx' });
+  } finally {
+    sampling = false;
+    await sampler;
+    for (const controller of controllers) controller.close();
+    try { await stop(child); }
+    finally { await cleanup(outputRoot, createdRoot, databasePath, exportPath); }
+  }
+}
+
 /** Dispatch the private child mode or require an explicit archive and absent output directory. */
 async function main(): Promise<void> {
   const [first, second, third, fourth, ...extra] = process.argv.slice(2);
   if (first === '--child' && second && !third && process.send) { await childServer(resolve(second)); return; }
-  if (first !== '--archive-path' || !second || third !== '--output-root' || !fourth || extra.length) {
-    throw new Error('usage: --archive-path EXISTING_SAVE_OVER_50_MIB --output-root NEW_DIRECTORY');
+  if (first === '--child-legacy' && second && !third && process.send) { await childServer(resolve(second), false, 6, true); return; }
+  if (first === '--database-path' && second && third === '--output-root' && fourth && !extra.length) {
+    await profileLegacyDatabase(resolve(second), resolve(fourth));
+    console.log('Legacy database profile completed; disposable server/database/export removed.');
+    return;
   }
-  await profile(resolve(second), resolve(fourth));
+  if (first !== '--archive-path' || !second || third !== '--output-root' || !fourth ||
+      (extra.length !== 0 && (extra.length !== 1 || extra[0] !== '--legacy-json'))) {
+    throw new Error('usage: --archive-path EXISTING_SAVE_OVER_50_MIB --output-root NEW_DIRECTORY [--legacy-json]');
+  }
+  await profile(resolve(second), resolve(fourth), extra[0] === '--legacy-json');
   console.log('Archive phase profile completed; disposable server/database/export removed.');
 }
 
