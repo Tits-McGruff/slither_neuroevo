@@ -409,18 +409,19 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
     if (packet['type'] === 'error') reject(new Error(String(packet['message'])));
     if (packet['type'] === 'stateReplaced' && packet['reason'] === 'reset') done();
   }));
-  viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: streaming ? 300 : 12, simSpeed: 12 },
+  viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 12 },
     updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 },
       { path: 'pelletCountTarget', value: 100 }, ...(streaming ? [{ path: 'worldRadius', value: 10000 }] : [])],
-    graphSpec: streaming ? null : orderingGraph() }));
+    // A few large brains provide the real >8 MiB response required for socket
+    // backpressure without making this transport fixture a 300-snake sensor test.
+    graphSpec: streaming ? buildLargeBrainGraph(83) : orderingGraph() }));
   await bounded(reset, 'ordering fixture reset did not commit');
   viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
   const rejoined = new Promise<Buffer>(done => viewer.once('pong', done));
   viewer.ping('ordering-fixture-rejoin');
   expect((await bounded(rejoined, 'ordering fixture rejoin was not received')).toString()).toBe('ordering-fixture-rejoin');
-  // The streaming fixture must execute 480 full population steps and commit
-  // generation two. Allow its eight simulated seconds at the supported 1x
-  // rate plus durability time; this setup is not a >96-step/s speed gate.
+  // The streaming fixture must still execute 480 real steps and commit generation
+  // two. Its setup budget covers the eight simulated seconds plus durability.
   const deadline = performance.now() + (streaming ? 10_000 : 5000);
   let generation = 1n;
   while (generation < 2n && performance.now() < deadline) {

@@ -2630,3 +2630,22 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   all preservation/liveness assertions remain. Both cancellation cases,
   TypeScript and affected lint pass. Browser archive memory/usability and
   physical laptop browser acceptance remain incomplete.
+
+- 2026-10-04 Current-build P0/P2/P3 archives of 2.40/71.06/387.49 MiB
+  independently validate and import through the ordinary desktop browser UI
+  as original raw `File` bodies, with no file-reading calls. Precise sampled
+  heap peaks are 12.54/12.71/12.78 MiB; the large-minus-small peak is 0.24 MiB.
+  Combined Codex browser/renderer/network private-memory windows differ by at
+  most 70.55 MiB, with existing app activity included. Animation intervals meet
+  the 95% within 40 ms target and observed long tasks remain below 100 ms.
+  `evidence/stage7/windows-ryzen5800x/browser-import-memory-a3e5ba5-20261004.json`
+  retains the scoped result. Forced collection is unsupported by the in-app
+  interface and two ordinary downloads close before completion; retained heap,
+  export memory and physical laptop acceptance remain unverified. Windows CI
+  still misses the evolved cancellation fixture's ten-second setup deadline.
+  That fixture now uses 12 large brains to retain its real >8 MiB evolved
+  response without the unrelated 300-snake sensing workload. Both actual
+  cancellation boundaries and all existing preservation assertions pass;
+  TypeScript and affected lint pass. No production calculations change. The
+  disposable browser/server and generated fixtures are removed after retaining
+  compact evidence; the branch is not ready to merge.

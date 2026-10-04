@@ -1,0 +1,360 @@
+{
+  "sourceCommit": "a3e5ba520805f95090f1348641406eda44a556fe",
+  "nativeBuildIdentifier": "slither_native/0.1.0+7f2ee36b5f29.62e68d86759551d3",
+  "date": "2026-10-04",
+  "scope": "Actual production UI imports through the Codex in-app browser on Windows. Task-owned current-build saves were streamed from the real production server, independently validated, and uploaded as original raw File bodies. Precise Runtime.getHeapUsage observations are sampled peaks, not instantaneous bounds. No production code or math changed.",
+  "cases": [
+    {
+      "scenario": "P0",
+      "startedAt": "2026-10-04T12:21:52.021Z",
+      "archiveBytes": 2521088,
+      "archiveSha256": "432e1992100f285fcdc35b4214a40e8e321aa220f305de3fee81b3d9d0fd646d",
+      "logicalRoot": "30dfa3f9d0ec37593b573f9e358c6583a137dfc3494e629b312ce6885e1bd85b",
+      "independentValidation": {
+        "reader": "Python 3.14 tarfile and compression.zstd",
+        "roleHashesAndSaveRootVerified": true,
+        "decodedRoleBytes": [
+          {
+            "bytes": 5906,
+            "role": "checkpoint"
+          },
+          {
+            "bytes": 1377,
+            "role": "graph"
+          },
+          {
+            "bytes": 5760,
+            "role": "population-index"
+          },
+          {
+            "bytes": 2960760,
+            "role": "population-weights"
+          },
+          {
+            "bytes": 3520,
+            "role": "population-recurrent"
+          },
+          {
+            "bytes": 0,
+            "role": "history"
+          },
+          {
+            "bytes": 0,
+            "role": "hall-of-fame-index"
+          },
+          {
+            "bytes": 0,
+            "role": "hall-of-fame-weights"
+          }
+        ]
+      },
+      "upload": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5182/api/import/archive",
+        "bodyIsFile": true,
+        "fileName": "P0.slither-save",
+        "fileBytes": 2521088,
+        "fileType": "",
+        "progressEvents": 1,
+        "progressBytes": 2521088,
+        "status": 200,
+        "responseCharacters": 315
+      },
+      "fileReadCalls": [],
+      "heap": {
+        "samples": 205,
+        "observedPeakUsedBytes": 13151528,
+        "observedPeakBackingBytes": 2441729,
+        "lastUsedBytes": 12897732,
+        "maxSampleGapMs": 465.0,
+        "forcedCollectionSupported": false,
+        "retainedAfterCollectionVerified": false
+      },
+      "animation": {
+        "samples": 871,
+        "p95Ms": 16.79999999998836,
+        "maxMs": 66.79999999998836,
+        "fractionAtMost40Ms": 0.9896670493685419
+      },
+      "renderIntervals": {
+        "samples": 873,
+        "p95Ms": 16.79999999998836,
+        "maxMs": 66.79999999998836,
+        "fractionAtMost40Ms": 0.9896907216494846
+      },
+      "longTasks": [
+        {
+          "startTime": 466591.700000003,
+          "duration": 59
+        }
+      ],
+      "visibility": "visible",
+      "focus": true,
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "devicePixelRatio": 1
+      },
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
+    },
+    {
+      "scenario": "P2",
+      "startedAt": "2026-10-04T12:22:42.399Z",
+      "archiveBytes": 74514432,
+      "archiveSha256": "fd48a2db9548be84261a995e540c23c08b6d704a3a0e29b36045a1bc05a264df",
+      "logicalRoot": "b2fa1fbf651c21ab6aecbb00df9b5f00df2e7214967894776847401d4f341ca9",
+      "independentValidation": {
+        "reader": "Python 3.14 tarfile and compression.zstd",
+        "roleHashesAndSaveRootVerified": true,
+        "decodedRoleBytes": [
+          {
+            "bytes": 5994,
+            "role": "checkpoint"
+          },
+          {
+            "bytes": 1519,
+            "role": "graph"
+          },
+          {
+            "bytes": 5760,
+            "role": "population-index"
+          },
+          {
+            "bytes": 88641080,
+            "role": "population-weights"
+          },
+          {
+            "bytes": 21120,
+            "role": "population-recurrent"
+          },
+          {
+            "bytes": 0,
+            "role": "history"
+          },
+          {
+            "bytes": 0,
+            "role": "hall-of-fame-index"
+          },
+          {
+            "bytes": 0,
+            "role": "hall-of-fame-weights"
+          }
+        ]
+      },
+      "upload": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5182/api/import/archive",
+        "bodyIsFile": true,
+        "fileName": "P2.slither-save",
+        "fileBytes": 74514432,
+        "fileType": "",
+        "progressEvents": 3,
+        "progressBytes": 74514432,
+        "status": 200,
+        "responseCharacters": 315
+      },
+      "fileReadCalls": [],
+      "heap": {
+        "samples": 272,
+        "observedPeakUsedBytes": 13328668,
+        "observedPeakBackingBytes": 2374135,
+        "lastUsedBytes": 7382316,
+        "maxSampleGapMs": 318.0,
+        "forcedCollectionSupported": false,
+        "retainedAfterCollectionVerified": false
+      },
+      "animation": {
+        "samples": 1192,
+        "p95Ms": 16.79999999998836,
+        "maxMs": 50,
+        "fractionAtMost40Ms": 0.9991610738255033
+      },
+      "renderIntervals": {
+        "samples": 1194,
+        "p95Ms": 16.79999999998836,
+        "maxMs": 50,
+        "fractionAtMost40Ms": 0.9991624790619765
+      },
+      "longTasks": [
+        {
+          "startTime": 517408.10000000894,
+          "duration": 62
+        }
+      ],
+      "visibility": "visible",
+      "focus": true,
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "devicePixelRatio": 1
+      },
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
+    },
+    {
+      "scenario": "P3",
+      "startedAt": "2026-10-04T12:23:14.824Z",
+      "archiveBytes": 406314496,
+      "archiveSha256": "e70c31c6e4f5ed5a704c870ba4cda6769cde4b9ab16d3d1829abda3b29e31d8d",
+      "logicalRoot": "29023cc815a10422f682a952bd6a3432b5566e992be1fa1eec67e48ee2399ce9",
+      "independentValidation": {
+        "reader": "Python 3.14 tarfile and compression.zstd",
+        "roleHashesAndSaveRootVerified": true,
+        "decodedRoleBytes": [
+          {
+            "bytes": 5994,
+            "role": "checkpoint"
+          },
+          {
+            "bytes": 1519,
+            "role": "graph"
+          },
+          {
+            "bytes": 31240,
+            "role": "population-index"
+          },
+          {
+            "bytes": 483496800,
+            "role": "population-weights"
+          },
+          {
+            "bytes": 115200,
+            "role": "population-recurrent"
+          },
+          {
+            "bytes": 0,
+            "role": "history"
+          },
+          {
+            "bytes": 0,
+            "role": "hall-of-fame-index"
+          },
+          {
+            "bytes": 0,
+            "role": "hall-of-fame-weights"
+          }
+        ]
+      },
+      "upload": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5182/api/import/archive",
+        "bodyIsFile": true,
+        "fileName": "P3.slither-save",
+        "fileBytes": 406314496,
+        "fileType": "",
+        "progressEvents": 12,
+        "progressBytes": 406314496,
+        "status": 200,
+        "responseCharacters": 315
+      },
+      "fileReadCalls": [],
+      "heap": {
+        "samples": 334,
+        "observedPeakUsedBytes": 13400960,
+        "observedPeakBackingBytes": 2119341,
+        "lastUsedBytes": 12335180,
+        "maxSampleGapMs": 317.0,
+        "forcedCollectionSupported": false,
+        "retainedAfterCollectionVerified": false
+      },
+      "animation": {
+        "samples": 1014,
+        "p95Ms": 33.40000000002328,
+        "maxMs": 50.300000000046566,
+        "fractionAtMost40Ms": 0.985207100591716
+      },
+      "renderIntervals": {
+        "samples": 1016,
+        "p95Ms": 33.40000000002328,
+        "maxMs": 50.300000000046566,
+        "fractionAtMost40Ms": 0.985236220472441
+      },
+      "longTasks": [
+        {
+          "startTime": 553144.5,
+          "duration": 52
+        }
+      ],
+      "visibility": "visible",
+      "focus": true,
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "devicePixelRatio": 1
+      },
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
+    }
+  ],
+  "largeMinusSmallObservedHeapPeakBytes": 249432.0,
+  "privateMemory": {
+    "scope": "Combined Codex browser root, every ChatGPT renderer and the NetworkService process. Includes existing app/chat rendering and background noise; does not claim isolated game-tab ownership. GPU and unrelated utility processes excluded. Large-import window precedes small active-game baseline; comparison is between separate bounded windows.",
+    "processIds": [
+      5660,
+      8804,
+      15136,
+      18012,
+      18860,
+      24508,
+      25452,
+      32260,
+      32592
+    ],
+    "largeWindowStart": "2026-10-04T12:22:32.6442273Z",
+    "largeWindowEnd": "2026-10-04T12:24:32.6297214Z",
+    "largeSamples": 501,
+    "largeWindowPeakBytes": 1994268672.0,
+    "smallWindowStart": "2026-10-04T12:27:44.083577Z",
+    "smallWindowEnd": "2026-10-04T12:28:04.0285136Z",
+    "smallSamples": 83,
+    "smallWindowMinBytes": 1920294912.0,
+    "observedLargePeakMinusSmallMinBytes": 73973760
+  },
+  "browserExportAttempts": [
+    {
+      "at": "2026-10-04T12:17:46.054Z",
+      "phase": "request",
+      "requestId": 1,
+      "method": "GET",
+      "url": "/api/export/latest",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+      "range": null,
+      "ifRange": null,
+      "accept": null,
+      "fetchDestination": "empty",
+      "fetchMode": "navigate",
+      "fetchSite": "same-origin"
+    },
+    {
+      "at": "2026-10-04T12:17:46.112Z",
+      "phase": "close",
+      "requestId": 1,
+      "finished": false
+    },
+    {
+      "at": "2026-10-04T12:18:47.022Z",
+      "phase": "request",
+      "requestId": 2,
+      "method": "GET",
+      "url": "/api/export/latest",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+      "range": null,
+      "ifRange": null,
+      "accept": null,
+      "fetchDestination": "empty",
+      "fetchMode": "navigate",
+      "fetchSite": "same-origin"
+    },
+    {
+      "at": "2026-10-04T12:18:47.076Z",
+      "phase": "close",
+      "requestId": 2,
+      "finished": false
+    }
+  ],
+  "limits": [
+    "HeapProfiler.collectGarbage and Page.addScriptToEvaluateOnNewDocument report unsupported through raw CDP; window.gc is unavailable. Retained-after-collection acceptance remains open. Existing observers were injected into the loaded task-owned page through the supported Runtime.evaluate method.",
+    "Two ordinary UI exports received attachment headers, then the browser connection closed before writableFinished; no completed browser download or export-memory acceptance is claimed.",
+    "Physical laptop drawing and LAN browser usability remain open. These are desktop loopback upload measurements.",
+    "One later small-baseline import completed but a dialog raced a heap query and invalidated that extra capture; its endpoint success and private-memory baseline are supplemental, not a fourth accepted capture."
+  ],
+  "acceptanceStatus": "Partial A3/A10 evidence: current-build small/P2/P3 raw upload, no file reading, sampled peak-heap and animation/long-task checks pass. A2/A3 post-collection memory and completed direct browser export remain unverified."
+}
