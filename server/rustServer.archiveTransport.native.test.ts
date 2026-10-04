@@ -802,6 +802,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         .mockImplementation(async (_directory, request) => diskAdmission.evaluateDiskAdmission(request,
           diskAdmission.ARCHIVE_TEMP_QUOTA_BYTES, 32n * 1024n ** 3n));
       const spool = vi.spyOn(archiveUpload, 'spoolArchiveUpload');
+      const cleanup = testCleanup(() => { admission.mockRestore(); spool.mockRestore(); });
       try {
         const started = performance.now();
         const response = await raw(fixture, [`Content-Length: ${fixture.archive.byteLength}`],
@@ -817,7 +818,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         expect(spool).not.toHaveBeenCalled();
         await preserved(fixture);
         await advancing(fixture);
-      } finally { admission.mockRestore(); spool.mockRestore(); }
+      } finally { cleanup(); }
     });
   }, 10_000);
 

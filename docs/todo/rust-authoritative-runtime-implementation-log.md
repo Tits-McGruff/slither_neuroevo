@@ -2511,3 +2511,31 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   scope without changing game calculations or reclassifying retained P1
   evidence. The new target-VM timing window and remaining Stage 7/8 gates
   remain open.
+
+- 2026-10-04 The corrected exact timing sampler measures evolved P1 at
+  `63b4629` on Oxygen with five workers, two actual PyRL actors and a
+  programmatic player. Across 600.18874–600.23649 seconds, 35,765 steps yield
+  conservative simulated/wall progress 0.993081, zero discarded time and no
+  sampled overload. The combined gate remains false: window p50/p95/p99 upper
+  bounds are 8/16/24 ms. Exactly 403 steps exceed 16.667 ms (1.127%); 393 are
+  ordinary slow steps and ten are generation-ending computations, so terminal
+  work alone cannot explain the miss. Ordinary slow-step wall attribution is
+  3.446 seconds sensing, 0.907 inference and 3.086 world work. Ten generation
+  crossings provide nine complete publication-interval upper bounds averaging
+  60.94 seconds (max 61.28). Checkpoint barrier p95/max is 250/211.97 ms,
+  local health p95 3.32 ms, event-loop p95/p99 10.90/11.81 ms and peak RSS
+  188.36 MB. Actual trainer actions increase by 68,920, with receipt-to-apply
+  p95 2 ms. The player receives 20,918 frames without protocol errors. All
+  observed queues remain bounded with zero rejection, capacity-wait, priority
+  overflow or reliable-send failure deltas. Reports and host context are
+  `evidence/stage7/oxygen-ryzen2700/p1-step-window-*-63b4629-20261004.json`;
+  point snapshots show active Unraid media/storage work without proving a
+  timing cause. This is a ten-minute timing gate, not new browser/reconnect or
+  thirty-minute memory-soak evidence. Retained report digests match; disposable
+  clients/server are stopped and exact task-owned remote/local scratch removed.
+  Twelve focused archive rejection/cancellation checks, TypeScript and affected
+  lint pass with unchanged deadlines. Archive quota-mock cleanup now also runs
+  at test completion and remains idempotent if the old callback finishes late.
+  Next compare four/six workers from equivalent evolved P1 boundaries before
+  choosing another sensing/world optimization. P1 timing and the remaining
+  Stage 7/8 acceptance gates remain open.
