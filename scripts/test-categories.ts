@@ -13,6 +13,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/stage6/freshRunFixture.test.ts',
     'scripts/stage6/frameV1Fixture.test.ts',
     'scripts/stage7/rss-soak-summary.test.ts',
+    'scripts/stage7/storage-soak-summary.test.ts',
     'scripts/stage7/archive-overlap-summary.test.ts',
     'scripts/stage7/generation-window-summary.test.ts',
     'scripts/stage7/dense-world-capacity.test.ts',

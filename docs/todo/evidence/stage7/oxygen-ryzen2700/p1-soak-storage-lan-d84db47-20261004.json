@@ -1,0 +1,72 @@
+{
+  "sourceRevision": "d84db47b337a13893bd0e8c85beb4225a0c7d38f",
+  "sourceReportSha256": "6068254638ae6380c531303ad7c9fc2354169ed62d4eeb6f23b9ce48c39a1130",
+  "evaluatorSha256": "86e391b098deaa24dd5c6698a2df9025b294ffddffbcf0c70953bdb805cf1daa",
+  "storage": {
+    "inspectedSamples": 61,
+    "automaticByteCap": "4294967296",
+    "temporaryQuotaBytes": "9663676416",
+    "operatingReserveBytes": "1073741824",
+    "walAllowanceBytes": "67108864",
+    "peakAutomaticStoredBytes": "122172928",
+    "peakDatabaseBytes": "151552",
+    "peakWalBytes": "3019992",
+    "peakShmBytes": "32768",
+    "peakTemporaryBytes": "0",
+    "minimumFreeBytes": "172519989248",
+    "finalTemporaryBytes": "0",
+    "withinAutomaticBudget": true,
+    "withinTemporaryQuota": true,
+    "withinWalAllowance": true,
+    "preservesOperatingReserve": true,
+    "temporaryBytesReturnedToExpectedSet": true,
+    "meetsObservedStorageGate": true
+  },
+  "lan": [
+    {
+      "client": "desktop",
+      "sourceReportSha256": "afcd0da2e15084ad6c7d06b9d85743b6fec32e3cc838163e2956312be206d0d4",
+      "withinMainCounterWindow": true,
+      "passed": true,
+      "clients": [
+        {
+          "clientType": "ui",
+          "attempted": 200,
+          "completed": 199,
+          "unknown": 1,
+          "p95Ms": 41.112700000001496
+        },
+        {
+          "clientType": "bot",
+          "attempted": 200,
+          "completed": 200,
+          "unknown": 0,
+          "p95Ms": 43.014799999997194
+        }
+      ]
+    },
+    {
+      "client": "nitrogen",
+      "sourceReportSha256": "b632e3b38b912efea7ef8cd0f64fcce20f6bde2d1c4192f0a264d744a1ef6ae1",
+      "withinMainCounterWindow": true,
+      "passed": true,
+      "clients": [
+        {
+          "clientType": "ui",
+          "attempted": 200,
+          "completed": 200,
+          "unknown": 0,
+          "p95Ms": 42.66830000000118
+        },
+        {
+          "clientType": "bot",
+          "attempted": 200,
+          "completed": 199,
+          "unknown": 1,
+          "p95Ms": 50.05760000000009
+        }
+      ]
+    }
+  ],
+  "scope": "Cached scalar storage observations plus exact authoritative-counter containment of the two real LAN probes. This is separate from the final filesystem artifact audit and browser rendering evidence."
+}

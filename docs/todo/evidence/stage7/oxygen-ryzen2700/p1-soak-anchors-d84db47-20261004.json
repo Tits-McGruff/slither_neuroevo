@@ -1,0 +1,108 @@
+{
+  "sourcePath": "/srv/tablebases/codex-slither-workload-d84db47/p1/load.db",
+  "retainedAnchors": 10,
+  "selectedAnchors": 10,
+  "verified": 10,
+  "results": [
+    {
+      "checkpointId": "b36d43cfa3f227e44aa6711ce86c2e4af1672b4c8ad50e3cfb9262eb1db84aad",
+      "runId": "7b2e36c8-99b5-4313-a9f3-490d816b66a2",
+      "generation": "0000000000000019",
+      "retentionKind": "automatic",
+      "restoredPriorRun": false,
+      "archiveBytes": 14379520,
+      "saveLogicalRootSha256": "a2c31e4270e965a143b6474e2c5412dcd40d592663abf5ef035b68c9a0e9ba41",
+      "elapsedSeconds": 0.952625273
+    },
+    {
+      "checkpointId": "b37c65ed5f718fe95a53e61cdbd6cdde60aeec7771dbf7f1e57ab543cc88364e",
+      "runId": "7b2e36c8-99b5-4313-a9f3-490d816b66a2",
+      "generation": "000000000000001e",
+      "retentionKind": "automatic",
+      "restoredPriorRun": false,
+      "archiveBytes": 14567936,
+      "saveLogicalRootSha256": "5d3514140b8ccf9418da76bd5372c65d80f514124b739836d21103aec2326325",
+      "elapsedSeconds": 0.7438248089999997
+    },
+    {
+      "checkpointId": "8795327a343549289916afb0b9fe69d949a158f65761cb8214429022b02c4493",
+      "runId": "7b2e36c8-99b5-4313-a9f3-490d816b66a2",
+      "generation": "000000000000001f",
+      "retentionKind": "automatic",
+      "restoredPriorRun": false,
+      "archiveBytes": 14609408,
+      "saveLogicalRootSha256": "09bb346acf7c71ac2e9ad819ba6da07da2aa8d8ea902d0f07fe1a29a114d600b",
+      "elapsedSeconds": 0.7742394220000001
+    },
+    {
+      "checkpointId": "c3cd729dc9f49c9d646a8908a774701b5b03ee58b7899b8420eeea1bad8584ae",
+      "runId": "7b2e36c8-99b5-4313-a9f3-490d816b66a2",
+      "generation": "0000000000000020",
+      "retentionKind": "automatic",
+      "restoredPriorRun": false,
+      "archiveBytes": 14563840,
+      "saveLogicalRootSha256": "fdd0920eddfe57048b808cf2a23e408557e6b397cfa4d12601decb1fb2e3cab7",
+      "elapsedSeconds": 0.7303242919999998
+    },
+    {
+      "checkpointId": "1344fc1fafd9da124fa96b926a07a40ff60c8fce70d1228a9b2b78b65faeb013",
+      "runId": "7b2e36c8-99b5-4313-a9f3-490d816b66a2",
+      "generation": "0000000000000021",
+      "retentionKind": "automatic",
+      "restoredPriorRun": false,
+      "archiveBytes": 14703616,
+      "saveLogicalRootSha256": "ae3d2ea2f86a5720f9511531435b15865118015af92b012b824fd5c371ca337a",
+      "elapsedSeconds": 0.7644873260000004
+    },
+    {
+      "checkpointId": "7a198f1a223d83bb3347106ec4771eea7b5a1748990ed40850e9cae77972d48e",
+      "runId": "7b2e36c8-99b5-4313-a9f3-490d816b66a2",
+      "generation": "0000000000000022",
+      "retentionKind": "automatic",
+      "restoredPriorRun": false,
+      "archiveBytes": 14682112,
+      "saveLogicalRootSha256": "4966f6efda64751847fc6c945f599ca06220658c896f14674b47fc33c8363abf",
+      "elapsedSeconds": 0.7505599860000002
+    },
+    {
+      "checkpointId": "6f106233cbfee6b5b676c2e35d772f288f00d9d74d0b7048d9634144e2bf79b8",
+      "runId": "7b2e36c8-99b5-4313-a9f3-490d816b66a2",
+      "generation": "0000000000000023",
+      "retentionKind": "automatic",
+      "restoredPriorRun": false,
+      "archiveBytes": 14694912,
+      "saveLogicalRootSha256": "eb96473cd018bf7bb13448974d8724bc7996a3417f7b016280d5304a8ea40026",
+      "elapsedSeconds": 0.7161685710000002
+    },
+    {
+      "checkpointId": "165819b672d29871a04f44131d46fd66e98db8173078cd2ae3db1125928a5a4c",
+      "runId": "7b2e36c8-99b5-4313-a9f3-490d816b66a2",
+      "generation": "0000000000000024",
+      "retentionKind": "automatic",
+      "restoredPriorRun": false,
+      "archiveBytes": 14811136,
+      "saveLogicalRootSha256": "4110c0cd1aa36e5062e8c1227fe9569b304cccef2dfc24df2c555018000908b4",
+      "elapsedSeconds": 0.7229708730000002
+    },
+    {
+      "checkpointId": "fab9a92298918f3e2aa3c76de7a28cec141de333660e897eb75b6da3b6e49e7f",
+      "runId": "7b2e36c8-99b5-4313-a9f3-490d816b66a2",
+      "generation": "0000000000000025",
+      "retentionKind": "automatic",
+      "restoredPriorRun": false,
+      "archiveBytes": 14881792,
+      "saveLogicalRootSha256": "efe768cb4f533db519a71e83a9ff66ea390280acb63b5d4947d010c9f84d68b0",
+      "elapsedSeconds": 0.7883143300000002
+    },
+    {
+      "checkpointId": "24a4c8800fdc4268c642425e15f0dc75b103983be973fc725b76718671e56103",
+      "runId": "dd0d3dbc-545d-4f7b-9a4f-a8f9b12e9ae9",
+      "generation": "0000000000000001",
+      "retentionKind": "automatic",
+      "restoredPriorRun": true,
+      "archiveBytes": 2521088,
+      "saveLogicalRootSha256": "46372ed2faca64c3a569eb140dbd85b70a366d9dbd6f3aef1b95b6045881f31e",
+      "elapsedSeconds": 0.465392441
+    }
+  ]
+}

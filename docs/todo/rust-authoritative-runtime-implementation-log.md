@@ -2455,3 +2455,37 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   No engine behavior changes; prior Rust and continuation evidence remains
   applicable. P0/P1 target windows, later evolved/soak and remaining Stage 7/8
   acceptance gates remain open.
+
+- 2026-10-04 A five-worker evolved P1 run with 300 neural snakes, ten baseline
+  bots and the owner's actual two-actor PyRL trainer covers
+  1,800.02004–1,800.06769 seconds and 107,216 complete steps. Conservative
+  simulated/wall progress is 0.992703, with zero discarded time and no sampled
+  overload. Thirty generation crossings yield 29 complete publication-interval
+  upper bounds averaging 60.96 seconds (max 61.26). The combined gate remains
+  false: the process-lifetime step p99 upper bucket is 24 ms, above P1's
+  16.667 ms limit; it does not prove an interval-specific after-warm percentile.
+  Barrier p95/max is 250/240.89 ms, local health p95 2.68 ms, event-loop
+  p95/p99 10.88/11.64 ms and peak RSS 228.2 MB. The ten-minute warm/twenty-minute
+  measured RSS check passes at 0.3815 MiB/min and 30.58 MiB above warm median.
+  Actual trainer actions increase by 208,142. A separate programmatic player
+  receives 57,002 frames, sends 52,649 actions and completes 62 connection
+  exchanges: 61 successful reclaims plus one rejected reclaim followed by a
+  fresh assignment. Desktop/laptop LAN protocol probes pass the required
+  input p95 below 100 ms, including interrupted trials in percentile ranking:
+  UI/bot upper bounds are 41.11/43.01 ms and 42.67/50.06 ms respectively.
+  These are protocol/frame observations, not browser rendering or loss proof.
+  All observed queues remain bounded, with two visible reliable-send failures;
+  boundedness alone does not prove complete reliable delivery. Exact-byte
+  storage summaries preserve earlier breaches and reject changed/malformed
+  limits or unexpected final temporary files; five new tests pass on Windows
+  and Linux, plus the two category checks and affected type/lint checks.
+  Sampled automatic files peak at 122.17 MB, WAL at 3.02 MB and temporary bytes
+  at zero. All ten retained boundaries restore and re-export successfully.
+  Final SQLite integrity and metadata/file-size audit passes with no unmanaged
+  or temporary artifacts. Reports/context are
+  `evidence/stage7/oxygen-ryzen2700/p1-soak-*-d84db47-20261004.json`.
+  Retained remote report digests match; disposable trainer/server are stopped
+  and task-owned Oxygen checkout, fixtures, dependencies/cache, generated
+  builds and desktop client scratch are removed. Unchanged engine behavior
+  reuses prior Rust/continuation evidence. Interval-specific P1 p99, P0 target
+  windows, later P2/soak, browser and remaining Stage 7/8 gates stay open.
