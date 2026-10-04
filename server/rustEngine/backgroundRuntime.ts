@@ -139,8 +139,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitPublishGenerationStart(sequence: U64Hex): void;
   /** Drain prepared output without inspecting or reconstructing the world. */
   drainOutputs(maxEvents: number, maxOwnedBytes: number): RustBackgroundDrain;
-  /** Read only bounded atomic health scalars. */
-  health(): RustBackgroundHealth;
+  /** Read bounded atomic scalars; opt into bucket-array diagnostics only for requested measurements. */
+  health(includeStepTimingHistogram?: boolean): RustBackgroundHealth;
   /** Read queue occupancy, lifetime peaks, failures, and immutable admission limits. */
   queueDiagnostics(): RustQueueDiagnostics;
   /** Read cached metadata without serializing or waiting on the live world. */

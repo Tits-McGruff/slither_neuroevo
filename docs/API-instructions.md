@@ -576,6 +576,17 @@ Returns `{ "ok": true, ... }` plus current tick, connected client count,
 inference mode, scheduler diagnostics, fault state, run identity,
 `configRevision`, and `configHash`.
 
+Rust health at `/api/health` and `/health` also includes
+`stepTimingBucketUpperMicros`, `stepTimingBucketCounts`,
+`stepTimingSamples`, and `stepTimingHistogramConsistent`. Ceilings and counts
+are exact, sixteen-digit lowercase hexadecimal Uint64 values; the final
+`ffffffffffffffff` ceiling denotes an open-ended bucket. Subtract initial
+counts from final counts only for consistent observations from the same
+process, build, run and unchanged workload. Reject regressed or saturated
+counters. These buckets include generation-ending computation; persistence
+waiting has a separate barrier clock. `telemetry.step` remains a lifetime
+distribution, so its percentiles cannot be subtracted to obtain a window.
+
 ### `POST /api/save`
 
 Writes the current population as a typed, non-resumable `population-export`

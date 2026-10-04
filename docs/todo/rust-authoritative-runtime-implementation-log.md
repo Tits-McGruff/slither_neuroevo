@@ -2489,3 +2489,25 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   builds and desktop client scratch are removed. Unchanged engine behavior
   reuses prior Rust/continuation evidence. Interval-specific P1 p99, P0 target
   windows, later P2/soak, browser and remaining Stage 7/8 gates stay open.
+
+- 2026-10-04 Rust health now exposes opt-in exact fixed timing-bucket ceilings
+  and counts. The sample prefix publishes after its bucket with release/acquire
+  ordering; bounded health reads mark partial, racing or saturated prefixes
+  unusable for subtraction. Routine native health reads omit the diagnostic
+  arrays, and the real HTTP test verifies that distinction. Ordinary and
+  trainer-loaded samplers subtract initial/final consistent prefixes to report
+  window p50/p95/p99 upper bounds, retaining generation-ending computation.
+  P0/P1 checks use the window p99; other lifetime timings and persistence-barrier
+  clocks remain explicitly scoped. Both samplers reject changed authority or
+  workload identities and bound inconsistent-read retries inside the original
+  request clock. Five summary tests cover warm-up contamination in both
+  directions, exact large ranks, one-percent threshold neighbors, open-ended
+  percentiles, malformed/saturated counts, layout changes and regressions.
+  Two Rust tests cover a partial/saturated publication and concurrent complete
+  prefixes. The 537-test feature Rust suite, three benchmark contracts,
+  doctest, rustfmt, all-target/all-feature Clippy, 28 focused clock/HTTP/source
+  identity/exact one/four/five/six-worker continuation checks, TypeScript,
+  affected-file ESLint and Vite pass on Windows. This corrects measurement
+  scope without changing game calculations or reclassifying retained P1
+  evidence. The new target-VM timing window and remaining Stage 7/8 gates
+  remain open.

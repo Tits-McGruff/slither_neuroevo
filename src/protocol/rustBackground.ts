@@ -234,6 +234,12 @@ export interface RustBackgroundHealth {
   stepTimingP95Micros: RustBackgroundIdentity;
   /** Conservative histogram ceiling containing the 99th percentile. */
   stepTimingP99Micros: RustBackgroundIdentity;
+  /** Opt-in fixed inclusive bucket ceilings; absent when omitted, last Uint64 maximum is open-ended. */
+  stepTimingBucketUpperMicros?: RustBackgroundIdentity[];
+  /** Opt-in exact lifetime bucket counts; subtract only consistent, unsaturated observations. */
+  stepTimingBucketCounts?: RustBackgroundIdentity[];
+  /** Requested counts match the published sample prefix without an overlapping update; false when omitted. */
+  stepTimingHistogramConsistent: boolean;
   /** Ordinary steps above the 16.667 ms gate with coarse phase attribution. */
   slowStepSamples: RustBackgroundIdentity;
   /** Control-selection microseconds accumulated across attributed slow steps. */

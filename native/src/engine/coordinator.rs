@@ -128,6 +128,12 @@ pub struct RunningAuthorityHealth {
     pub step_timing_p95_micros: u64,
     /// Conservative inclusive histogram ceiling containing the 99th percentile.
     pub step_timing_p99_micros: u64,
+    /// Fixed inclusive bucket ceilings; the final u64::MAX bucket is open-ended.
+    pub step_timing_bucket_upper_micros: [u64; STEP_TIMING_BUCKET_UPPER_MICROS.len()],
+    /// Exact lifetime counts, suitable for subtraction only when the snapshot is consistent.
+    pub step_timing_bucket_counts: [u64; STEP_TIMING_BUCKET_UPPER_MICROS.len()],
+    /// Counts represent the published sample prefix without an overlapping bucket update.
+    pub step_timing_histogram_consistent: bool,
     /// Ordinary steps above the 16.667 ms gate with phase attribution.
     pub slow_step_samples: u64,
     /// Sum of control-selection time within attributed slow steps.
@@ -324,7 +330,6 @@ impl RunningAuthorityMetrics {
     /// Retain bounded production timing without allocating or crossing authority ownership.
     fn record_step_duration(&self, duration: Duration, cost: Option<RunningStepCostMicros>) {
         let micros = u64::try_from(duration.as_micros()).unwrap_or(u64::MAX);
-        saturating_increment(&self.step_timing_samples, 1);
         saturating_increment(&self.step_timing_total_micros, micros);
         // Keep the pre-rename API for the supported Rust 1.92 toolchain.
         #[allow(deprecated)]
@@ -353,6 +358,15 @@ impl RunningAuthorityMetrics {
             saturating_increment(&self.slow_step_world_micros, world);
             saturating_increment(&self.slow_step_other_micros, micros - control - world);
         }
+        // Publish the sample prefix after its bucket. An acquire read observes
+        // every bucket in that prefix; equal before/after counts plus an exact
+        // bucket sum then exclude any partially observed successor sample.
+        #[allow(deprecated)]
+        let _ =
+            self.step_timing_samples
+                .fetch_update(Ordering::Release, Ordering::Relaxed, |value| {
+                    Some(value.saturating_add(1))
+                });
     }
 
     /// Attribute successful terminal computation separately from the later durability barrier.
@@ -394,15 +408,20 @@ impl RunningAuthorityMetrics {
     }
 
     /// Return the conservative inclusive bucket ceiling for one percentile.
-    fn step_percentile_micros(&self, samples: u64, percentile: u64) -> u64 {
+    fn step_percentile_micros(
+        &self,
+        samples: u64,
+        buckets: &[u64; STEP_TIMING_BUCKET_UPPER_MICROS.len()],
+        percentile: u64,
+    ) -> u64 {
         if samples == 0 {
             return 0;
         }
         let rank = u64::try_from((u128::from(samples) * u128::from(percentile)).div_ceil(100))
             .unwrap_or(u64::MAX);
         let mut cumulative = 0u64;
-        for (index, bucket) in self.step_timing_buckets.iter().enumerate() {
-            cumulative = cumulative.saturating_add(bucket.load(Ordering::Relaxed));
+        for (index, bucket) in buckets.iter().enumerate() {
+            cumulative = cumulative.saturating_add(*bucket);
             if cumulative >= rank {
                 let upper = STEP_TIMING_BUCKET_UPPER_MICROS[index];
                 return if upper == u64::MAX {
@@ -417,7 +436,16 @@ impl RunningAuthorityMetrics {
 
     /// Read a bounded, allocation-free operational snapshot.
     pub(crate) fn snapshot(&self) -> RunningAuthorityHealth {
-        let step_timing_samples = self.step_timing_samples.load(Ordering::Relaxed);
+        let step_timing_samples = self.step_timing_samples.load(Ordering::Acquire);
+        let step_timing_bucket_counts =
+            std::array::from_fn(|index| self.step_timing_buckets[index].load(Ordering::Relaxed));
+        let samples_after = self.step_timing_samples.load(Ordering::Acquire);
+        let bucket_sum = step_timing_bucket_counts
+            .iter()
+            .try_fold(0u64, |sum, count| sum.checked_add(*count));
+        let step_timing_histogram_consistent = step_timing_samples != u64::MAX
+            && samples_after == step_timing_samples
+            && bucket_sum == Some(step_timing_samples);
         RunningAuthorityHealth {
             loop_state: loop_state_from_code(self.loop_state.load(Ordering::Acquire)),
             world_epoch: self.world_epoch.load(Ordering::Acquire),
@@ -444,8 +472,19 @@ impl RunningAuthorityMetrics {
             step_timing_samples,
             step_timing_total_micros: self.step_timing_total_micros.load(Ordering::Relaxed),
             step_timing_max_micros: self.step_timing_max_micros.load(Ordering::Relaxed),
-            step_timing_p95_micros: self.step_percentile_micros(step_timing_samples, 95),
-            step_timing_p99_micros: self.step_percentile_micros(step_timing_samples, 99),
+            step_timing_p95_micros: self.step_percentile_micros(
+                step_timing_samples,
+                &step_timing_bucket_counts,
+                95,
+            ),
+            step_timing_p99_micros: self.step_percentile_micros(
+                step_timing_samples,
+                &step_timing_bucket_counts,
+                99,
+            ),
+            step_timing_bucket_upper_micros: STEP_TIMING_BUCKET_UPPER_MICROS,
+            step_timing_bucket_counts,
+            step_timing_histogram_consistent,
             slow_step_samples: self.slow_step_samples.load(Ordering::Relaxed),
             slow_step_control_micros: self.slow_step_control_micros.load(Ordering::Relaxed),
             slow_step_control_index_micros: self
@@ -1625,6 +1664,69 @@ mod tests {
         assert_eq!(health.step_timing_max_micros, 300_000);
         assert_eq!(health.step_timing_p95_micros, 200);
         assert_eq!(health.step_timing_p99_micros, 1_000);
+        assert!(health.step_timing_histogram_consistent);
+        assert_eq!(health.step_timing_bucket_counts.iter().sum::<u64>(), 100);
+        assert_eq!(
+            health.step_timing_bucket_upper_micros,
+            STEP_TIMING_BUCKET_UPPER_MICROS
+        );
+    }
+
+    #[test]
+    fn production_step_histogram_rejects_a_partial_or_saturated_prefix() {
+        let running = background_generation_handoff_fixture().unwrap().running;
+        let metrics = RunningAuthorityMetrics::new(&running);
+        assert!(metrics.snapshot().step_timing_histogram_consistent);
+        // Model an authority preempted after its bucket update, before publish.
+        saturating_increment(&metrics.step_timing_buckets[0], 1);
+        assert!(!metrics.snapshot().step_timing_histogram_consistent);
+        metrics.step_timing_samples.store(1, Ordering::Release);
+        assert!(metrics.snapshot().step_timing_histogram_consistent);
+        metrics
+            .step_timing_samples
+            .store(u64::MAX, Ordering::Release);
+        assert!(!metrics.snapshot().step_timing_histogram_consistent);
+    }
+
+    #[test]
+    fn production_step_histogram_consistent_reads_are_complete_concurrent_prefixes() {
+        let running = background_generation_handoff_fixture().unwrap().running;
+        let metrics = RunningAuthorityMetrics::new(&running);
+        let finished = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                for sample in 0..10_000 {
+                    metrics.record_step_duration(
+                        Duration::from_micros(if sample % 2 == 0 { 100 } else { 20_000 }),
+                        None,
+                    );
+                    if sample % 16 == 0 {
+                        std::thread::yield_now();
+                    }
+                }
+                finished.store(true, Ordering::Release);
+            });
+            while !finished.load(Ordering::Acquire) {
+                let health = metrics.snapshot();
+                if health.step_timing_histogram_consistent {
+                    assert_eq!(
+                        health.step_timing_bucket_counts[0],
+                        health.step_timing_samples.div_ceil(2)
+                    );
+                    assert_eq!(
+                        health.step_timing_bucket_counts[16],
+                        health.step_timing_samples / 2
+                    );
+                    assert_eq!(
+                        health.step_timing_bucket_counts.iter().sum::<u64>(),
+                        health.step_timing_samples
+                    );
+                }
+            }
+        });
+        let final_health = metrics.snapshot();
+        assert!(final_health.step_timing_histogram_consistent);
+        assert_eq!(final_health.step_timing_samples, 10_000);
     }
 
     #[test]

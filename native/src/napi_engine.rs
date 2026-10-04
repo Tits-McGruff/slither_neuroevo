@@ -532,6 +532,12 @@ pub struct Stage6BackgroundGenerationHealth {
     pub step_timing_max_micros: String,
     pub step_timing_p95_micros: String,
     pub step_timing_p99_micros: String,
+    /// Exact fixed histogram layout, ending in the open-ended u64::MAX bucket.
+    pub step_timing_bucket_upper_micros: Option<Vec<String>>,
+    /// Lifetime counts for interval subtraction after checking consistency.
+    pub step_timing_bucket_counts: Option<Vec<String>>,
+    /// False if this bounded read overlapped an unfinished timing publication.
+    pub step_timing_histogram_consistent: bool,
     pub slow_step_samples: String,
     pub slow_step_control_micros: String,
     pub slow_step_control_index_micros: String,
@@ -2174,7 +2180,9 @@ impl Stage6BackgroundGenerationHandoffFixtureSession {
     /// Return only bounded authority/lifecycle scalars.
     #[napi(catch_unwind)]
     pub fn health(&self) -> Result<Stage6BackgroundGenerationHealth> {
-        self.run_faulting_root(|| background_generation_health_to_napi(self.runtime.health(), 1))
+        self.run_faulting_root(|| {
+            background_generation_health_to_napi(self.runtime.health(), 1, true)
+        })
     }
 
     /// Request an orderly stop without waiting on Node's event loop.
@@ -3712,6 +3720,7 @@ fn background_step_key_to_napi(key: PhysicsStepKey) -> Stage6BackgroundStepKey {
 pub(crate) fn background_generation_health_to_napi(
     health: EngineHealth,
     calculation_workers: usize,
+    include_step_timing_histogram: bool,
 ) -> std::result::Result<Stage6BackgroundGenerationHealth, EngineError> {
     let running = health.running_authority.ok_or_else(|| {
         EngineError::new(
@@ -3748,6 +3757,30 @@ pub(crate) fn background_generation_health_to_napi(
         step_timing_max_micros: u64_hex(running.step_timing_max_micros),
         step_timing_p95_micros: u64_hex(running.step_timing_p95_micros),
         step_timing_p99_micros: u64_hex(running.step_timing_p99_micros),
+        step_timing_bucket_upper_micros: if include_step_timing_histogram {
+            Some(
+                running
+                    .step_timing_bucket_upper_micros
+                    .into_iter()
+                    .map(u64_hex)
+                    .collect(),
+            )
+        } else {
+            None
+        },
+        step_timing_bucket_counts: if include_step_timing_histogram {
+            Some(
+                running
+                    .step_timing_bucket_counts
+                    .into_iter()
+                    .map(u64_hex)
+                    .collect(),
+            )
+        } else {
+            None
+        },
+        step_timing_histogram_consistent: include_step_timing_histogram
+            && running.step_timing_histogram_consistent,
         slow_step_samples: u64_hex(running.slow_step_samples),
         slow_step_control_micros: u64_hex(running.slow_step_control_micros),
         slow_step_control_index_micros: u64_hex(running.slow_step_control_index_micros),

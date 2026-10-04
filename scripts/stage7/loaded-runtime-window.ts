@@ -11,6 +11,7 @@ import { summarizeQueueSoak } from './queue-soak-summary.ts';
 import { counterWindow } from './archive-overlap-summary.ts';
 import { generationInterval, generationPublication } from './generation-window-summary.ts';
 import type { GenerationPublication } from './generation-window-summary.ts';
+import { summarizeStepWindow } from './step-window-summary.ts';
 
 /** Mandatory real-time workloads in the approved migration plan. */
 type Scenario = 'P0' | 'P1' | 'P2';
@@ -47,11 +48,19 @@ function counter(value: string): bigint {
 /** Read a bounded response and keep observation failures distinct from authority faults. */
 async function readHealth(url: URL): Promise<{ health: Health; latencyMs: number; beforeMs: number; afterMs: number }> {
   const beforeMs = performance.now();
-  const response = await fetch(new URL('/api/health', url), { signal: AbortSignal.timeout(15_000) });
-  const health = await response.json() as Health;
-  const afterMs = performance.now();
-  if (!response.ok || health.ok !== true) throw new Error(`authority fault: ${JSON.stringify(health)}`);
-  return { health, latencyMs: afterMs - beforeMs, beforeMs, afterMs };
+  const signal = AbortSignal.timeout(15_000);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const response = await fetch(new URL('/api/health', url), { signal });
+    const health = await response.json() as Health;
+    const afterMs = performance.now();
+    if (!response.ok || health.ok !== true) throw new Error(`authority fault: ${JSON.stringify(health)}`);
+    if (health.stepTimingHistogramConsistent === true) {
+      return { health, latencyMs: afterMs - beforeMs, beforeMs, afterMs };
+    }
+    if (health.stepTimingHistogramConsistent !== false) throw new Error('native step histogram is missing');
+    await new Promise<void>(done => setTimeout(done, 1));
+  }
+  throw new Error('native step histogram remained inconsistent after five bounded reads');
 }
 
 /** Read actual workload settings without joining a display stream or changing authority. */
@@ -110,7 +119,7 @@ function percentile(values: readonly number[], fraction: number): number {
 /** Identify the exact sampler and summary bytes independently of the server revision. */
 async function measurementSourceDigests(): Promise<Record<string, string>> {
   const paths = ['./loaded-runtime-window.ts', './archive-overlap-summary.ts', './generation-window-summary.ts',
-    './rss-soak-summary.ts', './queue-soak-summary.ts'];
+    './rss-soak-summary.ts', './queue-soak-summary.ts', './step-window-summary.ts'];
   return Object.fromEntries(await Promise.all(paths.map(async path =>
     [path, createHash('sha256').update(await readFile(new URL(path, import.meta.url))).digest('hex')])));
 }
@@ -226,9 +235,12 @@ async function run(): Promise<void> {
   const intervals = transitions.slice(1).map((item, index) => generationInterval(transitions[index]!, item));
   const trainerActions = final.telemetry.controllerActivity.trainer.appliedActions - initial.telemetry.controllerActivity.trainer.appliedActions;
   const timing = final.telemetry;
+  let stepWindow: ReturnType<typeof summarizeStepWindow> | undefined;
+  try { stepWindow = summarizeStepWindow(initial, final); }
+  catch (error) { failure ??= String(error); }
   const healthLatencyP95Ms = latencies.length ? percentile(latencies, 0.95) : null;
   const meetsMeasuredGates = !failure && progressWindow !== undefined && progressWindow.minimumWallSeconds >= seconds && ratio >= 0.98 && dropped === 0n &&
-    !overloaded && (scenario === 'P2' || timing.step.p99Ms <= 16.667) && intervals.length > 0 && intervals.every(value => value.maximumSeconds <= 62) &&
+    !overloaded && stepWindow !== undefined && (scenario === 'P2' || stepWindow.meetsP0P1StepGate) && intervals.length > 0 && intervals.every(value => value.maximumSeconds <= 62) &&
     timing.checkpointBarrier.samples > 0 && timing.checkpointBarrier.p95Ms <= 1000 && timing.checkpointBarrier.maxMs <= 2000 &&
     timing.process.eventLoopDelayP95Ms <= 20 && timing.process.eventLoopDelayP99Ms <= 50 &&
     healthLatencyP95Ms !== null && healthLatencyP95Ms <= 100 &&
@@ -238,7 +250,7 @@ async function run(): Promise<void> {
   const report = { scenario, rustWorkers: workers, sourceRevision, measurementSources,
     startedAtUtc, requestedSeconds: seconds, wallSeconds,
     measuredScope: 'Production server with two independent real PyRL actors; connected-player timings are server receipt-to-application measurements. Browser rendering requires separate evidence.',
-    histogramScope: 'Native and interface histograms cover this server process lifetime, including pre-window trainer warm-up.',
+    histogramScope: 'stepWindow subtracts exact consistent step-computation bucket prefixes inside the same initial/final HTTP brackets, including generation-ending evolution/preparation computations. Persistence waits have a separate barrier clock; terminal phase attribution is also reported separately. Other native/interface histogram fields remain process-lifetime diagnostics, including pre-window trainer warm-up.',
     clockScope: 'Counter clocks bracket the complete initial/final HTTP reads. Acceptance uses the longest possible duration and lowest possible progress; minimum duration must cover the request. Generation intervals use last-old/first-new request brackets. Resource timestamps are response-receipt offsets from the initial reply; request brackets bound the health observations, not internal diagnostic sampling times. No sample is retimed after a failure or sampler shutdown.',
     counterClockBrackets: { initial: { beforeMs: initialRead.beforeMs, afterMs: initialRead.afterMs },
       final: { beforeMs: finalRead.beforeMs, afterMs: finalRead.afterMs } }, progressWindow,
@@ -248,7 +260,7 @@ async function run(): Promise<void> {
     overloadedDuringSamples: overloaded, trainerAppliedActionsDelta: trainerActions,
     transitions, generationIntervalBounds: intervals,
     generationIntervalsSeconds: intervals.map(interval => interval.maximumSeconds),
-    observationFailures, resourceSamples, memorySoak, queueSoak,
+    observationFailures, resourceSamples, memorySoak, queueSoak, stepWindow,
     healthLatencyP95Ms,
     healthLatencyMaxMs: latencies.length ? Math.max(...latencies) : null,
     failure, meetsMeasuredGates };

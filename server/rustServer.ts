@@ -503,7 +503,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     const pathname = requestUrl.pathname;
     if (pathname === '/api/health' || pathname === '/health') {
       refreshStorage();
-      const nativeHealth = owner.runtime.health();
+      const nativeHealth = owner.runtime.health(true);
       const archiveWork = owner.runtime.archiveWorkProgress();
       response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ ok: !fault, authority: 'rust', runId: activeMetadata.runId,

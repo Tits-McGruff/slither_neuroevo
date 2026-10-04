@@ -11,6 +11,8 @@ import { buildLargeBrainGraph } from '../stage2/fixtures.ts';
 import { counterWindow } from './archive-overlap-summary.ts';
 import { generationInterval, generationPublication } from './generation-window-summary.ts';
 import type { GenerationPublication } from './generation-window-summary.ts';
+import { summarizeStepWindow, type StepHistogram } from './step-window-summary.ts';
+import type { RustBackgroundHealth } from '../../src/protocol/rustBackground.ts';
 
 /** Mandatory real-time workload names from the approved plan. */
 type Scenario = 'P0' | 'P1' | 'P2';
@@ -28,7 +30,11 @@ interface Options {
 }
 
 /** Small subset of production health used to evaluate one measured interval. */
-interface Health {
+interface Health extends StepHistogram, Pick<RustBackgroundHealth, 'worldEpoch' | 'calculationWorkers'> {
+  /** Active lineage whose timings must remain in this process window. */
+  runId: string;
+  /** Admitted workload identity, unchanged throughout measurement. */
+  configHash: string;
   /** Source-derived identity independently enforced by production startup. */
   nativeBuildIdentifier: string;
   /** False when any native or interface fault has stopped authority. */
@@ -160,14 +166,19 @@ export async function configure(port: number, scenario: Scenario, workers: numbe
 /** Read one bounded health response and its local request latency. */
 async function readHealth(port: number): Promise<{ health: Health; latencyMs: number; beforeMs: number; afterMs: number }> {
   const beforeMs = performance.now();
-  const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
-    signal: AbortSignal.timeout(5_000)
-  });
-  const health = await response.json() as Health;
-  const afterMs = performance.now();
-  const latencyMs = afterMs - beforeMs;
-  if (!response.ok || !health.ok) throw new Error(`Rust authority faulted: ${health.interfaceFault ?? response.status}`);
-  return { health, latencyMs, beforeMs, afterMs };
+  const signal = AbortSignal.timeout(5_000);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal });
+    const health = await response.json() as Health;
+    const afterMs = performance.now();
+    if (!response.ok || !health.ok) throw new Error(`Rust authority faulted: ${health.interfaceFault ?? response.status}`);
+    if (health.stepTimingHistogramConsistent === true) {
+      return { health, latencyMs: afterMs - beforeMs, beforeMs, afterMs };
+    }
+    if (health.stepTimingHistogramConsistent !== false) throw new Error('native step histogram is missing');
+    await new Promise<void>(done => setTimeout(done, 1));
+  }
+  throw new Error('native step histogram remained inconsistent after five bounded reads');
 }
 
 /** Return the upper sampled percentile without assuming a normal distribution. */
@@ -229,6 +240,13 @@ export async function run(request: Options): Promise<Record<string, unknown>> {
       const sample = await readHealth(server.port);
       finalRead = sample;
       final = sample.health;
+      if (final.runId !== initial.health.runId || final.configHash !== initial.health.configHash ||
+          final.nativeBuildIdentifier !== initial.health.nativeBuildIdentifier ||
+          final.calculationWorkers !== request.rustWorkers ||
+          BigInt(`0x${final.worldEpoch}`) - BigInt(`0x${previous.health.worldEpoch}`) !==
+            BigInt(`0x${final.generation}`) - BigInt(`0x${previous.health.generation}`)) {
+        throw new Error('authority or workload identity changed during the measured window');
+      }
       overloaded ||= final.schedulerOverloaded;
       latencies.push(sample.latencyMs);
       const publication = generationPublication(
@@ -253,6 +271,7 @@ export async function run(request: Options): Promise<Record<string, unknown>> {
       generationInterval(transitions[index]!, transition));
     const transitionIntervals = generationIntervalBounds.map(interval => interval.maximumSeconds);
     const simulatedWallRatio = progressWindow.minimumSimulatedWallRatio;
+    const stepWindow = summarizeStepWindow(initial.health, final);
     return { scenario: request.scenario, rustWorkers: request.rustWorkers,
       nativeBuildIdentifier: initial.health.nativeBuildIdentifier,
       measuredEvolvedPopulation: true, measurementStartedFromCheckpoint: true,
@@ -269,6 +288,8 @@ export async function run(request: Options): Promise<Record<string, unknown>> {
       stepSamples: final.telemetry.step.samples,
       stepP95Ms: final.telemetry.step.p95Ms, stepP99Ms: final.telemetry.step.p99Ms,
       stepMaxMs: final.telemetry.step.maxMs,
+      stepWindow,
+      histogramScope: 'stepWindow subtracts exact consistent step-computation bucket prefixes in the initial/final HTTP brackets, including terminal evolution/preparation. Other step/interface distributions and maximum remain process lifetime. Persistence waits have a separate barrier clock.',
       eventLoopDelayP95Ms: final.telemetry.process.eventLoopDelayP95Ms,
       eventLoopDelayP99Ms: final.telemetry.process.eventLoopDelayP99Ms,
       eventLoopDelayMaxMs: final.telemetry.process.eventLoopDelayMaxMs,
@@ -277,7 +298,11 @@ export async function run(request: Options): Promise<Record<string, unknown>> {
       maxRssBytes: final.telemetry.process.maxRssBytes,
       cpuUserSeconds: cpu.user / 1_000_000, cpuSystemSeconds: cpu.system / 1_000_000,
       meetsMeasuredRatioAndDebtGate: progressWindow.minimumWallSeconds >= 600 &&
-        simulatedWallRatio >= 0.98 && droppedWallMicros === 0n && !overloaded };
+        simulatedWallRatio >= 0.98 && droppedWallMicros === 0n && !overloaded,
+      meetsMeasuredGates: progressWindow.minimumWallSeconds >= 600 &&
+        simulatedWallRatio >= 0.98 && droppedWallMicros === 0n && !overloaded &&
+        (request.scenario === 'P2' || stepWindow.meetsP0P1StepGate) &&
+        transitionIntervals.length > 0 && transitionIntervals.every(value => value <= 62) };
   } finally { await server.close(); }
 }
 

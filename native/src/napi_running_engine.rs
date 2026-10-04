@@ -1357,10 +1357,17 @@ impl ExperimentalRunningAuthority {
 
     /// Read bounded health scalars from the background owner.
     #[napi(catch_unwind)]
-    pub fn health(&self) -> Result<Stage6BackgroundGenerationHealth> {
+    pub fn health(
+        &self,
+        include_step_timing_histogram: Option<bool>,
+    ) -> Result<Stage6BackgroundGenerationHealth> {
         self.root(|| {
-            background_generation_health_to_napi(self.runtime.health(), self.calculation_workers)
-                .map_err(engine_error_to_napi)
+            background_generation_health_to_napi(
+                self.runtime.health(),
+                self.calculation_workers,
+                include_step_timing_histogram.unwrap_or(false),
+            )
+            .map_err(engine_error_to_napi)
         })
     }
 
