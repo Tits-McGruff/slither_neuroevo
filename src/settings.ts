@@ -26,8 +26,13 @@ export {
 /** Settings specification alias used by the DOM builder. */
 type SettingSpec = SettingDefinition;
 
-/** Pure shared definitions used to build the settings UI. */
-const SETTING_SPECS = SETTING_DEFINITIONS;
+/**
+ * Pure shared definitions used to build the settings UI.
+ * `sense.debug` belonged to the retired browser-owned sensor logger and is not
+ * part of the authoritative Rust settings record. Rendering it would make the
+ * reset collector submit an unsupported path and cause the whole reset to fail.
+ */
+const SETTING_SPECS = SETTING_DEFINITIONS.filter(spec => spec.path !== 'sense.debug');
 
 /**
  * Resolve the control type for a spec, defaulting to range sliders.
