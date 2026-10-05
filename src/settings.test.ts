@@ -110,7 +110,7 @@ describe('settings.ts', () => {
     return matches;
   }
 
-  it('buildSettingsUI includes sensor controls and reset flags', () => {
+  it('buildSettingsUI includes authoritative sensor controls and reset flags', () => {
     const container = new FakeElement('div');
     buildSettingsUI(container as unknown as HTMLElement);
     const inputs = collectInputs(container);
@@ -121,7 +121,7 @@ describe('settings.ts', () => {
     expect(paths).toContain('sense.rNearBase');
     expect(paths).toContain('sense.foodKBase');
     expect(paths).toContain('sense.maxPelletChecks');
-    expect(paths).toContain('sense.debug');
+    expect(paths).not.toContain('sense.debug');
 
     const binsInput = inputs.find(input => input.dataset['path'] === 'sense.bubbleBins');
     const collisionCellInput = inputs.find(input => input.dataset['path'] === 'collision.cellSize');
