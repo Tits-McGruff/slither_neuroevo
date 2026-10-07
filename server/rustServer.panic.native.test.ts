@@ -35,6 +35,20 @@ const require = createRequire(import.meta.url);
  * Live fault observation and stop/join deadlines below remain five seconds.
  */
 const FIXTURE_STARTUP_TIMEOUT_MS = 10_000;
+
+/** Request a real export with the same preparation budget as archive-publication tests.
+ * Source leasing, disk admission, encoding and validation precede its HTTP reply.
+ */
+async function fixtureExport(port: number, phase: 'baseline' | 'injected failure' | 'retry'): Promise<Response> {
+  try {
+    return await fetch(`http://127.0.0.1:${port}/api/export/latest`, {
+      signal: AbortSignal.timeout(10_000)
+    });
+  } catch (cause) {
+    throw new Error(`${phase} export did not complete archive preparation`, { cause });
+  }
+}
+
 /** Health fields added by the actual HTTP router to the native protocol. */
 interface Health extends RustBackgroundHealth {
   /** Honest success/fault status. */
@@ -264,7 +278,7 @@ describeNetworkSuite('Rust server caught calculation panic', () => {
           requestId: packet['requestId'], applied: packet['applied'] })))}`);
       bootstrap.socket.terminate();
       const controllers = await Promise.all([exportController(server.port, 'ui', peers), exportController(server.port, 'bot', peers)]);
-      const baselineResponse = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`, { signal: AbortSignal.timeout(5000) });
+      const baselineResponse = await fixtureExport(server.port, 'baseline');
       expect(baselineResponse.status).toBe(200);
       const baselineArchive = Buffer.from(await baselineResponse.arrayBuffer());
       expect(baselineArchive.byteLength).toBeLessThan(4 * 1024 * 1024);
@@ -294,7 +308,7 @@ describeNetworkSuite('Rust server caught calculation panic', () => {
       });
       actual.armExportFailureForTest(mode);
       expect(() => actual.armExportFailureForTest(mode)).toThrow(/already armed/u);
-      const failed = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`, { signal: AbortSignal.timeout(5000) });
+      const failed = await fixtureExport(server.port, 'injected failure');
       expect(failed.status).toBe(500);
       expect(failed.headers.has('content-disposition')).toBe(false);
       expect(failed.headers.has('x-slither-checkpoint-id')).toBe(false);
@@ -318,7 +332,7 @@ describeNetworkSuite('Rust server caught calculation panic', () => {
         expect(peer.assignment).toEqual(assignments[index]);
         expect(peer.packets.filter(packet => ['stateReplaced', 'error'].includes(String(packet['type'])))).toEqual([]);
       }
-      const retry = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`, { signal: AbortSignal.timeout(5000) });
+      const retry = await fixtureExport(server.port, 'retry');
       expect(retry.status).toBe(200);
       expect(Buffer.from(await retry.arrayBuffer())).toEqual(baselineArchive);
       await exportClean(directory);
