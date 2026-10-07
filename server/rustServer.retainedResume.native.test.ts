@@ -12,6 +12,7 @@ import { startRustServer, type RustServer } from './rustServer.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { parseManagedCheckpointDescriptor, type ManagedCheckpointDescriptor } from './rustEngine/checkpointPersistenceProtocol.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
+import { fixtureArchiveDownload } from './test/archiveDownload.ts';
 import { verifyRetainedAnchors } from '../scripts/stage7/verify-retained-anchors.ts';
 
 /** Genuine durable boundary held before its coordinator receives the SQLite acknowledgement. */
@@ -93,7 +94,7 @@ async function archive(server: RustServer, descriptor: ManagedCheckpointDescript
     this: CheckpointPersistenceClient, ...args: Parameters<CheckpointPersistenceClient['releaseExportLease']>
   ) { await originalRelease.apply(this, args); released = true; });
   try {
-    const response = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`, { signal: AbortSignal.timeout(5000) });
+    const response = await fixtureArchiveDownload(server.port, `retained ${descriptor.logicalRootSha256}`);
     expect(response.status).toBe(200);
     expect(response.headers.get('x-slither-checkpoint-id')).toBe(descriptor.logicalRootSha256);
     const bytes = Buffer.from(await response.arrayBuffer());

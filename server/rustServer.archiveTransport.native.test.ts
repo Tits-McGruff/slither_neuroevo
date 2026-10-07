@@ -28,6 +28,7 @@ import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from './rustEngine/diskAdmission.ts';
 import * as diskAdmission from './rustEngine/diskAdmission.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
+import { ARCHIVE_PREPARATION_TIMEOUT_MS, fixtureArchiveDownload } from './test/archiveDownload.ts';
 import type { AssignMsg, SensorsMsg } from './protocol.ts';
 import type { ExperimentalRuntimeTelemetrySnapshot } from './rustEngine/runtimeTelemetry.ts';
 import type { ExperimentalRunningAuthorityNativeHandle } from './rustEngine/backgroundRuntime.ts';
@@ -222,8 +223,7 @@ async function preserved(fixture: Fixture): Promise<void> {
 async function exportAfterDisconnect(fixture: Fixture): Promise<void> {
   const deadline = performance.now() + 5000;
   while (performance.now() < deadline) {
-    const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`,
-      { signal: AbortSignal.timeout(5000) });
+    const response = await fixtureArchiveDownload(fixture.server.port, 'export after disconnect');
     if (response.status === 409) {
       expect(await response.json()).toMatchObject({ ok: false,
         message: 'another persistence operation is in progress' });
@@ -1091,7 +1091,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           // A ready-file collision is discovered only after writing, syncing and
           // fully validating the archive. Allow that preparation ten seconds;
           // early creation failures and the later cleanup still get five.
-          const responseDeadlineMs = suffix === 'slither-save.ready' ? 10_000 : 5000;
+          const responseDeadlineMs = suffix === 'slither-save.ready' ? ARCHIVE_PREPARATION_TIMEOUT_MS : 5000;
           const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`,
             { signal: AbortSignal.timeout(responseDeadlineMs) });
           expect(response.status).toBe(500);
@@ -1416,7 +1416,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           // The first byte follows complete validation, encoding and publication
           // of this >8 MiB archive. Its preparation is not cancellation liveness;
           // keep the later disconnect/lease/controller deadlines at five seconds.
-          await bounded(bodyReceived, 'download did not deliver body bytes', 10_000);
+          await bounded(bodyReceived, 'download did not deliver body bytes', ARCHIVE_PREPARATION_TIMEOUT_MS);
           expect(clientResponse!.statusCode).toBe(200);
           expect(receivedBytes).toBeGreaterThan(0);
           expect(receivedBytes).toBeLessThan(fixture.archive.byteLength);

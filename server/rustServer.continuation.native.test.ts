@@ -10,6 +10,7 @@ import { startRustServer, type RustServer } from './rustServer.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { parseManagedCheckpointDescriptor, type ManagedCheckpointDescriptor } from './rustEngine/checkpointPersistenceProtocol.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
+import { fixtureArchiveDownload } from './test/archiveDownload.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 
 /** Small graph exercising dense math and all three recurrent kernels. */
@@ -63,7 +64,7 @@ function records(databasePath: string, runId: string): { history: unknown[]; hal
 
 /** Download the actual selected checkpoint while the source coordinator awaits its durable reply. */
 async function archive(server: RustServer, boundary: HeldBoundary): Promise<Buffer> {
-  const response = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`, { signal: AbortSignal.timeout(5000) });
+  const response = await fixtureArchiveDownload(server.port, 'continuation checkpoint');
   expect(response.status, response.status === 200 ? undefined : await response.text()).toBe(200);
   expect(response.headers.get('x-slither-checkpoint-id')).toBe(boundary.descriptor.logicalRootSha256);
   const bytes = Buffer.from(await response.arrayBuffer());
