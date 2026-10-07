@@ -1082,8 +1082,12 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
             released = true;
           });
         try {
+          // A ready-file collision is discovered only after writing, syncing and
+          // fully validating the archive. Allow that preparation ten seconds;
+          // early creation failures and the later cleanup still get five.
+          const responseDeadlineMs = suffix === 'slither-save.ready' ? 10_000 : 5000;
           const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`,
-            { signal: AbortSignal.timeout(5000) });
+            { signal: AbortSignal.timeout(responseDeadlineMs) });
           expect(response.status).toBe(500);
           expect(response.headers.get('content-disposition')).toBeNull();
           expect(await response.json()).toMatchObject({ ok: false, message: expect.any(String) });
