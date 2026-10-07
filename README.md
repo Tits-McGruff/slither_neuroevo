@@ -249,11 +249,18 @@ The dense-world desktop drawing checks also pass in follow and overview modes
 with more than 200,000 body segments. That fixture remains a capacity case
 whose server simulation is slower than real time.
 
-Migration acceptance remains open for laptop rendering, browser memory/usability
-during large archive download and upload, unattended service startup and the
-final feature audit. Server archive round trips and desktop drawing have
-separate retained evidence. The current scope and links to the
-raw reports are in the
+Desktop archive acceptance includes ordinary downloads and original-file
+uploads of small, 71 MiB and roughly 393 MiB saves. Observed large-minus-small
+export heap growth is 4.95 MiB, heap after garbage collection differs by
+0.40 MiB, and combined browser-process private-memory growth is 150.6 MiB.
+Unattended Debian service operation and committed-checkpoint restart are verified.
+
+Nitrogen (Surface Laptop 4) connects and plays over the LAN, but its measured
+display intervals miss the selected performance target, especially in overview.
+The owner has deferred laptop performance and the remaining laptop workload
+checks until after this migration. These results do not establish the same
+display performance on every device. The measured scope, remaining limitations
+and links to raw reports are in the
 [factual implementation log](docs/todo/rust-authoritative-runtime-implementation-log.md).
 
 ### Debian service, updates, and backups

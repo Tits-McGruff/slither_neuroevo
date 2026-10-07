@@ -2516,6 +2516,13 @@ function commitManagedImport(
         if (!managedCheckpointContentsEqual(committedDescriptor, descriptor)) {
           throw new Error('import checkpoint identity conflicts with different immutable content');
         }
+        // Import has republished and verified this immutable file. Revive its
+        // previous prune classification atomically with the new current pointer,
+        // while preserving an owner's pin and rolling back on any later failure.
+        db.prepare(`UPDATE rust_checkpoint_retention_v1 SET
+          retention_kind = 'automatic', classified_at_ms = ?
+          WHERE checkpoint_id = ? AND retention_kind IN ('pruning', 'pruned')`)
+          .run(Date.now(), committedDescriptor.logicalRootSha256);
       } else {
         if (existingOperation) throw new Error('import operation already belongs to another checkpoint');
         insertCheckpointMetadata(descriptor);

@@ -44,8 +44,8 @@ is actually needed.
 | 4 | Sensing + heterogeneous inference established | Corrected sensor-v3/spatial indexing, whole-population graph inference, runtime SIMD and the joined control boundary are implemented. Target-host performance artifacts are under `docs/todo/evidence/stage4/`; the known single-worker P1 sensing miss remains a later complete-step/parallelization concern rather than a reason to weaken sensing. |
 | 5 | Scalar authoritative fixed-step core established | Movement, food, swept collisions, effects, ambient pellets, accounting, baseline lifecycle/control, controller selection, recurrent takeover, complete control/post-control staging, baseline respawn resolution and atomic nonterminal publication are in Rust. The retained coordinator owns complete nonterminal steps; TypeScript reference mapping remains useful porting knowledge. |
 | 6 | Rust runtime complete | Rust owns durable startup/recovery, continuous frames/stats, browser and Protocol 2 routing, generation persistence, managed retention, commands, and direct archive export/import. |
-| 7 | Acceptance active | P0/P1/P2 server timing, LAN steering and desktop drawing, real trainer traffic, large archives and bounded persistence slices are retained. The corrected replacement-token path passes a complete loaded P1 player/RSS/queue soak. Crowded P4 desktop follow/overview drawing passes locally; physical laptop/final-source LAN drawing, archive heap and final durability acceptance remain. |
-| 8 | Production cutover active | Normal npm and launcher startup selects Rust; the TypeScript game is retained only as `server:reference`. Deployment/service and final acceptance remain. |
+| 7 | Desktop/server acceptance demonstrated | P0/P1/P2 timing, real trainer/player soak, LAN controls, dense desktop rendering, archive memory/round trips, legacy conversion and durability/retention evidence are retained. The owner defers laptop performance and remaining laptop workload checks to follow-up; they do not block this merge. |
+| 8 | Production/deployment acceptance demonstrated | Rust is the sole production game; the TypeScript path remains an explicit reference. Production features, stale-addon refusal, Debian service/recovery and backup/restore are verified. Final checkpoint CI and retained limitations accompany merge readiness. |
 
 ## Milestone index
 
@@ -2649,3 +2649,39 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   TypeScript and affected lint pass. No production calculations change. The
   disposable browser/server and generated fixtures are removed after retaining
   compact evidence; the branch is not ready to merge.
+
+- 2026-10-05 The owner-supplied Nitrogen attachment was reviewed; all seven
+  supplied file digests match. Raw laptop/system details stay in the private
+  attachment rather than the public repository. Physical
+  laptop LAN UI, one reconnect/reclaim, live settings, and a completed 2,384,384
+  byte browser download with independent role/root verification are demonstrated.
+  Follow-up Chrome captures miss the 95% display-interval target: P0 follow is
+  70.00% within 40 ms, P2 follow 94.54%, and P2 overview 9.60%. Drawing callback
+  p95 remains 2.1–4.9 ms; no GPU/scheduling cause or Rust regression is established.
+  Suppressed sensor/frame delivery preserves outgoing steering and boost release,
+  but next-drain application and full LAN latency remain unverified. P2 download
+  times out; laptop upload is blocked by extension file-access permission and
+  forced collection remains unsupported. Loaded P1, dense P4, complete browser
+  memory and control acceptance remain open. This is evidence review only;
+  production source and passing server/soak results are unchanged.
+
+- 2026-10-07 The owner defers laptop performance and remaining laptop workload
+  checks to post-merge follow-up. Desktop A2/A3 completes through the real built
+  UI: ordinary small/P2/larger downloads and original-file uploads pass; all
+  saved downloads match transmitted digests and independently verified role
+  hashes/roots. Large-minus-small export heap peak is 4.95 MiB, heap after
+  collection differs by 0.40 MiB, and aggregate browser/renderer/network private
+  growth is 150.56 MiB. The disposable server adds stricter isolation headers
+  for Chromium's supported GC-time memory API, then precise CDP heap readings;
+  production content is unchanged. The compact report is
+  `evidence/stage7/windows-ryzen5800x/browser-archive-memory-final-20261007.json`.
+  Existing foreground desktop usability/control evidence is reused.
+  A real restored-checkpoint defect found during validation is fixed: import
+  now revives a prior pruning/pruned retention classification atomically with
+  its current pointer, preserving pins and transaction rollback. Four focused
+  classification/rollback cases pass; the remaining persistence component
+  cases and production HTTP branch case pass. The actual pruned P3 import now
+  immediately re-exports identical bytes. Types, affected lint and browser
+  build pass; native calculations are unchanged. Task-owned processes and
+  local/remote scratch are cleaned after retaining compact evidence. Final
+  checkpoint CI is required before declaring the branch ready to merge.

@@ -1556,8 +1556,9 @@ describe(SUITE, { timeout: 30_000 }, () => {
     }
   );
 
-  it('resumes an older exact import as a durable branch without replacing its future', async () => {
-    const fixture = createFixture();
+  it.each(['automatic', 'pinned', 'pruning', 'pruned'] as const)(
+    'resumes an older %s checkpoint as an immediately exportable branch without replacing its future', async retentionKind => {
+    const fixture = createFixture(undefined, undefined, undefined, undefined, 'before-commit');
     const first = createDescriptor(fixture.managedRoot);
     const second = createDescriptor(fixture.managedRoot, { operationId: '91'.repeat(16),
       transitionEpoch: u64(2n), generation: u64(2n), completedStep: u64(3_600n), boundaryKind: 'generation' });
@@ -1566,18 +1567,44 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await fixture.client.commit(first);
     await fixture.client.commit(second, createGenerationCommit(1n));
     const lease = await fixture.client.acquireCurrentExportLease();
-    await fixture.client.commit(third, createGenerationCommit(2n));
+    await fixture.client.commit(third, createGenerationCommit(2n), true);
 
     const operationId = '93'.repeat(16);
     const relativeFilename = `.${operationId}.import-inventory-v1`;
+    const inventoryBytes = readFileSync(join(fixture.managedRoot, lease.inventory.relativeFilename));
+    const checkpointBytes = readFileSync(join(fixture.managedRoot, second.relativeFilename));
+    await fixture.client.releaseExportLease(lease.operationId);
+    const classified = new Database(fixture.databasePath);
+    try {
+      classified.prepare(`UPDATE rust_checkpoint_retention_v1
+        SET retention_kind = ? WHERE checkpoint_id = ?`).run(retentionKind, second.logicalRootSha256);
+    } finally { classified.close(); }
+    if (retentionKind === 'pruned') unlinkSync(join(fixture.managedRoot, second.relativeFilename));
+    // The native import publisher restores the original bytes before asking the worker to commit.
+    writeFileSync(join(fixture.managedRoot, second.relativeFilename), checkpointBytes);
     const copyInventory = (): ManagedImportInventoryDescriptor => {
-      copyFileSync(join(fixture.managedRoot, lease.inventory.relativeFilename),
-        join(fixture.managedRoot, relativeFilename));
+      writeFileSync(join(fixture.managedRoot, relativeFilename), inventoryBytes);
       return { ...lease.inventory, relativeFilename };
     };
     const imported = { ...second, operationId };
     await expect(fixture.client.commitImport(imported, copyInventory())).rejects.toThrow(/resume it as a branch/);
+    const rejected = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(rejected.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+        .get(second.logicalRootSha256)).toEqual({ retention_kind: retentionKind });
+    } finally { rejected.close(); }
     const branchRunId = 'owner-selected-import-branch';
+    await expect(fixture.client.commitImport(imported, copyInventory(), branchRunId))
+      .rejects.toThrow(/injected managed import failure before SQLite commit/);
+    const rolledBack = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(rolledBack.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+        .get(second.logicalRootSha256)).toEqual({ retention_kind: retentionKind });
+      expect(rolledBack.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1').get())
+        .toEqual({ run_id: third.runId });
+      expect(rolledBack.prepare('SELECT 1 FROM rust_import_branches_v1 WHERE branch_run_id = ?')
+        .get(branchRunId)).toBeUndefined();
+    } finally { rolledBack.close(); }
     const committed = await fixture.client.commitImport(imported, copyInventory(), branchRunId);
     expect(committed).toMatchObject({ runId: branchRunId, checkpointId: second.logicalRootSha256,
       descriptor: second, importBranch: { operationId, branchRunId, sourceRunId: second.runId,
@@ -1587,7 +1614,9 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(selected).toMatchObject({ runId: branchRunId, descriptor: second,
       recovery: null, importBranch: committed.importBranch });
     expect(await fixture.client.selectCurrent(second.runId)).toEqual(third);
-    await fixture.client.releaseExportLease(lease.operationId);
+    const branchExport = await fixture.client.acquireCurrentExportLease();
+    expect(branchExport).toMatchObject({ runId: branchRunId, descriptor: second });
+    await fixture.client.releaseExportLease(branchExport.operationId);
     await fixture.client.close();
 
     const reopened = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
@@ -1601,6 +1630,9 @@ describe(SUITE, { timeout: 30_000 }, () => {
         .get(second.runId)).toEqual({ checkpoint_id: third.logicalRootSha256 });
       expect(inspect.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
         .get(branchRunId)).toEqual({ checkpoint_id: second.logicalRootSha256 });
+      expect(inspect.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+        .get(second.logicalRootSha256)).toEqual({ retention_kind: retentionKind === 'pinned' ? 'pinned' : 'automatic' });
+      expect(readFileSync(join(fixture.managedRoot, second.relativeFilename))).toEqual(checkpointBytes);
     } finally { inspect.close(); }
   });
 
