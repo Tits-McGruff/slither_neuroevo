@@ -9,24 +9,50 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 - **Explicit reference runtime**: The former TypeScript `SimCore`/`World` remains available only through `npm run server:reference` as a test oracle; production never falls back to it.
 - **Deep Evolution**: Supports MLP, GRU, LSTM, and RRU architectures with complex genetic operators and a modular graph editor.
 - **Deterministic run controls**: Reset repeats a seed; New Run starts and checkpoints a different seed.
-- **Bounded persistence target**: Managed immutable checkpoint files hold packed binary population data; SQLite holds small metadata/history/indexes. Browser import/export becomes direct file upload/download without population-sized JavaScript objects.
+- **Bounded persistence**: Managed immutable checkpoint files hold packed binary population data; SQLite holds small metadata/history/indexes. Browser import/export uses direct file upload/download without population-sized JavaScript objects.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Server startup and recovery](#server-startup-and-recovery)
+- [Saves, storage, and diagnostics](#saves-storage-and-diagnostics)
+- [Measured workloads and limits](#measured-workloads-and-limits)
+- [Debian service, updates, and backups](#debian-service-updates-and-backups)
+- [Configuration and architecture](#configuration-and-architecture)
+- [Home-LAN access](#home-lan-access)
+- [Controls](#controls) and [joining a game](#join-and-spectate)
+- [Slider guide](#slider-guide) and [brain graph editor](#brain-graph-editor)
+- [Import and export](#import-and-export)
+- [Preset recipes](#preset-recipes-qa-friendly)
+- [Test suites](#test-suites) and [troubleshooting](#troubleshooting)
 
 ## Quick start
 
 ### Prerequisites
 
 - **Node.js**: v24 or newer
-- **Rust**: Required for compiling the native acceleration layer. Install via [rustup.rs](https://rustup.rs).
+- **Rust**: Required for compiling the game engine. Install via [rustup.rs](https://rustup.rs).
 - **Windows build tools**: Visual Studio C++ build tools and a Windows SDK are required by native dependencies.
+- **Native platforms**: x86_64 Windows MSVC and x86_64 Linux GNU.
 
 ### Running
 
-The simulation runs in a server-authoritative mode. You must start the simulation server and the Vite dev server separately (or use the convenience launchers).
+Install dependencies and build the game engine:
 
 ```bash
 npm install
 npm --prefix native run build
+```
+
+Start the simulation server in one terminal:
+
+```bash
 npm run server
+```
+
+Start the browser development server in a second terminal:
+
+```bash
 npm run dev
 ```
 
@@ -44,7 +70,7 @@ The convenience launchers install missing dependencies, build the required
 addon, and write logs/PID files in the repository root:
 
 - Windows: `play.bat`
-- macOS/Linux: `play.sh`
+- Linux: `play.sh`
 
 On Windows, open the local URL printed by Vite (usually `http://localhost:5173`).
 On Linux, `play.sh` starts the Rust server with the built browser at its printed
@@ -54,7 +80,7 @@ never starts a new experiment automatically over it.
 
 Note: This project uses ES modules, so opening `index.html` directly in a file browser will not work.
 
-### Rust server and persistence
+## Server startup and recovery
 
 Normal startup is Rust-authoritative and supports durable fresh-run and
 managed-checkpoint restart paths:
@@ -66,28 +92,56 @@ npm run server -- --fresh --db-path ./data/rust-experiment.sqlite
 npm run server -- --resume latest --db-path ./data/rust-experiment.sqlite
 ```
 
+### Choose how to start
+
 For a new experiment, start once with `--fresh`, then reuse that database with
-`--resume latest` or `--resume <checkpoint-sha256>`. `--resume latest` can also
-open a TypeScript reference-runtime database that uses the current per-genome
-checkpoint rows. Rust reads the newest compatible population directly from
-SQLite, preserves compatible settings and an ASCII-safe graph, and
-writes a new generation-one Rust checkpoint without changing the old snapshot
-rows. The same path incrementally reads older combined `genomes_blob`
-populations and format-zero populations embedded in parent JSON, without
-loading either complete source value into Node. Later restarts use the managed
-Rust checkpoint. Health and WebSocket welcome data keep a durable
-`legacyConversion` notice with the source row, format, generation and seed when
-available. The source seed is provenance; the new run initializes its missing
-state with its own seed. Exports and subsequent imports retain the population-only
-classification. The browser status pill also labels converted saves and exact
-imported branches, with their source
-details in its tooltip.
+one of the resume options:
+
+| Option | Behavior |
+|---|---|
+| `--fresh` | Starts and durably records a new run without deleting older checkpoints. |
+| `--resume latest` | Validates the current checkpoint. If needed, recovers from the newest valid retained boundary under a labelled recovery branch. |
+| `--resume <checkpoint-sha256>` | Selects that exact retained checkpoint, including an older generation or prior run. Requires the producing build identity and never substitutes another checkpoint. |
+
+- Selecting a checkpoint other than the active current one creates a separate
+  branch after validation. The source's later history is preserved.
+- After a rebuild, `--resume latest` can continue a checkpoint when its state
+  versions, target, release profile, settings schema, and math backend remain
+  compatible. That continuation is recorded as a new branch before activation.
+- If latest startup finds no valid retained boundary, the process exposes a
+  failing health endpoint and refuses game WebSockets. It does not start a new
+  game over the failed experiment.
+
+The browser status pill labels converted saves and selected/imported branches;
+its tooltip shows their source details.
+
+### Open an older database
+
+`--resume latest` also accepts compatible TypeScript reference databases:
+
+- Current per-genome checkpoint rows.
+- Older combined `genomes_blob` populations.
+- Format-zero populations embedded in parent JSON.
+
+Rust reads the population from SQLite incrementally, preserves compatible
+settings and an ASCII-safe graph, and writes a new generation-one checkpoint
+without changing the source rows. Later restarts use that managed checkpoint.
+
+This is a **population conversion**, not exact continuation of the old game.
+Health and welcome messages retain a `legacyConversion` notice with the source
+row, format, generation, and seed when available. The source seed is provenance;
+the new run uses its own seed for missing state. Exports and subsequent imports
+retain that population-only classification.
+
+### Calculation workers
 
 The server defaults to five Rust calculation workers on new
 configurations. Use `--rust-workers N` (1–7, or `RUST_WORKERS=N`) to override its persistent worker pool;
 it parallelizes sensing and brain evaluation while keeping brain-state and
 physics commits ordered. This is separate from the reference server's
 `--mt-workers` option.
+
+### World resource limits
 
 New runs, Apply and reset, New Run and legacy population conversions admit
 bounded storage for **1,000,000 total body points** and **250,000 total pellets**.
@@ -98,74 +152,84 @@ storage before activation; exceeding a runtime resource ceiling rejects the
 complete step. Existing exact checkpoints retain their originally admitted
 limits. Apply and reset creates a new boundary with the current allowances.
 
-For a managed Rust database, latest startup validates the current checkpoint
-and, if necessary, recovers from the newest valid retained boundary under a new
-provenance-labelled branch. After an application rebuild, `--resume latest`
-may continue a checkpoint whose versioned state, target, release profile,
-settings schema, and math backend remain compatible. It records that
-cross-build continuation as a new branch before changing the live game. An
-exact SHA-256 selector still requires the producing build identity and is never
-silently replaced. It can select any retained checkpoint, including an older
-generation or a prior run. Selecting a checkpoint other than the active current
-one creates a separate branch after validation and preserves the source's later
-history. The browser identifies it as a selected checkpoint. If latest startup
-finds no valid retained boundary, the
-process serves only a failing health endpoint and refuses game WebSockets
-instead of starting a new game.
+## Saves, storage, and diagnostics
 
-The server prints a browser URL and supports the existing Protocol 2
-player/bot connections, frames, sensors, steering, disconnect and reclaim. Add
-`--host 0.0.0.0` for trusted home-LAN access. Checkpoints are retained beside
-the database in its `.checkpoints` directory. Checkpoint, import, export, and
-pin operations count existing work files, their new source/candidate/final
-files, SQLite/WAL allowance, and a 1 GiB operating reserve before they begin;
-rejections show the complete byte calculation. Recovery provenance is included in health and welcome
-messages. Browser fitness, species, and weight charts use the newest 120
-compact persisted generation summaries and therefore survive restart,
-recovery, and import without loading checkpoint populations into Node.
-The Hall of Fame table likewise reads bounded best-first compact records from
-`/api/hof`. Spawn sends only the selected compact entry identity; the worker
-leases its exact managed weight object while Rust validates, decodes, places,
-and publishes the new independently controlled snake. Neural weights never
-round-trip through browser JavaScript or the Node main thread.
-`/api/health` also exposes bounded scalar runtime telemetry for
-full-step mean/p95/p99/max, simulated-to-wall time, frame bytes, checkpoint,
-separate browser-player/trainer action and controller-lifecycle latency, Node event-loop delay, and process
-memory, plus Rust-confirmed per-kind assignment, reclaim, action, and disconnect
-counts. Percentiles are conservative fixed-histogram upper bounds; the server
-does not retain a per-step series or authoritative game arrays for reporting.
-The same health response exposes native inbound/output occupancy, lifetime
-peaks and configured limits under `nativeQueues`, using exact sixteen-digit
-hexadecimal counters. `outbound` reports current WebSocket reliable queues and
-pending frames, per-connection queue peaks and limits, and hub-lifetime frame
-replacement and reliable-failure totals that remain visible after disconnects.
-These diagnostics are scalar observations; they do not serialize the world.
-Health also reports checkpoint retention by latest, recent, milestone, prior-run-anchor,
-pinned, and planned-prune classes. Automatic cleanup runs at startup and after
-each durable generation save. It records the cleanup in SQLite before removing
-only unpinned managed files, keeps the latest eight checkpoints plus configured
-milestones and prior-run anchors, and never removes compact generation history
-or Hall-of-Fame records. Health includes the last cleanup's exact file and byte
-counts. On managed restart it also verifies every retained checkpoint and
-referenced Hall-of-Fame object before removing exact final files left
-unreferenced by an interrupted publication; unknown files and links are left
-alone. Health also reports the current SQLite, WAL, free-page, temporary-file,
-free-disk, quota, and operating-reserve byte counts without reading population
-data into Node. The Settings panel's **Pin checkpoint** button
-permanently protects the exact current managed checkpoint; it does not also
-create or download an export. **Export** starts one ordinary browser download
-of the exact current Rust checkpoint plus its complete compact history and
-run-scoped Hall of Fame. A second export receives `409` until the first
-download finishes or is cancelled. **Import** uploads the selected
-`.slither-save` or older browser-exported `.json` unchanged and shows upload
-progress. Exact saves restore the complete experiment. An older JSON file
-imports its population as a new generation-one Rust run, preserving compatible
-graph/settings and its seed but not claiming its missing history or random-state
-continuation. Rust switches the running game only after the replacement commits.
-Existing WebSocket connections stay open, discard their old assignments and
-join the imported run again without reusing stale controller tokens. If that
-run already has later local history, Import offers to continue the older save
-as a new run; the existing later history is kept unchanged.
+The server prints a browser URL and supports Protocol 2 players and bots,
+including steering, sensors, disconnect, and reclaim. For another device on
+your trusted home network, see [Home-LAN access](#home-lan-access).
+
+### Save and run controls
+
+| Control | What it does |
+|---|---|
+| **Pin checkpoint** | Permanently protects the exact current managed checkpoint. It does not download a save. |
+| **Export** | Downloads the current checkpoint, complete compact history, and run-scoped Hall of Fame as one `.slither-save` file. Only one export runs at a time; another request receives `409` until it finishes or is cancelled. |
+| **Import** | Uploads the original `.slither-save` or older browser-exported `.json` file and shows upload progress. The live game changes only after the replacement commits. |
+| **Apply and reset** | Applies reset-only settings and the selected graph, then records generation one with the same seed and a new run ID. |
+| **New Run** | Records generation one with a different seed and a new run ID. |
+
+Reset, New Run, and successful import keep existing WebSockets open. Clients
+discard old assignments and join the replacement run without stale controller
+tokens. When an imported save has later local history, the browser offers a
+new-run branch and preserves that later history.
+
+Exact saves restore the complete experiment. Older JSON saves restore a
+compatible population into a new generation-one run; they cannot restore
+missing history or random-state continuation. See [Import and export](#import-and-export)
+for compatibility details.
+
+### Storage admission and retention
+
+Checkpoints live beside the database in its `.checkpoints` directory.
+
+- **Before writing:** checkpoint, import, export, and pin operations account
+  for existing work files, new source/candidate/final files, SQLite/WAL space,
+  and a **1 GiB operating reserve**. A rejection shows the byte calculation.
+- **Automatic retention:** cleanup runs at startup and after each durable
+  generation save. It keeps the latest eight checkpoints plus configured
+  milestones and prior-run anchors, subject to the configured byte budget.
+- **Protected data:** cleanup removes only unpinned managed files. Compact
+  generation history and Hall-of-Fame records remain intact.
+- **Interrupted writes:** managed restart verifies retained checkpoints and
+  referenced Hall-of-Fame objects before removing exact final files left
+  unreferenced by interrupted publication. Unknown files and links are left alone.
+
+Cleanup is recorded in SQLite before files are removed. Health reports the last
+cleanup's file/byte counts and the latest, recent, milestone, prior-run-anchor,
+pinned, and planned-prune retention classes.
+
+### Charts and Hall of Fame
+
+- **Fitness, species, and weight charts** use the newest 120 compact persisted
+  generation summaries. They survive restart, recovery, and import.
+- **Hall of Fame** reads bounded best-first records from `/api/hof`.
+- **Spawn** sends only the selected entry identity. Rust loads its managed
+  weights, validates and places the new snake, then publishes it with independent
+  control. Neural weights never pass through browser JavaScript or Node's main thread.
+- **Visualizer** captures activations only while a browser is viewing its tab.
+- **God Mode** moves the complete body within bounds; kill follows the normal
+  death, corpse-pellet, random-stream, ID, and controller lifecycle paths.
+
+### Health and diagnostics
+
+`/api/health` reports recovery provenance and compact measurements without
+serializing the world or loading checkpoint populations into Node:
+
+| Area | Reported values |
+|---|---|
+| Simulation | Step mean/p95/p99/max, simulated-to-wall time, frame bytes, and checkpoint timing. |
+| Controls | Separate player/trainer action and lifecycle latency; Rust-confirmed assignment, reclaim, action, and disconnect counts. |
+| Node process | Event-loop delay and process memory. |
+| `nativeQueues` | Inbound/output occupancy, lifetime peaks, and configured limits as exact sixteen-digit hexadecimal counters. |
+| `outbound` | Reliable WebSocket queues, pending frames, connection peaks/limits, and lifetime frame-replacement/reliable-failure counts that survive disconnects. |
+| Storage | SQLite, WAL, free-page, temporary-file, free-disk, quota, and operating-reserve byte counts; retention and cleanup results. |
+
+Percentiles are conservative fixed-histogram upper bounds. Reporting does not
+retain a per-step series or authoritative game arrays. For the external-client
+contract, see [API instructions](docs/API-instructions.md).
+
+<details>
+<summary>QA diagnostic: player input during frame and sensor suppression</summary>
 
 With that server running, a short real-boundary diagnostic exercises a
 spectator, an observation-driven Protocol 2 bot with disconnect/token reclaim,
@@ -186,27 +250,23 @@ round. The probe is a wire-compatible diagnostic client; it does not replace
 the required unchanged owner trainer or a real browser on another trusted-LAN
 device.
 
-Pin, direct archive export/import, same-seed **Reset**, and entropy-seeded
-**New Run** are
-available. Both run controls write generation one before replacing the live
-game and keep existing WebSocket connections open for a fresh join. Reset can
-apply graph-compatible values from both the main controls and the complete
-settings list. It also sends the active default-stack or custom graph directly
-to Rust, which independently validates and compiles it before allocating the
-new population. Reset can also change the evolved population and built-in
-baseline-bot counts within their existing UI limits. Settings marked as live
-apply atomically at the next Rust step boundary and are preserved by later
-Reset or New Run operations. God Mode move keeps the complete body in bounds, while God
-Mode kill uses the normal corpse-pellet, random-stream, ID-allocation, and
-controller/baseline lifecycle paths. Hall-of-Fame resurrection and focused
-neural visualization are now available in the Rust server; visualization does
-no activation-capture work while no browser is viewing the Visualizer tab.
-Named graph presets are saved, listed and loaded through the Rust server's
-isolated SQLite metadata worker.
-Use `npm run server:reference` only when deliberately running the retained
-TypeScript comparison implementation.
+</details>
 
-### Measured workloads and remaining acceptance
+### Settings and graph changes
+
+- **Reset-only settings** include population and baseline-bot counts. Apply
+  them with **Apply and reset** within the existing UI limits.
+- **Live settings** apply atomically at the next Rust step boundary and remain
+  active through later Reset or New Run operations.
+- **Graphs** are sent directly to Rust for independent validation and compilation
+  before population allocation. Both the default stack and custom graphs are supported.
+- **Named presets** are saved, listed, and loaded through the isolated SQLite
+  metadata worker.
+
+Use `npm run server:reference` only for the retained TypeScript comparison
+implementation.
+
+## Measured workloads and limits
 
 The retained Rust measurements use Oxygen's Ryzen 7 2700/Debian host at
 1x simulation speed, with 3,500 target pellets and ten baseline bots.
@@ -223,20 +283,23 @@ the server timing or capacity results; use `--rust-workers N` to select one.
 | P2 | 55 | 147, with 32 angular bins | Large custom graph | 5 | Server timing, checkpoint/export overlap, LAN steering and desktop drawing |
 | P3 | 300 | 147, with 32 angular bins | Large custom graph | 6 | Large-population persistence and startup-capacity checks; real-time performance remains unqualified |
 
-The corrected five-worker P1 thirty-minute run completed 107,216 steps at
-0.9927 simulated/wall time with zero discarded scheduler time. Separate
-ten-minute windows with two real trainer actors pass the step timing target
-with five and six workers: both have a 16.667 ms step-p99 upper bound and zero
-discarded time. The four-worker P1 comparison missed the required timing
-target. P2's five-worker checkpoint/export overlap run achieved at least
-0.9809 simulated/wall time with zero discarded time and a maximum checkpoint
-barrier below one second. The separate LAN steering measurements covered 200
-attempts for each player and bot route in each P0/P1/P2 case; p95 upper bounds
-were at most 42.6 ms, including unknown responses in the ranking. Separate
-sixty-second foreground desktop drawing samples had p95 intervals of
-16.8–16.9 ms. P2 retained a 1.55-second drawing-interval stall while opening
-the graph/settings panel. These desktop samples used a Ryzen 7 5800X/RTX 4080
-client and Chromium 154.
+### Server and desktop results
+
+- **P1 loaded soak:** five workers completed 107,216 steps over thirty minutes
+  at 0.9927 simulated/wall time with zero discarded scheduler time.
+- **P1 worker comparison:** ten-minute windows with two real trainer actors
+  passed with five and six workers. Both had a 16.667 ms step-p99 upper bound
+  and zero discarded time. Four workers missed the timing target.
+- **P2 checkpoint/export overlap:** five workers achieved at least 0.9809
+  simulated/wall time, zero discarded time, and a maximum checkpoint barrier
+  below one second.
+- **LAN steering:** 200 attempts per player/bot route in each P0/P1/P2 case
+  gave p95 upper bounds at most 42.6 ms, including unknown responses in the ranking.
+- **Desktop drawing:** separate sixty-second foreground samples had p95
+  intervals of 16.8–16.9 ms on a Ryzen 7 5800X/RTX 4080 with Chromium 154.
+  P2 also recorded a 1.55-second stall while opening the graph/settings panel.
+
+### Capacity and storage
 
 For the full-size P3 legacy-conversion fixture, a 1280 MiB checkpoint budget
 rejected startup before publishing a current checkpoint. A 1986 MiB budget
@@ -249,11 +312,20 @@ The dense-world desktop drawing checks also pass in follow and overview modes
 with more than 200,000 body segments. That fixture remains a capacity case
 whose server simulation is slower than real time.
 
-Desktop archive acceptance includes ordinary downloads and original-file
-uploads of small, 71 MiB and roughly 393 MiB saves. Observed large-minus-small
-export heap growth is 4.95 MiB, heap after garbage collection differs by
-0.40 MiB, and combined browser-process private-memory growth is 150.6 MiB.
+### Browser archive memory
+
+Ordinary downloads and original-file uploads passed for small, 71 MiB, and
+roughly 393 MiB saves:
+
+| Measurement | Observed large-minus-small increase |
+|---|---:|
+| Export JavaScript heap peak | 4.95 MiB |
+| Export heap after garbage collection | 0.40 MiB |
+| Combined browser-process private memory | 150.6 MiB |
+
 Unattended Debian service operation and committed-checkpoint restart are verified.
+
+### Laptop follow-up
 
 Nitrogen (Surface Laptop 4) connects and plays over the LAN, but its measured
 display intervals miss the selected performance target, especially in overview.
@@ -263,7 +335,9 @@ display performance on every device. The measured scope, remaining limitations
 and links to raw reports are in the
 [factual implementation log](docs/todo/rust-authoritative-runtime-implementation-log.md).
 
-### Debian service, updates, and backups
+## Debian service, updates, and backups
+
+### Install and start the service
 
 The checked-in service runs the Rust server in the foreground so systemd owns
 the real process and can restart a crash. Build once, optionally copy the
@@ -287,15 +361,24 @@ administrator must enable user lingering once with
 The manual `play.sh`/`shutdown.sh` pair remains useful for diagnosis, but do not run
 it at the same time as the systemd service.
 
+### Recover from a calculation fault
+
 A caught Rust calculation fault keeps the process alive and reports the fault
 at `/api/health`; it does not trigger an automatic service restart. Inspect the
 health response and logs, then use `systemctl --user restart slither-neuroevo.service`
 to resume from the latest valid committed checkpoint. The interrupted round's
 unsaved progress is lost.
 
-For an update, stop the service, update the checkout, run `npm ci` and
-`npm run build`, then start the service again. The service start command never
-installs dependencies or rebuilds files.
+### Update the application
+
+1. Stop the service.
+2. Update the checkout.
+3. Run `npm ci` and `npm run build`.
+4. Start the service again.
+
+The service start command never installs dependencies or rebuilds files.
+
+### Back up the complete server
 
 A complete backup must include SQLite and the immutable files beside it; a
 copy of the `.db` file alone is incomplete. This command is safe while the
@@ -310,6 +393,8 @@ npm run backup:production -- \
   --db-path ./data/rust-authority.db \
   --output ./backups/slither-2026-09-27
 ```
+
+### Restore a backup
 
 Restore only while the server is stopped and to an absent target path. The
 restore command validates every file and refuses to overwrite an existing
@@ -331,6 +416,8 @@ equivalent `server/systemd.env` setting. Keep portable `.slither-save` exports
 as an additional one-experiment backup, not as a replacement for the complete
 server backup set.
 
+### Reclaim space from a legacy database
+
 After migrating old population rows, reclaim their unused SQLite pages only
 while the server is stopped. This explicit maintenance command creates and
 validates a separate complete backup before running SQLite `VACUUM`; the
@@ -344,7 +431,9 @@ npm run compact:legacy -- \
   --offline
 ```
 
-### Architecture
+## Configuration and architecture
+
+### Runtime ownership
 
 This application uses a pure client/server model. The browser renders binary
 frames and submits controls over Protocol 2 WebSocket messages. There is no
@@ -356,6 +445,8 @@ Loopback is the default, and deliberate use from a phone or another computer
 on the same trusted home LAN is supported. The project has no accounts,
 authentication, authorization, or TLS, so do not expose it through router port
 forwarding or run it on an untrusted network.
+
+### Configuration file and overrides
 
 On first server startup, `server/config.ts` creates the ignored
 `server/config.toml` file from current defaults. Useful fields include the
@@ -369,6 +460,8 @@ the worker count, `--fresh` for a new durable run, or
 `--resume latest|sha256:<checkpoint-id>` for managed recovery. Reference-only
 backend and Node-MT flags belong to `npm run server:reference`.
 
+### Checkpoint byte budget
+
 `checkpointBudgetMiB` defaults to 4096 MiB and bounds unpinned automatic
 checkpoints and the managed directory plus SQLite/WAL during checkpoint
 publication. Set it in `server/config.toml`, with `CHECKPOINT_BUDGET_MIB`, or
@@ -377,7 +470,7 @@ and downloaded exports are outside this cap. A budget too small for the
 protected current and prior-run anchors stops the next durable transition
 instead of deleting them.
 
-### Open it from a phone or another home computer
+## Home-LAN access
 
 On the Windows computer running Slither Neuroevolution:
 
@@ -538,7 +631,6 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 - **Food saturation K**: Saturation constant for food density.
 - **Max pellet checks**: Work cap for pellet sampling.
 - **Max segment checks**: Work cap for segment sampling.
-- **Sensors debug logs**: Enables sensor debug logging.
 - Sensor model note: v3 observations include nearest-pellet distance and direction (`nearest_food_dir_sin/cos`) in addition to binned food/hazard/wall/head channels.
 
 ### Baseline bots
@@ -619,60 +711,86 @@ The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM
 
 ## Import and export
 
-The Rust server's **Export** button opens a direct
-`/api/export/latest` download. Rust validates and packs the exact leased
-checkpoint roles, complete compact history, and run-scoped Hall of Fame into
-one flat `.slither-save` file; Node streams it, and browser JavaScript never
-reads or rebuilds its population. Large population, recurrent-state, and Hall
-of Fame weight entries use whichever of raw or lossless compressed storage is
-smaller. The save retains the best 50 unique unpinned winner genomes plus any
-pinned winners while preserving the complete compact generation history.
-**Import** sends the original `.slither-save` or legacy browser `.json` directly
-as the request body; browser JavaScript never reads or reconstructs either one.
-Rust privately validates exact-save roles or incrementally parses bounded legacy
-genomes from disk. SQLite commits the replacement and active-run pointer before
-the running game switches. A legacy JSON population starts a new generation-one
-lineage because those files do not contain exact Rust history, allocator, or
-random-stream state. Compatible settings and ASCII-identified graphs are applied;
-the source seed is retained as source information when present. The new run uses
-its own seed for missing state. Its checkpoints retain a `legacyConversion`
-record, and its exports use the `legacy-population-import` archive kind through
-later generations and restarts. Reset and New Run start a fresh lineage and
-clear this record.
-A rejected upload leaves the prior game current. Successful replacement keeps
-browser/trainer sockets connected but invalidates every old assignment and
-requires a fresh ordered join. An older save from the same run cannot silently
-overwrite later generations. The page instead offers an explicit new-run
-branch that records the source run, generation, and checkpoint while leaving
-the original future intact.
+### Export an exact save
 
-The TypeScript reference runtime retains its JSON export path until Rust
-cutover. Its older in-browser import remains available when running that
-reference server, while the Rust server accepts the same file by direct upload.
+Click **Export** to start one direct `/api/export/latest` download of a flat
+`.slither-save` archive:
 
-Automatic restart checkpoints are exact generation-boundary population
-checkpoints. They preserve the evolved population, generation, experiment
-configuration, seed, random-number state, and deterministic allocator state
-before the new generation is spawned. They are not arbitrary mid-tick world
-saves: transient snake positions, pellets, and recurrent activations are
-reconstructed from the saved generation-start boundary instead of being
-restored from the middle of a tick. Normal startup resumes the latest valid
-checkpoint; use `--fresh` to start and durably record a new run without
-deleting older snapshots, or `--resume <snapshot-id>` to select a specific
-valid checkpoint. Exact replay remains tied to the producing build. Normal
-`--resume latest` can instead make a durable, provenance-labelled continuation
-branch when a newer build still supports every stored state contract; it does
-not claim that the post-upgrade run is an exact replay of the old binary.
+- The save contains the leased checkpoint, complete compact history, and
+  run-scoped Hall of Fame.
+- Large population, recurrent-state, and Hall-of-Fame weight entries use
+  whichever is smaller: raw storage or lossless compression.
+- The archive keeps the best **50 unique unpinned winner genomes**, plus any
+  pinned winners, while preserving the complete compact generation history.
+- Rust validates and packs the archive, Node streams it, and browser JavaScript
+  never reads or rebuilds its population.
 
-Reference-runtime JSON exports are portable but are not selected for automatic
-exact resume. Rust resume-latest converts its current per-genome SQLite rows,
-older combined `genomes_blob` rows, and format-zero parent-JSON populations as
-new generation-one runs while preserving their source rows.
+### Import an exact or older save
 
-The TypeScript reference runtime's JSON imports reset its simulation to the
-file contents. Imports from older builds may be incompatible with the current
-v3 sensor layout. Keep the database intact and use an export produced by a
-compatible graph/sensor build when input sizes differ.
+Click **Import** and select the original file. It is uploaded directly as the
+request body; browser JavaScript never reads or reconstructs its contents.
+
+| File | Restored behavior |
+|---|---|
+| `.slither-save` | Rust privately validates the exact-save roles and restores the saved experiment. |
+| Older browser `.json` | Rust incrementally parses bounded genomes from disk and starts a new generation-one population lineage. Missing Rust history, allocator, and random-stream state cannot be restored. |
+
+SQLite commits the replacement and active-run pointer before the running game
+switches. **A rejected upload leaves the prior game current.**
+
+#### Legacy conversion notices
+
+For older JSON saves, compatible settings and ASCII-identified graphs are
+applied. A source seed is retained as source information when present; the new
+run uses its own seed for missing state.
+
+Checkpoints retain a `legacyConversion` record, and exports remain classified
+as `legacy-population-import` through later generations and restarts.
+**Reset** and **New Run** start a fresh lineage and clear that record.
+
+#### Connected clients and existing history
+
+- Successful replacement keeps browser/trainer sockets connected, invalidates
+  every old assignment, and requires a fresh ordered join.
+- An older save cannot silently overwrite later generations from the same run.
+  The page offers an explicit new-run branch, records the source run/generation/
+  checkpoint, and preserves the original future.
+
+### What an automatic checkpoint preserves
+
+Automatic restart checkpoints capture an exact **generation boundary**:
+
+- Evolved population and generation.
+- Experiment configuration and seed.
+- Random-number and deterministic allocator state.
+
+The boundary is saved before the new generation is spawned. Snake positions,
+pellets, and recurrent activations are reconstructed from that boundary;
+a checkpoint does not resume the middle of a tick.
+
+| Startup choice | Replay scope |
+|---|---|
+| `--fresh` | Durably records a new run without deleting older snapshots. |
+| `--resume <snapshot-id>` | Selects a specific valid checkpoint; exact replay remains tied to the producing build. |
+| `--resume latest` | Uses the latest valid checkpoint. A newer compatible build can create a labelled continuation branch without claiming exact replay of the old binary. |
+
+See [Server startup and recovery](#server-startup-and-recovery) for selection
+and recovery behavior.
+
+### TypeScript reference compatibility
+
+The explicit `npm run server:reference` runner retains JSON export/import for
+comparison. Its JSON exports are portable population files, rather than
+automatic exact-resume checkpoints.
+
+Rust's resume-latest path converts compatible per-genome SQLite rows, combined
+`genomes_blob` rows, and format-zero parent-JSON populations into new generation-one
+runs while preserving the source rows.
+
+Reference JSON import resets that reference simulation to the file contents.
+Older graphs may be incompatible with the current v3 sensor layout. **Keep the
+database intact** and use a save from a compatible graph/sensor build when
+input sizes differ.
 
 ## Preset recipes (QA-friendly)
 
