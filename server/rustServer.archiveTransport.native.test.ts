@@ -38,6 +38,12 @@ const runFile = promisify(execFile);
 /** Original HTTP dispatch, captured before a timed-out fixture can install an observer. */
 const originalHttpEmit = Server.prototype.emit;
 
+/** Whole-test budget for a real server, fresh durable checkpoint, baseline export and shutdown.
+ * Five seconds is reserved for individual rejection/cleanup boundaries below;
+ * it is not a valid budget for all of the fixture's disk operations combined.
+ */
+const ARCHIVE_FIXTURE_TIMEOUT_MS = 20_000;
+
 /** Change the task's private tmpfs quota without allocating its advertised capacity. */
 async function quota(directory: string, bytes: bigint): Promise<void> {
   // Do not reparse host-mapped uid/gid options from mountinfo inside the user namespace.
@@ -1709,7 +1715,8 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         }
         const originalHash = createHash('sha256').update(fixture.archive).digest('hex');
         const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`, {
-          method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: damaged
+          method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' },
+          body: damaged, signal: AbortSignal.timeout(5000)
         });
         expect(response.status, await response.text()).toBe(400);
         await preserved(fixture);
@@ -2072,4 +2079,4 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
       });
     }, 180_000
   );
-});
+}, ARCHIVE_FIXTURE_TIMEOUT_MS);

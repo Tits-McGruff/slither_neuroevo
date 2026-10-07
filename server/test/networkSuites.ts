@@ -37,10 +37,11 @@ function announceNetworkOptOut(): void {
  * Register a suite that requires local TCP binding.
  * @param name - User-visible suite name.
  * @param factory - Suite registration callback.
+ * @param timeout - Optional per-test budget for the suite, including fixture setup and cleanup.
  */
-export function describeNetworkSuite(name: string, factory: NetworkSuiteFactory): void {
+export function describeNetworkSuite(name: string, factory: NetworkSuiteFactory, timeout?: number): void {
   announceNetworkOptOut();
-  describe.skipIf(NETWORK_TESTS_DISABLED)(name, factory);
+  describe.skipIf(NETWORK_TESTS_DISABLED)(name, factory, timeout);
 }
 
 /**
