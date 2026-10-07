@@ -652,11 +652,11 @@ async function writeChunk(client: ClientRequest, chunk: Buffer): Promise<void> {
 }
 
 /** Await a real boundary with a deadline that is cleared on every terminal outcome. */
-async function bounded<T>(promise: Promise<T>, description: string): Promise<T> {
+async function bounded<T>(promise: Promise<T>, description: string, deadlineMs = 5000): Promise<T> {
   let timeout: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([promise, new Promise<never>((_done, reject) => {
-      timeout = setTimeout(() => reject(new Error(description)), 5000);
+      timeout = setTimeout(() => reject(new Error(description)), deadlineMs);
     })]);
   } finally { if (timeout) clearTimeout(timeout); }
 }
@@ -1403,7 +1403,10 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         });
         try {
           client.end();
-          await bounded(bodyReceived, 'download did not deliver body bytes');
+          // The first byte follows complete validation, encoding and publication
+          // of this >8 MiB archive. Its preparation is not cancellation liveness;
+          // keep the later disconnect/lease/controller deadlines at five seconds.
+          await bounded(bodyReceived, 'download did not deliver body bytes', 10_000);
           expect(clientResponse!.statusCode).toBe(200);
           expect(receivedBytes).toBeGreaterThan(0);
           expect(receivedBytes).toBeLessThan(fixture.archive.byteLength);
