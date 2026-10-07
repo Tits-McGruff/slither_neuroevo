@@ -30,6 +30,11 @@ vi.mock('./rustEngine/experimentalStartup.ts', async importOriginal => {
 
 /** CommonJS production addon loader, independent of the feature addon fixture. */
 const require = createRequire(import.meta.url);
+
+/** Cold Node/tsx bootstrap, native loading and durable fixture startup have their own budget.
+ * Live fault observation and stop/join deadlines below remain five seconds.
+ */
+const FIXTURE_STARTUP_TIMEOUT_MS = 10_000;
 /** Health fields added by the actual HTTP router to the native protocol. */
 interface Health extends RustBackgroundHealth {
   /** Honest success/fault status. */
@@ -158,12 +163,19 @@ async function fixtureProcess(databasePath: string): Promise<{ child: ChildProce
     env: { ...process.env, SLITHER_PANIC_FIXTURE_DB: databasePath, SLITHER_PANIC_FIXTURE_PORT: '0' },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc']
   });
+  let didClose = false;
+  child.once('close', () => { didClose = true; });
   let errors = '';
   child.stderr?.on('data', data => { errors = `${errors}${String(data)}`.slice(-8192); });
   const lines = createInterface({ input: child.stdout! });
   try {
     const port = await new Promise<number>((done, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`fixture startup timed out: ${errors}`)), 5000);
+      const timeout = setTimeout(() => reject(new Error(`fixture startup timed out: ${errors}`)),
+        FIXTURE_STARTUP_TIMEOUT_MS);
+      child.once('error', error => {
+        clearTimeout(timeout);
+        reject(error);
+      });
       child.once('exit', (code, signal) => {
         clearTimeout(timeout);
         reject(new Error(`fixture exited (${code}/${signal}): ${errors}`));
@@ -177,7 +189,16 @@ async function fixtureProcess(databasePath: string): Promise<{ child: ChildProce
       });
     });
     return { child, port };
-  } catch (error) { child.kill(); throw error; }
+  } catch (error) {
+    // Rejection must join the child before the caller removes its SQLite files
+    // or starts another fixture. Sending kill alone leaves cleanup racing exit.
+    if (!didClose) {
+      const closed = once(child, 'close', { signal: AbortSignal.timeout(5000) });
+      child.kill();
+      await closed;
+    }
+    throw error;
+  }
   finally { lines.close(); }
 }
 
@@ -433,5 +454,5 @@ describeNetworkSuite('Rust server caught calculation panic', () => {
       // process close. Retry only this owned fixture removal, within 750 ms.
       finally { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
     }
-  }, 15_000);
+  }, 30_000);
 });

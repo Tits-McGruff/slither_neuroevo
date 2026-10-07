@@ -452,7 +452,11 @@ describeNetworkSuite('Rust process-death recovery', () => {
             const message = JSON.parse(bytes.toString()) as { type: string };
             if (message.type === 'welcome') {
               setup!.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
-              setup!.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(83) }));
+              // Twelve large brains retain a real >8 MiB archive and an observable
+              // unfinished encoding interval without turning setup into a P2 load test.
+              setup!.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(83),
+                settings: { snakeCount: 12, simSpeed: 1 },
+                updates: [{ path: 'baselineBots.count', value: 0 }] }));
             } else if (message.type === 'stateReplaced') {
               finish();
             } else if (message.type === 'error') {
@@ -513,7 +517,10 @@ describeNetworkSuite('Rust process-death recovery', () => {
       expect(exported.headers.get('x-slither-checkpoint-id')).toBe(before.startupCheckpointId);
       const exportedBytes = (await exported.arrayBuffer()).byteLength;
       expect(exportedBytes).toBe(Number(exported.headers.get('content-length')));
-      if (point === 'duringEncoding') expect(BigInt(exportedBytes)).toBeGreaterThan(BigInt(`0x${marker.storedByteCount}`));
+      if (point === 'duringEncoding') {
+        expect(exportedBytes).toBeGreaterThan(8 * 1024 * 1024);
+        expect(BigInt(exportedBytes)).toBeGreaterThan(BigInt(`0x${marker.storedByteCount}`));
+      }
       await waitForArchiveCleanup(managedRoot);
     } finally {
       setup?.terminate();

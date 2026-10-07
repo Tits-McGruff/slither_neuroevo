@@ -27,10 +27,11 @@ if (files.includes(resolve('server/rustServer.panic.native.test.ts'))) {
   if (prepare.status !== 0) process.exit(prepare.status ?? 1);
 }
 
-/** Keep real-server timing diagnostics isolated from other files' durable disk workloads.
+/** Keep real-server timing and process-death fixtures isolated from other files' durable disk workloads.
  * Native MT remains exercised inside each file; only independent files run serially.
  */
-const isolationArgs = category === 'integration' || category === 'native-required' ? ['--maxWorkers=1'] : [];
+const isolationArgs = category === 'integration' || category === 'native-required' || category === 'system'
+  ? ['--maxWorkers=1'] : [];
 
 const result = spawnSync(process.execPath, [vitestBin, 'run', ...files, ...isolationArgs, ...forwardedArgs], {
   stdio: 'inherit'
