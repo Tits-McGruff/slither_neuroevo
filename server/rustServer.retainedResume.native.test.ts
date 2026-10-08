@@ -41,15 +41,29 @@ interface Fixture {
   releaseAll(): void;
 }
 
-/** Observe a real reply or boundary within the existing integration deadline. */
-async function observed<T>(read: () => T | undefined): Promise<T> {
-  const deadline = performance.now() + 5000;
+/** Observe a reply within five seconds, or require ongoing real fixture progress under the whole-test bound. */
+async function observed<T>(
+  read: () => T | undefined,
+  progress?: () => Promise<bigint>
+): Promise<T> {
+  let deadline = performance.now() + 5000;
+  let lastProgress: bigint | undefined;
   while (performance.now() < deadline) {
     const result = read();
     if (result !== undefined) return result;
+    if (progress) {
+      const current = await progress();
+      if (lastProgress !== undefined) {
+        expect(current).toBeGreaterThanOrEqual(lastProgress);
+        if (current > lastProgress) deadline = performance.now() + 5000;
+      }
+      lastProgress = current;
+    }
     await new Promise<void>(done => setTimeout(done, 10));
   }
-  throw new Error('retained-resume boundary was not observed within five seconds');
+  throw new Error(progress
+    ? `retained-resume fixture stopped at step ${lastProgress} without progress for five seconds`
+    : 'retained-resume boundary was not observed within five seconds');
 }
 
 /** Read complete immutable metadata and source records, excluding the permitted new branch tables. */
@@ -149,12 +163,21 @@ async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<
         { path: 'pelletCountTarget', value: 100 }] }));
     const replacement = await observed(() => messages.find(message => message['type'] === 'stateReplaced'));
     sourceRunId = String((replacement['welcome'] as { runId: string }).runId);
-    const second = await observed(() => boundaries.get(2));
+    /** Keep the real evolution fixture live without imposing a machine-speed budget on setup. */
+    const sourceProgress = async (): Promise<bigint> => {
+      const response = await fetch(`http://127.0.0.1:${source.port}/api/health`,
+        { signal: AbortSignal.timeout(5000) });
+      expect(response.status).toBe(200);
+      const current = await response.json() as { ok: boolean; runId: string; completedStep: string };
+      expect(current).toMatchObject({ ok: true, runId: sourceRunId });
+      return BigInt(`0x${current.completedStep}`);
+    };
+    const second = await observed(() => boundaries.get(2), sourceProgress);
     archives.set(2, await archive(source, second.descriptor));
     const pin = await fetch(`http://127.0.0.1:${source.port}/api/checkpoints/current/pin`, { method: 'POST' });
     expect(pin.status).toBe(200);
     second.release();
-    const third = await observed(() => boundaries.get(3));
+    const third = await observed(() => boundaries.get(3), sourceProgress);
     archives.set(3, await archive(source, third.descriptor));
     third.release();
     viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));

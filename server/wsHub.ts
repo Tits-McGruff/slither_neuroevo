@@ -30,7 +30,7 @@ const DEFAULT_MAX_BUFFERED_BYTES = 512 * 1024;
 const MAX_RELIABLE_QUEUE_MESSAGES = 1024;
 /** Hard bound on queued reliable JSON bytes per connection. */
 const MAX_RELIABLE_QUEUE_BYTES = 4 * 1024 * 1024;
-/** Fixed wall deadline to identify an admitted socket with a valid hello. */
+/** Fixed wall deadline to complete hello and the first join. */
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 5000;
 
 /** Per-connection state tracked by the websocket hub. */
@@ -42,7 +42,7 @@ export interface ConnectionState {
   /** Old-run messages are discarded until the client joins the replacement run. */
   awaitingRejoin: boolean;
   mode?: JoinMode;
-  /** Cleared after hello, peer closure, or hub shutdown. */
+  /** Cleared after the first join, peer closure, or hub shutdown. */
   handshakeTimer?: NodeJS.Timeout;
   /** Priority JSON payloads waiting behind the current WebSocket send. */
   reliableQueue: string[];
@@ -96,7 +96,7 @@ export interface WsHubOptions {
   maxBufferedAmount?: number;
   /** Shared HTTP/WebSocket origin policy for this startup configuration. */
   browserOrigins?: BrowserOriginPolicy;
-  /** Fixed hello deadline; traffic before hello cannot extend it. */
+  /** Fixed hello/join deadline; hello or heartbeat traffic cannot extend it. */
   handshakeTimeoutMs?: number;
 }
 
@@ -143,7 +143,7 @@ export class WsHub {
   private maxBufferedAmount: number;
   /** Maximum live sockets admitted by this hub. */
   private readonly maxConnections: number;
-  /** Wall deadline for the first valid hello. */
+  /** Wall deadline for completing hello and the first join. */
   private readonly handshakeTimeoutMs: number;
   /** Registered event handlers for hub callbacks. */
   private handlers: WsHubHandlers | null;
@@ -524,7 +524,7 @@ export class WsHub {
     this.connections.set(state.id, state);
     state.handshakeTimer = setTimeout(() => {
       // terminate also releases capacity when a silent peer will not complete a close handshake.
-      if (state.clientType === 'unknown') {
+      if (!state.joined) {
         this.connections.delete(state.id);
         socket.terminate();
       }
@@ -586,8 +586,6 @@ export class WsHub {
           return;
         }
         state.clientType = msg.clientType;
-        clearTimeout(state.handshakeTimer);
-        delete state.handshakeTimer;
         this.enqueueReliable(state, this.welcomeJson);
         return;
       case 'join':
@@ -595,6 +593,8 @@ export class WsHub {
           this.protocolError(state, 'hello required before join');
           return;
         }
+        clearTimeout(state.handshakeTimer);
+        delete state.handshakeTimer;
         state.joined = true;
         state.awaitingRejoin = false;
         state.mode = msg.mode;

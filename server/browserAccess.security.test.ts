@@ -171,14 +171,14 @@ describeNetworkSuite('browser origin and handshake admission', () => {
     } finally { await fixture.close(); }
   });
 
-  it('reclaims a full cap of peers without hello even when they send protocol pings', async () => {
+  it.each([false, true])('reclaims a full unjoined cap despite protocol pings (hello sent: %s)', async hello => {
     const fixture = await transportFixture(1000);
     const peers: WebSocket[] = [];
     try {
       for (let index = 0; index < 2; index++) {
-        const peer = new WebSocket(fixture.wsUrl);
+        const peer = hello ? await welcomedPeer(fixture.wsUrl) : new WebSocket(fixture.wsUrl);
         peers.push(peer);
-        await once(peer, 'open');
+        if (!hello) await once(peer, 'open');
       }
       expect(fixture.hub.getClientCount()).toBe(2);
       const closed = peers.map(peer => once(peer, 'close'));

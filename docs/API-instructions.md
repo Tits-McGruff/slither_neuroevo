@@ -48,9 +48,10 @@ aliases are supported. Wildcard binds expand to this server's interface addresse
 and hostname, rather than trusting every private-network address. A separate UI
 machine must be named by `uiHost`. Invalid, opaque (`null`) and unconfigured
 origins receive HTTP 403 before routing or WebSocket admission. Non-browser
-clients may omit `Origin`. Send Protocol 2 `hello` within five seconds of opening
-a WebSocket; traffic before `hello` cannot extend that deadline. After `hello`,
-idle spectators remain connected.
+clients may omit `Origin`. Send Protocol 2 `hello`, receive `welcome`, and send
+the first `join` within five seconds of opening a WebSocket. Neither `hello`
+nor heartbeat traffic extends that admission deadline. Joined idle spectators
+remain connected.
 
 Originless browser requests marked cross-site or same-site by Fetch Metadata must identify a
 configured UI origin through `Referer`; unrelated pages cannot trigger archive
