@@ -162,6 +162,8 @@ if [ "$need_install" -eq 1 ]; then
 fi
 
 need_build=0
+# Build-time routing is part of the cached browser output.
+BUILD_SETTINGS=$(printf 'port=%s\npublicWsUrl=%s\nconfig=%s\n' "$PORT" "${PUBLIC_WS_URL:-}" "${SERVER_CONFIG:-server/config.toml}")
 if [ "${SLITHER_SKIP_BUILD:-0}" != "1" ]; then
   if [ ! -f dist/index.html ] || [ ! -f native/index.js ] || [ ! -f "$BUILD_STAMP" ]; then
     need_build=1
@@ -178,8 +180,12 @@ if [ "${SLITHER_SKIP_BUILD:-0}" != "1" ]; then
     fi
   fi
 
+  if [ "$need_build" -eq 0 ] && [ "$(cat "$BUILD_STAMP")" != "$BUILD_SETTINGS" ]; then
+    need_build=1
+  fi
+
   if [ "$need_build" -eq 0 ]; then
-    for _path in package.json package-lock.json tsconfig.json vite.config.ts index.html styles.css server src native/Cargo.toml native/Cargo.lock native/src; do
+    for _path in package.json package-lock.json tsconfig.json vite.config.ts index.html styles.css server src native/Cargo.toml native/Cargo.lock native/src "${SERVER_CONFIG:-server/config.toml}"; do
       if [ -e "$_path" ] && find "$_path" -type f -newer "$BUILD_STAMP" -print -quit 2>/dev/null | grep -q .; then
         need_build=1
         break
@@ -191,8 +197,8 @@ fi
 if [ "$need_build" -eq 1 ]; then
   echo
   echo "[SETUP] Building native addon and browser client..."
-  npm run build
-  touch "$BUILD_STAMP"
+  PORT="$PORT" npm run build
+  printf '%s\n' "$BUILD_SETTINGS" >"$BUILD_STAMP"
 elif [ "${SLITHER_SKIP_BUILD:-0}" = "1" ]; then
   echo "[INFO] Build skipped because SLITHER_SKIP_BUILD=1."
 else

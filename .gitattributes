@@ -10,3 +10,7 @@ docs/todo/evidence/stage7/**/*4cd2287-20261002.json text eol=lf
 
 # Linux namespace fixture must keep shell-compatible newlines on Windows checkouts.
 scripts/stage7/private-filesystem-failures.sh text eol=lf
+
+# These are executed directly by both Debian sh and Git for Windows Bash.
+play.sh text eol=lf
+scripts/test/launcher-build-cache.sh text eol=lf

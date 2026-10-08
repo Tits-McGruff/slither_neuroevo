@@ -134,7 +134,7 @@ export function resolveUiDefaults(
       : defaultUiHost;
   const uiPort = coercePort(env["UI_PORT"], coercePort(raw.uiPort, defaultUiPort));
 
-  const wsUrl = env["PUBLIC_WS_URL"] ?? raw.publicWsUrl;
+  const wsUrl = env["PUBLIC_WS_URL"] || raw.publicWsUrl;
   const publicWsUrl =
     typeof wsUrl === "string" && wsUrl.trim()
       ? wsUrl.trim()

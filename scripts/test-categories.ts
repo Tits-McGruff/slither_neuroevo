@@ -92,6 +92,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'src/world.test.ts'
   ],
   integration: [
+    'scripts/launcherBuild.integration.test.ts',
     'scripts/managedBackup.test.ts',
     'scripts/stage7/compact-legacy-database.test.ts',
     'server/rustServer.native.test.ts',

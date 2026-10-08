@@ -127,7 +127,8 @@ describe(SUITE, () => {
     vi.stubEnv('UI_HOST', '192.168.1.51');
     vi.stubEnv('PUBLIC_WS_URL', '');
     expect(buildViteConfig()).toMatchObject({ server: { host: '192.168.1.51', hmr: { host: '192.168.1.51' } },
-      define: { 'import.meta.env.SLITHER_DEFAULT_WS_URL': '""' } });
+      define: { 'import.meta.env.SLITHER_DEFAULT_WS_URL': '"ws://old-host:5174"' } });
+    expect(parseConfig(['--config', configPath], process.env).publicWsUrl).toBe('ws://old-host:5174');
   });
 
   it('injects the configured split-host route through Vite in development and production', () => {
