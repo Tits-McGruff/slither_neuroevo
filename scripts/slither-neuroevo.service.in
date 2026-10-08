@@ -7,7 +7,7 @@ StartLimitBurst=3
 [Service]
 Type=simple
 WorkingDirectory=@REPO_ROOT@
-EnvironmentFile="-@REPO_ROOT@/server/systemd.env"
+EnvironmentFile=-@REPO_ROOT@/server/systemd.env
 ExecStart="@REPO_ROOT@/scripts/run-production.sh"
 Restart=on-failure
 RestartSec=5

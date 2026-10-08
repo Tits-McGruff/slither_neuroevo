@@ -553,17 +553,22 @@ contract shared with the serializer and renderer.
 
 ## HTTP API
 
-The HTTP routes share port 5174 with WebSocket upgrade handling. Request bodies
-are JSON and are limited to 50 MiB. These unauthenticated routes are intended
-only for the local UI and local tooling.
+HTTP and WebSocket handling share the configured server port, normally 5174.
+The persistence contract depends on the selected runtime:
 
-The Rust server defaults to port 5174. Its
-`GET /api/export/latest` response is a streamed `.slither-save`, and
-`POST /api/import/archive` accepts either that raw archive or an older raw
-browser-exported JSON population. The browser sends the selected file unchanged;
-the generic JSON-body limit and browser parsing do not apply to this route.
-Legacy JSON becomes a new generation-one population run rather than an exact
-resume.
+| Startup | Persistence transport |
+|---|---|
+| `npm run server` | Rust-owned binary `.slither-save` downloads and raw file uploads |
+| `npm run server:reference` | Retained TypeScript JSON snapshot API |
+
+The production JSON routes accept small, endpoint-specific request bodies.
+Archive upload has its own limit and does not use the reference server's
+50 MiB JSON-body parser. These routes support the local UI, local tooling and
+deliberate use on the owner's trusted home LAN under the origin rules above.
+
+### Rust-authoritative HTTP routes
+
+#### Legacy population conversion
 
 At startup, `--resume latest --db-path <path>` also accepts a TypeScript v2
 database whose resumable checkpoints use `snapshot_genomes` rows. Rust reads
@@ -585,11 +590,13 @@ imports and restarts retain the record. Reset and New Run clear it. Older
 SQLite-only conversion notices may omit `version` and optional source facts;
 already exported archives without provenance cannot reconstruct those facts.
 
-### `GET /health`
+#### `GET /api/health` and `GET /health`
 
-Returns `{ "ok": true, ... }` plus current tick, connected client count,
-inference mode, scheduler diagnostics, fault state, run identity,
-`configRevision`, and `configHash`.
+Returns `{ "ok": true, ... }` with native `completedStep` and `generation`,
+seed/run identity, `configRevision`, `configHash`, scheduler and queue
+diagnostics, process telemetry, retention and storage counters. A fault returns
+HTTP 503 with `ok: false`; a failed startup serves health while refusing game
+WebSockets.
 
 Rust health at `/api/health` and `/health` also includes
 `stepTimingBucketUpperMicros`, `stepTimingBucketCounts`,
@@ -602,39 +609,73 @@ counters. These buckets include generation-ending computation; persistence
 waiting has a separate barrier clock. `telemetry.step` remains a lifetime
 distribution, so its percentiles cannot be subtracted to obtain a window.
 
-### `POST /api/save`
+#### `GET /api/export/latest`
 
-Writes the current population as a typed, non-resumable `population-export`
-snapshot and returns `{ "ok": true, "snapshotId": number }`. This is a
-population transfer, not a complete mid-tick checkpoint. Automatic generation
-and run-start checkpoints are separate resumable records.
+Downloads the exact current managed checkpoint as a streamed binary archive,
+including its compact history and run-scoped Hall of Fame. Selection is leased
+for the whole download: later generations do not change the selected bytes.
+The checkpoint is a durable generation boundary, not a mid-tick world save.
 
-### `GET /api/export/latest`
+Successful response headers are:
 
-Streams the newest snapshot as JSON without constructing one
-population-sized JSON string. Returns 404 when the database has no snapshots.
-The payload includes `generation`, `archKey`, `genomes`, `cfgHash`,
-`worldSeed`, and available settings/run/boundary metadata.
+- `Content-Type: application/vnd.slither-neuroevo.save`.
+- `Content-Length`: exact archive byte count.
+- `Content-Disposition: attachment; filename="slither-neuroevo-<checkpoint-prefix>-gen-<generation>-v1.slither-save"`.
+- `X-Slither-Checkpoint-Id`: full checkpoint SHA-256 identity.
+- `X-Slither-Save-Root`: archive logical-root SHA-256 identity.
 
-### `POST /api/import`
+Save the response bytes unchanged; do not call `response.json()` or reconstruct
+population JSON. A busy persistence operation returns 409 and an unavailable
+authority returns 503. Preparation failures return a JSON error before archive
+headers are sent. A failed or cancelled transfer must be discarded.
 
-Accepts an exported snapshot directly or as `{ "payload": snapshot }`.
-Required fields are `generation`, `archKey`, a non-empty `genomes` array,
-`cfgHash`, and `worldSeed`. Use `?force=1` or top-level `force: true` to
-override a configuration-hash mismatch deliberately.
+#### `POST /api/import/archive`
 
-Import replaces compatible population genomes at a recurrent reset boundary;
-it does not apply the exported seed. Success reports `importedWorldSeed`,
-`activeWorldSeed`, `seedApplied: false`, and a metadata-only seed disposition.
-Use Protocol 2 New Run for a new seed or Reset for a same-seed reconstruction.
+Upload the original `.slither-save` file as the raw request body. Older raw
+browser-exported JSON population files use this same route. Send neither
+multipart form data nor a `{ "payload": ... }` wrapper. The current encoded
+upload ceiling is 4 GiB. `Content-Length`, when supplied, must be an exact,
+nonzero decimal byte count; chunked uploads are also accepted.
 
-### `POST /api/resurrect`
+Rust validates the uploaded file and commits the replacement checkpoint before
+publishing the new game. Exact archives restore the complete experiment at its
+checkpoint boundary. Legacy JSON creates a new generation-one population run
+without claiming exact RNG continuation or missing history. Existing game
+sockets receive `stateReplaced` and must join again.
 
-Accepts a genome directly or as `{ "genome": genome }`. A genome contains a
-non-empty `archKey`, a finite `weights` array, and optional `brainType` and
-`fitness`. Success returns the spawned `snakeId`.
+HTTP 200 returns `ok: true`, `runId`, `generation`, `completedStep`,
+`checkpointId`, `saveLogicalRootSha256` and `branched`, plus applicable
+`legacyConversion` or `sourceRunId` metadata. Generation and step counts are
+sixteen-digit lowercase hexadecimal values.
 
-### Graph presets
+If the imported boundary is older than retained local history for the same run,
+the server returns HTTP 409 with `code: "IMPORT_REQUIRES_BRANCH"`. Repeat the
+same upload to `/api/import/archive?mode=branch` to create a separate run while
+preserving the existing later history. A busy operation also returns 409;
+validation failures return a JSON error with `ok: false` and `message`.
+
+For example, using curl:
+
+```sh
+curl --fail --output run.slither-save http://127.0.0.1:5174/api/export/latest
+curl --fail --request POST --header 'Content-Type: application/vnd.slither-neuroevo.save' --upload-file run.slither-save http://127.0.0.1:5174/api/import/archive
+```
+
+#### `POST /api/checkpoints/current/pin`
+
+Permanently protects the exact current managed checkpoint from automatic
+pruning. It returns `ok: true` and the pinned checkpoint metadata; it does not
+download a file or create another population copy.
+
+#### `POST /api/resurrect`
+
+Accepts exactly `{ "entryId": "0000000000000001" }`, using the sixteen-digit
+lowercase hexadecimal ID of a retained Hall-of-Fame entry. Rust loads its
+managed weights and spawns a new independently controlled snake. Success
+returns `{ "ok": true, "snakeId": number }`; population weights are not sent
+in the JSON request.
+
+#### Graph presets
 
 - `GET /api/graph-presets?limit=50` lists preset metadata; limit is clamped to
   1 through 200.
@@ -642,7 +683,50 @@ non-empty `archKey`, a finite `weights` array, and optional `brainType` and
 - `POST /api/graph-presets` accepts `{ "name": string, "spec": object }` and
   returns `presetId`.
 
-### Hall of Fame
+#### `GET /api/hof`
+
+Returns `{ "hof": [...] }` with compact retained Hall-of-Fame metadata.
+Production does not accept `POST /api/hof`, `POST /api/save` or the reference
+server's `POST /api/import` JSON endpoint.
+
+### Retained reference HTTP routes
+
+These routes apply only to `npm run server:reference`. JSON request bodies are
+limited to 50 MiB. Its health response reports reference tick, client,
+inference and scheduler state; graph preset routes have the same shape listed
+above.
+
+#### `POST /api/save`
+
+Writes a typed, non-resumable `population-export` snapshot and returns
+`{ "ok": true, "snapshotId": number }`. Automatic generation and run-start
+checkpoints are separate resumable records.
+
+#### `GET /api/export/latest`
+
+Streams the newest reference snapshot as JSON. Returns 404 when the database
+has no snapshots. The payload includes `generation`, `archKey`, `genomes`,
+`cfgHash`, `worldSeed` and available settings/run/boundary metadata.
+
+#### `POST /api/import`
+
+Accepts the JSON snapshot directly or as `{ "payload": snapshot }`. Required
+fields are `generation`, `archKey`, a non-empty `genomes` array, `cfgHash` and
+`worldSeed`. `?force=1` or top-level `force: true` deliberately overrides a
+configuration-hash mismatch.
+
+This replaces compatible population genomes at a recurrent reset boundary and
+does not apply the exported seed. Success reports `importedWorldSeed`,
+`activeWorldSeed` and `seedApplied: false`. Use Protocol 2 New Run for a new seed
+or Reset for a same-seed reconstruction.
+
+#### `POST /api/resurrect`
+
+Accepts a genome directly or as `{ "genome": genome }`, containing a non-empty
+`archKey`, finite `weights`, and optional `brainType` and `fitness`. Success
+returns the spawned `snakeId`.
+
+#### Hall of Fame
 
 - `GET /api/hof?limit=50` returns `{ "ok": true, "hof": [...] }`.
 - `POST /api/hof` accepts `{ "hof": [...] }` and replaces/saves the supplied

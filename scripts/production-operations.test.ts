@@ -69,7 +69,7 @@ printf '%s' "$HEALTH_URL"
   it('uses bounded restart policy and graceful termination', () => {
     expect(SERVICE).toContain('ExecStart="@REPO_ROOT@/scripts/run-production.sh"');
     expect(SERVICE).toContain('WorkingDirectory=@REPO_ROOT@');
-    expect(SERVICE).toContain('EnvironmentFile="-@REPO_ROOT@/server/systemd.env"');
+    expect(SERVICE).toContain('EnvironmentFile=-@REPO_ROOT@/server/systemd.env');
     expect(SERVICE).toContain('Restart=on-failure');
     expect(SERVICE).toContain('RestartSec=5');
     expect(SERVICE).toContain('StartLimitIntervalSec=120');
