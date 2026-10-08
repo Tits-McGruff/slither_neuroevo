@@ -49,11 +49,12 @@ function parseJsonMessage(data: RawData): Record<string, unknown> | null {
   }
 }
 
-/** Start one isolated JS server for network integration. */
-async function startIntegrationServer() {
+/** Start one isolated JS server with an explicitly configured UI host. */
+async function startIntegrationServer(uiHost = DEFAULT_CONFIG.uiHost) {
   return startServer({
     ...DEFAULT_CONFIG,
     port: 0,
+    uiHost,
     dbPath: ':memory:',
     resume: 'fresh',
     inferenceBackend: 'js',
@@ -365,8 +366,8 @@ describeNetworkSuite('server integration', () => {
     }
   }, 20000);
 
-  it('supports trusted-LAN CORS requests and preflight without treating CORS as authentication', async () => {
-    const server = await startIntegrationServer();
+  it('supports configured LAN CORS and rejects unconfigured origins before routing', async () => {
+    const server = await startIntegrationServer('192.168.1.25');
     const httpBase = `http://127.0.0.1:${server.port}`;
     const lanOrigin = 'http://192.168.1.25:5173';
 
@@ -394,8 +395,16 @@ describeNetworkSuite('server integration', () => {
       const untrustedOrigin = await fetch(`${httpBase}/health`, {
         headers: { Origin: 'https://example.com' }
       });
-      expect(untrustedOrigin.headers.get('access-control-allow-origin')).toBe('*');
+      expect(untrustedOrigin.status).toBe(403);
+      expect(untrustedOrigin.headers.get('access-control-allow-origin')).toBeNull();
       expect(untrustedOrigin.headers.get('access-control-allow-credentials')).toBeNull();
+      await untrustedOrigin.text();
+      const unrelatedLan = await fetch(`${httpBase}/api/save`, {
+        method: 'POST', headers: { Origin: 'http://192.168.1.26:5173', 'Content-Type': 'text/plain' }
+      });
+      expect(unrelatedLan.status).toBe(403);
+      expect(unrelatedLan.headers.has('access-control-allow-origin')).toBe(false);
+      await unrelatedLan.text();
     } finally {
       await server.close();
     }

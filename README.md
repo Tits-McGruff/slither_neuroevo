@@ -490,6 +490,16 @@ Your address will usually start with `192.168.`, `10.`, or `172.16` through
 `publicWsUrl` to the address printed by the launcher when needed. Do not
 configure router port forwarding for these ports.
 
+Browser HTTP and WebSocket requests must come from the configured UI host and
+`uiPort`, or the built UI on the server's port. Loopback aliases are supported;
+all-interface binds also allow this computer's interface addresses and hostname.
+Use the printed URLs, or configure `uiHost` for a separate UI host. Arbitrary
+websites and other LAN hosts/ports are rejected. Bot/trainer clients that omit
+the browser `Origin` header remain supported. A socket must send its Protocol 2
+`hello` within five seconds; established spectators may remain idle.
+Vite uses the configured port without silently switching ports when it is busy.
+To use another UI port, update `uiPort` and restart the UI and simulation server.
+
 ## Test suites
 
 `npm test` builds/tests native code and runs the JavaScript suite. After the

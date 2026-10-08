@@ -23,6 +23,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/stage7/player-reconnect-exchange.test.ts',
     'scripts/test-categories.test.ts',
     'server/authoritativeWorldDigest.test.ts',
+    'server/browserOrigins.test.ts',
     'server/hash.test.ts',
     'server/rustEngine/archiveUpload.test.ts',
     'server/rustEngine/archiveWorkWatchdog.test.ts',
@@ -133,7 +134,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'src/stage1.correctionFixtures.test.ts'
   ],
   performance: ['server/performance.test.ts'],
-  security: ['server/security.test.ts']
+  security: ['server/security.test.ts', 'server/browserAccess.security.test.ts']
 } as const;
 
 /** Primary category name used by completeness checks. */

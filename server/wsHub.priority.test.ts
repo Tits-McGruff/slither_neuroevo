@@ -50,7 +50,6 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
     clientType: 'ui',
     joined: true,
     mode: 'player',
-    lastMessageTime: 0,
     reliableQueue: [],
     reliableQueueBytes: 0,
     pendingStats: null,

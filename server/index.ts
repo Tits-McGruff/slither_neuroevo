@@ -11,6 +11,7 @@ import {
 } from '../src/brains/nativeBridge.ts';
 import { parseConfig, type ServerConfig } from './config.ts';
 import { createHttpHandler } from './httpApi.ts';
+import { createBrowserOriginPolicy } from './browserOrigins.ts';
 import { createLogger } from './logger.ts';
 import { createPersistence, initDb } from './persistence.ts';
 import { PROTOCOL_VERSION, SERIALIZER_VERSION, type WelcomeMsg } from './protocol.ts';
@@ -50,6 +51,7 @@ async function closeHttpServer(server: Server): Promise<void> {
  * @returns Running server handle with close method.
  */
 export async function startServer(config: ServerConfig, logger?: Logger): Promise<RunningServer> {
+  const browserOrigins = createBrowserOriginPolicy(config);
   const resume = config.resume;
   if (typeof resume === 'string' && resume !== 'fresh' && resume !== 'latest') {
     throw new Error('managed checkpoint IDs require the Rust server');
@@ -123,7 +125,6 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
 
   let simServer: SimServer | null = null;
   let wsHub: WsHub | null = null;
-
   const httpHandler = createHttpHandler({
     getStatus: () => {
       if (!simServer || !wsHub) throw new Error('simulation server not ready');
@@ -154,7 +155,7 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
     getConfigHash: () => simServer?.getConfigHash() ?? cfgHash,
     getWorldSeed: () => simServer?.getRunIdentity().seed ?? worldSeed,
     logger
-  });
+  }, browserOrigins);
 
   const httpServer = createServer((req, res) => {
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
@@ -210,7 +211,7 @@ export async function startServer(config: ServerConfig, logger?: Logger): Promis
     // Attach WebSocket and simulation resources only after the HTTP bind has
     // succeeded. The ws package forwards HTTP bind errors through its own
     // EventEmitter, which would otherwise create a second uncaught error path.
-    wsHub = new WsHub(httpServer, welcome);
+    wsHub = new WsHub(httpServer, welcome, { browserOrigins });
     try {
       simServer = new SimServer(
         config,

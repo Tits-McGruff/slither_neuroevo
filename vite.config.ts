@@ -162,11 +162,13 @@ export function buildViteConfig() {
   const serverConfig = {
     open: true,
     host: defaults.uiHost,
-    port: defaults.uiPort
+    port: defaults.uiPort,
+    strictPort: true
   } as {
     open: boolean;
     host: string;
     port: number;
+    strictPort: boolean;
     hmr?: { host: string };
     headers?: Record<string, string>;
   };

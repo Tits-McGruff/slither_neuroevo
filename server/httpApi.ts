@@ -11,6 +11,8 @@ import type { AuthoritativeWorldLoadDiagnostics, SimulationFaultStatus } from '.
 import type { SpatialHashDiagnostics } from '../src/spatialHash.ts';
 import type { WsOutboundDiagnostics } from './wsHub.ts';
 import { readJsonBody } from './readJsonBody.ts';
+import { admitBrowserRequest, createBrowserOriginPolicy, type BrowserOriginPolicy } from './browserOrigins.ts';
+import { DEFAULT_CONFIG } from './config.ts';
 
 export { readJsonBody } from './readJsonBody.ts';
 
@@ -59,57 +61,17 @@ export interface HttpApiDeps {
 /**
  * Builds the HTTP handler that serves API requests and health checks.
  * @param deps - API dependencies and persistence adapters.
+ * @param browserOrigins - Shared policy for the configured UI and built server UI.
  * @returns Request handler function.
  */
-export function createHttpHandler(deps: HttpApiDeps): (req: IncomingMessage, res: ServerResponse) => void {
+export function createHttpHandler(
+  deps: HttpApiDeps,
+  browserOrigins: BrowserOriginPolicy = createBrowserOriginPolicy(DEFAULT_CONFIG)
+): (req: IncomingMessage, res: ServerResponse) => void {
   return (req, res) => {
+    if (!admitBrowserRequest(req, res, browserOrigins)) return;
     void handleRequest(req, res, deps);
   };
-}
-
-/**
- * Check whether an origin belongs to a loopback or trusted-LAN address shape.
- * This routing check is not authentication or an internet-facing security boundary.
- * @param origin - Origin header to check.
- * @returns True when the origin is local or LAN-shaped.
- */
-function isLanOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  try {
-    const { hostname } = new URL(origin);
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
-
-    const parts = hostname.split('.').map(Number);
-    if (parts.length === 4 && parts.every((part) => !Number.isNaN(part) && part >= 0 && part <= 255)) {
-      if (parts[0] === 10) return true;
-      if (parts[0] === 172) return true;
-      if (parts[0] === 192 && parts[1] === 168) return true;
-    }
-
-    if (!hostname.includes('.')) return true;
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Add CORS headers for browser clients on loopback or a trusted LAN.
- * @param req - Incoming request.
- * @param res - Server response.
- */
-function applyCors(req: IncomingMessage, res: ServerResponse): void {
-  const origin = req.headers.origin;
-  if (origin && isLanOrigin(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Vary', 'Origin');
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
-  res.setHeader('Access-Control-Max-Age', '86400');
 }
 
 /**
@@ -124,19 +86,12 @@ async function handleRequest(
   deps: HttpApiDeps
 ): Promise<void> {
   try {
-    applyCors(req, res);
-    if (req.method === 'OPTIONS') {
-      res.statusCode = 204;
-      res.end();
-      return;
-    }
     await routeRequest(req, res, deps);
   } catch (err) {
     const message = (err as Error).message || 'internal server error';
     deps.logger?.error('http', `Request error: ${message}`);
     // If headers haven't been sent yet, we can send a 500.
     if (!res.headersSent) {
-      applyCors(req, res);
       sendJson(res, 500, { ok: false, message });
     } else {
       res.end();

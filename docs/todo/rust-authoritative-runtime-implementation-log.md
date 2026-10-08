@@ -2685,3 +2685,13 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   build pass; native calculations are unchanged. Task-owned processes and
   local/remote scratch are cleaned after retaining compact evidence. Final
   checkpoint CI is required before declaring the branch ready to merge.
+
+- 2026-10-08 PR #9 transport findings are addressed with one configured UI-origin
+  policy shared by production/reference HTTP and WebSocket admission. Untrusted
+  origins are rejected before routing; loopback, configured LAN UI and original
+  non-browser trainer clients remain supported. A fixed five-second hello
+  deadline terminates unidentified sockets and releases capacity without timing
+  out established spectators. Vite retains the configured UI port. Focused
+  security, LAN, controller and real Rust-server checks pass; types and affected
+  lint pass. Rust calculations and previously retained performance evidence
+  are unchanged. The pushed checkpoint requires its normal CI confirmation.

@@ -44,8 +44,9 @@ interface Peer {
 }
 
 /** Attach listeners before sending a hello so no ready message can be missed. */
-async function connect(port: number, clientType: 'ui' | 'bot'): Promise<Peer> {
-  const peer: Peer = { socket: new WebSocket(`ws://127.0.0.1:${port}`), packets: [], frames: 0 };
+async function connect(port: number, clientType: 'ui' | 'bot', origin?: string): Promise<Peer> {
+  const peer: Peer = { socket: new WebSocket(`ws://127.0.0.1:${port}`,
+    origin === undefined ? {} : { origin }), packets: [], frames: 0 };
   peer.socket.on('message', (data, binary) => {
     if (binary) { peer.frames++; peer.latestFrame = Buffer.from(data as Buffer); }
     else if (peer.packets.length < 256) peer.packets.push(JSON.parse(data.toString()) as Record<string, unknown>);
@@ -267,6 +268,60 @@ function rewriteLegacyManifest(archive: Buffer, mutate: (manifest: Record<string
 }
 
 describeNetworkSuite('Rust server real sockets', () => {
+  it('enforces browser origins on production HTTP, WebSockets and startup-fault health', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-browser-origin-'));
+    const peers: Peer[] = [];
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    try {
+      const config = { ...DEFAULT_CONFIG, port: 0, resume: 'fresh' as const, seed: 42,
+        rustCalculationWorkers: 1, dbPath: join(root, 'experiment.sqlite') };
+      server = await startRustServer(config);
+      const url = `http://127.0.0.1:${server.port}`;
+      const before = await (await fetch(`${url}/api/health`)).json() as Record<string, unknown>;
+      for (const path of ['/api/export/latest', '/api/import/archive', '/api/checkpoint/pin', '/api/graph-presets']) {
+        const response = await fetch(`${url}${path}`, { method: path.includes('export') ? 'GET' : 'POST',
+          headers: { Origin: 'http://evil.test', 'Content-Type': 'text/plain' } });
+        expect(response.status).toBe(403);
+        expect(response.headers.has('Access-Control-Allow-Origin')).toBe(false);
+        await response.text();
+      }
+      const rejected = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin: 'http://evil.test' });
+      await new Promise<void>((done, reject) => {
+        rejected.once('open', () => { rejected.terminate(); reject(new Error('untrusted upgrade accepted')); });
+        rejected.once('error', error => {
+          try { expect(error.message).toContain('403'); done(); } catch (failure) { reject(failure); }
+        });
+      });
+      for (const origin of ['http://localhost:5173', url, undefined]) {
+        const peer = await connect(server.port, 'ui', origin);
+        peers.push(peer);
+        peer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+        await until(peer, () => peer.frames > 0);
+      }
+      const after = await (await fetch(`${url}/api/health`, { headers: { Origin: 'http://localhost:5173' } })).json() as Record<string, unknown>;
+      expect(after['runId']).toBe(before['runId']);
+      expect(after['configHash']).toBe(before['configHash']);
+      for (const peer of peers) peer.socket.terminate();
+      peers.length = 0;
+      await server.close();
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: `sha256:${'ab'.repeat(32)}`,
+        rustCalculationWorkers: 1, dbPath: join(root, 'missing.sqlite') });
+      expect(server.startupFault).toBeDefined();
+      const faultUrl = `http://127.0.0.1:${server.port}/api/health`;
+      const forbidden = await fetch(faultUrl, { headers: { Origin: 'http://evil.test' } });
+      expect(forbidden.status).toBe(403);
+      await forbidden.text();
+      const health = await fetch(faultUrl, { headers: { Origin: 'http://localhost:5173' } });
+      expect(health.status).toBe(503);
+      expect(health.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
+      expect(await health.json()).toMatchObject({ lifecycle: 'startup-fault' });
+    } finally {
+      for (const peer of peers) peer.socket.terminate();
+      await server?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   it.each([
     { inferenceBackend: 'js' as const },
     { mtEnabled: true },

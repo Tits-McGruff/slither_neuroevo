@@ -129,6 +129,7 @@ describe(SUITE, () => {
     expect(config.server).toMatchObject({
       host: '0.0.0.0',
       port: 55173,
+      strictPort: true,
       hmr: { host: '192.168.1.40' }
     });
   });

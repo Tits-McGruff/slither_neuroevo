@@ -2,6 +2,8 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type { RawData } from 'ws';
 import type { Server } from 'node:http';
 import { getProtocolVersionError, parseClientMessage } from './protocol.ts';
+import { createBrowserOriginPolicy, type BrowserOriginPolicy } from './browserOrigins.ts';
+import { DEFAULT_CONFIG } from './config.ts';
 import type {
   ActionMsg,
   ClientType,
@@ -28,6 +30,8 @@ const DEFAULT_MAX_BUFFERED_BYTES = 512 * 1024;
 const MAX_RELIABLE_QUEUE_MESSAGES = 1024;
 /** Hard bound on queued reliable JSON bytes per connection. */
 const MAX_RELIABLE_QUEUE_BYTES = 4 * 1024 * 1024;
+/** Fixed wall deadline to identify an admitted socket with a valid hello. */
+const DEFAULT_HANDSHAKE_TIMEOUT_MS = 5000;
 
 /** Per-connection state tracked by the websocket hub. */
 export interface ConnectionState {
@@ -36,7 +40,8 @@ export interface ConnectionState {
   clientType: 'unknown' | ClientType;
   joined: boolean;
   mode?: JoinMode;
-  lastMessageTime: number;
+  /** Cleared after hello, peer closure, or hub shutdown. */
+  handshakeTimer?: NodeJS.Timeout;
   /** Priority JSON payloads waiting behind the current WebSocket send. */
   reliableQueue: string[];
   /** UTF-8 byte total represented by `reliableQueue`. */
@@ -87,6 +92,10 @@ export interface WsHubOptions {
   maxConnections?: number;
   maxMessageBytes?: number;
   maxBufferedAmount?: number;
+  /** Shared HTTP/WebSocket origin policy for this startup configuration. */
+  browserOrigins?: BrowserOriginPolicy;
+  /** Fixed hello deadline; traffic before hello cannot extend it. */
+  handshakeTimeoutMs?: number;
 }
 
 /** Event handlers invoked by the websocket hub. */
@@ -132,6 +141,8 @@ export class WsHub {
   private maxBufferedAmount: number;
   /** Maximum live sockets admitted by this hub. */
   private readonly maxConnections: number;
+  /** Wall deadline for the first valid hello. */
+  private readonly handshakeTimeoutMs: number;
   /** Registered event handlers for hub callbacks. */
   private handlers: WsHubHandlers | null;
 
@@ -151,9 +162,14 @@ export class WsHub {
     this.maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
     this.maxBufferedAmount = options.maxBufferedAmount ?? DEFAULT_MAX_BUFFERED_BYTES;
     this.maxConnections = options.maxConnections ?? Infinity;
+    this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
+    const browserOrigins = options.browserOrigins ?? createBrowserOriginPolicy(DEFAULT_CONFIG);
     this.wss = new WebSocketServer({
       server: httpServer,
-      maxPayload: this.maxMessageBytes
+      maxPayload: this.maxMessageBytes,
+      verifyClient: (info, done) => {
+        done(browserOrigins.allows(info.req.headers.origin, info.req.socket.localPort), 403, 'Forbidden');
+      }
     });
     this.welcome = welcome;
     this.welcomeJson = JSON.stringify(welcome);
@@ -267,8 +283,10 @@ export class WsHub {
    */
   closeAll(): void {
     for (const state of this.connections.values()) {
+      clearTimeout(state.handshakeTimer);
       this.discardPendingFrame(state);
-      state.socket.close();
+      if (state.clientType === 'unknown') state.socket.terminate();
+      else state.socket.close();
     }
     this.connections.clear();
     this.wss.close();
@@ -490,7 +508,6 @@ export class WsHub {
       socket,
       clientType: 'unknown',
       joined: false,
-      lastMessageTime: Date.now(),
       reliableQueue: [],
       reliableQueueBytes: 0,
       pendingStats: null,
@@ -501,8 +518,17 @@ export class WsHub {
       reliableFailures: 0
     };
     this.connections.set(state.id, state);
+    state.handshakeTimer = setTimeout(() => {
+      // terminate also releases capacity when a silent peer will not complete a close handshake.
+      if (state.clientType === 'unknown') {
+        this.connections.delete(state.id);
+        socket.terminate();
+      }
+    }, this.handshakeTimeoutMs);
+    state.handshakeTimer.unref();
     socket.on('message', (data, isBinary) => this.handleMessage(state, data, isBinary));
     socket.on('close', () => {
+      clearTimeout(state.handshakeTimer);
       state.reliableQueue.length = 0;
       state.reliableQueueBytes = 0;
       state.pendingStats = null;
@@ -546,7 +572,6 @@ export class WsHub {
       this.protocolError(state, 'invalid message');
       return;
     }
-    state.lastMessageTime = Date.now();
     switch (msg.type) {
       case 'hello':
         if (state.clientType !== 'unknown') {
@@ -554,6 +579,8 @@ export class WsHub {
           return;
         }
         state.clientType = msg.clientType;
+        clearTimeout(state.handshakeTimer);
+        delete state.handshakeTimer;
         this.enqueueReliable(state, this.welcomeJson);
         return;
       case 'join':

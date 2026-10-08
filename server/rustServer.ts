@@ -16,6 +16,7 @@ import { isIP } from 'node:net';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { parseConfig, type ServerConfig } from './config.ts';
 import { WsHub } from './wsHub.ts';
+import { admitBrowserRequest, createBrowserOriginPolicy } from './browserOrigins.ts';
 import { assertReplacementCheckpointBudget, createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
@@ -157,8 +158,10 @@ export interface RustServer {
 /** Keep bounded diagnostics reachable after failed restore without starting any game or socket authority. */
 async function startFaultedServer(config: ServerConfig, error: unknown): Promise<RustServer> {
   const reason = (error instanceof Error ? error.message : String(error)).slice(0, 512);
-  const server = createServer((_request, response) => {
-    response.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+  const browserOrigins = createBrowserOriginPolicy(config);
+  const server = createServer((request, response) => {
+    if (!admitBrowserRequest(request, response, browserOrigins)) return;
+    response.writeHead(503, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify({ ok: false, authority: 'rust', lifecycle: 'startup-fault', interfaceFault: reason }));
   });
   server.on('upgrade', (_request, socket) => { socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'); });
@@ -292,6 +295,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       config.controllerDisconnectGraceMs !== 30_000 || config.checkpointEveryGenerations !== 1) {
     throw new Error('Rust startup requires the native backend, reference MT disabled, default controller timing, and every-generation checkpoints; use --rust-workers for Rust or npm run server:reference for backend/Node-MT options');
   }
+  const browserOrigins = createBrowserOriginPolicy(config);
   let schedule = (): void => {};
   let owner: ExperimentalServerRuntime;
   try {
@@ -495,10 +499,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     }
   };
   const server = createServer((request, response) => {
-    response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
+    if (!admitBrowserRequest(request, response, browserOrigins)) return;
     const requestUrl = new URL(request.url ?? '/', 'http://localhost');
     const pathname = requestUrl.pathname;
     if (pathname === '/api/health' || pathname === '/health') {
@@ -761,7 +762,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   try {
     hub = new WsHub(server, { ...createRustWelcome(activeMetadata, owner.nativeBuildIdentifier, config.rustCalculationWorkers), ...(recovery ? { recovery } : {}),
       ...(importBranch ? { importBranch } : {}),
-      ...(legacyConversion ? { legacyConversion } : {}) }, { maxConnections: 64 });
+      ...(legacyConversion ? { legacyConversion } : {}) }, { maxConnections: 64, browserOrigins });
     const sockets = hub;
     let routing!: ExternalControllerRouting;
     const output = new BackgroundOutputPump({

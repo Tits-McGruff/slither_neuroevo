@@ -39,6 +39,16 @@ On Windows, allow Node.js on the Private firewall profile (or allow inbound TCP
 5173 and 5174 on that profile). The launchers print the usable network URLs.
 CORS permits the separate UI and API origins; it is not authentication.
 
+HTTP requests and WebSocket upgrades carrying `Origin` are accepted only from
+the configured HTTP UI host/`uiPort` or built UI on the server port. Loopback
+aliases are supported. Wildcard binds expand to this server's interface addresses
+and hostname, rather than trusting every private-network address. A separate UI
+machine must be named by `uiHost`. Invalid, opaque (`null`) and unconfigured
+origins receive HTTP 403 before routing or WebSocket admission. Non-browser
+clients may omit `Origin`. Send Protocol 2 `hello` within five seconds of opening
+a WebSocket; traffic before `hello` cannot extend that deadline. After `hello`,
+idle spectators remain connected.
+
 The server writes `server/config.toml` with defaults when the file does not
 exist. Command-line and environment overrides are described by
 `node ./node_modules/tsx/dist/cli.mjs server/rustServer.ts --help` and in
