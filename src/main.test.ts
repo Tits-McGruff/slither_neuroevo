@@ -18,6 +18,10 @@ interface SmokeElement {
   href: string;
   /** Browser download hint. */
   download: string;
+  /** Navigation context for a direct download or its error response. */
+  target: string;
+  /** Link relationship, including opener isolation without suppressing the UI referrer. */
+  rel: string;
   /** Whether the element is hidden. */
   hidden: boolean;
   /** Whether a synthetic click was requested. */
@@ -100,6 +104,8 @@ function makeElement(id: string): SmokeElement {
     innerHTML: '',
     href: '',
     download: '',
+    target: '',
+    rel: '',
     hidden: false,
     clicked: false,
     files: null,
@@ -344,10 +350,71 @@ describe('main.ts startup smoke', () => {
     const link = createdElements.find(element => element.href.endsWith('/api/export/latest'));
     expect(link).toMatchObject({
       href: 'http://localhost:5174/api/export/latest',
-      download: '', hidden: true, clicked: true
+      download: '', hidden: true, clicked: true, target: '_blank', rel: 'noopener'
     });
     const fetchCalls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
     expect(fetchCalls.filter(url => url.includes('/api/save') || url.includes('/api/export/latest'))).toEqual([]);
+  });
+
+  it.each(['reset', 'newRun', 'import'] as const)('replaces the Hall of Fame view after %s', async reason => {
+    const oldEntry = { entryId: '0000000000000001', gen: 1, fitness: 10, seed: 42, points: 2, length: 4 };
+    const newEntry = { entryId: '0000000000000002', gen: 7, fitness: 70, seed: 51, points: 3, length: 5 };
+    let records = [oldEntry];
+    vi.mocked(fetch).mockImplementation(async input => {
+      const payload = String(input).includes('/api/hof') ? { hof: [...records] } : { ok: true, presets: [] };
+      return { ok: true, json: async () => payload } as Response;
+    });
+    await import('./main.ts');
+    const socket = activeSocket;
+    if (!socket) throw new Error('missing browser WebSocket');
+    const welcome = {
+      type: 'welcome', protocolVersion: 2, sessionId: 'hof-session', tickRate: 60,
+      worldSeed: 42, runId: 'old-run', configRevision: 0, configHash: 'cfg-hof',
+      settings: { core: { simSpeed: 1 }, updates: [] },
+      inferenceMode: { requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0 },
+      sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' }, serializerVersion: 1, frameByteLength: 28
+    };
+    socket.onopen?.();
+    socket.onmessage?.({ data: JSON.stringify(welcome) });
+    await vi.waitFor(() => expect(elements.get('hofTable')?.innerHTML).toContain('Gen 1'));
+    records = reason === 'import' ? [newEntry] : [];
+    socket.onmessage?.({ data: JSON.stringify({ type: 'stateReplaced', reason, checkpointId: 'c'.repeat(64),
+      welcome: { ...welcome, runId: 'new-run', worldSeed: 51 } }) });
+    expect(elements.get('hofTable')?.innerHTML).toBe('');
+    await vi.waitFor(() => expect(elements.get('hofTable')?.innerHTML).toContain(reason === 'import' ? 'Gen 7' : 'No records yet'));
+    const { hof } = await import('./hallOfFame.ts');
+    expect(await hof.getAll()).toEqual(records);
+  });
+
+  it('refreshes compact production Hall of Fame records once when a generation advances', async () => {
+    const entry = { entryId: '0000000000000001', gen: 1, fitness: 10, seed: 42, points: 2, length: 4 };
+    let records: typeof entry[] = [];
+    vi.mocked(fetch).mockImplementation(async input => {
+      const payload = String(input).includes('/api/hof') ? { hof: [...records] } : { ok: true, presets: [] };
+      return { ok: true, json: async () => payload } as Response;
+    });
+    await import('./main.ts');
+    const socket = activeSocket;
+    if (!socket) throw new Error('missing browser WebSocket');
+    socket.onopen?.();
+    socket.onmessage?.({ data: JSON.stringify({
+      type: 'welcome', protocolVersion: 2, sessionId: 'hof-session', tickRate: 60,
+      worldSeed: 42, runId: 'run', configRevision: 0, configHash: 'cfg-hof',
+      settings: { core: { simSpeed: 1 }, updates: [] },
+      inferenceMode: { requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0 },
+      sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' }, serializerVersion: 1, frameByteLength: 28,
+      capabilities: { archiveExport: true }
+    }) });
+    await vi.waitFor(() => expect(elements.get('hofTable')?.innerHTML).toContain('No records yet'));
+    records = [entry];
+    const stats = { type: 'stats', tick: 480, gen: 2, generationTime: 0, generationSeconds: 8,
+      alive: 12, fps: 60 };
+    socket.onmessage?.({ data: JSON.stringify(stats) });
+    await vi.waitFor(() => expect(elements.get('hofTable')?.innerHTML).toContain('Gen 1'));
+    const loads = vi.mocked(fetch).mock.calls.filter(([input]) => String(input).includes('/api/hof')).length;
+    socket.onmessage?.({ data: JSON.stringify({ ...stats, tick: 481 }) });
+    await Promise.resolve();
+    expect(vi.mocked(fetch).mock.calls.filter(([input]) => String(input).includes('/api/hof'))).toHaveLength(loads);
   });
 
   it('uploads the selected Rust archive File unchanged', async () => {

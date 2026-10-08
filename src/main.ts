@@ -1208,6 +1208,8 @@ let currentVizData: VizData | null = null;
 let pendingExport = false;
 /** Whether the connected server supports an opaque browser-managed save download. */
 let serverArchiveExport = false;
+/** Last production stats generation whose compact Hall of Fame was requested. */
+let serverHallOfFameGeneration = 0;
 /** Whether the connected server accepts the selected save without browser parsing. */
 let serverArchiveImport = false;
 
@@ -3587,6 +3589,19 @@ function applyAuthoritativeLivePatch(updates: readonly LiveSettingsUpdate[]): vo
   if (baselineSettingsChanged) persistBaselineBotSettings();
 }
 
+/** Refresh compact records, clearing former-run buttons when the authoritative run changes. */
+function refreshServerHallOfFame(clearExisting = true): void {
+  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+  if (!base) return;
+  if (clearExisting) {
+    serverHallOfFameGeneration = 0;
+    const table = document.getElementById('hofTable');
+    if (table) table.innerHTML = '';
+  }
+  void hof.loadFromServer(base, clearExisting).then(() => updateHoFTable(proxyWorld))
+    .catch(err => console.warn('HoF load failed', err));
+}
+
 wsClient = createWsClient({
   onConnected: (info) => {
     storeServerUrl(serverUrl);
@@ -3643,10 +3658,7 @@ wsClient = createWsClient({
     wsClient?.sendViz(activeTab === 'tab-viz');
     updateJoinControls();
     refreshSavedPresets().catch(() => { });
-    const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
-    if (base) {
-      hof.loadFromServer(base).catch(err => console.warn('HoF load failed', err));
-    }
+    refreshServerHallOfFame();
   },
   onDisconnected: () => {
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = true;
@@ -3685,6 +3697,10 @@ wsClient = createWsClient({
     applyFrameBuffer(buffer);
   },
   onStats: (msg) => {
+    if (serverArchiveExport && msg.gen !== serverHallOfFameGeneration) {
+      serverHallOfFameGeneration = msg.gen;
+      refreshServerHallOfFame(false);
+    }
     lastServerTick = msg.tick;
     if (pendingServerReset) {
       if (msg.tick < pendingServerReset.priorTick || msg.tick <= 1) {
@@ -3864,6 +3880,7 @@ wsClient = createWsClient({
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
+    refreshServerHallOfFame();
     setConnectionStatus('server');
     joinPending = rejoinPlayer;
     setJoinOverlayVisible(true);
@@ -4305,6 +4322,9 @@ async function exportServerSnapshot(): Promise<void> {
     const link = document.createElement('a');
     link.href = `${base}/api/export/latest`;
     link.download = '';
+    // Error JSON is not an attachment, so keep its navigation outside the game tab.
+    link.target = '_blank';
+    link.rel = 'noopener';
     link.hidden = true;
     document.body.append(link);
     link.click();

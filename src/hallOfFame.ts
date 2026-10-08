@@ -13,6 +13,10 @@ export class HallOfFame {
   entries: HallOfFameEntry[];
   /** Promise tracking the initial load from persistence. */
   private initPromise: Promise<void>;
+  /** Newer server loads invalidate responses from a previous run or connection. */
+  private serverLoadRevision = 0;
+  /** A newer refresh must preserve a run-change clear requested before initialization completes. */
+  private clearBeforeServerLoad = false;
 
   /** Create an empty Hall of Fame and load persisted entries. */
   constructor() {
@@ -68,6 +72,7 @@ export class HallOfFame {
    */
   async getAll(): Promise<HallOfFameEntry[]> {
     await this.initPromise;
+    if (this.clearBeforeServerLoad) return [];
     return [...this.entries];
   }
 
@@ -78,10 +83,15 @@ export class HallOfFame {
   async replace(entries: HallOfFameEntry[]): Promise<void> {
     await this.initPromise;
     if (!Array.isArray(entries)) return;
+    this.applyEntries(entries);
+    await this.save();
+  }
+
+  /** Install a bounded, fitness-ordered list without yielding to another server load. */
+  private applyEntries(entries: HallOfFameEntry[]): void {
     this.entries = entries.filter((entry) => entry && typeof entry.fitness !== 'undefined');
     this.entries.sort((a, b) => (b.fitness || 0) - (a.fitness || 0));
     if (this.entries.length > MAX_HOF_ENTRIES) this.entries.length = MAX_HOF_ENTRIES;
-    await this.save();
   }
 
   /**
@@ -115,14 +125,24 @@ export class HallOfFame {
   /**
    * Load Hall of Fame from the server if in server mode.
    * @param baseUrl - Server base URL.
+   * @param clearExisting - Clear former-run entries while authoritative data loads.
    */
-  async loadFromServer(baseUrl: string): Promise<boolean> {
+  async loadFromServer(baseUrl: string, clearExisting = false): Promise<boolean> {
+    this.clearBeforeServerLoad ||= clearExisting;
+    const revision = ++this.serverLoadRevision;
+    await this.initPromise;
+    if (revision !== this.serverLoadRevision) return false;
+    if (this.clearBeforeServerLoad) {
+      this.entries = [];
+      this.clearBeforeServerLoad = false;
+    }
     try {
       const resp = await fetch(`${baseUrl}/api/hof`);
-      if (!resp.ok) return false;
+      if (!resp.ok || revision !== this.serverLoadRevision) return false;
       const data = (await resp.json()) as { hof: HallOfFameEntry[] };
-      if (Array.isArray(data.hof)) {
-        await this.replace(data.hof);
+      if (Array.isArray(data.hof) && revision === this.serverLoadRevision) {
+        this.applyEntries(data.hof);
+        await this.save();
         return true;
       }
       return false;

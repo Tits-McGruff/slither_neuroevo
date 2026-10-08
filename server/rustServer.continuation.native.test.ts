@@ -38,14 +38,14 @@ interface HeldBoundary {
 }
 
 /** Wait for one explicit observation within the existing integration deadline. */
-async function observed<T>(read: () => T | undefined): Promise<T> {
+async function observed<T>(read: () => T | undefined, phase = 'continuation boundary'): Promise<T> {
   const deadline = performance.now() + 5000;
   while (performance.now() < deadline) {
     const value = read();
     if (value !== undefined) return value;
     await new Promise<void>(done => setTimeout(done, 10));
   }
-  throw new Error('continuation boundary was not observed within five seconds');
+  throw new Error(`${phase} was not observed within five seconds`);
 }
 
 /** Read complete history and the archive's retained winners, excluding superseded duplicate tombstones. */
@@ -82,6 +82,8 @@ describeNetworkSuite('Rust archive exact continuation', () => {
       const servers: RustServer[] = [];
       let viewer: WebSocket | undefined;
       const sourceClients = new Set<CheckpointPersistenceClient>();
+      /** Genuine committed generations, separated by run identity during initial warm-up. */
+      const committedGenerations = new Map<string, number>();
       let selected: HeldBoundary | undefined;
       let directSuccessor: HeldBoundary | undefined;
       let restoredSuccessor: HeldBoundary | undefined;
@@ -97,6 +99,7 @@ describeNetworkSuite('Rust archive exact continuation', () => {
         const descriptor = parseManagedCheckpointDescriptor(args[0]);
         if (descriptor.boundaryKind !== 'generation') return result;
         const generation = Number(BigInt(`0x${descriptor.generation}`));
+        committedGenerations.set(descriptor.runId, generation);
         if (generation < scenario.generation || generation > scenario.generation + 2) return result;
         const gate = Promise.withResolvers<void>();
         const boundary: HeldBoundary = { descriptor, release: () => gate.resolve() };
@@ -139,7 +142,14 @@ describeNetworkSuite('Rust archive exact continuation', () => {
           settings: { core: { snakeCount: 12, simSpeed: 12 }, updates: expect.arrayContaining([
             { path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 }
           ]) } });
+        const sourceRunId = (reset['welcome'] as { runId: string }).runId;
+        // Generation four requires three real transitions; apply the single-boundary deadline to each.
+        for (let generation = 2; generation <= scenario.generation; generation++) {
+          await observed(() => (committedGenerations.get(sourceRunId) ?? 1) >= generation ? true : undefined,
+            `source generation ${generation}`);
+        }
         const original = await observed(() => selected);
+        expect(original.descriptor.runId).toBe(sourceRunId);
         const healthResponse = await fetch(`http://127.0.0.1:${source.port}/api/health`, {
           signal: AbortSignal.timeout(5000)
         });
