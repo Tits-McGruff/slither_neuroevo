@@ -167,15 +167,17 @@ Update the held input for the assigned snake:
   ignored.
 - `turn` is clamped to `[-1, 1]`.
 - `boost` is clamped to `[0, 1]`.
-- The latest accepted input is held for the configured input-hold interval,
-  **500 ms by default**, or until another action is accepted or the assignment
+- Production holds the latest accepted input for **500 ms** from its acceptance,
+  or until another action is accepted or the assignment
   is released. If no fresh action arrives before that interval expires, the
   server keeps the assignment reserved and applies neutral turn and boost.
   A later valid action resumes external control.
 - Refresh unchanged steering/boost input periodically while it should remain
   active. The timeout uses elapsed wall time, so clients must refresh input even
   when display frames or sensors are temporarily delayed. `ping` does not refresh
-  held input. `--input-hold-ms` / `CONTROLLER_INPUT_HOLD_MS` configures this interval.
+  held input. Production currently fixes this interval at 500 ms;
+  `--input-hold-ms 500` is accepted for launcher compatibility. Different
+  `--input-hold-ms` / `CONTROLLER_INPUT_HOLD_MS` values are reference-only.
 
 Default limits are one accepted action per authoritative tick and 120 action
 attempts per wall-clock second per controller. Excess actions are dropped
@@ -408,7 +410,7 @@ A successful token reclaim sends this result followed by its matching `assign`:
 }
 ```
 
-The default disconnect grace is 30 seconds of wall time. A token cannot reclaim
+Production disconnect grace is fixed at 30 seconds of wall time. A token cannot reclaim
 a different snake after death or a generation replacement, including when the
 replacement assignment could not be sent. A rejected reclaim has
 `reclaimed: false` and an explicit reason; it does not implicitly create a

@@ -6,6 +6,8 @@ interface ProductionOption {
   value?: string;
   /** Whether the value must be a complete safe integer. */
   integer?: boolean;
+  /** Fixed production value required by the current Rust runtime. */
+  fixed?: number;
   /** Finite set of accepted values when appropriate. */
   choices?: readonly string[];
   /** User-facing purpose and corresponding environment override. */
@@ -23,10 +25,10 @@ const OPTIONS: Readonly<Record<string, ProductionOption>> = {
   '--ui-rate': { value: 'N', integer: true, description: 'Display frame rate (UI_RATE).' },
   '--actions-per-tick': { value: 'N', integer: true, description: 'Accepted actions per controller/tick (ACTIONS_PER_TICK).' },
   '--actions-per-second': { value: 'N', integer: true, description: 'Controller attempt rate limit (ACTIONS_PER_SECOND).' },
-  '--input-hold-ms': { value: 'N', integer: true, description: 'Action hold interval, default 500 ms (CONTROLLER_INPUT_HOLD_MS).' },
-  '--disconnect-grace-ms': { value: 'N', integer: true, description: 'Disconnected lease grace interval (CONTROLLER_DISCONNECT_GRACE_MS).' },
+  '--input-hold-ms': { value: 'N', integer: true, fixed: 500, description: 'Production action hold is fixed at 500 ms.' },
+  '--disconnect-grace-ms': { value: 'N', integer: true, fixed: 30000, description: 'Production disconnect grace is fixed at 30000 ms.' },
   '--db-path': { value: 'PATH', description: 'Exact SQLite database path (DB_PATH).' },
-  '--checkpoint-every': { value: 'N', integer: true, description: 'Checkpoint interval (CHECKPOINT_EVERY).' },
+  '--checkpoint-every': { value: 'N', integer: true, fixed: 1, description: 'Production checkpoints every generation; fixed at 1.' },
   '--checkpoint-budget-mib': { value: 'N', integer: true, description: 'Managed storage budget, 1280..65536 MiB (CHECKPOINT_BUDGET_MIB).' },
   '--log': { value: 'LEVEL', choices: ['debug', 'info', 'warn', 'error'], description: 'Logging level (LOG_LEVEL).' },
   '--seed': { value: 'N', integer: true, description: 'Run seed; requires --fresh when a database already exists (WORLD_SEED).' },
@@ -81,6 +83,9 @@ export function parseProductionCli(argv: string[], env: NodeJS.ProcessEnv): Serv
     }
     if (option.integer && (!/^-?\d+$/u.test(value) || !Number.isSafeInteger(Number(value)))) {
       throw new Error(`${flag} requires a safe integer`);
+    }
+    if (option.fixed !== undefined && Number(value) !== option.fixed) {
+      throw new Error(`${flag} is fixed at ${option.fixed} in production; other values are reference-only`);
     }
     if (option.choices && !option.choices.includes(value)) {
       throw new Error(`${flag} requires one of: ${option.choices.join(', ')}`);

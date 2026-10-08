@@ -31,6 +31,9 @@ it.each([
   ['--fresh=true'],
   ['--fresh', '--resume', 'latest'],
   ['--resume', '17'],
+  ['--input-hold-ms', '750'],
+  ['--disconnect-grace-ms', '60000'],
+  ['--checkpoint-every', '2'],
   ['--backend', 'js'],
   ['--mt'],
   ['--tick', '30']
@@ -55,7 +58,7 @@ it('retains both value syntaxes, paths with spaces, and explicit CLI precedence'
   writeFileSync(config, 'port = 5174\nhost = "127.0.0.1"\n');
   const selected = parseProductionCli(['--config', config, '--port=6174', '--host', '192.168.1.25',
     '--db-path', '/owner/experiment with spaces.db', '--resume=latest', '--rust-workers', '6',
-    '--input-hold-ms', '500', '--log=warn'], { PORT: '7174', DB_PATH: '/different.db' });
+    '--input-hold-ms', '500', '--disconnect-grace-ms=30000', '--checkpoint-every', '1', '--log=warn'], { PORT: '7174', DB_PATH: '/different.db' });
   expect(selected).toMatchObject({ port: 6174, host: '192.168.1.25', dbPath: '/owner/experiment with spaces.db',
-    resume: 'latest', rustCalculationWorkers: 6, controllerInputHoldMs: 500, logLevel: 'warn' });
+    resume: 'latest', rustCalculationWorkers: 6, controllerInputHoldMs: 500, controllerDisconnectGraceMs: 30000, checkpointEveryGenerations: 1, logLevel: 'warn' });
 });
