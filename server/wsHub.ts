@@ -39,10 +39,12 @@ export interface ConnectionState {
   socket: WebSocket;
   clientType: 'unknown' | ClientType;
   joined: boolean;
+  /** Whether the original hello/first-join admission completed at least once. */
+  hasJoined: boolean;
   /** Old-run messages are discarded until the client joins the replacement run. */
   awaitingRejoin: boolean;
   mode?: JoinMode;
-  /** Cleared after the first join, peer closure, or hub shutdown. */
+  /** Initial admission or replacement rejoin deadline; cleared by join, closure, or shutdown. */
   handshakeTimer?: NodeJS.Timeout;
   /** Priority JSON payloads waiting behind the current WebSocket send. */
   reliableQueue: string[];
@@ -228,7 +230,11 @@ export class WsHub {
       state.joined = false;
       state.awaitingRejoin = state.clientType !== 'unknown';
       delete state.mode;
-      if (state.clientType !== 'unknown') this.enqueueReliable(state, payload);
+      if (state.clientType !== 'unknown') {
+        // A replacement cannot extend a peer's still-incomplete original admission.
+        if (state.hasJoined) this.armJoinDeadline(state);
+        this.enqueueReliable(state, payload);
+      }
     }
   }
 
@@ -501,6 +507,19 @@ export class WsHub {
     }
   }
 
+  /** Bound initial admission and each subsequent replacement rejoin independently of peer traffic. */
+  private armJoinDeadline(state: ConnectionState): void {
+    clearTimeout(state.handshakeTimer);
+    state.handshakeTimer = setTimeout(() => {
+      // Termination also frees capacity when the peer will not complete a close handshake.
+      if (!state.joined) {
+        this.connections.delete(state.id);
+        state.socket.terminate();
+      }
+    }, this.handshakeTimeoutMs);
+    state.handshakeTimer.unref();
+  }
+
   /**
    * Register a new WebSocket connection.
    * @param socket - New connection socket.
@@ -511,6 +530,7 @@ export class WsHub {
       socket,
       clientType: 'unknown',
       joined: false,
+      hasJoined: false,
       awaitingRejoin: false,
       reliableQueue: [],
       reliableQueueBytes: 0,
@@ -522,14 +542,7 @@ export class WsHub {
       reliableFailures: 0
     };
     this.connections.set(state.id, state);
-    state.handshakeTimer = setTimeout(() => {
-      // terminate also releases capacity when a silent peer will not complete a close handshake.
-      if (!state.joined) {
-        this.connections.delete(state.id);
-        socket.terminate();
-      }
-    }, this.handshakeTimeoutMs);
-    state.handshakeTimer.unref();
+    this.armJoinDeadline(state);
     socket.on('message', (data, isBinary) => this.handleMessage(state, data, isBinary));
     socket.on('close', () => {
       clearTimeout(state.handshakeTimer);
@@ -596,6 +609,7 @@ export class WsHub {
         clearTimeout(state.handshakeTimer);
         delete state.handshakeTimer;
         state.joined = true;
+        state.hasJoined = true;
         state.awaitingRejoin = false;
         state.mode = msg.mode;
         this.handlers?.onJoin?.(state.id, msg, state.clientType);

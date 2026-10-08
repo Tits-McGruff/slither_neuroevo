@@ -171,6 +171,43 @@ describeNetworkSuite('browser origin and handshake admission', () => {
     } finally { await fixture.close(); }
   });
 
+  it.each(['reset', 'newRun', 'import'] as const)('reclaims ignored %s notices while retaining a client that rejoins', async reason => {
+    const fixture = await transportFixture(1000);
+    const peers: WebSocket[] = [];
+    try {
+      for (let index = 0; index < 2; index++) {
+        const peer = await welcomedPeer(fixture.wsUrl);
+        peers.push(peer);
+        peer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+        const joined = once(peer, 'pong');
+        peer.ping('joined');
+        await joined;
+      }
+      const stale = peers[0]!;
+      const responsive = peers[1]!;
+      responsive.on('message', (bytes, binary) => {
+        if (!binary && (JSON.parse(bytes.toString()) as { type: string }).type === 'stateReplaced') {
+          responsive.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+        }
+      });
+      const closed = once(stale, 'close');
+      fixture.hub.enterAwaitingRejoin({ type: 'stateReplaced', reason,
+        checkpointId: 'a'.repeat(64), welcome: { type: 'welcome' } as WelcomeMsg });
+      const ping = setInterval(() => {
+        if (stale.readyState === WebSocket.OPEN) stale.send(JSON.stringify({ type: 'ping' }));
+      }, 50);
+      try { await closed; } finally { clearInterval(ping); }
+      expect(fixture.hub.getClientCount()).toBe(1);
+      expect(responsive.readyState).toBe(WebSocket.OPEN);
+      const next = await welcomedPeer(fixture.wsUrl);
+      peers.push(next);
+      next.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      expect(fixture.hub.getClientCount()).toBe(2);
+    } finally {
+      for (const peer of peers) peer.terminate();
+      await fixture.close();
+    }
+  });
   it.each([false, true])('reclaims a full unjoined cap despite protocol pings (hello sent: %s)', async hello => {
     const fixture = await transportFixture(1000);
     const peers: WebSocket[] = [];

@@ -19,6 +19,8 @@ interface FakeSocket {
     options: { binary: boolean },
     callback: (error?: Error) => void
   ) => void;
+  /** Terminate an unresponsive transport. */
+  terminate: () => void;
   /** Capture one close. */
   close: (code?: number, reason?: string) => void;
 }
@@ -36,6 +38,10 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
     send(payload, options, callback) {
       this.sent.push({ payload, binary: options.binary, complete: callback });
     },
+    terminate() {
+      this.closes.push({ code: 1006, reason: 'terminated' });
+      this.readyState = WebSocket.CLOSED;
+    },
     close(code, reason) {
       this.closes.push({
         ...(code === undefined ? {} : { code }),
@@ -49,6 +55,7 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
     socket: socket as unknown as WebSocket,
     clientType: 'ui',
     joined: true,
+    hasJoined: true,
     awaitingRejoin: false,
     mode: 'player',
     reliableQueue: [],
@@ -69,6 +76,7 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
     highWaterReliableMessagesPerConnection: number;
     highWaterReliableBytesPerConnection: number;
     maxConnections: number;
+    handshakeTimeoutMs: number;
   };
   access.connections = new Map([[state.id, state]]);
   access.maxBufferedAmount = 512 * 1024;
@@ -77,10 +85,29 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
   access.highWaterReliableMessagesPerConnection = 0;
   access.highWaterReliableBytesPerConnection = 0;
   access.maxConnections = 4;
+  access.handshakeTimeoutMs = 5000;
   return { hub, state, socket };
 }
 
 describe('WsHub lifecycle priority', () => {
+  it('keeps an incomplete original admission deadline across replacement', () => {
+    vi.useFakeTimers();
+    const { hub, state, socket } = buildFakeHub();
+    try {
+      state.joined = false;
+      state.hasJoined = false;
+      (hub as unknown as { armJoinDeadline(state: ConnectionState): void }).armJoinDeadline(state);
+      vi.advanceTimersByTime(4000);
+      hub.enterAwaitingRejoin({ type: 'stateReplaced', reason: 'reset',
+        checkpointId: 'a'.repeat(64), welcome: { type: 'welcome' } as WelcomeMsg });
+      vi.advanceTimersByTime(1000);
+      expect(hub.getClientCount()).toBe(0);
+      expect(socket.closes).toEqual([{ code: 1006, reason: 'terminated' }]);
+    } finally {
+      clearTimeout(state.handshakeTimer);
+      vi.useRealTimers();
+    }
+  });
   it.each(['reset', 'newRun', 'import'] as const)('discards old controls until rejoin while %s is queued behind a frame', reason => {
     const { hub, state, socket } = buildFakeHub();
     const handlers = { onJoin: vi.fn(), onAction: vi.fn(), onView: vi.fn(), onViz: vi.fn(),

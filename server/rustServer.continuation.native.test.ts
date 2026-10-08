@@ -143,6 +143,7 @@ describeNetworkSuite('Rust archive exact continuation', () => {
             { path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 }
           ]) } });
         const sourceRunId = (reset['welcome'] as { runId: string }).runId;
+        viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
         // Generation four requires three real transitions; apply the single-boundary deadline to each.
         for (let generation = 2; generation <= scenario.generation; generation++) {
           await observed(() => (committedGenerations.get(sourceRunId) ?? 1) >= generation ? true : undefined,

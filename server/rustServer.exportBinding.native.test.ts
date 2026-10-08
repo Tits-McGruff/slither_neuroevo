@@ -137,6 +137,7 @@ describeNetworkSuite('Rust exact download binding', () => {
         updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 },
           { path: 'pelletCountTarget', value: 100 }] }));
       await observed(() => messages.find(message => message['type'] === 'stateReplaced'));
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       const selected = await observed(() => boundaries.get(2));
       const originalBytes = await readFile(join(directory, selected.relativeFilename));
       const baseline = await fetch(`http://127.0.0.1:${source.port}/api/export/latest`);

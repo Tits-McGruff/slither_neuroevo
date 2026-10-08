@@ -163,6 +163,7 @@ async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<
         { path: 'pelletCountTarget', value: 100 }] }));
     const replacement = await observed(() => messages.find(message => message['type'] === 'stateReplaced'));
     sourceRunId = String((replacement['welcome'] as { runId: string }).runId);
+    viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
     /** Keep the real evolution fixture live without imposing a machine-speed budget on setup. */
     const sourceProgress = async (): Promise<bigint> => {
       const response = await fetch(`http://127.0.0.1:${source.port}/api/health`,

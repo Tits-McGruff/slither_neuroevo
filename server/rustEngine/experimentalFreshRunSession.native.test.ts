@@ -367,7 +367,7 @@ describe('experimental server startup composition', () => {
       expect(owner.runtime.health().faultCode).toBeUndefined();
     } finally { await owner.close(); }
   }, 30_000);
-  it('durably creates one unstarted owner and refuses to replace its database', async () => {
+  it('durably creates unstarted owners and appends fresh runs without replacing prior checkpoints', async () => {
     const paths = createFixturePaths('server-startup');
     const options = { databasePath: paths.databasePath, managedDirectory: paths.managedRoot, seed: 42, onWake: () => {} };
     const owner = await createExperimentalServerRuntime(options);
@@ -377,7 +377,6 @@ describe('experimental server startup composition', () => {
         settings: { core: { snakeCount: 55, simSpeed: 1 } }, inferenceMode: { activeBackend: 'native' } });
       expect(owner.runtime.health()).toMatchObject({ lifecycle: 'created', completedStep: '0000000000000000' });
       expect(readCurrentPointer(paths.databasePath, owner.metadata.runId)?.checkpoint_id).toBe(owner.runStart.checkpointId);
-      await expect(createExperimentalServerRuntime(options)).rejects.toMatchObject({ code: 'EEXIST' });
       expect(owner.runtime.health().lifecycle).toBe('created');
       expect(countManagedFiles(paths.managedRoot)).toBe(1);
       await owner.admitCheckpoint();
@@ -388,6 +387,22 @@ describe('experimental server startup composition', () => {
     }
     expect(owner.runtime.health().lifecycle).toBe('stopped');
     expect(readCurrentPointer(paths.databasePath, owner.metadata.runId)?.checkpoint_id).toBe(owner.runStart.checkpointId);
+    const priorFile = join(paths.managedRoot, owner.runStart.descriptor.relativeFilename);
+    const priorBytes = readFileSync(priorFile);
+    const appended = await createExperimentalServerRuntime({ ...options, seed: 99 });
+    try {
+      expect(appended.metadata.seed).toBe(99);
+      expect(appended.metadata.runId).not.toBe(owner.metadata.runId);
+      expect(appended.runtime.health()).toMatchObject({ lifecycle: 'created', completedStep: '0000000000000000' });
+      expect(await appended.persistence.selectCurrent()).toEqual(appended.runStart.descriptor);
+      expect(readCurrentPointer(paths.databasePath, owner.metadata.runId)?.checkpoint_id).toBe(owner.runStart.checkpointId);
+      expect(readFileSync(priorFile)).toEqual(priorBytes);
+      expect(countManagedFiles(paths.managedRoot)).toBe(2);
+    } finally {
+      await appended.close();
+    }
+    expect(appended.runtime.health().lifecycle).toBe('stopped');
+    expect(readCurrentPointer(paths.databasePath, appended.metadata.runId)?.checkpoint_id).toBe(appended.runStart.checkpointId);
   }, 30_000);
 
   it('round-trips one exact Rust save through strict import validation without changing authority', async () => {

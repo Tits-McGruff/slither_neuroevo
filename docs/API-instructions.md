@@ -51,7 +51,9 @@ origins receive HTTP 403 before routing or WebSocket admission. Non-browser
 clients may omit `Origin`. Send Protocol 2 `hello`, receive `welcome`, and send
 the first `join` within five seconds of opening a WebSocket. Neither `hello`
 nor heartbeat traffic extends that admission deadline. Joined idle spectators
-remain connected.
+remain connected. After Reset, New Run, or import, send a new `join` within five
+seconds of the `stateReplaced` transition; heartbeats and stale actions do not
+extend this rejoin deadline.
 
 Originless browser requests marked cross-site or same-site by Fetch Metadata must identify a
 configured UI origin through `Referer`; unrelated pages cannot trigger archive

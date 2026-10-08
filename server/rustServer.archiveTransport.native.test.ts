@@ -597,6 +597,7 @@ async function largeBrainArchive(fixture: Fixture): Promise<Buffer> {
         { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 }
       ] }));
     const runId = await bounded(reset, 'large-brain source did not complete reset');
+    viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
     // The reliable replacement notice precedes the final retention read.
     // Wait for that reset boundary before starting another persistence operation.
     const deadline = performance.now() + 5000;

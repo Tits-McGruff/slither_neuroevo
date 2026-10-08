@@ -255,6 +255,7 @@ describeNetworkSuite('Rust process-death recovery', () => {
       viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 1 },
         updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 0 }] }));
       await untilPacket(packet => packet['type'] === 'stateReplaced');
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       const before = await readyHealth(port, first.child, first.output);
       const pinned = await fetch(`http://127.0.0.1:${port}/api/checkpoints/current/pin`, { method: 'POST',
         signal: AbortSignal.timeout(5000) });
@@ -562,6 +563,7 @@ describeNetworkSuite('Rust process-death recovery', () => {
       viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 1 },
         updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 0 }] }));
       await untilPacket(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'reset');
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       const before = await readyHealth(port, first.child, first.output);
       viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       viewer.send(JSON.stringify({ type: 'settings', requestId: 'generation-death-speed',
