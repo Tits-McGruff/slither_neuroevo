@@ -4,7 +4,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
 
-HOST="${SLITHER_HOST:-0.0.0.0}"
+HOST="${SLITHER_HOST:-127.0.0.1}"
 PORT="${SLITHER_PORT:-5174}"
 DB_PATH="${SLITHER_DB_PATH:-./data/rust-authority.db}"
 START_MODE="${SLITHER_START_MODE:-auto}"

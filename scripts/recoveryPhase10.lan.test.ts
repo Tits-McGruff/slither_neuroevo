@@ -170,7 +170,7 @@ describe(SUITE, () => {
     expect(powershell).toContain('@napi-rs');
     expect(powershell).toContain('Get-NonLoopbackIPv4');
 
-    expect(posix).toContain('SLITHER_HOST:-0.0.0.0');
+    expect(posix).toContain('SLITHER_HOST:-127.0.0.1');
     expect(posix).toContain('npm run build');
     expect(posix).toContain('npm run server');
     expect(posix).not.toMatch(/--(?:backend|mt)(?:[=\s]|$)/u);

@@ -357,6 +357,10 @@ systemctl --user start slither-neuroevo.service
 systemctl --user status slither-neuroevo.service
 ```
 
+The service and `play.sh` default to `127.0.0.1`. For deliberate trusted-LAN
+access, set `SLITHER_HOST=0.0.0.0` in `server/systemd.env` for the service, or
+run `SLITHER_HOST=0.0.0.0 sh play.sh`. The launcher prints usable LAN URLs.
+
 Open the page at the service's configured host and `SLITHER_PORT`. The served
 page supplies the current WebSocket route: it uses that same host and port by
 default, or `PUBLIC_WS_URL` from `server/systemd.env` for a split-host route.

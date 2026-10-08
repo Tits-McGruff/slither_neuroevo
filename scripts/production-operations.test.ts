@@ -21,6 +21,33 @@ const POSIX_SHELL = process.platform === 'win32'
   : '/bin/sh';
 
 describe('production service operations', () => {
+  it.each([{ name: 'manual launcher', source: LAUNCHER }, { name: 'foreground service', source: RUNNER }])('defaults $name to loopback while retaining explicit LAN binds', ({ source }) => {
+      const assignment = source.match(/^HOST=.*$/mu)?.[0];
+      expect(assignment).toBeDefined();
+      for (const requested of ['', '0.0.0.0', '192.168.1.25']) {
+        const result = spawnSync(POSIX_SHELL, ['-c', `set -eu
+unset SLITHER_HOST
+[ -z "$1" ] || SLITHER_HOST="$1"
+${assignment}
+printf '%s' "$HOST"
+`, 'launcher-bind', requested], { encoding: 'utf8', timeout: 5000 });
+        expect(result.error).toBeUndefined();
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toBe(requested || '127.0.0.1');
+      }
+    });
+
+  it('keeps the copied service environment on loopback', () => {
+    const example = readFileSync(resolve('server/systemd.env.example'), 'utf8');
+    const assignment = example.match(/^SLITHER_HOST=.*$/mu)?.[0];
+    expect(assignment).toBeDefined();
+    const result = spawnSync(POSIX_SHELL, ['-c', `set -eu
+${assignment}
+printf '%s' "$SLITHER_HOST"
+`], { encoding: 'utf8', timeout: 5000 });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe('127.0.0.1');
+  });
   it.each([
     ['0.0.0.0', 'http://127.0.0.1:5174/api/health'],
     ['::', 'http://[::1]:5174/api/health'],
@@ -83,7 +110,7 @@ printf '%s' "$HEALTH_URL"
     expect(INSTALLER).toContain('systemctl --user enable slither-neuroevo.service');
     expect(INSTALLER).not.toContain('enable --now');
     expect(INSTALLER).not.toMatch(/^\s*systemctl --user start(?:\s|$)/mu);
-    expect(INSTALLER).toContain('loginctl show-user "$USER" -p Linger');
-    expect(INSTALLER).toContain('sudo loginctl enable-linger $USER');
+    expect(INSTALLER).toContain('loginctl show-user "$LOGIN_NAME" -p Linger');
+    expect(INSTALLER).toContain('sudo loginctl enable-linger $LOGIN_NAME');
   });
 });
