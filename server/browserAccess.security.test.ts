@@ -82,7 +82,7 @@ describeNetworkSuite('browser origin and handshake admission', () => {
         const preflight = await fetch(fixture.url, { method: 'OPTIONS', headers: { Origin: origin } });
         expect(preflight.status).toBe(204);
         expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe(origin);
-        expect(preflight.headers.get('Vary')).toBe('Origin');
+        expect(preflight.headers.get('Vary')).toBe('Origin, Sec-Fetch-Site, Referer');
         const mutation = await fetch(fixture.url, { method: 'POST', headers: { Origin: origin } });
         expect(mutation.status).toBe(200);
         await mutation.text();
@@ -92,6 +92,30 @@ describeNetworkSuite('browser origin and handshake admission', () => {
       expect(direct.headers.has('Access-Control-Allow-Origin')).toBe(false);
       await direct.text();
       expect(fixture.mutations()).toBe(2);
+    } finally { await fixture.close(); }
+  });
+
+  it('blocks originless cross-origin subresources while preserving CLI and trusted UI downloads', async () => {
+    const fixture = await transportFixture();
+    try {
+      for (const site of ['cross-site', 'same-site']) {
+        for (const referer of [undefined, 'http://evil.test/page', 'http://localhost:9000/page']) {
+          const response = await fetch(`${fixture.url}/api/export/latest`, {
+            headers: { 'Sec-Fetch-Site': site, 'Sec-Fetch-Mode': 'no-cors', 'Sec-Fetch-Dest': 'image',
+              ...(referer === undefined ? {} : { Referer: referer }) }
+          });
+          expect(response.status).toBe(403);
+          expect(response.headers.has('Access-Control-Allow-Origin')).toBe(false);
+          await response.text();
+        }
+      }
+      for (const headers of [ {}, { 'Sec-Fetch-Site': 'same-origin' }, { 'Sec-Fetch-Site': 'none' },
+        { 'Sec-Fetch-Site': 'cross-site', Referer: 'http://localhost:5173/' },
+        { 'Sec-Fetch-Site': 'same-site', Referer: 'http://localhost:5173/' } ]) {
+        const response = await fetch(`${fixture.url}/api/export/latest`, { headers });
+        expect(response.status).toBe(200);
+        await response.text();
+      }
     } finally { await fixture.close(); }
   });
 

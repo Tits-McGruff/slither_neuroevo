@@ -49,6 +49,11 @@ clients may omit `Origin`. Send Protocol 2 `hello` within five seconds of openin
 a WebSocket; traffic before `hello` cannot extend that deadline. After `hello`,
 idle spectators remain connected.
 
+Originless browser requests marked cross-site or same-site by Fetch Metadata must identify a
+configured UI origin through `Referer`; unrelated pages cannot trigger archive
+preparation through image/subresource requests. Ordinary CLI clients without
+Fetch Metadata and direct downloads from the configured UI remain supported.
+
 The server writes `server/config.toml` with defaults when the file does not
 exist. Command-line and environment overrides are described by
 `node ./node_modules/tsx/dist/cli.mjs server/rustServer.ts --help` and in

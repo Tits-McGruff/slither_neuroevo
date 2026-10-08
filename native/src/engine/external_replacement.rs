@@ -113,7 +113,7 @@ pub fn prepare_fresh_external(
         .ok_or(ExternalReplacementError::InternalShapeMismatch)?
         .first;
     let frame_v1_id = next_allocators
-        .reserve_frame_v1_ids(1)
+        .reserve_frame_v1_ids(1, source.world.snakes.iter().map(|snake| snake.frame_v1_id))
         .map_err(allocate)?
         .ok_or(ExternalReplacementError::InternalShapeMismatch)?
         .first;
@@ -901,7 +901,10 @@ impl ExternalReplacementWorkspace {
                 .map_err(|error| ExternalReplacementError::Allocator(Box::new(error)))?
                 .ok_or(ExternalReplacementError::InternalShapeMismatch)?;
             let frames = allocators
-                .reserve_frame_v1_ids(count_u32)
+                .reserve_frame_v1_ids(
+                    count_u32,
+                    source_world.snakes.iter().map(|snake| snake.frame_v1_id),
+                )
                 .map_err(|error| ExternalReplacementError::Allocator(Box::new(error)))?
                 .ok_or(ExternalReplacementError::InternalShapeMismatch)?;
             let brains = allocators
@@ -949,7 +952,7 @@ impl ExternalReplacementWorkspace {
             &mut self.compacted_body,
             config.maximum_body_points,
         )?;
-        self.validate_ready_shape(source_rng, source_allocators, config, graph)?;
+        self.validate_ready_shape(source_world, source_rng, source_allocators, config, graph)?;
         self.key = Some(key);
         self.ready = true;
         self.diagnostics.replacements = self.assignments.len();
@@ -1784,6 +1787,7 @@ impl ExternalReplacementWorkspace {
 
     fn validate_ready_shape(
         &self,
+        source_world: &WorldState,
         source_rng: &RngStateBundle,
         source_allocators: &AllocatorState,
         config: ExternalReplacementConfig,
@@ -1828,7 +1832,10 @@ impl ExternalReplacementWorkspace {
             .reserve_external_ids(replacement_count)
             .map_err(|error| ExternalReplacementError::Allocator(Box::new(error)))?;
         expected_allocators
-            .reserve_frame_v1_ids(frame_count)
+            .reserve_frame_v1_ids(
+                frame_count,
+                source_world.snakes.iter().map(|snake| snake.frame_v1_id),
+            )
             .map_err(|error| ExternalReplacementError::Allocator(Box::new(error)))?;
         expected_allocators
             .reserve_brain_ids(replacement_count)
@@ -3067,6 +3074,17 @@ mod tests {
             Err(ExternalReplacementError::BodyCapacityExceeded { .. })
         ));
         allocators.next_frame_v1_id = super::super::state::FRAME_V1_EXHAUSTED_ID;
+        let recycled =
+            prepare(config, &allocators).expect("public IDs must recycle after wrapping");
+        assert!(world
+            .snakes
+            .iter()
+            .all(|snake| snake.frame_v1_id != recycled.snake.frame_v1_id));
+        assert_eq!(
+            recycled.snake.frame_v1_id as f32 as u32,
+            recycled.snake.frame_v1_id
+        );
+        allocators.next_external_id = BASELINE_ENTITY_ID_START;
         let before = allocators.clone();
         assert!(matches!(
             prepare(config, &allocators),

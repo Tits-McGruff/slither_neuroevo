@@ -1813,29 +1813,35 @@ mod tests {
     }
 
     #[test]
-    fn generation_start_rejects_exhausted_ids_without_mutating_the_boundary() {
+    fn generation_start_recycles_checkpoint_frame_cursor_without_mutating_the_boundary() {
         let graph = graph_bundle();
         let mut boundary = prepared_test_boundary(graph.compiled());
         boundary.allocators.next_frame_v1_id = FRAME_V1_EXHAUSTED_ID;
         let admission = policy(&boundary);
         let boundary =
             AuthoritativeState::validate_and_own(boundary, Arc::clone(&graph), &admission)
-                .expect("the exact frame exhaustion sentinel is checkpoint-valid");
+                .expect("the one-past-limit frame cursor is checkpoint-valid");
         let source_before = boundary.state().clone();
         let mut workspace = GenerationStartWorkspace::new();
 
-        let error = workspace
+        let prepared = workspace
             .prepare(
                 boundary.state(),
                 GenerationStartConfig::from_work_limits(
                     RunningStepWorkLimits::provisional_defaults(),
                 ),
             )
-            .expect_err("frame identities cannot silently alias after exhaustion");
+            .expect("retired generation IDs must be reusable at the next boundary");
 
-        assert!(matches!(error, GenerationStartError::State(_)));
+        for (index, snake) in prepared.world().snakes.iter().enumerate() {
+            assert_eq!(snake.frame_v1_id as usize, index + 1);
+        }
+        assert_eq!(
+            prepared.allocators().next_frame_v1_id as usize,
+            prepared.world().snakes.len() + 1
+        );
         assert_eq!(boundary.state(), &source_before);
-        assert!(!workspace.is_ready());
+        assert!(workspace.is_ready());
     }
 
     #[test]

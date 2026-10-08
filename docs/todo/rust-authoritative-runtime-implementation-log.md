@@ -2710,3 +2710,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   exclusive database publication preserves a competing target. Focused rollback,
   retry, collision and completed-publication preservation checks pass. Rust
   calculations are unchanged.
+
+- 2026-10-08 Frame-v1 public allocation now recycles unused contiguous ranges
+  while preserving monotonic durable entity/brain/lease identities. The retained
+  one-past-limit checkpoint cursor can construct and publish a new generation;
+  live/retained snake IDs remain unique. Originless cross-origin browser requests
+  require a configured UI referrer before routing, preserving CLI clients and
+  direct UI downloads. The full native suite, Rust lint/format gates, browser
+  admission contracts and real-server/download-binding regressions pass.

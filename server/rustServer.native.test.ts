@@ -285,6 +285,11 @@ describeNetworkSuite('Rust server real sockets', () => {
         expect(response.headers.has('Access-Control-Allow-Origin')).toBe(false);
         await response.text();
       }
+      const image = await fetch(`${url}/api/export/latest`, {
+        headers: { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Dest': 'image' }
+      });
+      expect(image.status).toBe(403);
+      await image.text();
       const rejected = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin: 'http://evil.test' });
       await new Promise<void>((done, reject) => {
         rejected.once('open', () => { rejected.terminate(); reject(new Error('untrusted upgrade accepted')); });

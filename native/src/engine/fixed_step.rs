@@ -641,7 +641,10 @@ impl FixedStepPrefixWorkspace {
                 .map_err(|error| FixedStepPrefixError::Allocator(Box::new(error)))?
                 .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
             let frame = allocators
-                .reserve_frame_v1_ids(frame_count)
+                .reserve_frame_v1_ids(
+                    frame_count,
+                    self.world.snakes.iter().map(|snake| snake.frame_v1_id),
+                )
                 .map_err(|error| FixedStepPrefixError::Allocator(Box::new(error)))?
                 .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
             (baseline.first, frame.first)

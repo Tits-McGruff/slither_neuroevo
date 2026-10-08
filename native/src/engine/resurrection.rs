@@ -54,7 +54,7 @@ impl AuthoritativeState {
             .ok_or("resurrected identity allocation failed")?
             .first;
         let frame_v1_id = next_allocators
-            .reserve_frame_v1_ids(1)
+            .reserve_frame_v1_ids(1, source.world.snakes.iter().map(|snake| snake.frame_v1_id))
             .map_err(|error| error.to_string())?
             .ok_or("frame identity allocation failed")?
             .first;

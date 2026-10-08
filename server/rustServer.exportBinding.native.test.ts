@@ -75,6 +75,15 @@ describeNetworkSuite('Rust exact download binding', () => {
     const cancellation = new AbortController();
     const originalCommit = CheckpointPersistenceClient.prototype.commit;
     const originalAcquire = CheckpointPersistenceClient.prototype.acquireCurrentExportLease;
+    const originalRelease = CheckpointPersistenceClient.prototype.releaseExportLease;
+    let baselineReleased = false;
+    const releases = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease').mockImplementation(async function(
+      this: CheckpointPersistenceClient, ...args: Parameters<CheckpointPersistenceClient['releaseExportLease']>
+    ) {
+      const result = await originalRelease.apply(this, args);
+      baselineReleased = true;
+      return result;
+    });
     const commits = vi.spyOn(CheckpointPersistenceClient.prototype, 'commit').mockImplementation(async function(
       this: CheckpointPersistenceClient, ...args: Parameters<CheckpointPersistenceClient['commit']>
     ) {
@@ -119,6 +128,9 @@ describeNetworkSuite('Rust exact download binding', () => {
       expect(baseline.status).toBe(200);
       const baselineBytes = Buffer.from(await baseline.arrayBuffer());
       await cleanTransfer(directory);
+      // Ready-file cleanup precedes the lease ACK and clearing the server's single-export slot.
+      await observed(() => baselineReleased ? true : undefined);
+      await new Promise<void>(done => setImmediate(done));
       holdingLease = true;
       let headersDelivered = false;
       pendingDownload = fetch(`http://127.0.0.1:${source.port}/api/export/latest`, { signal: cancellation.signal })
@@ -174,7 +186,7 @@ describeNetworkSuite('Rust exact download binding', () => {
         if (response.body && !response.body.locked) return response.body.cancel();
         return undefined;
       }, () => undefined).catch(() => undefined);
-      commits.mockRestore(); acquiring.mockRestore(); viewer?.terminate();
+      commits.mockRestore(); acquiring.mockRestore(); releases.mockRestore(); viewer?.terminate();
       for (const server of servers.reverse()) await server.close();
       await rm(root, { recursive: true, force: true });
     }

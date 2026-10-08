@@ -74,8 +74,18 @@ export function admitBrowserRequest(
   response: ServerResponse,
   policy: BrowserOriginPolicy
 ): boolean {
-  response.setHeader('Vary', 'Origin');
-  if (!policy.allows(request.headers.origin, request.socket.localPort)) {
+  response.setHeader('Vary', 'Origin, Sec-Fetch-Site, Referer');
+  let allowed = policy.allows(request.headers.origin, request.socket.localPort);
+  const site = request.headers['sec-fetch-site'];
+  if (request.headers.origin === undefined && (site === 'cross-site' || site === 'same-site')) {
+    // Direct downloads may omit Origin even for a configured split-host UI.
+    // Browser-generated Referer identifies that UI; CLI clients omit Fetch Metadata.
+    try {
+      const referer = new URL(request.headers.referer ?? '');
+      allowed = allowed && policy.allows(referer.origin, request.socket.localPort);
+    } catch { allowed = false; }
+  }
+  if (!allowed) {
     response.writeHead(403, { 'Content-Type': 'application/json', 'Connection': 'close' });
     request.resume();
     response.end(JSON.stringify({ ok: false, message: 'browser origin is not allowed' }));

@@ -340,7 +340,7 @@ impl GenerationStartWorkspace {
                 .ok_or(GenerationStartError::InternalShapeMismatch)?;
             let evolved = allocators.reserve_entity_ids(population_u64)?;
             let baseline = allocators.reserve_baseline_ids(baseline_u64)?;
-            let frames = allocators.reserve_frame_v1_ids(total_frame_u32)?;
+            let frames = allocators.reserve_frame_v1_ids(total_frame_u32, std::iter::empty())?;
             (evolved, baseline, frames)
         };
 

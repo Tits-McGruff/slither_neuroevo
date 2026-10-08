@@ -77,7 +77,7 @@ fn allocate_world_epoch() -> Result<u64, StateError> {
 pub const GENERATION_BOUNDARY_VERSION: u32 = 1;
 /// Largest integer that binary frame v1 can represent exactly as `f32`.
 pub const FRAME_V1_MAX_EXACT_ID: u32 = 16_777_216;
-/// One-past-the-end public-ID value used to represent exhausted allocation.
+/// Serialized one-past-the-end public-ID cursor, wrapped at the next reservation.
 pub const FRAME_V1_EXHAUSTED_ID: u32 = FRAME_V1_MAX_EXACT_ID + 1;
 /// Conservative strong/weak counter words stored beside each `Arc` allocation.
 const ARC_COUNTER_BYTES: usize = 2 * size_of::<usize>();
@@ -338,7 +338,7 @@ pub enum BaselineStrategyState {
     Boost,
 }
 
-/// Monotonic deterministic allocation continuations.
+/// Deterministic allocation continuations; durable identities are monotonic.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AllocatorState {
     /// Bundle format version.
@@ -351,7 +351,7 @@ pub struct AllocatorState {
     pub next_genome_id: u64,
     /// Next controller-lease identity.
     pub next_controller_lease_id: u64,
-    /// Next exact frame-v1 public identity, or the exhaustion sentinel.
+    /// Next frame-v1 candidate; the one-past-limit cursor wraps on reservation.
     pub next_frame_v1_id: u32,
     /// Next external-controller identity candidate.
     pub next_external_id: u64,
@@ -380,33 +380,59 @@ pub struct InternalIdReservation {
 }
 
 impl AllocatorState {
-    /// Reserve `count` public IDs without partial mutation on exhaustion.
-    pub fn reserve_frame_v1_ids(
+    /// Reserve a contiguous public range without reusing any retained snake ID.
+    /// Search forward, then wrap; durable entity and lease IDs are never recycled.
+    pub fn reserve_frame_v1_ids<I>(
         &mut self,
         count: u32,
-    ) -> Result<Option<FrameV1IdReservation>, StateError> {
+        occupied: I,
+    ) -> Result<Option<FrameV1IdReservation>, StateError>
+    where
+        I: Iterator<Item = u32> + Clone,
+    {
         if count == 0 {
             return Ok(None);
         }
-        let first = self.next_frame_v1_id;
-        if first == 0 || first >= FRAME_V1_EXHAUSTED_ID {
+        if self.next_frame_v1_id == 0
+            || self.next_frame_v1_id > FRAME_V1_EXHAUSTED_ID
+            || count > FRAME_V1_MAX_EXACT_ID
+        {
             return Err(StateError::IdExhausted {
                 kind: "frame-v1",
                 requested: u64::from(count),
             });
         }
-        let last = first
-            .checked_add(count - 1)
-            .filter(|last| *last <= FRAME_V1_MAX_EXACT_ID)
-            .ok_or(StateError::IdExhausted {
-                kind: "frame-v1",
-                requested: u64::from(count),
-            })?;
-        let next = last.checked_add(1).ok_or(StateError::ArithmeticOverflow {
-            context: "frame-v1 ID reservation",
-        })?;
-        self.next_frame_v1_id = next;
-        Ok(Some(FrameV1IdReservation { first, last }))
+        let cursor = if self.next_frame_v1_id == FRAME_V1_EXHAUSTED_ID {
+            1
+        } else {
+            self.next_frame_v1_id
+        };
+        // Every collision moves past a retained ID. No namespace-sized bitmap or allocation is needed.
+        for (start, stop) in [(cursor, FRAME_V1_EXHAUSTED_ID), (1, cursor)] {
+            let mut first = start;
+            while first < stop {
+                let Some(last) = first
+                    .checked_add(count - 1)
+                    .filter(|last| *last <= FRAME_V1_MAX_EXACT_ID)
+                else {
+                    break;
+                };
+                if let Some(collision) = occupied
+                    .clone()
+                    .filter(|id| *id >= first && *id <= last)
+                    .max()
+                {
+                    first = collision + 1;
+                    continue;
+                }
+                self.next_frame_v1_id = last + 1;
+                return Ok(Some(FrameV1IdReservation { first, last }));
+            }
+        }
+        Err(StateError::IdExhausted {
+            kind: "frame-v1",
+            requested: u64::from(count),
+        })
     }
 
     /// Reserve general evolved-snake/pellet entity IDs atomically.
@@ -2654,16 +2680,6 @@ fn validate_running_allocator_continuation(
             context: "controlled replacement external continuation",
         },
     )?;
-    let frame_replacements =
-        u32::try_from(replacement_count).map_err(|_| StateError::ArithmeticOverflow {
-            context: "controlled replacement frame count",
-        })?;
-    let minimum_frame = source
-        .next_frame_v1_id
-        .checked_add(frame_replacements)
-        .ok_or(StateError::ArithmeticOverflow {
-            context: "controlled replacement frame continuation",
-        })?;
     if staged.version != source.version
         || staged.next_brain_id != expected_brain
         || staged.next_genome_id != source.next_genome_id
@@ -2677,7 +2693,6 @@ fn validate_running_allocator_continuation(
         );
     }
     if staged.next_entity_id < source.next_entity_id
-        || staged.next_frame_v1_id < minimum_frame
         || staged.next_baseline_id < source.next_baseline_id
     {
         return invalid(
@@ -2685,6 +2700,9 @@ fn validate_running_allocator_continuation(
             "monotonic gameplay allocator regressed",
         );
     }
+    // Public IDs are circular. Reservation proofs and world validation enforce live uniqueness;
+    // unlike durable counters, their next candidate need not exceed every existing ID.
+    validate_allocators(staged)?;
     Ok(())
 }
 
@@ -4119,7 +4137,6 @@ fn validate_world_with_scratch(
     let mut max_external_id = 0u64;
     let mut max_baseline_id = 0u64;
     let mut max_resurrected_id = 0u64;
-    let mut max_public_id = 0u32;
     for (index, snake) in candidate.world.snakes.iter().enumerate() {
         if snake.id == 0 || snake.id == u64::MAX {
             return Err(StateError::DuplicateId {
@@ -4177,7 +4194,6 @@ fn validate_world_with_scratch(
                 max_resurrected_id = max_resurrected_id.max(snake.id);
             }
         }
-        max_public_id = max_public_id.max(snake.frame_v1_id);
         if let Some(handle) = snake.brain {
             world_brains.push(handle);
         }
@@ -4308,15 +4324,6 @@ fn validate_world_with_scratch(
         max_resurrected_id,
         RESURRECTED_ENTITY_ID_EXHAUSTED,
     )?;
-    if candidate.allocators.next_frame_v1_id != FRAME_V1_EXHAUSTED_ID
-        && candidate.allocators.next_frame_v1_id <= max_public_id
-    {
-        return invalid(
-            "allocators.next_frame_v1_id",
-            "does not follow existing public IDs",
-        );
-    }
-
     let lease_count = candidate.world.controller_leases.len();
     reserve_validation(&mut scratch.lease_ids, lease_count, "controller lease IDs")?;
     reserve_validation(
@@ -6446,22 +6453,63 @@ mod tests {
         let mut allocators = running.state().allocators.clone();
         allocators.next_frame_v1_id = FRAME_V1_MAX_EXACT_ID - 1;
         assert_eq!(
-            allocators.reserve_frame_v1_ids(2).unwrap(),
+            allocators
+                .reserve_frame_v1_ids(2, std::iter::empty())
+                .unwrap(),
             Some(FrameV1IdReservation {
                 first: FRAME_V1_MAX_EXACT_ID - 1,
                 last: FRAME_V1_MAX_EXACT_ID,
             })
         );
         assert_eq!(allocators.next_frame_v1_id, FRAME_V1_EXHAUSTED_ID);
+        assert_eq!(
+            allocators
+                .reserve_frame_v1_ids(1, [1, 2, FRAME_V1_MAX_EXACT_ID].into_iter())
+                .unwrap(),
+            Some(FrameV1IdReservation { first: 3, last: 3 })
+        );
         let before = allocators.clone();
         assert!(matches!(
-            allocators.reserve_frame_v1_ids(1),
+            allocators.reserve_frame_v1_ids(FRAME_V1_EXHAUSTED_ID, std::iter::empty()),
             Err(StateError::IdExhausted {
                 kind: "frame-v1",
-                requested: 1
-            })
+                requested
+            }) if requested == u64::from(FRAME_V1_EXHAUSTED_ID)
         ));
         assert_eq!(allocators, before);
+    }
+
+    #[test]
+    fn frame_id_wrap_skips_occupied_ranges_without_changing_durable_ids() {
+        let graph = default_graph();
+        let mut allocators = candidate(&graph, 1).allocators;
+        allocators.next_frame_v1_id = FRAME_V1_MAX_EXACT_ID;
+        let durable_entity = allocators.next_entity_id;
+        let durable_lease = allocators.next_controller_lease_id;
+        let range = allocators
+            .reserve_frame_v1_ids(3, [1, 3, 4, 6, FRAME_V1_MAX_EXACT_ID].into_iter())
+            .unwrap()
+            .unwrap();
+        assert_eq!(range, FrameV1IdReservation { first: 7, last: 9 });
+        assert_eq!(allocators.next_frame_v1_id, 10);
+        assert_eq!(allocators.next_entity_id, durable_entity);
+        assert_eq!(allocators.next_controller_lease_id, durable_lease);
+    }
+
+    #[test]
+    fn frame_id_wrap_can_reserve_a_gap_crossing_the_original_cursor() {
+        let graph = default_graph();
+        let mut allocators = candidate(&graph, 1).allocators;
+        allocators.next_frame_v1_id = 3;
+        let range = allocators
+            .reserve_frame_v1_ids(
+                FRAME_V1_MAX_EXACT_ID - 3,
+                [FRAME_V1_MAX_EXACT_ID - 1, FRAME_V1_MAX_EXACT_ID].into_iter(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(range.first, 1);
+        assert_eq!(range.last, FRAME_V1_MAX_EXACT_ID - 3);
     }
 
     #[test]
@@ -8266,6 +8314,8 @@ mod tests {
                 y: -1_200.0,
             },
         );
+        // A persisted one-past-limit cursor must still construct and publish the successor.
+        candidate.allocators.next_frame_v1_id = FRAME_V1_EXHAUSTED_ID;
         set_complete_setting(
             &mut candidate,
             "generationSeconds",
@@ -8400,6 +8450,16 @@ mod tests {
         );
         assert_eq!(publication.memory, authority.memory_estimate());
         assert_eq!(publication.external_assignments, 1);
+        assert!(authority.state().allocators.next_frame_v1_id < FRAME_V1_EXHAUSTED_ID);
+        let mut visible_ids: Vec<_> = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .map(|snake| snake.frame_v1_id)
+            .collect();
+        visible_ids.sort_unstable();
+        assert!(visible_ids.windows(2).all(|pair| pair[0] != pair[1]));
         assert!(publication.unavailable_controller_reservations.is_empty());
         assert_eq!(authority.state().phase, AuthorityPhase::Running);
         assert_eq!(
