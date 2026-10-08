@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import * as fileSystem from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -10,6 +11,8 @@ import {
   scavengeStaleManagedBackupPartials,
   validateManagedBackup
 } from './managedBackup.ts';
+
+vi.mock('node:fs', async importOriginal => ({ ...await importOriginal<typeof import('node:fs')>() }));
 
 /** Temporary roots created by this test file. */
 const temporaryRoots: string[] = [];
@@ -26,11 +29,84 @@ function byteCount(value: number): string {
   return value.toString(16).padStart(16, '0');
 }
 
+/** Create a small real SQLite/managed-file backup for publication failure tests. */
+async function restoreFixture(): Promise<{ root: string; backup: string; target: string; filename: string }> {
+  const root = temporaryRoot();
+  const source = join(root, 'source.db');
+  const backup = join(root, 'backup');
+  const filename = `${'1'.repeat(64)}.checkpoint-v3`;
+  const database = new Database(source);
+  try {
+    database.exec(`CREATE TABLE rust_checkpoint_v3_metadata (
+      checkpoint_id TEXT PRIMARY KEY, relative_filename TEXT NOT NULL, stored_byte_count_hex TEXT NOT NULL
+    ); CREATE TABLE rust_checkpoint_retention_v1 (checkpoint_id TEXT PRIMARY KEY, retention_kind TEXT NOT NULL);`);
+    database.prepare('INSERT INTO rust_checkpoint_v3_metadata VALUES (?, ?, ?)').run('1'.repeat(64), filename, byteCount(4));
+    database.prepare('INSERT INTO rust_checkpoint_retention_v1 VALUES (?, ?)').run('1'.repeat(64), 'automatic');
+  } finally { database.close(); }
+  mkdirSync(`${source}.checkpoints`);
+  writeFileSync(join(`${source}.checkpoints`, filename), 'data');
+  await createManagedBackup({ databasePath: source, outputDirectory: backup });
+  return { root, backup, target: join(root, 'restored.db'), filename };
+}
+
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 describe('managed production backup', () => {
+  it('rolls back its published directory after database publication fails and permits retry', async () => {
+    const fixture = await restoreFixture();
+    const publish = vi.spyOn(fileSystem, 'linkSync').mockImplementationOnce(() => { throw new Error('injected publication failure'); });
+    await expect(restoreManagedBackup({ backupDirectory: fixture.backup, databasePath: fixture.target }))
+      .rejects.toThrow('injected publication failure');
+    expect(existsSync(fixture.target)).toBe(false);
+    expect(existsSync(`${fixture.target}.checkpoints`)).toBe(false);
+    expect(readdirSync(fixture.root).some(name => name.includes('.restore-'))).toBe(false);
+    publish.mockRestore();
+    await restoreManagedBackup({ backupDirectory: fixture.backup, databasePath: fixture.target });
+    expect(readFileSync(join(`${fixture.target}.checkpoints`, fixture.filename)).toString()).toBe('data');
+    expect(await validateManagedBackup(fixture.backup)).toBeDefined();
+  });
+
+  it('preserves a raced database target and removes only its own published directory', async () => {
+    const fixture = await restoreFixture();
+    const originalLink = fileSystem.linkSync;
+    vi.spyOn(fileSystem, 'linkSync').mockImplementationOnce((source, target) => {
+      writeFileSync(target, 'another process owns this database', { flag: 'wx' });
+      originalLink(source, target);
+    });
+    await expect(restoreManagedBackup({ backupDirectory: fixture.backup, databasePath: fixture.target }))
+      .rejects.toThrow();
+    expect(readFileSync(fixture.target).toString()).toBe('another process owns this database');
+    expect(existsSync(`${fixture.target}.checkpoints`)).toBe(false);
+    expect(readdirSync(fixture.root).some(name => name.includes('.restore-'))).toBe(false);
+  });
+
+  it('preserves an unrelated managed directory when its own directory publication fails', async () => {
+    const fixture = await restoreFixture();
+    const originalRename = fileSystem.renameSync;
+    vi.spyOn(fileSystem, 'renameSync').mockImplementationOnce((source, target) => {
+      mkdirSync(target);
+      writeFileSync(join(String(target), 'owner-file'), 'keep this directory');
+      originalRename(source, target);
+    });
+    await expect(restoreManagedBackup({ backupDirectory: fixture.backup, databasePath: fixture.target }))
+      .rejects.toThrow();
+    expect(existsSync(fixture.target)).toBe(false);
+    expect(readFileSync(join(`${fixture.target}.checkpoints`, 'owner-file')).toString()).toBe('keep this directory');
+    expect(readdirSync(fixture.root).some(name => name.includes('.restore-'))).toBe(false);
+  });
+
+  it('retains the complete published pair if removing the private database name fails', async () => {
+    const fixture = await restoreFixture();
+    vi.spyOn(fileSystem, 'unlinkSync').mockImplementationOnce(() => { throw new Error('injected cleanup failure'); });
+    await expect(restoreManagedBackup({ backupDirectory: fixture.backup, databasePath: fixture.target }))
+      .rejects.toThrow('injected cleanup failure');
+    expect(readFileSync(fixture.target)).toEqual(readFileSync(join(fixture.backup, 'slither.db')));
+    expect(readFileSync(join(`${fixture.target}.checkpoints`, fixture.filename)).toString()).toBe('data');
+  });
+
   it('reclaims only old private partial sets from processes that have exited', () => {
     const root = temporaryRoot();
     const exited = spawnSync(process.execPath, ['-e', '']);

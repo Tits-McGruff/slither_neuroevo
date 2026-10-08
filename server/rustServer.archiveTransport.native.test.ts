@@ -44,6 +44,8 @@ const originalHttpEmit = Server.prototype.emit;
  * it is not a valid budget for all of the fixture's disk operations combined.
  */
 const ARCHIVE_FIXTURE_TIMEOUT_MS = 20_000;
+/** A resource rejection also verifies a second successful archive preparation after cleanup. */
+const ARCHIVE_RETRY_FIXTURE_TIMEOUT_MS = ARCHIVE_FIXTURE_TIMEOUT_MS + ARCHIVE_PREPARATION_TIMEOUT_MS;
 
 /** Change the task's private tmpfs quota without allocating its advertised capacity. */
 async function quota(directory: string, bytes: bigint): Promise<void> {
@@ -181,7 +183,7 @@ async function experiment(action: (fixture: Fixture) => Promise<void>, privateQu
     const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
     let archive: Buffer;
     try {
-      const response = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+      const response = await fixtureArchiveDownload(server.port, 'transport fixture baseline');
       expect(response.status).toBe(200);
       archive = Buffer.from(await response.arrayBuffer());
       expect(archive.byteLength).toBeLessThan(4 * 1024 * 1024);
@@ -905,8 +907,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect(release).toHaveBeenCalledTimes(operation === 'export' ? 1 : 0);
           expect(createHash('sha256').update(fixture.archive).digest('hex')).toBe(sourceHash);
           admission.mockRestore();
-          const retry = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`)
-            .catch(error => { throw new Error('export retry response failed', { cause: error }); });
+          const retry = await fixtureArchiveDownload(fixture.server.port, 'resource rejection retry');
           expect(retry.status).toBe(200);
           expect(Buffer.from(await retry.arrayBuffer())).toEqual(fixture.archive);
           await preserved(fixture);
@@ -914,7 +915,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           admission.mockRestore(); spool.mockRestore(); stage.mockRestore(); commit.mockRestore(); release.mockRestore();
         }
       });
-    }, 20_000
+    }, ARCHIVE_RETRY_FIXTURE_TIMEOUT_MS
   );
 
   it.runIf(process.platform === 'linux' && process.env['SLITHER_PRIVATE_QUOTA_TEST'] === '1').each([
@@ -1263,8 +1264,12 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect(peer.packets.filter(packet => packet['type'] === 'error')).toEqual([]);
         }
         await heldInput(peers);
-        await outcome(() => peers.every((peer, index) => peer.sample!.tick > samples[index]!.tick &&
-          headingChange(samples[index]!, peer.sample!) < -0.01), 'rejoined controllers could not steer');
+        await outcome(() => peers.every((peer, index) => {
+          // An assignment clears the previous observation until its first sensor packet arrives.
+          const sample = peer.sample;
+          return sample !== undefined && sample.tick > samples[index]!.tick &&
+            headingChange(samples[index]!, sample) < -0.01;
+        }), 'rejoined controllers could not steer');
         const rejoined = ((await health(fixture.server))['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
         // The new player input may be admitted separately because the world is running again.
         expect(rejoined.player.appliedActions).toBeGreaterThan(activity.player.appliedActions);

@@ -17,7 +17,8 @@ command -v systemctl >/dev/null 2>&1 || {
 }
 
 case "$REPO_ROOT" in
-  *'|'*|*'&'*|*'\n'*|*'\r'*)
+  *'|'*|*'&'*|*'\'*|*'"'*|*'%'*|*'$'*|*'
+'*|*"$(printf '\r')"*)
     echo "[ERROR] Repository path contains characters unsupported by the service installer: $REPO_ROOT" >&2
     exit 1
     ;;

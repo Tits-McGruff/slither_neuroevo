@@ -2702,3 +2702,11 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   Executed shell regressions and real Oxygen health listeners pass for explicit
   LAN, loopback and wildcard addresses; affected lint passes. No simulation or
   persistence behavior changes.
+
+- 2026-10-08 Follow-up review fixes quote the service executable/environment
+  paths and reject path characters the installer cannot render safely. The
+  actual installer and Debian systemd parser accept a repository path containing
+  spaces. Failed restore publication now removes only its owned managed directory;
+  exclusive database publication preserves a competing target. Focused rollback,
+  retry, collision and completed-publication preservation checks pass. Rust
+  calculations are unchanged.

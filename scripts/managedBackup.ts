@@ -7,6 +7,7 @@ import {
   existsSync,
   fsyncSync,
   lstatSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -15,6 +16,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  unlinkSync,
   writeFileSync
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -342,6 +344,7 @@ export async function restoreManagedBackup(options: RestoreManagedBackupOptions)
   rmSync(temporaryDatabase, { force: true });
   rmSync(temporaryManaged, { recursive: true, force: true });
   mkdirSync(temporaryManaged);
+  let publishedManaged = false;
   try {
     copyFileSync(join(backup, manifest.database.name), temporaryDatabase, constants.COPYFILE_EXCL);
     flushAndCloseFile(temporaryDatabase);
@@ -354,13 +357,18 @@ export async function restoreManagedBackup(options: RestoreManagedBackupOptions)
       selectRestoredRetainedCurrent(temporaryDatabase, options.checkpointId, manifest);
     }
     renameSync(temporaryManaged, managedRoot);
-    renameSync(temporaryDatabase, databasePath);
-    return manifest;
+    publishedManaged = true;
+    // A same-filesystem hard link publishes atomically without overwriting a raced target.
+    linkSync(temporaryDatabase, databasePath);
   } catch (error) {
     rmSync(temporaryDatabase, { force: true });
-    if (!existsSync(managedRoot)) rmSync(temporaryManaged, { recursive: true, force: true });
+    rmSync(temporaryManaged, { recursive: true, force: true });
+    if (publishedManaged) rmSync(managedRoot, { recursive: true, force: true });
     throw error;
   }
+  // The final pair is complete now; private-name cleanup cannot roll it back.
+  unlinkSync(temporaryDatabase);
+  return manifest;
 }
 
 /** Select one retained per-run current pointer only inside an unpublished restored copy. */

@@ -10,10 +10,10 @@ const RUNNER = readFileSync(resolve('scripts/run-production.sh'), 'utf8');
 const SERVICE = readFileSync(resolve('scripts/slither-neuroevo.service.in'), 'utf8');
 
 /** User-service installer source. */
-const INSTALLER = readFileSync(resolve('scripts/install-systemd-user.sh'), 'utf8');
+const INSTALLER = readFileSync(resolve('scripts/install-systemd-user.sh'), 'utf8').replaceAll('\r\n', '\n');
 
 /** Production launcher source; only its probe functions are executed below. */
-const LAUNCHER = readFileSync(resolve('play.sh'), 'utf8');
+const LAUNCHER = readFileSync(resolve('play.sh'), 'utf8').replaceAll('\r\n', '\n');
 
 /** POSIX shell provided by Debian or Git for Windows, without invoking WSL. */
 const POSIX_SHELL = process.platform === 'win32'
@@ -67,7 +67,9 @@ printf '%s' "$HEALTH_URL"
   });
 
   it('uses bounded restart policy and graceful termination', () => {
-    expect(SERVICE).toContain('ExecStart=@REPO_ROOT@/scripts/run-production.sh');
+    expect(SERVICE).toContain('ExecStart="@REPO_ROOT@/scripts/run-production.sh"');
+    expect(SERVICE).toContain('WorkingDirectory=@REPO_ROOT@');
+    expect(SERVICE).toContain('EnvironmentFile="-@REPO_ROOT@/server/systemd.env"');
     expect(SERVICE).toContain('Restart=on-failure');
     expect(SERVICE).toContain('RestartSec=5');
     expect(SERVICE).toContain('StartLimitIntervalSec=120');
