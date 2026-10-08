@@ -94,6 +94,11 @@ npm run server -- --resume latest --db-path ./data/rust-experiment.sqlite
 
 ### Choose how to start
 
+Without a startup override, the server resumes an existing database and creates
+the first run only when the database is absent. An explicit `--resume` requires
+the database to exist; a missing path serves failing health and refuses game
+connections without creating a replacement database.
+
 For a new experiment, start once with `--fresh`, then reuse that database with
 one of the resume options:
 
@@ -455,7 +460,9 @@ worker settings and Rust calculation-worker count. `publicWsUrl` is simply the
 WebSocket address the webpage should use when the simulation server is not at
 the same hostname as the UI; despite the legacy word “public,” it does not make
 the service safe for the public internet. Normal defaults are native,
-five calculation workers and resume-latest. Use `--rust-workers N` to override
+five calculation workers and automatic startup (`resume = "auto"`): resume the
+latest valid checkpoint when the database exists, otherwise create the first
+run. Use `--rust-workers N` to override
 the worker count, `--fresh` for a new durable run, or
 `--resume latest|sha256:<checkpoint-id>` for managed recovery. Reference-only
 backend and Node-MT flags belong to `npm run server:reference`.

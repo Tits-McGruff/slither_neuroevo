@@ -310,11 +310,14 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   try {
     if (typeof config.resume === 'number') throw new Error('numeric reference snapshot IDs are not managed checkpoint IDs');
     const databaseExists = existsSync(resolve(config.dbPath));
+    if (!databaseExists && config.resume !== 'auto' && config.resume !== 'fresh') {
+      throw new Error(`cannot resume: database does not exist at ${resolve(config.dbPath)}`);
+    }
     owner = await createExperimentalServerRuntime({ databasePath: config.dbPath,
       managedDirectory: `${resolve(config.dbPath)}.checkpoints`,
       calculationWorkers: config.rustCalculationWorkers,
       checkpointBudgetMiB: config.checkpointBudgetMiB,
-      ...(config.resume === 'latest' && databaseExists ? { restoreLatest: true } : {}),
+      ...((config.resume === 'auto' || config.resume === 'latest') && databaseExists ? { restoreLatest: true } : {}),
       ...(config.resume.startsWith('sha256:') ? { restoreCheckpointId: config.resume.slice(7) } : {}),
       ...(config.seed === undefined ? {} : { seed: config.seed }), onWake: () => schedule() });
   } catch (error) { return startFaultedServer(config, error); }

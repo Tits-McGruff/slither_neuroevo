@@ -52,7 +52,7 @@ async function closeHttpServer(server: Server): Promise<void> {
  */
 export async function startServer(config: ServerConfig, logger?: Logger): Promise<RunningServer> {
   const browserOrigins = createBrowserOriginPolicy(config);
-  const resume = config.resume;
+  const resume = config.resume === 'auto' ? 'latest' : config.resume;
   if (typeof resume === 'string' && resume !== 'fresh' && resume !== 'latest') {
     throw new Error('managed checkpoint IDs require the Rust server');
   }

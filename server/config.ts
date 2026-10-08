@@ -5,8 +5,8 @@ import type { InferenceBackend } from '../src/brains/types.ts';
 
 /** Allowed log levels for server output. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
-/** Explicit startup population-selection mode. */
-export type ResumeSelection = 'latest' | 'fresh' | number | `sha256:${string}`;
+/** Startup population-selection policy. */
+export type ResumeSelection = 'auto' | 'latest' | 'fresh' | number | `sha256:${string}`;
 
 /** Server runtime configuration values derived from defaults, config, env, and CLI. */
 export interface ServerConfig {
@@ -39,7 +39,7 @@ export interface ServerConfig {
   rustCalculationWorkers: number;
   /** Immutable neural math backend selected before brain construction. */
   inferenceBackend: InferenceBackend;
-  /** Fresh startup, latest valid checkpoint, or one explicit snapshot id. */
+  /** Automatic first startup, explicit fresh/latest startup, or one snapshot id. */
   resume: ResumeSelection;
   seed?: number;
 }
@@ -65,7 +65,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   mtWorkers: 0,
   rustCalculationWorkers: 5,
   inferenceBackend: 'native',
-  resume: 'latest'
+  resume: 'auto'
 };
 
 /** Shape of a process environment map. */
@@ -121,14 +121,14 @@ function parseBoolValue(raw: string | undefined): boolean | undefined {
  * Normalize a startup resume selector from TOML, environment, or CLI text.
  * @param value - Raw selector value.
  * @param warn - Optional warning callback for invalid non-CLI input.
- * @returns Fresh, latest, or one positive snapshot id.
+ * @returns Automatic, fresh, latest, or one positive snapshot id.
  */
 function normalizeResumeSelection(
   value: unknown,
   warn?: (msg: string) => void
 ): ResumeSelection {
   if (value === undefined || value === null || value === '') return DEFAULT_CONFIG.resume;
-  if (value === 'latest' || value === 'fresh') return value;
+  if (value === 'auto' || value === 'latest' || value === 'fresh') return value;
   const text = String(value).trim();
   if (/^(?:sha256:)?[0-9a-f]{64}$/u.test(text)) return `sha256:${text.replace(/^sha256:/u, '')}`;
   const parsed = typeof value === 'number' ? value : Number.parseInt(text, 10);

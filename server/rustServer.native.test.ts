@@ -632,11 +632,34 @@ describeNetworkSuite('Rust server real sockets', () => {
     }
   }, 20_000);
 
-  it('creates the first Rust run when resume-latest targets an absent database', async () => {
+  it.each(['latest', `sha256:${'ab'.repeat(32)}`] as const)('faults explicit resume %s against a missing database without creating state', async resume => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-missing-resume-'));
+    const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume,
+      rustCalculationWorkers: 1, dbPath: join(root, 'missing.sqlite') });
+    try {
+      expect(server.startupFault).toContain('database does not exist');
+      const response = await fetch(`http://127.0.0.1:${server.port}/api/health`);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ ok: false, lifecycle: 'startup-fault' });
+      const socket = new WebSocket(`ws://127.0.0.1:${server.port}`);
+      await new Promise<void>((done, reject) => {
+        socket.once('open', () => reject(new Error('missing resume accepted a game connection')));
+        socket.once('error', error => {
+          try { expect(error.message).toContain('503'); done(); } catch (failure) { reject(failure); }
+        });
+      });
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('creates the first Rust run only under automatic startup and resumes its existing database', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-first-run-'));
     const dbPath = join(root, 'slither.sqlite');
-    const server = await startRustServer({
-      ...DEFAULT_CONFIG, port: 0, dbPath, resume: 'latest', seed: 91
+    let server = await startRustServer({
+      ...DEFAULT_CONFIG, port: 0, dbPath, seed: 91, rustCalculationWorkers: 1
     });
     try {
       const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json();
@@ -644,6 +667,11 @@ describeNetworkSuite('Rust server real sockets', () => {
       const firstBoundary = BigInt(`0x${(health as { commandServiceBoundaries: string }).commandServiceBoundaries}`);
       await healthUntil(server.port, sample =>
         BigInt(`0x${sample['commandServiceBoundaries'] as string}`) > firstBoundary);
+      await server.close();
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath, rustCalculationWorkers: 1 });
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+        ok: true, runId: (health as { runId: string }).runId, seed: 91
+      });
     } finally {
       await server.close();
       await rm(root, { recursive: true, force: true });
