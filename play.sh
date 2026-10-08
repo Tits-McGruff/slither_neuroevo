@@ -71,9 +71,22 @@ wait_for_process_exit() {
   return 1
 }
 
+# Probe explicit binds directly; wildcard binds use a reachable loopback URL.
+probe_url_host() {
+  case "$HOST" in
+    0.0.0.0) printf '%s' '127.0.0.1' ;;
+    ::) printf '%s' '[::1]' ;;
+    \[*\]) printf '%s' "$HOST" ;;
+    *:*) printf '[%s]' "$HOST" ;;
+    *) printf '%s' "$HOST" ;;
+  esac
+}
+
+HEALTH_URL="http://$(probe_url_host):${PORT}/api/health"
+
 wait_for_health() {
   _pid="$1"
-  _url="http://127.0.0.1:${PORT}/api/health"
+  _url="$HEALTH_URL"
   _tries=0
   while [ "$_tries" -lt 120 ]; do
     if ! pid_is_running "$_pid"; then
@@ -231,7 +244,7 @@ if ! wait_for_health "$SERVER_PID"; then
   print_start_failure
   if grep -Fq '[rust.startup-fault]' "$LOG_FILE" 2>/dev/null; then
     echo "[ERROR] The existing database was not moved or replaced; no new run was started."
-    echo "[INFO] The server remains health-only at http://127.0.0.1:$PORT/api/health"
+    echo "[INFO] The server remains health-only at $HEALTH_URL"
     echo "[INFO] Stop it with: sh shutdown.sh"
     exit 1
   fi
@@ -245,18 +258,26 @@ echo
 echo "[OK] Rust-authoritative server is healthy."
 echo "[OK] PID: $SERVER_PID"
 echo "[OK] Log: $LOG_FILE"
-echo "[OK] Local health: http://127.0.0.1:$PORT/api/health"
+echo "[OK] Health: $HEALTH_URL"
 echo
 
-if command -v hostname >/dev/null 2>&1; then
-  for _ip in $(hostname -I 2>/dev/null || true); do
-    case "$_ip" in
-      *:*) continue ;;
-    esac
-    echo "[LAN] Browser:   http://${_ip}:${PORT}/"
-    echo "[LAN] WebSocket: ws://${_ip}:${PORT}"
-  done
-fi
+case "$HOST" in
+  0.0.0.0|::)
+    if command -v hostname >/dev/null 2>&1; then
+      for _ip in $(hostname -I 2>/dev/null || true); do
+        case "$_ip" in
+          *:*) continue ;;
+        esac
+        echo "[LAN] Browser:   http://${_ip}:${PORT}/"
+        echo "[LAN] WebSocket: ws://${_ip}:${PORT}"
+      done
+    fi
+    ;;
+  *)
+    echo "[UI] Browser:   http://$(probe_url_host):${PORT}/"
+    echo "[UI] WebSocket: ws://$(probe_url_host):${PORT}"
+    ;;
+esac
 
 echo
 echo "Stop with: sh shutdown.sh"

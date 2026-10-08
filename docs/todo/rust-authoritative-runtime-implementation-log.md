@@ -2695,3 +2695,10 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   security, LAN, controller and real Rust-server checks pass; types and affected
   lint pass. Rust calculations and previously retained performance evidence
   are unchanged. The pushed checkpoint requires its normal CI confirmation.
+
+- 2026-10-08 The follow-up PR review found the Debian launcher probing loopback
+  even for an explicit LAN bind. Its health probe and printed URLs now use the
+  configured interface, with loopback targets for wildcard IPv4/IPv6 binds.
+  Executed shell regressions and real Oxygen health listeners pass for explicit
+  LAN, loopback and wildcard addresses; affected lint passes. No simulation or
+  persistence behavior changes.
