@@ -75,6 +75,16 @@ export function admitBrowserRequest(
   policy: BrowserOriginPolicy
 ): boolean {
   response.setHeader('Vary', 'Origin, Sec-Fetch-Site, Referer');
+  try {
+    // Production routing parses this target again after admission. Validate it here so
+    // parser-valid malformed absolute-form targets cannot throw out of the server callback.
+    new URL(request.url ?? '/', 'http://localhost');
+  } catch {
+    response.writeHead(400, { 'Content-Type': 'application/json', 'Connection': 'close' });
+    request.resume();
+    response.end(JSON.stringify({ ok: false, message: 'request target is malformed' }));
+    return false;
+  }
   let allowed = policy.allows(request.headers.origin, request.socket.localPort);
   const site = request.headers['sec-fetch-site'];
   if (request.headers.origin === undefined && (site === 'cross-site' || site === 'same-site')) {
