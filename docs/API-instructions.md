@@ -20,11 +20,14 @@ ports through a router or expose them on an untrusted network.
 
 `publicWsUrl` is the WebSocket address injected into the webpage when the
 simulation server's hostname differs from the UI hostname. It can be set in
-TOML, through `PUBLIC_WS_URL`, or with `--public-ws-url`. The browser resolves
-its server address in this order: `?server=...`, the saved browser override,
-`publicWsUrl`, the current UI hostname plus the configured server port, then
-the localhost fallback. The legacy word “public” means “advertised to the
-browser”; it is not a security claim.
+TOML, through `PUBLIC_WS_URL`, or with `--public-ws-url`. An explicit
+`?server=...` page URL takes precedence. Pages served by the production server
+then use its current runtime `publicWsUrl`, or the page's own host and port when
+that setting is empty; stale browser storage and build defaults do not override
+this runtime route. Vite pages without runtime metadata use the saved browser
+override, build-time `publicWsUrl`, current UI hostname plus the configured
+server port, then the localhost fallback. The legacy word “public” means
+“advertised to the browser”; it is not a security claim.
 
 For a typical trusted-LAN setup, use:
 
@@ -164,13 +167,21 @@ Update the held input for the assigned snake:
   ignored.
 - `turn` is clamped to `[-1, 1]`.
 - `boost` is clamped to `[0, 1]`.
-- The latest accepted input is held until another action is accepted or the
-  assignment is released.
+- The latest accepted input is held for the configured input-hold interval,
+  **500 ms by default**, or until another action is accepted or the assignment
+  is released. If no fresh action arrives before that interval expires, the
+  server keeps the assignment reserved and applies neutral turn and boost.
+  A later valid action resumes external control.
+- Refresh unchanged steering/boost input periodically while it should remain
+  active. The timeout uses elapsed wall time, so clients must refresh input even
+  when display frames or sensors are temporarily delayed. `ping` does not refresh
+  held input. `--input-hold-ms` / `CONTROLLER_INPUT_HOLD_MS` configures this interval.
 
 Default limits are one accepted action per authoritative tick and 120 action
 attempts per wall-clock second per controller. Excess actions are dropped
 without an acknowledgement. Send one action in response to each sensor packet
-instead of flooding the socket.
+instead of flooding the socket; use a bounded periodic action pump to retain
+desired input during sensor/display delays.
 
 ### `ping`
 

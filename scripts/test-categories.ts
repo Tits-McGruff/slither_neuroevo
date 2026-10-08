@@ -1,6 +1,7 @@
 /** Primary, non-overlapping test layers used for complete-suite accounting. */
 export const PRIMARY_TEST_CATEGORIES = {
   unit: [
+    'server/productionCli.test.ts',
     'scripts/ci-contract.test.ts',
     'scripts/production-operations.test.ts',
     'scripts/recoveryPhase10.lan.test.ts',
@@ -131,7 +132,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'src/brains/graph.integration.test.ts',
     'src/main.test.ts'
   ],
-  system: ['server/system.test.ts', 'server/rustServer.processDeath.native.test.ts'],
+  system: ['server/productionCli.system.test.ts', 'server/system.test.ts', 'server/rustServer.processDeath.native.test.ts'],
   acceptance: ['server/acceptance.test.ts'],
   regression: [
     'src/stack.regression.test.ts',

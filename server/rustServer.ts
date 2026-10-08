@@ -14,8 +14,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { networkInterfaces } from 'node:os';
 import { isIP } from 'node:net';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { parseConfig, type ServerConfig } from './config.ts';
+import { type ServerConfig } from './config.ts';
 import { WsHub } from './wsHub.ts';
+import { parseProductionCli, PRODUCTION_CLI_HELP } from './productionCli.ts';
 import { serveBrowserAsset } from './browserAssets.ts';
 import { admitBrowserRequest, createBrowserOriginPolicy } from './browserOrigins.ts';
 import { assertReplacementCheckpointBudget, createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
@@ -1462,8 +1463,10 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const config = parseConfig(process.argv.slice(2), process.env);
-  void startRustServer(config).then(server => {
+  void (async () => {
+    const config = parseProductionCli(process.argv.slice(2), process.env);
+    if (config === null) { console.info(PRODUCTION_CLI_HELP); return; }
+    const server = await startRustServer(config);
     const hosts = config.host === '0.0.0.0'
       ? ['127.0.0.1', ...Object.values(networkInterfaces()).flatMap(addresses => addresses?.filter(address => address.family === 'IPv4' && !address.internal).map(address => address.address) ?? [])]
       : [config.host];
@@ -1475,5 +1478,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     }
     process.once('SIGINT', () => { void server.close(); });
     process.once('SIGTERM', () => { void server.close(); });
-  }).catch(error => { console.error(error); process.exitCode = 1; });
+  })().catch(error => { console.error(error); process.exitCode = 1; });
 }
