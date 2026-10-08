@@ -1569,13 +1569,17 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
               expect(packets.filter(packet => packet['type'] === 'stateReplaced')).toHaveLength(1);
               expect(packets.filter(packet => ['assign', 'error'].includes(String(packet['type'])))).toEqual([]);
             }
-            // A separate old client demonstrates the actual awaiting-rejoin protocol rejection.
-            const closed = new Promise<number>(done => probe.socket.once('close', code => done(code)));
+            // A separate old client stays connected while stale input is discarded before rejoin.
+            const processed = new Promise<Buffer>(done => probe.socket.once('pong', done));
             probe.socket.send(JSON.stringify({ type: 'action', snakeId: probeBefore.assignment.snakeId,
               tick: probeBefore.sample.tick, turn: 1, boost: 0 }));
-            expect(await bounded(closed, 'unjoined old input was not rejected')).toBe(1008);
-            expect(probe.packets.findLast(packet => packet['type'] === 'error'))
-              .toMatchObject({ message: 'join required before action' });
+            probe.socket.send(JSON.stringify({ type: 'view', viewW: 800, viewH: 600 }));
+            probe.socket.ping(`stale-input-${round}`);
+            expect((await bounded(processed, 'stale-input transport barrier did not complete')).toString())
+              .toBe(`stale-input-${round}`);
+            expect(probe.socket.readyState).toBe(WebSocket.OPEN);
+            expect(probe.packets.filter(packet => packet['type'] === 'error')).toEqual([]);
+            expect(input.mock.calls.length).toBe(inputBefore + 2);
             expect(submit.mock.calls.length).toBe(submittedBefore);
             for (const [index, peer] of peers.entries()) peer.socket.send(JSON.stringify({ type: 'join',
               mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}`,

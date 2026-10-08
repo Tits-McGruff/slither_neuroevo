@@ -28,6 +28,7 @@ describe('wsClient', () => {
 
   beforeEach(() => {
     vi.resetModules();
+    vi.stubGlobal('document', undefined);
     originalWindow = globalAny.window;
     originalStorage = globalAny.localStorage;
     originalWebSocket = globalAny.WebSocket;
@@ -51,6 +52,7 @@ describe('wsClient', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     globalAny.window = originalWindow as Window & typeof globalThis;
     globalAny.localStorage = originalStorage as Storage;
     globalAny.WebSocket = originalWebSocket as typeof WebSocket;
@@ -91,6 +93,26 @@ describe('wsClient', () => {
     expect(getDefaultServerUrl('')).toBe(DEFAULT_SERVER_URL);
   });
 
+  it.each([
+    { host: '192.168.1.25:6174', protocol: 'http:', expected: 'ws://192.168.1.25:6174' },
+    { host: '[::1]:6174', protocol: 'http:', expected: 'ws://[::1]:6174' },
+    { host: '[2001:db8::1]', protocol: 'https:', expected: 'wss://[2001:db8::1]' }
+  ])('uses served same-origin runtime routing for $expected', ({ host, protocol, expected }) => {
+    vi.stubGlobal('document', { querySelector: () => ({ content: '' }) });
+    globalAny.window = { location: { host, protocol, search: '' } } as unknown as Window & typeof globalThis;
+    storeServerUrl('ws://cached:5174');
+    expect(getDefaultServerUrl('ws://baked:5174')).toBe(expected);
+    expect(resolveServerUrl()).toBe(expected);
+  });
+
+  it('uses runtime split-host routing before stored or build defaults, preserving the query override', () => {
+    vi.stubGlobal('document', { querySelector: () => ({ content: 'ws://runtime-host:6174' }) });
+    storeServerUrl('ws://cached:5174');
+    expect(getDefaultServerUrl('ws://baked:5174')).toBe('ws://runtime-host:6174');
+    expect(resolveServerUrl()).toBe('ws://runtime-host:6174');
+    globalAny.window.location.search = '?server=ws://explicit-host:7180';
+    expect(resolveServerUrl()).toBe('ws://explicit-host:7180');
+  });
   it('formats the active seed, backend, and threading mode for the UI', () => {
     expect(formatServerRuntimeStatus(42, {
       requestedBackend: 'native',

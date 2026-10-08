@@ -8,14 +8,15 @@ import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import type { ExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { createServer } from 'node:http';
 import { createReadStream, existsSync } from 'node:fs';
-import { lstat, readdir, stat, unlink } from 'node:fs/promises';
-import { dirname, extname, resolve, sep } from 'node:path';
+import { lstat, readdir, unlink } from 'node:fs/promises';
+import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { networkInterfaces } from 'node:os';
 import { isIP } from 'node:net';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { parseConfig, type ServerConfig } from './config.ts';
 import { WsHub } from './wsHub.ts';
+import { serveBrowserAsset } from './browserAssets.ts';
 import { admitBrowserRequest, createBrowserOriginPolicy } from './browserOrigins.ts';
 import { assertReplacementCheckpointBudget, createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
@@ -63,8 +64,6 @@ const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
 const MAX_CONTROLLERS = 16;
 /** Maximum discard interval after the complete rejection body is already sent. */
 const ARCHIVE_REJECTION_DRAIN_MS = 1000;
-/** Browser asset MIME types emitted by Vite. */
-const CONTENT_TYPES: Readonly<Record<string, string>> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 
 /** Convert exact worker/filesystem counters to JSON-safe base-10 health fields. */
 function storageHealthPayload(
@@ -734,17 +733,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       response.writeHead(501, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ error: 'API route is not available in the Rust runtime' })); return;
     }
-    void (async () => {
-      const path = resolve(CLIENT_ROOT, `.${decodeURIComponent(pathname === '/' ? '/index.html' : pathname)}`);
-      if (!path.startsWith(`${CLIENT_ROOT}${sep}`) || !(await stat(path)).isFile()) {
-        response.writeHead(404); response.end(); return;
-      }
-      response.writeHead(200, { 'Content-Type': CONTENT_TYPES[extname(path)] ?? 'application/octet-stream' });
-      const stream = createReadStream(path);
-      stream.on('error', () => response.destroy());
-      response.on('close', () => stream.destroy());
-      stream.pipe(response);
-    })().catch(() => { if (!response.headersSent) response.writeHead(404); response.end(); });
+    void serveBrowserAsset(pathname, response, CLIENT_ROOT, config.publicWsUrl);
   });
   let hub: WsHub | undefined;
   let closePromise: Promise<void> | undefined;

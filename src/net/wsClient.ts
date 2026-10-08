@@ -5,6 +5,7 @@ import type {
 } from '../protocol/rustBackground.ts';
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../protocol/messages.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
+import { RUNTIME_SERVER_URL_META } from '../protocol/browserRouting.ts';
 import type { SensorSpec } from '../protocol/sensors.ts';
 import type { SpatialHashDiagnostics } from '../spatialHash.ts';
 import type {
@@ -330,6 +331,8 @@ function formatHostForUrl(host: string): string {
  * @returns Default WebSocket URL when no explicit override is provided.
  */
 export function getDefaultServerUrl(configuredUrl = INJECTED_SERVER_URL): string {
+  const runtime = getRuntimeServerUrl();
+  if (runtime) return runtime;
   const injected = configuredUrl.trim();
   if (injected) return injected;
   const configuredPort = import.meta.env.SLITHER_SERVER_PORT;
@@ -346,13 +349,25 @@ export function getDefaultServerUrl(configuredUrl = INJECTED_SERVER_URL): string
   }
   return DEFAULT_SERVER_URL;
 }
+/** Read process routing supplied with a production page, independently of its bundle build. */
+function getRuntimeServerUrl(): string | null {
+  if (typeof document === 'undefined') return null;
+  const meta = document.querySelector?.<HTMLMetaElement>(`meta[name="${RUNTIME_SERVER_URL_META}"]`);
+  if (!meta) return null;
+  const configured = meta.content.trim();
+  if (configured) return configured;
+  if (typeof window === 'undefined' || !window.location?.host) return null;
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${protocol}://${window.location.host}`;
+}
+
 /** Handshake timeout in milliseconds before forcing reconnect. */
 const HANDSHAKE_TIMEOUT_MS = 1500;
 /** Local storage key for persisting the server URL. */
 const STORAGE_KEY = 'slither_server_url';
 
 /**
- * Resolve the server URL from query params, local storage, or runtime defaults.
+ * Resolve the server URL from query params, served runtime routing, storage, or build defaults.
  * @param defaultUrl - Fallback URL when none is provided.
  * @returns Resolved WebSocket URL.
  */
@@ -361,6 +376,9 @@ export function resolveServerUrl(defaultUrl = getDefaultServerUrl()): string {
   const params = new URLSearchParams(search || '');
   const paramUrl = params.get('server');
   if (paramUrl) return paramUrl;
+  // Cached successful defaults must not override a changed service configuration.
+  const runtime = getRuntimeServerUrl();
+  if (runtime) return runtime;
   let stored: string | null = null;
   try {
     stored = localStorage.getItem(STORAGE_KEY);
