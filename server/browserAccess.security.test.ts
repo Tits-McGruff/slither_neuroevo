@@ -1,5 +1,6 @@
 import { once } from 'node:events';
 import { createServer, type Server } from 'node:http';
+import { connect as connectTcp } from 'node:net';
 import { expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { DEFAULT_CONFIG } from './config.ts';
@@ -44,6 +45,25 @@ async function transportFixture(handshakeTimeoutMs = 5000): Promise<{
       hub.closeAll();
       await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));
     } };
+}
+
+/** Send one parser-valid raw HTTP target that high-level clients refuse to construct. */
+async function rawHttpRequest(url: string, target: string): Promise<string> {
+  const endpoint = new URL(url);
+  return await new Promise<string>((resolve, reject) => {
+    const socket = connectTcp({ host: endpoint.hostname, port: Number(endpoint.port) });
+    let response = '';
+    socket.setEncoding('utf8');
+    socket.once('connect', () => socket.write(
+      `GET ${target} HTTP/1.1\r\nHost: ${endpoint.host}\r\nConnection: close\r\n\r\n`
+    ));
+    socket.on('data', chunk => {
+      response += chunk;
+      if (response.length > 8192) socket.destroy(new Error('raw HTTP response exceeded test bound'));
+    });
+    socket.once('end', () => resolve(response));
+    socket.once('error', reject);
+  });
 }
 
 /** Open a real peer, capturing welcome before sending hello. */
@@ -92,6 +112,18 @@ describeNetworkSuite('browser origin and handshake admission', () => {
       expect(direct.headers.has('Access-Control-Allow-Origin')).toBe(false);
       await direct.text();
       expect(fixture.mutations()).toBe(2);
+    } finally { await fixture.close(); }
+  });
+
+  it('rejects malformed absolute-form request targets without terminating the listener', async () => {
+    const fixture = await transportFixture();
+    try {
+      const malformed = await rawHttpRequest(fixture.url, 'http://[');
+      expect(malformed).toMatch(/^HTTP\/1\.1 400 /u);
+      expect(malformed).toContain('request target is malformed');
+      const followup = await fetch(fixture.url);
+      expect(followup.status).toBe(200);
+      await followup.text();
     } finally { await fixture.close(); }
   });
 
