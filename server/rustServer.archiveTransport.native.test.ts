@@ -428,17 +428,24 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
   const rejoined = new Promise<Buffer>(done => viewer.once('pong', done));
   viewer.ping('ordering-fixture-rejoin');
   expect((await bounded(rejoined, 'ordering fixture rejoin was not received')).toString()).toBe('ordering-fixture-rejoin');
-  // The streaming fixture must still execute 480 real steps and commit generation
-  // two. Its setup budget covers the eight simulated seconds plus durability.
-  const deadline = performance.now() + (streaming ? 10_000 : 5000);
+  // The streaming fixture executes 480 real large-brain steps and commits generation
+  // two. Detect a stalled engine or checkpoint within five seconds of its last
+  // progress; the unchanged whole-test deadline bounds total setup and cancellation.
+  let deadline = performance.now() + 5000;
   let generation = 1n;
+  let completedStep = 0n;
   while (generation < 2n && performance.now() < deadline) {
     const current = await health(fixture.server);
     expect(current['ok']).toBe(true);
+    const nextStep = BigInt(`0x${current['completedStep'] as string}`);
+    expect(nextStep).toBeGreaterThanOrEqual(completedStep);
+    if (streaming && nextStep > completedStep) deadline = performance.now() + 5000;
+    completedStep = nextStep;
     generation = BigInt(`0x${current['generation'] as string}`);
     if (generation < 2n) await new Promise<void>(done => setTimeout(done, 10));
   }
-  expect(generation).toBeGreaterThanOrEqual(2n);
+  expect(generation, `evolution stopped at step ${completedStep}`).toBeGreaterThanOrEqual(2n);
+  if (streaming) expect(completedStep).toBeGreaterThanOrEqual(480n);
   const slowed = new Promise<void>((done, reject) => viewer.on('message', (bytes, binary) => {
     if (binary) return;
     const packet = JSON.parse(bytes.toString()) as Record<string, unknown>;
