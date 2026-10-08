@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { DEFAULT_CORE_SETTINGS, SETTINGS_PATHS } from '../../src/protocol/settings.ts';
 import { getSensorLayout, getSensorSpec } from '../../src/protocol/sensors.ts';
 import type {
@@ -26,31 +25,34 @@ export function nativeSetting(metadata: RustStartupMetadata, path: string): numb
   return raw;
 }
 
-/** Construct the existing browser handshake from bounded native metadata. */
-export function createRustWelcome(
-  metadata: RustStartupMetadata,
-  nativeBuildIdentifier: string | null = null,
-  calculationWorkers = 1
-): WelcomeMsg {
+/** Project graph controls and scalar settings without assigning transport identities. */
+export function createRustSettings(metadata: RustStartupMetadata): WelcomeMsg['settings'] {
   const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: nativeSetting(metadata, 'snakeCount'), simSpeed: nativeSetting(metadata, 'simSpeed') };
-  const sensorSpec = getSensorSpec(getSensorLayout(nativeSetting(metadata, 'sense.bubbleBins')));
-  const stack = deriveStackPresentation(metadata.graphSpec, core, sensorSpec.sensorCount);
+  const inputSize = getSensorLayout(nativeSetting(metadata, 'sense.bubbleBins')).inputSize;
+  const stack = deriveStackPresentation(metadata.graphSpec, core, inputSize);
   const updates = new Map(SETTINGS_PATHS.filter(path => metadata.settings.some(setting => setting.path === path))
     .map(path => [path, nativeSetting(metadata, path)]));
   for (const update of stack?.updates ?? []) updates.set(update.path, update.value);
+  return { core: stack?.core ?? core, updates: [...updates].map(([path, value]) => ({ path, value })) };
+}
+
+/** Construct the browser handshake using the identity owned by the server process. */
+export function createRustWelcome(
+  metadata: RustStartupMetadata,
+  sessionId: string,
+  nativeBuildIdentifier: string | null = null,
+  calculationWorkers = 1
+): WelcomeMsg {
   return {
     type: 'welcome', protocolVersion: 2, serializerVersion: metadata.serializerVersion,
     ...(metadata.legacyConversion ? { legacyConversion: metadata.legacyConversion } : {}),
-    sessionId: randomUUID(), tickRate: 1 / metadata.fixedStepSeconds,
+    sessionId, tickRate: 1 / metadata.fixedStepSeconds,
     worldSeed: metadata.seed, runId: metadata.runId, configHash: metadata.configHash,
     configRevision: wireInteger(metadata.configRevision), frameByteLength: 0,
     graphSpec: metadata.graphSpec,
     capabilities: { checkpointPinning: true, archiveExport: true, archiveImport: true },
-    settings: {
-      core: stack?.core ?? core,
-      updates: [...updates].map(([path, value]) => ({ path, value }))
-    },
-    sensorSpec,
+    settings: createRustSettings(metadata),
+    sensorSpec: getSensorSpec(getSensorLayout(nativeSetting(metadata, 'sense.bubbleBins'))),
     inferenceMode: {
       requestedBackend: 'native', activeBackend: 'native', requestedMt: calculationWorkers > 1,
       activeWorkerCount: calculationWorkers > 1 ? calculationWorkers : 0,

@@ -20,7 +20,7 @@ import { admitBrowserRequest, createBrowserOriginPolicy } from './browserOrigins
 import { assertReplacementCheckpointBudget, createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
-import { createRustStats, createRustWelcome, wireInteger } from './rustEngine/browserMetadata.ts';
+import { createRustSettings, createRustStats, createRustWelcome, wireInteger } from './rustEngine/browserMetadata.ts';
 import { ExperimentalRuntimeTelemetry } from './rustEngine/runtimeTelemetry.ts';
 import type { CheckpointRetentionInventory } from './rustEngine/checkpointRetention.ts';
 import type {
@@ -221,7 +221,7 @@ function replacementSettings(
   metadata: ExperimentalServerRuntime['metadata'],
   message?: ResetMsg
 ): Array<{ path: string; value: number }> {
-  const current = createRustWelcome(metadata).settings;
+  const current = createRustSettings(metadata);
   const core = current.core as unknown as Record<string, number>;
   const replacements = new Map<string, number>();
   for (const [key, value] of Object.entries(message?.settings ?? {})) {
@@ -304,6 +304,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     throw new Error('Rust startup requires the native backend, reference MT disabled, default controller timing, and every-generation checkpoints; use --rust-workers for Rust or npm run server:reference for backend/Node-MT options');
   }
   const browserOrigins = createBrowserOriginPolicy(config);
+  const sessionId = randomUUID();
   let schedule = (): void => {};
   let owner: ExperimentalServerRuntime;
   try {
@@ -768,7 +769,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     return closePromise;
   };
   try {
-    hub = new WsHub(server, { ...createRustWelcome(activeMetadata, owner.nativeBuildIdentifier, config.rustCalculationWorkers), ...(recovery ? { recovery } : {}),
+    hub = new WsHub(server, { ...createRustWelcome(activeMetadata, sessionId, owner.nativeBuildIdentifier, config.rustCalculationWorkers), ...(recovery ? { recovery } : {}),
       ...(importBranch ? { importBranch } : {}),
       ...(legacyConversion ? { legacyConversion } : {}) }, { maxConnections: 64, browserOrigins });
     const sockets = hub;
@@ -793,7 +794,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
                 event.settingsConfigRevision,
                 event.settingsConfigHash
               );
-              sockets.updateWelcome(createRustWelcome(activeMetadata, owner.nativeBuildIdentifier, config.rustCalculationWorkers));
+              sockets.updateWelcome(createRustWelcome(activeMetadata, sessionId, owner.nativeBuildIdentifier, config.rustCalculationWorkers));
               sockets.broadcastJsonToUi({
                 type: 'settingsApplied', requestId: pending.requestId, applied: true,
                 updates: pending.updates,
@@ -1093,7 +1094,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         routingHeld = false;
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
-        const welcome = { ...createRustWelcome(activeMetadata, owner.nativeBuildIdentifier, config.rustCalculationWorkers), ...(importBranch ? { importBranch } : {}) };
+        const welcome = { ...createRustWelcome(activeMetadata, sessionId, owner.nativeBuildIdentifier, config.rustCalculationWorkers), ...(importBranch ? { importBranch } : {}) };
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason: 'import', checkpointId: durable.checkpointId, welcome
@@ -1226,7 +1227,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         routingHeld = false;
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
-        const welcome = createRustWelcome(activeMetadata, owner.nativeBuildIdentifier, config.rustCalculationWorkers);
+        const welcome = createRustWelcome(activeMetadata, sessionId, owner.nativeBuildIdentifier, config.rustCalculationWorkers);
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason, checkpointId: durable.checkpointId, welcome

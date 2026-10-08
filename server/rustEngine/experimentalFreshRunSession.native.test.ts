@@ -373,7 +373,7 @@ describe('experimental server startup composition', () => {
     const owner = await createExperimentalServerRuntime(options);
     try {
       expect(owner.metadata.seed).toBe(42);
-      expect(createRustWelcome(owner.metadata)).toMatchObject({ worldSeed: 42, sensorSpec: { sensorCount: 83 },
+      expect(createRustWelcome(owner.metadata, 'test-session')).toMatchObject({ worldSeed: 42, sensorSpec: { sensorCount: 83 },
         settings: { core: { snakeCount: 55, simSpeed: 1 } }, inferenceMode: { activeBackend: 'native' } });
       expect(owner.runtime.health()).toMatchObject({ lifecycle: 'created', completedStep: '0000000000000000' });
       expect(readCurrentPointer(paths.databasePath, owner.metadata.runId)?.checkpoint_id).toBe(owner.runStart.checkpointId);

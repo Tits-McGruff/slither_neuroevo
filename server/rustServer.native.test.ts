@@ -337,6 +337,56 @@ describeNetworkSuite('Rust server real sockets', () => {
     );
   });
 
+  it('keeps the process session stable through live settings, reconnect, reset and New Run', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-process-session-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    const peers: Peer[] = [];
+    try {
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42,
+        rustCalculationWorkers: 1, dbPath });
+      const viewer = await connect(server.port, 'ui'); peers.push(viewer);
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
+      const initial = viewer.packets.find(packet => packet['type'] === 'welcome')!;
+      const sessionId = initial['sessionId'];
+      expect(sessionId).toEqual(expect.any(String));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'session-live-settings',
+        updates: [{ path: 'simSpeed', value: 0.1 }] }));
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'settingsApplied' && packet['applied'] === true));
+      const reconnected = await connect(server.port, 'ui'); peers.push(reconnected);
+      await until(reconnected, () => reconnected.packets.some(packet => packet['type'] === 'welcome'));
+      expect(reconnected.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
+        sessionId, runId: initial['runId'], configRevision: 2, settings: { core: { simSpeed: 0.1 } }
+      });
+      viewer.socket.send(JSON.stringify({ type: 'reset' }));
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
+      const reset = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')!['welcome'] as WelcomeMsg;
+      expect(reset.sessionId).toBe(sessionId);
+      expect(reset.runId).not.toBe(initial['runId']);
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'newRun', requestId: 'session-new-run' }));
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'newRun'));
+      const newRun = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')!['welcome'] as WelcomeMsg;
+      expect(newRun.sessionId).toBe(sessionId);
+      expect(newRun.runId).not.toBe(reset.runId);
+      for (const peer of peers) peer.socket.terminate();
+      peers.length = 0;
+      await server.close();
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'latest', rustCalculationWorkers: 1, dbPath });
+      expect(server.startupFault).toBeUndefined();
+      const restarted = await connect(server.port, 'ui'); peers.push(restarted);
+      await until(restarted, () => restarted.packets.some(packet => packet['type'] === 'welcome'));
+      const resumedWelcome = restarted.packets.find(packet => packet['type'] === 'welcome')!;
+      expect(resumedWelcome['sessionId']).not.toBe(sessionId);
+      expect(resumedWelcome['runId']).toBe(newRun.runId);
+    } finally {
+      for (const peer of peers) peer.socket.terminate();
+      await server?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it('clears custom graphs and preserves truthful stack controls through reset, reconnect and resume', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-stack-reset-'));
     const dbPath = join(root, 'experiment.sqlite');

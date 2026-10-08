@@ -27,7 +27,7 @@ describe('Rust stack graph presentation', () => {
   ])('welcomes reconstruct the complete canonical graph: %j', flags => {
     const brain = { ...CFG_DEFAULT.brain, ...flags, gruHidden: 12, lstmHidden: 20, rruHidden: 24 };
     const spec = buildStackGraphSpec(CORE, { brain });
-    const welcome = createRustWelcome(metadata(spec));
+    const welcome = createRustWelcome(metadata(spec), 'test-session');
     const restored = structuredClone(CFG_DEFAULT.brain);
     for (const update of welcome.settings.updates) {
       if (update.path === 'brain.useMlp') restored.useMlp = update.value !== 0;
@@ -46,7 +46,7 @@ describe('Rust stack graph presentation', () => {
       if (edge.to === 'mlp') edge.to = 'features';
     }
     expect(deriveStackPresentation(spec, DEFAULT_CORE_SETTINGS, 83)).toBeUndefined();
-    expect(graphKey(createRustWelcome(metadata(spec)).graphSpec!)).toBe(graphKey(spec));
+    expect(graphKey(createRustWelcome(metadata(spec), 'test-session').graphSpec!)).toBe(graphKey(spec));
     const cleared = clearedStackGraph(metadata(spec), { type: 'reset', graphSpec: null }, metadata(spec).settings as Array<{ path: string; value: number }>);
     expect(graphKey(cleared)).toBe(graphKey(buildStackGraphSpec(DEFAULT_CORE_SETTINGS, CFG_DEFAULT)));
   });
