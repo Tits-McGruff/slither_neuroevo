@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { RawData } from 'ws';
 import type { Server } from 'node:http';
@@ -43,6 +44,8 @@ export interface ConnectionState {
   hasJoined: boolean;
   /** Old-run messages are discarded until the client joins the replacement run. */
   awaitingRejoin: boolean;
+  /** Latest replacement acknowledgement required to admit a fresh join. */
+  rejoinToken?: string;
   mode?: JoinMode;
   /** Initial admission or replacement rejoin deadline; cleared by join, closure, or shutdown. */
   handshakeTimer?: NodeJS.Timeout;
@@ -220,8 +223,9 @@ export class WsHub {
    * Invalidate every old join while retaining each transport connection.
    * @param message - Reliable replacement notice containing the new handshake.
    */
-  enterAwaitingRejoin(message: StateReplacedMsg): void {
-    const payload = JSON.stringify(message);
+  enterAwaitingRejoin(message: Omit<StateReplacedMsg, 'rejoinToken'>): void {
+    const rejoinToken = randomBytes(16).toString('hex');
+    const payload = JSON.stringify({ ...message, rejoinToken } satisfies StateReplacedMsg);
     for (const state of this.connections.values()) {
       state.reliableQueue.length = 0;
       state.reliableQueueBytes = 0;
@@ -229,6 +233,7 @@ export class WsHub {
       this.discardPendingFrame(state);
       state.joined = false;
       state.awaitingRejoin = state.clientType !== 'unknown';
+      if (state.awaitingRejoin) state.rejoinToken = rejoinToken;
       delete state.mode;
       if (state.clientType !== 'unknown') {
         // A replacement cannot extend a peer's still-incomplete original admission.
@@ -602,6 +607,8 @@ export class WsHub {
         this.enqueueReliable(state, this.welcomeJson);
         return;
       case 'join':
+        // Old joins can arrive after a replacement even while its notice is still queued.
+        if (state.awaitingRejoin && msg.rejoinToken !== state.rejoinToken) return;
         if (state.clientType === 'unknown') {
           this.protocolError(state, 'hello required before join');
           return;

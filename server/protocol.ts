@@ -64,6 +64,8 @@ export interface JoinMsg {
   name?: string;
   /** Optional opaque token requesting reclaim of an existing controller lease. */
   resumeToken?: string;
+  /** Echo the current replacement notice before rejoining its authority. */
+  rejoinToken?: string;
 }
 
 /** Client heartbeat message. */
@@ -390,6 +392,8 @@ export interface NewRunResultMsg {
 export interface StateReplacedMsg {
   /** Message discriminator. */
   type: 'stateReplaced';
+  /** Opaque acknowledgement token unique to this replacement notice. */
+  rejoinToken: string;
   /** Replacement operation that completed. */
   reason: 'import' | 'reset' | 'newRun';
   /** Exact replacement checkpoint identity. */
@@ -489,13 +493,14 @@ export function isHello(msg: unknown): msg is HelloMsg {
  */
 export function isJoin(msg: unknown): msg is JoinMsg {
   if (!isRecord(msg)) return false;
-  if (!hasKeys(msg, ['type', 'mode', 'name', 'resumeToken'], ['type', 'mode'])) return false;
+  if (!hasKeys(msg, ['type', 'mode', 'name', 'resumeToken', 'rejoinToken'], ['type', 'mode'])) return false;
   if (msg['type'] !== 'join') return false;
   if (msg['mode'] !== 'spectator' && msg['mode'] !== 'player') return false;
   if ('name' in msg) {
     if (typeof msg['name'] !== 'string') return false;
     if (msg['name'].length > MAX_NAME_LENGTH) return false;
   }
+  if ('rejoinToken' in msg && (typeof msg['rejoinToken'] !== 'string' || !/^[a-f0-9]{32}$/.test(msg['rejoinToken']))) return false;
   if ('resumeToken' in msg) {
     if (typeof msg['resumeToken'] !== 'string') return false;
     if (msg['resumeToken'].length < 1 || msg['resumeToken'].length > MAX_RESUME_TOKEN_LENGTH) {

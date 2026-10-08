@@ -157,13 +157,15 @@ async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<
     await new Promise<void>((done, reject) => { viewer!.once('open', done); viewer!.once('error', reject); });
     viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
     await observed(() => messages.find(message => message['type'] === 'welcome'));
-    viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+    viewer.send(JSON.stringify({ type: 'join', mode: 'spectator',
+      rejoinToken: messages.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
     viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 12 },
       updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 },
         { path: 'pelletCountTarget', value: 100 }] }));
     const replacement = await observed(() => messages.find(message => message['type'] === 'stateReplaced'));
     sourceRunId = String((replacement['welcome'] as { runId: string }).runId);
-    viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+    viewer.send(JSON.stringify({ type: 'join', mode: 'spectator',
+      rejoinToken: messages.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
     /** Keep the real evolution fixture live without imposing a machine-speed budget on setup. */
     const sourceProgress = async (): Promise<bigint> => {
       const response = await fetch(`http://127.0.0.1:${source.port}/api/health`,
@@ -181,7 +183,8 @@ async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<
     const third = await observed(() => boundaries.get(3), sourceProgress);
     archives.set(3, await archive(source, third.descriptor));
     third.release();
-    viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+    viewer.send(JSON.stringify({ type: 'join', mode: 'spectator',
+      rejoinToken: messages.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
     viewer.send(JSON.stringify({ type: 'settings', requestId: 'complete-retained-boundary',
       updates: [{ path: 'simSpeed', value: 0.1 }] }));
     await observed(() => messages.find(message => message['type'] === 'settingsApplied' &&

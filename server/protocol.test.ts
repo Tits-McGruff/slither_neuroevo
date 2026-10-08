@@ -51,6 +51,14 @@ describe(SUITE, () => {
     });
   });
 
+  it('accepts only a bounded replacement acknowledgement token', () => {
+    const join = { type: 'join', mode: 'spectator', rejoinToken: 'a'.repeat(32) };
+    expect(parseClientMessage(join)).toEqual(join);
+    for (const rejoinToken of ['', 'a'.repeat(31), 'a'.repeat(33), 'G'.repeat(32), 123, null]) {
+      expect(parseClientMessage({ ...join, rejoinToken })).toBeNull();
+    }
+  });
+
   it('rejects an empty or oversized resume token', () => {
     expect(parseClientMessage({
       type: 'join',

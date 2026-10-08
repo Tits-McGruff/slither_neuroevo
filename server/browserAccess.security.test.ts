@@ -5,7 +5,7 @@ import { expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { DEFAULT_CONFIG } from './config.ts';
 import { admitBrowserRequest, createBrowserOriginPolicy } from './browserOrigins.ts';
-import type { WelcomeMsg } from './protocol.ts';
+import type { StateReplacedMsg, WelcomeMsg } from './protocol.ts';
 import { WsHub } from './wsHub.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 
@@ -187,14 +187,19 @@ describeNetworkSuite('browser origin and handshake admission', () => {
       const responsive = peers[1]!;
       responsive.on('message', (bytes, binary) => {
         if (!binary && (JSON.parse(bytes.toString()) as { type: string }).type === 'stateReplaced') {
-          responsive.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+          responsive.send(JSON.stringify({ type: 'join', mode: 'spectator',
+            rejoinToken: (JSON.parse(bytes.toString()) as StateReplacedMsg).rejoinToken }));
         }
       });
       const closed = once(stale, 'close');
       fixture.hub.enterAwaitingRejoin({ type: 'stateReplaced', reason,
         checkpointId: 'a'.repeat(64), welcome: { type: 'welcome' } as WelcomeMsg });
       const ping = setInterval(() => {
-        if (stale.readyState === WebSocket.OPEN) stale.send(JSON.stringify({ type: 'ping' }));
+        if (stale.readyState === WebSocket.OPEN) {
+          stale.send(JSON.stringify({ type: 'ping' }));
+          stale.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+          stale.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken: '0'.repeat(32) }));
+        }
       }, 50);
       try { await closed; } finally { clearInterval(ping); }
       expect(fixture.hub.getClientCount()).toBe(1);

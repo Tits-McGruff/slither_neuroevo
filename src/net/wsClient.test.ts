@@ -256,6 +256,7 @@ describe('wsClient', () => {
       },
       onStateReplaced: () => {
         sawStateReplaced = true;
+        client.sendJoin('spectator');
       }
     });
 
@@ -293,7 +294,7 @@ describe('wsClient', () => {
       reason: 'unavailable'
     }));
     instance.emit(JSON.stringify({
-      type: 'stateReplaced', reason: 'import', checkpointId: 'a'.repeat(64), welcome: {}
+      type: 'stateReplaced', rejoinToken: 'a'.repeat(32), reason: 'import', checkpointId: 'a'.repeat(64), welcome: {}
     }));
     instance.emit(new ArrayBuffer(8));
 
@@ -304,6 +305,10 @@ describe('wsClient', () => {
     expect(sawNewRun).toBe(true);
     expect(sawStateReplaced).toBe(true);
     expect(instance.sent.map(payload => JSON.parse(payload) as { type: string }).map(msg => msg.type))
-      .toEqual(['hello', 'settings', 'godMode', 'godMode', 'newRun']);
+      .toEqual(['hello', 'settings', 'godMode', 'godMode', 'newRun', 'join']);
+    expect(JSON.parse(instance.sent.at(-1)!)).toEqual({ type: 'join', mode: 'spectator', rejoinToken: 'a'.repeat(32) });
+    instance.emit(JSON.stringify({ type: 'welcome', protocolVersion: 2 }));
+    client.sendJoin('spectator');
+    expect(JSON.parse(instance.sent.at(-1)!)).toEqual({ type: 'join', mode: 'spectator' });
   });
 });

@@ -132,12 +132,14 @@ describeNetworkSuite('Rust exact download binding', () => {
       await new Promise<void>((done, reject) => { viewer!.once('open', done); viewer!.once('error', reject); });
       viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
       await observed(() => messages.find(message => message['type'] === 'welcome'));
-      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: messages.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
       viewer.send(JSON.stringify({ type: 'reset', graphSpec: BINDING_GRAPH, settings: { snakeCount: 12, simSpeed: 12 },
         updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 },
           { path: 'pelletCountTarget', value: 100 }] }));
       await observed(() => messages.find(message => message['type'] === 'stateReplaced'));
-      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: messages.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
       const selected = await observed(() => boundaries.get(2));
       const originalBytes = await readFile(join(directory, selected.relativeFilename));
       const baseline = await fetch(`http://127.0.0.1:${source.port}/api/export/latest`);

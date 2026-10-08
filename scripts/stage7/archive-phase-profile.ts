@@ -303,7 +303,7 @@ export async function control(port: number, kind: 'ui' | 'bot', expectedReplacem
     const message = JSON.parse(data.toString()) as Record<string, unknown>;
     if (message['type'] === 'welcome' || message['type'] === 'stateReplaced') {
       if (message['type'] === 'stateReplaced') { snakeId = undefined; report.replacements++; }
-      socket.send(JSON.stringify({ type: 'join', mode: 'player', name: `ArchiveProfile-${kind}` }));
+      socket.send(JSON.stringify({ type: 'join', rejoinToken: message['rejoinToken'], mode: 'player', name: `ArchiveProfile-${kind}` }));
     }
     if (message['type'] === 'assign') {
       snakeId = Number(message['snakeId']); tick = 0; lastBotTick = -1; report.assignments++;
@@ -412,7 +412,7 @@ async function profile(archivePath: string, outputRoot: string, legacyJson = fal
       if (binary) return;
       const message = JSON.parse(data.toString()) as Record<string, unknown>;
       if (message['type'] === 'welcome' || message['type'] === 'stateReplaced') {
-        viewer!.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+        viewer!.send(JSON.stringify({ type: 'join', rejoinToken: message['rejoinToken'], mode: 'spectator' }));
         if (message['type'] === 'welcome') connected.resolve();
         else viewer!.send(JSON.stringify({ type: 'settings', requestId: 'profile-normal-rate',
           updates: [{ path: 'simSpeed', value: 1 }] }));

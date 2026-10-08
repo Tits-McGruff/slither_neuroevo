@@ -411,11 +411,12 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
   const viewer = new WebSocket(`ws://127.0.0.1:${fixture.server.port}`);
   fixture.peers.add(viewer);
   await slow(viewer);
+  let rejoinToken: unknown;
   const reset = new Promise<void>((done, reject) => viewer.on('message', (bytes, binary) => {
     if (binary) return;
     const packet = JSON.parse(bytes.toString()) as Record<string, unknown>;
     if (packet['type'] === 'error') reject(new Error(String(packet['message'])));
-    if (packet['type'] === 'stateReplaced' && packet['reason'] === 'reset') done();
+    if (packet['type'] === 'stateReplaced') { rejoinToken = packet['rejoinToken']; if (packet['reason'] === 'reset') done(); }
   }));
   viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 12 },
     updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 },
@@ -424,7 +425,7 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
     // backpressure without making this transport fixture a 300-snake sensor test.
     graphSpec: streaming ? buildLargeBrainGraph(83) : orderingGraph() }));
   await bounded(reset, 'ordering fixture reset did not commit');
-  viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+  viewer.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken }));
   const rejoined = new Promise<Buffer>(done => viewer.once('pong', done));
   viewer.ping('ordering-fixture-rejoin');
   expect((await bounded(rejoined, 'ordering fixture rejoin was not received')).toString()).toBe('ordering-fixture-rejoin');
@@ -465,13 +466,15 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
   if (streaming) expect(fixture.archive.byteLength).toBeGreaterThan(8 * 1024 * 1024);
   await noTransferScratch(fixture.managedDirectory);
   const repacked = semanticArchive(fixture.archive);
+  const previousToken = rejoinToken;
   const imported = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`,
     { method: 'POST', body: new Uint8Array(repacked), signal: AbortSignal.timeout(5000) });
   expect(imported.status, await imported.clone().text()).toBe(200);
   expect(await imported.json()).toMatchObject({ ok: true, branched: false });
   // Exact checkpoints retain the rate at their boundary; the live slowdown above is not saved.
   // Rejoin the replacement and explicitly slow it before observing preserved files/controllers.
-  viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+  await outcome(() => rejoinToken !== previousToken, 'import replacement notice was not received');
+  viewer.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken }));
   const slowedReplacement = new Promise<void>((done, reject) => {
     /** Require the replacement world's actual settings acknowledgement. */
     const receive = (bytes: WebSocket.RawData, binary: boolean): void => {
@@ -581,12 +584,14 @@ async function largeBrainArchive(fixture: Fixture): Promise<Buffer> {
     expect(source.startupFault).toBeUndefined();
     viewer = new WebSocket(`ws://127.0.0.1:${source.port}`);
     await slow(viewer);
+    let rejoinToken: unknown;
     const reset = new Promise<string>((done, reject) => {
       viewer!.on('message', (bytes, binary) => {
         if (binary) return;
         const message = JSON.parse(bytes.toString()) as Record<string, unknown>;
         if (message['type'] === 'error') reject(new Error(String(message['message'])));
         if (message['type'] === 'stateReplaced' && message['reason'] === 'reset') {
+          rejoinToken = message['rejoinToken'];
           done((message['welcome'] as { runId: string }).runId);
         }
       });
@@ -597,7 +602,7 @@ async function largeBrainArchive(fixture: Fixture): Promise<Buffer> {
         { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 }
       ] }));
     const runId = await bounded(reset, 'large-brain source did not complete reset');
-    viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+    viewer.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken }));
     // The reliable replacement notice precedes the final retention read.
     // Wait for that reset boundary before starting another persistence operation.
     const deadline = performance.now() + 5000;
@@ -1269,7 +1274,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect(peer.assignment).toBeUndefined();
           expect(peer.sample).toBeUndefined();
           expect(peer.packets.filter(packet => packet['type'] === 'stateReplaced')).toHaveLength(1);
-          peer.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}`,
+          peer.socket.send(JSON.stringify({ type: 'join', rejoinToken: peer.packets.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'], mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}`,
             resumeToken: baselines[index]!.assignment.resumeToken }));
           // A rejected old-token join supplies no lease, even if public snake IDs happen to repeat.
           peer.socket.send(JSON.stringify({ type: 'action', snakeId: baselines[index]!.assignment.snakeId,
@@ -1283,7 +1288,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         expect(unassigned.trainer.appliedActions).toBe(activity.trainer.appliedActions);
         for (const [index, peer] of peers.entries()) {
           expect(peer.assignment).toBeUndefined();
-          peer.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}` }));
+          peer.socket.send(JSON.stringify({ type: 'join', rejoinToken: peer.packets.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'], mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}` }));
         }
         await outcome(() => peers.every(peer => !!peer.assignment && !!peer.sample), 'explicit rejoin did not assign new leases');
         const samples = peers.map(peer => peer.sample!);
@@ -1522,7 +1527,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         const packet = JSON.parse(bytes.toString()) as Record<string, unknown>;
         if (replies.length < 64) replies.push(packet);
         if (packet['type'] === 'welcome' || packet['type'] === 'stateReplaced') {
-          viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+          viewer.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken: packet['rejoinToken'] }));
           if (packet['type'] === 'stateReplaced') viewer.send(JSON.stringify({ type: 'settings',
             requestId: `replacement-speed-${++replacement}`, updates: [{ path: 'simSpeed', value: 0.1 }] }));
         }
@@ -1589,7 +1594,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
             expect(probe.packets.filter(packet => packet['type'] === 'error')).toEqual([]);
             expect(input.mock.calls.length).toBe(inputBefore + 2);
             expect(submit.mock.calls.length).toBe(submittedBefore);
-            for (const [index, peer] of peers.entries()) peer.socket.send(JSON.stringify({ type: 'join',
+            for (const [index, peer] of peers.entries()) peer.socket.send(JSON.stringify({ type: 'join', rejoinToken: peer.packets.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'],
               mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}`,
               resumeToken: baselines[index]!.assignment.resumeToken }));
             await outcome(() => peers.every((peer, index) => peer.packets.slice(baselines[index]!.packetCount)
@@ -1599,7 +1604,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
               expect(peer.sample).toBeUndefined();
               expect(peer.packets.slice(baselines[index]!.packetCount).filter(packet => packet['type'] === 'reclaimResult'))
                 .toEqual([{ type: 'reclaimResult', reclaimed: false, reason: 'invalid' }]);
-              peer.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}` }));
+              peer.socket.send(JSON.stringify({ type: 'join', rejoinToken: peer.packets.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'], mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}` }));
             }
             await outcome(() => peers.every(peer => !!peer.assignment && !!peer.sample), 'fresh replacement assignments were lost');
             for (const [index, peer] of peers.entries()) {

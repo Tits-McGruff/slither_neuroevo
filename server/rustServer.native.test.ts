@@ -39,6 +39,8 @@ interface Peer {
   packets: Array<Record<string, unknown>>;
   /** Number of binary frame-v1 messages received. */
   frames: number;
+  /** Latest replacement acknowledgement survives intentional inbox clearing. */
+  rejoinToken?: string;
   /** Newest copied display frame, retained only for bounded integration assertions. */
   latestFrame?: Buffer;
 }
@@ -49,7 +51,11 @@ async function connect(port: number, clientType: 'ui' | 'bot', origin?: string):
     origin === undefined ? {} : { origin }), packets: [], frames: 0 };
   peer.socket.on('message', (data, binary) => {
     if (binary) { peer.frames++; peer.latestFrame = Buffer.from(data as Buffer); }
-    else if (peer.packets.length < 256) peer.packets.push(JSON.parse(data.toString()) as Record<string, unknown>);
+    else {
+      const packet = JSON.parse(data.toString()) as Record<string, unknown>;
+      if (packet['type'] === 'stateReplaced') peer.rejoinToken = String(packet['rejoinToken']);
+      if (peer.packets.length < 256) peer.packets.push(packet);
+    }
   });
   await new Promise<void>((done, reject) => { peer.socket.once('open', done); peer.socket.once('error', reject); });
   peer.socket.send(JSON.stringify({ type: 'hello', version: 2, clientType }));
@@ -308,7 +314,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       for (const origin of ['http://localhost:5173', url, undefined]) {
         const peer = await connect(server.port, 'ui', origin);
         peers.push(peer);
-        peer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+        peer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+          rejoinToken: peer.rejoinToken }));
         await until(peer, () => peer.frames > 0);
       }
       const after = await (await fetch(`${url}/api/health`, { headers: { Origin: 'http://localhost:5173' } })).json() as Record<string, unknown>;
@@ -373,7 +380,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       const initial = viewer.packets.find(packet => packet['type'] === 'welcome')!;
       const sessionId = initial['sessionId'];
       expect(sessionId).toEqual(expect.any(String));
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'session-live-settings',
         updates: [{ path: 'simSpeed', value: 0.1 }] }));
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'settingsApplied' && packet['applied'] === true));
@@ -392,7 +400,8 @@ describeNetworkSuite('Rust server real sockets', () => {
         telemetry: { authoritativeSteps: number };
       };
       expect(afterReset.telemetry.authoritativeSteps).toBeGreaterThanOrEqual(stepsBeforeReset);
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'newRun', requestId: 'session-new-run' }));
       const newRun = await replacementUntil(viewer, server.port, 'newRun');
       expect(newRun.sessionId).toBe(sessionId);
@@ -436,7 +445,8 @@ describeNetworkSuite('Rust server real sockets', () => {
         rustCalculationWorkers: 1, dbPath });
       const viewer = await connect(server.port, 'ui'); peers.push(viewer);
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       await until(viewer, () => viewer.frames > 0);
       const custom = buildStackGraphSpec(DEFAULT_CORE_SETTINGS,
         { brain: { ...CFG_DEFAULT.brain, useMlp: false, stack: { gru: 0, lstm: 0, rru: 0 } } });
@@ -448,7 +458,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       await replacementUntil(viewer, server.port, 'reset');
       expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')).toMatchObject({ welcome: { graphSpec: custom } });
       viewer.packets.length = 0;
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'reset' }));
       await replacementUntil(viewer, server.port, 'reset');
       expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')).toMatchObject({ welcome: { graphSpec: custom } });
@@ -464,7 +475,8 @@ describeNetworkSuite('Rust server real sockets', () => {
         { path: 'brain.gruHidden', value: 12 }, { path: 'brain.lstmHidden', value: 20 }, { path: 'brain.rruHidden', value: 24 }
       ];
       viewer.packets.length = 0;
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'reset', graphSpec: null, settings: core, updates }));
       const welcome = await replacementUntil(viewer, server.port, 'reset');
       expect(welcome).toMatchObject({ graphSpec: expectedGraph, settings: {
@@ -474,7 +486,8 @@ describeNetworkSuite('Rust server real sockets', () => {
 
       // Omitted graph plus the browser's unchanged controls remains a valid reset.
       viewer.packets.length = 0;
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'reset', settings: welcome.settings.core, updates }));
       await replacementUntil(viewer, server.port, 'reset');
       expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')).toMatchObject({ welcome: { graphSpec: expectedGraph } });
@@ -509,7 +522,8 @@ describeNetworkSuite('Rust server real sockets', () => {
         seed: 1511506142, dbPath: join(root, 'experiment.sqlite') });
       viewer = await connect(server.port, 'ui');
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       await until(viewer, () => viewer!.frames > 0);
       const graphSpec = { type: 'graph',
         nodes: [{ id: 'input', type: 'Input', outputSize: 83 },
@@ -531,7 +545,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       await until(viewer, () => viewer!.packets.some(packet =>
         packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
       delete viewer.latestFrame;
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       await until(viewer, () => viewer!.latestFrame?.readFloatLE(4) === 300);
       const bytes = viewer.latestFrame!;
       expect(bytes.readFloatLE(0)).toBe(1);
@@ -727,14 +742,16 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(server.startupFault).toBeUndefined();
       expect((await fetch(`http://127.0.0.1:${server.port}/api/checkpoints/current/pin`, { method: 'POST' })).status).toBe(200);
       viewer = await connect(server.port, 'ui');
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 3, simSpeed: 0.1 },
         updates: [{ path: 'generationSeconds', value: 8 }, { path: 'pelletCountTarget', value: 100 },
           { path: 'baselineBots.count', value: 0 }],
         graphSpec: buildStackGraphSpec({ hiddenLayers: 1, neurons1: 2, neurons2: 2, neurons3: 2, neurons4: 2, neurons5: 2 },
           { brain: { inSize: 83, outSize: 2, useMlp: false } }) }));
       const previous = await replacementUntil(viewer, server.port, 'reset');
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       expect((await fetch(`http://127.0.0.1:${server.port}/api/checkpoints/current/pin`, { method: 'POST' })).status).toBe(200);
       viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'fresh-append-accelerate',
         updates: [{ path: 'simSpeed', value: 12 }] }));
@@ -858,7 +875,8 @@ describeNetworkSuite('Rust server real sockets', () => {
         inferenceMode: { nativeAddonBuildIdentifier: before.nativeBuildIdentifier,
           requestedMt: true, activeWorkerCount: 4 }
       });
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       const weights = new Array<number>(13_458).fill(0);
       const legacyFile = JSON.stringify({
         runId: 'browser-source-run',
@@ -954,7 +972,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       viewer = await connect(server.port, 'ui');
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ legacyConversion: result.legacyConversion });
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'hold-origin', updates: [{ path: 'simSpeed', value: 0.1 }] }));
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'settingsApplied' && packet['requestId'] === 'hold-origin'));
       expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({ legacyConversion: result.legacyConversion });
@@ -1347,7 +1366,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       const viewer = await connect(target.port, 'ui');
       peers.push(viewer);
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
         capabilities: { archiveExport: true, archiveImport: true }
       });
@@ -1384,7 +1404,8 @@ describeNetworkSuite('Rust server real sockets', () => {
         reason: 'import', checkpointId: health.startupCheckpointId,
         welcome: { runId: health.runId, worldSeed: 41 }
       });
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
         ok: true, runId: health.runId, seed: 41, startupCheckpointId: health.startupCheckpointId
       });
@@ -1771,7 +1792,8 @@ describeNetworkSuite('Rust server real sockets', () => {
     try {
       viewer = await connect(server.port, 'ui');
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       const failureDatabase = new Database(dbPath);
       try {
         failureDatabase.exec(`CREATE TRIGGER reject_new_run_activation
@@ -1822,7 +1844,8 @@ describeNetworkSuite('Rust server real sockets', () => {
     try {
       viewer = await connect(server.port, 'ui');
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       const before = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         runId: string; startupCheckpointId: string;
       };
@@ -1968,13 +1991,15 @@ describeNetworkSuite('Rust server real sockets', () => {
       await until(viewer, () => initialExportReleased);
       releaseSpy.mockRestore();
       releaseSpy = undefined;
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 12 },
         updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 0 }] }));
       await until(viewer, () => viewer!.packets.some(packet =>
         packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
       await healthUntil(source.port, health => BigInt(`0x${health['generation'] as string}`) >= 2n);
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'hold-hof-fixture',
         updates: [{ path: 'simSpeed', value: 0.1 }] }));
       await until(viewer, () => viewer!.packets.some(packet =>
@@ -2060,7 +2085,8 @@ describeNetworkSuite('Rust server real sockets', () => {
         expect(imported.status).toBe(200);
         expect(await imported.json()).toMatchObject({ ok: true, checkpointId });
         targetViewer ??= await connect(target.port, 'ui');
-        targetViewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+        targetViewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+          rejoinToken: targetViewer.rejoinToken }));
         const requestId = `hold-imported-hof-${attempt}`;
         targetViewer.socket.send(JSON.stringify({ type: 'settings', requestId,
           updates: [{ path: 'simSpeed', value: 0.1 }] }));
@@ -2211,7 +2237,8 @@ describeNetworkSuite('Rust server real sockets', () => {
     try {
       viewer = await connect(server.port, 'ui');
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 1 },
         updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 0 }] }));
       await until(viewer, () => viewer!.packets.some(packet =>
@@ -2223,7 +2250,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(archived.status).toBe(200);
       expect(archived.headers.get('x-slither-checkpoint-id')).toBe(resetHealth.startupCheckpointId);
       const archive = Buffer.from(await archived.arrayBuffer());
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'accelerate-generation',
         updates: [{ path: 'simSpeed', value: 12 }] }));
       await until(viewer, () => viewer!.packets.some(packet =>
@@ -2326,7 +2354,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       rustCalculationWorkers: 4, dbPath: join(root, 'experiment.sqlite') });
     try {
       const viewer = await connect(server.port, 'ui'); peers.push(viewer);
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       await until(viewer, () => viewer.frames > 0 && viewer.packets.some(packet => packet['type'] === 'stats'));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ protocolVersion: 2, worldSeed: 42,
         sensorSpec: { sensorCount: 83 }, inferenceMode: { activeBackend: 'native', activeWorkerCount: 4 } });
@@ -2379,7 +2408,7 @@ describeNetworkSuite('Rust server real sockets', () => {
         reason: expect.stringContaining('missing or already dead')
       });
       const bot = await connect(server.port, 'bot'); peers.push(bot);
-      bot.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'socket-bot' }));
+      bot.socket.send(JSON.stringify({ type: 'join', rejoinToken: bot.rejoinToken, mode: 'player', name: 'socket-bot' }));
       await until(bot, () => bot.packets.some(packet => packet['type'] === 'sensors'));
       const assignment = bot.packets.find(packet => packet['type'] === 'assign')!;
       const sample = bot.packets.find(packet => packet['type'] === 'sensors')!;
@@ -2389,7 +2418,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       await until(bot, () => bot.packets.some(packet => packet['type'] === 'sensors' && Number(packet['tick']) > Number(sample['tick'])));
       await new Promise<void>(done => { bot.socket.once('close', () => done()); bot.socket.close(); });
       const resumed = await connect(server.port, 'bot'); peers.push(resumed);
-      resumed.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'socket-bot', resumeToken: assignment['resumeToken'] }));
+      resumed.socket.send(JSON.stringify({ type: 'join', rejoinToken: resumed.rejoinToken, mode: 'player', name: 'socket-bot', resumeToken: assignment['resumeToken'] }));
       await until(resumed, () => resumed.packets.some(packet => packet['type'] === 'sensors'));
       expect(resumed.packets.find(packet => packet['type'] === 'reclaimResult')).toMatchObject({ reclaimed: true, snakeId: assignment['snakeId'] });
       const nextAssignment = resumed.packets.find(packet => packet['type'] === 'assign')!;
@@ -2553,7 +2582,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(afterReset.runId).not.toBe(beforeReset.runId);
       expect(afterReset.startupCheckpointId).not.toBe(beforeReset.startupCheckpointId);
 
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({
         type: 'settings', requestId: 'native-settings-rejected',
         updates: [{ path: 'snakeCount', value: 40 }]
@@ -2617,7 +2647,8 @@ describeNetworkSuite('Rust server real sockets', () => {
     let sendSpy: ReturnType<typeof vi.spyOn> | undefined;
     try {
       const viewer = await connect(server.port, 'ui'); peers.push(viewer);
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 3, simSpeed: 0.1 },
         updates: [{ path: 'generationSeconds', value: 8 }, { path: 'pelletCountTarget', value: 100 },
           { path: 'baselineBots.count', value: 0 }],
@@ -2625,7 +2656,8 @@ describeNetworkSuite('Rust server real sockets', () => {
           neurons3: 2, neurons4: 2, neurons5: 2 },
         { brain: { inSize: 83, outSize: 2, useMlp: false } }) }));
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
-      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: viewer.rejoinToken }));
       /** Drive the exact measurement exchange through real result/assignment packets. */
       const claim = async (prior?: { snakeId: number; token: string }): Promise<{ peer: Peer; exchange: PlayerReconnectExchange }> => {
         const peer = await connect(server.port, 'ui'); peers.push(peer);
@@ -2638,7 +2670,7 @@ describeNetworkSuite('Rust server real sockets', () => {
               type: 'join', mode: 'player', name: 'GenerationReclaimProbe' }));
           } catch { /* The exchange retains its failed invariant for the bounded assertion below. */ }
         });
-        peer.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'GenerationReclaimProbe',
+        peer.socket.send(JSON.stringify({ type: 'join', rejoinToken: peer.rejoinToken, mode: 'player', name: 'GenerationReclaimProbe',
           ...(prior ? { resumeToken: prior.token } : {}) }));
         await until(peer, () => exchange.ready || exchange.record.failure !== undefined);
         expect(exchange.record.failure).toBeUndefined();
@@ -2832,7 +2864,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 76,
         dbPath: join(root, 'experiment.sqlite') });
       const first = await connect(server.port, 'ui'); peers.push(first);
-      first.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'frame-pressure-player' }));
+      first.socket.send(JSON.stringify({ type: 'join', rejoinToken: first.rejoinToken, mode: 'player', name: 'frame-pressure-player' }));
       await until(first, () => first.packets.some(packet => packet['type'] === 'assign'));
       const assignment = first.packets.find(packet => packet['type'] === 'assign')!;
       const initial = await healthUntil(server.port, value => {
@@ -2847,7 +2879,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       await new Promise<void>(done => { first.socket.once('close', done); first.socket.close(); });
       await healthUntil(server.port, value => (value['outbound'] as WsOutboundDiagnostics).connections === 0);
       const resumed = await connect(server.port, 'ui'); peers.push(resumed);
-      resumed.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'frame-pressure-player',
+      resumed.socket.send(JSON.stringify({ type: 'join', rejoinToken: resumed.rejoinToken, mode: 'player', name: 'frame-pressure-player',
         resumeToken: assignment['resumeToken'] }));
       await until(resumed, () => resumed.packets.some(packet => packet['type'] === 'assign') &&
         resumed.packets.some(packet => packet['type'] === 'reclaimResult'));

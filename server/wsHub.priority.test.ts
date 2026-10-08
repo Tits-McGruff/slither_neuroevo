@@ -123,7 +123,7 @@ describe('WsHub lifecycle priority', () => {
     const send = (message: ClientMessage): void => routing.handleMessage(state, Buffer.from(JSON.stringify(message)), false);
     const action = { type: 'action', tick: 7, snakeId: 1, turn: 0.5, boost: 0 } as const;
     hub.broadcastFrame(Uint8Array.of(1));
-    const replacement: StateReplacedMsg = { type: 'stateReplaced', reason,
+    const replacement: Omit<StateReplacedMsg, 'rejoinToken'> = { type: 'stateReplaced', reason,
       checkpointId: 'a'.repeat(64), welcome: { runId: 'replacement' } as WelcomeMsg };
     hub.enterAwaitingRejoin(replacement);
     hub.sendJsonToAwaitingConnection(1, { type: 'newRunResult', requestId: 'new-run',
@@ -133,6 +133,8 @@ describe('WsHub lifecycle priority', () => {
       { type: 'settings', requestId: 'old', updates: [{ path: 'simSpeed', value: 2 }] },
       { type: 'godMode', requestId: 'old', action: 'kill', snakeId: 1 },
       { type: 'newRun', requestId: 'old' }];
+    send({ type: 'join', mode: 'player' });
+    send({ type: 'join', mode: 'player', rejoinToken: '0'.repeat(32) });
     for (const message of stale) send(message);
     expect(rejected).not.toHaveBeenCalled();
     for (const handler of Object.values(handlers)) expect(handler).not.toHaveBeenCalled();
@@ -141,17 +143,49 @@ describe('WsHub lifecycle priority', () => {
     expect(socket.closes).toEqual([]);
     expect(socket.sent).toHaveLength(1);
     socket.sent[0]!.complete();
-    expect(JSON.parse(String(socket.sent[1]!.payload))).toEqual(replacement);
+    const notice = JSON.parse(String(socket.sent[1]!.payload)) as StateReplacedMsg;
+    expect(notice).toMatchObject(replacement);
+    expect(notice.rejoinToken).toMatch(/^[a-f0-9]{32}$/);
     socket.sent[1]!.complete();
     expect(JSON.parse(String(socket.sent[2]!.payload))).toMatchObject({ type: 'newRunResult', applied: true });
     socket.sent[2]!.complete();
-    send({ type: 'join', mode: 'player' });
+    send({ type: 'join', mode: 'player', rejoinToken: notice.rejoinToken });
     send(action);
     send({ type: 'view', viewW: 800 });
     expect(state.awaitingRejoin).toBe(false);
     expect(handlers.onJoin).toHaveBeenCalledOnce();
     expect(handlers.onAction).toHaveBeenCalledWith(1, action);
     expect(handlers.onView).toHaveBeenCalledOnce();
+  });
+
+  it('does not acknowledge a later replacement with an earlier notice token', () => {
+    vi.useFakeTimers();
+    const { hub, state, socket } = buildFakeHub();
+    const routing = hub as unknown as { maxMessageBytes: number;
+      handleMessage(state: ConnectionState, data: Buffer, binary: boolean): void };
+    routing.maxMessageBytes = 64 * 1024;
+    const onJoin = vi.fn();
+    hub.setHandlers({ onJoin });
+    try {
+      const replacement = { type: 'stateReplaced', reason: 'import', checkpointId: 'a'.repeat(64),
+        welcome: { runId: 'same-run' } as WelcomeMsg } as const;
+      hub.enterAwaitingRejoin(replacement);
+      const first = JSON.parse(String(socket.sent[0]!.payload)) as StateReplacedMsg;
+      socket.sent[0]!.complete();
+      hub.enterAwaitingRejoin(replacement);
+      const second = JSON.parse(String(socket.sent[1]!.payload)) as StateReplacedMsg;
+      expect(second.rejoinToken).not.toBe(first.rejoinToken);
+      routing.handleMessage(state, Buffer.from(JSON.stringify({ type: 'join', mode: 'player',
+        rejoinToken: first.rejoinToken })), false);
+      expect(onJoin).not.toHaveBeenCalled();
+      expect(state.awaitingRejoin).toBe(true);
+      vi.advanceTimersByTime(5000);
+      expect(hub.getClientCount()).toBe(0);
+      expect(socket.closes).toEqual([{ code: 1006, reason: 'terminated' }]);
+    } finally {
+      clearTimeout(state.handshakeTimer);
+      vi.useRealTimers();
+    }
   });
 
   it('still rejects control traffic from a client that never joined', () => {

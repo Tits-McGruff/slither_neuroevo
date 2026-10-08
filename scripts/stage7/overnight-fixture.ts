@@ -141,7 +141,7 @@ async function configureWorkload(port: number, options: Options): Promise<void> 
       try {
         const message = packet(data);
         if (message['type'] === 'welcome') {
-          socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+          socket.send(JSON.stringify({ type: 'join', rejoinToken: message['rejoinToken'], mode: 'spectator' }));
           socket.send(JSON.stringify({
             type: 'reset',
             settings: {
@@ -175,7 +175,7 @@ async function configureWorkload(port: number, options: Options): Promise<void> 
               (welcome.inferenceMode?.parameterCount ?? 0) < 400_000)) {
             throw new Error('Rust reset did not select the approved large-brain sensor and graph');
           }
-          socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+          socket.send(JSON.stringify({ type: 'join', rejoinToken: message['rejoinToken'], mode: 'spectator' }));
           socket.send(JSON.stringify({ type: 'settings', requestId: 'fixture-speed',
             updates: [{ path: 'simSpeed', value: 12 }] }));
         } else if (message['type'] === 'settingsApplied' && message['requestId'] === 'fixture-speed') {

@@ -165,7 +165,7 @@ async function run(request: Options): Promise<void> {
             actual => actual.path === expected.path && actual.value === expected.value))) {
       throw new Error('workload was not accepted');
     }
-    socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+    socket.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken: reset['rejoinToken'] }));
     const fresh = await save(server.port, databasePath, resolve(request.outputRoot, 'fresh.slither-save'));
     if (fresh['generation'] !== '0000000000000001') throw new Error('fresh export passed generation one');
     process.stderr.write(`${request.scenario} fresh=${fresh['bytes']}B\n`);

@@ -52,8 +52,9 @@ clients may omit `Origin`. Send Protocol 2 `hello`, receive `welcome`, and send
 the first `join` within five seconds of opening a WebSocket. Neither `hello`
 nor heartbeat traffic extends that admission deadline. Joined idle spectators
 remain connected. After Reset, New Run, or import, send a new `join` within five
-seconds of the `stateReplaced` transition; heartbeats and stale actions do not
-extend this rejoin deadline.
+seconds of the `stateReplaced` transition, echoing its `rejoinToken` in the join.
+Heartbeats, stale actions, and joins without that exact token do not extend the
+deadline or admit commands to the replacement run.
 
 Originless browser requests marked cross-site or same-site by Fetch Metadata must identify a
 configured UI origin through `Referer`; unrelated pages cannot trigger archive
@@ -130,6 +131,10 @@ The first message on a connection:
 - Sending a second `hello` is a protocol error.
 
 ### `join`
+
+After `stateReplaced`, include the notice's 32-character hexadecimal
+`rejoinToken`. Every replacement has a new token, including repeated imports
+of the same checkpoint. The initial join after `welcome` does not need it.
 
 Register as a spectator or request a controlled snake:
 
@@ -657,7 +662,7 @@ Rust validates the uploaded file and commits the replacement checkpoint before
 publishing the new game. Exact archives restore the complete experiment at its
 checkpoint boundary. Legacy JSON creates a new generation-one population run
 without claiming exact RNG continuation or missing history. Existing game
-sockets receive `stateReplaced` and must join again.
+sockets receive `stateReplaced` and must join again with its `rejoinToken`.
 
 HTTP 200 returns `ok: true`, `runId`, `generation`, `completedStep`,
 `checkpointId`, `saveLogicalRootSha256` and `branched`, plus applicable
@@ -788,6 +793,16 @@ socket.on('message', (data, isBinary) => {
         type: 'join',
         mode: 'player',
         name: 'example-bot'
+      }));
+      break;
+
+    case 'stateReplaced':
+      snakeId = null;
+      socket.send(JSON.stringify({
+        type: 'join',
+        mode: 'player',
+        name: 'example-bot',
+        rejoinToken: message.rejoinToken
       }));
       break;
 

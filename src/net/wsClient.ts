@@ -190,6 +190,8 @@ export interface NewRunResultMsg {
 export interface StateReplacedMsg {
   /** Message discriminator. */
   type: 'stateReplaced';
+  /** Echoed by joins to acknowledge this exact replacement. */
+  rejoinToken: string;
   /** Replacement operation that completed. */
   reason: 'import' | 'reset' | 'newRun';
   /** Exact replacement checkpoint identity. */
@@ -459,6 +461,9 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     clearHandshakeTimer();
   };
 
+  /** Latest observed replacement; forgotten when a new transport receives its welcome. */
+  let rejoinToken: string | undefined;
+
   const sendJoin = (
     mode: 'spectator' | 'player',
     name?: string,
@@ -469,7 +474,8 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
       type: 'join',
       mode,
       ...(name ? { name } : {}),
-      ...(resumeToken ? { resumeToken } : {})
+      ...(resumeToken ? { resumeToken } : {}),
+      ...(rejoinToken ? { rejoinToken } : {})
     };
     socket.send(JSON.stringify(payload));
   };
@@ -573,6 +579,7 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
           socket?.close();
           return;
         }
+        rejoinToken = undefined;
         connected = true;
         clearHandshakeTimer();
         callbacks.onConnected(msg as unknown as WelcomeMsg);
@@ -599,6 +606,7 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
         callbacks.onNewRunResult?.(msg as unknown as NewRunResultMsg);
         return;
       case 'stateReplaced':
+        rejoinToken = typeof msg['rejoinToken'] === 'string' ? msg['rejoinToken'] : undefined;
         callbacks.onStateReplaced?.(msg as unknown as StateReplacedMsg);
         return;
       case 'error':

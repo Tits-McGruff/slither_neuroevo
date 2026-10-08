@@ -252,7 +252,8 @@ describeNetworkSuite('Rust server caught calculation panic', () => {
           { path: 'pelletCountTarget', value: 100 }] }));
       await controllerUntil(() => bootstrap.packets.some(packet => packet['type'] === 'stateReplaced'), 'export fixture did not reset');
       // Reset invalidates the old join. Rejoin through the real hub before changing live settings.
-      bootstrap.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      bootstrap.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
+        rejoinToken: bootstrap.packets.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
       const rejoined = once(bootstrap.socket, 'pong', { signal: AbortSignal.timeout(5000) });
       bootstrap.socket.ping('export-fixture-rejoin');
       await rejoined;

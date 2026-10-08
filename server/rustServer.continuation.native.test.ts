@@ -129,7 +129,8 @@ describeNetworkSuite('Rust archive exact continuation', () => {
         await new Promise<void>((done, reject) => { viewer!.once('open', done); viewer!.once('error', reject); });
         viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
         await observed(() => messages.find(message => message['type'] === 'welcome'));
-        viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+        viewer.send(JSON.stringify({ type: 'join', mode: 'spectator',
+          rejoinToken: messages.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
         viewer.send(JSON.stringify({ type: 'reset', graphSpec: GRAPH, settings: { snakeCount: 12, simSpeed: 12 },
           updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 },
             { path: 'baselineBots.respawnDelay', value: 1 }, { path: 'pelletCountTarget', value: 100 }] }));
@@ -143,7 +144,8 @@ describeNetworkSuite('Rust archive exact continuation', () => {
             { path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 }
           ]) } });
         const sourceRunId = (reset['welcome'] as { runId: string }).runId;
-        viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+        viewer.send(JSON.stringify({ type: 'join', mode: 'spectator',
+          rejoinToken: messages.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
         // Generation four requires three real transitions; apply the single-boundary deadline to each.
         for (let generation = 2; generation <= scenario.generation; generation++) {
           await observed(() => (committedGenerations.get(sourceRunId) ?? 1) >= generation ? true : undefined,
