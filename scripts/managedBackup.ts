@@ -14,6 +14,7 @@ import {
   readdirSync,
   realpathSync,
   renameSync,
+  rmdirSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -345,6 +346,7 @@ export async function restoreManagedBackup(options: RestoreManagedBackupOptions)
   rmSync(temporaryManaged, { recursive: true, force: true });
   mkdirSync(temporaryManaged);
   let publishedManaged = false;
+  const publishedFiles: string[] = [];
   try {
     copyFileSync(join(backup, manifest.database.name), temporaryDatabase, constants.COPYFILE_EXCL);
     flushAndCloseFile(temporaryDatabase);
@@ -356,18 +358,35 @@ export async function restoreManagedBackup(options: RestoreManagedBackupOptions)
     if (options.checkpointId !== undefined) {
       selectRestoredRetainedCurrent(temporaryDatabase, options.checkpointId, manifest);
     }
-    renameSync(temporaryManaged, managedRoot);
+    // Reserve the final directory exclusively: POSIX rename could replace an
+    // empty directory created by a concurrently starting server.
+    mkdirSync(managedRoot);
     publishedManaged = true;
+    for (const file of manifest.managedFiles) {
+      const target = join(managedRoot, file.name);
+      linkSync(join(temporaryManaged, file.name), target);
+      publishedFiles.push(target);
+    }
     // A same-filesystem hard link publishes atomically without overwriting a raced target.
     linkSync(temporaryDatabase, databasePath);
   } catch (error) {
     rmSync(temporaryDatabase, { force: true });
     rmSync(temporaryManaged, { recursive: true, force: true });
-    if (publishedManaged) rmSync(managedRoot, { recursive: true, force: true });
+    for (const file of publishedFiles) unlinkSync(file);
+    if (publishedManaged) {
+      // Another process may have added its own files after our reservation.
+      // Remove only an empty directory, never recursively sweep its contents.
+      try { rmdirSync(managedRoot); }
+      catch (cleanupError) {
+        const code = (cleanupError as NodeJS.ErrnoException).code;
+        if (code !== 'ENOTEMPTY' && code !== 'EEXIST' && code !== 'ENOENT') throw cleanupError;
+      }
+    }
     throw error;
   }
   // The final pair is complete now; private-name cleanup cannot roll it back.
   unlinkSync(temporaryDatabase);
+  rmSync(temporaryManaged, { recursive: true, force: true });
   return manifest;
 }
 

@@ -574,12 +574,14 @@ async function largeBrainArchive(fixture: Fixture): Promise<Buffer> {
     expect(source.startupFault).toBeUndefined();
     viewer = new WebSocket(`ws://127.0.0.1:${source.port}`);
     await slow(viewer);
-    const reset = new Promise<void>((done, reject) => {
+    const reset = new Promise<string>((done, reject) => {
       viewer!.on('message', (bytes, binary) => {
         if (binary) return;
         const message = JSON.parse(bytes.toString()) as Record<string, unknown>;
         if (message['type'] === 'error') reject(new Error(String(message['message'])));
-        if (message['type'] === 'stateReplaced' && message['reason'] === 'reset') done();
+        if (message['type'] === 'stateReplaced' && message['reason'] === 'reset') {
+          done((message['welcome'] as { runId: string }).runId);
+        }
       });
       viewer!.once('error', reject);
     });
@@ -587,7 +589,18 @@ async function largeBrainArchive(fixture: Fixture): Promise<Buffer> {
       settings: { snakeCount: 2, simSpeed: 0.1 }, updates: [
         { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 }
       ] }));
-    await bounded(reset, 'large-brain source did not complete reset');
+    const runId = await bounded(reset, 'large-brain source did not complete reset');
+    // The reliable replacement notice precedes the final retention read.
+    // Wait for that reset boundary before starting another persistence operation.
+    const deadline = performance.now() + 5000;
+    let current = await health(source);
+    while ((current['retention'] as { activeRunId: string }).activeRunId !== runId &&
+        performance.now() < deadline) {
+      await new Promise<void>(done => setTimeout(done, 10));
+      current = await health(source);
+    }
+    expect(current['ok']).toBe(true);
+    expect((current['retention'] as { activeRunId: string }).activeRunId).toBe(runId);
     const exported = await fetch(`http://127.0.0.1:${source.port}/api/export/latest`);
     expect(exported.status).toBe(200);
     const bytes = Buffer.from(await exported.arrayBuffer());
@@ -1008,6 +1021,14 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
 
   it('rejects independently valid import and reset exceeding native state memory before replacement', async () => {
     const ceiling = 1400n * 1024n ** 2n;
+    const inspect = CheckpointPersistenceClient.prototype.inspectRetention;
+    // Make the reset notice arrive before its final retention read completes.
+    const retention = vi.spyOn(CheckpointPersistenceClient.prototype, 'inspectRetention')
+      .mockImplementation(async function (this: CheckpointPersistenceClient) {
+        const inventory = await inspect.call(this);
+        await new Promise<void>(done => setTimeout(done, 40));
+        return inventory;
+      });
     const originalCreate = freshRunSessions.createExperimentalFreshRunSession;
     /** Change only the target's native admission budget; retain the production constructor. */
     const construction = vi.spyOn(freshRunSessions, 'createExperimentalFreshRunSession')
@@ -1063,7 +1084,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           await advancing(fixture);
         } finally { stage.mockRestore(); commit.mockRestore(); }
       });
-    } finally { construction.mockRestore(); }
+    } finally { construction.mockRestore(); retention.mockRestore(); }
   }, 30_000);
 
   it.each(['export-hof-weights.partial', 'slither-save.partial', 'slither-save.ready'] as const)(

@@ -39,6 +39,8 @@ export interface ConnectionState {
   socket: WebSocket;
   clientType: 'unknown' | ClientType;
   joined: boolean;
+  /** Old-run messages are discarded until the client joins the replacement run. */
+  awaitingRejoin: boolean;
   mode?: JoinMode;
   /** Cleared after hello, peer closure, or hub shutdown. */
   handshakeTimer?: NodeJS.Timeout;
@@ -224,6 +226,7 @@ export class WsHub {
       state.pendingStats = null;
       this.discardPendingFrame(state);
       state.joined = false;
+      state.awaitingRejoin = state.clientType !== 'unknown';
       delete state.mode;
       if (state.clientType !== 'unknown') this.enqueueReliable(state, payload);
     }
@@ -508,6 +511,7 @@ export class WsHub {
       socket,
       clientType: 'unknown',
       joined: false,
+      awaitingRejoin: false,
       reliableQueue: [],
       reliableQueueBytes: 0,
       pendingStats: null,
@@ -572,6 +576,9 @@ export class WsHub {
       this.protocolError(state, 'invalid message');
       return;
     }
+    // The replacement notice may still be queued behind an in-flight frame.
+    // Valid old-run controls cannot apply to the new run or close its transport.
+    if (state.awaitingRejoin && msg.type !== 'join' && msg.type !== 'hello' && msg.type !== 'ping') return;
     switch (msg.type) {
       case 'hello':
         if (state.clientType !== 'unknown') {
@@ -589,6 +596,7 @@ export class WsHub {
           return;
         }
         state.joined = true;
+        state.awaitingRejoin = false;
         state.mode = msg.mode;
         this.handlers?.onJoin?.(state.id, msg, state.clientType);
         return;

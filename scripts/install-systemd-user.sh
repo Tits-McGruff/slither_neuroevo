@@ -6,6 +6,7 @@ REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 TEMPLATE="$SCRIPT_DIR/slither-neuroevo.service.in"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT_PATH="$UNIT_DIR/slither-neuroevo.service"
+LOGIN_NAME=$(id -un)
 
 command -v systemctl >/dev/null 2>&1 || {
   echo "[ERROR] systemctl is required." >&2
@@ -40,8 +41,8 @@ echo "[INFO] Review server/systemd.env if this host needs overrides."
 echo "[INFO] Start now: systemctl --user start slither-neuroevo.service"
 echo "[INFO] Logs:      journalctl --user -u slither-neuroevo.service -f"
 
-linger=$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || true)
+linger=$(loginctl show-user "$LOGIN_NAME" -p Linger --value 2>/dev/null || true)
 if [ "$linger" != "yes" ]; then
   echo "[WARN] User lingering is disabled; this service will stop after the last login session ends."
-  echo "[WARN] An administrator must run: sudo loginctl enable-linger $USER"
+  echo "[WARN] An administrator must run: sudo loginctl enable-linger $LOGIN_NAME"
 fi

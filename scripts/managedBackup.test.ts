@@ -57,7 +57,11 @@ afterEach(() => {
 describe('managed production backup', () => {
   it('rolls back its published directory after database publication fails and permits retry', async () => {
     const fixture = await restoreFixture();
-    const publish = vi.spyOn(fileSystem, 'linkSync').mockImplementationOnce(() => { throw new Error('injected publication failure'); });
+    const originalLink = fileSystem.linkSync;
+    const publish = vi.spyOn(fileSystem, 'linkSync').mockImplementation((source, target) => {
+      if (target === fixture.target) throw new Error('injected publication failure');
+      originalLink(source, target);
+    });
     await expect(restoreManagedBackup({ backupDirectory: fixture.backup, databasePath: fixture.target }))
       .rejects.toThrow('injected publication failure');
     expect(existsSync(fixture.target)).toBe(false);
@@ -72,8 +76,8 @@ describe('managed production backup', () => {
   it('preserves a raced database target and removes only its own published directory', async () => {
     const fixture = await restoreFixture();
     const originalLink = fileSystem.linkSync;
-    vi.spyOn(fileSystem, 'linkSync').mockImplementationOnce((source, target) => {
-      writeFileSync(target, 'another process owns this database', { flag: 'wx' });
+    vi.spyOn(fileSystem, 'linkSync').mockImplementation((source, target) => {
+      if (target === fixture.target) writeFileSync(target, 'another process owns this database', { flag: 'wx' });
       originalLink(source, target);
     });
     await expect(restoreManagedBackup({ backupDirectory: fixture.backup, databasePath: fixture.target }))
@@ -83,18 +87,41 @@ describe('managed production backup', () => {
     expect(readdirSync(fixture.root).some(name => name.includes('.restore-'))).toBe(false);
   });
 
-  it('preserves an unrelated managed directory when its own directory publication fails', async () => {
+  it.each([false, true])('preserves a raced managed directory (contains owner file: %s)', async containsOwnerFile => {
     const fixture = await restoreFixture();
-    const originalRename = fileSystem.renameSync;
-    vi.spyOn(fileSystem, 'renameSync').mockImplementationOnce((source, target) => {
-      mkdirSync(target);
-      writeFileSync(join(String(target), 'owner-file'), 'keep this directory');
-      originalRename(source, target);
+    const managed = `${fixture.target}.checkpoints`;
+    const originalMkdir = fileSystem.mkdirSync;
+    vi.spyOn(fileSystem, 'mkdirSync').mockImplementation((path, options) => {
+      if (path === managed) {
+        originalMkdir(path);
+        if (containsOwnerFile) writeFileSync(join(managed, 'owner-file'), 'keep this directory');
+        writeFileSync(fixture.target, 'concurrent server database', { flag: 'wx' });
+      }
+      return originalMkdir(path, options);
     });
     await expect(restoreManagedBackup({ backupDirectory: fixture.backup, databasePath: fixture.target }))
       .rejects.toThrow();
-    expect(existsSync(fixture.target)).toBe(false);
-    expect(readFileSync(join(`${fixture.target}.checkpoints`, 'owner-file')).toString()).toBe('keep this directory');
+    expect(readFileSync(fixture.target, 'utf8')).toBe('concurrent server database');
+    expect(existsSync(managed)).toBe(true);
+    expect(readdirSync(managed)).toEqual(containsOwnerFile ? ['owner-file'] : []);
+    expect(readdirSync(fixture.root).some(name => name.includes('.restore-'))).toBe(false);
+  });
+
+  it('preserves files another process adds to its reserved directory before a database collision', async () => {
+    const fixture = await restoreFixture();
+    const originalLink = fileSystem.linkSync;
+    vi.spyOn(fileSystem, 'linkSync').mockImplementation((source, target) => {
+      if (target === fixture.target) {
+        writeFileSync(join(`${fixture.target}.checkpoints`, 'owner-file'), 'keep owner file', { flag: 'wx' });
+        writeFileSync(target, 'concurrent server database', { flag: 'wx' });
+      }
+      originalLink(source, target);
+    });
+    await expect(restoreManagedBackup({ backupDirectory: fixture.backup, databasePath: fixture.target }))
+      .rejects.toThrow();
+    expect(readFileSync(fixture.target, 'utf8')).toBe('concurrent server database');
+    expect(readdirSync(`${fixture.target}.checkpoints`)).toEqual(['owner-file']);
+    expect(readFileSync(join(`${fixture.target}.checkpoints`, 'owner-file'), 'utf8')).toBe('keep owner file');
     expect(readdirSync(fixture.root).some(name => name.includes('.restore-'))).toBe(false);
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
-import type { AssignMsg, ServerMessage } from './protocol.ts';
+import type { AssignMsg, ClientMessage, ServerMessage, StateReplacedMsg, WelcomeMsg } from './protocol.ts';
 import { WsHub, type ConnectionState } from './wsHub.ts';
 
 /** Fake `ws` socket with manually completed writes. */
@@ -49,6 +49,7 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
     socket: socket as unknown as WebSocket,
     clientType: 'ui',
     joined: true,
+    awaitingRejoin: false,
     mode: 'player',
     reliableQueue: [],
     reliableQueueBytes: 0,
@@ -80,6 +81,65 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
 }
 
 describe('WsHub lifecycle priority', () => {
+  it.each(['reset', 'newRun', 'import'] as const)('discards old controls until rejoin while %s is queued behind a frame', reason => {
+    const { hub, state, socket } = buildFakeHub();
+    const handlers = { onJoin: vi.fn(), onAction: vi.fn(), onView: vi.fn(), onViz: vi.fn(),
+      onReset: vi.fn(), onSettings: vi.fn(), onGodMode: vi.fn(), onNewRun: vi.fn() };
+    hub.setHandlers(handlers);
+    const routing = hub as unknown as {
+      maxMessageBytes: number;
+      handleMessage(state: ConnectionState, data: Buffer, binary: boolean): void;
+      protocolError(state: ConnectionState, message: string): void;
+    };
+    routing.maxMessageBytes = 64 * 1024;
+    const rejected = vi.spyOn(routing, 'protocolError');
+    const send = (message: ClientMessage): void => routing.handleMessage(state, Buffer.from(JSON.stringify(message)), false);
+    const action = { type: 'action', tick: 7, snakeId: 1, turn: 0.5, boost: 0 } as const;
+    hub.broadcastFrame(Uint8Array.of(1));
+    const replacement: StateReplacedMsg = { type: 'stateReplaced', reason,
+      checkpointId: 'a'.repeat(64), welcome: { runId: 'replacement' } as WelcomeMsg };
+    hub.enterAwaitingRejoin(replacement);
+    hub.sendJsonToAwaitingConnection(1, { type: 'newRunResult', requestId: 'new-run',
+      applied: true, runId: 'replacement', worldSeed: 1 });
+    const stale: ClientMessage[] = [action, { type: 'view', viewW: 800, viewH: 600 },
+      { type: 'viz', enabled: true }, { type: 'reset' },
+      { type: 'settings', requestId: 'old', updates: [{ path: 'simSpeed', value: 2 }] },
+      { type: 'godMode', requestId: 'old', action: 'kill', snakeId: 1 },
+      { type: 'newRun', requestId: 'old' }];
+    for (const message of stale) send(message);
+    expect(rejected).not.toHaveBeenCalled();
+    for (const handler of Object.values(handlers)) expect(handler).not.toHaveBeenCalled();
+    expect(state.awaitingRejoin).toBe(true);
+    expect(state.joined).toBe(false);
+    expect(socket.closes).toEqual([]);
+    expect(socket.sent).toHaveLength(1);
+    socket.sent[0]!.complete();
+    expect(JSON.parse(String(socket.sent[1]!.payload))).toEqual(replacement);
+    socket.sent[1]!.complete();
+    expect(JSON.parse(String(socket.sent[2]!.payload))).toMatchObject({ type: 'newRunResult', applied: true });
+    socket.sent[2]!.complete();
+    send({ type: 'join', mode: 'player' });
+    send(action);
+    send({ type: 'view', viewW: 800 });
+    expect(state.awaitingRejoin).toBe(false);
+    expect(handlers.onJoin).toHaveBeenCalledOnce();
+    expect(handlers.onAction).toHaveBeenCalledWith(1, action);
+    expect(handlers.onView).toHaveBeenCalledOnce();
+  });
+
+  it('still rejects control traffic from a client that never joined', () => {
+    const { hub, state } = buildFakeHub();
+    state.joined = false;
+    const routing = hub as unknown as {
+      maxMessageBytes: number;
+      handleMessage(state: ConnectionState, data: Buffer, binary: boolean): void;
+      protocolError(state: ConnectionState, message: string): void;
+    };
+    routing.maxMessageBytes = 64 * 1024;
+    const rejected = vi.spyOn(routing, 'protocolError').mockImplementation(() => undefined);
+    routing.handleMessage(state, Buffer.from(JSON.stringify({ type: 'action', tick: 0, snakeId: 1, turn: 0, boost: 0 })), false);
+    expect(rejected).toHaveBeenCalledWith(state, 'join required before action');
+  });
   it('retains shared frame bytes until every send completes and releases replaced frames once', () => {
     const { hub, socket } = buildFakeHub();
     const slow = buildFakeHub();
