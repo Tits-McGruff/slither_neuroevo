@@ -1,3 +1,4 @@
+import { validateCheckpointDatabaseSchema } from './checkpointDatabaseSchema.ts';
 import { parseRecoveryScanCursor, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
 import { closeSync, fsyncSync, lstatSync, openSync, readdirSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, type Dirent } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -67,8 +68,8 @@ const MAX_GRAPH_PRESET_NAME_BYTES = 256;
 interface CheckpointPersistenceWorkerData {
   /** Disposable or otherwise explicitly selected SQLite metadata database path. */
   databasePath: string;
-  /** Prevent resume from creating or extending an unrelated database. */
-  existingOnly: boolean;
+  /** Require an existing store; managed mode rejects legacy stores before any schema/journal writes. */
+  existingOnly: boolean | 'managed';
   /** Existing server-controlled root containing immutable checkpoint-v3 files. */
   managedRootPath: string;
   /** Selected unpinned automatic and physical store cap. */
@@ -181,9 +182,15 @@ const descriptorLimits = bootstrap.limits;
 const retentionSettings = { ...OWNER_CHECKPOINT_RETENTION_DEFAULTS,
   automaticByteCap: bootstrap.automaticByteCapBytes };
 /** Single synchronous SQLite connection owned exclusively by this worker. */
-const db = new Database(bootstrap.databasePath, { fileMustExist: bootstrap.existingOnly });
+const db = new Database(bootstrap.databasePath, { fileMustExist: bootstrap.existingOnly !== false });
 const existingDatabaseKind = bootstrap.existingOnly ? (() => {
-  try { return validateExistingSchema(db); }
+  try {
+    const kind = validateCheckpointDatabaseSchema(db);
+    if (bootstrap.existingOnly === 'managed' && kind !== 'managed') {
+      throw new Error('fresh startup requires a compatible managed checkpoint database; legacy stores require explicit resume/conversion');
+    }
+    return kind;
+  }
   catch (error) { db.close(); throw error; }
 })() : 'new';
 
@@ -250,7 +257,7 @@ function parseWorkerData(value: unknown): CheckpointPersistenceWorkerData {
     keys.some(key => !['databasePath', 'managedRootPath', 'limits', 'existingOnly', 'automaticByteCapBytes',
       'checkpointCommitFailpointForTesting', 'importCommitFailpointForTesting'].includes(key)) ||
     !Object.hasOwn(data, 'databasePath') || !Object.hasOwn(data, 'managedRootPath') ||
-    !Object.hasOwn(data, 'limits') || typeof data['existingOnly'] !== 'boolean' ||
+    !Object.hasOwn(data, 'limits') || (typeof data['existingOnly'] !== 'boolean' && data['existingOnly'] !== 'managed') ||
     typeof data['automaticByteCapBytes'] !== 'bigint' ||
     data['automaticByteCapBytes'] < 1n || data['automaticByteCapBytes'] > 0xffff_ffff_ffff_ffffn) {
     throw new TypeError('checkpoint persistence worker data has unknown or missing fields');
@@ -300,37 +307,6 @@ function resolveManagedRoot(candidate: string): string {
     throw new TypeError('checkpoint persistence managed root must be one real directory');
   }
   return realpathSync(absolute);
-}
-
-/** Reject unrelated or incomplete databases before changing journal settings or schema. */
-function validateExistingSchema(database: ReturnType<typeof Database>): 'managed' | 'legacy' {
-  const rows = database.prepare(`SELECT name FROM sqlite_schema
-    WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).all() as Array<{ name: string }>;
-  const tables = new Set(rows.map(row => row.name));
-  const managed = ['rust_checkpoint_v3_metadata', 'rust_checkpoint_v3_current',
-    'rust_generation_history_v1', 'rust_hall_of_fame_v1'];
-  if (managed.every(table => tables.has(table))) {
-    // Preparing these fixed reads also rejects incompatible columns without DDL.
-    database.prepare('SELECT checkpoint_id, operation_id, run_id, transition_epoch, generation_hex, completed_step_hex, descriptor_json FROM rust_checkpoint_v3_metadata LIMIT 0').all();
-    database.prepare('SELECT run_id, checkpoint_id, transition_epoch, operation_id FROM rust_checkpoint_v3_current LIMIT 0').all();
-    for (const table of ['rust_generation_history_v1', 'rust_hall_of_fame_v1']) {
-      database.prepare(`SELECT run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms FROM ${table} LIMIT 0`).all();
-    }
-    return 'managed';
-  }
-  if (tables.has('population_snapshots')) {
-    const parentColumns = new Set((database.prepare('PRAGMA table_info(population_snapshots)').all() as
-      Array<{ name: string }>).map(column => column.name));
-    if (!['id', 'payload_json'].every(column => parentColumns.has(column))) {
-      throw new Error('legacy population_snapshots is missing required base columns');
-    }
-    if (tables.has('snapshot_genomes')) {
-      database.prepare(`SELECT snapshot_id, slot, arch_key, brain_type, fitness, weight_count,
-        weights_blob, weights_checksum FROM snapshot_genomes LIMIT 0`).all();
-    }
-    return 'legacy';
-  }
-  throw new Error('resume requires a managed or TypeScript v2 checkpoint database');
 }
 
 /** One bounded metadata row used only for scalar retention planning. */

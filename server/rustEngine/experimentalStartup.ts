@@ -1,3 +1,6 @@
+import Database from 'better-sqlite3';
+import { existsSync } from 'node:fs';
+import { validateCheckpointDatabaseSchema } from './checkpointDatabaseSchema.ts';
 import type { RecoveryBranchResult, RecoveryScanCursor } from './recoveryProtocol.ts';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, open, unlink } from 'node:fs/promises';
@@ -45,7 +48,7 @@ export interface ExperimentalStartupOptions {
   calculationWorkers?: number;
   /** Owner-selected physical checkpoint budget in MiB. */
   checkpointBudgetMiB?: number;
-  /** Dedicated managed-metadata database; fresh startup requires a new path. */
+  /** Selected metadata database; fresh startup appends a run to a compatible managed store. */
   databasePath: string;
   /** Internal exact-current restart prerequisite; automatic latest recovery is separate. */
   restoreCurrent?: boolean;
@@ -128,7 +131,8 @@ export async function admitPendingRunStartCheckpoint(
   descriptor: Pick<ManagedCheckpointDescriptor, 'storedByteCount' | 'relativeFilename'>,
   inspectStorage: () => Promise<ManagedStorageDiagnostics>,
   managedDirectory: string,
-  automaticCapBytes: bigint
+  automaticCapBytes: bigint,
+  protectedAutomaticBytes = 0n
 ): Promise<void> {
   if (!/^[0-9a-f]{64}\.checkpoint-v3$/u.test(descriptor.relativeFilename)) {
     throw new TypeError('pending run-start checkpoint filename must be digest-derived');
@@ -136,7 +140,7 @@ export async function admitPendingRunStartCheckpoint(
   const storage = await inspectStorage();
   try {
     assertStartupCheckpointBudget({
-      protectedAutomaticStoredByteCount: descriptor.storedByteCount,
+      protectedAutomaticStoredByteCount: (protectedAutomaticBytes + BigInt(`0x${descriptor.storedByteCount}`)).toString(16).padStart(16, '0'),
       automaticByteCap: automaticCapBytes.toString(16).padStart(16, '0')
     }, storage);
   } catch (error) {
@@ -168,30 +172,52 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
   const sourceIdentity = computeNativeSourceIdentity(NATIVE_DIRECTORY);
   const binding = validateExperimentalFreshRunBinding(require(resolve(NATIVE_DIRECTORY, 'index.js')) as unknown, sourceIdentity);
   const nativeBuildIdentifier = binding.nativeAddonBuildIdentifier();
+  /** Classify fresh append candidates read-only before creating directories or modifying SQLite. */
+  const requireManagedFreshStore = (): void => {
+    const database = new Database(databasePath, { readonly: true, fileMustExist: true });
+    try {
+      if (validateCheckpointDatabaseSchema(database) !== 'managed') {
+        throw new Error('fresh startup requires a compatible managed checkpoint database; legacy stores require explicit resume/conversion');
+      }
+    } finally { database.close(); }
+  };
+  let appendingManaged = !restoring && existsSync(databasePath);
+  if (appendingManaged) requireManagedFreshStore();
   await mkdir(managedDirectory, { recursive: true });
-  const scavenged = await scavengeStaleArchiveArtifacts(managedDirectory);
-  if (scavenged.removed > 0) {
-    console.warn(`[rust.startup] removed ${scavenged.removed} stale temporary file(s) (${scavenged.removedBytes} bytes)`);
-  }
   if (!restoring) {
     await mkdir(dirname(databasePath), { recursive: true });
     await admitCheckpoint(managedDirectory);
-    // Exclusive creation keeps existing reference/legacy databases out of fresh startup.
-    const reservation = await open(databasePath, 'wx');
-    await reservation.close();
+    if (!appendingManaged) {
+      try {
+        const reservation = await open(databasePath, 'wx');
+        await reservation.close();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        // A raced creator must pass the same read-only and worker-side schema checks.
+        requireManagedFreshStore();
+        appendingManaged = true;
+      }
+    }
   }
   const persistence = new CheckpointPersistenceClient({ databasePath,
-    managedRootPath: managedDirectory, existingOnly: restoring,
+    managedRootPath: managedDirectory, existingOnly: appendingManaged ? 'managed' : restoring,
     automaticByteCapBytes: BigInt(checkpointBudgetMiB) * 1024n * 1024n });
   let runtime: ExperimentalRunningAuthorityNativeHandle | undefined;
   try {
+    const priorRetention = appendingManaged ? await persistence.inspectRetention() : null;
+    const protectedAutomaticBytes = priorRetention
+      ? BigInt(`0x${priorRetention.protectedAutomaticStoredByteCount}`) : 0n;
+    const scavenged = await scavengeStaleArchiveArtifacts(managedDirectory);
+    if (scavenged.removed > 0) {
+      console.warn(`[rust.startup] removed ${scavenged.removed} stale temporary file(s) (${scavenged.removedBytes} bytes)`);
+    }
     /** Construct only a scalar native handle; initialization owns all population allocation. */
     const makeSession = (runId: string): ExperimentalFreshRunSession => createExperimentalFreshRunSession({
       binding, sourceIdentity, runId, seed, memoryCeilingBytes: 4n * 1024n * 1024n * 1024n,
       calculationWorkers,
-      persistence, managedDirectory,
+      persistence, managedDirectory, activateRunOnCommit: true,
       beforeRunStartCommit: descriptor => admitPendingRunStartCheckpoint(descriptor,
-        () => persistence.inspectStorage(), managedDirectory, BigInt(checkpointBudgetMiB) * 1024n * 1024n)
+        () => persistence.inspectStorage(), managedDirectory, BigInt(checkpointBudgetMiB) * 1024n * 1024n, protectedAutomaticBytes)
     });
     let selection: ManagedCheckpointSelection | null = null;
     let startupSelectionCompleted = false;

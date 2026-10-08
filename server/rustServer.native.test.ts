@@ -286,7 +286,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       server = await startRustServer(config);
       const url = `http://127.0.0.1:${server.port}`;
       const before = await (await fetch(`${url}/api/health`)).json() as Record<string, unknown>;
-      for (const path of ['/api/export/latest', '/api/import/archive', '/api/checkpoint/pin', '/api/graph-presets']) {
+      for (const path of ['/api/export/latest', '/api/import/archive', '/api/checkpoints/current/pin', '/api/graph-presets']) {
         const response = await fetch(`${url}${path}`, { method: path.includes('export') ? 'GET' : 'POST',
           headers: { Origin: 'http://evil.test', 'Content-Type': 'text/plain' } });
         expect(response.status).toBe(403);
@@ -717,6 +717,109 @@ describeNetworkSuite('Rust server real sockets', () => {
     }
   }, 15_000);
 
+  it('appends a seeded fresh run to a managed store and preserves prior checkpoints, history and Hall of Fame', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-fresh-append-'));
+    const dbPath = join(root, 'slither.sqlite');
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    let viewer: Peer | undefined;
+    try {
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath, resume: 'fresh', seed: 41, rustCalculationWorkers: 1 });
+      expect(server.startupFault).toBeUndefined();
+      expect((await fetch(`http://127.0.0.1:${server.port}/api/checkpoints/current/pin`, { method: 'POST' })).status).toBe(200);
+      viewer = await connect(server.port, 'ui');
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 3, simSpeed: 0.1 },
+        updates: [{ path: 'generationSeconds', value: 8 }, { path: 'pelletCountTarget', value: 100 },
+          { path: 'baselineBots.count', value: 0 }],
+        graphSpec: buildStackGraphSpec({ hiddenLayers: 1, neurons1: 2, neurons2: 2, neurons3: 2, neurons4: 2, neurons5: 2 },
+          { brain: { inSize: 83, outSize: 2, useMlp: false } }) }));
+      const previous = await replacementUntil(viewer, server.port, 'reset');
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      expect((await fetch(`http://127.0.0.1:${server.port}/api/checkpoints/current/pin`, { method: 'POST' })).status).toBe(200);
+      viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'fresh-append-accelerate',
+        updates: [{ path: 'simSpeed', value: 12 }] }));
+      await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === 'fresh-append-accelerate' && packet['applied'] === true));
+      await healthUntil(server.port, sample => BigInt(`0x${sample['generation'] as string}`) >= 2n);
+      viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'fresh-append-slow',
+        updates: [{ path: 'simSpeed', value: 0.1 }] }));
+      await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === 'fresh-append-slow' && packet['applied'] === true));
+      viewer.socket.terminate(); viewer = undefined;
+      await server.close(); server = undefined;
+      /** Read exact retained rows for the old lineage without materializing its population. */
+      const oldRecords = (): unknown[] => {
+        const database = new Database(dbPath, { readonly: true });
+        try { return ['rust_checkpoint_v3_metadata', 'rust_checkpoint_v3_current', 'rust_generation_history_v1', 'rust_hall_of_fame_v1']
+          .map(table => database.prepare(`SELECT * FROM ${table} WHERE run_id = ? ORDER BY rowid`).all(previous.runId)); }
+        finally { database.close(); }
+      };
+      const retained = oldRecords();
+      expect((retained[2] as unknown[]).length).toBeGreaterThan(0);
+      expect((retained[3] as unknown[]).length).toBeGreaterThan(0);
+      const oldFiles = new Map<string, string>();
+      const inventory = new Database(dbPath, { readonly: true });
+      let filenames: string[];
+      try {
+        filenames = (inventory.prepare(`SELECT relative_filename AS filename FROM rust_checkpoint_v3_metadata
+          UNION SELECT relative_filename AS filename FROM rust_hall_of_fame_weights_v1`)
+          .all() as Array<{ filename: string }>).map(row => row.filename);
+      } finally { inventory.close(); }
+      for (const file of filenames) {
+        oldFiles.set(file, createHash('sha256').update(await readFile(join(`${dbPath}.checkpoints`, file))).digest('hex'));
+      }
+      expect(oldFiles.size).toBeGreaterThan(1);
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath, resume: 'fresh', seed: 99, rustCalculationWorkers: 1 });
+      expect(server.startupFault).toBeUndefined();
+      const fresh = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        runId: string; startupCheckpointId: string; retention: { activeRunId: string };
+      };
+      expect(fresh).toMatchObject({ ok: true, seed: 99, generation: '0000000000000001' });
+      expect(fresh.runId).not.toBe(previous.runId);
+      expect(fresh.retention.activeRunId).toBe(fresh.runId);
+      expect(oldRecords()).toEqual(retained);
+      for (const [file, hash] of oldFiles) {
+        expect(createHash('sha256').update(await readFile(join(`${dbPath}.checkpoints`, file))).digest('hex')).toBe(hash);
+      }
+      const database = new Database(dbPath, { readonly: true });
+      try { expect(database.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1').get()).toEqual({ run_id: fresh.runId }); }
+      finally { database.close(); }
+      await server.close(); server = undefined;
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath, resume: 'latest', rustCalculationWorkers: 1 });
+      expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
+        ok: true, seed: 99, runId: fresh.runId, startupCheckpointId: fresh.startupCheckpointId
+      });
+    } finally {
+      viewer?.socket.terminate();
+      await server?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it.each(['legacy', 'unrelated'])('rejects fresh startup of an existing %s database without modifying it', async kind => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-fresh-incompatible-'));
+    const dbPath = join(root, 'owner.sqlite');
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    try {
+      const database = new Database(dbPath);
+      try {
+        if (kind === 'legacy') {
+          database.exec('CREATE TABLE population_snapshots (id INTEGER PRIMARY KEY, payload_json TEXT NOT NULL)');
+          database.prepare('INSERT INTO population_snapshots VALUES (1, ?)').run('retained legacy population');
+        } else {
+          database.exec('CREATE TABLE owner_records (value TEXT NOT NULL)');
+          database.prepare('INSERT INTO owner_records VALUES (?)').run('retained owner record');
+        }
+      } finally { database.close(); }
+      const before = await readFile(dbPath);
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath, resume: 'fresh', seed: 99 });
+      expect(server.startupFault).toBeDefined();
+      expect((await fetch(`http://127.0.0.1:${server.port}/api/health`)).status).toBe(503);
+      expect(await readFile(dbPath)).toEqual(before);
+      expect(await readdir(root)).toEqual(['owner.sqlite']);
+    } finally {
+      await server?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('passes the selected checkpoint budget through production health and retention', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-budget-'));
     const dbPath = join(root, 'slither.sqlite');

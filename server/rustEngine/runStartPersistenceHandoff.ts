@@ -55,6 +55,8 @@ export interface RunStartPersistenceHandoffOptions {
   persistence: RunStartCheckpointCommitter;
   /** Controlled managed root passed to Rust's file publisher. */
   managedDirectory: string;
+  /** Select this new lineage in the same transaction as its durable run-start checkpoint. */
+  activateRunOnCommit?: boolean;
   /** Optional admission check after publication but before the current pointer commits. */
   beforeCommit?: (descriptor: ManagedCheckpointDescriptor) => Promise<void>;
 }
@@ -87,6 +89,8 @@ export class RunStartPersistenceHandoff {
   private readonly managedDirectory: string;
   /** Optional precommit admission for the published run-start boundary. */
   private readonly beforeCommit: ((descriptor: ManagedCheckpointDescriptor) => Promise<void>) | undefined;
+  /** Whether this handoff atomically selects its run as the active lineage. */
+  private readonly activateRunOnCommit: boolean;
   /** At most one currently executing publication/commit/acknowledgement. */
   private active: ActiveRunStartPersistence | null = null;
 
@@ -113,6 +117,10 @@ export class RunStartPersistenceHandoff {
     this.persistence = options.persistence;
     this.managedDirectory = options.managedDirectory;
     this.beforeCommit = options.beforeCommit;
+    if (options.activateRunOnCommit !== undefined && typeof options.activateRunOnCommit !== 'boolean') {
+      throw new TypeError('run-start activation must be boolean');
+    }
+    this.activateRunOnCommit = options.activateRunOnCommit ?? false;
   }
 
   /**
@@ -172,9 +180,9 @@ export class RunStartPersistenceHandoff {
       throw new Error('Rust run-start checkpoint returned a non-run-start boundary');
     }
     await this.beforeCommit?.(descriptor);
-    const committed = legacyConversion === null
+    const committed = legacyConversion === null && !this.activateRunOnCommit
       ? await this.persistence.commit(descriptor)
-      : await this.persistence.commit(descriptor, null, false, legacyConversion);
+      : await this.persistence.commit(descriptor, null, this.activateRunOnCommit, legacyConversion);
     if (!managedCheckpointCommitResultMatchesDescriptor(committed, descriptor)) {
       throw new Error('persistence client returned a descriptor different from Rust publication');
     }

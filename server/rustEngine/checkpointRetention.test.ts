@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -88,6 +88,25 @@ describe('production managed checkpoint retention selection', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  it('counts prior protected anchors before admitting a fresh append and removes only its candidate on rejection', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'slither-fresh-append-budget-'));
+    const name = `${'a'.repeat(64)}.checkpoint-v3`;
+    const prior = join(root, `${'b'.repeat(64)}.checkpoint-v3`);
+    const path = join(root, name);
+    const descriptor = { relativeFilename: name, storedByteCount: u64(10n * 1024n * 1024n) };
+    const inspectStorage = async () => ({ schemaVersion: 1 as const,
+      databaseByteCount: u64(2n * 1024n * 1024n), walByteCount: u64(0n), shmByteCount: u64(0n),
+      pageSizeByteCount: u64(4096n), pageCount: u64(512n), freelistPageCount: u64(0n),
+      usedPageByteCount: u64(2n * 1024n * 1024n) });
+    try {
+      writeFileSync(path, 'candidate');
+      writeFileSync(prior, 'retained anchor');
+      await expect(admitPendingRunStartCheckpoint(descriptor, inspectStorage, root,
+        3072n * 1024n * 1024n, 2048n * 1024n * 1024n)).rejects.toThrow(/cannot preserve the protected checkpoints/u);
+      expect(existsSync(path)).toBe(false);
+      expect(readFileSync(prior, 'utf8')).toBe('retained anchor');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   it('counts the proposed reset boundary before replacing the current run', () => {
     const storage = { databaseByteCount: u64(2n * 1024n * 1024n), walByteCount: u64(0n),
       shmByteCount: u64(0n) };

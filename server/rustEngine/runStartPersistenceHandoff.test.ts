@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ManagedCheckpointCommitResult } from './checkpointPersistenceClient.ts';
 import type { ManagedCheckpointDescriptor } from './checkpointPersistenceProtocol.ts';
 import {
@@ -75,6 +75,21 @@ function createCommitResult(
 }
 
 describe('run-start persistence handoff', () => {
+  it('selects a fresh lineage in the same checkpoint commit before acknowledging Rust', async () => {
+    const descriptor = createDescriptor();
+    const commit = vi.fn(async () => createCommitResult(descriptor));
+    const acknowledge = vi.fn();
+    const handoff = new RunStartPersistenceHandoff({
+      rust: { async publishRunStartCheckpoint() { return descriptor; }, acknowledgeRunStartPersistence: acknowledge },
+      persistence: { commit },
+      managedDirectory: 'managed',
+      activateRunOnCommit: true
+    });
+    await handoff.commitPendingRunStart(descriptor.operationId);
+    expect(commit).toHaveBeenCalledExactlyOnceWith(descriptor, null, true, null);
+    expect(acknowledge).toHaveBeenCalledExactlyOnceWith(descriptor);
+    expect(commit.mock.invocationCallOrder[0]).toBeLessThan(acknowledge.mock.invocationCallOrder[0]!);
+  });
   it('rejects an unsafe published boundary before SQLite makes it current', async () => {
     const descriptor = createDescriptor();
     const events: string[] = [];

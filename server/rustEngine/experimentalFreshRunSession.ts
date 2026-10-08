@@ -209,6 +209,8 @@ export interface CreateExperimentalFreshRunSessionOptions {
   managedDirectory: string;
   /** Optional published-file admission before SQLite makes a fresh run current. */
   beforeRunStartCommit?: (descriptor: ManagedCheckpointDescriptor) => Promise<void>;
+  /** Atomically select a fresh append lineage with its run-start checkpoint. */
+  activateRunOnCommit?: boolean;
 }
 
 /** Real-addon loader dependencies for an explicitly requested session. */
@@ -348,7 +350,8 @@ export class ExperimentalFreshRunSession {
       rust: this.native,
       persistence: options.persistence,
       managedDirectory,
-      ...(options.beforeRunStartCommit ? { beforeCommit: options.beforeRunStartCommit } : {})
+      ...(options.beforeRunStartCommit ? { beforeCommit: options.beforeRunStartCommit } : {}),
+      ...(options.activateRunOnCommit !== undefined ? { activateRunOnCommit: options.activateRunOnCommit } : {})
     });
   }
 

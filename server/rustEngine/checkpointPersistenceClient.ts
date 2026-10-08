@@ -49,8 +49,8 @@ import {
 export interface CheckpointPersistenceClientOptions {
   /** Disposable/test SQLite database path supplied to the isolated worker. */
   databasePath: string;
-  /** Resume requires an existing managed-metadata schema and never initializes another database. */
-  existingOnly?: boolean;
+  /** Require an existing store; managed mode accepts only compatible Rust metadata without legacy conversion. */
+  existingOnly?: boolean | 'managed';
   /** Existing controlled root containing final immutable checkpoint-v3 files. */
   managedRootPath: string;
   /** Selected cap for unpinned automatic files and the physical store. */

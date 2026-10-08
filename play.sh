@@ -232,12 +232,8 @@ case "$START_MODE" in
     ;;
 esac
 
-if [ "$ACTIVE_MODE" = "fresh" ]; then
-  if [ -e "$DB_PATH" ]; then
-    echo "[ERROR] Fresh start requested but database already exists: $DB_PATH"
-    echo "[INFO] Use SLITHER_START_MODE=resume or choose a new SLITHER_DB_PATH."
-    exit 1
-  fi
+# Existing stores are classified by the server; fresh appends only to managed databases.
+if [ "$ACTIVE_MODE" = "fresh" ] && [ ! -e "$DB_PATH" ]; then
   if [ -d "$MANAGED_DIR" ] && [ -n "$(ls -A "$MANAGED_DIR" 2>/dev/null || true)" ]; then
     echo "[ERROR] Fresh start requested but managed checkpoint directory is not empty: $MANAGED_DIR"
     exit 1

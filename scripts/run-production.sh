@@ -44,9 +44,10 @@ case "$START_MODE" in
     fi
     ;;
   fresh)
-    [ ! -e "$DB_PATH" ] || fail "Fresh start refused because the database already exists: $DB_PATH"
-    [ ! -d "${DB_PATH}.checkpoints" ] || [ -z "$(ls -A "${DB_PATH}.checkpoints" 2>/dev/null || true)" ] || \
-      fail "Fresh start refused because the managed checkpoint directory is not empty: ${DB_PATH}.checkpoints"
+    if [ ! -e "$DB_PATH" ]; then
+      [ ! -d "${DB_PATH}.checkpoints" ] || [ -z "$(ls -A "${DB_PATH}.checkpoints" 2>/dev/null || true)" ] || \
+        fail "Fresh start refused because the managed checkpoint directory is not empty: ${DB_PATH}.checkpoints"
+    fi
     set -- --fresh
     ;;
   resume)

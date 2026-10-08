@@ -640,6 +640,39 @@ describe(SUITE, { timeout: 30_000 }, () => {
     await expect(retry.commitRecoveryBranch(request)).resolves.toMatchObject({ branchRunId: 'branch' });
   });
 
+  it('rejects legacy schema in managed-only mode before journal or schema writes', async () => {
+    const fixture = createFixture();
+    await fixture.client.close();
+    const path = join(fixture.root, 'legacy.sqlite');
+    const database = new Database(path);
+    try {
+      database.exec('CREATE TABLE population_snapshots (id INTEGER PRIMARY KEY, payload_json TEXT)');
+      database.prepare('INSERT INTO population_snapshots VALUES (1, ?)').run('preserved population');
+    } finally { database.close(); }
+    const before = readFileSync(path);
+    const client = new CheckpointPersistenceClient({ databasePath: path,
+      managedRootPath: fixture.managedRoot, existingOnly: 'managed' });
+    clients.push(client);
+    await expect(client.selectCurrent()).rejects.toThrow(/fresh startup requires a compatible managed/u);
+    await expect(client.close()).rejects.toThrow();
+    expect(readFileSync(path)).toEqual(before);
+    expect(existsSync(`${path}-wal`)).toBe(false);
+  });
+
+  it('opens an existing managed store in managed-only mode without changing its current checkpoint', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(descriptor);
+    await fixture.client.close();
+    const client = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: 'managed' });
+    clients.push(client);
+    expect(await client.selectCurrent()).toEqual(descriptor);
+    await client.close();
+    expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toMatchObject({
+      checkpoint_id: descriptor.logicalRootSha256, operation_id: descriptor.operationId
+    });
+  });
   it('refuses missing and unrelated resume databases without creating or changing them', async () => {
     const fixture = createFixture();
     await fixture.client.close();

@@ -100,13 +100,16 @@ the database to exist; a missing path serves failing health and refuses game
 connections without creating a replacement database.
 
 For a new experiment, start once with `--fresh`, then reuse that database with
-one of the resume options:
+one of the resume options. `--seed N --fresh` also appends a new seeded run to an
+existing managed store; pinned checkpoints and prior-run anchors remain protected.
+Legacy or unrelated databases are rejected by fresh startup without modification;
+use explicit resume/conversion for a supported legacy store.
 
 | Option | Behavior |
 |---|---|
-| `--fresh` | Starts and durably records a new run without deleting older checkpoints. |
+| `--fresh` | Durably starts a new run in a new or compatible managed database. Prior runs remain available under the normal checkpoint-retention policy. |
 | `--resume latest` | Validates the current checkpoint. If needed, recovers from the newest valid retained boundary under a labelled recovery branch. |
-| `--resume <checkpoint-sha256>` | Selects that exact retained checkpoint, including an older generation or prior run. Requires the producing build identity and never substitutes another checkpoint. |
+| `--resume sha256:ID` | Selects that exact retained checkpoint, including an older generation or prior run. Requires the producing build identity and never substitutes another checkpoint. |
 
 - Selecting a checkpoint other than the active current one creates a separate
   branch after validation. The source's later history is preserved.
@@ -802,8 +805,8 @@ a checkpoint does not resume the middle of a tick.
 
 | Startup choice | Replay scope |
 |---|---|
-| `--fresh` | Durably records a new run without deleting older snapshots. |
-| `--resume <snapshot-id>` | Selects a specific valid checkpoint; exact replay remains tied to the producing build. |
+| `--fresh` | Durably records a new lineage while preserving prior-run records and retained checkpoints under the normal retention policy. |
+| `--resume sha256:ID` | Selects a specific retained managed checkpoint; exact replay remains tied to the producing build. |
 | `--resume latest` | Uses the latest valid checkpoint. A newer compatible build can create a labelled continuation branch without claiming exact replay of the old binary. |
 
 See [Server startup and recovery](#server-startup-and-recovery) for selection

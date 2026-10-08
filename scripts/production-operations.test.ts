@@ -1,6 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 
 /** Production foreground launcher source. */
@@ -81,6 +82,37 @@ printf '%s' "$HEALTH_URL"
     expect(result.stdout).toBe(expectedUrl);
   });
 
+  it('delegates fresh startup of an existing store to the server in both Unix launchers', () => {
+    const root = mkdtempSync(join(tmpdir(), 'slither-launcher-fresh-'));
+    const database = join(root, 'owner.db');
+    try {
+      writeFileSync(database, 'retained database');
+      const serviceStart = RUNNER.indexOf('case "$START_MODE" in');
+      const serviceEnd = RUNNER.indexOf('\necho "[START]', serviceStart);
+      const manualStart = LAUNCHER.indexOf('if [ "$ACTIVE_MODE" = "fresh" ] &&');
+      const manualEnd = LAUNCHER.indexOf('\nstart_server_process "$ACTIVE_MODE"', manualStart);
+      expect(serviceStart).toBeGreaterThan(0);
+      expect(serviceEnd).toBeGreaterThan(serviceStart);
+      expect(manualStart).toBeGreaterThan(0);
+      expect(manualEnd).toBeGreaterThan(manualStart);
+      for (const block of [RUNNER.slice(serviceStart, serviceEnd), LAUNCHER.slice(manualStart, manualEnd)]) {
+        const result = spawnSync(POSIX_SHELL, ['-c', `set -eu
+DB_PATH="$1"
+MANAGED_DIR="$DB_PATH.checkpoints"
+START_MODE=fresh
+ACTIVE_MODE=fresh
+RESUME_TARGET=latest
+fail() { echo "$*" >&2; exit 1; }
+${block}
+printf '%s' 'delegated fresh'
+`, 'fresh-launcher', database.replaceAll('\\', '/')], { encoding: 'utf8', timeout: 5000 });
+        expect(result.error).toBeUndefined();
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toBe('delegated fresh');
+      }
+      expect(readFileSync(database, 'utf8')).toBe('retained database');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   it('runs the Rust entry point in the foreground without rebuilding or falling back', () => {
     expect(RUNNER).toContain('exec node ./node_modules/tsx/dist/cli.mjs server/rustServer.ts');
     expect(RUNNER).toContain('--resume "$RESUME_TARGET"');
