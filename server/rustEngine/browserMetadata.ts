@@ -8,6 +8,7 @@ import type {
 } from '../../src/protocol/rustBackground.ts';
 import type { FitnessHistoryEntry } from '../../src/protocol/messages.ts';
 import type { StatsMsg, WelcomeMsg } from '../protocol.ts';
+import { deriveStackPresentation } from './stackGraph.ts';
 
 /** Require exact Protocol 2 numbers rather than silently narrowing Rust counters. */
 export function wireInteger(value: string): number {
@@ -31,6 +32,12 @@ export function createRustWelcome(
   nativeBuildIdentifier: string | null = null,
   calculationWorkers = 1
 ): WelcomeMsg {
+  const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: nativeSetting(metadata, 'snakeCount'), simSpeed: nativeSetting(metadata, 'simSpeed') };
+  const sensorSpec = getSensorSpec(getSensorLayout(nativeSetting(metadata, 'sense.bubbleBins')));
+  const stack = deriveStackPresentation(metadata.graphSpec, core, sensorSpec.sensorCount);
+  const updates = new Map(SETTINGS_PATHS.filter(path => metadata.settings.some(setting => setting.path === path))
+    .map(path => [path, nativeSetting(metadata, path)]));
+  for (const update of stack?.updates ?? []) updates.set(update.path, update.value);
   return {
     type: 'welcome', protocolVersion: 2, serializerVersion: metadata.serializerVersion,
     ...(metadata.legacyConversion ? { legacyConversion: metadata.legacyConversion } : {}),
@@ -40,11 +47,10 @@ export function createRustWelcome(
     graphSpec: metadata.graphSpec,
     capabilities: { checkpointPinning: true, archiveExport: true, archiveImport: true },
     settings: {
-      core: { ...DEFAULT_CORE_SETTINGS, snakeCount: nativeSetting(metadata, 'snakeCount'), simSpeed: nativeSetting(metadata, 'simSpeed') },
-      updates: SETTINGS_PATHS.filter(path => metadata.settings.some(setting => setting.path === path))
-        .map(path => ({ path, value: nativeSetting(metadata, path) }))
+      core: stack?.core ?? core,
+      updates: [...updates].map(([path, value]) => ({ path, value }))
     },
-    sensorSpec: getSensorSpec(getSensorLayout(nativeSetting(metadata, 'sense.bubbleBins'))),
+    sensorSpec,
     inferenceMode: {
       requestedBackend: 'native', activeBackend: 'native', requestedMt: calculationWorkers > 1,
       activeWorkerCount: calculationWorkers > 1 ? calculationWorkers : 0,

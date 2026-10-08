@@ -11,12 +11,24 @@ import { startRustServer, type RustServer } from './rustServer.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { parseManagedCheckpointDescriptor, type ManagedCheckpointDescriptor } from './rustEngine/checkpointPersistenceProtocol.ts';
 import type { ExperimentalRunningAuthorityNativeHandle } from './rustEngine/backgroundRuntime.ts';
+import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
+import { ARCHIVE_PREPARATION_TIMEOUT_MS, fixtureArchiveDownload } from './test/archiveDownload.ts';
 
 /** Actual addon prototype used only to alter returned scalar facts after real archive creation. */
 const native = createRequire(import.meta.url)(resolve('native/index.js')) as {
   ExperimentalRunningAuthority: { prototype: ExperimentalRunningAuthorityNativeHandle }
 };
+
+/** Real, small inference graph keeps this storage contract independent of runner CPU throughput. */
+const BINDING_GRAPH: GraphSpec = {
+  type: 'graph', nodes: [{ id: 'input', type: 'Input', outputSize: 83 },
+    { id: 'head', type: 'Dense', inputSize: 83, outputSize: 2 }],
+  edges: [{ from: 'input', to: 'head' }], outputs: [{ nodeId: 'head' }], outputSize: 2
+};
+
+/** Startup/shutdown plus two genuine archive preparations, each with its own ten-second limit. */
+const ARCHIVE_RETRY_FIXTURE_TIMEOUT_MS = 10_000 + 2 * ARCHIVE_PREPARATION_TIMEOUT_MS;
 
 /** Wait for a specific completed operation, never substituting a different fixture. */
 async function observed<T>(read: () => T | undefined): Promise<T> {
@@ -77,11 +89,13 @@ describeNetworkSuite('Rust exact download binding', () => {
     const originalAcquire = CheckpointPersistenceClient.prototype.acquireCurrentExportLease;
     const originalRelease = CheckpointPersistenceClient.prototype.releaseExportLease;
     let baselineReleased = false;
+    const releasedLeases = new Set<string>();
     const releases = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease').mockImplementation(async function(
       this: CheckpointPersistenceClient, ...args: Parameters<CheckpointPersistenceClient['releaseExportLease']>
     ) {
       const result = await originalRelease.apply(this, args);
       baselineReleased = true;
+      releasedLeases.add(args[0]);
       return result;
     });
     const commits = vi.spyOn(CheckpointPersistenceClient.prototype, 'commit').mockImplementation(async function(
@@ -108,7 +122,8 @@ describeNetworkSuite('Rust exact download binding', () => {
       return lease;
     });
     try {
-      const source = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: databasePath, resume: 'fresh', seed: 42 });
+      const source = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: databasePath, resume: 'fresh', seed: 42,
+        rustCalculationWorkers: 1 });
       servers.push(source);
       expect(source.startupFault).toBeUndefined();
       const messages: Array<Record<string, unknown>> = [];
@@ -118,7 +133,7 @@ describeNetworkSuite('Rust exact download binding', () => {
       viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
       await observed(() => messages.find(message => message['type'] === 'welcome'));
       viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
-      viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 12 },
+      viewer.send(JSON.stringify({ type: 'reset', graphSpec: BINDING_GRAPH, settings: { snakeCount: 12, simSpeed: 12 },
         updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 2 },
           { path: 'pelletCountTarget', value: 100 }] }));
       await observed(() => messages.find(message => message['type'] === 'stateReplaced'));
@@ -162,6 +177,7 @@ describeNetworkSuite('Rust exact download binding', () => {
         runId: selected.runId, generationHex: selected.generation, historyCountHex: '0000000000000001',
         logicalRootSha256: response.headers.get('x-slither-save-root') });
       await cleanTransfer(directory);
+      await observed(() => releasedLeases.has(selectedLease!.operationId) ? true : undefined);
       const cleanup = await sourceClient.applyRetention();
       expect(cleanup.deletedCheckpointCount).toBeGreaterThan(0);
       await expect(stat(join(directory, selected.relativeFilename))).rejects.toMatchObject({ code: 'ENOENT' });
@@ -171,7 +187,8 @@ describeNetworkSuite('Rust exact download binding', () => {
           .get(selected.runId)).toEqual({ count: 10 });
       } finally { database.close(); }
       holdingLease = false;
-      const target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: join(root, 'target.sqlite'), resume: 'fresh', seed: 99 });
+      const target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: join(root, 'target.sqlite'), resume: 'fresh', seed: 99,
+        rustCalculationWorkers: 1 });
       servers.push(target);
       const imported = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
         method: 'POST', body: new Uint8Array(bytes) });
@@ -218,10 +235,11 @@ describeNetworkSuite('Rust exact download binding', () => {
     };
     onTestFinished(restore);
     try {
-      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: databasePath, resume: 'fresh', seed: 42 });
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: databasePath, resume: 'fresh', seed: 42,
+        rustCalculationWorkers: 1 });
       expect(server.startupFault).toBeUndefined();
       const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as { startupCheckpointId: string };
-      const response = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+      const response = await fixtureArchiveDownload(server.port, 'invalid filename');
       expect(response.status).toBe(500);
       expect(response.headers.get('content-disposition')).toBeNull();
       expect(await response.json()).toMatchObject({ ok: false, message: 'Rust returned an invalid export archive descriptor' });
@@ -229,7 +247,7 @@ describeNetworkSuite('Rust exact download binding', () => {
       expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
         ok: true, startupCheckpointId: health.startupCheckpointId });
       restore();
-      const retry = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+      const retry = await fixtureArchiveDownload(server.port, 'valid filename retry');
       expect(retry.status).toBe(200);
       expect(retry.headers.get('content-disposition')).toBe(
         `attachment; filename="slither-neuroevo-${health.startupCheckpointId.slice(0, 12)}-gen-1-v1.slither-save"`);
@@ -239,5 +257,5 @@ describeNetworkSuite('Rust exact download binding', () => {
       restore(); await server?.close();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, ARCHIVE_RETRY_FIXTURE_TIMEOUT_MS);
 });

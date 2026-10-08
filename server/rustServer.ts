@@ -49,6 +49,7 @@ import { watchArchiveWork } from './rustEngine/archiveWorkWatchdog.ts';
 import { watchRunningAuthority } from './rustEngine/authorityProgressWatchdog.ts';
 import type { GodModeMsg, LiveSettingsMsg, NewRunMsg, ResetMsg } from './protocol.ts';
 import { readJsonBody } from './readJsonBody.ts';
+import { clearedStackGraph, normalizeStackSetting, STACK_SETTING_PATHS } from './rustEngine/stackGraph.ts';
 import {
   getLiveSettingDefinition,
   normalizeLiveSettingsUpdates,
@@ -228,7 +229,7 @@ function replacementSettings(
     if (!definition || typeof value !== 'number') throw new Error(`reset setting ${key} is invalid`);
     const normalized = normalizeSettingValue(definition, value);
     if (!metadata.settings.some(setting => setting.path === key)) {
-      if (message?.graphSpec === undefined || message.graphSpec === null) {
+      if (message?.graphSpec === undefined) {
         if (!Object.is(core[key], normalized)) {
           throw new Error(`setting ${key} requires an explicit replacement graph`);
         }
@@ -238,6 +239,13 @@ function replacementSettings(
     replacements.set(key, normalized);
   }
   for (const update of message?.updates ?? []) {
+    if (STACK_SETTING_PATHS.has(update.path)) {
+      const value = normalizeStackSetting(update.path, update.value);
+      if (message?.graphSpec === undefined && current.updates.find(setting => setting.path === update.path)?.value !== value) {
+        throw new Error(`setting ${update.path} requires an explicit replacement graph`);
+      }
+      continue;
+    }
     const definition = getLiveSettingDefinition(update.path);
     if (!definition || !metadata.settings.some(setting => setting.path === update.path)) {
       throw new Error(`reset setting ${update.path} is not supported by the current Rust graph`);
@@ -1347,7 +1355,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       onReset(connection, message) {
         try {
           const settings = replacementSettings(activeMetadata, message);
-          const graphSpec = message.graphSpec ?? activeMetadata.graphSpec;
+          const graphSpec = message.graphSpec === null ? clearedStackGraph(activeMetadata, message, settings)
+            : message.graphSpec === undefined ? activeMetadata.graphSpec : message.graphSpec;
           startFreshReplacement(connection, 'reset', activeMetadata.seed, undefined, settings, graphSpec);
         } catch (error) {
           sockets.sendJsonTo(connection, {

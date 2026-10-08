@@ -25,7 +25,7 @@ import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from './rustEng
 import type { RustArchiveWorkProgress } from './rustEngine/backgroundRuntime.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import { buildStackGraphSpec } from '../src/brains/stackBuilder.ts';
-import { compileGraph } from '../src/brains/graph/compiler.ts';
+import { compileGraph, graphKey } from '../src/brains/graph/compiler.ts';
 import { CFG_DEFAULT } from '../src/config.ts';
 import { DEFAULT_CORE_SETTINGS } from '../src/protocol/settings.ts';
 import type { RustQueueDiagnostics } from '../src/protocol/rustBackground.ts';
@@ -336,6 +336,80 @@ describeNetworkSuite('Rust server real sockets', () => {
       /use --rust-workers for Rust or npm run server:reference/u
     );
   });
+
+  it('clears custom graphs and preserves truthful stack controls through reset, reconnect and resume', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-stack-reset-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    const peers: Peer[] = [];
+    try {
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42,
+        rustCalculationWorkers: 1, dbPath });
+      const viewer = await connect(server.port, 'ui'); peers.push(viewer);
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      await until(viewer, () => viewer.frames > 0);
+      const custom = buildStackGraphSpec(DEFAULT_CORE_SETTINGS,
+        { brain: { ...CFG_DEFAULT.brain, useMlp: false, stack: { gru: 0, lstm: 0, rru: 0 } } });
+      custom.nodes[1]!.id = 'custom-output';
+      custom.edges[0]!.to = 'custom-output';
+      custom.outputs[0]!.nodeId = 'custom-output';
+      viewer.socket.send(JSON.stringify({ type: 'reset', graphSpec: custom,
+        settings: { snakeCount: 3, simSpeed: 0.1 }, updates: [{ path: 'baselineBots.count', value: 0 }] }));
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
+      expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')).toMatchObject({ welcome: { graphSpec: custom } });
+      viewer.packets.length = 0;
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'reset' }));
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
+      expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')).toMatchObject({ welcome: { graphSpec: custom } });
+
+      const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: 3, simSpeed: 0.1, hiddenLayers: 3,
+        neurons1: 23, neurons2: 17, neurons3: 11 };
+      const brain = { ...CFG_DEFAULT.brain, inSize: 51, gruHidden: 12, lstmHidden: 20, rruHidden: 24,
+        stack: { gru: 1, lstm: 1, rru: 1 } };
+      const expectedGraph = buildStackGraphSpec(core, { brain });
+      const updates = [
+        { path: 'sense.bubbleBins', value: 8 }, { path: 'brain.useMlp', value: 1 },
+        { path: 'brain.stack.gru', value: 1 }, { path: 'brain.stack.lstm', value: 1 }, { path: 'brain.stack.rru', value: 1 },
+        { path: 'brain.gruHidden', value: 12 }, { path: 'brain.lstmHidden', value: 20 }, { path: 'brain.rruHidden', value: 24 }
+      ];
+      viewer.packets.length = 0;
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'reset', graphSpec: null, settings: core, updates }));
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
+      const welcome = (viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')!['welcome']) as WelcomeMsg;
+      expect(welcome).toMatchObject({ graphSpec: expectedGraph, settings: {
+        core: { hiddenLayers: 3, neurons1: 23, neurons2: 17, neurons3: 11 }, updates: expect.arrayContaining(updates)
+      } });
+      expect(graphKey(welcome.graphSpec!)).not.toBe(graphKey(custom));
+
+      // Omitted graph plus the browser's unchanged controls remains a valid reset.
+      viewer.packets.length = 0;
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: welcome.settings.core, updates }));
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
+      expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')).toMatchObject({ welcome: { graphSpec: expectedGraph } });
+
+      const reconnect = await connect(server.port, 'ui'); peers.push(reconnect);
+      await until(reconnect, () => reconnect.packets.some(packet => packet['type'] === 'welcome'));
+      expect(reconnect.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ graphSpec: expectedGraph,
+        settings: welcome.settings });
+      for (const peer of peers) peer.socket.terminate();
+      peers.length = 0;
+      await server.close();
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'latest', rustCalculationWorkers: 1, dbPath });
+      expect(server.startupFault).toBeUndefined();
+      const resumed = await connect(server.port, 'ui'); peers.push(resumed);
+      await until(resumed, () => resumed.packets.some(packet => packet['type'] === 'welcome'));
+      expect(resumed.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ graphSpec: expectedGraph,
+        settings: welcome.settings });
+    } finally {
+      for (const peer of peers) peer.socket.terminate();
+      await server?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
 
   it('admits 300 complete long initial bodies through the normal reset boundary', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-long-start-'));
