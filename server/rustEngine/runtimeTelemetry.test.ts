@@ -47,6 +47,27 @@ const DISPLAY: RustBackgroundDisplay = {
 };
 
 describe('experimental runtime telemetry', () => {
+  it('counts actual work across reset and imported prefixes while preserving process measurements', () => {
+    const telemetry = new ExperimentalRuntimeTelemetry(health(1000), 1 / 60);
+    try {
+      telemetry.observeAction('player', 2);
+      telemetry.observeCheckpointBarrier(10);
+      telemetry.observeDisplay(DISPLAY);
+      expect(telemetry.snapshot(health(1060))).toMatchObject({ authoritativeSteps: 60, simulatedSeconds: 1 });
+      telemetry.rebase(health(1060), hex(0), 1 / 60);
+      expect(telemetry.snapshot(health(0))).toMatchObject({ authoritativeSteps: 60, simulatedSeconds: 1 });
+      expect(telemetry.snapshot(health(30))).toMatchObject({ authoritativeSteps: 90, simulatedSeconds: 1.5 });
+      // Importing a later checkpoint contributes no historical steps to process-local progress.
+      telemetry.rebase(health(30), hex(1_000_000), 1 / 30);
+      expect(telemetry.snapshot(health(1_000_000))).toMatchObject({ authoritativeSteps: 90, simulatedSeconds: 1.5 });
+      expect(telemetry.snapshot(health(1_000_030))).toMatchObject({ authoritativeSteps: 120, simulatedSeconds: 2.5,
+        playerAction: { samples: 1 }, checkpointBarrier: { samples: 1 }, frame: { maximumObservedBytes: 12_345 },
+        controllerActivity: { player: { appliedActions: 1 } } });
+      expect(() => telemetry.rebase(health(1_000_030), hex(0), 0)).toThrow('positive');
+      expect(telemetry.snapshot(health(1_000_030)).authoritativeSteps).toBe(120);
+    } finally { telemetry.close(); }
+  });
+
   it('projects exact native timings and bounded interface distributions without game state', () => {
     const telemetry = new ExperimentalRuntimeTelemetry(health(10), 1 / 60);
     try {

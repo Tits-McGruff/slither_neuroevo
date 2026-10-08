@@ -467,6 +467,10 @@ the worker count, `--fresh` for a new durable run, or
 `--resume latest|sha256:<checkpoint-id>` for managed recovery. Reference-only
 backend and Node-MT flags belong to `npm run server:reference`.
 
+Fresh Rust runs use a 60 Hz fixed step. Non-60 `tickRateHz` settings, `--tick`
+and `TICK_RATE` overrides are supported only by the reference server. Use the
+simulation-speed control to change the requested pace of production steps.
+
 ### Checkpoint byte budget
 
 `checkpointBudgetMiB` defaults to 4096 MiB and bounds unpinned automatic

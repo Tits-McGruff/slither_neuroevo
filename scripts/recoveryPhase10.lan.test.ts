@@ -89,7 +89,7 @@ describe(SUITE, () => {
       uiHost: '0.0.0.0',
       uiPort: 55173,
       port: 55174
-    }, '192.168.1.25')).toMatchObject({
+    }, '192.168.1.25', {})).toMatchObject({
       uiHost: '0.0.0.0',
       uiPort: 55173,
       serverPort: 55174,
@@ -99,11 +99,35 @@ describe(SUITE, () => {
     expect(resolveUiDefaults({
       uiHost: 'slither-pc',
       publicWsUrl: 'ws://sim-pc:6174'
-    }, '192.168.1.25')).toMatchObject({
+    }, '192.168.1.25', {})).toMatchObject({
       uiHost: 'slither-pc',
       publicWsUrl: 'ws://sim-pc:6174',
       hmrHost: 'slither-pc'
     });
+  });
+
+  it('applies LAN environment overrides to Vite binding, HMR and browser routing above TOML', () => {
+    const root = makeTemporaryRoot();
+    const configPath = path.join(root, 'server.toml');
+    fs.writeFileSync(configPath, 'uiHost = "127.0.0.1"\nuiPort = 5173\nport = 5174\npublicWsUrl = "ws://old-host:5174"\n');
+    vi.stubEnv('SERVER_CONFIG', configPath);
+    vi.stubEnv('UI_HOST', '0.0.0.0');
+    vi.stubEnv('UI_PORT', '55173');
+    vi.stubEnv('PORT', '55174');
+    vi.stubEnv('PUBLIC_WS_URL', 'ws://192.168.1.50:55174');
+    expect(buildViteConfig()).toMatchObject({
+      server: { host: '0.0.0.0', port: 55173, hmr: { host: '192.168.1.50' } },
+      define: { 'import.meta.env.SLITHER_DEFAULT_WS_URL': '"ws://192.168.1.50:55174"',
+        'import.meta.env.SLITHER_SERVER_PORT': '55174' }
+    });
+    const server = parseConfig(['--config', configPath], process.env);
+    expect(resolveUiDefaults({}, '192.168.1.51')).toMatchObject({
+      uiHost: server.uiHost, uiPort: server.uiPort, serverPort: server.port, publicWsUrl: server.publicWsUrl
+    });
+    vi.stubEnv('UI_HOST', '192.168.1.51');
+    vi.stubEnv('PUBLIC_WS_URL', '');
+    expect(buildViteConfig()).toMatchObject({ server: { host: '192.168.1.51', hmr: { host: '192.168.1.51' } },
+      define: { 'import.meta.env.SLITHER_DEFAULT_WS_URL': '""' } });
   });
 
   it('injects the configured split-host route through Vite in development and production', () => {

@@ -9,7 +9,7 @@ import { gzipSync } from 'node:zlib';
 import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import Database from 'better-sqlite3';
-import { DEFAULT_CONFIG, normalizeConfig } from './config.ts';
+import { DEFAULT_CONFIG, normalizeConfig, parseConfig } from './config.ts';
 import { PlayerActionPump } from '../src/net/playerActionPump.ts';
 import { createWsClient, type AssignMsg, type SensorsMsg, type WelcomeMsg, type WsClient } from '../src/net/wsClient.ts';
 import { run as runStage6RuntimeProbe } from '../scripts/stage6/runtime-integration-probe.ts';
@@ -77,6 +77,14 @@ async function healthUntil(
   }
   expect(predicate(health), JSON.stringify(health)).toBe(true);
   return health;
+}
+
+/** Wait for publication and its final retention refresh before requesting another replacement. */
+async function replacementUntil(peer: Peer, port: number, reason: 'reset' | 'newRun'): Promise<WelcomeMsg> {
+  await until(peer, () => peer.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === reason));
+  const welcome = peer.packets.findLast(packet => packet['type'] === 'stateReplaced' && packet['reason'] === reason)!['welcome'] as WelcomeMsg;
+  await healthUntil(port, health => (health['retention'] as { activeRunId: string }).activeRunId === welcome.runId);
+  return welcome;
 }
 
 /** Read one assigned snake direction from the compact frame-v1 contract. */
@@ -337,6 +345,21 @@ describeNetworkSuite('Rust server real sockets', () => {
     );
   });
 
+  it.each(['CLI', 'environment', 'TOML'])('rejects a production tick override from %s before creating state', async source => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-tick-override-'));
+    const configPath = join(root, 'server.toml');
+    try {
+      await writeFile(configPath, source === 'TOML' ? 'tickRateHz = 30\n' : '');
+      const config = parseConfig(['--config', configPath, ...(source === 'CLI' ? ['--tick', '30'] : [])],
+        source === 'environment' ? { TICK_RATE: '30' } : {});
+      expect(config.tickRateHz).toBe(30);
+      await expect(startRustServer({ ...config, port: 0, dbPath: join(root, 'missing.sqlite') })).rejects.toThrow(
+        'Rust startup requires tickRateHz=60'
+      );
+      expect(await readdir(root)).toEqual(['server.toml']);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it('keeps the process session stable through live settings, reconnect, reset and New Run', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-process-session-'));
     const dbPath = join(root, 'experiment.sqlite');
@@ -359,17 +382,24 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(reconnected.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
         sessionId, runId: initial['runId'], configRevision: 2, settings: { core: { simSpeed: 0.1 } }
       });
+      const beforeReset = await healthUntil(server.port, health => Number(BigInt(`0x${health['completedStep'] as string}`)) >= 5);
+      const stepsBeforeReset = (beforeReset['telemetry'] as { authoritativeSteps: number }).authoritativeSteps;
       viewer.socket.send(JSON.stringify({ type: 'reset' }));
-      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
-      const reset = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')!['welcome'] as WelcomeMsg;
+      const reset = await replacementUntil(viewer, server.port, 'reset');
       expect(reset.sessionId).toBe(sessionId);
       expect(reset.runId).not.toBe(initial['runId']);
+      const afterReset = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
+        telemetry: { authoritativeSteps: number };
+      };
+      expect(afterReset.telemetry.authoritativeSteps).toBeGreaterThanOrEqual(stepsBeforeReset);
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       viewer.socket.send(JSON.stringify({ type: 'newRun', requestId: 'session-new-run' }));
-      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'newRun'));
-      const newRun = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')!['welcome'] as WelcomeMsg;
+      const newRun = await replacementUntil(viewer, server.port, 'newRun');
       expect(newRun.sessionId).toBe(sessionId);
       expect(newRun.runId).not.toBe(reset.runId);
+      const afterNewRun = await healthUntil(server.port, health =>
+        (health['telemetry'] as { authoritativeSteps: number }).authoritativeSteps > afterReset.telemetry.authoritativeSteps);
+      expect((afterNewRun['telemetry'] as { authoritativeSteps: number }).authoritativeSteps).toBeGreaterThan(stepsBeforeReset);
       for (const peer of peers) peer.socket.terminate();
       peers.length = 0;
       await server.close();
@@ -392,6 +422,15 @@ describeNetworkSuite('Rust server real sockets', () => {
     const dbPath = join(root, 'experiment.sqlite');
     let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
     const peers: Peer[] = [];
+    const originalRetention = CheckpointPersistenceClient.prototype.inspectRetention;
+    const retention = vi.spyOn(CheckpointPersistenceClient.prototype, 'inspectRetention').mockImplementation(async function(
+      this: CheckpointPersistenceClient
+    ) {
+      const result = await originalRetention.call(this);
+      // Keep publication visibly ahead of completion, reproducing the loaded-runner ordering.
+      await new Promise<void>(done => setTimeout(done, 40));
+      return result;
+    });
     try {
       server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42,
         rustCalculationWorkers: 1, dbPath });
@@ -406,12 +445,12 @@ describeNetworkSuite('Rust server real sockets', () => {
       custom.outputs[0]!.nodeId = 'custom-output';
       viewer.socket.send(JSON.stringify({ type: 'reset', graphSpec: custom,
         settings: { snakeCount: 3, simSpeed: 0.1 }, updates: [{ path: 'baselineBots.count', value: 0 }] }));
-      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
+      await replacementUntil(viewer, server.port, 'reset');
       expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')).toMatchObject({ welcome: { graphSpec: custom } });
       viewer.packets.length = 0;
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       viewer.socket.send(JSON.stringify({ type: 'reset' }));
-      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
+      await replacementUntil(viewer, server.port, 'reset');
       expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')).toMatchObject({ welcome: { graphSpec: custom } });
 
       const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: 3, simSpeed: 0.1, hiddenLayers: 3,
@@ -427,8 +466,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       viewer.packets.length = 0;
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       viewer.socket.send(JSON.stringify({ type: 'reset', graphSpec: null, settings: core, updates }));
-      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
-      const welcome = (viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')!['welcome']) as WelcomeMsg;
+      const welcome = await replacementUntil(viewer, server.port, 'reset');
       expect(welcome).toMatchObject({ graphSpec: expectedGraph, settings: {
         core: { hiddenLayers: 3, neurons1: 23, neurons2: 17, neurons3: 11 }, updates: expect.arrayContaining(updates)
       } });
@@ -438,7 +476,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       viewer.packets.length = 0;
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
       viewer.socket.send(JSON.stringify({ type: 'reset', settings: welcome.settings.core, updates }));
-      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
+      await replacementUntil(viewer, server.port, 'reset');
       expect(viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')).toMatchObject({ welcome: { graphSpec: expectedGraph } });
 
       const reconnect = await connect(server.port, 'ui'); peers.push(reconnect);
@@ -455,6 +493,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(resumed.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ graphSpec: expectedGraph,
         settings: welcome.settings });
     } finally {
+      retention.mockRestore();
       for (const peer of peers) peer.socket.terminate();
       await server?.close();
       await rm(root, { recursive: true, force: true });

@@ -165,10 +165,14 @@ function delayMilliseconds(value: number): number {
 export class ExperimentalRuntimeTelemetry {
   /** Monotonic process-local start boundary. */
   private readonly startedAt = performance.now();
-  /** Completed-step identity at attachment, including a restored prefix. */
-  private readonly initialCompletedStep: bigint;
-  /** Native fixed delta used to calculate represented simulation time. */
-  private readonly fixedStepSeconds: number;
+  /** Completed-step prefix of the currently attached run. */
+  private initialCompletedStep: bigint;
+  /** Native fixed delta of the currently attached run. */
+  private fixedStepSeconds: number;
+  /** Actual steps completed in earlier runs during this process lifetime. */
+  private previousSteps = 0n;
+  /** Simulation time executed in earlier runs, using each run's own fixed delta. */
+  private previousSimulatedSeconds = 0;
   /** Node event-loop delay histogram maintained by the runtime. */
   private readonly eventLoopDelay: IntervalHistogram;
   /** Complete generation persistence/resume barriers. */
@@ -206,6 +210,29 @@ export class ExperimentalRuntimeTelemetry {
   /** Stop the Node event-loop sampler during server teardown. */
   public close(): void {
     this.eventLoopDelay.disable();
+  }
+
+  /** Keep process totals while excluding the checkpoint prefix of a newly published run. */
+  public rebase(previousHealth: RustBackgroundHealth, completedStep: string, fixedStepSeconds: number): void {
+    if (!Number.isFinite(fixedStepSeconds) || fixedStepSeconds <= 0) {
+      throw new RangeError('fixedStepSeconds must be positive and finite');
+    }
+    const nextInitialStep = BigInt(`0x${completedStep}`);
+    const executed = this.currentSteps(previousHealth);
+    this.previousSteps += executed;
+    this.previousSimulatedSeconds += Number(executed) * this.fixedStepSeconds;
+    this.initialCompletedStep = nextInitialStep;
+    this.fixedStepSeconds = fixedStepSeconds;
+  }
+
+  /** Count only work executed after the current run's attached checkpoint prefix. */
+  private currentSteps(health: RustBackgroundHealth): bigint {
+    const completed = BigInt(`0x${health.completedStep}`);
+    const delta = completed >= this.initialCompletedStep ? completed - this.initialCompletedStep : 0n;
+    if (this.previousSteps + delta > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new RangeError('process-local authoritative step count exceeds JavaScript telemetry range');
+    }
+    return delta;
   }
 
   /** Retain only scalar display size; no frame or world bytes are copied. */
@@ -253,13 +280,9 @@ export class ExperimentalRuntimeTelemetry {
   public snapshot(health: RustBackgroundHealth): ExperimentalRuntimeTelemetrySnapshot {
     const now = performance.now();
     const uptimeSeconds = Math.max((now - this.startedAt) / 1_000, Number.EPSILON);
-    const completed = BigInt(`0x${health.completedStep}`);
-    const stepDelta = completed >= this.initialCompletedStep ? completed - this.initialCompletedStep : 0n;
-    if (stepDelta > BigInt(Number.MAX_SAFE_INTEGER)) {
-      throw new RangeError('process-local authoritative step count exceeds JavaScript telemetry range');
-    }
-    const authoritativeSteps = Number(stepDelta);
-    const simulatedSeconds = authoritativeSteps * this.fixedStepSeconds;
+    const stepDelta = this.currentSteps(health);
+    const authoritativeSteps = Number(this.previousSteps + stepDelta);
+    const simulatedSeconds = this.previousSimulatedSeconds + Number(stepDelta) * this.fixedStepSeconds;
     const samples = exactHexNumber(health.stepTimingSamples, 'step timing sample count');
     const totalMicros = exactHexNumber(health.stepTimingTotalMicros, 'step timing total');
     const memory = process.memoryUsage();
