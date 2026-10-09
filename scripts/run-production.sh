@@ -5,12 +5,6 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 cd "$REPO_ROOT"
 
-HOST="${SLITHER_HOST:-127.0.0.1}"
-PORT="${SLITHER_PORT:-5174}"
-DB_PATH="${SLITHER_DB_PATH:-$REPO_ROOT/data/rust-authority.db}"
-START_MODE="${SLITHER_START_MODE:-auto}"
-RESUME_TARGET="${SLITHER_RESUME_TARGET:-latest}"
-
 fail() {
   echo "[ERROR] $*" >&2
   exit 1
@@ -33,38 +27,20 @@ for addon in native/slither-native.*.node; do
 done
 [ "$have_addon" -eq 1 ] || fail "The release native addon is missing. Run: npm run build"
 
+# Resolve the same TOML/env/CLI configuration the Rust server will consume.
+# server/config.toml stays authoritative unless an explicit environment override is supplied.
+eval "$(node ./node_modules/tsx/dist/cli.mjs scripts/resolve-launcher-config.ts)"
+MANAGED_DIR="${DB_PATH}.checkpoints"
+
 mkdir -p "$(dirname -- "$DB_PATH")"
 
-case "$START_MODE" in
-  auto)
-    if [ -e "$DB_PATH" ]; then
-      set -- --resume "$RESUME_TARGET"
-    else
-      set -- --fresh
-    fi
-    ;;
-  fresh)
-    if [ ! -e "$DB_PATH" ]; then
-      [ ! -d "${DB_PATH}.checkpoints" ] || [ -z "$(ls -A "${DB_PATH}.checkpoints" 2>/dev/null || true)" ] || \
-        fail "Fresh start refused because the managed checkpoint directory is not empty: ${DB_PATH}.checkpoints"
-    fi
-    set -- --fresh
-    ;;
-  resume)
-    set -- --resume "$RESUME_TARGET"
-    ;;
-  *)
-    fail "SLITHER_START_MODE must be auto, fresh, or resume."
-    ;;
-esac
+if [ "$RESOLVED_RESUME" = "fresh" ] && [ ! -e "$DB_PATH" ]; then
+  [ ! -d "$MANAGED_DIR" ] || [ -z "$(ls -A "$MANAGED_DIR" 2>/dev/null || true)" ] || \
+    fail "Fresh start refused because the managed checkpoint directory is not empty: $MANAGED_DIR"
+fi
 
 echo "[START] Rust-authoritative server on ${HOST}:${PORT}"
+echo "[INFO] Config: $CONFIG_PATH"
 echo "[INFO] Database: $DB_PATH"
-exec node ./node_modules/tsx/dist/cli.mjs server/rustServer.ts \
-  --host "$HOST" \
-  --port "$PORT" \
-  --db-path "$DB_PATH" \
-  --input-hold-ms 500 \
-  --disconnect-grace-ms 30000 \
-  --checkpoint-every 1 \
-  "$@"
+echo "[INFO] Mode: $RESOLVED_RESUME"
+exec node ./node_modules/tsx/dist/cli.mjs server/rustServer.ts "$@"
