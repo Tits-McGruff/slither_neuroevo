@@ -1,7 +1,10 @@
 /** Bounded archive preparation shared by real-server correctness fixtures. */
 
-/** Source leasing, disk admission, writing and validation precede the HTTP response. */
-export const ARCHIVE_PREPARATION_TIMEOUT_MS = 10_000;
+/**
+ * Source leasing, disk admission, archive encoding, validation and publication precede the HTTP response.
+ * Correctness fixtures use this as a deadlock guard rather than a performance requirement.
+ */
+export const ARCHIVE_PREPARATION_TIMEOUT_MS = 30_000;
 
 /**
  * Request a real production archive within its preparation deadline.
