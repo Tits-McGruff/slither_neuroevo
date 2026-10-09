@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { parseProductionCli } from '../server/productionCli.ts';
 
 /** Quote one value for safe evaluation by a POSIX shell. */
@@ -17,14 +18,27 @@ function launcherArgs(env: NodeJS.ProcessEnv): string[] {
   addValue('--db-path', env['SLITHER_DB_PATH']);
 
   const startMode = env['SLITHER_START_MODE'];
-  if (startMode !== undefined && startMode !== '' && startMode !== 'auto') {
-    if (startMode === 'fresh') {
-      args.push('--fresh');
-    } else if (startMode === 'resume') {
-      args.push('--resume', env['SLITHER_RESUME_TARGET'] || 'latest');
-    } else {
-      throw new Error('SLITHER_START_MODE must be auto, fresh, or resume.');
-    }
+  if (startMode === undefined || startMode === '') return args;
+  if (startMode === 'fresh') {
+    args.push('--fresh');
+    return args;
+  }
+  if (startMode === 'resume') {
+    args.push('--resume', env['SLITHER_RESUME_TARGET'] || 'latest');
+    return args;
+  }
+  if (startMode !== 'auto') {
+    throw new Error('SLITHER_START_MODE must be auto, fresh, or resume.');
+  }
+
+  // Explicit legacy "auto" remains an override. Resolve the configured database
+  // path first, then reproduce the launcher's old fresh/existing-store choice.
+  const baseConfig = parseProductionCli(args, env);
+  if (baseConfig === null) throw new Error('launcher config resolution cannot request help');
+  if (existsSync(baseConfig.dbPath)) {
+    args.push('--resume', env['SLITHER_RESUME_TARGET'] || 'latest');
+  } else {
+    args.push('--fresh');
   }
   return args;
 }
